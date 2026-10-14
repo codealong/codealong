@@ -1,47 +1,46 @@
 import { describe, expect, it } from 'vitest';
-import { completed, leftOutWords, matching, mentionAt, mentionsIn, namedBy, repoLanes, sessionSkills, skillLeftOutWords, skillNamed, skillOffers, skillRows, skillStart, skillWhere, startSkills, writtenFor } from './skills';
+import { completed, leftOutWords, matching, mentionAt, mentionsIn, namedBy, repoLanes, sessionSkills, skillLeftOutWords, skillNamed, skillOffers, skillRows, skillStart, skillWhere, writtenFor } from './skills';
 import * as fx from './testing/fixtures';
 import type { Skill, SkillsListed } from './types';
 
 const skill = (name: string, over: Partial<Skill> = {}): Skill => ({ name, description: `${name} things`, typed: true, byModel: true, written: { claude: `/${name}`, codex: `$${name}` }, uses: 0, lastUsed: 0, ...over });
 
 describe('mentionsIn and mentionAt', () => {
-  it('finds a slash and a name at the start or after a space, wherever it is', () => {
+  it('finds a slash and a name only where they start the text', () => {
     expect(mentionsIn('/')).toEqual([{ name: '', start: 0, end: 1 }]);
     expect(mentionsIn('/sh')).toEqual([{ name: 'sh', start: 0, end: 3 }]);
-    expect(mentionsIn('fix the login then /ship it\nand /figma:figma-use')).toEqual([
-      { name: 'ship', start: 19, end: 24 },
-      { name: 'figma:figma-use', start: 32, end: 48 },
-    ]);
+    expect(mentionsIn('/ship it\nand /figma:figma-use')).toEqual([{ name: 'ship', start: 0, end: 5 }]);
     expect(mentionsIn('  /ship')).toEqual([{ name: 'ship', start: 2, end: 7 }]);
+    // Later on it's words: "the /usage endpoint" runs nothing (asked 2026-10-14).
+    expect(mentionsIn('fix the login then /ship it')).toEqual([]);
+    expect(mentionsIn('the /usage endpoint is down')).toEqual([]);
   });
 
   it('passes over a slash inside a word or a path', () => {
     expect(mentionsIn('/Users/me/file.txt is wrong')).toEqual([]);
-    expect(mentionsIn('Read /review/notes.md and /review/')).toEqual([]);
+    expect(mentionsIn('/review/notes.md and /review/')).toEqual([]);
     expect(mentionsIn('see src/app.ts and a/b')).toEqual([]);
-    expect(mentionsIn('/ship\\it or /ship~ or /ship@2')).toEqual([]);
+    expect(mentionsIn('/ship\\it')).toEqual([]);
+    expect(mentionsIn('/ship~')).toEqual([]);
+    expect(mentionsIn('/ship@2')).toEqual([]);
     expect(mentionsIn('')).toEqual([]);
     // Typing a path past its first part leaves no name being typed.
     expect(mentionAt('/review/', 8)).toBeNull();
   });
 
   it('ends a name at punctuation that ends a word in prose', () => {
-    expect(mentionsIn('then /ship, and (/db) or /review!').map((m) => m.name)).toEqual(['ship', 'review']);
-    expect(mentionsIn('then “run /ship” now').map((m) => m.name)).toEqual(['ship']);
-    expect(mentionsIn('/ship; then /db?')).toEqual([
-      { name: 'ship', start: 0, end: 5 },
-      { name: 'db', start: 12, end: 15 },
-    ]);
+    expect(mentionsIn('/ship, and (/db) or /review!').map((m) => m.name)).toEqual(['ship']);
+    expect(mentionsIn('/review!').map((m) => m.name)).toEqual(['review']);
+    expect(mentionsIn('/ship; then /db?')).toEqual([{ name: 'ship', start: 0, end: 5 }]);
   });
 
   it('gives the one the caret is in or just after', () => {
-    const text = 'then /sh and /db';
-    expect(mentionAt(text, 8)?.name).toBe('sh');
-    expect(mentionAt(text, 6)?.name).toBe('sh');
-    expect(mentionAt(text, 5)).toBeNull();
-    expect(mentionAt(text, 9)).toBeNull();
-    expect(mentionAt(text, 16)?.name).toBe('db');
+    const text = '/sh and /db';
+    expect(mentionAt(text, 3)?.name).toBe('sh');
+    expect(mentionAt(text, 1)?.name).toBe('sh');
+    expect(mentionAt(text, 0)).toBeNull();
+    expect(mentionAt(text, 4)).toBeNull();
+    expect(mentionAt(text, 11)).toBeNull();
   });
 });
 
@@ -59,12 +58,21 @@ describe('matching', () => {
 describe('writtenFor', () => {
   const skills = [skill('ship'), skill('probe', { written: { codex: '$probe' } })];
 
-  it('writes each skill’s name as the harness takes it, wherever it is', () => {
+  it('writes the skill that starts the text as the harness takes it', () => {
     expect(writtenFor('/ship the fix', skills, 'claude')).toBe('/ship the fix');
     expect(writtenFor('/ship the fix', skills, 'codex')).toBe('$ship the fix');
     expect(writtenFor('/ship', skills, 'codex')).toBe('$ship');
     expect(writtenFor(' /ship\nand then rest', skills, 'codex')).toBe(' $ship\nand then rest');
-    expect(writtenFor('fix it, then /ship and /probe it', skills, 'codex')).toBe('fix it, then $ship and $probe it');
+    // One later on stays as typed.
+    expect(writtenFor('/ship it, then /probe it', skills, 'codex')).toBe('$ship it, then /probe it');
+    expect(writtenFor('fix it, then /ship', skills, 'codex')).toBe('fix it, then /ship');
+  });
+
+  it('goes by the skill of the name the harness reads, of two', () => {
+    // A repo's Claude Code-only /design doesn't hide a Codex account's own.
+    const both = [skill('design', { written: { claude: '/design' } }), skill('design', { written: { codex: '$design' } })];
+    expect(writtenFor('/design the UI', both, 'codex')).toBe('$design the UI');
+    expect(writtenFor('/design the UI', both, 'claude')).toBe('/design the UI');
   });
 
   it('leaves what isn’t one of the harness’s skills as typed', () => {
@@ -76,35 +84,36 @@ describe('writtenFor', () => {
 
   it('leaves a path whose first part names a skill as typed', () => {
     const withReview = [...skills, skill('review')];
-    expect(writtenFor('Read /review/notes.md', withReview, 'codex')).toBe('Read /review/notes.md');
-    expect(writtenFor('/ship/out.log then /review, please', withReview, 'codex')).toBe('/ship/out.log then $review, please');
-    expect(skillNamed('Read /review/notes.md', withReview)).toBeUndefined();
+    expect(writtenFor('/review/notes.md, read it', withReview, 'codex')).toBe('/review/notes.md, read it');
+    expect(skillNamed('/review/notes.md', withReview)).toBeUndefined();
   });
 
-  it('names the first skill the text names', () => {
-    expect(skillNamed('fix it, then /probe and /ship', skills)?.name).toBe('probe');
-    expect(skillNamed('/compact then /ship', skills)?.name).toBe('ship');
+  it('names the skill that starts the text', () => {
+    expect(skillNamed('/probe and /ship', skills)?.name).toBe('probe');
+    expect(skillNamed('fix it, then /probe', skills)).toBeUndefined();
+    expect(skillNamed('/compact then /ship', skills)).toBeUndefined();
     expect(skillNamed('/shi', skills)).toBeUndefined();
   });
 
   it('leaves the full stop that ends a sentence out of the name, and in the text', () => {
-    expect(writtenFor('Fix it, then /ship.', skills, 'codex')).toBe('Fix it, then $ship.');
-    expect(writtenFor('Run /ship. Then wait.', skills, 'codex')).toBe('Run $ship. Then wait.');
-    expect(writtenFor('Run /ship... then wait', skills, 'codex')).toBe('Run $ship... then wait');
-    expect(skillNamed('Fix it, then /ship.', skills)?.name).toBe('ship');
+    expect(writtenFor('/ship.', skills, 'codex')).toBe('$ship.');
+    expect(writtenFor('/ship. Then wait.', skills, 'codex')).toBe('$ship. Then wait.');
+    expect(writtenFor('/ship... then wait', skills, 'codex')).toBe('$ship... then wait');
+    expect(skillNamed('/ship.', skills)?.name).toBe('ship');
     // Only for a skill: what names none stays as typed.
-    expect(writtenFor('Clear /tmp.', skills, 'codex')).toBe('Clear /tmp.');
-    expect(writtenFor('Then /probe.', skills, 'claude')).toBe('Then /probe.');
+    expect(writtenFor('/tmp.', skills, 'codex')).toBe('/tmp.');
+    expect(writtenFor('/probe.', skills, 'claude')).toBe('/probe.');
   });
 
   it('keeps a dot inside a name, and a name that ends in one, and passes over paths still', () => {
     const dotted = [...skills, skill('v1.2'), skill('ship.it'), skill('odd.'), skill('review')];
-    expect(writtenFor('Run /v1.2 now, then /v1.2.', dotted, 'codex')).toBe('Run $v1.2 now, then $v1.2.');
-    expect(writtenFor('/ship.it and /ship.', dotted, 'codex')).toBe('$ship.it and $ship.');
+    expect(writtenFor('/v1.2 now', dotted, 'codex')).toBe('$v1.2 now');
+    expect(writtenFor('/v1.2.', dotted, 'codex')).toBe('$v1.2.');
+    expect(writtenFor('/ship.it and go', dotted, 'codex')).toBe('$ship.it and go');
     // A name with the full stop that's a skill itself is that skill.
-    expect(writtenFor('Try /odd.', dotted, 'codex')).toBe('Try $odd.');
-    expect(writtenFor('Read /review/notes.md.', dotted, 'codex')).toBe('Read /review/notes.md.');
-    expect(skillNamed('Read /review/notes.md.', dotted)).toBeUndefined();
+    expect(writtenFor('/odd.', dotted, 'codex')).toBe('$odd.');
+    expect(writtenFor('/review/notes.md.', dotted, 'codex')).toBe('/review/notes.md.');
+    expect(skillNamed('/review/notes.md.', dotted)).toBeUndefined();
   });
 });
 
@@ -112,9 +121,9 @@ describe('namedBy', () => {
   const known = (name: string) => ['ship', 'v1.2'].includes(name);
 
   it('gives the mention as it names a skill, ending before a sentence’s full stop', () => {
-    const [m] = mentionsIn('then /ship.');
-    expect(m).toEqual({ name: 'ship.', start: 5, end: 11 });
-    expect(namedBy(m, known)).toEqual({ name: 'ship', start: 5, end: 10 });
+    const [m] = mentionsIn('/ship.');
+    expect(m).toEqual({ name: 'ship.', start: 0, end: 6 });
+    expect(namedBy(m, known)).toEqual({ name: 'ship', start: 0, end: 5 });
     expect(namedBy(mentionsIn('/v1.2.')[0], known)).toEqual({ name: 'v1.2', start: 0, end: 5 });
     expect(namedBy(mentionsIn('/v1.2')[0], known)).toEqual({ name: 'v1.2', start: 0, end: 5 });
     expect(namedBy(mentionsIn('/v1.')[0], known)).toBeNull();
@@ -126,7 +135,7 @@ describe('completed', () => {
   it('finishes the name and keeps what’s around it', () => {
     expect(completed('/sh', mentionAt('/sh', 3)!, skill('ship'))).toEqual({ text: '/ship ', caret: 6 });
     expect(completed('/sh the fix', mentionAt('/sh the fix', 3)!, skill('ship'))).toEqual({ text: '/ship the fix', caret: 6 });
-    expect(completed('fix it then /sh now', mentionAt('fix it then /sh now', 15)!, skill('ship'))).toEqual({ text: 'fix it then /ship now', caret: 18 });
+    expect(completed('  /sh now', mentionAt('  /sh now', 5)!, skill('ship'))).toEqual({ text: '  /ship now', caret: 8 });
   });
 });
 
@@ -236,26 +245,6 @@ describe('the quick panel’s skills', () => {
     expect(skillLeftOutWords(shrink, accounts)).toBe('Only codex and claude3 have /shrink, so claude and claude2 aren’t offered.');
     // A repo's goes by where its agent reads skills, as before.
     expect(skillLeftOutWords(skillRows(withAccounts, [main], 'ship', true, 9)[0], accounts)).toBeNull();
-  });
-
-  it('writes a start’s prompt with the skills of the repo it starts in and of its account', () => {
-    const withAccounts: SkillsListed = {
-      folders: [{ folder: '/r/app', skills: [skill('probe', { written: { codex: '$probe' } })] }],
-      accounts: [{ account: 'codex', skills: [skill('design', { written: { codex: '$design' } })] }],
-    };
-    const design = skillRows(withAccounts, [main], 'design', true, 9)[0];
-    // An account's own picks no repo: the repo of where it starts goes by that repo's main checkout.
-    const skills = startSkills(withAccounts, design, tree, 'codex', [main, webMain]);
-    expect(writtenFor('/design the page, then /probe it', skills, 'codex')).toBe('$design the page, then $probe it');
-    // Started in a repo whose skills weren't read, only the account's are known.
-    expect(writtenFor('/design then /probe', startSkills(withAccounts, design, web, 'codex', [main, webMain]), 'codex')).toBe('$design then /probe');
-    // A repo's row goes by its own repo.
-    const probe = skillRows(withAccounts, [main], 'probe', true, 9)[0];
-    expect(writtenFor('/probe and /design', startSkills(withAccounts, probe, main, 'codex', [main]), 'codex')).toBe('$probe and $design');
-    // A repo's skill of the same name that only another harness reads doesn't hide the account's.
-    const clash: SkillsListed = { ...withAccounts, folders: [{ folder: '/r/app', skills: [skill('design', { written: { claude: '/design' } }), skill('probe', { written: { codex: '$probe' } })] }] };
-    const own = skillRows(clash, [], 'design', true, 9)[0];
-    expect(writtenFor('/design the UI then /probe', startSkills(clash, own, tree, 'codex', [main]), 'codex')).toBe('$design the UI then $probe');
   });
 
   it('starts in a free reusable worktree of the repo, else a new one', () => {

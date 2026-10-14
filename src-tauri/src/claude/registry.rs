@@ -206,7 +206,8 @@ pub fn parse_job_state(bytes: &[u8]) -> Option<(String, Option<String>)> {
 /// background: the job it moved to runs it now (`board::claude_moves`). So are spares, which
 /// Claude Code's own lookups skip too: nothing has happened in one yet. And so are the copies
 /// side conversations run (side.rs): a headless fork that keeps no record still lists itself
-/// here while it runs (`kind` interactive, `entrypoint` sdk-cli), and it's no session.
+/// here while it runs (`kind` interactive, `entrypoint` sdk-cli), and it's no session; nor is
+/// the run that lists an account's built-in skills (claude/builtin.rs), known by its folder.
 pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
     let Ok(entries) = std::fs::read_dir(home.join("sessions")) else { return vec![] };
     let mut out = Vec::new();
@@ -219,7 +220,7 @@ pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
         let Some(mut entry) = parse_registry(&text) else { continue };
-        if entry.parked_job.is_some() || entry.spare || !procs::pid_alive(entry.pid) || crate::side::runs(entry.pid) {
+        if entry.parked_job.is_some() || entry.spare || !procs::pid_alive(entry.pid) || crate::side::runs(entry.pid) || super::builtin::runs_in(&entry.cwd) {
             continue;
         }
         if let (Some(proc_start), Some(started)) = (procs::proc_start_ms(entry.pid), entry.started_at) {

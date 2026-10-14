@@ -1,9 +1,9 @@
-// Checks the quick panel's skills (Quick.tsx, skills.ts): a slash and the start of a name, first
-// or after other words, list the repos' skills and the accounts' own, ⏎ finishes the name, the
-// session starts in that skill's repo with the name written as the account's agent takes it, and
-// only accounts whose agent reads the skill are offered. An account's own skill starts where the
-// panel was set to, on the accounts that have it. What starts with a slash but names no skill is
-// words like any other.
+// Checks the quick panel's skills (Quick.tsx, skills.ts): a slash and the start of a name that
+// start the text list the repos' skills and the accounts' own, ⏎ finishes the name, the session
+// starts in that skill's repo with the name written as the account's agent takes it, and only
+// accounts whose agent reads the skill are offered. An account's own skill starts where the
+// panel was set to, on the accounts that have it. A name after other words, and what starts with
+// a slash but names no skill, are words like any other.
 //   PREVIEW_WAIT=60000 PREVIEW_SKILLS=scripts/preview/skills-sample.json scripts/preview.sh quick '' scripts/preview/skills-quick-check.js
 // The sample puts `ship` in every repo and `shape-up` (Claude Code's only) and `probe` (Codex's
 // only) in the first, `notes:tidy` in every account and `design` in the first account asked
@@ -96,29 +96,25 @@
       });
     })
     .then(function () {
-      // A name typed after other words, at the caret, lists too, and every skill named is written.
+      // Only a name that starts the text is a skill: one after other words is words.
       type(input(), 'fix the login then /sh');
-      return until(function () { return rows().length > 0 && names()[0] === '/ship'; }, 3000, 'no rows for a name after words');
+      return wait(500);
     })
     .then(function () {
-      key(input(), { key: 'Tab' });
-      return until(function () { return input().value === 'fix the login then /ship '; }, 3000, 'the name after words wasn’t finished: ' + input().value);
+      check('a name after other words lists no skills', rows().length === 0, names().join(' '));
+      // Even one that names a skill, an account's own included, narrows nothing.
+      type(input(), 'look at the /design page');
+      return wait(400);
     })
     .then(function () {
-      check('a name after other words is finished in place', true);
-      type(input(), 'fix the login then /ship and /house-rules');
-      return wait(300);
-    })
-    .then(function () {
+      var text = q('.ca-quick-compose').textContent;
+      check('and the start row names no skill', text.indexOf('Runs /') < 0 && text.indexOf('Only ') < 0, text);
       startsBefore = sent('start_from_quick').length;
-      check('the start row names the first skill in the text', q('.ca-quick-compose').textContent.indexOf('Runs /ship from') >= 0, q('.ca-quick-compose').textContent);
       key(input(), { key: 'Enter', metaKey: true });
-      return until(function () { return sent('start_from_quick').length > startsBefore; }, 3000, 'no start with a skill after words');
+      return until(function () { return sent('start_from_quick').length > startsBefore; }, 3000, 'no start with a name after words');
     })
     .then(function () {
-      var spec = last('start_from_quick').spec;
-      var h = harnessOf(spec.account);
-      check('every skill in the prompt goes as the agent takes it', spec.prompt === (h === 'codex' ? 'fix the login then $ship and $house-rules' : 'fix the login then /ship and /house-rules'), h + ': ' + spec.prompt);
+      check('it goes as typed', last('start_from_quick').spec.prompt === 'look at the /design page', last('start_from_quick').spec.prompt);
       return wait(400);
     })
     .then(function () {

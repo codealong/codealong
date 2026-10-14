@@ -1230,11 +1230,12 @@ with a picture of the phone's screen, kept on the Mac the session starts on.
 
 ### Skills by name
 
-Type `/` and the start of a name, first or after any words. In the quick panel that lists the skills
-of the project's repos (their `.claude/skills`, `.claude/commands`, `.agents/skills` and
-`.codex/skills`) and your accounts' own, the most run first; ⏎ or ⇥ finishes the name. A repo's
-skill picks where the session starts, its repo, in a worktree chosen as new work's is, with the rest
-of the line as its prompt, and every skill named in it is written for the agent. A skill several
+Type `/` and the start of a name at the start of what you write: only a skill that starts it is
+run, as Claude Code runs one, so a `/name` later on ("the /usage endpoint") is words. In the quick
+panel that lists the skills of the project's repos (their `.claude/skills`, `.claude/commands`,
+`.agents/skills` and `.codex/skills`) and your accounts' own, the most run first; ⏎ or ⇥ finishes
+the name. A repo's skill picks where the session starts, its repo, in a worktree chosen as new
+work's is, with the rest of the line as its prompt, and the skill is written for the agent. A skill several
 repos have is a row for each. Only accounts whose agent reads that skill's folder are offered, and
 the start row says which are left out. An account's own skill is one row, which names the accounts
 that have it; the session starts where the panel is set to, on one of them. In a session's reply box
@@ -1243,9 +1244,10 @@ account: ↑ ↓ choose, ⇥ finishes the name, Escape puts the list away. The n
 takes it: `/name` to Claude Code, `$name` to Codex.
 
 An account's own skills are its personal ones, its plugins' and the ones claude.ai syncs into it,
-and for Claude Code also what Claude Code has built in: `/design` and `/slides` where the account
-may use them, `/loop`, `/code-review`, and its commands, such as `/compact`. Codealong asks each
-account's Claude Code for those as it starts, which spends no usage, and again every hour. OpenCode
+and for Claude Code also the skills Claude Code has built in: `/design` and `/slides` where the
+account may use them, `/loop`, `/code-review`, `/verify`. Its commands, such as `/compact` and
+`/model`, aren't skills and aren't listed. Codealong asks each account's Claude Code for those as
+it starts, which spends no usage, and again every hour. OpenCode
 and Antigravity can't be told to run a skill by name in a prompt, so they're offered none, and
 another Mac's skills aren't listed yet.
 

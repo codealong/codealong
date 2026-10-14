@@ -1,23 +1,32 @@
-//! What Claude Code has built in: the skills and commands its program holds rather than a
-//! folder (`/design`, `/slides`, `/loop`, `/code-review`, `/compact`), which no file shows, so
-//! only Claude Code can list them. It lists them to a program that runs it over stream-json and
-//! asks (`control_request` `initialize`, the Agent SDK's `supportedCommands`), before any prompt,
-//! so asking spends no usage: each command a session can be told to run by name, with `name`,
-//! `description`, `argumentHint`, and `builtin: true` for the ones its program holds (2.1.299,
-//! 2026-10-14). Those are its skills and its commands alike, and nothing in the answer tells them
-//! apart, so both are listed, as Claude Code's own `/` menu lists both. The rest of the answer
-//! (the account's own skills, its plugins', the ones claude.ai syncs) Codealong reads from their
-//! folders (claude/skills.rs), fresher than a list kept here.
+//! What Claude Code has built in: the skills its program holds rather than a folder (`/design`,
+//! `/slides`, `/loop`, `/code-review`), which no file shows, so only Claude Code can list them.
+//! Its commands (`/compact`, `/model`) aren't skills, and aren't listed (asked 2026-10-14).
 //!
-//! The list is a headless run's, which isn't quite a terminal session's. A terminal and the
+//! A program that runs it over stream-json gets two lists, neither of which spends usage (2.1.299
+//! and 2.1.300, 2026-10-14). `control_request` `initialize` (the Agent SDK's `supportedCommands`),
+//! answered before any prompt, has every command a session can be told to run by name, its
+//! skills and its commands alike, with `name`, `description`, `argumentHint`, and `builtin: true`
+//! for the ones its program holds; nothing there tells a skill from a command. The `system`/`init`
+//! line has `skills` beside `slash_commands`, but comes only once a message is taken in. So a
+//! message goes that's one of its own commands, `/color default`: it runs without the model
+//! (`num_turns: 0`, `duration_api_ms: 0`, `total_cost_usd: 0`) and changes nothing that's kept,
+//! the run being one that writes no transcript. It goes only when `initialize` lists `color`: any
+//! other text would be a prompt, and `--max-turns 0` doesn't stop one from being answered. What's
+//! listed is what `initialize` describes and `init` calls a skill. The rest of `initialize`'s
+//! answer (the account's own skills, its plugins', the ones claude.ai syncs) Codealong reads from
+//! their folders (claude/skills.rs), fresher than a list kept here.
+//!
+//! The lists are a headless run's, which isn't quite a terminal session's. A terminal and the
 //! Claude app have Artifacts, and a headless run doesn't: it leaves out `/slides` and
 //! `/artifact-diagramming`, and has `/design` as the command that grants Claude access to your
 //! Design projects rather than the skill that makes a Design (a terminal's `/` menu says "Make a
 //! new Design artifact from a brief"). Told it's the Claude app (`CLAUDE_CODE_ENTRYPOINT=
 //! claude-desktop`), it lists them as a session has them, and nothing else changed between the
 //! two lists. The run loads no MCP server (their prompts aren't skills, and some start
-//! processes), runs no hook, and writes no transcript. A terminal's menu also hides a few that
-//! the answer has (`heapdump`, `extra-usage`) and has a few of its own (`/help`, `/workflows`).
+//! processes) and runs no hook. While it runs it lists itself among the live sessions
+//! (`sessions/<pid>.json`, `entrypoint: claude-desktop`, `kind: interactive`), so it runs in a
+//! folder of its own (`FOLDER`), which claude/registry.rs passes over; it takes its record away
+//! as it ends once its input closes, and a killed one leaves it behind.
 //!
 //! Asking takes a second or more (Claude Code starts, reads its settings and plugins, and asks
 //! claude.ai what the account may use), so each account's list is kept, read again in the
@@ -58,7 +67,7 @@ struct Lists {
 
 #[derive(Default)]
 struct List {
-    commands: Option<Vec<Builtin>>,
+    skills: Option<Vec<Builtin>>,
     /// When it was last read, or last failed to be.
     read_at: Option<Instant>,
     failed: bool,
@@ -82,17 +91,17 @@ impl Lists {
         list.read_at = Some(now);
         list.failed = read.is_none();
         if read.is_some() {
-            list.commands = read;
+            list.skills = read;
         }
     }
 
     /// Whether a read of a list there's none of yet is out, which is worth waiting for.
     fn awaited(&self, home: &Path) -> bool {
-        self.by_home.get(home).is_some_and(|l| l.reading && l.commands.is_none())
+        self.by_home.get(home).is_some_and(|l| l.reading && l.skills.is_none())
     }
 
     fn kept(&self, home: &Path) -> Vec<Builtin> {
-        self.by_home.get(home).and_then(|l| l.commands.clone()).unwrap_or_default()
+        self.by_home.get(home).and_then(|l| l.skills.clone()).unwrap_or_default()
     }
 }
 
@@ -126,12 +135,34 @@ pub fn listed(home: &Path, wait: Duration) -> Vec<Builtin> {
     lists.kept(home)
 }
 
-/// Asks the account's Claude Code for its commands. None when it can't be run or doesn't answer;
-/// the lists go on without them, as they did before Codealong asked, so nobody is told.
+/// The folder the lists are asked in: one of no project, so no project's settings or skills come
+/// into them, and Codealong's own, so the run's record among the live sessions is known for what
+/// it is (`runs_in`).
+static FOLDER: LazyLock<PathBuf> = LazyLock::new(|| {
+    let dir = std::env::temp_dir().join("codealong-claude-skills");
+    let _ = std::fs::create_dir_all(&dir);
+    std::fs::canonicalize(&dir).unwrap_or(dir)
+});
+
+/// Whether a live session in `cwd` is the run that lists the skills, which is no session.
+pub fn runs_in(cwd: &str) -> bool {
+    Path::new(cwd) == FOLDER.as_path()
+}
+
+/// The command Codealong sends to have the `init` line written: one that runs without the model.
+const COLOR: &str = "color";
+/// What it sends for it, which puts back the color a session starts with.
+const SAID: &str = "/color default";
+
+/// How long the run is given to leave by itself once its input closes, taking its record with it.
+const LEAVE_WITHIN: Duration = Duration::from_secs(5);
+
+/// Asks the account's Claude Code for its skills. None when it can't be run, doesn't answer, or
+/// wouldn't take `/color` as its own; the lists go on without them, as they did before Codealong
+/// asked, so nobody is told.
 fn read(home: &Path) -> Option<Vec<Builtin>> {
     let mut cmd = Command::new("claude");
-    // A folder of no project, so no project's settings or skills come into it.
-    cmd.args(ARGS).current_dir(std::env::temp_dir()).env("PATH", crate::procs::user_path()).env("CLAUDE_CODE_ENTRYPOINT", "claude-desktop");
+    cmd.args(ARGS).current_dir(FOLDER.as_path()).env("PATH", crate::procs::user_path()).env("CLAUDE_CODE_ENTRYPOINT", "claude-desktop");
     let (env, unset) = super::headless_env(home);
     for (k, v) in env {
         cmd.env(k, v);
@@ -141,7 +172,7 @@ fn read(home: &Path) -> Option<Vec<Builtin>> {
     }
     let (tx, rx) = channel();
     let client = rpc::Client::spawn(cmd, rpc::Stderr::Tail, rpc::Wire::Bare, move |_, heard| match heard {
-        rpc::Heard::Line(line) if line["type"] == "control_response" && line["response"]["request_id"] == ASK => {
+        rpc::Heard::Line(line) if (line["type"] == "control_response" && line["response"]["request_id"] == ASK) || (line["type"] == "system" && line["subtype"] == "init") => {
             let _ = tx.send(Some(line.clone()));
         }
         rpc::Heard::Line(_) => {}
@@ -150,22 +181,32 @@ fn read(home: &Path) -> Option<Vec<Builtin>> {
         }
     })
     .ok()?;
-    client.send(&json!({ "type": "control_request", "request_id": ASK, "request": { "subtype": "initialize" } })).ok()?;
-    let answer = rx.recv_timeout(ANSWER_WITHIN).ok()??;
-    // Dropping the client ends the process: it has nothing more to do.
-    drop(client);
-    builtins_in(&answer)
+    let listed = (|| {
+        client.send(&json!({ "type": "control_request", "request_id": ASK, "request": { "subtype": "initialize" } })).ok()?;
+        let answer = rx.recv_timeout(ANSWER_WITHIN).ok()??;
+        let commands = answer["response"]["response"]["commands"].as_array()?;
+        if !commands.iter().any(|c| c["name"] == COLOR && c["builtin"] == true) {
+            return None;
+        }
+        client.send(&json!({ "type": "user", "message": { "role": "user", "content": SAID } })).ok()?;
+        let init = rx.recv_timeout(ANSWER_WITHIN).ok()??;
+        skills_in(&answer, &init)
+    })();
+    // Its input closed, it leaves by itself, and takes its record among the live sessions away.
+    client.end(LEAVE_WITHIN);
+    listed
 }
 
-/// The commands Claude Code's program holds, from its answer to `initialize`. None for an answer
-/// that isn't one.
-fn builtins_in(answer: &Value) -> Option<Vec<Builtin>> {
+/// The skills Claude Code's program holds: the commands its answer to `initialize` describes as
+/// built in that its `init` line calls skills. None for lines that aren't those.
+fn skills_in(answer: &Value, init: &Value) -> Option<Vec<Builtin>> {
     let commands = answer["response"]["response"]["commands"].as_array()?;
+    let skills: Vec<&str> = init["skills"].as_array()?.iter().filter_map(Value::as_str).collect();
     let text = |c: &Value, k: &str| c[k].as_str().unwrap_or_default().to_string();
     Some(
         commands
             .iter()
-            .filter(|c| c["builtin"] == true)
+            .filter(|c| c["builtin"] == true && c["name"].as_str().is_some_and(|n| skills.contains(&n)))
             .map(|c| Builtin { name: text(c, "name"), description: text(c, "description"), hint: Some(text(c, "argumentHint")).filter(|h| !h.is_empty()) })
             .collect(),
     )
@@ -180,25 +221,34 @@ mod tests {
     }
 
     #[test]
-    fn only_what_its_program_holds_is_taken_from_the_answer() {
-        // As 2.1.299 answers, cut short: a bundled skill, a command, a plugin's skill and a
+    fn only_the_skills_its_program_holds_are_taken() {
+        // As 2.1.300 answers, cut short: two bundled skills, two commands, a plugin's skill and a
         // synced one.
         let answer = json!({ "type": "control_response", "response": { "subtype": "success", "request_id": ASK, "response": { "commands": [
             { "name": "design", "description": "Make a new Design artifact from a brief", "argumentHint": "[what to design]", "builtin": true },
+            { "name": "loop", "description": "Run a prompt or slash command on a recurring interval", "argumentHint": "[interval] [prompt]", "builtin": true },
             { "name": "compact", "description": "Free up context by summarizing the conversation so far", "argumentHint": "", "builtin": true },
+            { "name": "color", "description": "Set the prompt bar color for this session", "argumentHint": "[red|blue|green|yellow|purple|orange|pink|cyan|default]", "builtin": true },
             { "name": "figma:figma-use", "description": "(figma) Use Figma", "argumentHint": "" },
             { "name": "pdf", "description": "PDF files", "argumentHint": "", "aliases": ["anthropic-skills:pdf"] },
         ], "models": [] } } });
-        let got = builtins_in(&answer).unwrap();
+        let init = json!({ "type": "system", "subtype": "init", "slash_commands": ["design", "loop", "compact", "color", "figma:figma-use", "pdf"], "skills": ["figma:figma-use", "design", "loop", "anthropic-skills:pdf"] });
         assert_eq!(
-            got,
+            skills_in(&answer, &init).unwrap(),
             vec![
                 Builtin { name: "design".into(), description: "Make a new Design artifact from a brief".into(), hint: Some("[what to design]".into()) },
-                Builtin { name: "compact".into(), description: "Free up context by summarizing the conversation so far".into(), hint: None },
+                Builtin { name: "loop".into(), description: "Run a prompt or slash command on a recurring interval".into(), hint: Some("[interval] [prompt]".into()) },
             ]
         );
-        // An error, or anything else, is no list.
-        assert_eq!(builtins_in(&json!({ "type": "control_response", "response": { "subtype": "error", "error": "nope" } })), None);
+        // An error, or a line that isn't `init`, is no list.
+        assert_eq!(skills_in(&json!({ "type": "control_response", "response": { "subtype": "error", "error": "nope" } }), &init), None);
+        assert_eq!(skills_in(&answer, &json!({ "type": "system", "subtype": "init" })), None);
+    }
+
+    #[test]
+    fn its_own_run_is_known_by_its_folder() {
+        assert!(runs_in(&FOLDER.to_string_lossy()));
+        assert!(!runs_in("/Users/me/repo"));
     }
 
     #[test]

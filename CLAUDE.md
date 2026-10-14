@@ -279,8 +279,8 @@ Each rule names the file whose header has the rest.
   is in `menus.ts` `CHORDS` and shows on the queue strip, in the menus and in every window at
   once. No key is written into one window or into the strip.
 - Skills are listed by the engine (skills.rs) and named by each harness's adapter; the windows
-  write `/name` whatever the harness, anywhere in the text, and swap each as they send or
-  start (`src/skills.ts` `writtenFor`). Only accounts whose harness can run a skill by name are offered one (asked
+  write `/name` whatever the harness, and only one that starts the text is a skill (asked
+  2026-10-14), swapped as they send or start (`src/skills.ts` `writtenFor`). Only accounts whose harness can run a skill by name are offered one (asked
   2026-10-04: no plain-words fallback).
 - A side conversation (side.rs, `Adapter::side`) is a harness's throwaway copy of a session: it
   may do what its session may without asking and no more, and leaves no record in its harness.

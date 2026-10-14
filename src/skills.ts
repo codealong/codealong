@@ -14,13 +14,14 @@ import type { Harness, Lane, Skill, SkillsListed } from './types';
 
 /** What a skill's name may hold, as the engine lets them through (skills.rs `typeable`). */
 const NAME = String.raw`[A-Za-z0-9_:.-]`;
-/** A slash and a name, at the start of the text or after a space, that ends the word: `/ship` in
- *  "then /ship it" or "then /ship, and", not the one in a path. A path's first part is no skill,
- *  even one that names a skill (`/review/notes.md` with a skill named `review`), so the name has
- *  to end at a space, the end of the text or punctuation that ends a word in prose, never at the
- *  slash or anything else a path goes on with. A name may hold a dot (`/v1.2`), so a full stop
- *  after one is in it here; which skill it names, if any, is `namedBy`'s to say. */
-const MENTION = new RegExp(String.raw`(^|\s)/(${NAME}*)(?=$|[\s,;!?)\]}"'’”])`, 'g');
+/** A slash and a name that start the text, and end the word: `/ship` in "/ship it" or "/ship, and",
+ *  not the one in a path. Only the start runs a skill, as Claude Code takes a slash command, so a
+ *  `/name` later on is words ("the /usage endpoint"; asked 2026-10-14). A path's first part is no
+ *  skill, even one that names a skill (`/review/notes.md` with a skill named `review`), so the
+ *  name has to end at a space, the end of the text or punctuation that ends a word in prose,
+ *  never at the slash or anything else a path goes on with. A name may hold a dot (`/v1.2`), so a
+ *  full stop after one is in it here; which skill it names, if any, is `namedBy`'s to say. */
+const MENTION = new RegExp(String.raw`^(\s*)/(${NAME}*)(?=$|[\s,;!?)\]}"'’”])`);
 
 /** A `/name` in the text: where its slash is, where its name ends, and the name so far. */
 export interface Mention {
@@ -29,14 +30,12 @@ export interface Mention {
   end: number;
 }
 
-/** Every `/name` in the text, in order. */
+/** The `/name` that starts the text, as a list of it or of none. */
 export function mentionsIn(text: string): Mention[] {
-  const out: Mention[] = [];
-  for (const m of text.matchAll(MENTION)) {
-    const start = m.index + m[1].length;
-    out.push({ name: m[2], start, end: start + 1 + m[2].length });
-  }
-  return out;
+  const m = MENTION.exec(text);
+  if (!m) return [];
+  const start = m[1].length;
+  return [{ name: m[2], start, end: start + 1 + m[2].length }];
 }
 
 /** The `/name` the caret is in or just after: the one being typed. */
@@ -115,7 +114,7 @@ export function writtenFor(text: string, skills: Skill[], harness: Harness): str
   return out + text.slice(at);
 }
 
-/** The first skill the text names, whole. */
+/** The skill that starts the text, named whole. */
 export function skillNamed(text: string, skills: Skill[]): Skill | undefined {
   for (const m of mentionsIn(text)) {
     const n = namedBy(m, (name) => !!named(skills, name));
@@ -231,16 +230,6 @@ export function skillRows(listed: SkillsListed | null, repos: Lane[], word: stri
   // the list: typing more of its name leaves only its rows.
   const firsts = sorted.filter((r, i) => sorted.findIndex((x) => x.skill.name === r.skill.name) === i);
   return [...firsts, ...sorted.filter((r) => !firsts.includes(r))].slice(0, limit);
-}
-
-/** The skills a start's prompt is written with (`writtenFor`): those of the repo it starts in
- *  (the row's, else the repo of `where`, as its skills were read for `repos`), the account's own,
- *  and the row's. */
-export function startSkills(listed: SkillsListed | null, row: SkillRow, where: Lane, account: string | null, repos: Lane[]): Skill[] {
-  const repo = row.lane ?? repos.find((r) => r.project === where.project && r.repo === where.repo && !where.device) ?? null;
-  const ofRepo = (repo && listed?.folders.find((f) => f.folder === repo.path)?.skills) || [];
-  const ofAccount = listed?.accounts.find((a) => a.account === account)?.skills ?? [];
-  return [...ofRepo, ...ofAccount, row.skill];
 }
 
 /** Where a session started on a repo's skill goes, as new work goes anywhere (reusable.ts

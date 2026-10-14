@@ -26,15 +26,18 @@ under `src-tauri/src/` unless they start with `plugin/`.
   `argument-hint`, `user-invocable`, `disable-model-invocation`). Not there (2.1.289): it reads
   a `.claude` folder in the session's folder and those above it, not `.agents/skills`, and
   `skillUsage` has no repo.
-- What Claude Code's program holds (`/design`, `/slides`, `/loop`, `/compact`), which only it can
-  list, and how Codealong asks for the list without spending usage: `claude/builtin.rs` (header,
-  `ARGS`, `builtins_in`). Not there (2.1.299, 2026-10-14): the same answer to `initialize` has
-  `agents`, `models`, `account` and `output_style` beside `commands`; `reload_skills` answers
-  `{skills}`, the skills the model may load itself (those a skill's file keeps from the model, and
-  every built-in command, aren't in it); `get_skills_dialog` lists the plugins' and claude.ai's
-  skills with their `source` and `state`. A command the terminal's menu hides (`heapdump`,
-  `__remote-workflow`) still comes in `initialize`'s answer, and a synced skill comes by its
-  name alone (`pdf`, with `anthropic-skills:pdf` an alias), which a prompt runs too.
+- The skills Claude Code's program holds (`/design`, `/slides`, `/loop`), which only it can list,
+  told apart from its commands (`/compact`), and how Codealong asks without spending usage:
+  `claude/builtin.rs` (header, `ARGS`, `read`, `skills_in`). Not there (2.1.299 and 2.1.300,
+  2026-10-14): the same answer to `initialize` has `agents`, `models`, `account` and
+  `output_style` beside `commands`; `reload_skills` answers `{skills}`, the skills the model may
+  load itself (those a skill's file keeps from the model aren't in it); `get_skills_dialog`
+  lists the plugins' and claude.ai's skills with their `source` and `state`. A command the
+  terminal's menu hides (`heapdump`, `__remote-workflow`) still comes in `initialize`'s answer,
+  and a synced skill comes there by its name alone (`pdf`, with `anthropic-skills:pdf` an alias),
+  where `init`'s `skills` has it whole. `init` also has `terminal_slash_commands`, the commands a
+  phone or remote front end should hide. Only a skill that starts a prompt is run as one (a
+  `/name` later on is a hint to the model at most), so the windows count only that one.
 - Where Codex finds skills, and `$name` in a prompt's text: `codex/mod.rs` (`worktree_skills`,
   `account_skills`, `skill_mention`), `skills.rs` (`walk_skills`, a skill reached through a
   link counted once). Not there (0.157.1): a name two skills share is named by file,

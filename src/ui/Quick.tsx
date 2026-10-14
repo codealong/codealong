@@ -4,12 +4,12 @@
 // new session with what you typed as its prompt, in the worktree, on the agent and in the app
 // chosen at the bottom.
 //
-// A slash and the start of a name, at the start or after a space, wherever the caret is, list
-// the skills of the project's repos and of the accounts instead (skills.ts): ⏎ or ⇥ finishes
-// the name, and the first skill named is the one a start runs, on an account whose agent reads
-// it (one of the accounts that have it, for an account's own). A repo's picks where the session
-// starts, the repo, in a worktree chosen as new work's is. The prompt goes with the skill's name
-// written as that agent takes it.
+// A slash and the start of a name that start the text list the skills of the project's repos
+// and of the accounts instead (skills.ts); one later on is words. ⏎ or ⇥ finishes the name,
+// and that skill is the one a start runs, on an account whose agent reads it (one of the
+// accounts that have it, for an account's own). A repo's picks where the session starts, the
+// repo, in a worktree chosen as new work's is. The prompt goes with the skill's name written as
+// that agent takes it.
 //
 // ⏎ does the selected row and ⌘⏎ always starts. ⏎ on a session or a PR shows it in Codealong,
 // with its conversation or its details, and ⌥⏎ opens it where it lives (a PR on GitHub); ⌥⏎ on a
@@ -83,7 +83,7 @@ import {
   withChosen,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
-import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, startSkills, writtenFor, type Mention, type SkillRow } from '../skills';
+import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
@@ -526,10 +526,10 @@ export function Quick() {
 
   /* ---- A skill, which picks its repo ---- */
 
-  // A slash and a name being typed, at the caret, list the skills of the project's repos on
-  // this Mac and the accounts' own; the first skill the text names whole is the one a start
-  // runs, and a repo's is where. A todo's prompt is words, and another Mac's folders and
-  // accounts aren't read from here.
+  // A slash and a name being typed at the start of the text list the skills of the project's
+  // repos on this Mac and the accounts' own; the skill it names whole is the one a start runs,
+  // and a repo's is where. A todo's prompt is words, and another Mac's folders and accounts
+  // aren't read from here.
   const mentions = useMemo(() => (todoIds.length === 0 && !deviceNow ? mentionsIn(text) : []), [text, todoIds.length, deviceNow]);
   // Where the caret is, moved as the text is typed, the caret moved, or a name finished.
   const [caret, setCaret] = useState(0);
@@ -540,8 +540,8 @@ export function Quick() {
   const listedSkills = useSkills(repoPaths, accountNames, shown && mentions.length > 0);
   const typingName = typing?.name ?? null;
   const skillsFound = useMemo(() => (typingName === null ? [] : skillRows(listedSkills, repos, typingName, false, MAX_ROWS)), [listedSkills, repos, typingName]);
-  // The first name that's a skill of some repo, with its rows (one a repo that has it). A full
-  // stop that ends the sentence isn't in it (skills.ts `namedBy`).
+  // The name that starts the text, when it's a skill of a repo or an account, with its rows (one
+  // a repo that has it). A full stop that ends the sentence isn't in it (skills.ts `namedBy`).
   const named = useMemo(() => {
     const rowsFor = (name: string) => skillRows(listedSkills, repos, name, true, MAX_ROWS);
     for (const m of mentions) {
@@ -1094,9 +1094,8 @@ export function Quick() {
     const newTree = harnessMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     if (choice) remember(choice, placeNow);
     if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow), placeNow);
-    // Each skill's name goes as the account's agent takes it: the repo's skills and the account's
-    // own, wherever they are in the prompt.
-    const written = skillNow && harness && !over ? writtenFor(text, startSkills(listedSkills, skillNow, where, account, repos), harness) : text;
+    // The skill that starts the prompt goes as the account's agent takes it.
+    const written = skillNow && harness && !over ? writtenFor(text, [skillNow.skill], harness) : text;
     // Improve Codealong: the pictures of the windows go after what you wrote.
     const prompt = withShots(written);
     const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
