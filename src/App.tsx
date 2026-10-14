@@ -71,7 +71,7 @@ import { useListPicks } from './useListPicks';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingPr, ageListingSession, laneInQuery, prInDone, prInFilter, prInQuery, revealing, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, toggleShown, useBoardLists } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, laneInQuery, prInDone, prInFilter, prInQuery, revealing, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, toggleShown, useBoardLists } from './boardLists';
 import { inProject, shortcutLabel } from './quick';
 import { improveTitle } from './improve';
 import { setPageZoom, type ZoomStep } from './zoom';
@@ -621,11 +621,14 @@ export function App() {
       // the board would only show its line on its worktree's row.
       setView('sessions');
       setBayFilter([]);
-      // One older than the age filter lets through: the filter widens as far as it, as for a PR.
-      const wider = ageListingSession(session, sessionPins.set, AGES, age, Date.now());
+      // One older than the age filter lets through: the filter widens as far as it, as for a PR,
+      // and as far as the sessions a helper or a run is listed under. A finished helper, or a run
+      // its session's row only counts, is listed under its session.
+      const item = sessionItemOf({ lane, session });
+      const items = sessionItemsOf(lanes);
+      const wider = ageListingChain(chainOf(item, items).map((r) => r.session), sessionPins.set, AGES, age, Date.now());
       if (wider) setAge(wider);
-      // A finished helper, or a run its session's row only counts, listed under its session.
-      setHelpersShownList((prev) => revealing(prev, sessionItemsOf(lanes), sessionItemOf({ lane, session })));
+      setHelpersShownList((prev) => revealing(prev, items, item));
       setSelectedKey(`${lane.id}::${session.key}`);
     } else if (pr) {
       setView('prs');

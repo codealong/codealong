@@ -268,18 +268,39 @@ export function placeHelpers(rows: SessionItem[], searching: boolean, shown: Rea
 }
 const NONE: ReadonlySet<string> = new Set();
 
+/** A session and the ones Sessions lists it under, nearest first (lanes.ts `workingFor`): a run's
+ *  session, a helper's, and so on up, as far as `all` has them and as deep as Sessions nests. */
+export function chainOf(item: SessionItem, all: readonly SessionItem[]): SessionItem[] {
+  const byKey = new Map(all.map((r) => [r.session.key, r]));
+  const chain = [item];
+  for (let i = 0; i < 4; i++) {
+    const up = workingFor(chain[chain.length - 1].session);
+    const parent = up ? byKey.get(up) : undefined;
+    if (!parent || chain.includes(parent)) break;
+    chain.push(parent);
+  }
+  return chain;
+}
+
 /** The sessions whose helpers or runs Sessions lists them all of, with what it takes to list
  *  `item` once a window asks to show it (App.tsx `reveal`, which clears the search and the
- *  filters): unchanged when Sessions lists it among `all` then, else with every helper or every
- *  headless run of its session listed (`listedAll`), as its chip's double-click would. Without
- *  that, a finished helper or a run the quick panel found would be selected and not listed, and
- *  the panel would show another session. */
+ *  filters, and widens the age filter for its chain, `ageListingChain`): unchanged when Sessions
+ *  lists it among `all` then, else with every helper or every headless run of its session listed
+ *  (`listedAll`), as its chip's double-click would, and so on up its chain (`chainOf`) to a
+ *  session that's listed: a run of a finished helper needs that helper listed too. Without it, a
+ *  finished helper or a run the quick panel found would be selected and not listed, and the panel
+ *  would show another session. */
 export function revealing(shown: string[], all: readonly SessionItem[], item: SessionItem): string[] {
-  const s = item.session;
-  const parent = workingFor(s);
-  if (!parent || placeHelpers([...all], false, new Set(shown), all).some((r) => r.session.key === s.key)) return shown;
-  const key = s.headless ? runsShownKey(parent) : parent;
-  return shown.includes(key) ? shown : toggleShown(shown, key);
+  const lists = (keys: string[]) => placeHelpers([...all], false, new Set(keys), all).some((r) => r.session.key === item.session.key);
+  let next = shown;
+  for (const r of chainOf(item, all)) {
+    if (lists(next)) return next;
+    const parent = workingFor(r.session);
+    if (!parent) break;
+    const key = r.session.headless ? runsShownKey(parent) : parent;
+    if (!next.includes(key)) next = toggleShown(next, key);
+  }
+  return next;
 }
 
 /** The sessions you asked to see all the helpers of, with `key` added or taken out: the latest
@@ -379,6 +400,15 @@ export function ageListingPr<A extends string>(pr: PrItem, pinned: ReadonlySet<s
  *  session isn't listed, and Sessions would select another of its worktree's, or its first. */
 export function ageListingSession<A extends string>(s: Session, pinned: ReadonlySet<string>, ages: readonly { id: A; ms: number }[], current: A, now: number): A | null {
   return ageListing(s.lastActivity, pinned.has(s.key), ages, current, now);
+}
+
+/** The age filter a window asked to show a session widens to, as `ageListingSession` has it, so
+ *  that the sessions it's listed under (`chainOf`, `chain` with it first) are listed too: the
+ *  widest any of them needs, or null when the filter lists them all already. */
+export function ageListingChain<A extends string>(chain: readonly Session[], pinned: ReadonlySet<string>, ages: readonly { id: A; ms: number }[], current: A, now: number): A | null {
+  const rank = (id: A) => ages.findIndex((a) => a.id === id);
+  const wider = chain.flatMap((s) => ageListingSession(s, pinned, ages, current, now) ?? []);
+  return wider.length === 0 ? null : wider.reduce((a, b) => (rank(b) > rank(a) ? b : a));
 }
 
 /** The narrowest of `ages` that lists what was last active `at`, when `current` doesn't. */

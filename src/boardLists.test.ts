@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ageListingChain,
   ageListingPr,
   ageListingSession,
   archivedIn,
   bayRowsOf,
+  chainOf,
   currentProject,
   deviceCountsOf,
   folded,
@@ -403,6 +405,38 @@ describe('the Sessions view’s lists', () => {
       expect(revealing(shown, items, row(boss))).toBe(shown);
       const all = [runsShownKey(boss.key)];
       expect(revealing(all, items, row(busy))).toBe(all);
+    });
+
+    it('lists a run a window asks to show when its session is older than the age filter', () => {
+      const ages = [
+        { id: '1d', ms: DAY },
+        { id: '3d', ms: 3 * DAY },
+        { id: 'all', ms: 0 },
+      ] as const;
+      const old = { ...boss, lastActivity: NOW - 2 * DAY };
+      const recent = { ...ended, lastActivity: NOW - 60_000 };
+      const items = sessionItemsOf([lane('/r/a', [old, recent])]);
+      const row = items.find((r) => r.session.key === recent.key)!;
+      const chain = chainOf(row, items).map((r) => r.session.key);
+      expect(chain).toEqual([recent.key, old.key]);
+      // The run alone is let through already: its session needs the filter wider.
+      expect(ageListingSession(recent, new Set(), ages, '1d', NOW)).toBeNull();
+      const wider = ageListingChain(chainOf(row, items).map((r) => r.session), new Set(), ages, '1d', NOW);
+      expect(wider).toBe('3d');
+      const shown = new Set(revealing([], items, row));
+      expect(keysOf(placeHelpers(shownSessionsOf(items, NOW - 3 * DAY, new Set(), '', []), false, shown, items))).toContain(recent.key);
+      expect(ageListingChain([recent, old], new Set(), ages, '3d', NOW)).toBeNull();
+    });
+
+    it('lists a run of a finished helper a window asks to show, with the helper', () => {
+      const helper = session('codex:codex:helper', { status: 'idle', helper: { parent: boss.key } });
+      const run2 = run('claude:claude2:deep', 'idle', { origin: { key: helper.key, how: 'started' } });
+      const items = sessionItemsOf([lane('/r/a', [boss, helper, run2])]);
+      const row = items.find((r) => r.session.key === run2.key)!;
+      expect(keysOf(placeHelpers(items, false))).toEqual([boss.key]);
+      const shown = revealing([], items, row);
+      expect(shown).toEqual([runsShownKey(helper.key), boss.key]);
+      expect(keysOf(placeHelpers(items, false, new Set(shown)))).toEqual([boss.key, helper.key, run2.key]);
     });
 
     it('lists a run no session on the board started as a session of its own', () => {
