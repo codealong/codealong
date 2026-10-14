@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { completed, leftOutWords, matching, mentionAt, mentionsIn, namedBy, repoLanes, sessionSkills, skillLeftOutWords, skillNamed, skillOffers, skillRows, skillStart, skillWhere, writtenFor } from './skills';
+import { completed, leftOutWords, matching, mentionAt, mentionsIn, namedBy, repoLanes, sessionSkills, skillLeftOutWords, skillNamed, skillOffers, skillRows, skillStart, skillWhere, startSkills, writtenFor } from './skills';
 import * as fx from './testing/fixtures';
 import type { Skill, SkillsListed } from './types';
 
@@ -236,6 +236,22 @@ describe('the quick panel’s skills', () => {
     expect(skillLeftOutWords(shrink, accounts)).toBe('Only codex and claude3 have /shrink, so claude and claude2 aren’t offered.');
     // A repo's goes by where its agent reads skills, as before.
     expect(skillLeftOutWords(skillRows(withAccounts, [main], 'ship', true, 9)[0], accounts)).toBeNull();
+  });
+
+  it('writes a start’s prompt with the skills of the repo it starts in and of its account', () => {
+    const withAccounts: SkillsListed = {
+      folders: [{ folder: '/r/app', skills: [skill('probe', { written: { codex: '$probe' } })] }],
+      accounts: [{ account: 'codex', skills: [skill('design', { written: { codex: '$design' } })] }],
+    };
+    const design = skillRows(withAccounts, [main], 'design', true, 9)[0];
+    // An account's own picks no repo: the repo of where it starts goes by that repo's main checkout.
+    const skills = startSkills(withAccounts, design, tree, 'codex', [main, webMain]);
+    expect(writtenFor('/design the page, then /probe it', skills, 'codex')).toBe('$design the page, then $probe it');
+    // Started in a repo whose skills weren't read, only the account's are known.
+    expect(writtenFor('/design then /probe', startSkills(withAccounts, design, web, 'codex', [main, webMain]), 'codex')).toBe('$design then /probe');
+    // A repo's row goes by its own repo.
+    const probe = skillRows(withAccounts, [main], 'probe', true, 9)[0];
+    expect(writtenFor('/probe and /design', startSkills(withAccounts, probe, main, 'codex', [main]), 'codex')).toBe('$probe and $design');
   });
 
   it('starts in a free reusable worktree of the repo, else a new one', () => {

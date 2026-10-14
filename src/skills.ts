@@ -231,6 +231,16 @@ export function skillRows(listed: SkillsListed | null, repos: Lane[], word: stri
   return [...firsts, ...sorted.filter((r) => !firsts.includes(r))].slice(0, limit);
 }
 
+/** The skills a start's prompt is written with (`writtenFor`): those of the repo it starts in
+ *  (the row's, else the repo of `where`, as its skills were read for `repos`), the account's own,
+ *  and the row's. */
+export function startSkills(listed: SkillsListed | null, row: SkillRow, where: Lane, account: string | null, repos: Lane[]): Skill[] {
+  const repo = row.lane ?? repos.find((r) => r.project === where.project && r.repo === where.repo && !where.device) ?? null;
+  const ofRepo = (repo && listed?.folders.find((f) => f.folder === repo.path)?.skills) || [];
+  const ofAccount = listed?.accounts.find((a) => a.account === account)?.skills ?? [];
+  return [...ofRepo, ...ofAccount, row.skill];
+}
+
 /** Where a session started on a repo's skill goes, as new work goes anywhere (reusable.ts
  *  `newWorkIn`): a reusable worktree of the repo that holds no work, else its main worktree
  *  when that's reusable; with no reusable worktree at all, a new one off the main checkout. */

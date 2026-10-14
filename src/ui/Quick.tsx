@@ -83,7 +83,7 @@ import {
   withChosen,
 } from '../start';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
-import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, writtenFor, type Mention, type SkillRow } from '../skills';
+import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, startSkills, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
@@ -1096,9 +1096,7 @@ export function Quick() {
     if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow), placeNow);
     // Each skill's name goes as the account's agent takes it: the repo's skills and the account's
     // own, wherever they are in the prompt.
-    const repoSkills = skillNow?.lane ? listedSkills?.folders.find((f) => f.folder === skillNow.lane?.path)?.skills : undefined;
-    const accountSkills = listedSkills?.accounts.find((a) => a.account === account)?.skills ?? [];
-    const written = skillNow && harness && !over ? writtenFor(text, [...(repoSkills ?? []), ...accountSkills, skillNow.skill], harness) : text;
+    const written = skillNow && harness && !over ? writtenFor(text, startSkills(listedSkills, skillNow, where, account, repos), harness) : text;
     // Improve Codealong: the pictures of the windows go after what you wrote.
     const prompt = withShots(written);
     const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };

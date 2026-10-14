@@ -1,13 +1,13 @@
 //! Where Claude Code reads skills and commands from, and how often it ran each (read from
 //! 2.1.289's code and this Mac's folders, 2026-10-04): a `.claude` folder's `skills/<name>/
 //! SKILL.md` and `commands/**/*.md`; an account's own in its home, the ones claude.ai syncs into
-//! `skills/synced/<id>/` (run as `anthropic-skills:<name>`, or by the name alone), its enabled
-//! plugins' (run as `<plugin>:<name>`), and those of the plugins claude.ai syncs into
-//! `plugins/synced/<id>/<plugin>/` (the same, checked against 2.1.299's list of what it runs,
-//! 2026-10-14); and `skillUsage` in the account's state file. What its program holds is
+//! `skills/synced/<sign-in>/` (run as `anthropic-skills:<name>`, or by the name alone), its
+//! enabled plugins' (run as `<plugin>:<name>`), and those of the plugins claude.ai syncs into
+//! `plugins/synced/<sign-in>/<plugin>/` (the same, checked against 2.1.299's list of what it
+//! runs, 2026-10-14); and `skillUsage` in the account's state file. What its program holds is
 //! claude/builtin.rs's.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -27,34 +27,68 @@ const SYNCED: &str = "anthropic-skills";
 /// ones of those claude.ai syncs.
 pub fn of_account(home: &Path) -> Vec<Root> {
     let mut out = in_folder(home);
-    let folders = |dir: PathBuf| std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect::<Vec<_>>();
-    out.extend(folders(home.join("skills/synced")).into_iter().map(|p| Root::skills(p, 1).of_plugin(SYNCED)));
-    let read = |file: &str| std::fs::read_to_string(home.join(file)).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).unwrap_or(Value::Null);
+    let read_at = |path: PathBuf| std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).unwrap_or(Value::Null);
+    let read = |file: &str| read_at(home.join(file));
     let settings = read("settings.json");
     out.extend(plugin_roots(&read("plugins/installed_plugins.json"), &settings));
-    let synced: Vec<PathBuf> = folders(home.join("plugins/synced")).into_iter().flat_map(folders).filter(|p| p.join(".claude-plugin/plugin.json").is_file()).collect();
-    out.extend(synced_plugin_roots(&synced, &settings));
+    // What claude.ai syncs is for the sign-in, and only the one Claude Code is signed in with
+    // is loaded: the others' folders stay after a switch.
+    let Some(bucket) = synced_bucket(&read_at(state_file(home))) else { return out };
+    out.push(Root::skills(home.join("skills/synced").join(&bucket), 1).of_plugin(SYNCED));
+    let plugins: Vec<PathBuf> = std::fs::read_dir(home.join("plugins/synced").join(&bucket)).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.join(".claude-plugin/plugin.json").is_file()).collect();
+    out.extend(synced_plugin_roots(&plugins, &settings));
     out
 }
 
+/// The folder under `skills/synced` and `plugins/synced` that holds what claude.ai syncs for
+/// the sign-in in an account's state file (`oauthAccount`): `<org>_<account>`, lowercase, or
+/// `<org>_unbound` with no account (2.1.299's code). None without a claude.ai sign-in.
+fn synced_bucket(state: &Value) -> Option<String> {
+    let signed_in = &state["oauthAccount"];
+    let org = signed_in["organizationUuid"].as_str().filter(|o| !o.is_empty())?;
+    let account = signed_in["accountUuid"].as_str().filter(|a| !a.is_empty()).unwrap_or("unbound");
+    Some(format!("{}_{}", org.to_lowercase(), account.to_lowercase()))
+}
+
 /// The skills and commands of the plugins claude.ai syncs into an account, a folder each under
-/// its organization's (`plugins/synced/<org>_<account>/<plugin>/`, named by the folder), less
-/// the ones its settings turn off: each by `enabledPlugins` (`<plugin>@synced: false`), and all
-/// of them by `syncClaudeAiPlugins: false`.
+/// its sign-in's, less the ones its settings turn off: each by `enabledPlugins`
+/// (`<plugin>@synced: false`), and all of them by `syncClaudeAiPlugins: false`. An update
+/// that comes while the plugin is in use goes in a folder of its own, `<plugin>~g<n>` from 2 up,
+/// which Claude Code names without the `~g<n>` (2.1.299's code), so a plugin is the folder of
+/// its latest one.
 fn synced_plugin_roots(plugins: &[PathBuf], settings: &Value) -> Vec<Root> {
     if settings["syncClaudeAiPlugins"] == Value::Bool(false) {
         return Vec::new();
     }
-    let mut out = Vec::new();
+    let mut latest: BTreeMap<String, (u32, &PathBuf)> = BTreeMap::new();
     for dir in plugins {
-        let Some(name) = dir.file_name().and_then(|n| n.to_str()) else { continue };
+        let Some(folder) = dir.file_name().and_then(|n| n.to_str()) else { continue };
+        let (name, generation) = generation_of(folder);
+        if latest.get(name).is_none_or(|(had, _)| generation > *had) {
+            latest.insert(name.to_string(), (generation, dir));
+        }
+    }
+    let mut out = Vec::new();
+    for (name, (_, dir)) in latest {
         if settings["enabledPlugins"][format!("{name}@synced")] == Value::Bool(false) {
             continue;
         }
-        out.push(Root::skills(dir.join("skills"), 1).of_plugin(name));
-        out.push(Root::commands(dir.join("commands")).of_plugin(name));
+        out.push(Root::skills(dir.join("skills"), 1).of_plugin(&name));
+        out.push(Root::commands(dir.join("commands")).of_plugin(&name));
     }
     out
+}
+
+/// A synced folder's name and which update of it it is: `northwind~g3` is `northwind`'s third,
+/// `northwind` its first.
+fn generation_of(folder: &str) -> (&str, u32) {
+    match folder.rsplit_once("~g") {
+        Some((name, n)) if !n.starts_with('0') => match n.parse::<u32>() {
+            Ok(n) if n >= 2 => (name, n),
+            _ => (folder, 1),
+        },
+        _ => (folder, 1),
+    }
 }
 
 /// The skills and commands of the plugins an account has for every folder (`scope: "user"`),
@@ -112,6 +146,26 @@ mod tests {
         assert_eq!(synced_plugin_roots(&plugins, &settings), vec![Root::skills(PathBuf::from("/home/plugins/synced/org_me/northwind/skills"), 1).of_plugin("northwind"), Root::commands(PathBuf::from("/home/plugins/synced/org_me/northwind/commands")).of_plugin("northwind")]);
         assert_eq!(synced_plugin_roots(&plugins, &json!({ "syncClaudeAiPlugins": false })), vec![]);
         assert_eq!(synced_plugin_roots(&plugins, &Value::Null).len(), 4);
+    }
+
+    #[test]
+    fn a_synced_plugin_is_its_latest_update_by_its_own_name() {
+        let at = |folder: &str| PathBuf::from(format!("/b/{folder}"));
+        let plugins = [at("northwind~g3"), at("northwind"), at("northwind~g2"), at("odd~g1"), at("odd~gx")];
+        let roots = synced_plugin_roots(&plugins, &json!({ "enabledPlugins": { "northwind@synced": true } }));
+        let named: Vec<(String, PathBuf)> = roots.iter().filter(|r| matches!(r.kind, crate::skills::Kind::Skills { .. })).map(|r| (r.prefix.clone().unwrap(), r.dir.clone())).collect();
+        // `~g1` and `~gx` aren't updates: they're names of their own.
+        assert_eq!(named, vec![("odd~g1".to_string(), at("odd~g1/skills")), ("odd~gx".to_string(), at("odd~gx/skills")), ("northwind".to_string(), at("northwind~g3/skills"))]);
+        // Turned off by its own name, whichever update is latest.
+        assert!(synced_plugin_roots(&plugins[..3], &json!({ "enabledPlugins": { "northwind@synced": false } })).is_empty());
+    }
+
+    #[test]
+    fn only_the_signed_in_identitys_synced_folder_is_read() {
+        let state = json!({ "oauthAccount": { "organizationUuid": "9EE3D10E-670B-4826-AD22-BF58E90552CD", "accountUuid": "8c65f1dc-8ed1-4f7b-94d3-32793843845e" } });
+        assert_eq!(synced_bucket(&state).as_deref(), Some("9ee3d10e-670b-4826-ad22-bf58e90552cd_8c65f1dc-8ed1-4f7b-94d3-32793843845e"));
+        assert_eq!(synced_bucket(&json!({ "oauthAccount": { "organizationUuid": "abc" } })).as_deref(), Some("abc_unbound"));
+        assert_eq!(synced_bucket(&json!({})), None);
     }
 
     #[test]

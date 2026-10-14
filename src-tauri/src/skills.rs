@@ -131,11 +131,10 @@ pub fn list(folders: &[String], accounts: &[String], cfg: &Config) -> Listed {
     let paths: Vec<PathBuf> = folders.iter().map(|f| crate::util::expand(f)).collect();
     let mut read = WORKTREES.read(paths.iter().cloned(), HELD_WAIT);
     let folders = folders.iter().zip(&paths).map(|(folder, path)| FolderSkills { folder: folder.clone(), skills: merged(read.remove(path).unwrap_or_default(), &uses) }).collect();
-    let accounts = accounts
-        .iter()
-        .filter_map(|name| cfg.accounts.iter().find(|a| &a.name == name))
-        .map(|a| AccountSkills { account: a.name.clone(), skills: merged(read_account(a), &uses) })
-        .collect();
+    let accounts: Vec<&AccountCfg> = accounts.iter().filter_map(|name| cfg.accounts.iter().find(|a| &a.name == name)).collect();
+    // Every account's harness asked at once, so one waited for doesn't hold up another's ask.
+    warm(accounts.iter().copied());
+    let accounts = accounts.into_iter().map(|a| AccountSkills { account: a.name.clone(), skills: merged(read_account(a), &uses) }).collect();
     Listed { folders, accounts }
 }
 
@@ -180,10 +179,10 @@ fn read_account(account: &AccountCfg) -> Vec<(Harness, File)> {
     files.into_iter().chain(held).map(|f| (adapter.harness(), f)).collect()
 }
 
-/// Has each account's harness list what it holds, in the background, so the first `/` after
-/// Codealong starts finds it.
-pub fn warm(cfg: &Config) {
-    for a in &cfg.accounts {
+/// Has each account's harness list what it holds, in the background where that's due: as
+/// Codealong starts, so the first `/` finds it.
+pub fn warm<'a>(accounts: impl IntoIterator<Item = &'a AccountCfg>) {
+    for a in accounts {
         if let Some(adapter) = harness::of(a) {
             adapter.builtin_skills(a, Duration::ZERO);
         }
