@@ -630,6 +630,26 @@ pub fn parallel_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> Option<R> 
     })
 }
 
+/// Replaces `file` with `text` in one step, so nobody reads it half written: through a link to
+/// it, as the harnesses write theirs, and readable only by you, as they keep them.
+pub fn write_whole(file: &Path, text: &str) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let target = std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
+    let name = target.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let temp = target.with_file_name(format!("{name}.codealong-{}", std::process::id()));
+    let written = (|| -> std::io::Result<()> {
+        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&temp)?;
+        f.write_all(text.as_bytes())?;
+        f.sync_all()?;
+        std::fs::rename(&temp, &target)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    Ok(written?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

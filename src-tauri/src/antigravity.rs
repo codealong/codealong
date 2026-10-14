@@ -99,7 +99,7 @@ pub fn trust_folder(settings: &Path, folder: &Path, user_home: &Path) -> anyhow:
         Err(e) => return Err(e.into()),
     };
     let Some(next) = with_trusted(&text, &paths)? else { return Ok(false) };
-    crate::jsonedit::write_whole(settings, &next)?;
+    crate::util::write_whole(settings, &next)?;
     Ok(true)
 }
 

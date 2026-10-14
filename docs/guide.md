@@ -1121,10 +1121,13 @@ the prompt, on the account's default model; without a prompt it opens the app's 
 OpenCode starts in your terminal on your prompt (`--prompt`), and so does the Codex CLI, for any
 Codex account (`codex -- <prompt>`, images with `-i`), and Antigravity's command line, `agy`, once
 it's installed (`agy -i <prompt>`, on one of the models it lists); the Antigravity app starts
-conversations only in its own window. Codealong trusts the folder for `agy` first (its settings'
-`trustedWorkspaces`, the folder exactly as it's started in), as it trusts it for Claude Code: in a
-folder it hasn't trusted, `agy` stops to ask, and the prompt runs meanwhile with no workspace,
-asking before it reads each file of yours.
+conversations only in its own window. Codealong trusts the folder for the Codex CLI and `agy`
+first, as it does for Claude Code, since each stops to ask in a folder it hasn't trusted. For Codex
+that's an entry in the account's `config.toml` for the repo's main checkout, or for a folder in no
+repo (each chat's own); a folder Codex already has an answer for, trusted or not, is left alone.
+For `agy` it's its settings' `trustedWorkspaces`, the folder exactly as it's started in; without
+it the prompt runs behind the question with no workspace, asking before it reads each file of
+yours.
 
 #### In Codealong
 
@@ -1158,7 +1161,8 @@ doesn't ask), and the apps and OpenCode get their paths.
 
 **No project**, last in the worktree picker, starts a chat for a question that belongs to none of
 your repos: the session gets a folder of its own under `~/Library/Application
-Support/Codealong/chats` (trusted once for Claude Code, for all of them), and no new worktree. The
+Support/Codealong/chats` (trusted once for Claude Code, for all of them, and each one for Codex and
+`agy`, which trust a folder only by itself), and no new worktree. The
 chats are listed together in one lane, Chats, in Elsewhere, and `codealong start --chat` starts one.
 
 ### Improve Codealong

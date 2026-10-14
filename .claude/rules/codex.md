@@ -154,6 +154,14 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - The CLI inside the app bundle (0.158.0-alpha.2 in 26.924) can be older than the account's
   default model, which the API then refuses ("requires a newer version of Codex"); `-m` picks
   another. A new folder asks to be trusted, then about new or changed hooks.
+- Folder trust and trusting a folder before a start: `codex/trust.rs` (module header,
+  `trust_folder`), `Codex::before_start`. The terminal UI's question ("Folder access … Trust this
+  folder?", 1 Trust and continue, 2 Quit) shows when the folder has no entry; an entry written
+  from outside was taken (0.157.1, in tmux, 2026-10-13). Before it, the TUI can stop on two more
+  screens Codealong doesn't answer: "Cannot use the background server · Experimental feature
+  request failed" (1 Run without daemon this time, 2 Cancel, picked to begin with), when its
+  version can't use the running app-server daemon (0.157.1 against 0.162.1 here; the hidden
+  `--no-daemon` runs without it), and an "Update available" offer (Esc skips).
 - The CLI (Homebrew cask `codex`, `/opt/homebrew/bin/codex`) runs its TUI against a shared
   app-server daemon it spawns, `~/.codex/packages/app-server-daemon/releases/<version>/bin/codex
   app-server --listen unix:// --managed-daemon`, beside a `codex app-server daemon

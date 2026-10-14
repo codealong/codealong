@@ -14,6 +14,7 @@ mod rollout;
 mod side;
 mod terminals;
 mod training;
+mod trust;
 mod usage;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -353,6 +354,16 @@ impl crate::harness::Adapter for Codex {
     }
 
     // ---- Starting a thread ----
+
+    /// Trusts the folder for the account (`trust::trust_folder`): in a folder it has no answer
+    /// for, its terminal UI asks first whether to trust it, and a repo it hasn't been run in, or
+    /// any of Codealong's chats (each a folder of its own, in no repo), would stop there. You
+    /// chose the folder, as answering would. A start goes ahead without it, and Codex asks.
+    fn before_start(&self, account: &AccountCfg, folder: &Path) {
+        if let Err(e) = trust::trust_folder(&account.home_path().join("config.toml"), folder, &crate::util::home()) {
+            eprintln!("Couldn't trust {} for {}: {e:#}", crate::util::tilde(folder), account.name);
+        }
+    }
 
     /// Codex picks its own thread id. Its images go with `-i`, which takes several, so `--`
     /// ends them before the prompt; other files are paths it can read.

@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::jsonedit::{write_whole, Node};
+use crate::jsonedit::Node;
+use crate::util::write_whole;
 
 /// The file Claude Code keeps its own state in, the folders it trusts among it (2.1.285's code):
 /// `~/.claude.json` for the default folder and `<home>/.claude.json` for any other
