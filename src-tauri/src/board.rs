@@ -2032,6 +2032,7 @@ pub fn compose(inp: Inputs) -> Board {
         todos_unreadable: false,
         labels: Vec::new(),
         quick_shortcut: String::new(),
+        chat_shortcut: String::new(),
         waiting_shortcut: String::new(),
         improve_shortcut: String::new(),
         main_window_shortcut: String::new(),

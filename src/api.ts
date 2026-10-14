@@ -1482,6 +1482,8 @@ export interface QuickOpen {
    *  the pictures it took of the windows (`shots`, kept as attachments), on the board's
    *  `improve` project and worktree. */
   improve?: boolean | { shots: Attachment[] };
+  /** Starts in a chat of its own, in no project (`[shortcuts] chat`), in place of `laneId`. */
+  chat?: boolean;
   /** How tall the panel's window can be: from its top edge to the bottom of the screen's usable
    *  part. quick.rs adds it to every open. */
   room?: number;
@@ -1590,7 +1592,7 @@ export function windowLabel(): string | null {
 /** One of the shortcuts that work in every app, the quick panel's unless `which` says, and
  *  whether it works. */
 export async function quickShortcut(which: ShortcutStatus['which'] = 'quick'): Promise<ShortcutStatus> {
-  const preview: ShortcutStatus = { which, shortcut: { quick: 'Option+Cmd+/', waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;' }[which], error: null };
+  const preview: ShortcutStatus = { which, shortcut: { quick: 'Option+Cmd+/', chat: "Option+Cmd+'", waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;' }[which], error: null };
   if (!inTauri) return preview;
   return (await invoke<ShortcutStatus | null>('quick_shortcut', { which })) ?? preview;
 }

@@ -786,6 +786,7 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
         theme: config::theme(),
         zoom: config::zoom(),
         quick_shortcut: shortcuts.quick_panel,
+        chat_shortcut: shortcuts.chat,
         waiting_shortcut: shortcuts.waiting,
         improve_shortcut: shortcuts.improve,
         main_window_shortcut: shortcuts.main_window,
@@ -3279,6 +3280,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.theme = self.cfg.appearance.theme;
         board.zoom = self.cfg.appearance.zoom;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();
+        board.chat_shortcut = self.cfg.shortcuts.chat.clone();
         board.waiting_shortcut = self.cfg.shortcuts.waiting.clone();
         board.improve_shortcut = self.cfg.shortcuts.improve.clone();
         board.main_window_shortcut = self.cfg.shortcuts.main_window.clone();

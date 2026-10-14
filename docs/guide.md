@@ -1023,8 +1023,8 @@ still take what you send them. **Turn on** brings it back; **Remove** stops read
 
 ### Quick panel
 
-*⌥⌘/ from any app, over full-screen ones too; ⌘K, ⌘N, the title bar, the inspector, or a worktree's or
-session's right-click menu in Codealong*
+*⌥⌘/ from any app, over full-screen ones too, or ⌥⌘' set to a chat; ⌘K, ⌘N, the title bar, the
+inspector, or a worktree's or session's right-click menu in Codealong*
 
 One input, and below it what you can do next: it finds and starts, and answering is the waiting
 window's (below). With nothing typed it lists the sessions that need you, the longest wait first as
@@ -1053,8 +1053,11 @@ goes forward again. While you type, the list
 doesn't shrink until you pause and the answers are in, so the panel holds still. A click does a row
 only when you moved the pointer onto it: one the list moved under a pointer that stayed put (as
 suggestions and what was said come in) is selected by the click, and a second click does it. A
-project picker (⌘P) narrows everything to one project. The shortcut is yours to change in Settings
-› General; Settings names shortcuts macOS and common launchers already use.
+project picker (⌘P) narrows everything to one project. ⌥⌘' (`[shortcuts] chat`) opens the same
+panel with the worktree picker on No project, so what you type starts a chat of its own, in a folder
+of its own among Codealong's chats, rather than in a worktree; it finds sessions as ⌥⌘/ does, and
+the picker (⌘T) still goes to a worktree. The shortcuts are yours to change in Settings › General;
+Settings names shortcuts macOS and common launchers already use.
 
 ### Suggestions in the quick panel
 

@@ -158,6 +158,10 @@ pub struct Board {
     pub labels: Vec<crate::todos::Label>,
     /// The quick panel's shortcut, from config.toml; empty when it's off.
     pub quick_shortcut: String,
+    /// The shortcut that opens the quick panel set to a chat in no project, from config.toml;
+    /// empty when it's off.
+    #[serde(default)]
+    pub chat_shortcut: String,
     /// The shortcut that goes through what waits on you, from config.toml; empty when it's off.
     pub waiting_shortcut: String,
     /// Improve Codealong's shortcut, from config.toml; empty when it's off.

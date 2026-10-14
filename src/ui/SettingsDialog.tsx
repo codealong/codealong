@@ -793,6 +793,15 @@ const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts'
     says: 'Opens from any app, over full-screen ones too: the sessions that need you, a search, and a new session. ⌘N does the same in Codealong.',
   },
   {
+    which: 'chat',
+    key: 'chat',
+    title: 'Chat',
+    name: 'Chat shortcut',
+    called: 'the chat shortcut',
+    fallback: "Option+Cmd+'",
+    says: 'Opens the quick panel set to start a chat of its own, in no project, instead of in a worktree. It still finds sessions as you type.',
+  },
+  {
     which: 'waiting',
     key: 'waiting',
     title: 'What waits on you',

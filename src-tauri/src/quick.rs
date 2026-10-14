@@ -2,10 +2,11 @@
 //! the sessions that need you; typing finds sessions; its last row starts a new one with what
 //! you typed as the prompt. A shortcut that works in every app (`[shortcuts] quick_panel` in
 //! config.toml) opens it, and so do ⌘N and New session in the board's windows, at what's
-//! selected there. Answering what waits on you, one after another, is the waiting window's
-//! (waiting.rs), which a second shortcut (`[shortcuts] waiting`) brings up, unless the bar is
-//! docked in the notch: then the notch does that (`work_through`). Every shortcut that works in
-//! any app is kept here (`Keys`), whatever it opens.
+//! selected there; `[shortcuts] chat` opens it set to start a chat in no project. Answering what
+//! waits on you, one after another, is the waiting window's (waiting.rs), which another shortcut
+//! (`[shortcuts] waiting`) brings up, unless the bar is docked in the notch: then the notch does
+//! that (`work_through`). Every shortcut that works in any app is kept here (`Keys`), whatever it
+//! opens.
 //!
 //! Like the floating bar it's a non-activating panel: macOS shows only those on another app's
 //! full-screen Space, and opening one leaves the app you're in active, with Codealong's windows
@@ -59,30 +60,33 @@ struct Quick {
     /// The open the page hasn't answered yet.
     waiting: Mutex<Option<u64>>,
     shortcut: Mutex<ShortcutState>,
+    chat_shortcut: Mutex<ShortcutState>,
     waiting_shortcut: Mutex<ShortcutState>,
     improve_shortcut: Mutex<ShortcutState>,
     main_shortcut: Mutex<ShortcutState>,
 }
 
-/// Codealong's shortcuts that work in every app: the quick panel's, the one that goes through
-/// what waits on you, Improve Codealong's (improve.rs), and the one that brings the board's window
-/// forward (front.rs `toggle_board`).
+/// Codealong's shortcuts that work in every app: the quick panel's, the one that opens it set to a
+/// chat in no project, the one that goes through what waits on you, Improve Codealong's
+/// (improve.rs), and the one that brings the board's window forward (front.rs `toggle_board`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Keys {
     Quick,
+    Chat,
     Waiting,
     Improve,
     Main,
 }
 
 impl Keys {
-    pub const ALL: [Keys; 4] = [Keys::Quick, Keys::Waiting, Keys::Improve, Keys::Main];
+    pub const ALL: [Keys; 5] = [Keys::Quick, Keys::Chat, Keys::Waiting, Keys::Improve, Keys::Main];
 
     /// Its shortcut as `[shortcuts]` in config.toml has it.
     pub fn in_config(self, cfg: &crate::config::ShortcutsCfg) -> &str {
         match self {
             Keys::Quick => &cfg.quick_panel,
+            Keys::Chat => &cfg.chat,
             Keys::Waiting => &cfg.waiting,
             Keys::Improve => &cfg.improve,
             Keys::Main => &cfg.main_window,
@@ -93,6 +97,7 @@ impl Keys {
     pub fn on_board(self, board: &crate::model::Board) -> &str {
         match self {
             Keys::Quick => &board.quick_shortcut,
+            Keys::Chat => &board.chat_shortcut,
             Keys::Waiting => &board.waiting_shortcut,
             Keys::Improve => &board.improve_shortcut,
             Keys::Main => &board.main_window_shortcut,
@@ -104,6 +109,7 @@ impl Quick {
     fn slot(&self, which: Keys) -> &Mutex<ShortcutState> {
         match which {
             Keys::Quick => &self.shortcut,
+            Keys::Chat => &self.chat_shortcut,
             Keys::Waiting => &self.waiting_shortcut,
             Keys::Improve => &self.improve_shortcut,
             Keys::Main => &self.main_shortcut,
@@ -331,6 +337,12 @@ pub fn toggle(app: &AppHandle) {
     toggle_for(app, Value::Null);
 }
 
+/// The chat shortcut: opens the panel set to start a chat of its own, in no project, or closes
+/// the panel when it's up. On the main thread.
+pub fn toggle_chat(app: &AppHandle) {
+    toggle_for(app, serde_json::json!({ "chat": true }));
+}
+
 /// Opens the panel for `context`, or hides it if it's up.
 fn toggle_for(app: &AppHandle, context: Value) {
     match app.get_webview_window(LABEL) {
@@ -361,6 +373,8 @@ pub fn pressed(app: &AppHandle, shortcut: &Shortcut) {
         work_through(app);
     } else if is(Keys::Quick) {
         toggle(app);
+    } else if is(Keys::Chat) {
+        toggle_chat(app);
     } else if is(Keys::Improve) {
         crate::improve::toggle(app);
     } else if is(Keys::Main) {
@@ -503,6 +517,8 @@ mod tests {
         assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Period));
         let s = parse_shortcut(crate::config::DEFAULT_MAIN_WINDOW).unwrap().unwrap();
         assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Semicolon));
+        let s = parse_shortcut(crate::config::DEFAULT_CHAT).unwrap().unwrap();
+        assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Quote));
         assert!(parse_shortcut("").unwrap().is_none());
         assert!(parse_shortcut("  ").unwrap().is_none());
         // A function key can stand alone; Command and Space is allowed, for people who moved Spotlight.

@@ -268,6 +268,8 @@ export function Quick() {
   // Improve Codealong (improve.ts): the pictures of the windows the engine took as it opened the
   // panel, which go into the prompt; null when the panel is open for anything else.
   const [improve, setImprove] = useState<{ shots: Attachment[] } | null>(null);
+  // Opened by the chat shortcut, for the hint that names it.
+  const [asChat, setAsChat] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // What a menu's action did (copied, closed), for a moment.
   const [info, setInfo] = useState<string | null>(null);
@@ -347,7 +349,9 @@ export function Quick() {
         const improving = ctx.improve && typeof ctx.improve === 'object' ? ctx.improve : null;
         setImprove(improving);
         improveFollowed.current = false;
-        const at = improving ? (b?.improve?.laneId ?? null) : (ctx.laneId ?? null);
+        // The chat shortcut opens on Codealong's chats, which the worktree picker calls No project.
+        setAsChat(!!ctx.chat);
+        const at = improving ? (b?.improve?.laneId ?? null) : ctx.chat ? (b?.lanes.find((l) => l.startsChats)?.id ?? null) : (ctx.laneId ?? null);
         setProject(improving && b?.improve?.project ? b.improve.project : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));
         setLaneId(at);
         setTodoIds(ctx.todos ?? (ctx.todo ? [ctx.todo] : []));
@@ -1526,8 +1530,9 @@ export function Quick() {
   };
   // Another Mac's accounts come a moment after it's picked, or not at all.
   const agentChip = agentChipWords({ auto: autoFor, account, accounts: accounts.length, remote: deviceNow ? { read: !!startOptionsNow, error: remote?.error ?? null } : null, model: modelShown, effortWord });
-  // The hint names the shortcut that opened the panel this way: Improve Codealong's when improving.
-  const shortcut = shortcutLabel(improve ? board?.improveShortcut : board?.quickShortcut);
+  // The hint names the shortcut that opened the panel this way: Improve Codealong's when improving,
+  // the chat one when it opened on a chat.
+  const shortcut = shortcutLabel(improve ? board?.improveShortcut : asChat ? board?.chatShortcut : board?.quickShortcut);
 
   // PR links in the list's rows (PrLink.tsx): a PR, or a session on its card, shows in the main
   // window, as ⏎ on a row does.

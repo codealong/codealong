@@ -387,6 +387,7 @@ From any app (change them in Settings › General):
 | Keys | What they do |
 | --- | --- |
 | ⌥⌘/ | The quick panel: find anything, start a session |
+| ⌥⌘' | The quick panel set to start a chat of its own, in no project |
 | ⌥⌘. | Work through what waits on you, in the notch or the *Waiting on you* window |
 | ⌥⌘, | Improve Codealong: the quick panel on Codealong's own project, with pictures of its windows |
 | ⌥⌘; | Codealong's window, the one you were in last; pressed there, it hides Codealong |
@@ -475,6 +476,7 @@ zoom = 110                     # the windows and the cards in the notch and peek
 
 [shortcuts]
 quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)
+chat = "Option+Cmd+'"               # the quick panel set to start a chat of its own, in no project
 waiting = "Option+Cmd+."            # the first session that waits on you: the notch, or the waiting window
 improve = "Option+Cmd+,"            # the quick panel to improve Codealong itself, with pictures of its windows
 main_window = "Option+Cmd+;"        # Codealong's window you were in last; pressed there, hides Codealong

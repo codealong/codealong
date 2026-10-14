@@ -26,6 +26,7 @@ export type TipPlace = 'board' | 'session' | 'waiting' | 'quick' | 'pr';
  *  writes them (`Option+Cmd+/`); empty or missing when off or not working. */
 export interface TipShortcuts {
   quick?: string;
+  chat?: string;
   waiting?: string;
   improve?: string;
   main?: string;
@@ -55,6 +56,7 @@ function says(text: TemplateStringsArray, ...put: Exclude<TipPart, string>[]): T
 const key = (chord: string | undefined) => ({ chord: chord ?? '' });
 const code = (text: string) => ({ code: text });
 const QUICK = { shortcut: 'quick' } as const;
+const CHAT = { shortcut: 'chat' } as const;
 const WAITING = { shortcut: 'waiting' } as const;
 const IMPROVE = { shortcut: 'improve' } as const;
 const MAIN = { shortcut: 'main' } as const;
@@ -68,6 +70,7 @@ const SESSION_KEYS: readonly TipPlace[] = ['board', 'session', 'waiting'];
 
 export const TIPS: readonly Tip[] = [
   { id: 'quick-panel', places: ['board', 'session', 'waiting', 'pr'], says: says`${QUICK} opens the quick panel from any app: type a few words to find a session, or a prompt to start one.` },
+  { id: 'chat-shortcut', places: ['board', 'session', 'waiting', 'pr'], says: says`${CHAT} opens the quick panel on a chat of its own, in no project: for a question that needs no repo.` },
   { id: 'improve', places: ['board', 'session', 'waiting', 'pr'], says: says`${IMPROVE} starts a session that improves Codealong itself, with pictures of its windows as they are: describe what to change.` },
   { id: 'waiting-window', places: ['board', 'session', 'quick', 'pr'], says: says`${WAITING} goes through what waits on you, one at a time, from any app.` },
   { id: 'main-window', places: ['board', 'session', 'waiting', 'quick', 'pr'], says: says`${MAIN} brings Codealong's window to the front from any app, and hides Codealong when you're in it.` },
