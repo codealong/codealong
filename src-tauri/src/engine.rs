@@ -3245,6 +3245,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         board.perf_log = perf::enabled();
         board.todos = self.todos.todos.clone();
+        board.todos_unreadable = self.todos_unreadable;
         board.labels = self.todos.labels.clone();
         if self.cfg.jev.todos {
             board.todo_hints = self.jev_todos.hints(&board, &self.todos.todos);

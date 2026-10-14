@@ -1991,6 +1991,7 @@ pub fn compose(inp: Inputs) -> Board {
         zoom: crate::zoom::ACTUAL,
         perf_log: false,
         todos: Vec::new(),
+        todos_unreadable: false,
         labels: Vec::new(),
         quick_shortcut: String::new(),
         waiting_shortcut: String::new(),

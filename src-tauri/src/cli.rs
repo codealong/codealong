@@ -1132,7 +1132,10 @@ impl Client {
         self.note();
         if self.app.is_some() {
             let b = self.board()?;
-            return Ok(TodoStore { todos: b.todos.clone(), labels: b.labels.clone() });
+            // Until its first scan ends, the app's board has no todos yet; the file has them.
+            if !b.loading {
+                return Ok(TodoStore { todos: b.todos.clone(), labels: b.labels.clone() });
+            }
         }
         Ok(todos::load()?.0)
     }
@@ -4330,7 +4333,13 @@ fn changes(c: &mut Client, a: &ChangesArgs, json: bool) -> Result<()> {
         (true, true, Some(title)) => notes.push(format!("PRs may be behind: {title}.")),
         _ => {}
     }
-    let sight = ch::Sight { board, sessions: !board.loading, prs: from_app && board.github_polled, me: me.as_deref(), project: a.project.as_deref() };
+    match (board.loading, board.todos_unreadable) {
+        (true, _) => notes.push("Todos: the app is still reading them after a start; nothing about them is told until it's done.".into()),
+        (false, true) => notes.push("Todos: todos.json doesn't read, so they're told once it does.".into()),
+        _ => {}
+    }
+    let todos = !board.loading && !board.todos_unreadable;
+    let sight = ch::Sight { board, sessions: !board.loading, prs: from_app && board.github_polled, todos, me: me.as_deref(), project: a.project.as_deref() };
     let (mut out, look) = ch::compare(&sight, earlier.as_ref(), since_ms, now);
     out.cursor = ch::keep(look)?;
     notes.append(&mut out.notes);

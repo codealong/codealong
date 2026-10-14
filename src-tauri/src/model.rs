@@ -146,6 +146,10 @@ pub struct Board {
     pub perf_log: bool,
     /// Every todo, in your order.
     pub todos: Vec<crate::todos::Todo>,
+    /// todos.json didn't read the last time it was read: `todos` is what it held before, or
+    /// none since the app started. Until the first scan ends (`loading`) there are none either.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub todos_unreadable: bool,
     /// Todo labels, in your order.
     pub labels: Vec<crate::todos::Label>,
     /// The quick panel's shortcut, from config.toml; empty when it's off.

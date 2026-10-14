@@ -14,9 +14,10 @@
 //! merged or closed since then.
 //!
 //! A part that can't be read this time (PRs without the app or before GitHub's first poll;
-//! sessions while the app's first scan runs) is said so, and the earlier look's part is kept for
-//! it, so nothing in it shows as new once it reads again. A PR a board with PRs stops listing (its
-//! repo didn't answer) keeps its mark the same way, for a week.
+//! sessions and todos while the app's first scan runs; todos while todos.json doesn't read) is
+//! said so, and the earlier look's part is kept for it, so nothing in it shows as new, or as
+//! gone, once it reads again. A PR a board with PRs stops listing (its repo didn't answer) keeps
+//! its mark the same way, for a week.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -323,6 +324,9 @@ pub struct Sight<'a> {
     pub sessions: bool,
     /// The PRs are there: the board is the app's, and GitHub has answered.
     pub prs: bool,
+    /// The todos are there: the app's first scan has ended, and todos.json read. A board without
+    /// them has none, and every todo would look removed.
+    pub todos: bool,
     /// The session asking, which is left out.
     pub me: Option<&'a str>,
     /// Only this project's changes are told; every item is still marked.
@@ -428,22 +432,26 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
 
     // Todos.
     let todo_part = earlier.and_then(|l| l.todos.as_ref());
-    let from = since_of(todo_part.map(|p| p.at));
-    let mut marks = BTreeMap::new();
-    for t in &board.todos {
-        if in_project(&t.project) {
-            if let Some(change) = todo_change(t, todo_part.and_then(|p| p.marks.get(&t.id)), from) {
-                out.todos.push(todo_row(change, t));
+    if sight.todos {
+        let from = since_of(todo_part.map(|p| p.at));
+        let mut marks = BTreeMap::new();
+        for t in &board.todos {
+            if in_project(&t.project) {
+                if let Some(change) = todo_change(t, todo_part.and_then(|p| p.marks.get(&t.id)), from) {
+                    out.todos.push(todo_row(change, t));
+                }
+            }
+            marks.insert(t.id.clone(), TodoMark { status: t.status, waiting: t.waiting.is_some(), title: t.title.clone() });
+        }
+        for (id, m) in todo_part.map(|p| &p.marks).into_iter().flatten() {
+            if !marks.contains_key(id) && sight.project.is_none() {
+                out.todos.push(TodoRow { change: TodoChange::Removed, id: id.clone(), title: m.title.clone(), status: m.status, project: String::new(), waiting: None });
             }
         }
-        marks.insert(t.id.clone(), TodoMark { status: t.status, waiting: t.waiting.is_some(), title: t.title.clone() });
+        look.todos = Some(Part { at: now, marks, repos: BTreeMap::new() });
+    } else {
+        look.todos = todo_part.cloned();
     }
-    for (id, m) in todo_part.map(|p| &p.marks).into_iter().flatten() {
-        if !marks.contains_key(id) && sight.project.is_none() {
-            out.todos.push(TodoRow { change: TodoChange::Removed, id: id.clone(), title: m.title.clone(), status: m.status, project: String::new(), waiting: None });
-        }
-    }
-    look.todos = Some(Part { at: now, marks, repos: BTreeMap::new() });
 
     // Worktrees that agents share.
     if sight.sessions {
@@ -854,7 +862,7 @@ mod tests {
     #[test]
     fn a_repo_that_isnt_current_holds_its_time_while_others_move_on() {
         let other = |n: u64, state: PrState| PrItem { key: format!("x/y#{n}"), repo_slug: "x/y".into(), ..pr(n, state) };
-        let sight = |b| Sight { board: b, sessions: true, prs: true, me: None, project: None };
+        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None };
         let current = |or: i64, xy: Option<i64>| [("o/r".to_string(), Some(or)), ("x/y".to_string(), xy)].into_iter().collect();
         // The first look comes while x/y has never been read: it goes from where the look begins.
         let closed = PrItem { closed_at: Some(NOW - DAY_MS), ..other(3, PrState::Closed) };
@@ -877,7 +885,7 @@ mod tests {
 
     #[test]
     fn a_repo_never_read_keeps_where_the_first_look_began() {
-        let sight = |b| Sight { board: b, sessions: true, prs: true, me: None, project: None };
+        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None };
         // x/y is polled but its read has never come, and the board has no PRs of it.
         let unread = |at: i64| Board { github_at: Some(at), github_current: [("o/r".to_string(), Some(at)), ("x/y".to_string(), None)].into_iter().collect(), ..board(vec![], vec![]) };
         let (first_board, second_board) = (unread(NOW - 10 * MIN), unread(NOW + 5 * MIN));
@@ -893,7 +901,7 @@ mod tests {
 
     #[test]
     fn a_pr_changes_only_by_github_word_newer_than_its_mark() {
-        let sight = |b| Sight { board: b, sessions: true, prs: true, me: None, project: None };
+        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None };
         let at = |t: i64, p: PrItem| Board { github_at: Some(t), github_current: [("o/r".to_string(), Some(t))].into_iter().collect(), ..board(vec![], vec![p]) };
         let read = at(NOW - 10 * MIN, pr(1, PrState::Open));
         let (_, first) = compare(&sight(&read), None, NOW - 15 * MIN, NOW);
@@ -917,7 +925,7 @@ mod tests {
         // The board stops listing a closed PR (its repo fails after a restart): its mark stays for a
         // week, so its reopening is told once it's back.
         let closed = PrItem { closed_at: Some(NOW - DAY_MS), ..pr(4, PrState::Closed) };
-        let sight = |b| Sight { board: b, sessions: true, prs: true, me: None, project: None };
+        let sight = |b| Sight { board: b, sessions: true, prs: true, todos: true, me: None, project: None };
         let (listed, gone, back) = (board(vec![], vec![closed]), board(vec![], vec![]), board(vec![], vec![pr(4, PrState::Open)]));
         let (_, first) = compare(&sight(&listed), None, NOW - 15 * MIN, NOW);
         let (_, second) = compare(&sight(&gone), Some(&first), first.at, NOW + MIN);
@@ -929,11 +937,11 @@ mod tests {
     fn prs_are_as_of_when_github_last_answered_so_an_outage_hides_nothing() {
         // GitHub stopped answering an hour ago; a PR opened during it shows once it answers again.
         let stale = Board { github_at: Some(NOW - 60 * MIN), ..board(vec![], vec![pr(1, PrState::Open)]) };
-        let (_, first) = compare(&Sight { board: &stale, sessions: true, prs: true, me: None, project: None }, None, NOW - 2 * 60 * MIN, NOW);
+        let (_, first) = compare(&Sight { board: &stale, sessions: true, prs: true, todos: true, me: None, project: None }, None, NOW - 2 * 60 * MIN, NOW);
         assert_eq!(first.prs.as_ref().unwrap().at, NOW - 60 * MIN);
         let opened = PrItem { created_at: NOW - 30 * MIN, ..pr(2, PrState::Open) };
         let back = Board { github_at: Some(NOW + MIN), ..board(vec![], vec![pr(1, PrState::Open), opened]) };
-        let (out, _) = compare(&Sight { board: &back, sessions: true, prs: true, me: None, project: None }, Some(&first), first.at, NOW + 2 * MIN);
+        let (out, _) = compare(&Sight { board: &back, sessions: true, prs: true, todos: true, me: None, project: None }, Some(&first), first.at, NOW + 2 * MIN);
         assert_eq!(out.prs.unwrap().iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("o/r#2", PrChange::Opened)]);
     }
 
@@ -945,7 +953,7 @@ mod tests {
     fn prs_that_cant_be_read_keep_the_earlier_marks_so_nothing_comes_back_new() {
         let since = NOW - 15 * MIN;
         let b = board(vec![], vec![PrItem { created_at: NOW - 20 * MIN, ..pr(1, PrState::Open) }]);
-        let sight = |prs| Sight { board: &b, sessions: true, prs, me: None, project: None };
+        let sight = |prs| Sight { board: &b, sessions: true, prs, todos: true, me: None, project: None };
         let (_, first) = compare(&sight(true), None, NOW - 30 * MIN, since);
         assert!(first.prs.as_ref().unwrap().marks.contains_key("o/r#1"));
         // GitHub doesn't answer: PRs aren't told, and the marks stay.
@@ -954,7 +962,7 @@ mod tests {
         assert_eq!(second.prs, first.prs);
         // A board whose PRs miss one (its repo didn't answer) keeps its mark; when it's back, it isn't new.
         let empty = board(vec![], vec![]);
-        let (_, third) = compare(&Sight { board: &empty, sessions: true, prs: true, me: None, project: None }, Some(&second), second.at, NOW + MIN);
+        let (_, third) = compare(&Sight { board: &empty, sessions: true, prs: true, todos: true, me: None, project: None }, Some(&second), second.at, NOW + MIN);
         assert!(third.prs.as_ref().unwrap().marks.contains_key("o/r#1"));
         let (out, _) = compare(&sight(true), Some(&third), third.at, NOW + 2 * MIN);
         assert_eq!(out.prs, Some(vec![]));
@@ -964,17 +972,17 @@ mod tests {
     fn sessions_are_left_alone_until_the_app_has_read_them() {
         let b = board(vec![s("a", Status::Unread, NOW - MIN)], vec![]);
         let earlier = Look { at: NOW - 15 * MIN, sessions: Some(Part { at: NOW - 15 * MIN, marks: BTreeMap::from([("a".to_string(), mark(Status::Working, NOW - MIN))]), repos: BTreeMap::new() }), ..Look::default() };
-        let (out, look) = compare(&Sight { board: &b, sessions: false, prs: false, me: None, project: None }, Some(&earlier), earlier.at, NOW);
+        let (out, look) = compare(&Sight { board: &b, sessions: false, prs: false, todos: true, me: None, project: None }, Some(&earlier), earlier.at, NOW);
         assert!(out.sessions.is_empty() && !out.notes.is_empty());
         assert_eq!(look.sessions, earlier.sessions);
-        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, me: None, project: None }, Some(&earlier), earlier.at, NOW);
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None }, Some(&earlier), earlier.at, NOW);
         assert_eq!(out.sessions.iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("a", SessionChange::Finished)]);
     }
 
     #[test]
     fn the_asking_session_is_left_out_and_what_waits_is_listed() {
         let b = board(vec![s("me", Status::Unread, NOW - MIN), s("b", Status::Needs, NOW - MIN), s("c", Status::Unread, NOW - DAY_MS)], vec![]);
-        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, me: Some("me"), project: None }, None, NOW - 15 * MIN, NOW);
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: Some("me"), project: None }, None, NOW - 15 * MIN, NOW);
         assert_eq!(out.sessions.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), vec!["b"]);
         let waiting: Vec<(&str, bool)> = out.waiting.iter().map(|w| (w.key.as_str(), w.changed)).collect();
         assert_eq!(waiting, vec![("c", false), ("b", true)]);
@@ -987,7 +995,7 @@ mod tests {
         let idle_long = Session { live: false, ..s("c", Status::Idle, NOW - DAY_MS) };
         let alone = board(vec![one.clone(), idle_long.clone()], vec![]);
         let both = board(vec![one, two, idle_long], vec![]);
-        let sight = |b| Sight { board: b, sessions: true, prs: false, me: None, project: None };
+        let sight = |b| Sight { board: b, sessions: true, prs: false, todos: true, me: None, project: None };
         let (out, first) = compare(&sight(&alone), None, NOW - 15 * MIN, NOW - 10 * MIN);
         assert!(out.shared.is_empty());
         let (out, second) = compare(&sight(&both), Some(&first), first.at, NOW);
@@ -1007,7 +1015,7 @@ mod tests {
             ],
             ..Board::default()
         };
-        let (out, look) = compare(&Sight { board: &b, sessions: true, prs: false, me: None, project: None }, None, NOW - 15 * MIN, NOW);
+        let (out, look) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None }, None, NOW - 15 * MIN, NOW);
         assert_eq!(out.sessions.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), vec!["a"]);
         let counted: Vec<(&str, usize, usize)> = out.headless.iter().map(|h| (h.callsign.as_str(), h.runs, h.working)).collect();
         assert_eq!(counted, vec![("tmp/judge", 3, 2), ("r", 1, 1)]);
@@ -1017,8 +1025,25 @@ mod tests {
         assert!(Changes { sessions: vec![], ..out.clone() }.quiet(), "headless runs alone are quiet");
         // Marked like any session, so the next look tells only what changed again.
         assert!(look.sessions.as_ref().unwrap().marks.contains_key("j3"));
-        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, me: None, project: None }, Some(&look), look.at, NOW + MIN);
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None }, Some(&look), look.at, NOW + MIN);
         assert!(out.headless.is_empty());
+    }
+
+    #[test]
+    fn todos_are_left_alone_until_they_can_be_read() {
+        let mut b = board(vec![], vec![]);
+        b.todos = vec![todo("t1"), Todo { status: TodoStatus::Done, ..todo("t2") }];
+        let sight = |b, todos| Sight { board: b, sessions: true, prs: false, todos, me: None, project: None };
+        let (_, first) = compare(&sight(&b, true), None, NOW - 15 * MIN, NOW - 10 * MIN);
+        assert_eq!(first.todos.as_ref().unwrap().marks.len(), 2);
+        // Right after a restart the app's board has no todos yet: none is gone, and the marks stay.
+        let starting = board(vec![], vec![]);
+        let (out, second) = compare(&sight(&starting, false), Some(&first), first.at, NOW);
+        assert!(out.todos.is_empty());
+        assert_eq!(second.todos, first.todos);
+        // Once they read, nothing comes back as added.
+        let (out, _) = compare(&sight(&b, true), Some(&second), second.at, NOW + MIN);
+        assert!(out.todos.is_empty());
     }
 
     #[test]
