@@ -238,7 +238,7 @@ struct TerminalReadArgs {
     #[arg(long, default_value_t = 0)]
     skip: usize,
     /// Only the lines with this text in them, case aside.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     grep: Option<String>,
     /// Wait this long at most for new output first: 10s, 2m.
     #[arg(long)]
@@ -349,9 +349,10 @@ struct TodoListArgs {
 #[derive(Args, Debug)]
 struct TodoAddArgs {
     /// One line.
+    #[arg(allow_hyphen_values = true)]
     title: String,
     /// Plain text. Markdown reads fine in the app.
-    #[arg(long, short = 'd', conflicts_with = "description_file")]
+    #[arg(long, short = 'd', conflicts_with = "description_file", allow_hyphen_values = true)]
     description: Option<String>,
     /// Read the description from a file, or from stdin with `-`.
     #[arg(long, value_name = "FILE")]
@@ -375,7 +376,7 @@ struct TodoAddArgs {
     #[arg(long, value_name = "ID")]
     depends_on: Vec<String>,
     /// Mark it as waiting from the start, on this: a person's answer, a release, a date.
-    #[arg(long, value_name = "WHAT")]
+    #[arg(long, value_name = "WHAT", allow_hyphen_values = true)]
     wait_for: Option<String>,
     /// The day it's due: a date (2026-10-03), today, tomorrow, a weekday (the next one), next week, or 3d / 2w from today.
     #[arg(long, value_name = "WHEN")]
@@ -385,10 +386,10 @@ struct TodoAddArgs {
 #[derive(Args, Debug)]
 struct TodoUpdateArgs {
     id: String,
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     title: Option<String>,
     /// Replaces the description. Keep any attachment references you want to keep.
-    #[arg(long, short = 'd', conflicts_with = "description_file")]
+    #[arg(long, short = 'd', conflicts_with = "description_file", allow_hyphen_values = true)]
     description: Option<String>,
     /// Read the new description from a file, or stdin with `-`.
     #[arg(long, value_name = "FILE")]
@@ -422,7 +423,7 @@ struct TodoUpdateArgs {
 struct WaitArgs {
     id: String,
     /// What it waits for, in a few words. Keeps the note it has when left out.
-    #[arg(long = "for", value_name = "WHAT")]
+    #[arg(long = "for", value_name = "WHAT", allow_hyphen_values = true)]
     what: Option<String>,
 }
 
@@ -555,6 +556,7 @@ enum SessionCmd {
     Rename {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,
+        #[arg(allow_hyphen_values = true)]
         name: String,
     },
     /// Fork a session into a copy that goes on in the background, as /fork in its box in Codealong does: a Claude Code background job, an OpenCode session, or a Codex thread Codealong runs (that one needs the app running). The session carries on unaware. Given a prompt, the copy starts on it; without one it waits for its first message. Prints the copy's key when its harness says it at once.
@@ -562,6 +564,7 @@ enum SessionCmd {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,
         /// What the copy starts on.
+        #[arg(allow_hyphen_values = true)]
         prompt: Option<String>,
     },
     /// For the Codealong plugin's hooks, with the hook's input on stdin. `permission-request`
@@ -577,7 +580,7 @@ struct SendArgs {
     /// The session: its key, its id, or a unique start of its id.
     key: String,
     /// The message. Or --message-file.
-    #[arg(conflicts_with = "message_file")]
+    #[arg(conflicts_with = "message_file", allow_hyphen_values = true)]
     message: Option<String>,
     /// Read the message from a file, or from stdin with `-`.
     #[arg(long, value_name = "FILE")]
@@ -622,7 +625,7 @@ struct SuggestArgs {
     #[arg(required_unless_present_any = ["clear", "picks"])]
     replies: Vec<String>,
     /// For a session that asks questions: the choice to pick for its user, by its label as `session pending` shows it, in place of replies, and why, in a few words (at most 120 characters), shown beside it. Once for each question, or more for one that takes several (one why for each question); write `<header>: <label>` for a label more than one question offers.
-    #[arg(long = "pick", value_names = ["CHOICE", "WHY"], num_args = 1..=2, action = ArgAction::Append, conflicts_with = "replies", requires = "pending")]
+    #[arg(long = "pick", value_names = ["CHOICE", "WHY"], num_args = 1..=2, action = ArgAction::Append, conflicts_with = "replies", requires = "pending", allow_hyphen_values = true)]
     picks: Vec<String>,
     /// Why each of `picks`, in their order, empty where a --pick gave none (`parse_from`).
     #[arg(skip)]
@@ -631,7 +634,7 @@ struct SuggestArgs {
     #[arg(long, value_name = "ID", requires = "picks")]
     pending: Option<String>,
     /// Why, or what to weigh before picking, in a sentence or two; shown with them.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     note: Option<String>,
     /// The session's `lastPromptAt` as you read it: `session transcript` prints it with what it read, as do `sessions` and `session show`. The replies are turned down if it's been sent a prompt since, since they'd answer the turn before, and shown only until it's sent another.
     #[arg(long, value_name = "MS", required_unless_present = "clear")]
@@ -661,7 +664,7 @@ struct TagArgs {
     #[arg(long, value_name = "KIND", value_parser = clap::builder::PossibleValuesParser::new(insights::BACKGROUND.map(|(k, _)| k)))]
     background: Option<String>,
     /// Why, in a sentence or two; shown with the tag.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     note: Option<String>,
     /// The session's `lastPromptAt` as you read it: `session transcript` prints it with what it read, as do `sessions` and `session show`. The tag is turned down if it's been sent a prompt since, since it would read the turn before, and shown only until it's sent another.
     #[arg(long, value_name = "MS", required_unless_present = "clear")]
@@ -830,7 +833,7 @@ struct StartArgs {
     #[arg(long, conflicts_with = "prompt")]
     todo: Vec<String>,
     /// The prompt, when not starting a todo.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     prompt: Option<String>,
     /// Start it on a todo whose primary session is running, and make the new session the primary one. Without it, a session running this command that isn't that one is turned down; one started from a terminal works alongside it.
     #[arg(long, conflicts_with = "prompt")]
@@ -933,8 +936,14 @@ pub fn is_cli(args: &[String]) -> bool {
 
 /// Reads the command line. A --pick of `session suggest` is a choice and, after it, why: clap
 /// keeps an argument's values in one list, so which go together is read from its occurrences.
+///
+/// Free text may start with a hyphen, as agents quote commands in what they write (`--ff-only is
+/// safe here`): an argument that takes it allows hyphens, so clap takes such a word as its value
+/// rather than as an unknown flag. That works for an argument of one value. `session suggest`'s
+/// replies take several, and allowing hyphens there would have them take the flags after them as
+/// replies too, so its words are put in order first (`replies_last`).
 fn parse_from<T: Into<std::ffi::OsString> + Clone>(args: impl IntoIterator<Item = T>) -> Result<Cli, clap::Error> {
-    let matches = Cli::command().try_get_matches_from(args)?;
+    let matches = Cli::command().try_get_matches_from(replies_last(args.into_iter().map(Into::into).collect()))?;
     let mut cli = Cli::from_arg_matches(&matches)?;
     if let Cmd::Session { cmd: SessionCmd::Suggest(a) } = &mut cli.cmd {
         let picked: Vec<Vec<String>> = matches
@@ -947,6 +956,57 @@ fn parse_from<T: Into<std::ffi::OsString> + Clone>(args: impl IntoIterator<Item 
         a.why = picked.iter().map(|p| p.get(1).cloned().unwrap_or_default()).collect();
     }
     Ok(cli)
+}
+
+/// `session suggest`'s words with its flags first and its session and replies after `--`, where
+/// clap takes each word as it is. A flag is a word shaped like one (`--name`, `--name=value`,
+/// `-x`); one the command doesn't have stays among the flags, for clap to turn down. Each flag
+/// takes the values it needs, then up to as many more as it can that aren't shaped like flags,
+/// and a --pick is given both of its own, an empty why where it has none, so that clap, letting
+/// its values start with a hyphen, doesn't take the flag after it for its why. Any other command
+/// line is left as it is.
+fn replies_last(args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    let Some(words) = args.iter().map(|a| a.to_str()).collect::<Option<Vec<&str>>>() else { return args };
+    // The globals before the subcommands take no value, so the first two other words name them.
+    let path: Vec<usize> = (1..words.len()).filter(|&i| !words[i].starts_with('-')).take(2).collect();
+    if path.iter().map(|&i| words[i]).ne(["session", "suggest"]) {
+        return args;
+    }
+    let mut cli = Cli::command();
+    cli.build();
+    let Some(suggest) = cli.find_subcommand("session").and_then(|s| s.find_subcommand("suggest")) else { return args };
+    let flag_shaped = |w: &str| match w.strip_prefix("--") {
+        Some(long) => long.split('=').next().is_some_and(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')),
+        None => w.len() == 2 && w.starts_with('-') && w.as_bytes()[1].is_ascii_alphabetic(),
+    };
+    let known = |w: &str| {
+        suggest.get_arguments().find(|a| match w.strip_prefix("--") {
+            Some(long) => a.get_long() == Some(long),
+            None => w.strip_prefix('-').and_then(|s| s.chars().next()) == a.get_short(),
+        })
+    };
+    let (mut flags, mut positional) = (Vec::new(), Vec::new());
+    let mut rest = words[path[1] + 1..].iter().copied().peekable();
+    while let Some(w) = rest.next() {
+        if w == "--" {
+            positional.extend(rest.by_ref());
+        } else if !flag_shaped(w) {
+            positional.push(w);
+        } else {
+            flags.push(w);
+            let Some(range) = known(w).and_then(|a| a.get_num_args()) else { continue };
+            let mut taken = 0;
+            while taken < range.max_values() && rest.peek().is_some_and(|next| taken < range.min_values() || !flag_shaped(next)) {
+                flags.extend(rest.next());
+                taken += 1;
+            }
+            if w == "--pick" && taken == 1 {
+                flags.push("");
+            }
+        }
+    }
+    let ahead = words[..=path[1]].iter().copied();
+    ahead.chain(flags).chain(["--"]).chain(positional).map(Into::into).collect()
 }
 
 /// Runs the command line and returns the exit code: 0, 1 for an error, 2 for usage.
@@ -4912,6 +4972,52 @@ mod tests {
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Fork { prompt: None, .. } }));
         let cli = Cli::try_parse_from(["codealong", "session", "fork", "abc", "Try it with the cache off"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Fork { prompt: Some(ref p), .. } } if p.starts_with("Try")));
+    }
+
+    #[test]
+    fn free_text_may_start_with_a_hyphen() {
+        // Agents quote commands in what they write: `--ff-only fails safely` is a note, not a flag.
+        let cmd = |args: &[&str]| parse_from(["codealong"].iter().chain(args).copied()).unwrap().cmd;
+        let suggest = |args: &[&str]| match cmd(&[&["session", "suggest", "abc"], args].concat()) {
+            Cmd::Session { cmd: SessionCmd::Suggest(a) } => a,
+            other => panic!("{other:?}"),
+        };
+        let a = suggest(&["--ff-only is fine", "-n first", "--note", "--ff-only fails safely", "--prompt-at", "4"]);
+        assert_eq!((a.replies.as_slice(), a.note.as_deref(), a.prompt_at), (&["--ff-only is fine".to_string(), "-n first".to_string()][..], Some("--ff-only fails safely"), Some(4)));
+        let a = suggest(&["Yes", "--note", "-", "--prompt-at", "4"]);
+        assert_eq!((a.replies.as_slice(), a.note.as_deref()), (&["Yes".to_string()][..], Some("-")));
+        // A pick's why, and a pick without one, which still ends at the flag after it.
+        let a = suggest(&["--pick", "Merge", "--ff-only keeps it linear", "--pick", "Tests", "--pending", "toolu_1", "--prompt-at", "4"]);
+        assert_eq!((a.picks.as_slice(), a.why.as_slice(), a.pending.as_deref()), (&["Merge".to_string(), "Tests".to_string()][..], &["--ff-only keeps it linear".to_string(), String::new()][..], Some("toolu_1")));
+        let a = suggest(&["--pick", "-1", "--pending", "toolu_1", "--prompt-at", "4"]);
+        assert_eq!((a.picks.as_slice(), a.why.as_slice()), (&["-1".to_string()][..], &[String::new()][..]));
+        // Replies and flags in any order, globals among them; a flag it doesn't have is still
+        // turned down rather than sent as a reply, and picks still stand in for replies.
+        let a = suggest(&["Yes", "--prompt-at", "4", "--json", "- then push", "--note=--x"]);
+        assert_eq!((a.replies.as_slice(), a.note.as_deref(), a.prompt_at), (&["Yes".to_string(), "- then push".to_string()][..], Some("--x"), Some(4)));
+        let a = suggest(&["--prompt-at", "4", "--", "--ff-only"]);
+        assert_eq!(a.replies, ["--ff-only"]);
+        assert!(parse_from(["codealong", "session", "suggest", "abc", "Yes", "--notes", "x", "--prompt-at", "4"]).is_err());
+        assert!(parse_from(["codealong", "session", "suggest", "abc", "Yes", "--pick", "Yes", "--pending", "t", "--prompt-at", "4"]).is_err());
+        assert!(parse_from(["codealong", "session", "suggest", "abc", "--pick", "Yes", "--prompt-at", "4"]).is_err(), "picks need the questions");
+        let Cmd::Session { cmd: SessionCmd::Tag(t) } = cmd(&["session", "tag", "abc", "--note", "--force was refused", "--prompt-at", "4"]) else { panic!() };
+        assert_eq!((t.note.as_deref(), t.prompt_at), (Some("--force was refused"), Some(4)));
+        let Cmd::Session { cmd: SessionCmd::Send(s) } = cmd(&["session", "send", "abc", "--no-verify is off the table", "--attach", "a.log"]) else { panic!() };
+        assert_eq!((s.message.as_deref(), s.attach.as_slice()), (Some("--no-verify is off the table"), &["a.log".to_string()][..]));
+        let Cmd::Session { cmd: SessionCmd::Send(s) } = cmd(&["session", "send", "abc", "--message-file", "-"]) else { panic!() };
+        assert_eq!((s.message, s.message_file.as_deref()), (None, Some("-")));
+        assert!(matches!(cmd(&["session", "rename", "abc", "-- draft"]), Cmd::Session { cmd: SessionCmd::Rename { ref name, .. } } if name == "-- draft"));
+        assert!(matches!(cmd(&["session", "fork", "abc", "--dry-run it first"]), Cmd::Session { cmd: SessionCmd::Fork { prompt: Some(ref p), .. } } if p == "--dry-run it first"));
+        let Cmd::Todo { cmd: TodoCmd::Add(a) } = cmd(&["todo", "add", "--strict mode for the parser", "-d", "- a list item", "--wait-for", "-", "-l", "bug"]) else { panic!() };
+        assert_eq!((a.title.as_str(), a.description.as_deref(), a.wait_for.as_deref(), a.label.as_slice()), ("--strict mode for the parser", Some("- a list item"), Some("-"), &["bug".to_string()][..]));
+        let Cmd::Todo { cmd: TodoCmd::Update(u) } = cmd(&["todo", "update", "t-1", "--title", "--strict mode", "-d", "-x drops it"]) else { panic!() };
+        assert_eq!((u.title.as_deref(), u.description.as_deref()), (Some("--strict mode"), Some("-x drops it")));
+        let Cmd::Todo { cmd: TodoCmd::Wait(w) } = cmd(&["todo", "wait", "t-1", "--for", "-rc2"]) else { panic!() };
+        assert_eq!(w.what.as_deref(), Some("-rc2"));
+        let Cmd::Start(s) = cmd(&["start", "--prompt", "--help isn't what I mean: fix the flag", "--account", "codex"]) else { panic!() };
+        assert_eq!((s.prompt.as_deref(), s.account.as_str()), (Some("--help isn't what I mean: fix the flag"), "codex"));
+        let Cmd::Terminal { cmd: TerminalCmd::Read(r) } = cmd(&["terminal", "read", "mg3", "--grep", "--verbose", "--wait", "10s"]) else { panic!() };
+        assert_eq!((r.grep.as_deref(), r.wait.as_deref()), (Some("--verbose"), Some("10s")));
     }
 
     #[test]
