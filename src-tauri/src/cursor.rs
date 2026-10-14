@@ -242,20 +242,57 @@ fn effort_of(selected: &Value) -> Option<String> {
 /// so SQLite walks it): the models it offers, and how it shows the account's usage.
 const APPLICATION_USER: &str = "src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser";
 
-/// Cursor's names for its models by id, as its picker shows them (`grok-4.7` is Grok 4.7,
-/// `default` Auto): the list it keeps of the models it offers, `availableDefaultModels2` in its
-/// settings (`APPLICATION_USER`).
-fn model_names(db: &Connection) -> HashMap<String, String> {
-    let names = || -> rusqlite::Result<HashMap<String, String>> {
+/// A model Cursor offers: its id (`grok-4.7`, `default` for Auto), which the command line's
+/// `--model` takes too, the name its picker shows (Grok 4.7, Auto), and whether the picker shows
+/// it at all.
+#[derive(Debug, Clone, PartialEq)]
+struct Offered {
+    id: String,
+    name: String,
+    shown: bool,
+}
+
+/// The models Cursor offers, in the order of the list it keeps, `availableDefaultModels2` in its
+/// settings (`APPLICATION_USER`). Its picker shows one that's on by default (`defaultOn`, on when
+/// missing) or turned on in its Settings (`aiSettings.modelOverrideEnabled`), unless it's turned
+/// off there (`modelOverrideDisabled`), as 3.22.7's `autoEnableSelectedModels` reads them. About
+/// 7 ms here (2026-10-14).
+fn offered_models(db: &Connection) -> Vec<Offered> {
+    let read = || -> rusqlite::Result<Vec<Offered>> {
         let mut stmt = db.prepare(
-            "SELECT json_extract(m.value, '$.name'), json_extract(m.value, '$.clientDisplayName') \
-             FROM ItemTable, json_each(CAST(ItemTable.value AS TEXT), '$.availableDefaultModels2') AS m \
-             WHERE ItemTable.key = ?1",
+            "SELECT json_extract(m.value, '$.name'), json_extract(m.value, '$.clientDisplayName'), json_extract(m.value, '$.defaultOn'), \
+             json_extract(u.t, '$.aiSettings.modelOverrideEnabled'), json_extract(u.t, '$.aiSettings.modelOverrideDisabled') \
+             FROM (SELECT CAST(value AS TEXT) AS t FROM ItemTable WHERE key = ?1) AS u, json_each(u.t, '$.availableDefaultModels2') AS m",
         )?;
-        let rows = stmt.query_map([APPLICATION_USER], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)))?;
-        Ok(rows.flatten().filter_map(|(id, name)| Some((id?, name.filter(|n| !n.trim().is_empty())?))).collect())
+        let rows = stmt.query_map([APPLICATION_USER], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<i64>>(2)?, r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?)))?;
+        let listed = |ids: Option<String>| ids.and_then(|t| serde_json::from_str::<Vec<String>>(&t).ok()).unwrap_or_default();
+        Ok(rows
+            .flatten()
+            .filter_map(|(id, name, default_on, on, off)| {
+                let (id, name) = (id.filter(|i| !i.is_empty())?, name.filter(|n| !n.trim().is_empty())?);
+                let shown = !listed(off).contains(&id) && (default_on.map_or(true, |d| d != 0) || listed(on).contains(&id));
+                Some(Offered { id, name, shown })
+            })
+            .collect())
     };
-    names().unwrap_or_default()
+    read().unwrap_or_default()
+}
+
+/// Cursor's names for its models by id, the ones its picker hides included.
+fn model_names(db: &Connection) -> HashMap<String, String> {
+    offered_models(db).into_iter().map(|m| (m.id, m.name)).collect()
+}
+
+/// The models a start or a resume can ask the command line for: the ones Cursor's picker shows,
+/// by the id `--model` takes, which gives a model its default settings (the command line's
+/// `handleInitialModel`, 2026.08.11). Auto is one of them, `auto` to the command line where the
+/// app says `default`: the command line keeps the last model it was started on as its default
+/// (`cli-config.json`), and a resume goes on with the chat's own, so the account's own line isn't
+/// always Auto. Read from the app's list, so an account without the app offers none.
+fn start_models(home: &Path) -> Vec<crate::start::ModelOption> {
+    let Some(db) = app_db(home).and_then(|p| crate::harness::open_database(&p)) else { return Vec::new() };
+    let id = |m: &Offered| if m.id == "default" { "auto".to_string() } else { m.id.clone() };
+    offered_models(&db).into_iter().filter(|m| m.shown && crate::start::valid_model(&m.id)).map(|m| crate::start::ModelOption { id: id(&m), label: m.name }).collect()
 }
 
 /// A model as a session says it: by Cursor's name for it, else by its id, Auto's included.
@@ -1661,6 +1698,16 @@ impl crate::harness::Adapter for Cursor {
         true
     }
 
+    fn models(&self, account: &AccountCfg) -> Vec<crate::start::ModelOption> {
+        start_models(&account.home_path())
+    }
+
+    /// No `model_command`: the command line's `/model <id>` saves the pick as its default for
+    /// every later start (`cli-config.json`), where a switch is for its session alone.
+    fn takes_model(&self) -> bool {
+        true
+    }
+
     fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {
         let app = app_db(home).and_then(|p| crate::harness::open_database(&p)).and_then(|db| read_app_chats(&db, since, &HashSet::new()).ok()).unwrap_or_default();
         let cli = read_cli_chats(home, since, &HashSet::new()).into_iter().map(|c| Chat { cwd: cli_cwd(&c), ..c });
@@ -1809,7 +1856,17 @@ mod tests {
             db.execute("INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)", rusqlite::params![key, value.to_string()]).unwrap();
         };
         // Cursor's list of the models it offers, as its settings keep it.
-        let models = json!({ "availableDefaultModels2": [{ "name": "default", "clientDisplayName": "Auto" }, { "name": "grok-4.7", "clientDisplayName": "Grok 4.7" }, { "name": "gpt-5.5", "clientDisplayName": "" }] });
+        let models = json!({
+            "availableDefaultModels2": [
+                { "name": "default", "clientDisplayName": "Auto", "defaultOn": true },
+                { "name": "grok-4.7", "clientDisplayName": "Grok 4.7", "defaultOn": true },
+                { "name": "gpt-5.5", "clientDisplayName": "" },
+                { "name": "kimi-k3", "clientDisplayName": "Kimi K3", "defaultOn": false },
+                { "name": "glm-5.2", "clientDisplayName": "GLM 5.2", "defaultOn": false },
+                { "name": "muse-spark-1.3", "clientDisplayName": "Muse Spark 1.3", "defaultOn": true }
+            ],
+            "aiSettings": { "modelOverrideEnabled": ["kimi-k3"], "modelOverrideDisabled": ["muse-spark-1.3"] }
+        });
         db.execute("INSERT INTO ItemTable (key, value) VALUES ('src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser', ?1)", [models.to_string()]).unwrap();
         let order = |ids: &[(&str, i64)]| ids.iter().map(|(id, t)| json!({ "bubbleId": id, "type": t })).collect::<Vec<_>>();
         kv("composerData:c1".into(), json!({ "status": "generating", "lastUpdatedAt": 6_000, "name": "Fix the build", "hasBlockingPendingActions": true, "modelConfig": { "modelName": "claude-4.5-sonnet", "selectedModels": [{ "modelId": "grok-4.7", "parameters": [{ "id": "context", "value": "256k" }, { "id": "reasoning_effort", "value": "high" }, { "id": "fast", "value": "true" }] }] }, "fullConversationHeadersOnly": order(&[("u1", 1), ("a1", 2), ("t1", 2), ("t2", 2)]) }));
@@ -1905,6 +1962,25 @@ mod tests {
         let after = written(&db, &["c1"])["c1"].clone();
         assert_eq!(after.length, before.length);
         assert_eq!((after.model.as_deref(), after.effort.as_deref()), (Some("grok-4.6"), Some("xlow")));
+    }
+
+    /// A start offers what Cursor's picker shows, in its order: on by default or turned on, not
+    /// turned off, Auto by the command line's name for it.
+    #[test]
+    fn a_start_offers_the_models_cursors_picker_shows() {
+        let db = app_fixture();
+        let offered: Vec<(String, bool)> = offered_models(&db).into_iter().map(|m| (m.id, m.shown)).collect();
+        assert_eq!(offered, [("default".into(), true), ("grok-4.7".into(), true), ("kimi-k3".into(), true), ("glm-5.2".into(), false), ("muse-spark-1.3".into(), false)]);
+        // The ones it hides are still named.
+        assert_eq!(model_names(&db).get("glm-5.2").map(String::as_str), Some("GLM 5.2"));
+        let dir = std::env::temp_dir().join(format!("codealong-cursor-models-{}", std::process::id()));
+        let db_path = dir.join("Library/Application Support/Cursor/User/globalStorage").join(STATE_DB);
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+        db.execute("VACUUM INTO ?1", [db_path.to_string_lossy()]).unwrap();
+        let listed: Vec<(String, String)> = start_models(&dir.join(".cursor")).into_iter().map(|m| (m.id, m.label)).collect();
+        assert_eq!(listed, [("auto".into(), "Auto".into()), ("grok-4.7".into(), "Grok 4.7".into()), ("kimi-k3".into(), "Kimi K3".into())]);
+        assert!(Cursor.takes_model() && Cursor.model_command().is_none(), "a running chat isn't switched: /model saves a default");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

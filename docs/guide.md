@@ -1160,7 +1160,12 @@ the prompt, on the account's default model; without a prompt it opens the app's 
 OpenCode starts in your terminal on your prompt (`--prompt`), and so does the Codex CLI, for any
 Codex account (`codex -- <prompt>`, images with `-i`), and Antigravity's command line, `agy`, once
 it's installed (`agy -i <prompt>`, on one of the models it lists); the Antigravity app starts
-conversations only in its own window. Codealong trusts the folder for the Codex CLI and `agy`
+conversations only in its own window. Cursor's command line, `cursor-agent`, starts in your
+terminal on one of the models Cursor's own picker shows, Auto among them (`--model`, each on its
+default settings; turn more on in Cursor's Settings › Models and they're listed here too). It keeps
+the model it last started on as its default, which is what the account's own line starts on, and
+it signs in on its own (`cursor-agent login`), apart from the app. A running one's model, and a
+chat's in the Cursor app, are changed in Cursor. Codealong trusts the folder for the Codex CLI and `agy`
 first, as it does for Claude Code, since each stops to ask in a folder it hasn't trusted. For Codex
 that's an entry in the account's `config.toml` for the repo's main checkout, or for a folder in no
 repo (each chat's own); a folder Codex already has an answer for, trusted or not, is left alone.

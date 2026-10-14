@@ -145,8 +145,25 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   `src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser`
   → `availableDefaultModels2` (half a megabyte: read with `json_extract`), each with `name`, its
   id, and `clientDisplayName`, which the picker shows and a session says (`model_names`); the
-  default is `aiSettings.modelConfig.composer.modelName`. Whether the command line's `--model` takes the
-  same names wasn't checked, so a start takes no model from Codealong yet.
+  default is `aiSettings.modelConfig.composer.modelName`. Each has `defaultOn`, and the picker
+  shows one on by default or in `aiSettings.modelOverrideEnabled` and not in
+  `modelOverrideDisabled` (3.22.7's `autoEnableSelectedModels`; `offered_models`). A start and a
+  resume offer those (`start_models`, `Cursor::models`), `default` as the command line's `auto`.
+- The command line's models (2026.08.11): `cursor-agent models` lists every model at every
+  setting as an id of its own (`grok-4.7-high-fast`, about 260 here), and says "use --model <id>
+  (or /model <id> in interactive mode) to switch. Parameterized models also accept quoted
+  overrides, e.g. --model 'claude-opus-4-8[context=1m,effort=high,fast=false]'". The app's
+  `name`s are the parameterized models' ids, and `--model <name>` takes one on its default
+  settings (`handleInitialModel`); an id it doesn't know stops it ("Cannot use this model: …
+  Available models: …"). Both `--model` and `/model` save the pick as its default
+  (`cli-config.json` `model`, `selectedModel`, `hasChangedDefaultModel: true`), so a start
+  without one goes on the last one asked for, and Codealong types no `/model` into a running
+  chat. Signed out it says "Authentication required" for `models`; it takes
+  `CURSOR_AUTH_TOKEN` (the app's token worked), which Codealong doesn't hand it, since a
+  session's terminal would pass it to every command the agent runs. `cli-config.json` has
+  `hasChangedDefaultModel` and `modelSlashCommands` (true here) but no model of its own. A
+  model's effort isn't asked for: the parameter differs by model (`effort_of`), and a start's
+  effort is one list an account.
 
 ## Unchecked
 
@@ -161,3 +178,5 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   machine." in Cursor: only a listed chat, with the window open, was tried.
 - Usage on a plan without spillover, and with an on-demand limit set: read from the app's code
   only (`usage_meters`).
+- A start or a resume with `--model <name>` (and `auto`): read from the command line's code and
+  its `models` text; it isn't signed in here.
