@@ -904,7 +904,9 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
     }
     for (slug, list) in requested {
         let Some(&repo) = repos.get(slug.as_str()).filter(|_| !polled.contains(slug)) else { continue };
-        out.extend(list.iter().map(|p| pr_item(lanes, slug, repo, p, branch_freed(list, p), login, links)));
+        // The search lists only open PRs; the repo's last read has the ones that ended.
+        let history = || prs.get(slug).into_iter().flatten().chain(list);
+        out.extend(list.iter().map(|p| pr_item(lanes, slug, repo, p, branch_freed(history(), p), login, links)));
     }
     out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     out
@@ -958,9 +960,10 @@ fn repos_of(seeds: &[LaneSeed]) -> HashMap<&str, (&str, &str, Option<&str>)> {
 }
 
 /// When the last PR from `p`'s branch before it ended, of the repo's `list`: a branch such as
-/// `yolo` serves one PR after another, and a push before then was for that one.
-fn branch_freed(list: &[PrRaw], p: &PrRaw) -> Option<i64> {
-    let before = list.iter().filter(|q| q.number != p.number && q.head_ref == p.head_ref);
+/// `yolo` serves one PR after another, and a push before then was for that one. A branch of the
+/// same name in another fork (`head_owner`) is another branch.
+fn branch_freed<'a>(list: impl IntoIterator<Item = &'a PrRaw>, p: &PrRaw) -> Option<i64> {
+    let before = list.into_iter().filter(|q| q.number != p.number && q.head_ref == p.head_ref && q.head_owner == p.head_owner);
     before.filter_map(|q| q.merged_at.or(q.closed_at)).filter(|&end| end <= p.created_at).max()
 }
 
@@ -2476,10 +2479,19 @@ mod tests {
         let mut router = (0..3).map(|i| ("portal".to_string(), opened - 2_400_000 + i)).collect::<Vec<_>>();
         router.push(("portal".to_string(), opened - 1_200_000));
         let reused = PrLinks { pushed: HashMap::from([("router".to_string(), router)]), ..Default::default() };
-        let prs = HashMap::from([("sprucehq/spark".to_string(), vec![earlier, pr(PrState::Open, 0)])]);
-        let items = pr_items(&seeds, &lanes, &prs, &HashMap::new(), Some("gwen"), &reused);
-        let this = items.iter().find(|p| p.number == 1037).unwrap();
-        assert_eq!(this.sessions.iter().find(|x| x.key == "router").map(|x| x.pushes), Some(1));
+        let router_pushes = |seeds: &[LaneSeed], prs: Vec<PrRaw>, requested: Vec<PrRaw>| {
+            let (prs, requested) = (HashMap::from([("sprucehq/spark".to_string(), prs)]), HashMap::from([("sprucehq/spark".to_string(), requested)]));
+            let items = pr_items(seeds, &lanes, &prs, &requested, Some("gwen"), &reused);
+            items.iter().find(|p| p.number == 1037).and_then(|p| p.sessions.iter().find(|x| x.key == "router")).map(|x| x.pushes)
+        };
+        assert_eq!(router_pushes(&seeds, vec![earlier.clone(), pr(PrState::Open, 0)], vec![]), Some(1));
+        // A branch of the same name in another fork is another branch.
+        let forked = PrRaw { head_owner: Some("ken".into()), ..earlier.clone() };
+        assert_eq!(router_pushes(&seeds, vec![forked, pr(PrState::Open, 0)], vec![]), Some(4));
+        // A PR only the search for reviews lists, in a repo whose PRs aren't read now (no worktree
+        // off its default branch), has the earlier one from the repo's last read.
+        let unpolled = vec![seed("/r/spark-portal", "main")];
+        assert_eq!(router_pushes(&unpolled, vec![earlier], vec![pr(PrState::Open, 0)]), Some(1));
     }
 
     #[test]
