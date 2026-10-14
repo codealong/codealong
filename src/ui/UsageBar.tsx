@@ -132,14 +132,24 @@ interface ChipProps {
 
 function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen, onSignIn, onPeek, onUnpeek, training }: ChipProps) {
   const plain = u.error?.replace(/`/g, '') ?? '';
+  // Signed out, the last reading of whether it's trained on still stands, and its card with it.
+  const trainingPeeks = !!training && !measure;
   if (u.needsSignIn) {
     return (
-      <button type="button" className="ca-uchip is-attn" title={measure ? undefined : `${plain}. Click to sign in`} onClick={onSignIn}>
+      <button
+        type="button"
+        className={cx('ca-uchip', 'is-attn', training && 'is-training')}
+        title={measure ? undefined : `${plain}. Click to sign in`}
+        onClick={onSignIn}
+        onMouseEnter={trainingPeeks ? (e) => onPeek?.(e.currentTarget) : undefined}
+        onMouseLeave={trainingPeeks ? onUnpeek : undefined}
+      >
         <span className="ca-uchip-name">{u.account}</span>
         <span className="ca-uchip-signin">
           <Icon name="alert" size={12} stroke={2} />
           Sign in
         </span>
+        {training && <Icon name="shield-off" size={12} stroke={2} />}
       </button>
     );
   }
@@ -151,7 +161,7 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
   const shown = headline ? [headline] : u.meters;
   // A chip with a card (collapsed, or flagged for training) says there everything its tooltip
   // would, so it has none.
-  const peeks = (!!headline || !!training) && !measure;
+  const peeks = (!!headline && !measure) || trainingPeeks;
   return (
     <button
       type="button"
@@ -277,7 +287,8 @@ function UsageCard({ usage: u, now, anchor, meters, training: t, onStopTraining,
           <span>{u.error?.replace(/`/g, '')}</span>
         </div>
       )}
-      {meters && asOf && <div className="ca-ucard-foot">{asOf}</div>}
+      {/* Without its limits, the card says whose time this is: the training setting has its own. */}
+      {asOf && <div className="ca-ucard-foot">{meters ? asOf : `Usage ${asOf.charAt(0).toLowerCase()}${asOf.slice(1)}`}</div>}
     </div>,
     document.body,
   );
@@ -395,8 +406,10 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn,
   useEffect(() => {
     if (!collapsed) hide(true);
   }, [collapsed, hide]);
-  // A press anywhere but on a card's buttons, and any key, which goes on to do what it does.
-  useDismiss(null, () => hide(true), { when: !!peek, keys: 'any', inside: '.ca-usage-popover.is-training' });
+  // A press anywhere but on a card's buttons. Any key, which goes on to do what it does, puts away
+  // a card that only shows; one with buttons goes on Escape, so Return and Space work them.
+  const peekHasButtons = !!peek && flagged(trainingOf(training, peek.account));
+  useDismiss(null, () => hide(true), { when: !!peek, keys: peekHasButtons ? 'escape' : 'any', inside: '.ca-usage-popover.is-training' });
   useEffect(() => {
     const el = row.current;
     if (!el || !peek) return;

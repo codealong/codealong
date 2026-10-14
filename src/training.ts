@@ -34,7 +34,7 @@ export function trainingTag(t: Training | undefined): { word: string; ok: boolea
 /** When it was read, and why it couldn't be read since when that failed; null when it never was. */
 export function readNote(t: Training, now: number): string | null {
   if (!t.asOf) return null;
-  const read = `Read ${agoPhrase(t.asOf, now)}`;
+  const read = `Setting read ${agoPhrase(t.asOf, now)}`;
   return t.stale ? `${read}; reading it again failed: ${t.stale.replace(/`/g, '')}` : read;
 }
 

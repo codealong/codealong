@@ -26,7 +26,7 @@
     })
     .then(function () {
       check('its hover card says why', q('.ca-training-title', card()).textContent === 'Training is on' && q('.ca-uchip-name', card()).textContent === 'claude' && /^Help improve Claude is on/.test(q('.ca-training-text', card()).textContent), q('.ca-training-title', card()).textContent);
-      check('and when it was read', /^Read /.test((q('.ca-training-asof', card()) || {}).textContent || ''));
+      check('and when it was read', /^Setting read /.test((q('.ca-training-asof', card()) || {}).textContent || ''));
       // The pointer leaves the chip for the card: it stays up.
       leave(chipOf('claude'));
       enter(card());
@@ -38,7 +38,9 @@
       check('Open settings opens the provider’s page', sent('open_url').some(function (a) { return a && a.url === 'https://claude.ai/settings/data-privacy-controls'; }), JSON.stringify(sent('open_url')));
       var press = button('Turn off training');
       press.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
-      check('a press on its buttons leaves it up', !!card());
+      press.focus();
+      press.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      check('a press or Return on its buttons leaves it up', !!card());
       press.click();
       return until(function () { return !card(); }, 3000);
     })

@@ -32,7 +32,7 @@ describe('training', () => {
 
   it('says when it was read, and why not since', () => {
     const now = 10 * 60e3;
-    expect(readNote({ ...reading('off'), asOf: now - 3 * 60e3 }, now)).toMatch(/^Read /);
+    expect(readNote({ ...reading('off'), asOf: now - 3 * 60e3 }, now)).toMatch(/^Setting read /);
     expect(readNote({ ...reading('off'), asOf: now - 3 * 60e3, stale: 'Sign-in expired: run `claude` once.' }, now)).toMatch(/; reading it again failed: Sign-in expired: run claude once\.$/);
     expect(readNote({ ...reading('unknown'), asOf: null }, now)).toBeNull();
   });
