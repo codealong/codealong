@@ -57,8 +57,8 @@ pub struct Part<T> {
     pub repos: BTreeMap<String, i64>,
 }
 
-/// What a look saw, kept for the next one to compare with. A part is None where it couldn't be
-/// read and no earlier look had it either.
+/// What a look saw, kept for the next one to compare with. A part that couldn't be read is the
+/// earlier look's, or with none, where this look began (`kept`). None in a look kept before that.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Look {
@@ -368,7 +368,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
         out.sessions.sort_by_key(|r| (rank(r.change), -r.last_prompt_at));
         out.headless.sort_by(|a, b| b.runs.cmp(&a.runs).then_with(|| a.callsign.cmp(&b.callsign)));
     } else {
-        look.sessions = earlier.and_then(|l| l.sessions.clone());
+        look.sessions = Some(kept(earlier.and_then(|l| l.sessions.as_ref()), since));
         out.notes.push("Sessions: the app is still reading them after a start; nothing about them is told until it's done.".into());
     }
 
@@ -428,7 +428,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
         look.prs = Some(Part { at: fresh, marks, repos });
         out.prs = Some(rows);
     } else {
-        look.prs = pr_part.cloned();
+        look.prs = Some(kept(pr_part, since));
     }
 
     // Todos.
@@ -451,7 +451,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
         }
         look.todos = Some(Part { at: now, marks, repos: BTreeMap::new() });
     } else {
-        look.todos = todo_part.cloned();
+        look.todos = Some(kept(todo_part, since));
     }
 
     // Worktrees that agents share.
@@ -483,6 +483,13 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
         look.shared = earlier.and_then(|l| l.shared.clone());
     }
     (out, look)
+}
+
+/// The part a look keeps for one it couldn't read: the earlier look's, or with none, one with no
+/// marks from where this look began, so the next look tells what happened since then by times
+/// rather than only what happened since this one.
+fn kept<T: Clone>(earlier: Option<&Part<T>>, since: i64) -> Part<T> {
+    earlier.cloned().unwrap_or_else(|| Part { at: since, marks: BTreeMap::new(), repos: BTreeMap::new() })
 }
 
 /// Every session once, with the lane it's listed under as its own rather than one it visits.
@@ -1054,6 +1061,22 @@ mod tests {
         // Once they read, nothing comes back as added.
         let (out, _) = compare(&sight(&b, true), Some(&second), second.at, NOW + MIN);
         assert!(out.todos.is_empty());
+    }
+
+    #[test]
+    fn a_first_look_that_cant_read_keeps_where_it_began() {
+        let b = Board {
+            lanes: vec![lane("/r", vec![Session { started_at: Some(NOW - 90 * MIN), ..s("a", Status::Idle, NOW - 90 * MIN) }])],
+            todos: vec![Todo { created_at: NOW - 90 * MIN, ..todo("t1") }],
+            ..Board::default()
+        };
+        let sight = |read| Sight { board: &b, sessions: read, prs: false, todos: read, me: None, project: None };
+        // The first look, asked for two hours, comes while the app is starting.
+        let (_, first) = compare(&sight(false), None, NOW - 120 * MIN, NOW - 60 * MIN);
+        // The next goes from that look, and still tells what happened in the two hours.
+        let (out, _) = compare(&sight(true), Some(&first), first.at, NOW);
+        assert_eq!(out.sessions.iter().map(|r| (r.key.as_str(), r.change)).collect::<Vec<_>>(), vec![("a", SessionChange::New)]);
+        assert_eq!(out.todos.iter().map(|r| (r.id.as_str(), r.change)).collect::<Vec<_>>(), vec![("t1", TodoChange::Added)]);
     }
 
     #[test]
