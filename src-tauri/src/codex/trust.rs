@@ -10,20 +10,61 @@
 
 use std::path::{Path, PathBuf};
 
-/// The repo Codex trusts `folder` by: the checkout whose `.git` folder it's in, or for a
-/// worktree its main checkout, but only when that checkout's own `.git` is the worktree's common
-/// folder (git-utils' `resolve_root_git_project_for_trust`). A bare repository's worktree, or one
-/// whose main checkout keeps its git folder elsewhere, has none, and goes by the folder itself.
+/// The repo Codex trusts `folder` by, found as git-utils' `resolve_root_git_project_for_trust`
+/// (0.157.1) finds it, check for check: the nearest folder above it with a `.git` (passing over a
+/// `.git` folder with no HEAD), that folder itself when its `.git` is a folder, and for a
+/// worktree its main checkout, spelled as the worktree's `.git` names it, only when everything
+/// agrees: its git folder is under a `worktrees` folder whose `gitdir` names this very checkout
+/// and whose `commondir` is the folder above it, and the main checkout's own `.git` is that common
+/// folder. A bare repository's worktree, a copied one, or one whose main checkout keeps its git
+/// folder elsewhere has none, and goes by the folder itself.
 fn trust_root(folder: &Path) -> Option<PathBuf> {
-    let (root, main) = crate::repos::locate(folder)?;
-    if root == main {
+    let real = |p: &Path| std::fs::canonicalize(p).ok();
+    let mut dir = if folder.is_dir() { folder.to_path_buf() } else { folder.parent()?.to_path_buf() };
+    let root = loop {
+        let found = dir.ancestors().find(|d| d.join(".git").exists())?.to_path_buf();
+        let dot_git = found.join(".git");
+        if !dot_git.is_dir() || dot_git.join("HEAD").exists() {
+            break found;
+        }
+        dir = found.parent()?.to_path_buf();
+    };
+    let dot_git = root.join(".git");
+    if dot_git.is_dir() {
         return Some(root);
     }
-    let gitdir = crate::repos::linked_gitdir(&root)?;
-    let common = gitdir.join(std::fs::read_to_string(gitdir.join("commondir")).ok()?.trim());
-    let main_git = main.join(".git");
-    let main_git = if main_git.is_dir() { main_git } else { crate::repos::linked_gitdir(&main)? };
-    (std::fs::canonicalize(main_git).ok()? == std::fs::canonicalize(common).ok()?).then_some(main)
+    let git_dir = gitdir_named_in(&dot_git)?;
+    if !git_dir.is_dir() || std::fs::symlink_metadata(&git_dir).ok()?.file_type().is_symlink() {
+        return None;
+    }
+    let real_git_dir = real(&git_dir)?;
+    let worktrees = real_git_dir.parent()?;
+    if worktrees.file_name()? != "worktrees" {
+        return None;
+    }
+    let common = worktrees.parent()?;
+    let named = |file: &str| small_file(&real_git_dir.join(file)).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    let backlink = real_git_dir.join(named("gitdir")?);
+    if backlink.file_name()? != ".git" || real(backlink.parent()?)? != real(&root)? || real(&real_git_dir.join(named("commondir")?))? != common {
+        return None;
+    }
+    let main = git_dir.parent()?.parent()?.parent()?.to_path_buf();
+    let main_dot_git = main.join(".git");
+    let main_git_dir = if main_dot_git.is_dir() { main_dot_git } else { gitdir_named_in(&main_dot_git)? };
+    (real(&main_git_dir)? == common).then_some(main)
+}
+
+/// A file of git's own, read only when it's a small plain file, as Codex reads them.
+fn small_file(path: &Path) -> Option<String> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    (meta.is_file() && meta.len() <= 64 * 1024).then(|| std::fs::read_to_string(path).ok()).flatten()
+}
+
+/// The git folder a `.git` file names (`gitdir: <path>`), from the folder it's in.
+fn gitdir_named_in(dot_git: &Path) -> Option<PathBuf> {
+    let text = small_file(dot_git)?;
+    let target = text.trim().strip_prefix("gitdir:")?.trim();
+    (!target.is_empty()).then(|| dot_git.parent().map(|p| p.join(target))).flatten()
 }
 
 /// Where Codex looks for an entry for `folder`: the folder, then the repo it trusts it by, each
@@ -116,6 +157,7 @@ mod tests {
         let home = dir.join("home");
         let repo = home.join("r/app");
         std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
         let chat = home.join("chats/2026-10-13-ab12");
         std::fs::create_dir_all(&chat).unwrap();
         let config = dir.join("config.toml");
@@ -135,21 +177,38 @@ mod tests {
         std::fs::create_dir_all(&other).unwrap();
         assert!(trust_folder(&config, &other, &home).unwrap());
 
-        // A worktree goes by its main checkout; a bare repository's by itself.
+        // A worktree goes by its main checkout, as its `.git` spells it; a bare repository's, or a
+        // copy whose git folder names another checkout, by itself.
+        let worktree = |admin: &Path, wt: &Path, named: &Path| {
+            std::fs::create_dir_all(admin).unwrap();
+            std::fs::create_dir_all(wt).unwrap();
+            std::fs::write(wt.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+            std::fs::write(admin.join("commondir"), "../..\n").unwrap();
+            std::fs::write(admin.join("gitdir"), format!("{}\n", named.join(".git").display())).unwrap();
+            std::fs::write(admin.join("HEAD"), "ref: refs/heads/wt\n").unwrap();
+        };
         let main = home.join("r/main");
-        std::fs::create_dir_all(main.join(".git/worktrees/wt")).unwrap();
+        std::fs::create_dir_all(main.join(".git")).unwrap();
+        std::fs::write(main.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
         let wt = home.join("r/wt");
-        std::fs::create_dir_all(&wt).unwrap();
-        std::fs::write(wt.join(".git"), format!("gitdir: {}\n", main.join(".git/worktrees/wt").display())).unwrap();
-        std::fs::write(main.join(".git/worktrees/wt/commondir"), "../..\n").unwrap();
+        worktree(&main.join(".git/worktrees/wt"), &wt, &wt);
         assert_eq!(trust_target(&wt), main);
+        let link = home.join("r/alias");
+        std::os::unix::fs::symlink(&main, &link).unwrap();
+        let by_link = home.join("r/wt-link");
+        worktree(&link.join(".git/worktrees/wt-link"), &by_link, &by_link);
+        assert_eq!(trust_root(&by_link), Some(link.clone()));
+        let copy = home.join("r/wt-copy");
+        std::fs::create_dir_all(&copy).unwrap();
+        std::fs::copy(wt.join(".git"), copy.join(".git")).unwrap();
+        assert_eq!(trust_target(&copy), copy);
         let bare = home.join("repos/project.git");
-        std::fs::create_dir_all(bare.join("worktrees/feature")).unwrap();
         let feature = home.join("repos/feature");
-        std::fs::create_dir_all(&feature).unwrap();
-        std::fs::write(feature.join(".git"), format!("gitdir: {}\n", bare.join("worktrees/feature").display())).unwrap();
-        std::fs::write(bare.join("worktrees/feature/commondir"), "../..\n").unwrap();
+        worktree(&bare.join("worktrees/feature"), &feature, &feature);
         assert_eq!(trust_target(&feature), feature);
+        // An answer kept under the link's spelling is found.
+        let untrusted_link = format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", link.display());
+        assert_eq!(with_trust(&untrusted_link, &lookup_keys(&by_link), &trust_target(&by_link).to_string_lossy()).unwrap(), None);
 
         // An answer of untrusted stands.
         let untrusted = format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", repo.display());
