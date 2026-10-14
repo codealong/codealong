@@ -33,6 +33,10 @@ pub const APP_BUNDLE_ID: &str = "com.google.antigravity";
 /// `CORTEX_STEP_STATUS_WAITING` in a conversation's `steps` table: the step's permission prompt
 /// is up (read from `agy` 1.2.14's own definitions).
 const STEP_WAITING: i64 = 9;
+/// The statuses of a step that isn't over, from the same definitions: pending, running,
+/// generating, waiting and queued. A reply is generating from its first words; while the model
+/// thinks before them, no step is under way.
+const STEP_UNDER_WAY: [i64; 5] = [1, 2, 8, STEP_WAITING, 11];
 /// How much of a transcript's end is read for what a conversation is on.
 const TAIL: u64 = 256 * 1024;
 
@@ -104,6 +108,11 @@ pub struct Conversation {
     pub tail: Tail,
     /// A step's permission prompt is up, as its own database says.
     pub waiting: bool,
+    /// A step runs, is being written or waits on you, as its own database says.
+    pub step_under_way: bool,
+    /// Its summary says idle only because another `agy` started, while the process that has it
+    /// goes on with its turn (`idled_by_another`).
+    pub idled_by_another: bool,
 }
 
 impl Conversation {
@@ -111,6 +120,17 @@ impl Conversation {
     pub fn running(&self) -> bool {
         self.not_fully_idle || ["running", "busy", "canceling"].iter().any(|w| self.status.ends_with(w))
     }
+}
+
+/// Whether a conversation's summary says idle only because another `agy` started, from its row
+/// as last read and now. Each `agy`, print runs too (the usage read among them), writes every
+/// conversation it doesn't run itself back to the command line's table as idle when it starts,
+/// the rest of the row as it was, while the process that runs one goes on with its turn. That
+/// process writes the row only as a turn starts, waits on you and ends, and an ending writes
+/// the time and count of the latest step, which a turn always changes. So an idle row with the
+/// time and step count it had while running is another's doing, until the row is written again.
+pub fn idled_by_another(before: Option<&Conversation>, now: &Conversation) -> bool {
+    !now.running() && before.is_some_and(|b| (b.running() || b.idled_by_another) && b.last_modified == now.last_modified && b.step_count == now.step_count)
 }
 
 /// A folder's conversations changed since `since_ms`, plus any in `keep` (pinned ones), newest
@@ -223,10 +243,14 @@ pub fn uri_path(uri: &str) -> Option<String> {
     Some(decoded.trim_end_matches('/').to_string()).filter(|p| !p.is_empty())
 }
 
-/// Whether a step of the conversation waits on you, from its own database.
-fn step_waits(dir: &Path, id: &str) -> bool {
-    let Some(db) = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db"))) else { return false };
-    db.query_row("SELECT 1 FROM steps WHERE status = ?1 LIMIT 1", [STEP_WAITING], |_| Ok(())).is_ok()
+/// Whether a step of the conversation is under way, and whether one waits on you, from its own
+/// database.
+fn steps_now(dir: &Path, id: &str) -> (bool, bool) {
+    let Some(db) = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db"))) else { return (false, false) };
+    let under_way = STEP_UNDER_WAY.map(|s| s.to_string()).join(", ");
+    let Ok(mut query) = db.prepare(&format!("SELECT DISTINCT status FROM steps WHERE status IN ({under_way})")) else { return (false, false) };
+    let statuses: Vec<i64> = query.query_map([], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default();
+    (!statuses.is_empty(), statuses.contains(&STEP_WAITING))
 }
 
 /* ---- A conversation's record: its steps as JSON lines ---- */
@@ -836,7 +860,10 @@ impl Reader {
                     c.tail = transcript_file(&c.dir, &c.id).map(|p| tail(&p, c.cwd.as_deref())).unwrap_or_default();
                 }
             }
-            c.waiting = (c.running() || held) && step_waits(&c.dir, &c.id);
+            if c.running() || held {
+                (c.step_under_way, c.waiting) = steps_now(&c.dir, &c.id);
+            }
+            c.idled_by_another = held && idled_by_another(before.get(&c.id), c);
         }
         self.conversations.insert(a.name.clone(), rows);
         added
@@ -1371,6 +1398,22 @@ mod tests {
         assert_eq!(held_conversation("p1\nfcwd\nn/Users/me/app\n"), None);
     }
 
+    #[test]
+    fn tells_an_idle_another_agy_wrote_from_a_turn_that_ended() {
+        let running = Conversation { status: "cascade_run_status_running".into(), not_fully_idle: true, last_modified: 1_000, step_count: 5, ..Default::default() };
+        let idle = Conversation { status: "cascade_run_status_idle".into(), not_fully_idle: false, ..running.clone() };
+        assert!(idled_by_another(Some(&running), &idle));
+        // Read again unchanged, it's still the other's doing.
+        assert!(idled_by_another(Some(&Conversation { idled_by_another: true, ..idle.clone() }), &idle));
+        // A turn that ends writes its latest step's time and count. A row that wasn't running
+        // when last read, or wasn't read at all, is as it says.
+        assert!(!idled_by_another(Some(&running), &Conversation { last_modified: 2_000, ..idle.clone() }));
+        assert!(!idled_by_another(Some(&running), &Conversation { step_count: 6, ..idle.clone() }));
+        assert!(!idled_by_another(Some(&idle), &idle));
+        assert!(!idled_by_another(None, &idle));
+        assert!(!idled_by_another(Some(&running), &running));
+    }
+
     /// A folder read end to end: the summary table, a conversation's own database for the step
     /// that waits, and its transcript.
     #[test]
@@ -1413,6 +1456,26 @@ mod tests {
         assert_eq!((waits.label.as_str(), waits.id.as_str(), waits.cannot.is_some()), ("Run command · `ls /definitely-not-here`", "6", true));
         assert_eq!(Antigravity.open_calls(&ctx, &session), ["ls /definitely-not-here"]);
         assert_eq!(Antigravity.records(&account, &session)[0], logs.join("transcript_full.jsonl"));
+
+        // Its terminal UI has it when another `agy` starts and writes its row back idle, the rest
+        // as it was: the step still waits on you.
+        reader.processes = vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true }];
+        reader.looked_at = Some(Instant::now());
+        let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
+        summaries.execute("UPDATE conversation_summaries SET status = 'CASCADE_RUN_STATUS_IDLE', not_fully_idle = 0", []).unwrap();
+        reader.reread(&account, &look);
+        let c = &reader.conversations["antigravity"][0];
+        assert!(c.idled_by_another && c.step_under_way && c.waiting);
+        assert_eq!(crate::board::antigravity_session(&account, c, reader.processes.first(), false, 0, look.now).status, crate::model::Status::Needs);
+        reader.reread(&account, &look);
+        assert!(reader.conversations["antigravity"][0].idled_by_another);
+        // You cancel the call, and the turn's end writes the time and count of its latest step.
+        Connection::open(dir.join("conversations/c1.db")).unwrap().execute("UPDATE steps SET status = 6 WHERE idx = 6", []).unwrap();
+        summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:40+00:00', step_count = 7", []).unwrap();
+        reader.reread(&account, &look);
+        let c = &reader.conversations["antigravity"][0];
+        assert!(!c.idled_by_another && !c.step_under_way && !c.waiting);
+        assert_eq!(crate::board::antigravity_session(&account, c, reader.processes.first(), false, 0, look.now).status, crate::model::Status::Unread);
     }
 
     #[test]

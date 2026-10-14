@@ -532,10 +532,11 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
 /// you. The summary keeps no word for a failure, so none shows as one.
 pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Option<&Process>, app_running: bool, seen_at: i64, now: i64) -> Session {
     let fresh = now - c.last_modified < ANTIGRAVITY_STALE_MS;
-    // A print run writes its summary only as it ends: while its process has the conversation,
-    // its record says whether a turn is under way.
+    // While its process has the conversation, its summary is the process's word, unless another
+    // `agy` that started since marked it idle; a step that runs or waits says so too. A print
+    // run writes its summary only as it ends, so its record says whether a turn is under way.
     let under_way = match (c.cli, process) {
-        (true, Some(p)) => c.running() || (!p.terminal && c.tail.turn_open),
+        (true, Some(p)) => c.running() || c.idled_by_another || c.step_under_way || (!p.terminal && c.tail.turn_open),
         (true, None) => false,
         (false, _) => c.running() && app_running,
     };
@@ -3386,6 +3387,17 @@ mod tests {
         let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
         assert_eq!((s.status, s.live, s.surface, s.pid), (Status::Working, true, Surface::Cli, Some(41)));
         assert_eq!((s.open_target.as_str(), s.resume_command.as_deref()), ("s|antigravity:antigravity:c2|focus", Some("agy --conversation c2")));
+        // Another `agy` that starts marks its summary idle while the terminal UI goes on with the
+        // turn: it still works, and a step that waits on you needs you. Once the turn is over
+        // and no step runs, what it left is yours to read.
+        let mut idled = Conversation { status: "cascade_run_status_idle".into(), not_fully_idle: false, idled_by_another: true, ..c.clone() };
+        assert_eq!(antigravity_session(&a, &idled, Some(&ui), false, 0, NOW).status, Status::Working);
+        idled = Conversation { idled_by_another: false, step_under_way: true, waiting: true, ..idled };
+        assert_eq!(antigravity_session(&a, &idled, Some(&ui), false, 0, NOW).status, Status::Needs);
+        idled.waiting = false;
+        assert_eq!(antigravity_session(&a, &idled, Some(&ui), false, 0, NOW).status, Status::Working);
+        idled.step_under_way = false;
+        assert_eq!(antigravity_session(&a, &idled, Some(&ui), false, 0, NOW).status, Status::Unread);
         // A print run has no terminal to show.
         let print = Process { terminal: false, ..ui.clone() };
         let s = antigravity_session(&a, &c, Some(&print), false, 0, NOW);

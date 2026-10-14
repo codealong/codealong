@@ -31,8 +31,12 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
 - `conversations/<id>.db` holds a conversation's steps (`steps`: `idx`, `step_type`, `status`,
   and protobuf blobs). The numbers are in the binary's own definitions: status 1 pending,
   2 running, 3 done, 4 invalid, 5 cleared, 6 canceled, 7 error, 8 generating, 9 waiting,
-  11 queued, 12 interrupted. A step whose permission prompt is up is waiting (9, `STEP_WAITING`),
-  with the summary running; a call a print run couldn't ask about is canceled (6).
+  11 queued, 12 interrupted. A step whose permission prompt is up is waiting (9, `STEP_WAITING`);
+  a call a print run couldn't ask about is canceled (6). A reply is generating (8) from its first
+  words, so while the model thinks before them no step is under way (`STEP_UNDER_WAY`,
+  `steps_now`). Escape in the terminal UI cancels a running call (6), which never reaches the
+  transcript, or keeps a reply cut short as done. The terminal UI closes the database about 30
+  seconds after its last write, its WAL and `-shm` going with it.
 - The transcript (`brain/<id>/.system_generated/logs/transcript_full.jsonl`, and
   `transcript.jsonl` with each argument a string of JSON), its fields, the `<USER_REQUEST>`
   wrapping, results as steps of their own in the calls' order, lines out of step order, and a
@@ -59,14 +63,30 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   still has to be given, empty, as `-p ''` and first: `-p --input-format …` takes the flag as
   the prompt. Its `init` event names the tools and `permission_mode` (`request-review`), but
   1.3.1 has no event to ask a permission over stdin or answer one.
-- A print run writes its summary row only as it ends; the terminal UI writes it as it goes:
+- A print run writes its summary row only as it ends. The terminal UI writes its row as a turn
+  starts (running, the time and step count as they were), when a step waits on you and as the
+  turn ends (idle, with the time and count of its latest step), not at each step:
   `antigravity.rs` (`started`), `board.rs` (`antigravity_session`).
+- Every `agy` that starts, print runs too (Codealong's usage read every couple of minutes among
+  them), writes every conversation it doesn't run itself back to the command line's table as
+  idle (`IDLE`, `not_fully_idle` 0, the rest of the row as it was; "summary store: starting
+  background reconciliation (trigger=startup)" in its log). So a turn in a terminal UI reads
+  idle until that UI writes its row again, which can be minutes: `antigravity.rs`
+  (`idled_by_another`), `board.rs` (`antigravity_session`). Neither `ANTIGRAVITY_APP_DATA_DIR`
+  nor `JETSKI_APP_DATA_DIR` moves a run to another folder, and another `HOME` loses the
+  sign-in, so a usage read can't keep out of the table (1.3.4, 2026-10-13).
 - Which `agy` has which conversation, by the `presence/<id>.lock` it holds open: `antigravity.rs`
   (header, `held_conversation`, `processes`). The lock files stay behind after.
 - The terminal UI's first run asks for a color scheme and then shows Terms of Service and a
   data-use choice, ticked by default; print runs go ahead without it
   (`cache/onboarding.json`). A prompt given with `-i` runs behind those screens, in the
   command line's `scratch` folder with no workspace on its row (`Antigravity::chats`).
+- In the terminal UI (1.3.4, 2026-10-13, in tmux), a folder not in `settings.json`'s
+  `trustedWorkspaces` is asked about first, and a yes adds it there. A permission prompt is a
+  menu: 1 run it, 2 always in this conversation for commands that start the same way, 3 always
+  (written to `settings.json`), 4 no, cancel; ↑/↓ and Enter pick, Tab amends, Escape cancels.
+  Escape stops a turn ("Interrupted · What should Antigravity CLI do instead?"). Codealong
+  doesn't answer its prompts or stop its turns.
 - It has no Agent Client Protocol mode, so Codealong can't run it itself. Google says running
   the binary as a child process on the user's sign-in is supported and counts against the same
   limits.
@@ -118,10 +138,8 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
 
 ## Unchecked
 
-- The terminal UI wouldn't go past its first-run screens here, so these weren't checked: the
-  keys its permission prompt takes and whether Escape stops a turn (so Codealong doesn't answer
-  its prompts or stop its turns), and how it takes a paste, though Codealong types into a
-  command line conversation's terminal (`Antigravity::routes`, `Route::Type`).
+- How the terminal UI takes a paste, though Codealong types into a command line conversation's
+  terminal (`Antigravity::routes`, `Route::Type`).
 - What the app writes mid-turn.
 - Where the conversations that Remote Control's daemon starts are written, and how they'd
   show on the board: starting the daemon registers the Mac with Google, so it wasn't run.
