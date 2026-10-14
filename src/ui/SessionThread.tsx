@@ -621,14 +621,15 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   const padOf = (el: HTMLElement) => parseFloat(getComputedStyle(el).paddingTop) || 0;
 
   /** Pins the prompt behind what's in view once the whole of it is above the top: one read, or
-   *  the one before the pages read. */
+   *  the one before the pages read. Scrolling up reads that one's page in, and it's in view or
+   *  below then, never behind: no prompt read is behind what's in view, and nothing's pinned. */
   const pin = () => {
     const el = scroller.current;
     if (!el) return;
-    const behind = promptsIn(el)
-      .filter((p) => p.at < el.scrollTop + padOf(el) + 2)
-      .pop();
-    const off = behind ? (behind.end < el.scrollTop + 8 ? behind.key : null) : earlier && keyOf(earlier);
+    const prompts = promptsIn(el);
+    const behind = prompts.filter((p) => p.at < el.scrollTop + padOf(el) + 2).pop();
+    const back = earlier && keyOf(earlier);
+    const off = behind ? (behind.end < el.scrollTop + 8 ? behind.key : null) : back && !prompts.some((p) => p.key === back) ? back : null;
     const text = off && promptText.get(off);
     const next = off && text != null ? { key: off, text } : null;
     setPinned((was) => (was?.key === next?.key && was?.text === next?.text ? was : next));

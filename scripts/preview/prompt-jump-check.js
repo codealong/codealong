@@ -6,7 +6,7 @@
 // it; ⌘↓ past the last prompt goes to the end. The waiting window opens on it, and the keys work
 // from its box the same way. A second session whose newest page has no prompt, nor the one before
 // it, pins the prompt two pages back from the start, and a click on it reads up to it with the
-// pages already read.
+// pages already read; at the very top, with that prompt in view, nothing's pinned.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/prompt-jump-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/prompt-jump-check.js
 (function () {
@@ -139,6 +139,12 @@
       .then(function () {
         check('a click on it reads up to it', atTop() === 'Prompt 9', atTop());
         check('from the pages already read', since() === 'null,800,700', since());
+        // Above it the start of the session, and the prompt in view below: it isn't pinned too.
+        thread().scrollTop = 0;
+        return wait(200);
+      })
+      .then(function () {
+        check('at the very top, with it in view, it isn’t pinned', thread().scrollTop === 0 && pinned() === null, thread().scrollTop + ' ' + pinned());
       });
   };
 
