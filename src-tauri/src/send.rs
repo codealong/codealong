@@ -463,6 +463,12 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
         let message = crate::acp::send(account, session_key, &attachments::expand(&msg.text, Style::Path))?;
         return Ok(Sent { message, opened: false, fell_back: false });
     }
+    // One that isn't running goes on when it's sent something, whichever way it goes (a resume,
+    // OpenCode's service, the Codex app), which nothing does on an account turned off; one at
+    // work still takes it.
+    if !session.live && session.status != Status::Working {
+        account.ensure_on()?;
+    }
     ensure_not_waiting(session, sender)?;
     // Each harness says which ways reach the session, best first (`harness::Adapter::routes`).
     let adapter = crate::harness::adapter(session.harness);
@@ -885,6 +891,22 @@ mod tests {
 
     fn session(harness: Harness, surface: Surface, status: Status, live: bool, pid: Option<u32>) -> Session {
         Session { harness, surface, status, live, pid, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Claude, "claude", "abc") }
+    }
+
+    /// A session that isn't running, on an account turned off, isn't sent anything: OpenCode's
+    /// service would take it and start a turn, as a resume would. One that runs still takes it.
+    #[test]
+    fn a_session_that_isnt_running_on_an_account_turned_off_isnt_sent_to() {
+        let off: AccountCfg = serde_json::from_value(json!({ "name": "opencode", "harness": "opencode", "home": "/nowhere/opencode", "disabled": true })).unwrap();
+        let cfg = Config { accounts: vec![off], ..Config::default() };
+        let idle = Session { key: "opencode:opencode:ses_1".into(), account: "opencode".into(), ..session(Harness::Opencode, Surface::Cli, Status::Idle, false, None) };
+        let board = Board { lanes: vec![crate::fixtures::lane("/tmp", vec![idle.clone()])], ..Board::default() };
+        let e = deliver(&board, &cfg, &idle.key, "Go on", &Sender::You, false).unwrap_err().to_string();
+        assert_eq!(e, "opencode is turned off in Settings › Accounts.");
+        let working = Session { status: Status::Working, ..idle };
+        let board = Board { lanes: vec![crate::fixtures::lane("/tmp", vec![working.clone()])], ..Board::default() };
+        let e = deliver(&board, &cfg, &working.key, "Go on", &Sender::You, false).unwrap_err().to_string();
+        assert!(!e.contains("turned off"), "{e}");
     }
 
     /// A stand-in for one of a harness's own ways in.
