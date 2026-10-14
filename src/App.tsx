@@ -71,7 +71,7 @@ import { useListPicks } from './useListPicks';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingPr, ageListingSession, laneInQuery, prInDone, prInFilter, prInQuery, sessionInFilter, sessionInQuery, sessionItemOf, showingHelper, toggleShown, useBoardLists } from './boardLists';
+import { ageListingPr, ageListingSession, laneInQuery, prInDone, prInFilter, prInQuery, revealing, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, toggleShown, useBoardLists } from './boardLists';
 import { inProject, shortcutLabel } from './quick';
 import { improveTitle } from './improve';
 import { setPageZoom, type ZoomStep } from './zoom';
@@ -624,6 +624,8 @@ export function App() {
       // One older than the age filter lets through: the filter widens as far as it, as for a PR.
       const wider = ageListingSession(session, sessionPins.set, AGES, age, Date.now());
       if (wider) setAge(wider);
+      // A finished helper, or a run its session's row only counts, listed under its session.
+      setHelpersShownList((prev) => revealing(prev, sessionItemsOf(lanes), sessionItemOf({ lane, session })));
       setSelectedKey(`${lane.id}::${session.key}`);
     } else if (pr) {
       setView('prs');

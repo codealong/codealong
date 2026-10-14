@@ -2,7 +2,8 @@
 // runs-init.js makes: the runs a session's command started aren't listed, a row a call, but
 // counted on its row (LaneRow.tsx `RunsChip`), with the working glyph while any is at work and a
 // tooltip saying how many and what they run on; a double-click lists them all under it, set in,
-// and remembers that apart from its helpers, and another takes them away; a run no session on the
+// and remembers that apart from its helpers, and another takes them away; one a window asks to
+// show (App.tsx `reveal`) is listed under it and selected; a run no session on the
 // board started is listed as a session of its own, with a chip saying it's a headless run; and
 // none of them counts as an agent at work, in the Working filter or on this Mac's line.
 //   PREVIEW_INIT=scripts/preview/runs-init.js PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/runs-check.js
@@ -35,6 +36,13 @@
       dblclick(q('.ca-runschip', rowOf(r.boss.title)));
       await until(function () { return r.runs.every(function (x) { return !rowOf(x.title); }); }, 5000, 'its runs gone again');
       check('another takes them away', !q('.ca-runschip', rowOf(r.boss.title)).classList.contains('is-shown'));
+
+      // A run the quick panel found and asked to show: listed under its session, and selected.
+      window.__emit('reveal', { kind: 'session', laneId: r.lane, key: r.runs[3].key });
+      var shown = await until(function () { var row = rowOf(r.runs[3].title); return row && row.classList.contains('is-selected') && row; }, 5000, 'the run a window asked to show, listed and selected');
+      check('a run a window asks to show is listed under its session and selected', shown.classList.contains('is-nested'));
+      dblclick(q('.ca-runschip', rowOf(r.boss.title)));
+      await until(function () { return !rowOf(r.runs[3].title); }, 5000, 'its runs gone once more');
 
       // One no session here started is a session of its own, saying what it is.
       var lone = rowOf(r.lone.title);

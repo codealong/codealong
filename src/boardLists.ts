@@ -268,6 +268,20 @@ export function placeHelpers(rows: SessionItem[], searching: boolean, shown: Rea
 }
 const NONE: ReadonlySet<string> = new Set();
 
+/** The sessions whose helpers or runs Sessions lists them all of, with what it takes to list
+ *  `item` once a window asks to show it (App.tsx `reveal`, which clears the search and the
+ *  filters): unchanged when Sessions lists it among `all` then, else with every helper or every
+ *  headless run of its session listed (`listedAll`), as its chip's double-click would. Without
+ *  that, a finished helper or a run the quick panel found would be selected and not listed, and
+ *  the panel would show another session. */
+export function revealing(shown: string[], all: readonly SessionItem[], item: SessionItem): string[] {
+  const s = item.session;
+  const parent = workingFor(s);
+  if (!parent || placeHelpers([...all], false, new Set(shown), all).some((r) => r.session.key === s.key)) return shown;
+  const key = s.headless ? runsShownKey(parent) : parent;
+  return shown.includes(key) ? shown : toggleShown(shown, key);
+}
+
 /** The sessions you asked to see all the helpers of, with `key` added or taken out: the latest
  *  `HELPERS_SHOWN_MAX` kept, so sessions long gone don't pile up. */
 export function toggleShown(shown: readonly string[], key: string): string[] {

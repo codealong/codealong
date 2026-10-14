@@ -34,7 +34,8 @@
       board.lanes.forEach(function (l) {
         l.sessions = l.sessions.filter(function (s) {
           if (picked.some(function (x) { return x.key === s.key && x.lane === l.id; })) return true;
-          if (l.hidden || l.device || s.visitor || s.archived || seen[s.key] || picked.length >= plan.length) return false;
+          // Not a helper or a headless run, which Sessions lists only while it works or waits on you.
+          if (l.hidden || l.device || s.visitor || s.archived || s.helper || s.headless || seen[s.key] || picked.length >= plan.length) return false;
           seen[s.key] = true;
           var p = plan[picked.length];
           s.status = p.status;

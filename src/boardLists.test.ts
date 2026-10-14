@@ -13,6 +13,7 @@ import {
   laneInQuery,
   pinnedLaneRowsOf,
   placeHelpers,
+  revealing,
   toggleShown,
   sessionItemOf,
   showingHelper,
@@ -386,6 +387,22 @@ describe('the Sessions view’s lists', () => {
         [busy.key, true],
         [ended.key, true],
       ]);
+    });
+
+    it('lists a run or a finished helper a window asks to show, once the search clears', () => {
+      const done = session('codex:codex:done', { status: 'idle', helper: { parent: boss.key } });
+      const items = sessionItemsOf([lane('/r/a', [boss, busy, ended, asks, done])]);
+      const row = (s: Session) => items.find((r) => r.session.key === s.key)!;
+      // Its session's runs listed, not its helpers; and its helpers, not its runs.
+      expect(revealing(['x'], items, row(busy))).toEqual(['x', runsShownKey(boss.key)]);
+      expect(revealing([], items, row(done))).toEqual([boss.key]);
+      expect(keysOf(placeHelpers(items, false, new Set(revealing([], items, row(ended)))))).toContain(ended.key);
+      // Listed anyway: as it was.
+      const shown = ['x'];
+      expect(revealing(shown, items, row(asks))).toBe(shown);
+      expect(revealing(shown, items, row(boss))).toBe(shown);
+      const all = [runsShownKey(boss.key)];
+      expect(revealing(all, items, row(busy))).toBe(all);
     });
 
     it('lists a run no session on the board started as a session of its own', () => {

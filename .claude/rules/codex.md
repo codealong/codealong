@@ -48,7 +48,12 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `arguments` are JSON.
 - `codex exec` runs (`originator: "codex_exec"`, `source: "exec"`, `thread_source: "user"`,
   0.157.1) are threads like any other, with nobody at them: `codex/rollout.rs`
-  (`ThreadInfo::exec`), `board.rs` (`Session::headless`).
+  (`ThreadInfo::exec`), `board.rs` (`Session::headless`). An exec run doesn't hold its rollout
+  open while it runs, nor does an app-server for it (lsof every half second through a 40-line
+  reply, 0.157.1, 2026-10-14), so its process can't be told from its thread by open files, and
+  `codex_session` gives it no pid: its session isn't found by its process's parents
+  (`board::started_by`), and it's listed on its own rather than on the row of the session that
+  ran it.
 - Forks (`forked_from_id`), threads the app's agent made (`thread_source:
   "agent_created_thread"`, named in the `<codex_delegation>` that opens them) and subagents,
   which aren't threads of their own: `codex/rollout.rs` (`ThreadInfo::forked_from`,
