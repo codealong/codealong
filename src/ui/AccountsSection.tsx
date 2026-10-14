@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import { agentsStatus, foundAccounts, getAccounts, installAgents, openUrl, saveAccounts, setPreferred, signIn, stopTraining } from '../api';
 import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
-import { afterStop, flagged, trainingOf, trainingTag } from '../training';
+import { afterStop, flagged, readNote, trainingOf, trainingTag } from '../training';
 import type { AccountCfg, AccountInfo, FoundAccount, Harness, StartPlace, Training, Usage } from '../types';
 import { Button, cx, Icon, Rich, Seg } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
@@ -487,7 +487,10 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
               {t && (
                 <>
                   <dt>Training</dt>
-                  <dd className="ca-acct-training">{t.note.replace(/`/g, '')}</dd>
+                  <dd className="ca-acct-training">
+                    {t.note.replace(/`/g, '')}
+                    {readNote(t, now) && <span className="ca-acct-training-read">{readNote(t, now)}</span>}
+                  </dd>
                 </>
               )}
               {(a.per_token || a.monthly != null) && (

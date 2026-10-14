@@ -6,8 +6,9 @@
 //! value=false`, no body, answered with the settings it set). Beside it are Codex's own two,
 //! `codex_training_allowed` and `codex_training_allowed_v2`, read and turned off the same way;
 //! no app was seen sending those, so they're sent only when on. Business, Enterprise and Edu
-//! workspaces aren't trained on, and an API key's calls aren't either. Codealong never refreshes
-//! the sign-in: Codex does as it runs.
+//! workspaces aren't trained on. An API key's calls aren't either unless its organization shares
+//! them, which only the API's dashboard says. Codealong never refreshes the sign-in: Codex does
+//! as it runs.
 
 use std::path::Path;
 use std::time::Duration;
@@ -80,7 +81,7 @@ pub fn read(account: &AccountCfg) -> Training {
     let fix = format!("run {} once to sign in again", code(account.command()));
     let sign_in = match read_auth(&account.home_path()) {
         None => return Training::unknown(account, format!("Not signed in: {fix}.")).at(PAGE),
-        Some(Auth::ApiKey) => return Training::new(account, State::Off, "Signed in with an API key: OpenAI doesn't train on API calls unless you opt in."),
+        Some(Auth::ApiKey) => return Training::unknown(account, "Signed in with an API key: OpenAI doesn't train on API calls unless your organization opts in to share them, which Codealong can't read."),
         Some(Auth::ChatGpt(s)) => s,
     };
     if let Some(plan) = sign_in.plan.as_deref().filter(|p| workspace(p)) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterStop, cardTitle, flagged, flagLabel, trainingOf, trainingTag } from './training';
+import { afterStop, cardTitle, flagged, flagLabel, readNote, trainingOf, trainingTag } from './training';
 import type { Training } from './types';
 
 const reading = (state: Training['state'], account = 'claude'): Training => ({ account, state, note: 'Help improve Claude is on.', canStop: true, url: null, asOf: 1 });
@@ -28,6 +28,13 @@ describe('training', () => {
     expect(trainingTag(reading('off'))).toEqual({ word: 'Not trained on', ok: true });
     expect(trainingTag(reading('on'))).toEqual({ word: 'Training on', ok: false });
     expect(trainingTag(reading('unknown'))).toBeNull();
+  });
+
+  it('says when it was read, and why not since', () => {
+    const now = 10 * 60e3;
+    expect(readNote({ ...reading('off'), asOf: now - 3 * 60e3 }, now)).toMatch(/^Read /);
+    expect(readNote({ ...reading('off'), asOf: now - 3 * 60e3, stale: 'Sign-in expired: run `claude` once.' }, now)).toMatch(/; reading it again failed: Sign-in expired: run claude once\.$/);
+    expect(readNote({ ...reading('unknown'), asOf: null }, now)).toBeNull();
   });
 
   it('says when a turn-off did not take', () => {

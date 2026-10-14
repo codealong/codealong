@@ -536,6 +536,8 @@ export interface Training {
   /** The provider's page where it's changed by hand. */
   url: string | null;
   asOf: number | null;
+  /** Why the latest read couldn't tell, when this is an older answer kept. */
+  stale?: string | null;
 }
 
 /** An `[[accounts]]` table in config.toml. */

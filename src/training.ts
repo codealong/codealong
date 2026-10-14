@@ -1,6 +1,7 @@
 // Whether each account's provider may train its models on what the account sends, as the engine
 // reads it (training.rs): which accounts the usage bar flags, and the words its card and
 // Settings › Accounts use.
+import { agoPhrase } from './format';
 import type { Training } from './types';
 
 /** An account's reading, when it's been read. */
@@ -28,6 +29,13 @@ export function cardTitle(t: Training): string {
 export function trainingTag(t: Training | undefined): { word: string; ok: boolean } | null {
   if (!t || t.state === 'unknown') return null;
   return t.state === 'off' ? { word: 'Not trained on', ok: true } : { word: flagLabel(t), ok: false };
+}
+
+/** When it was read, and why it couldn't be read since when that failed; null when it never was. */
+export function readNote(t: Training, now: number): string | null {
+  if (!t.asOf) return null;
+  const read = `Read ${agoPhrase(t.asOf, now)}`;
+  return t.stale ? `${read}; reading it again failed: ${t.stale.replace(/`/g, '')}` : read;
 }
 
 /** How a turn-off went, from the reading after it: null when it's off, else why not. */

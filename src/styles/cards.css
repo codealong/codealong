@@ -77,6 +77,10 @@
   overflow: visible;
   white-space: normal;
 }
+.ca-acct-training-read {
+  display: block;
+  color: var(--ink-3);
+}
 .ca-acct-actions {
   display: flex;
   align-items: center;

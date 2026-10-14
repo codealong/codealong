@@ -7,7 +7,7 @@
 //! flags an account whose provider may train on it (src/ui/UsageBar.tsx), and Settings ›
 //! Accounts says where each one stands.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
@@ -48,13 +48,17 @@ pub struct Training {
     pub can_stop: bool,
     /// The provider's page where a person changes it by hand.
     pub url: Option<String>,
-    /// When it was read. A read that failed keeps the last answer, and its time.
+    /// When it was read. A read that couldn't tell keeps the last answer that could, and its
+    /// time, with why in `stale`.
     pub as_of: Option<i64>,
+    /// Why the latest read couldn't tell, when this is an older answer kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale: Option<String>,
 }
 
 impl Training {
     pub fn new(account: &AccountCfg, state: State, note: impl Into<String>) -> Training {
-        Training { account: account.name.clone(), state, note: note.into(), can_stop: false, url: None, as_of: Some(now_ms()) }
+        Training { account: account.name.clone(), state, note: note.into(), can_stop: false, url: None, as_of: Some(now_ms()), stale: None }
     }
 
     pub fn unknown(account: &AccountCfg, note: impl Into<String>) -> Training {
@@ -98,6 +102,17 @@ pub struct TrainingPoll {
     last: Option<Instant>,
     /// A refresh asked for a read sooner than `EVERY`.
     asked: bool,
+    /// What each account was last asked as (its harness and folder), by name: one that changes
+    /// under the same name is another account, read afresh.
+    asked_as: BTreeMap<String, String>,
+    /// Accounts whose answer from the read that's out is from before: read again after a
+    /// turn-off, or another account under the name since. It's passed over.
+    pass_over: BTreeSet<String>,
+}
+
+/// Which account a name stands for: its harness and folder.
+fn identity(a: &AccountCfg) -> String {
+    format!("{}\n{}", a.harness, a.home)
 }
 
 impl TrainingPoll {
@@ -119,6 +134,9 @@ impl TrainingPoll {
             self.last = Some(now);
             self.asked = false;
         }
+        for a in &asks {
+            self.asked_as.insert(a.name.clone(), identity(a));
+        }
         self.running = true;
         asks
     }
@@ -132,15 +150,23 @@ impl TrainingPoll {
     /// last one that could. Says whether anything changed.
     pub fn on_read(&mut self, list: Option<Vec<Training>>) -> bool {
         self.running = false;
-        list.into_iter().flatten().fold(false, |changed, t| self.take(t) || changed)
+        let before = std::mem::take(&mut self.pass_over);
+        list.into_iter().flatten().filter(|t| !before.contains(&t.account)).fold(false, |changed, t| self.take(t) || changed)
     }
 
-    /// One account's reading, read on its own (after Codealong turned it off). Says whether it
-    /// changed.
-    pub fn take(&mut self, fresh: Training) -> bool {
+    /// An account's reading after Codealong turned training off. Says whether it changed.
+    pub fn on_stopped(&mut self, fresh: Training) -> bool {
+        if self.running {
+            self.pass_over.insert(fresh.account.clone());
+        }
+        self.take(fresh)
+    }
+
+    /// A reading that couldn't tell keeps the last one that could, saying why it's not fresh.
+    fn take(&mut self, fresh: Training) -> bool {
         let prev = self.by_account.get(&fresh.account);
         let fresh = match prev {
-            Some(p) if fresh.state == State::Unknown && p.state != State::Unknown => p.clone(),
+            Some(p) if fresh.state == State::Unknown && p.state != State::Unknown => Training { stale: Some(fresh.note), ..p.clone() },
             _ => fresh,
         };
         if prev == Some(&fresh) {
@@ -150,8 +176,18 @@ impl TrainingPoll {
         true
     }
 
-    /// Accounts config.toml no longer lists are forgotten.
+    /// Accounts config.toml no longer lists are forgotten, and so is a name that now stands for
+    /// another harness or folder, which is read afresh at the next `due`.
     pub fn keep_only(&mut self, accounts: &[AccountCfg]) {
+        let same = |name: &str, asked: &str| accounts.iter().any(|a| a.name == name && identity(a) == asked);
+        let gone: Vec<String> = self.asked_as.iter().filter(|(name, asked)| !same(name, asked)).map(|(name, _)| name.clone()).collect();
+        for name in gone {
+            self.asked_as.remove(&name);
+            self.by_account.remove(&name);
+            if self.running {
+                self.pass_over.insert(name);
+            }
+        }
         self.by_account.retain(|name, _| accounts.iter().any(|a| &a.name == name));
     }
 
@@ -170,7 +206,7 @@ mod tests {
     }
 
     fn reading(name: &str, state: State) -> Training {
-        Training { account: name.into(), state, note: String::new(), can_stop: false, url: None, as_of: Some(1) }
+        Training { account: name.into(), state, note: String::new(), can_stop: false, url: None, as_of: Some(1), stale: None }
     }
 
     #[test]
@@ -204,14 +240,49 @@ mod tests {
     }
 
     #[test]
-    fn a_read_that_cant_tell_keeps_the_last_that_could() {
+    fn a_read_that_cant_tell_keeps_the_last_that_could_and_says_why() {
         let mut poll = TrainingPoll::default();
-        poll.take(reading("claude", State::On));
-        assert!(!poll.take(reading("claude", State::Unknown)));
-        assert_eq!(poll.list(&[account("claude")])[0].state, State::On);
-        assert!(poll.take(reading("claude", State::Off)));
-        assert_eq!(poll.list(&[account("claude")])[0].state, State::Off);
+        let failed = Training { note: "Sign-in expired.".into(), as_of: None, ..reading("claude", State::Unknown) };
+        poll.take(reading("claude", State::Off));
+        assert!(poll.take(failed.clone()));
+        let kept = &poll.list(&[account("claude")])[0];
+        assert_eq!((kept.state, kept.as_of, kept.stale.as_deref()), (State::Off, Some(1), Some("Sign-in expired.")));
+        assert!(!poll.take(failed), "the same failure again changes nothing");
+        assert!(poll.take(reading("claude", State::On)));
+        assert_eq!(poll.list(&[account("claude")])[0].stale, None, "a read that could tell is fresh");
         assert!(poll.take(reading("codex", State::Unknown)), "nothing to keep: it says it can't tell");
+    }
+
+    #[test]
+    fn another_folder_or_harness_under_the_same_name_is_read_afresh() {
+        let mut poll = TrainingPoll::default();
+        let accounts = vec![account("claude"), account("codex")];
+        let t0 = Instant::now();
+        poll.due(&accounts, t0);
+        poll.on_read(Some(vec![reading("claude", State::Off), reading("codex", State::Off)]));
+        let moved = vec![AccountCfg { home: "~/.elsewhere".into(), ..account("claude") }, account("codex")];
+        poll.keep_only(&moved);
+        assert_eq!(poll.list(&moved).iter().map(|t| t.account.as_str()).collect::<Vec<_>>(), ["codex"], "its old answer goes");
+        let asks: Vec<String> = poll.due(&moved, t0 + Duration::from_secs(60)).into_iter().map(|a| a.name).collect();
+        assert_eq!(asks, ["claude"]);
+        // A read out when it changed answers for the old folder, and is passed over.
+        poll.keep_only(&[AccountCfg { harness: "codex".into(), ..moved[0].clone() }, account("codex")]);
+        poll.on_read(Some(vec![reading("claude", State::Off)]));
+        assert!(poll.list(&moved).iter().all(|t| t.account != "claude"));
+    }
+
+    #[test]
+    fn a_read_out_during_a_turn_off_doesnt_undo_it() {
+        let mut poll = TrainingPoll::default();
+        let accounts = vec![account("claude"), account("codex")];
+        poll.due(&accounts, Instant::now());
+        assert!(poll.on_stopped(reading("claude", State::Off)));
+        poll.on_read(Some(vec![reading("claude", State::On), reading("codex", State::On)]));
+        let states: Vec<State> = poll.list(&accounts).iter().map(|t| t.state).collect();
+        assert_eq!(states, [State::Off, State::On], "the read began before the turn-off");
+        poll.due(&accounts, Instant::now() + EVERY);
+        poll.on_read(Some(vec![reading("claude", State::On)]));
+        assert_eq!(poll.list(&accounts)[0].state, State::On, "a later read counts again");
     }
 
     #[test]

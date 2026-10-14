@@ -16,7 +16,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
-import { afterStop, cardTitle, flagged, flagLabel, trainingOf } from '../training';
+import { afterStop, cardTitle, flagged, flagLabel, readNote, trainingOf } from '../training';
 import type { Meter, Severity, Training, Usage } from '../types';
 import { Button, cx, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
@@ -289,8 +289,9 @@ function TrainingCard({ training: t, now, anchor, onStop, onOpenUrl, onClose }: 
       </div>
       <div className="ca-training-text">{t.note.replace(/`/g, '')}</div>
       {failed && <div className="ca-training-error">{failed.replace(/`/g, '')}</div>}
+      {t.stale && <div className="ca-training-asof">{readNote(t, now)}</div>}
       <div className="ca-training-foot">
-        {t.asOf && <span className="ca-training-asof">Read {agoPhrase(t.asOf, now)}</span>}
+        {t.asOf && !t.stale && <span className="ca-training-asof">{readNote(t, now)}</span>}
         {t.url && (
           <Button size="sm" variant={t.canStop ? 'secondary' : 'primary'} icon="external" onClick={() => onOpenUrl?.(t.url as string)}>
             Open settings

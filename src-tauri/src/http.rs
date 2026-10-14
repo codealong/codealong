@@ -1,7 +1,8 @@
 //! One HTTPS call to a provider's API as an account, through curl: Claude's plan usage
 //! (claude/usage.rs) and the accounts' data settings (training.rs's readers). The headers, a
 //! sign-in among them, and the body go to curl on stdin as its config, never on a command line,
-//! and are never logged. Calls go over HTTP/1.1: Cloudflare, in front of chatgpt.com, answers
+//! and are never logged: `-q`, first, keeps curl from reading `~/.curlrc` too, where a `trace`
+//! would write them to a file. Calls go over HTTP/1.1: Cloudflare, in front of chatgpt.com, answers
 //! curl's HTTP/2 to its settings with a challenge whatever it sends, and lets HTTP/1.1 with a
 //! User-Agent of Codealong's own through (2026-10-13).
 
@@ -57,7 +58,7 @@ pub fn call(method: &str, url: &str, headers: &[String], body: Option<&Value>, t
         return Err("the stored sign-in is unreadable".into());
     }
     let secs = timeout.as_secs().max(1).to_string();
-    let out = procs::run_stdin("/usr/bin/curl", &["-sS", "--http1.1", "-m", &secs, "-w", "\n%{http_code}", "-K", "-"], &config(method, url, headers, body), timeout + Duration::from_secs(5))
+    let out = procs::run_stdin("/usr/bin/curl", &["-q", "-sS", "--http1.1", "-m", &secs, "-w", "\n%{http_code}", "-K", "-"], &config(method, url, headers, body), timeout + Duration::from_secs(5))
         .map_err(|e| e.to_string().trim().trim_start_matches("curl: ").chars().take(120).collect::<String>())?;
     let (body, status) = out.rsplit_once('\n').unwrap_or(("", &out));
     match status.trim().parse() {
@@ -94,6 +95,7 @@ mod tests {
         procs::stand_in::set(Some(Box::new(|program, args, input, _| {
             assert_eq!(program, "/usr/bin/curl");
             assert!(!args.iter().any(|a| a.contains("Bearer")), "the sign-in stays off the command line");
+            assert_eq!(args[0], "-q", "and out of whatever ~/.curlrc says");
             assert!(input.unwrap().contains("Bearer abc"));
             Ok("{\"a\":1}\n200".to_string())
         })));

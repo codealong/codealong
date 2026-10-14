@@ -2077,7 +2077,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::UsageDone(list)) => self.on_usage(list),
                 Ok(Msg::TeamFiles(answers)) => self.dirty |= self.team_files.on_read(answers),
                 Ok(Msg::TrainingRead(list)) => self.dirty |= self.training.on_read(list),
-                Ok(Msg::TrainingOne(t)) => self.dirty |= self.training.take(t),
+                Ok(Msg::TrainingOne(t)) => self.dirty |= self.training.on_stopped(t),
                 Ok(Msg::MarkSeen(keys, reply)) => {
                     let now = now_ms();
                     for k in keys {
