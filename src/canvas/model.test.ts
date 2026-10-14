@@ -495,6 +495,15 @@ describe('arrange', () => {
     expect(refs(r.doc).filter((c) => itemId(c) === 'session:s1')).toHaveLength(1);
   });
 
+  it('first brings on what Bring in would have, for a canvas read from its file behind the board', () => {
+    // Saved before s4 moved on, by a window that has shown another project since.
+    const behind = { ...tidied, items: tidied.items.filter((it) => itemId(it) !== 'session:s4'), scope: { ...tidied.scope, since: NOW - DAY } };
+    const r = arrange(behind, e, [{ title: 'Billing', cards: [s('s1')] }], 'keep', NOW);
+    expect(at(r.doc, 'session:s4')).toBeTruthy();
+    // And from here on, Bring in starts after the arrange.
+    expect(r.doc.scope.since).toBe(NOW);
+  });
+
   it('brings on a named card that was off the canvas, and off the hidden list', () => {
     const d = { ...tidied, items: tidied.items.filter((it) => itemId(it) !== 'session:s3'), hidden: ['session:s3'] };
     const r = arrange(d, e, [{ title: 'B', cards: [s('s3')] }], 'keep', NOW).doc;

@@ -948,9 +948,12 @@ export interface Arranged {
  * in them and notes, less the cards a frame names, which move to it. The frames and notes the last
  * arrange made are replaced; a tidy leaves them as frames you drew. A card named twice goes in the
  * first frame that names it. The cards no frame names go below the frames, laid out as a tidy
- * would, or with `rest` 'off' come off. Like a tidy, it sets where Bring in starts from.
+ * would, or with `rest` 'off' come off. Like a tidy, it sets where Bring in starts from, so it
+ * first brings on what Bring in would have: a canvas read from its file, whose project no window
+ * showed, may be behind the board.
  */
-export function arrange(doc: CanvasDoc, e: Entities, asked: ArrangeFrame[], rest: ArrangeRest, now: number): Arranged {
+export function arrange(given: CanvasDoc, e: Entities, asked: ArrangeFrame[], rest: ArrangeRest, now: number, pinned: Set<string> = new Set()): Arranged {
+  const doc = sync(given, e, now, pinned);
   const named = new Map<string, { ref: RefKind; key: string; frame: number; rank: number }>();
   const missing: Arranged['missing'] = [];
   asked.forEach((f, frame) => {

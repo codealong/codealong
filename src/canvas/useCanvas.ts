@@ -21,6 +21,9 @@ export interface CanvasHandle {
   /** The project's document has been read: `doc` null then means it has none yet. */
   loaded: boolean;
   update: (fn: (doc: CanvasDoc) => CanvasDoc) => void;
+  /** Replaces the document and saves it at once, for a change whose saving must be known (an
+   *  arrange the command asked for, which says whether it was saved). */
+  put: (doc: CanvasDoc) => Promise<void>;
   /** Puts a thing on the canvas and keeps it there; returns its canvas id. */
   keep: (ref: RefKind, key: string) => string;
   /** Whether a thing is on the canvas now. */
@@ -89,7 +92,8 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
       onCanvasSaved((saved) => {
         if (saved.from === windowLabel() || saved.project !== project || pending.current?.project === project) return;
         canvasLoad(project)
-          .then((raw) => setHeld((h) => (h?.project === project && raw ? { project, doc: readDoc(raw) } : h)))
+          // Asked again as it lands: a change made here while it was read is still to be saved.
+          .then((raw) => setHeld((h) => (h?.project === project && raw && pending.current?.project !== project ? { project, doc: readDoc(raw) } : h)))
           // One that doesn't read now leaves this window with what it had, which it saves with its next change.
           .catch(() => {});
       }),
@@ -128,6 +132,19 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
     [project, save],
   );
 
+  const put = useCallback(
+    async (doc: CanvasDoc) => {
+      // Another project's change still to save goes first; this project's is superseded.
+      if (pending.current && pending.current.project !== project) flush();
+      window.clearTimeout(timer.current);
+      pending.current = null;
+      setHeld((h) => (h?.project === project ? { project, doc } : h));
+      await canvasSave(project, doc);
+      clearNotice('canvas');
+    },
+    [project, flush],
+  );
+
   const keep = useCallback(
     (ref: RefKind, key: string) => {
       const id = refId(ref, key);
@@ -147,5 +164,5 @@ export function useCanvas(project: string, shown: boolean, read: boolean, e: Ent
 
   const doc = loaded ? (held?.doc ?? null) : null;
   const has = useCallback((ref: RefKind, key: string) => !!doc?.items.some((it) => it.kind === 'ref' && it.ref === ref && it.key === key), [doc]);
-  return { doc, loaded, update, keep, has };
+  return { doc, loaded, update, put, keep, has };
 }

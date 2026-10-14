@@ -72,9 +72,9 @@ async function answer(ask: CanvasAsk, o: CanvasOps): Promise<unknown> {
   if (op.kind === 'arrange') {
     const now = Date.now();
     // A project whose canvas was never shown starts as it would have: tidied.
-    const done = arrange(doc ?? seed(e, now, o.pinned), e, op.frames, op.rest, now);
-    if (here) o.canvas.update(() => done.doc);
-    else await canvasSave(project, done.doc);
+    const done = arrange(doc ?? seed(e, now, o.pinned), e, op.frames, op.rest, now, o.pinned);
+    // Saved before the command hears it's done, so a failure to save is its answer.
+    await (here ? o.canvas.put(done.doc) : canvasSave(project, done.doc));
     return { project, frames: done.frames, missing: done.missing, rest: done.rest };
   }
   throw new Error('This Codealong doesn’t know that canvas request: the command is newer than the app.');
