@@ -86,6 +86,8 @@ pub struct TranscriptInfo {
     pub unfinished: Option<i64>,
     /// The model the latest reply came from.
     pub model: Option<String>,
+    /// The effort level the latest reply was made at, or one `/effort` set since.
+    pub effort: Option<String>,
     /// How many tokens of context the latest reply's call sent: its input, cache reads and cache
     /// writes, as Claude Code's own context meter counts them (2.1.296's code: its status line's
     /// `context_window.total_input_tokens`, `used_percentage` of the model's window). A compaction
@@ -403,6 +405,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                         let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
                         info.context = Some(n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens")).filter(|c| *c > 0).or(info.context);
                     }
+                    if let Some(e) = reply_effort(&v) {
+                        info.effort = Some(e);
+                    }
                 }
                 let Some(items) = v.pointer("/message/content").and_then(Value::as_array) else { continue };
                 // The shell's folder when the call was made: a `cd` inside the session's
@@ -451,6 +456,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     info.window_model = Some(m.clone());
                     info.model = Some(m);
                 }
+                if let Some(e) = said.and_then(effort_set) {
+                    info.effort = e;
+                }
                 if you_typed(&v) {
                     info.limit = None;
                     info.connection_lost = None;
@@ -491,6 +499,33 @@ fn model_set(content: &str) -> Option<String> {
     };
     let id = said.rsplit_once(" (").and_then(|(_, id)| id.strip_suffix(')')).unwrap_or(said);
     Some(id.trim().to_string()).filter(|m| !m.is_empty())
+}
+
+/// The effort level a reply was made at, as Claude Code reads it back for its own (2.1.299's
+/// code): `perTurnEffort`, else `effort`, which may be a number. A reply with neither leaves the
+/// one before.
+fn reply_effort(v: &Value) -> Option<String> {
+    ["perTurnEffort", "effort"].iter().find_map(|k| match v.get(*k)? {
+        Value::String(e) => Some(e.trim().to_string()).filter(|e| !e.is_empty()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    })
+}
+
+/// The effort level `/effort` set, from what it wrote (2.1.299): "Set effort level to high (this
+/// session only): …", "Effort 'max' exceeds the cap for … set to 'xhigh' instead …", or "Effort
+/// level set to auto", the model's own, which only the next reply names (`Some(None)`). None
+/// where it changed nothing: an environment variable that overrides it, a failure.
+fn effort_set(content: &str) -> Option<Option<String>> {
+    let rest = content.strip_prefix("<local-command-stdout>")?;
+    if rest.starts_with("Effort level set to auto") {
+        return Some(None);
+    }
+    let level = match rest.strip_prefix("Set effort level to ") {
+        Some(level) => level.split([' ', ':', '<']).next()?,
+        None => rest.strip_prefix("Effort '")?.split_once("; set to '")?.1.split('\'').next()?,
+    };
+    Some(Some(level.trim().to_string()).filter(|l| !l.is_empty()))
 }
 
 /// The usage limit an assistant line says the API refused the turn on: Claude Code writes the
@@ -947,6 +982,28 @@ mod tests {
         assert_eq!(parse_lines("", &tail.join("\n")).model.as_deref(), Some("claude-haiku-4-5-20251001"));
         let replied = [tail[1].clone(), line("assistant", r#"{"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"Hi."}]}"#)];
         assert_eq!(parse_lines("", &replied.join("\n")).model.as_deref(), Some("claude-haiku-4-5-20251001"));
+    }
+
+    #[test]
+    fn reads_the_effort_a_reply_was_made_at_and_one_effort_set() {
+        let said = |text: &str| effort_set(&format!("<local-command-stdout>{text}</local-command-stdout>"));
+        assert_eq!(said("Set effort level to max (this session only): Maximum capability with deepest reasoning."), Some(Some("max".into())));
+        assert_eq!(said("Set effort level to high (saved as your default for new sessions): Comprehensive implementation"), Some(Some("high".into())));
+        assert_eq!(said("Effort 'max' exceeds the cap for opus set by your settings or organization; set to 'xhigh' instead (this session only): Deeper"), Some(Some("xhigh".into())));
+        assert_eq!(said("Effort level set to auto (this session only)"), Some(None));
+        assert_eq!(said("Not applied: CLAUDE_CODE_EFFORT_LEVEL=low overrides effort this session, and max is session-only (nothing saved)"), None);
+        assert_eq!(said("Set model to `Opus 5.5`"), None);
+        let reply = |effort: &str| format!(r#"{{"type":"assistant",{effort}"message":{{"model":"claude-opus-5-5","content":[{{"type":"text","text":"Done."}}]}}}}"#);
+        let set = |level: &str| format!(r#"{{"type":"user","message":{{"role":"user","content":"<local-command-stdout>Set effort level to {level} (this session only): …</local-command-stdout>"}}}}"#);
+        // The turn's own level wins over the one set; older replies name only `effort`.
+        assert_eq!(parse_lines("", &reply(r#""effort":"high","perTurnEffort":"low","#)).effort.as_deref(), Some("low"));
+        assert_eq!(parse_lines("", &reply(r#""effort":"xhigh","#)).effort.as_deref(), Some("xhigh"));
+        // `/effort` is the level until the next reply; a reply that names none leaves it.
+        assert_eq!(parse_lines("", &[reply(r#""effort":"xhigh","#), set("max")].join("\n")).effort.as_deref(), Some("max"));
+        assert_eq!(parse_lines("", &[reply(r#""effort":"xhigh","#), reply("")].join("\n")).effort.as_deref(), Some("xhigh"));
+        // A refusal written as a reply isn't one the model made.
+        let refused = r#"{"type":"assistant","isApiErrorMessage":true,"perTurnEffort":"max","message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error"}]}}"#;
+        assert_eq!(parse_lines("", &[reply(r#""effort":"high","#), refused.to_string()].join("\n")).effort.as_deref(), Some("high"));
     }
 
     #[test]

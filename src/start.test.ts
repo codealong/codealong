@@ -14,6 +14,7 @@ import {
   autoWhy,
   choices,
   effortNote,
+  effortWords,
   initialChoice,
   initialPlace,
   keepPlaceFor,
@@ -298,6 +299,16 @@ describe('the agent menu', () => {
     expect(modelName('claude-sonnet-5', MODELS)).toBe('Sonnet 5');
     expect(modelName('sonnet[1m]', MODELS)).toBe('sonnet 1M');
     expect(modelName('gpt-5.5', MODELS)).toBe('gpt-5.5');
+  });
+
+  it('names a session’s effort as its account’s starts do, and any harness’s the same way', () => {
+    const efforts = [{ id: 'high', label: 'High' }, { id: 'xhigh', label: 'Extra' }];
+    expect(effortWords('xhigh', efforts)).toBe('Extra effort');
+    // Another Mac's session, or a harness whose starts list none.
+    expect(effortWords('xhigh', [])).toBe('Extra effort');
+    expect(effortWords('max', [])).toBe('Max effort');
+    expect(effortWords('minimal', [])).toBe('Minimal effort');
+    expect(effortWords('none', [])).toBe('No reasoning');
   });
 
   it('knows which per-model limit a model counts against', () => {

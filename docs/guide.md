@@ -1087,7 +1087,10 @@ waiting on you is opened instead, so what you typed can't answer its question.
 A running session's box says the model it's on beside Send (the one its latest reply came from, or
 that it was switched to since), and where Codealong types into its terminal or runs it, that's a
 menu of its account's models: picking one switches that session alone (`/model <name>` typed into a
-Claude Code session, its agent's model for one Codealong runs), between turns.
+Claude Code session, its agent's model for one Codealong runs), between turns. After the model,
+quieter, is the effort it's on, for Claude Code and Codex sessions: Low, Medium, High, Extra or Max
+effort (Codex's Minimal too), the level its latest reply was made at, or one `/effort` set since.
+The chip switches only the model.
 
 ### New session
 

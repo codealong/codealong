@@ -47,6 +47,9 @@ pub struct ThreadInfo {
     pub forked_from: Option<String>,
     /// The model its latest turn ran on, from its `turn_context`.
     pub model: Option<String>,
+    /// The reasoning effort its latest turn ran at, from its `turn_context`'s `effort`
+    /// (`xhigh`): none for a model that takes none.
+    pub effort: Option<String>,
     /// The permissions its latest turn ran with, from its `turn_context` (`turn_mode`).
     pub mode: Option<SessionMode>,
     /// The tokens in its context after its latest call and its model's window: the last
@@ -597,6 +600,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
         }
         if let Some(p) = v.get("payload") {
             info.mode = turn_mode(p).or(info.mode.take());
+            info.effort = p.get("effort").and_then(Value::as_str).filter(|e| !e.is_empty()).map(str::to_string);
         }
         return;
     }
@@ -958,10 +962,11 @@ mod tests {
 
     #[test]
     fn finds_the_model_and_permissions_of_a_turn_that_started_long_before_the_tail() {
-        let context = r#"{"timestamp":"2026-09-24T18:04:00.000Z","type":"turn_context","payload":{"model":"gpt-5.5","approval_policy":"on-request","approvals_reviewer":"user","sandbox_policy":{"type":"workspace-write"}}}"#;
+        let context = r#"{"timestamp":"2026-09-24T18:04:00.000Z","type":"turn_context","payload":{"model":"gpt-5.5","approval_policy":"on-request","approvals_reviewer":"user","sandbox_policy":{"type":"workspace-write"},"effort":"xhigh"}}"#;
         let (dir, path) = long_rollout("turn-context", &[TURN_STARTED, context, PROMPT_ITEM], &[TOKEN_COUNT]);
         let (info, _) = parse_rollout(&path, 0, None).unwrap();
         assert_eq!(info.model.as_deref(), Some("gpt-5.5"));
+        assert_eq!(info.effort.as_deref(), Some("xhigh"));
         assert_eq!(info.mode.map(|m| m.label).as_deref(), Some("Ask for approval"));
         assert!(info.turn_open);
         std::fs::remove_dir_all(&dir).unwrap();

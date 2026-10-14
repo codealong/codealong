@@ -289,6 +289,11 @@ pub struct Session {
     /// say, and from Macs before 2026-10-06.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The reasoning effort it's on, as its harness names the level (`high`, `xhigh`, `max`):
+    /// the one its latest reply was made at, or one it was set to since. None where the harness
+    /// doesn't say, and from Macs before 2026-10-14.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     /// How it goes about what would need your say (`SessionMode`): Claude Code's manual, plan or
     /// bypass permissions, Codex's Default or Full Access, as its harness last wrote it. None
     /// where the harness doesn't say, and from Macs before 2026-10-13.
@@ -498,6 +503,7 @@ impl Session {
             connection_lost: None,
             cut_off: None,
             model: None,
+            effort: None,
             mode: None,
             context: None,
             own_worktree: None,

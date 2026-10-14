@@ -145,6 +145,9 @@ export interface Session {
   /** The model it's on, as its harness names it (`claude-opus-5-5`): its latest reply's, or one
    *  it was switched to since. Missing where the harness doesn't say, and from older Macs. */
   model?: string;
+  /** The reasoning effort it's on, as its harness names the level (`xhigh`): its latest reply's,
+   *  or one it was set to since. Missing where the harness doesn't say, and from older Macs. */
+  effort?: string;
   /** The mode it runs in, as its harness names it (peer model.rs `SessionMode`): what it does
    *  without asking you. Missing where the harness doesn't say, and from older Macs. */
   mode?: SessionMode;

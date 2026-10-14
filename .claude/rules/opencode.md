@@ -72,6 +72,9 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   assistant message that has them, after the latest `compaction` message whose `status` is
   `completed` (`running`, then `completed` or `failed`), as OpenCode's own
   meter has it. An assistant row has no `tokens` until its step ends.
+- An assistant row's `model` is `{id, providerID, variant}`; `variant` is the model's reasoning
+  variant (`default` where none was picked). Codealong reads neither for a session's model or
+  effort yet: an OpenCode session's box says no model.
 - A session's mode is its agent, which OpenCode's own ACP server lists as its modes:
   `opencode.rs` (`SessionRow::agent`, `agent_mode`). `session_v2.agent` is the one its next
   turn runs as (NULL for the config's `default_agent`, else `build`), moved by a prompt with

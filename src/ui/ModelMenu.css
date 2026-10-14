@@ -86,3 +86,7 @@
   font: 500 12px/26px var(--font-sans);
   white-space: nowrap;
 }
+/* The effort after the model, spaced as the chip's flex gap spaces it. */
+.ca-modelmenu-said > .ca-modelmenu-detail {
+  margin-left: 5px;
+}

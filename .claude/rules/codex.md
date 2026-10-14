@@ -30,7 +30,9 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - The permissions a turn ran with, as Codex's own status line names them (0.157.1's tui
   `permissions_display`, `approval_mode_display`): `codex/rollout.rs` (`turn_mode`). A
   `turn_context` also has `permission_profile` and `file_system_sandbox_policy`; `approvals_reviewer`
-  is `auto_review` where config.toml says `guardian_subagent`.
+  is `auto_review` where config.toml says `guardian_subagent`. Its `effort` is the turn's
+  reasoning effort (`xhigh`; `collaboration_mode.settings.reasoning_effort` repeats it), which a
+  session shows after its model (`codex/rollout.rs` `apply_event`).
 - Approvals aren't recorded anywhere on disk: not in the rollout, `logs_2.sqlite` or the app's
   logs. A call left without its output past its tool's limit is taken as Needs you:
   `codex/rollout.rs` (`ThreadInfo::pending_calls`, `call_limit_ms`), `board.rs`
