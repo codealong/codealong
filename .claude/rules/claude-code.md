@@ -228,10 +228,20 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   it: `claude/start.rs` (`MODELS`, `default_model`); it takes a full name too (`claude/mod.rs`
   `offers_model`). Quote it when typing it: zsh reads `fable[1m]` as a file pattern ("no matches
   found").
-- `/model <name>` in a running session switches that session alone, where its picker (`/model`
-  with no name) saves the pick as the default for new sessions too; what each writes to the
-  transcript, and the model a reply names (without its context size): `claude/mod.rs`
-  (`model_command`), `claude/transcript.rs` (`model_set`).
+- `/model <name>` in a running session switched that session alone in 2.1.280, where its picker
+  (`/model` with no name) saved the pick as the default for new sessions too; in 2.1.299 both
+  save it ("Set model to Opus 5.5 and saved as your default for new sessions", settings.json's
+  `model`). What each writes to the transcript, and the model a reply names (without its context
+  size): `claude/mod.rs` (`model_command`), `claude/transcript.rs` (`model_set`).
+- `/model <name>` and `/effort <level>` typed into a session whose conversation is cached ask
+  first ("Switch model?", "Change effort level?", Yes picked; Return takes it) and write their
+  outcome to the transcript only once that's answered; `/effort` saves low to xhigh as the
+  default for the session's model (`modelSettings.<model>.effortLevel`), max being session-only.
+  A default put back too soon after Claude Code saved it is never read: its settings watcher
+  reports a change once the file holds still for a second, and takes the first within 5 seconds
+  of its own write for that write's echo, so its next settings write saves the default again.
+  How Codealong answers, waits and puts them back, and that the session keeps what it was
+  switched to (checked in tmux on 2026-10-14): `claude/switch.rs`.
 - `--effort`'s levels and what a model that doesn't take one gets (2.1.284): `claude/start.rs`
   (`EFFORTS`). Without it a session starts on `settings.json`'s
   `modelSettings.<model>.effortLevel`, else its `effortLevel`, else the model's own default (the
@@ -242,8 +252,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
 - The effort a reply was made at is on its assistant line: `perTurnEffort` where it's there, else
   `effort` (older lines, and the Claude app's, have only `effort`), as Claude Code reads its own
   back; it can be a number. A model that takes none (Haiku 4.5) gets `perTurnEffort: null` and
-  no `effort`. `/effort` writes "Set effort level to <level> (this session only): …" and "Effort
-  level set to auto" (2.1.299's code): `claude/transcript.rs` (`reply_effort`, `effort_set`).
+  no `effort`. `/effort` writes "Set effort level to <level> (this session only): …", "… (saved
+  as your default for new sessions): …" and "Effort level set to auto" (2.1.299's code):
+  `claude/transcript.rs` (`reply_effort`, `effort_set`).
 - `-w/--worktree [name]` makes a worktree for the session (read from 2.1.282's code): folder
   `.claude/worktrees/<name>` under the checkout, branch `worktree-<name>`, a word-pair name when
   none is given, based on a freshly fetched `origin/<default branch>` (settings

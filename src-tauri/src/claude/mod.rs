@@ -26,6 +26,7 @@ mod shells;
 mod side;
 mod skills;
 mod start;
+mod switch;
 mod teardown;
 mod training;
 mod transcript;
@@ -687,6 +688,18 @@ impl crate::harness::Adapter for ClaudeCode {
     /// (claude-opus-5-5[1m])`" against "… and saved as your default for new sessions").
     fn model_command(&self) -> Option<&'static str> {
         Some("/model")
+    }
+
+    /// `/effort <level>` sets the session's level, and saves low to xhigh as the account's
+    /// default for its model too, which `type_switch` puts back (2.1.299).
+    fn effort_command(&self) -> Option<&'static str> {
+        Some("/effort")
+    }
+
+    /// The question Claude Code asks before a switch, answered, and what `/effort` saved put
+    /// back: `switch::typed`.
+    fn type_switch(&self, account: &crate::config::AccountCfg, session: &crate::model::Session, to: crate::harness::Switch, text: &str, typ: &mut dyn FnMut(&str) -> anyhow::Result<bool>) -> anyhow::Result<bool> {
+        switch::typed(account, session, &self.records(account, session), to, text, typ)
     }
 
     /// `/exit` asks what to do with the worktree the session made, or removes it when nothing in

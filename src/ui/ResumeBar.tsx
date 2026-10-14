@@ -51,7 +51,8 @@ export function ResumeModel({ account, picks, chosen, onPicks, onDone }: ResumeP
     const place = model && chosen.placeNow && !placeTakesModel(chosen.placeNow) ? 'terminal' : picks.place;
     onPicks({ ...picks, agent: id, place });
   };
-  const foot = efforts.length > 0 ? <EffortFoot efforts={efforts} value={picks.effort} onPick={(effort) => onPicks({ ...picks, effort })} harness={a.harness} model={chosen.effortModel} /> : null;
+  // The levels as the chip says them (`xhigh`).
+  const foot = efforts.length > 0 ? <EffortFoot efforts={efforts.map((e) => ({ id: e.id, label: e.id }))} value={picks.effort} onPick={(effort) => onPicks({ ...picks, effort })} harness={a.harness} model={chosen.effortModel} /> : null;
   return (
     <ModelMenu
       account={a}

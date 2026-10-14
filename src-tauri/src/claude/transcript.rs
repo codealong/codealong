@@ -489,7 +489,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
 /// (claude-haiku-4-5-20251001)`" for `/model haiku` (2.1.280), which switches the session alone;
 /// "Set model to `Opus 5.5` and saved as your default for new sessions" from its picker; "Set
 /// model to claude-opus-5" before 2.1.220. The model's ID where it's given, else its name.
-fn model_set(content: &str) -> Option<String> {
+pub(super) fn model_set(content: &str) -> Option<String> {
     let rest = content.strip_prefix("<local-command-stdout>")?.strip_prefix("Set model to ")?;
     let said = match rest.strip_prefix('`') {
         Some(quoted) => quoted.split('`').next()?,
@@ -515,7 +515,7 @@ fn reply_effort(v: &Value) -> Option<String> {
 /// session only): …", "Effort 'max' exceeds the cap for … set to 'xhigh' instead …", or "Effort
 /// level set to auto", the model's own, which only the next reply names (`Some(None)`). None
 /// where it changed nothing: an environment variable that overrides it, a failure.
-fn effort_set(content: &str) -> Option<Option<String>> {
+pub(super) fn effort_set(content: &str) -> Option<Option<String>> {
     let rest = content.strip_prefix("<local-command-stdout>")?;
     if rest.starts_with("Effort level set to auto") {
         return Some(None);

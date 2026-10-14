@@ -45,21 +45,24 @@ export function agentLine(o: AgentOption, a: StartAccount, models: ModelOption[]
 }
 
 /** The effort row under a model menu's lines: a setting for whichever model is chosen, so it
- *  stays while you look through them. Null where the account takes no effort. */
-export function EffortFoot({ efforts, value, onPick, harness, model }: { efforts: { id: string; label: string }[]; value: string | null; onPick: (e: string | null) => void; harness: Harness | null; model: string | null }) {
+ *  stays while you look through them, or (`running`) a running session's level, which a pick
+ *  switches, the account's own not being one to switch to. Null where the account takes no
+ *  effort. */
+export function EffortFoot({ efforts, value, onPick, harness, model, running = false }: { efforts: { id: string; label: string }[]; value: string | null; onPick: (e: string | null) => void; harness: Harness | null; model: string | null; running?: boolean }) {
   if (efforts.length === 0) return null;
+  const levels = efforts.map((e) => ({ id: e.id as string | null, label: e.label, title: e.id === 'max' ? 'Deepest reasoning. It can use a great many tokens; for the hardest tasks.' : undefined }));
   return (
     <>
       <span className="ca-picker-foot-label">Effort</span>
       <Seg
         label="Effort"
-        options={[{ id: null, label: 'Default', title: 'The account’s own: settings.json’s effortLevel, else the model’s' }, ...efforts.map((e) => ({ id: e.id as string | null, label: e.label, title: e.id === 'max' ? 'Deepest reasoning. It can use a great many tokens; for the hardest tasks.' : undefined }))]}
+        options={running ? levels : [{ id: null, label: 'Default', title: 'The account’s own: settings.json’s effortLevel, else the model’s' }, ...levels]}
         value={value}
         // The filter keeps the keyboard.
         keepsFocus
         onPick={onPick}
       />
-      <span className="ca-picker-foot-note">{effortNote(harness, model) ?? <Kbd keys={['←', '→']} />}</span>
+      <span className="ca-picker-foot-note">{effortNote(harness, model) ?? (running ? 'This session only' : <Kbd keys={['←', '→']} />)}</span>
     </>
   );
 }

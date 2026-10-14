@@ -56,6 +56,7 @@ use anyhow::{anyhow, bail, Result};
 
 use crate::attachments::{self, Style};
 use crate::config::{AccountCfg, Config};
+use crate::harness::Switch;
 use crate::launch;
 use crate::model::{Board, Session, Status};
 use crate::procs;
@@ -751,43 +752,69 @@ fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg
 }
 
 /// Switches a running session to `model`, one of its account's (`Adapter::models`), for that
-/// session alone: one Codealong runs through its agent (acp.rs `set_model`), any other by its
-/// harness's command typed into its terminal (`Adapter::model_command`), the way a prompt is
-/// typed. Only typed: another way in would take the command as a prompt. Not mid-turn, where it
-/// would wait as a prompt does, nor while the session waits on you, where it would answer.
+/// session alone (`switch`).
 pub fn switch_model(board: &Board, cfg: &Config, key: &str, model: &str) -> Result<String> {
+    switch(board, cfg, key, Switch::Model(model.trim()))
+}
+
+/// Switches a running session to `effort`, one of its account's levels (`Adapter::efforts`), for
+/// that session alone (`switch`).
+pub fn switch_effort(board: &Board, cfg: &Config, key: &str, effort: &str) -> Result<String> {
+    switch(board, cfg, key, Switch::Effort(effort.trim()))
+}
+
+/// Switches a running session's model or effort level, for that session alone: one Codealong
+/// runs through its agent (acp.rs `switch`), any other by its harness's command typed into its
+/// terminal (`Adapter::model_command`, `effort_command`), the way a prompt is typed, and seen
+/// through as its harness needs (`Adapter::type_switch`). Only typed: another way in would take
+/// the command as a prompt. Not mid-turn, where it would wait as a prompt does, nor while the
+/// session waits on you, where it would answer.
+fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> {
     let (session, account) = crate::harness::find(board, cfg, key)?;
     let adapter = crate::harness::adapter(session.harness);
     let title = quoted(&session.title);
-    let model = model.trim();
-    if !adapter.takes_model() || !crate::start::valid_model(model) {
-        bail!("{model:?} isn't a model Codealong can switch {title} to.");
+    let (what, value) = (to.what(), to.value());
+    let (taken, command) = match to {
+        Switch::Model(model) => (adapter.takes_model() && crate::start::valid_model(model), adapter.model_command()),
+        Switch::Effort(effort) => (adapter.efforts().iter().any(|(id, _)| *id == effort), adapter.effort_command()),
+    };
+    if !taken {
+        bail!("{value:?} isn't {} Codealong can switch {title} to.", if what == "model" { "a model" } else { "an effort level" });
     }
     if !session.live {
-        bail!("{title} isn't running: pick its model as it resumes.");
+        bail!("{title} isn't running: pick its {what} as it resumes.");
     }
     if crate::harness::turn_running(session) {
-        bail!("{title} is in the middle of a turn: switch its model once the turn ends.");
+        bail!("{title} is in the middle of a turn: switch its {what} once the turn ends.");
     }
     ensure_not_waiting(session, &Sender::You)?;
-    let label = crate::start::model_label(adapter, account, model);
+    let label = match to {
+        Switch::Model(model) => crate::start::model_label(adapter, account, model),
+        Switch::Effort(effort) => format!("{effort} effort"),
+    };
     if session.hosted {
-        crate::acp::set_model(account, key, model)?;
+        crate::acp::switch(account, key, to)?;
         return Ok(format!("{title} is on {label} now."));
     }
-    let Some(command) = adapter.model_command() else {
-        bail!("{} has no command to switch a running session's model.", adapter.harness().word());
+    let Some(command) = command else {
+        bail!("{} has no command to switch a running session's {what}.", adapter.harness().word());
     };
-    let text = format!("{command} {model}");
-    let msg = Message::new(board, cfg, &text, &Sender::You, false);
+    let text = format!("{command} {value}");
     let mut why = None;
-    for route in adapter.routes(account, session).iter().filter(|r| matches!(r, Route::Type { .. })) {
-        match attempt(route, board, session, account, cfg, &msg, None, false)? {
-            Tried::Sent(_) => return Ok(format!("Switched {title} to {label}: `{text}` went into its terminal.")),
-            Tried::Passed(passed) => why = passed.or(why),
+    let mut typ = |text: &str| -> Result<bool> {
+        let msg = Message::new(board, cfg, text, &Sender::You, false);
+        for route in adapter.routes(account, session).iter().filter(|r| matches!(r, Route::Type { .. })) {
+            match attempt(route, board, session, account, cfg, &msg, None, false)? {
+                Tried::Sent(_) => return Ok(true),
+                Tried::Passed(passed) => why = passed.or(why.take()),
+            }
         }
+        Ok(false)
+    };
+    if adapter.type_switch(account, session, to, &text, &mut typ)? {
+        return Ok(format!("Switched {title} to {label}: `{text}` went into its terminal."));
     }
-    bail!("Codealong can't type into {title}'s terminal{}, so its model wasn't switched. Run `{text}` there.", why.map(|w| format!(" ({w})")).unwrap_or_default())
+    bail!("Codealong can't type into {title}'s terminal{}, so its {what} wasn't switched. Run `{text}` there.", why.map(|w| format!(" ({w})")).unwrap_or_default())
 }
 
 /// Sends your prompt one of a harness's own ways in, outside a send: its app's, for a session
@@ -1112,8 +1139,13 @@ mod tests {
         assert!(refused(Session { status: Status::Needs, ..idle.clone() }, "haiku").contains("is waiting on you"));
         assert!(refused(idle.clone(), "haiku; rm -rf ~").contains("isn't a model Codealong can switch"));
         // Codex's command line takes no model from Codealong.
-        let thread = Session { key: "codex:codex:t1".into(), account: "codex".into(), harness: Harness::Codex, ..idle };
-        assert!(refused(thread, "gpt-5").contains("isn't a model Codealong can switch"));
+        let thread = Session { key: "codex:codex:t1".into(), account: "codex".into(), harness: Harness::Codex, ..idle.clone() };
+        assert!(refused(thread.clone(), "gpt-5").contains("isn't a model Codealong can switch"));
+        // An effort level the same way, and only one of the account's.
+        let refused = |s: Session, effort: &str| switch_effort(&board_with(s.clone()), &cfg, &s.key, effort).unwrap_err().to_string();
+        assert_eq!(refused(Session { status: Status::Working, ..idle.clone() }, "high"), "“Fix the build” is in the middle of a turn: switch its effort once the turn ends.");
+        assert!(refused(idle.clone(), "turbo").contains("isn't an effort level Codealong can switch"));
+        assert!(refused(thread, "high").contains("isn't an effort level Codealong can switch"));
     }
 
     #[test]

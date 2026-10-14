@@ -66,6 +66,10 @@ pub const SESSION_RESUME: &str = "session-resume";
 /// session alone, answering what happened in a sentence. Macs before 2026-10-06 refuse it as a
 /// request they don't know.
 pub const SESSION_MODEL: &str = "session-model";
+/// Switches a running session (`key`) to another of its account's effort levels (`effort`), for
+/// that session alone, answering what happened in a sentence. Macs before 2026-10-14 refuse it as
+/// a request they don't know.
+pub const SESSION_EFFORT: &str = "session-effort";
 /// Done with a session (`key`): it ends as far as its Mac can end it without ending more than it
 /// (its terminal tab closes, its background job stops), and is marked seen and archived,
 /// answering `Done`. Work under way holds it unless `stop` ends that too. Macs before 2026-10-07
@@ -192,6 +196,15 @@ pub mod params {
         #[serde(skip_serializing_if = "String::is_empty")]
         pub key: String,
         pub model: String,
+    }
+
+    /// `session-effort`: the level, as its account's list names it (`high`, `xhigh`).
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Effort {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub effort: String,
     }
 
     /// `session-resume`: where it goes on, and the prompt it goes on with, or none to wait for one.
@@ -441,7 +454,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 35] = [
+pub const REQUESTS: [(&str, Reach); 36] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -472,6 +485,7 @@ pub const REQUESTS: [(&str, Reach); 35] = [
     (SESSION_FORK, Reach::Control),
     (SESSION_RESUME, Reach::Control),
     (SESSION_MODEL, Reach::Control),
+    (SESSION_EFFORT, Reach::Control),
     (SESSION_DONE, Reach::Control),
     (PR_REVIEW, Reach::Control),
     (PR_MERGE, Reach::Control),
@@ -828,6 +842,11 @@ pub struct StartAccount {
     /// before 2026-10-06.
     #[serde(default)]
     pub switches_model: bool,
+    /// Its running sessions that Codealong types into can be switched to another of `efforts`
+    /// (`session-effort`); those Codealong runs can be where their agent offers the level.
+    /// Missing from Macs before 2026-10-14.
+    #[serde(default)]
+    pub switches_effort: bool,
 }
 
 /// Where a session that isn't running goes on, and on what: a place its account starts sessions
@@ -996,6 +1015,7 @@ mod tests {
         assert_eq!(v(&params::Resume { key: key(), resume: background, prompt: String::new() }), json!({ "key": "claude:claude:abc", "resume": { "place": "background", "model": "opus", "effort": null }, "prompt": "" }));
         assert_eq!(serde_json::from_value::<params::Resume>(json!({ "resume": { "place": "codealong" } })).unwrap().resume, ResumeIn { place: Place::Codealong, model: None, effort: None });
         assert_eq!(v(&params::Model { key: String::new(), model: "haiku".into() }), json!({ "model": "haiku" }));
+        assert_eq!(v(&params::Effort { key: String::new(), effort: "high".into() }), json!({ "effort": "high" }));
         // Without a place it goes on in a terminal, as a send to it does.
         assert_eq!(serde_json::from_value::<params::Resume>(json!({ "prompt": "go on" })).unwrap().resume, ResumeIn::default());
         assert_eq!(v(&params::Keys { keys: vec![key()] }), json!({ "keys": ["claude:claude:abc"] }));

@@ -69,6 +69,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--tell", takes: "<session key> <text>", run: tell },
     Mode { flag: "--fork", takes: "<session key> [prompt]", run: fork },
     Mode { flag: "--switch-model", takes: "<session key> <model>", run: switch_model },
+    Mode { flag: "--switch-effort", takes: "<session key> <level>", run: switch_effort },
     Mode { flag: "--resume", takes: "<session key> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>]", run: resume },
     Mode { flag: "--move", takes: "<session key> <account | worktree folder>", run: move_session },
     Mode { flag: "--side", takes: "<session key> <question> [a follow-up…]", run: side_ask },
@@ -341,6 +342,11 @@ fn fork(_: &Args, rest: &[String]) -> Done {
 fn switch_model(_: &Args, rest: &[String]) -> Done {
     let [key, model, ..] = rest else { return Err(Stop::Usage) };
     said(act(api::SESSION_MODEL, key, params::Model { model: model.clone(), ..Default::default() })?)
+}
+
+fn switch_effort(_: &Args, rest: &[String]) -> Done {
+    let [key, effort, ..] = rest else { return Err(Stop::Usage) };
+    said(act(api::SESSION_EFFORT, key, params::Effort { effort: effort.clone(), ..Default::default() })?)
 }
 
 fn resume(args: &Args, rest: &[String]) -> Done {

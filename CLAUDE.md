@@ -99,8 +99,9 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   `--snapshot --remove-worktree <folder> [--dry-run]` (only where nothing would be lost),
   `--snapshot --fork <key> [prompt]` (a copy to remove after), `--snapshot --move <key>
   <account | worktree folder>`, `--snapshot --resume <key> <place> [prompt] [--model <model>]`
-  (one that isn't running), `--snapshot --switch-model <key> <model>` (one that is),
-  `--snapshot --side <key> <question> [follow-ups]` and `--snapshot --pr-side <owner/name>
+  (one that isn't running), `--snapshot --switch-model <key> <model>` and
+  `--snapshot --switch-effort <key> <level>` (one that is), `--snapshot --side <key>
+  <question> [follow-ups]` and `--snapshot --pr-side <owner/name>
   <number> <account> <question> [follow-ups]` (spend usage).
 - `--snapshot --editor-icons`, `--snapshot --skills [folder…]`, `--snapshot --start-options`,
   `--snapshot --shell-commands`; `--snapshot --checkout`: the checkout the binary was built from;

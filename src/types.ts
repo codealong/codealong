@@ -1513,6 +1513,9 @@ export interface StartAccount {
   /** Its running sessions that Codealong types into can be switched to another of `models`;
    *  those Codealong runs can be, whatever their harness. */
   switchesModel?: boolean;
+  /** Its running sessions that Codealong types into can be switched to another of `efforts`;
+   *  those Codealong runs can be where their agent offers the level. */
+  switchesEffort?: boolean;
 }
 
 /** Where a session that isn't running goes on, and on what (start.rs `resume`): one of its

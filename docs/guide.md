@@ -1083,18 +1083,25 @@ model leaves only the places that take one. It goes on where the account's last 
 terminal; Resume in, in its right-click menu, has the same places, to go on without a prompt. One
 waiting on you is opened instead, so what you typed can't answer its question.
 
-#### Switching models
+#### Switching models and effort
 
 A running session's box says the model it's on beside Send (the one its latest reply came from, or
-that it was switched to since), and where Codealong types into its terminal or runs it, that's a
-menu of its account's models: picking one switches that session alone (`/model <name>` typed into a
-Claude Code session, its agent's model for one Codealong runs), between turns. After the model,
-quieter, is the effort it's on, for Claude Code and Codex sessions, as the harness writes the level
-(`low`, `medium`, `high`, `xhigh`, `max`; Codex's `minimal` and `none` too): the level its latest
-reply was made at, or one `/effort` set since. The chip switches only the model. A session that
-isn't running says the effort it goes on with the same way, once one is picked. A Cursor app chat
-says the model it's set to by Cursor's name for it (Grok 4.7, Auto) and its effort, between turns
-too, since that's what its next turn goes on with; it's switched in Cursor.
+that it was switched to since), and after it, quieter, the effort it's on, for Claude Code and Codex
+sessions, as the harness writes the level (`low`, `medium`, `high`, `xhigh`, `max`; Codex's
+`minimal` and `none` too): the level its latest reply was made at, or one `/effort` set since. A
+session that isn't running says the effort it goes on with the same way, once one is picked. A
+Cursor app chat says the model it's set to by Cursor's name for it (Grok 4.7, Auto) and its effort,
+between turns too, since that's what its next turn goes on with; it's switched in Cursor.
+
+Where Codealong types into its terminal or runs it, that chip is a menu of its account's models,
+with its effort levels under them, the one it's on checked: picking either switches that session
+alone, between turns (`/model <name>` or `/effort <level>` typed into a Claude Code session, its
+agent's model or effort for one Codealong runs). Claude Code asks before a switch while the
+conversation is cached for what it's on ("Your next response will be slower"); Codealong answers
+yes, as picking it meant. It also saves what it's switched to as the account's default for new
+sessions; Codealong puts the default back a few seconds later, so the switch stays with that
+session, and the box says what happened once that's done. Meanwhile the account's other running
+sessions may follow the new default.
 
 ### New session
 

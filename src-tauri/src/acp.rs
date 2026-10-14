@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::config::{self, AccountCfg};
-use crate::harness::{Answer, Pending};
+use crate::harness::{Answer, Pending, Switch};
 use crate::model::{Harness, Session, Status};
 use crate::rpc::{self, Failure};
 use crate::store;
@@ -759,9 +759,10 @@ fn tune(ag: &Agent, id: &str, answer: &Value, model: Option<&str>, effort: Optio
     Ok(options)
 }
 
-/// Switches a session Codealong runs to `model` (`send::switch_model`), picking it up in the
-/// account's process first when that's new since. The model must be one its agent offers.
-pub fn set_model(a: &AccountCfg, key: &str, model: &str) -> Result<()> {
+/// Switches a session Codealong runs to a model or an effort level (`send::switch_model`,
+/// `switch_effort`), picking it up in the account's process first when that's new since. The
+/// model or level must be one its agent offers: the levels are its model's.
+pub fn switch(a: &AccountCfg, key: &str, to: Switch) -> Result<()> {
     in_app()?;
     let (id, cwd, loaded) = {
         let st = state();
@@ -776,10 +777,15 @@ pub fn set_model(a: &AccountCfg, key: &str, model: &str) -> Result<()> {
         load(&ag, key, &id, &cwd)?;
     }
     let options = state().sessions.get(key).map(|h| h.options.clone()).unwrap_or_default();
-    if offered_option(&options, "model", model).is_none() {
-        bail!("{}'s agent doesn't offer {model}.", a.name);
+    let (model, effort) = match to {
+        Switch::Model(m) => (Some(m), None),
+        Switch::Effort(e) => (None, Some(e)),
+    };
+    let category = if model.is_some() { "model" } else { "thought_level" };
+    if offered_option(&options, category, to.value()).is_none() {
+        bail!("{}'s agent doesn't offer {}.", a.name, to.value());
     }
-    let options = tune(&ag, &id, &json!({ "configOptions": options }), Some(model), None)?;
+    let options = tune(&ag, &id, &json!({ "configOptions": options }), model, effort)?;
     set(key, |h| h.options = options);
     notify(Change::Board);
     Ok(())
@@ -1404,8 +1410,9 @@ mod tests {
     /// Against a real adapter: `CODEALONG_TEST_ACP_ADOPT=<key of a session of your own that isn't
     /// running> CODEALONG_TEST_ACP_DIR=<its folder> cargo test acp_takes_on -- --ignored
     /// --nocapture`. Takes it on as Resume in Codealong does, on Haiku, with a question only its
-    /// conversation answers, then switches it to Sonnet as its box does; its transcript has the
-    /// answer and both models. It's remembered in hosted.json from then on: take it out after.
+    /// conversation answers, then switches it to Sonnet and high effort as its box does; its
+    /// transcript has the answer and both models. It's remembered in hosted.json from then on:
+    /// take it out after.
     #[test]
     #[ignore]
     fn acp_takes_on_a_session() {
@@ -1420,9 +1427,12 @@ mod tests {
         wait_until("the turn to end", 180, || !state().sessions[&key].running);
         assert!(state().sessions[&key].error.is_none(), "{:?}", state().sessions[&key].error);
         // Between turns it switches to another of the agent's models, and only one it offers.
-        set_model(&a, &key, "sonnet").unwrap();
+        switch(&a, &key, Switch::Model("sonnet")).unwrap();
         assert_eq!(current_option(&state().sessions[&key].options, "model").as_deref(), Some("sonnet"));
-        assert!(set_model(&a, &key, "no-such-model").unwrap_err().to_string().contains("doesn't offer no-such-model"));
+        assert!(switch(&a, &key, Switch::Model("no-such-model")).unwrap_err().to_string().contains("doesn't offer no-such-model"));
+        // And to one of the levels Sonnet takes.
+        switch(&a, &key, Switch::Effort("high")).unwrap();
+        assert_eq!(current_option(&state().sessions[&key].options, "thought_level").as_deref(), Some("high"));
     }
 
     /// Against a real adapter: `CODEALONG_TEST_ACP=<account> CODEALONG_TEST_ACP_DIR=<folder>

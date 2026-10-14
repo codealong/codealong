@@ -4,7 +4,9 @@
 // and picking one asks the engine to switch that session; the box stays the height it was; and
 // a session in the middle of a turn can't be switched until it ends. After the model, quieter,
 // is the effort it's on as its harness writes it, which follows the session, and the longest of
-// both isn't cut off; the mode under the box is lowercase.
+// both isn't cut off; the mode under the box is lowercase. Under the models are the account's
+// levels, its own not among them, the session's checked, and picking another switches that
+// session's effort and closes the menu.
 //   scripts/preview.sh peek '' scripts/preview/session-model-check.js
 (function () {
   // This runs before the app's script: pick a session on this Mac that's running in a terminal,
@@ -86,6 +88,34 @@
       check('picking one switches that session to it', asked.key === picked.key && asked.model === other.id, JSON.stringify(asked));
       check('the note says what happened', note().indexOf('Switched') === 0, note());
       check('nothing was sent as a prompt', calls('send_to_session').length === 0, String(calls('send_to_session').length));
+      if (!acct.switchesEffort) return window.note('its account doesn’t switch effort: the effort row isn’t checked');
+      window.__emit('board', withSession(function (s) { s.effort = 'xhigh'; }));
+      return until(function () { return effort() === 'xhigh'; }, 3000, 'no effort to start from')
+        .then(function () {
+          chip().click();
+          return until(function () { return !!q('.ca-peek .ca-modelmenu .ca-picker-foot .ca-segctl'); }, 3000, 'no effort row under the models');
+        })
+        .then(function () {
+          var foot = q('.ca-peek .ca-modelmenu .ca-picker-foot');
+          var levels = all('[role=radio]', foot);
+          var words = levels.map(function (b) { return b.textContent.trim(); });
+          var ids = acct.efforts.map(function (e) { return e.id; });
+          check('the effort row has the account’s levels, as the chip says them, and not its own', words.join() === ids.join(), words.join(', '));
+          var on = levels.filter(function (b) { return b.getAttribute('aria-checked') === 'true'; }).map(function (b) { return b.textContent.trim(); });
+          check('the level it’s on is checked', on.join() === 'xhigh', on.join(', '));
+          check('the row says a pick is for this session only', /This session only/.test(foot.textContent), foot.textContent);
+          levels.filter(function (b) { return b.textContent.trim() === 'high'; })[0].click();
+          return until(function () { return calls('switch_session_effort').length === 1; }, 5000, 'no effort switch asked for');
+        })
+        .then(function () { return wait(50); })
+        .then(function () {
+          var asked = sent('switch_session_effort')[0];
+          check('picking a level switches that session’s effort to it', asked.key === picked.key && asked.effort === 'high', JSON.stringify(asked));
+          check('and closes the menu', !q('.ca-peek .ca-modelmenu .ca-picker'), 'still open');
+          check('the note says what happened', /^Switched its effort/.test(note()), note());
+        });
+    })
+    .then(function () {
       // Its turn starts: it can't be switched until it ends.
       window.__emit('board', withSession(function (s) { s.status = 'working'; }));
       return until(function () { return chip() && chip().disabled; }, 3000, 'a working session’s chip stays on');

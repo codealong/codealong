@@ -382,6 +382,12 @@ impl Client {
         read(self.ask(device, api::SESSION_MODEL, of(params::Model { key: key.into(), model: model.into() }), ACT_WAIT)?)
     }
 
+    /// Switches a running session on `device` to another of its account's effort levels, for it
+    /// alone. Says what happened.
+    pub fn switch_effort(&self, device: &str, key: &str, effort: &str) -> std::result::Result<String, String> {
+        read(self.ask(device, api::SESSION_EFFORT, of(params::Effort { key: key.into(), effort: effort.into() }), ACT_WAIT)?)
+    }
+
     /// Names a session on `device` where its harness keeps its name.
     pub fn rename(&self, device: &str, key: &str, name: &str) -> std::result::Result<(), String> {
         self.ask(device, api::SESSION_RENAME, of(params::Rename { key: key.into(), name: name.into() }), ACT_WAIT).map(|_| ())

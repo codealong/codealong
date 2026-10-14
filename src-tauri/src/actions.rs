@@ -224,6 +224,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_FORK, here: fork, back: started_back, ..ANY },
     Request { name: api::SESSION_RESUME, here: resume, command: resume_is_its_users, ..ANY },
     Request { name: api::SESSION_MODEL, here: switch_model, ..ANY },
+    Request { name: api::SESSION_EFFORT, here: switch_effort, ..ANY },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
     Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal, ..ANY },
     // A move opens a terminal too, and closes the session's own. Which account a conversation
@@ -829,6 +830,13 @@ fn resume(engine: &Handle, c: &Call) -> Result<Value, String> {
 fn switch_model(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Model = c.read()?;
     to_value(send::switch_model(&engine.board(), &cfg()?, c.session()?, &p.model).map_err(words)?)
+}
+
+/// Switches a running session's effort level, for it alone (`send::switch_effort`). Says what
+/// happened.
+fn switch_effort(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Effort = c.read()?;
+    to_value(send::switch_effort(&engine.board(), &cfg()?, c.session()?, &p.effort).map_err(words)?)
 }
 
 /// Stops the turn it's taking: one Codealong runs, through its agent; any other, through its

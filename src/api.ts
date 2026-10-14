@@ -871,6 +871,13 @@ export async function switchSessionModel(key: string, model: string): Promise<st
   return invoke<string>('switch_session_model', { key, model });
 }
 
+/** Switches a running session to `effort`, one of its account's levels, for that session alone
+ *  (send.rs `switch_effort`). Says what happened. */
+export async function switchSessionEffort(key: string, effort: string): Promise<string> {
+  if (!inTauri) return 'Switched.';
+  return invoke<string>('switch_session_effort', { key, effort });
+}
+
 /** Whether there's a TypeSafe API key in the keychain. */
 export async function jevKey(): Promise<boolean> {
   if (!inTauri) return false;

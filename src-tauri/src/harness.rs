@@ -159,6 +159,21 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// The command that, typed into a running session's terminal with one of `efforts` after it,
+    /// sets that session's effort level, and only that session's (`send::switch_effort`). None
+    /// where there's no such command.
+    fn effort_command(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Types a switch (`model_command` or `effort_command`, and the value: `text`) into a running
+    /// session's terminal by `typ`, which answers whether it went in, and sees it through: a
+    /// question the harness asks before it takes the switch is answered, and what it keeps of the
+    /// switch beyond the session is put back. The default only types it.
+    fn type_switch(&self, _account: &AccountCfg, _session: &Session, _to: Switch, text: &str, typ: &mut dyn FnMut(&str) -> Result<bool>) -> Result<bool> {
+        typ(text)
+    }
+
     /// The command that, typed into a running session's terminal, ends it the harness's own way,
     /// cleaning up the worktree it made for it (`Session::own_worktree`), where a hangup would
     /// leave that behind. Mark as done types it for a session with such a worktree
@@ -946,6 +961,31 @@ pub struct Typed {
     pub env: Vec<(String, String)>,
     /// The new session's key, when it's known before the harness writes the session.
     pub key: Option<String>,
+}
+
+/// What a running session is switched to, for it alone (`send::switch_model`,
+/// `send::switch_effort`): another of its account's models, or effort levels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Switch<'a> {
+    Model(&'a str),
+    Effort(&'a str),
+}
+
+impl Switch<'_> {
+    /// The model or the level, as its harness takes it.
+    pub fn value(&self) -> &str {
+        match self {
+            Switch::Model(v) | Switch::Effort(v) => v,
+        }
+    }
+
+    /// What's switched, as a sentence names it.
+    pub fn what(&self) -> &'static str {
+        match self {
+            Switch::Model(_) => "model",
+            Switch::Effort(_) => "effort",
+        }
+    }
 }
 
 /// What a start asks for (start.rs), for the adapter to put the way its harness takes it.

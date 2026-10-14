@@ -184,6 +184,7 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                 worktree: adapter.makes_worktrees(),
                 resumes,
                 switches_model: tuned && adapter.model_command().is_some(),
+                switches_effort: tuned && !adapter.efforts().is_empty() && adapter.effort_command().is_some(),
             }
         })
         .collect();
@@ -1345,6 +1346,8 @@ mod tests {
         // Claude Code's running sessions switch models by a command typed into them; Codex's take none.
         let switches = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().switches_model;
         assert!(switches("claude") && switches("claude2") && !switches("codex") && !switches("opencode"));
+        let switches_effort = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().switches_effort;
+        assert!(switches_effort("claude") && !switches_effort("codex") && !switches_effort("opencode"));
         assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
         assert_eq!(o.accounts[0].default_model, None);
         assert!(o.claude_models.iter().any(|m| m.id == "opus[1m]"));

@@ -75,7 +75,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent } from 'react';
 import { answerAhead, sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
-import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionModel } from '../api';
+import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionEffort, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
@@ -278,17 +278,19 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const resuming = offersResume(resumeChosen) ? resumeChosen : null;
   const resumeHow = resuming ? resumeIn(resuming) : null;
   const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resuming?.places.find((p) => p.place === resumeHow.place)?.behind };
-  // A running one says what model it's on, beside Send, and where Codealong can switch it
-  // (SessionModel.tsx): one it runs, or one whose terminal it types into, by its harness's command.
-  // A Cursor app chat is set to its model, which its next turn goes on with, so it says it between
-  // turns too.
-  const switches = here && s.live && !!account && (account.models?.length ?? 0) > 0 && (!!s.hosted || (way?.kind === 'typed' && !!account.switchesModel));
-  const saysModel = !resuming && (s.live || way?.kind === 'cursor') && (switches || !!s.model);
+  // A running one says what model and effort it's on, beside Send, and where Codealong can switch
+  // them (SessionModel.tsx): one it runs, or one whose terminal it types into, by its harness's
+  // commands. A Cursor app chat is set to its model, which its next turn goes on with, so it says
+  // it between turns too.
+  const switchable = here && s.live && (!!s.hosted || way?.kind === 'typed');
+  const switches = switchable && !!account && (account.models?.length ?? 0) > 0 && (!!s.hosted || !!account.switchesModel);
+  const switchesEffort = switchable && !!account && (account.efforts?.length ?? 0) > 0 && (!!s.hosted || !!account.switchesEffort);
+  const saysModel = !resuming && (s.live || way?.kind === 'cursor') && (switches || switchesEffort || !!s.model);
   const [switching, setSwitching] = useState(false);
-  const switchModel = (model: string) => {
+  const switchTo = (switched: Promise<string>) => {
     setSwitching(true);
     setNote(null);
-    switchSessionModel(s.key, model)
+    switched
       .then(
         (said) => setNote({ text: said, error: false }),
         (e: unknown) => setNote({ text: errorText(e), error: true }),
@@ -815,7 +817,18 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
         <div className="ca-composer-buttons">
           {resuming && account && !aside && resuming.places.length > 1 && <ResumePlace picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
           {resuming && account && !aside && resuming.takesAModel && <ResumeModel account={account} picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
-          {saysModel && !aside && <SessionModel session={s} account={account} switches={switches} busy={switching || s.status === 'working' || !!s.stalledSince || !!waiting} onSwitch={switchModel} onDone={() => box.current?.focus()} />}
+          {saysModel && !aside && (
+            <SessionModel
+              session={s}
+              account={account}
+              switches={switches}
+              switchesEffort={switchesEffort}
+              busy={switching || s.status === 'working' || !!s.stalledSince || !!waiting}
+              onSwitch={(model) => switchTo(switchSessionModel(s.key, model))}
+              onEffort={(effort) => switchTo(switchSessionEffort(s.key, effort))}
+              onDone={() => box.current?.focus()}
+            />
+          )}
           {/* A command, `/fork` or one led by `!`, runs here rather than going into the turn. */}
           {canSendNow && !empty && !command && !runs && (
             <button type="button" className="ca-composer-send is-now" aria-label="Send now" title="Send now (⌃⏎), into the turn it’s taking" onClick={() => send(true)}>
