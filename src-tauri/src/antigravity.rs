@@ -1626,52 +1626,6 @@ fn press_all(pid: u32, s: &Session, keys: &[Press]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// How long an answer waits for its result to be written, to read what it took. The terminal UI
-/// writes it as the dialog closes.
-const TAKEN_WAIT: Duration = Duration::from_secs(3);
-
-/// The text of a call's result (`A1: …`), once the record has it, within `TAKEN_WAIT`.
-fn took(path: &Path, result_step: i64) -> Option<String> {
-    let until = Instant::now() + TAKEN_WAIT;
-    loop {
-        let end = crate::util::read_last(path, TAIL).map(|end| end.text()).unwrap_or_default();
-        let result = end.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).find(|v| v.get("step_index").and_then(Value::as_i64) == Some(result_step));
-        if let Some(v) = result {
-            return Some(result_of(v.get("content").and_then(Value::as_str).unwrap_or(""), "").0);
-        }
-        if Instant::now() > until {
-            return None;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
-}
-
-/// The questions it took another answer to than `answers` gave, with what it took: one's choices
-/// in any order, your own words as one more, as `question_keys` types them.
-fn took_otherwise(questions: &[Question], answers: &Value, taken: &std::collections::BTreeMap<String, Vec<String>>) -> Vec<(String, Vec<String>)> {
-    let sorted = |mut l: Vec<String>| {
-        l.sort();
-        l.dedup();
-        l
-    };
-    questions
-        .iter()
-        .filter_map(|q| {
-            let given = given(answers, q);
-            if given.is_empty() {
-                return None;
-            }
-            let (mut picked, own): (Vec<String>, Vec<String>) = given.iter().cloned().partition(|g| q.options.iter().any(|o| &o.label == g));
-            if !own.is_empty() {
-                picked.push(own.join(", "));
-            }
-            let wanted = if q.multi_select { sorted(picked) } else { given[..1].to_vec() };
-            let got = taken.get(&q.question).cloned().unwrap_or_default();
-            (sorted(got.clone()) != sorted(wanted)).then(|| (q.question.clone(), got))
-        })
-        .collect()
-}
-
 /// Your answer to a question as `answers` gives it (`Adapter::answer_questions`): a label or words
 /// of your own, or a list of them where it takes several; empty ones left out.
 fn given(answers: &Value, q: &Question) -> Vec<String> {
@@ -1692,8 +1646,12 @@ fn given(answers: &Value, q: &Question) -> Vec<String> {
 /// Left goes back a question, so it starts with enough of them to be at the first, wherever its
 /// terminal was left (Left on the first does nothing). What was picked or ticked there stays
 /// when you go back, and a digit toggles a tick, so each question but the last is skipped and
-/// gone back to before it's answered, which clears it; the last can't be, as skipping it
-/// submits them all. Without `answers` they're declined: nothing there turns them down, so
+/// gone back to before it's answered, which clears it. The last can't be, as skipping it
+/// submits them all and no key clears ticks, so a choice ticked by hand there and picked here
+/// too goes unticked; the conversation shows what it took (`with_answers`). Reading that back
+/// to say so was tried and left out (2026-10-14): what an answer says is shown only in a box
+/// that goes as the session does, and making it stay was more than so rare a case is worth.
+/// Without `answers` they're declined: nothing there turns them down, so
 /// every question is skipped and one more Escape stops the turn as it goes on ("Interrupted ·
 /// What should Antigravity CLI do instead?"), as a denied call's does.
 fn question_keys(questions: &[Question], answers: Option<&Value>) -> anyhow::Result<Vec<Press>> {
@@ -2022,13 +1980,6 @@ impl crate::harness::Adapter for Antigravity {
         }
         let keys = question_keys(&call.questions, Some(answers))?;
         press_all(pid, s, &keys)?;
-        // Ticks made in its terminal on the last question can't be cleared first, and a digit
-        // toggles one off, so what it took is read back and said when it isn't what you picked.
-        let otherwise = took(&self.record(ctx, s)?, call.result_step).map(|taken| took_otherwise(&call.questions, answers, &answers_of(&taken, &call.questions))).unwrap_or_default();
-        if !otherwise.is_empty() {
-            let said: Vec<String> = otherwise.iter().map(|(q, a)| format!("“{}” → {}", one_line(q, 80), if a.is_empty() { "nothing".to_string() } else { a.join(", ") })).collect();
-            return Ok(format!("Answered, but it took other answers than yours, from picks made in its terminal: {}. Tell it in a message what you meant.", said.join("; ")));
-        }
         let said: Vec<String> = call.questions.iter().filter_map(|q| Some(format!("{} → {}", one_line(&q.question, 80), given(answers, q).join(", "))).filter(|_| !given(answers, q).is_empty())).collect();
         Ok(format!("Answered: {}.", said.join("; ")))
     }
@@ -2951,23 +2902,6 @@ mod tests {
         long[0].options = (1..=9).map(|n| codealong_peer::api::Choice { label: format!("Choice {n}"), description: None }).collect();
         assert_eq!(question_keys(&long, Some(&serde_json::json!({"Which color?": "Choice 9"}))).unwrap(), [K(Key::Digit(9))]);
         assert!(question_keys(&long, Some(&serde_json::json!({"Which color?": "Purple"}))).unwrap_err().to_string().contains("more choices than Codealong picks among"));
-    }
-
-    /// What it took is read back from its result, and said where it isn't what you picked: a tick
-    /// made in its terminal on the last question is toggled off by the same pick.
-    #[test]
-    fn says_when_it_took_other_answers_than_yours() {
-        let questions = asked();
-        let answers = serde_json::json!({"Which color?": "Green", "Which days?": ["Wed", "Mon", "Thu too"], "Which size?": "medium"});
-        let otherwise = |text: &str| took_otherwise(&questions, &answers, &answers_of(text, &questions));
-        assert_eq!(otherwise("A1: Green\nA2: Mon, Wed, Thu too\nA3: medium"), []);
-        assert_eq!(otherwise("A1: Green\nA2: Mon, Thu too\nA3: medium"), [("Which days?".to_string(), vec!["Mon".to_string(), "Thu too".to_string()])]);
-        assert_eq!(otherwise("A1: User Skipped\nA2: Mon, Wed, Thu too\nA3: Small"), [("Which color?".to_string(), vec![]), ("Which size?".to_string(), vec!["Small".to_string()])]);
-        let dir = crate::fixtures::scratch("agy-took");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("transcript_full.jsonl");
-        std::fs::write(&path, format!("{}\n{}\n", ASKED[0], ASKED[2])).unwrap();
-        assert_eq!(took(&path, 6).as_deref(), Some("A1: User Skipped\nA2: Tue, Thu too\nand Fri\nA3: Large"));
     }
 
     /// A conversation in its terminal UI waiting on its questions, end to end: they show as

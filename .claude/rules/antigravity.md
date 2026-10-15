@@ -146,9 +146,9 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   Not said there: the dialog asks one question at a time ("Question 1/3"), ↑/↓ and → move,
   Space toggles too, a skipped question shows `(skipped)` in the terminal, and Ctrl+C only says
   "press ctrl+c again to exit". Its keys go only to 9 (`KeyChoice1` to `KeyChoice9` in the
-  binary), and none clears a question's ticks except skipping it. Keys arriving together as fast as tmux sends them, a paste
-  among them, are taken in order. The binary also names "auto-answer ask_question" (`skipped=true`)
-  and "user cancelled ask_question", which nothing seen did.
+  binary), and none clears a question's ticks except skipping it. Keys arriving together as fast
+  as tmux sends them, a paste among them, are taken in order. The binary also names "auto-answer
+  ask_question" (`skipped=true`) and "user cancelled ask_question", which nothing seen did.
 - Workspace trust: which folders count, how the path is taken, and trusting one before a start:
   `antigravity.rs` (`TRUSTED_WORKSPACES`, `trust_folder`, `Antigravity::before_start`). The
   settings are `settings.json` in the command line's folder, written by agy indented by two

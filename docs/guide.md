@@ -422,7 +422,9 @@ whichever answer comes first counts. An Antigravity command line conversation's 
 `ask_question`) show the same way while it runs in a Ghostty, iTerm2 or tmux tab: Answer presses
 the keys there that give your picks, typing your own words into its Write-in box, and Decline
 skips them all and stops its turn. A question with more than eight choices is answered in its
-terminal. Another session's message that a Claude Code session holds for
+terminal. What you'd begun answering in its terminal is cleared first, except on the last
+question, where a choice you ticked there and pick here too ends up unticked; the conversation
+shows the answers it took. Another session's message that a Claude Code session holds for
 you to allow (it skips permission prompts and the sender didn't say it does too) shows the same way,
 all of it when Codealong sent it, with Deliver and Deny, pressed in its Ghostty, iTerm2 or tmux tab
 or typed into its background job; with several held, it opens where it runs, which shows them one at
