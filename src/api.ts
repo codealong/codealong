@@ -954,10 +954,11 @@ export const inPreview = typeof window !== 'undefined' && '__CODEALONG_PREVIEW__
 
 /** Where a window loads a kept image from. One a session on another device refers to is that
  *  device's (`from`, its short id), which the engine asks for when it isn't here too
- *  (lib.rs `serve_image`). A preview serves them from ./images. */
-export function imageUrl(name: string, from: string | null = null): string {
+ *  (lib.rs `serve_image`); `again` counts the times it's asked anew after it didn't come, so
+ *  WebKit doesn't answer from its first try. A preview serves them from ./images. */
+export function imageUrl(name: string, from: string | null = null, again = 0): string {
   if (!inTauri || inPreview) return `./images/${name}`;
-  return `codealong-image://localhost/${name}${from ? `?from=${encodeURIComponent(from)}` : ''}`;
+  return `codealong-image://localhost/${name}${from ? `?from=${encodeURIComponent(from)}${again ? `&again=${again}` : ''}` : ''}`;
 }
 
 /** Calls `cb` with the paths of files dropped on this window and where they landed. */

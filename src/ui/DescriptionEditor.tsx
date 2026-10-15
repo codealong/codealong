@@ -117,15 +117,29 @@ export const ImagesFrom = createContext<string | null>(null);
 
 /** A kept image in text: a click opens it. One that isn't on this Mac (it was sent from another
  *  device, or cleared since), or that its device didn't send, says so in place of a broken
- *  picture. */
+ *  picture; its device may have been away, so it can be asked again. */
 export function KeptImage({ name, alt }: { name: string; alt: string }) {
   const from = useContext(ImagesFrom);
   const [missing, setMissing] = useState(false);
+  const [again, setAgain] = useState(0);
   if (missing) {
     return (
       <span className="ca-desc-noimg">
         <Icon name="photo" size={13} />
         {from ? 'Image didn’t come from its Mac' : 'Image not on this Mac'}
+        {from && (
+          <button
+            type="button"
+            className="ca-linkbtn"
+            onClick={(e) => {
+              e.stopPropagation();
+              setAgain((n) => n + 1);
+              setMissing(false);
+            }}
+          >
+            Try again
+          </button>
+        )}
       </span>
     );
   }
@@ -139,7 +153,7 @@ export function KeptImage({ name, alt }: { name: string; alt: string }) {
         open(`images/${name}`);
       }}
     >
-      <img src={imageUrl(name, from)} alt={alt} draggable={false} onError={() => setMissing(true)} />
+      <img src={imageUrl(name, from, again)} alt={alt} draggable={false} onError={() => setMissing(true)} />
     </button>
   );
 }

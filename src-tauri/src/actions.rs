@@ -1478,13 +1478,13 @@ fn image_read(_engine: &Handle, c: &Call) -> Result<Value, String> {
 
 /// An image a session on another device refers to (`images/<hash>.<ext>`), for a window here to
 /// show (lib.rs `serve_image`): asked of that device (`api::IMAGE_READ`) and kept here by the
-/// bytes that came (`attachments::keep_image_in`), so it's asked for once. One at a time: a
-/// conversation's images all load at once, and a device cuts off one that asks it for too much
-/// at once (peers.rs `REQUESTS_MAX`).
+/// bytes that came (`attachments::keep_image_in`), so it's asked for once. One at a time from
+/// each device (`one_at_a_time`): a conversation's images all load at once, and a device cuts
+/// off one that asks it for too much at once (peers.rs `REQUESTS_MAX`).
 pub fn image_from(engine: &Handle, peers: &Peers, device: &str, path: &str) -> Result<Vec<u8>, String> {
     use crate::attachments;
-    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let turn = one_at_a_time(device);
+    let _one = turn.lock().unwrap_or_else(|e| e.into_inner());
     // A window may have had it come while this one waited.
     if let Some(bytes) = attachments::locate(path).and_then(|f| std::fs::read(f).ok()) {
         return Ok(bytes);
@@ -1493,6 +1493,13 @@ pub fn image_from(engine: &Handle, peers: &Peers, device: &str, path: &str) -> R
     let bytes = data_encoding::BASE64.decode(image.data.as_bytes()).map_err(|_| "The image didn't arrive whole.".to_string())?;
     attachments::keep_image_in(&attachments::images_dir(), &bytes).ok_or("That isn't an image a window can show.")?;
     Ok(bytes)
+}
+
+/// What a device's images are asked for under, one at a time: a device of its own each, so one
+/// slow to answer holds up none of the others'.
+fn one_at_a_time(device: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+    static TURNS: std::sync::Mutex<BTreeMap<String, std::sync::Arc<std::sync::Mutex<()>>>> = std::sync::Mutex::new(BTreeMap::new());
+    TURNS.lock().unwrap_or_else(|e| e.into_inner()).entry(device.to_string()).or_default().clone()
 }
 
 /// An image file's bytes, when it's a file of its own (not a link, which could lead anywhere)
@@ -1654,6 +1661,15 @@ mod tests {
         let (sent, asked) = carry(&format!("{prompt}\n{}", log.reference()), kept_as(&shot.path));
         assert!(sent.unwrap_err().starts_with("“crash.log” is a file kept on this Mac, and only images go to Mini"));
         assert!(asked.is_empty());
+    }
+
+    #[test]
+    fn a_device_slow_with_its_images_holds_up_no_other_devices() {
+        let mini = one_at_a_time("mini-turns");
+        let _held = mini.lock().unwrap();
+        // Another device's images go on meanwhile; the same device's wait their turn.
+        assert!(one_at_a_time("studio-turns").try_lock().is_ok());
+        assert!(one_at_a_time("mini-turns").try_lock().is_err());
     }
 
     #[test]
