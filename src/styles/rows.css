@@ -202,19 +202,22 @@
 }
 
 /* On one line (Rows, in the sidebar): what it's about, then its lane and PR at the line's end,
-   and its pin beside its age. What it's doing gives way first, then the lane, then the title,
-   as on an agent's line in Worktrees. */
+   and its age (44px, or 56px when pinned to fit the pin beside it) right next to that without
+   the main column's right padding. What it's doing gives way first, then the lane, then the
+   title, as on an agent's line in Worktrees. */
 .ca-lane.is-agent.is-slim {
-  grid-template-columns: 32px minmax(0, 1fr) 64px;
+  grid-template-columns: 32px minmax(0, 1fr) 44px;
   min-height: 32px;
+}
+.ca-lane.is-agent.is-slim.is-pinned {
+  grid-template-columns: 32px minmax(0, 1fr) 56px;
 }
 .ca-lane.is-agent.is-slim .ca-seg-glyph {
   justify-content: center;
   padding-top: 0;
 }
 .ca-lane.is-agent.is-slim .ca-seg-main {
-  padding-top: 0;
-  padding-bottom: 0;
+  padding: 0;
 }
 
 .ca-lane.is-agent.is-slim .ca-seg-age {

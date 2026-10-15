@@ -182,7 +182,7 @@
    into its own. The session and its helpers read as one block: no divider between them, only
    after the last. */
 .ca-lane.is-agent.is-nested {
-  grid-template-columns: 48px minmax(0, 1fr) 64px;
+  grid-template-columns: 48px minmax(0, 1fr) 44px;
 }
 .ca-lane.is-agent:has(+ .ca-lane.is-nested) {
   border-bottom-color: transparent;
