@@ -242,7 +242,7 @@ fn read_root(root: &Root) -> Vec<File> {
     match root.kind {
         Kind::Skills { depth } => {
             let mut found = Vec::new();
-            walk_skills(&root.dir, depth, &mut HashSet::new(), &mut found);
+            walk_skills(&root.dir, depth, false, &mut HashSet::new(), &mut found);
             out = match root.as_commands {
                 Some(how) => command_skills(found, root, how),
                 None => found.iter().filter_map(|f| skill_file(&f.text, folder_name(&f.folder), root.prefix.as_deref())).collect(),
@@ -253,12 +253,13 @@ fn read_root(root: &Root) -> Vec<File> {
     out
 }
 
-/// A `SKILL.md` found in a folder of skills: the folder it's in, where it really is, and what it
-/// says.
+/// A `SKILL.md` found in a folder of skills: the folder it's in, where it really is, what it
+/// says, and whether a link between the root and its folder led to it.
 struct Found {
     folder: PathBuf,
     real: PathBuf,
     text: String,
+    below_link: bool,
 }
 
 fn folder_name(folder: &Path) -> &str {
@@ -273,7 +274,7 @@ fn entries(dir: &Path) -> Vec<PathBuf> {
     paths
 }
 
-fn walk_skills(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, out: &mut Vec<Found>) {
+fn walk_skills(dir: &Path, depth: usize, below_link: bool, seen: &mut HashSet<PathBuf>, out: &mut Vec<Found>) {
     if depth == 0 {
         return;
     }
@@ -287,10 +288,13 @@ fn walk_skills(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, out: &mut 
             Ok(text) => {
                 let real = std::fs::canonicalize(&file).unwrap_or(file);
                 if seen.insert(real.clone()) {
-                    out.push(Found { folder: path, real, text });
+                    out.push(Found { folder: path, real, text, below_link });
                 }
             }
-            Err(_) => walk_skills(&path, depth - 1, seen, out),
+            Err(_) => {
+                let link = path.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink());
+                walk_skills(&path, depth - 1, below_link || link, seen, out)
+            }
         }
     }
 }
@@ -345,32 +349,46 @@ fn described(name: String, front: &HashMap<String, String>, body: &str) -> Optio
     })
 }
 
-/// The skills of a folder a harness makes commands of, named as it names them: by the folder
-/// each is in, its file's `name` being only a title, or, for a folder name two of them share,
-/// by its path from the root (`api/review` is `api-review`). Not one kept off the menu, one whose
-/// `metadata.surfaces` leaves out the harness's program, or, in a folder that keeps to itself,
-/// one a link takes out of it.
-fn command_skills(found: Vec<Found>, root: &Root, how: AsCommands) -> Vec<File> {
+/// The skills of a folder a harness makes commands of, named as it names them, in the order of
+/// their files' paths: by the folder each is in, its file's `name` being only a title, or, for a
+/// folder name two of them share, by its path from the root (`api/review` is `api-review`), with
+/// `-2`, `-3`… after a name an earlier one took. Not one kept off the menu, one whose
+/// `metadata.surfaces` leaves out the harness's program, one a link takes out of a folder that
+/// keeps to itself, or, where links are followed out, one below the folder a link leads to.
+fn command_skills(mut found: Vec<Found>, root: &Root, how: AsCommands) -> Vec<File> {
     let real_root = std::fs::canonicalize(&root.dir).unwrap_or_else(|_| root.dir.clone());
-    let found: Vec<Found> = found.into_iter().filter(|f| !how.contained || f.real.starts_with(&real_root)).collect();
-    let mut shared: HashMap<&str, usize> = HashMap::new();
+    found.retain(|f| if how.contained { f.real.starts_with(&real_root) } else { !f.below_link });
+    found.sort_by_key(|f| f.folder.join("SKILL.md").to_string_lossy().into_owned());
+    let mut shared: HashMap<String, usize> = HashMap::new();
     for f in &found {
-        *shared.entry(folder_name(&f.folder)).or_default() += 1;
+        *shared.entry(folder_name(&f.folder).to_string()).or_default() += 1;
     }
-    let id = |f: &Found| -> Option<String> {
-        let folder = folder_name(&f.folder);
-        if shared[folder] == 1 {
-            return Some(folder.to_string());
-        }
-        let parts = f.folder.strip_prefix(&root.dir).ok()?.components().map(|c| c.as_os_str().to_str()).collect::<Option<Vec<_>>>()?;
-        Some(parts.join("-"))
-    };
-    found
+    // Every skill's name is taken before any is left out, as the harness takes them.
+    let mut taken = HashSet::new();
+    let named_skills: Vec<(String, &Found)> = found
         .iter()
-        .filter(|f| surfaces(&f.text).is_none_or(|listed| listed.iter().any(|s| s == how.surface)))
         .filter_map(|f| {
+            let folder = folder_name(&f.folder);
+            let base = if shared[folder] == 1 {
+                folder.to_string()
+            } else {
+                f.folder.strip_prefix(&root.dir).ok()?.components().map(|c| c.as_os_str().to_str()).collect::<Option<Vec<_>>>()?.join("-")
+            };
+            let id = std::iter::once(base.clone()).chain((2..).map(|n| format!("{base}-{n}"))).find(|id| !taken.contains(id))?;
+            taken.insert(id.clone());
+            Some((id, f))
+        })
+        .collect();
+    named_skills
+        .into_iter()
+        .filter(|(_, f)| surfaces(&f.text).is_none_or(|listed| listed.iter().any(|s| s == how.surface)))
+        .filter_map(|(id, f)| {
             let (front, body) = front_matter(&f.text);
-            described(named(&id(f)?, root.prefix.as_deref()), &front, body).filter(|file| file.typed)
+            // Kept off the menu however the word is written, as it reads the value.
+            if front.get("user-invocable").is_some_and(|v| v.trim().eq_ignore_ascii_case("false")) {
+                return None;
+            }
+            described(named(&id, root.prefix.as_deref()), &front, body)
         })
         .collect()
 }
@@ -519,16 +537,21 @@ mod tests {
     fn a_harness_that_makes_commands_of_skills_names_them_by_folder() {
         let dir = scratch("skills-as-commands");
         let elsewhere = scratch("skills-as-commands-elsewhere");
-        // A title its file gives, two folders of one name, one kept off the menu, one only for
-        // another program, one for this one, and one a link takes out of the folder.
+        // A title its file gives, two folders of one name and a folder named as one of them is
+        // then, two kept off the menu, one only for another program, one for this one, one a
+        // link takes out of the folder, and one below a folder a link leads to.
         write(&dir.join("release/SKILL.md"), "---\nname: Deploy release\ndescription: Releases\n---\n");
         write(&dir.join("api/review/SKILL.md"), "---\nname: review\n---\n");
         write(&dir.join("web/review/SKILL.md"), "---\nname: review\n---\n");
+        write(&dir.join("api-review/SKILL.md"), "---\nname: api-review\ndescription: Top\n---\n");
         write(&dir.join("rules/SKILL.md"), "---\nname: rules\nuser-invocable: false\n---\n");
+        write(&dir.join("quiet/SKILL.md"), "---\nname: quiet\nuser-invocable: \" False \"\n---\n");
         write(&dir.join("canvas/SKILL.md"), "---\nname: canvas\nmetadata:\n  surfaces:\n    - ide\n---\n");
         write(&dir.join("config/SKILL.md"), "---\nname: config\nmetadata:\n  surfaces: \"cli, ide\"\n---\n");
         write(&elsewhere.join("shared/SKILL.md"), "---\nname: shared\n---\n");
         std::os::unix::fs::symlink(elsewhere.join("shared"), dir.join("shared")).unwrap();
+        write(&elsewhere.join("bundle/review/SKILL.md"), "---\nname: review\n---\n");
+        std::os::unix::fs::symlink(elsewhere.join("bundle"), dir.join("bundle")).unwrap();
 
         let read = |contained: bool| -> Vec<(String, String)> {
             let root = Root::skills(dir.clone(), 3).as_commands(AsCommands { surface: "cli", contained });
@@ -537,12 +560,14 @@ mod tests {
             files
         };
         let pair = |n: &str, d: &str| (n.to_string(), d.to_string());
-        assert_eq!(read(true), [pair("api-review", ""), pair("config", ""), pair("release", "Releases"), pair("web-review", "")]);
-        // Followed out of the folder where the harness follows links.
-        assert_eq!(read(false), [pair("api-review", ""), pair("config", ""), pair("release", "Releases"), pair("shared", ""), pair("web-review", "")]);
+        // `api-review/SKILL.md` comes before `api/review/SKILL.md`, and takes the name first.
+        assert_eq!(read(true), [pair("api-review", "Top"), pair("api-review-2", ""), pair("config", ""), pair("release", "Releases"), pair("web-review", "")]);
+        // Followed out of the folder where the harness follows links, but only to the folder a
+        // link leads to.
+        assert_eq!(read(false), [pair("api-review", "Top"), pair("api-review-2", ""), pair("config", ""), pair("release", "Releases"), pair("shared", ""), pair("web-review", "")]);
         // As its file says, for the others.
         let names: Vec<String> = read_root(&Root::skills(dir.clone(), 3)).into_iter().map(|f| f.name).collect();
-        assert_eq!(names, ["review", "canvas", "config", "rules", "shared", "review"]);
+        assert_eq!(names, ["review", "api-review", "review", "canvas", "config", "quiet", "rules", "shared", "review"]);
     }
 
     #[test]

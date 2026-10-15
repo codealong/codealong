@@ -62,10 +62,10 @@ under `src-tauri/src/` unless they start with `plugin/`.
   skills (`imagegen`, `openai-docs`, `plugin-creator`, `skill-creator`, `skill-installer`)
   wherever they are under `.codex/skills`, and loads Claude Code's enabled plugins
   (`~/.claude/plugins/installed_plugins.json`) with their skills, which Codealong doesn't list for
-  it. The command line also adds `-2` to a name already taken, which Codealong doesn't, and
-  within a link it follows out of your personal folders it reads the linked folder's own
-  `SKILL.md` only, not those below it. It runs `.claude/commands` and `.cursor/commands` files
-  (top level only) as `/name args` too. Cursor's own `canvas` and `update-cursor-settings` list
+  it. The command line orders a folder's skills by their paths with `localeCompare`, where
+  Codealong compares bytes (capitals sort apart), which only matters to which of two skills gets
+  the `-2`. It runs `.claude/commands` and `.cursor/commands` files (top level only) as
+  `/name args` too. Cursor's own `canvas` and `update-cursor-settings` list
   only `ide` (and `cloud`) in `metadata.surfaces`, `update-cli-config` only `cli`.
   Checked with `-p` and with its terminal UI's first prompt in tmux (2026-10-15): a `/name` from
   `.cursor/skills` and from a repo's `.claude/skills` ran a skill kept from the model
