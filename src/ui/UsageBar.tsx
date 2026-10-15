@@ -447,11 +447,22 @@ function useSort(row: RefObject<HTMLDivElement | null>, onStart: () => void, onP
       }
       follow();
     };
+    // The click a drag's release makes, over the chip it started on, isn't a click on the chip.
+    const swallowClick = () => {
+      const swallow = (c: MouseEvent) => {
+        c.stopPropagation();
+        c.preventDefault();
+      };
+      window.addEventListener('click', swallow, true);
+      window.setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+    };
     const key = (ev: KeyboardEvent) => {
       if (ev.key !== 'Escape' || !edges) return;
       ev.preventDefault();
       ev.stopPropagation();
       stop();
+      // The button is still down; letting go of it after is no click either.
+      window.addEventListener('pointerup', swallowClick, { once: true });
     };
     const stop = () => {
       window.removeEventListener('pointermove', move);
@@ -468,13 +479,7 @@ function useSort(row: RefObject<HTMLDivElement | null>, onStart: () => void, onP
       const dragged = !!edges;
       stop();
       if (!dragged) return;
-      // The click a drag ends in, over the chip it started on, isn't a click on the chip.
-      const swallow = (c: MouseEvent) => {
-        c.stopPropagation();
-        c.preventDefault();
-      };
-      window.addEventListener('click', swallow, true);
-      window.setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+      swallowClick();
       if (to !== from) on.current.onPlace(moveName(names, from, to));
     };
 

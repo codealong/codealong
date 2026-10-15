@@ -15,6 +15,8 @@
     return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, right: r.right };
   };
   var shift = function (el) { return el.style.transform; };
+  // A chip's click opens the Usage window, or signs in for one that asks to.
+  var opens = function () { return calls('token_report').length + calls('sign_in').length; };
   var before;
 
   say('usage sort check: waiting for the chips');
@@ -45,8 +47,14 @@
         return wait(50);
       }).then(function () {
         check('Escape puts it back', !row().classList.contains('is-sorting') && !shift(first) && !shift(second) && names().join() === before.join(), names().join());
-        pointer(first, 'pointerup', past, at.y);
-        check('and writes nothing', calls('order_accounts').length === 0);
+        var opened = opens();
+        pointer(first, 'pointerup', at.x, at.y);
+        // A real release over the chip clicks it too.
+        first.click();
+        return wait(300).then(function () {
+          check('and writes nothing', calls('order_accounts').length === 0);
+          check('and letting go after opens nothing', opens() === opened && !q('.ca-usage'), opens() - opened);
+        });
       });
     })
     .then(function () {
@@ -54,7 +62,7 @@
       var second = chips()[1];
       var at = middle(first);
       var to = middle(second).x + 6;
-      var opened = calls('token_report').length;
+      var opened = opens();
       pointer(first, 'pointerdown', at.x, at.y);
       pointer(first, 'pointermove', at.x + 10, at.y);
       pointer(first, 'pointermove', to, at.y);
@@ -62,11 +70,13 @@
       first.click();
       var want = [before[1], before[0]].concat(before.slice(2));
       return until(function () { return names().join() === want.join(); }, 5000, 'the new order').then(function () {
+        return wait(300);
+      }).then(function () {
         var asked = last('order_accounts');
         check('letting go puts the account in its new place', names().join() === want.join(), names().join());
         check('and writes the order', !!asked && asked.accounts.join() === want.join(), JSON.stringify(asked));
         check('the chips stand still again', !row().classList.contains('is-sorting') && chips().every(function (c) { return !shift(c); }), chips().map(shift).join('|'));
-        check('the click it ends in opens nothing', calls('token_report').length === opened && !q('.ca-usage'), calls('token_report').length - opened);
+        check('the click it ends in opens nothing', opens() === opened && !q('.ca-usage'), opens() - opened);
       });
     })
     .then(function () {

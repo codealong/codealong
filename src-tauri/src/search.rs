@@ -103,15 +103,7 @@ fn warmer() -> &'static Mutex<Option<Sender<()>>> {
 /// Sets the accounts and days to search; a change starts the index over. The engine calls it
 /// whenever config.toml loads.
 pub fn configure(scope: Scope) {
-    let changed = {
-        let mut ix = index().lock().unwrap_or_else(|e| e.into_inner());
-        if ix.scope == scope {
-            false
-        } else {
-            *ix = Index { scope, ..Index::default() };
-            true
-        }
-    };
+    let changed = index().lock().unwrap_or_else(|e| e.into_inner()).rescope(scope);
     if changed {
         if let Some(tx) = warmer().lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             let _ = tx.send(());
@@ -206,6 +198,18 @@ pub fn find_now(scope: Scope, words: &[String], limit: usize) -> Found {
 }
 
 impl Index {
+    /// Searches `scope` from now on, and starts over unless it's what this one searched: the same
+    /// accounts in another order (the usage bar's chips, dragged) keep everything read. Whether it
+    /// started over.
+    fn rescope(&mut self, scope: Scope) -> bool {
+        if self.scope.days == scope.days && crate::config::same_accounts(&self.scope.accounts, &scope.accounts) {
+            self.scope = scope;
+            return false;
+        }
+        *self = Index { scope, ..Index::default() };
+        true
+    }
+
     /// Lists the records in scope that are files (`Adapter::search_files`), unless the list is
     /// fresh. Files that fell out of scope are dropped.
     fn relist(&mut self, force: bool) {
@@ -426,6 +430,21 @@ mod tests {
         assert_eq!(catch_up(&path, &mut f), std::fs::metadata(&path).unwrap().len() - before);
         let h = hit(&f.key, f.entries.iter(), &words("webhook stripe")).unwrap();
         assert_eq!(h.snippet, "Done, both webhook and stripe fixed.");
+    }
+
+    #[test]
+    fn accounts_in_another_order_keep_what_was_read() {
+        let account = |name: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let scope = |names: &[&str], days: u32| Scope { accounts: names.iter().map(|n| account(n)).collect(), days };
+        let mut ix = Index { scope: scope(&["a", "b"], 14), ready: true, ..Index::default() };
+        ix.files.insert(PathBuf::from("/s.jsonl"), FileText { key: "claude:a:s".into(), harness: Harness::Claude, offset: 10, entries: Vec::new() });
+        assert!(!ix.rescope(scope(&["b", "a"], 14)));
+        assert!(ix.ready && ix.files.len() == 1);
+        assert_eq!(ix.scope.accounts[0].name, "b", "it searches them in the new order");
+        // Another account, or other days, start it over.
+        assert!(ix.rescope(scope(&["b"], 14)));
+        assert!(!ix.ready && ix.files.is_empty());
+        assert!(ix.rescope(scope(&["b"], 7)));
     }
 
     #[test]
