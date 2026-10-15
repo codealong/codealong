@@ -302,13 +302,15 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resuming?.places.find((p) => p.place === resumeHow.place)?.behind };
   // A running one says what model and effort it's on, beside Send, and where Codealong can switch
   // them (SessionModel.tsx): one it runs, or one whose terminal it types into, by its harness's
-  // commands. A Cursor app chat is set to its model, and the Codex app starts a thread's turn on
-  // the model and effort it's on (codex/ipc.rs `codex_start_request`), so where a send goes to
-  // either app it says them between turns too.
+  // commands. A Cursor app chat is set to its model, the Codex app starts a thread's turn on the
+  // model and effort it's on (codex/ipc.rs `codex_start_request`), and OpenCode's service runs a
+  // prompt on the session's (opencode.rs `model_and_effort`), so where a send goes to one of
+  // those it says them between turns too.
   const switchable = here && s.live && (!!s.hosted || way?.kind === 'typed');
   const switches = switchable && !!account && (account.models?.length ?? 0) > 0 && (!!s.hosted || !!account.switchesModel);
   const switchesEffort = switchable && !!account && (account.efforts?.length ?? 0) > 0 && (!!s.hosted || !!account.switchesEffort);
-  const saysModel = !resuming && (s.live || way?.kind === 'cursor' || way?.kind === 'codex-app') && (switches || switchesEffort || !!s.model);
+  const goesOnWithIt = way?.kind === 'cursor' || way?.kind === 'codex-app' || way?.kind === 'opencode';
+  const saysModel = !resuming && (s.live || goesOnWithIt) && (switches || switchesEffort || !!s.model);
   const [switching, setSwitching] = useState(false);
   const switchTo = (switched: Promise<string>, failed?: () => void) => {
     setSwitching(true);

@@ -77,12 +77,15 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   assistant message that has them, after the latest `compaction` message whose `status` is
   `completed` (`running`, then `completed` or `failed`), as OpenCode's own
   meter has it. An assistant row has no `tokens` until its step ends.
-- An assistant row's `model` is `{id, providerID, variant}`; `variant` is the model's reasoning
-  variant (`default` where none was picked). `session_v2.model` is `{id, providerID}`, without a
-  variant, beside `agent` (every session here, 2026-10-15). A session's model and effort:
-  `opencode.rs` (`SessionRow::model`, `SessionRow::effort`). Not checked: that a model switched
-  in the TUI between turns moves `session_v2.model` before the next reply, as an agent switch
-  moves `agent`.
+- A model is referred to as `Model.Ref`, `{id, providerID, variant?}` (also written
+  `provider/id#variant`); `variant` is the model's reasoning variant, `default` or left out where
+  none was picked, and an effort level when it's one of them. An assistant row's `model` is one
+  (always with `variant` here), and so is `session_v2.model`, the model its next turn runs on
+  (without `variant` in every session here, 2026-10-15). A switch (`session.model.selected`)
+  sets it and writes a `model-switched` message (`data.model`, `data.previous`). A prompt
+  carries no model, so a turn runs on it: a client that wants another switches the session first
+  (`session.switchModel`, then `session.prompt`, as its ACP server and TUI client do; 2.0.16's
+  bundle). A session's model and effort: `opencode.rs` (`model_and_effort`).
 - A session's mode is its agent, which OpenCode's own ACP server lists as its modes:
   `opencode.rs` (`SessionRow::agent`, `agent_mode`). `session_v2.agent` is the one its next
   turn runs as (NULL for the config's `default_agent`, else `build`), moved by a prompt with

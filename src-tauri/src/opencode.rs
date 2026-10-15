@@ -54,8 +54,8 @@ pub struct SessionRow {
     /// The model its next turn runs on (`model`), else the one its latest reply came from, by
     /// its id within its provider (`big-pickle`).
     pub model: Option<String>,
-    /// The reasoning variant its latest reply was made at (`high`), when that reply was on
-    /// `model` and one was picked: `default` is none.
+    /// The reasoning variant `model` was picked with (`high`), else the one its latest reply
+    /// was made at when that reply was on it (`model_and_effort`).
     pub effort: Option<String>,
 }
 
@@ -142,13 +142,15 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
             }
         }
     }
-    // The model picked for its next turn, `{id, providerID}`, kept beside the agent and asked
-    // apart for the same reason.
+    // The model picked for its next turn, kept beside the agent and asked apart for the same
+    // reason.
+    let mut picked: HashMap<String, Value> = HashMap::new();
     if let Ok(mut stmt) = db.prepare("SELECT id, model FROM session_v2 WHERE model IS NOT NULL AND model != ''") {
         if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
             for (id, model) in rows.flatten() {
-                if let Some(row) = by_id.get_mut(&id) {
-                    row.model = serde_json::from_str::<Value>(&model).ok().as_ref().and_then(|m| m.get("id")).and_then(Value::as_str).filter(|m| !m.is_empty()).map(str::to_string);
+                if let (Some(row), Ok(model)) = (by_id.get_mut(&id), serde_json::from_str::<Value>(&model)) {
+                    (row.model, row.effort) = model_and_effort(Some(&model), None);
+                    picked.insert(id, model);
                 }
             }
         }
@@ -177,15 +179,7 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
                 if row.agent.is_none() {
                     row.agent = v.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty()).map(str::to_string);
                 }
-                // A reply's `model` is `{id, providerID, variant}`. Its variant says nothing of a
-                // model it was switched to since.
-                let replied = v.pointer("/model/id").and_then(Value::as_str).filter(|m| !m.is_empty());
-                if row.model.is_none() {
-                    row.model = replied.map(str::to_string);
-                }
-                if replied.is_some() && replied == row.model.as_deref() {
-                    row.effort = v.pointer("/model/variant").and_then(Value::as_str).filter(|e| !e.is_empty() && *e != "default").map(str::to_string);
-                }
+                (row.model, row.effort) = model_and_effort(picked.get(&session_id), v.get("model"));
             }
             _ => {}
         }
@@ -196,6 +190,21 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
     let mut out: Vec<SessionRow> = by_id.into_values().collect();
     out.sort_by(|a, b| b.last_ts.cmp(&a.last_ts));
     Ok(out)
+}
+
+/// A session's model and effort, from the model picked for its next turn (`session_v2.model`)
+/// and its latest reply's, each as OpenCode refers to a model (`Model.Ref`): `{id, providerID,
+/// variant}`, where a variant left out or `default` is none picked, and one of the effort levels
+/// is that effort (2.0.16's code). A prompt carries no model, so its turn runs on the picked
+/// one. The reply's variant counts only when it was on that model, provider and all.
+fn model_and_effort(picked: Option<&Value>, reply: Option<&Value>) -> (Option<String>, Option<String>) {
+    let named = |m: &&Value| m.get("id").and_then(Value::as_str).is_some_and(|id| !id.is_empty());
+    let reply = reply.filter(named);
+    let Some(model) = picked.filter(named).or(reply) else { return (None, None) };
+    let same = |r: &&Value| ["id", "providerID"].iter().all(|k| r.get(k) == model.get(k));
+    let variant = model.get("variant").or_else(|| reply.filter(same).and_then(|r| r.get("variant")));
+    let effort = variant.and_then(Value::as_str).filter(|e| !e.is_empty() && *e != "default").map(str::to_string);
+    (model.get("id").and_then(Value::as_str).map(str::to_string), effort)
 }
 
 /// A session's agent as its mode: OpenCode names its primary agents its modes (its ACP server
@@ -1499,14 +1508,20 @@ mod tests {
         // A database from before the column goes by the replies; `default` is no variant picked.
         let got = models(&db_with(replies));
         assert_eq!((&got["ses_a"], &got["ses_c"]), (&pair("gpt-6", Some("high")), &pair("big-pickle", None)));
-        // Switched to another model since its latest reply: that reply's variant isn't the new one's.
-        let picked = db_with(&format!(
-            "ALTER TABLE session_v2 ADD COLUMN model TEXT; {replies} \
-             UPDATE session_v2 SET model = '{{\"id\":\"gpt-6\",\"providerID\":\"openai\"}}' WHERE id = 'ses_a'; \
-             UPDATE session_v2 SET model = '{{\"id\":\"claude-opus-5-5\",\"providerID\":\"anthropic\"}}' WHERE id = 'ses_b';"
-        ));
-        let got = models(&picked);
-        assert_eq!((&got["ses_a"], &got["ses_b"]), (&pair("gpt-6", Some("high")), &pair("claude-opus-5-5", None)));
+        let picked = |a: &str, b: &str, c: &str| {
+            models(&db_with(&format!(
+                "ALTER TABLE session_v2 ADD COLUMN model TEXT; {replies} \
+                 UPDATE session_v2 SET model = '{a}' WHERE id = 'ses_a'; UPDATE session_v2 SET model = '{b}' WHERE id = 'ses_b'; \
+                 UPDATE session_v2 SET model = '{c}' WHERE id = 'ses_c';"
+            )))
+        };
+        // Picked without a variant, the latest reply's counts while it was on that model; after a
+        // switch to another model, or the same one from another provider, it doesn't.
+        let got = picked(r#"{"id":"gpt-6","providerID":"openai"}"#, r#"{"id":"claude-opus-5-5","providerID":"anthropic"}"#, r#"{"id":"gpt-6","providerID":"azure"}"#);
+        assert_eq!((&got["ses_a"], &got["ses_b"], &got["ses_c"]), (&pair("gpt-6", Some("high")), &pair("claude-opus-5-5", None), &pair("gpt-6", None)));
+        // A variant picked with the model is its effort, `default` none, whatever the reply was at.
+        let got = picked(r#"{"id":"gpt-6","providerID":"openai","variant":"default"}"#, r#"{"id":"claude-opus-5-5","providerID":"anthropic","variant":"max"}"#, "not json");
+        assert_eq!((&got["ses_a"], &got["ses_b"], &got["ses_c"]), (&pair("gpt-6", None), &pair("claude-opus-5-5", Some("max")), &pair("big-pickle", None)));
     }
 
     #[test]

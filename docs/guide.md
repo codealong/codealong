@@ -1193,8 +1193,10 @@ Cursor app chat says the model it's set to by Cursor's name for it (Grok 4.7, Au
 between turns too, since that's what its next turn goes on with; it's switched in Cursor. A thread
 in the Codex app says its model and effort between turns too, for the same reason. An OpenCode
 session says the model its next turn runs on by OpenCode's id for it (`big-pickle`) and the
-reasoning variant its latest reply was made at, when one was picked; an Antigravity conversation
-says the model its latest turn ran on, whose name has its level (Gemini 4 Argon (High)).
+reasoning variant it was picked with, else the one its latest reply on that model was made at,
+between turns too, since a message Codealong sends goes on with them. An Antigravity
+conversation says the model its latest turn ran on, whose name has its level (Gemini 4 Argon
+(High)).
 
 Where Codealong types into its terminal or runs it, that chip is a menu of its account's models,
 with its effort levels under them, the one it's on checked: picking either switches that session
