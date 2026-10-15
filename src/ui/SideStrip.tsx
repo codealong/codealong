@@ -183,9 +183,11 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
   const past = useKept(key);
   const earlier = past.filter((k) => k.id !== side?.id);
   const reading = view?.kind === 'past' ? past.find((k) => k.id === view.id) : undefined;
-  // One closed while its copy answers reads as it answers.
+  // One closed while its copy answers reads as it answers: as it's heard of here, else as it was
+  // read.
   const closing = useClosing();
-  const answering = view?.kind === 'past' ? closing.get(view.id) : undefined;
+  const live = view?.kind === 'past' ? closing.get(view.id) : undefined;
+  const answering = !!live || !!reading?.answering;
   const scroller = useRef<HTMLDivElement>(null);
   // The end stays in view as the answer grows, unless you've scrolled back to read.
   const atEnd = useRef(true);
@@ -250,9 +252,13 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
     </section>
   );
 
-  const read = answering
-    ? { id: answering.id, turns: answering.turns, current: answering.turns.findIndex((t) => !t.done), said: words.answering }
-    : reading && { id: reading.id, turns: reading.turns, current: -1, said: `${agoPhrase(reading.lastAt, now)} · ${words.closed}` };
+  const readable = live ?? reading;
+  const read = readable && {
+    id: readable.id,
+    turns: readable.turns,
+    current: answering ? readable.turns.findIndex((t) => !t.done) : -1,
+    said: answering ? words.answering : `${agoPhrase(reading?.lastAt ?? now, now)} · ${words.closed}`,
+  };
   if (read) {
     return section(
       'Side conversation',
@@ -286,7 +292,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
           <button key={k.id} type="button" className="ca-sidestrip-kept" onClick={() => showSides(key, { kind: 'past', id: k.id })}>
             <span className="ca-sidestrip-kept-q">{keptLine(k)}</span>
             <span className="ca-sidestrip-kept-when">
-              {closing.has(k.id) ? 'answering' : agoPhrase(k.lastAt, now)} · {many(k.turns.length, 'question')}
+              {closing.has(k.id) || k.answering ? 'answering' : agoPhrase(k.lastAt, now)} · {many(k.turns.length, 'question')}
             </span>
           </button>
         ))}

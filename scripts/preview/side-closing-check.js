@@ -112,6 +112,20 @@
       await until(function () { return !!sideLine('why a queue?') || !!q('.ca-sessinsp-head .ca-sessinsp-kids-more'); }, 5000, 'the header');
       var line = sideLine('why a queue?');
       check('and the header no longer says it’s answering', !line || !q('.ca-glyph--working', line), line && line.innerHTML.slice(0, 200));
+
+      // What the engine said of it before it stopped, arriving late (a window's close is told from
+      // another thread than its copy's lines), changes nothing.
+      window.__emit('side', { id: first.id, key: key, turns: [{ question: 'why a queue?', answer: 'Because sends ', done: false, at: at }], running: true, ended: false, closed: true });
+      await wait(100);
+      check('word of it answering that comes after it stopped is too late to change it', /closed\. A new question/.test(strip().textContent) && turns()[0].indexOf('must keep their order') > 0, strip().textContent.slice(0, 200));
+
+      // One closed and answering before this window heard of it: read as answering all the same.
+      window.__closing.pre = { id: 'pre', key: key, turns: [{ question: 'what ran last?', answer: '', tool: 'Read · `send.rs`', done: false, at: Date.now() }], running: true, ended: false, closed: true, startedAt: Date.now() };
+      await window.__pushSides();
+      await until(function () { return !!sideLine('what ran last?'); }, 5000, 'its line in the header');
+      sideLine('what ran last?').click();
+      await until(function () { return turns().length === 1 && turns()[0].indexOf('what ran last?') === 0; }, 5000, 'it shown to read');
+      check('one closed before the window heard of it reads as still answering, at the tool it runs', /Closed, and still answering/.test(strip().textContent) && turns()[0].indexOf('Read · send.rs') > 0 && turns()[0].indexOf('Next') < 0, strip().textContent.slice(0, 200));
     } catch (e) {
       return stopped(e);
     }

@@ -258,7 +258,7 @@ the box back to the session at once. A copy that's still answering when you clos
 was asked before it ends, so closing one to talk to the session loses no answer: it stays listed
 under the session as answering, and a click on it shows it to read as the answer comes (Delete there
 stops it). A new question after a close starts a new copy, which knows none of the closed one. A copy
-left idle for 15 minutes ends by itself, and a closed one that answers nothing for 15 minutes is
+left idle for 15 minutes ends by itself, and a closed one that nothing comes from for 15 minutes is
 stopped. Codealong keeps what was asked and answered, with what the copy did to answer
 (`sides.json`, the latest 300): `/side` alone, or Earlier beside an open one, lists a session's
 side conversations from before, and each opens to read, or to delete; while they show, a question

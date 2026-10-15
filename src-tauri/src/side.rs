@@ -127,6 +127,10 @@ pub struct Kept {
     /// When it was last asked or answered.
     pub last_at: i64,
     pub turns: Vec<Turn>,
+    /// It was closed while its copy answered, and the copy is answering still: read as it is
+    /// (`past`), never kept so.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub answering: bool,
 }
 
 /// A side conversation as the board lists it (`glances`): what it was first asked, how far it
@@ -482,7 +486,7 @@ fn with_closing(kept: Vec<Kept>, closing: Vec<Kept>) -> Vec<Kept> {
 /// Forgets a kept side conversation, and stops it if it was closed and is still answering.
 pub fn forget(id: &str) -> Result<()> {
     stop_closing(id);
-    let forgot = forget_in(&store_path(), id);
+    let forgot = forget_at(&store_path(), id);
     *kept_cache() = None;
     changed();
     forgot
@@ -519,22 +523,47 @@ fn load(path: &Path) -> Vec<Kept> {
 /// A side conversation as it's read while it answers: every turn, as far as it's gone.
 fn as_it_is(o: &Open) -> Kept {
     let last_at = o.side.turns.iter().map(|t| t.at).max().unwrap_or(o.started_at);
-    Kept { id: o.side.id.clone(), key: o.side.key.clone(), title: o.title.clone(), started_at: o.started_at, last_at, turns: o.side.turns.clone() }
+    Kept { id: o.side.id.clone(), key: o.side.key.clone(), title: o.title.clone(), started_at: o.started_at, last_at, turns: o.side.turns.clone(), answering: true }
 }
 
 /// A side conversation as it's kept: the turns that have ended. None before the first has.
 fn kept_of(o: &Open) -> Option<Kept> {
     let turns: Vec<Turn> = o.side.turns.iter().filter(|t| t.done).map(|t| Turn { tool: None, ..t.clone() }).collect();
-    (!turns.is_empty()).then(|| Kept { id: o.side.id.clone(), key: o.side.key.clone(), title: o.title.clone(), started_at: o.started_at, last_at: now_ms(), turns })
+    (!turns.is_empty()).then(|| Kept { id: o.side.id.clone(), key: o.side.key.clone(), title: o.title.clone(), started_at: o.started_at, last_at: now_ms(), turns, answering: false })
 }
 
 fn keep(kept: Option<Kept>) {
     if let Some(k) = kept.filter(|_| KEEPS.load(Ordering::Relaxed)) {
         // Nobody waits on this as a turn ends, so a failure is a notice.
         let path = store_path();
-        let _ = store::noted(&path, keep_in(&path, k));
+        let _ = store::noted(&path, keep_at(&path, k));
         *kept_cache() = None;
     }
+}
+
+/// The side conversations forgotten since Codealong started, by id, under the lock that keeping
+/// and forgetting take in turn: a turn that ends as its conversation is forgotten is kept before
+/// the forgetting, or not at all, never after it. One closed while it answered is kept as each
+/// turn ends, from its copy's thread, whenever Delete comes.
+fn forgotten() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<String>> {
+    static FORGOTTEN: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+    FORGOTTEN.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Keeps it at `path`, unless it's been forgotten.
+fn keep_at(path: &Path, kept: Kept) -> Result<()> {
+    let forgotten = forgotten();
+    if forgotten.contains(&kept.id) {
+        return Ok(());
+    }
+    keep_in(path, kept)
+}
+
+/// Forgets it at `path`, and keeps it forgotten.
+fn forget_at(path: &Path, id: &str) -> Result<()> {
+    let mut forgotten = forgotten();
+    forgotten.insert(id.to_string());
+    forget_in(path, id)
 }
 
 /// Writes a side conversation in place of what was kept of it, the latest last, and lets the
@@ -723,6 +752,8 @@ fn heard(key: &str, id: u64, line: &Value) {
         if events.is_empty() {
             return;
         }
+        // Heard from: a closed one at work on a long answer isn't stuck (`end_idle`).
+        o.used = Instant::now();
         // Kept as each turn ends, so quitting loses only an answer half written.
         let ended = events.iter().any(|e| matches!(e, Event::Done(_)));
         for e in events {
@@ -816,7 +847,7 @@ fn stopped(key: &str, id: u64, complaint: &str) {
 }
 
 /// Ends the copies that have sat idle for `idle`: their processes hold a conversation's worth
-/// of memory each. What was said stays to read. A closed one that has answered nothing for as
+/// of memory each. What was said stays to read. A closed one that nothing has come from for as
 /// long is stuck, with nobody watching it, and ends too.
 fn end_idle(idle: Duration) {
     let mut ended = Vec::new();
@@ -842,7 +873,7 @@ fn end_idle(idle: Duration) {
             t.done = true;
             t.tool = None;
             t.answer = t.answer.trim().to_string();
-            t.error = Some(format!("Stopped: once closed, it answered nothing for {} minutes.", idle.as_secs() / 60));
+            t.error = Some(format!("Stopped: once closed, nothing came from it for {} minutes.", idle.as_secs() / 60));
         }
         o.side.running = false;
         o.side.ended = true;
@@ -1037,6 +1068,8 @@ mod tests {
         assert_eq!((g.asked, g.running, g.open), (2, true, false));
         let read = state().closing.iter().find(|o| o.side.key == key).map(as_it_is).unwrap();
         assert_eq!(read.turns.iter().map(|t| t.question.as_str()).collect::<Vec<_>>(), ["one", "two"]);
+        // Read as answering, so a window that opens now says so.
+        assert!(read.answering);
         let side = told_closed(key);
         assert_eq!(side.turns.iter().map(|t| (t.answer.as_str(), t.done, t.error.as_deref())).collect::<Vec<_>>(), [("You asked: one", true, None), ("You asked: two", true, None)]);
         // Then it's gone: its copy ended, and what it said is kept.
@@ -1060,7 +1093,7 @@ mod tests {
         }
         end_idle(Duration::from_secs(60));
         let side = told_closed(key);
-        assert!(side.turns[0].done && side.turns[0].error.as_deref().is_some_and(|e| e.starts_with("Stopped: once closed, it answered nothing for")), "{:?}", side.turns[0]);
+        assert!(side.turns[0].done && side.turns[0].error.as_deref().is_some_and(|e| e.starts_with("Stopped: once closed, nothing came from it for")), "{:?}", side.turns[0]);
         assert!(closing_of(key).is_none() && !runs(pid));
     }
 
@@ -1078,11 +1111,29 @@ mod tests {
         assert!(!told_closed(key).running);
     }
 
+    /// Delete on one closed and still answering, as a turn of its ends: the turn's keeping can't
+    /// bring it back.
+    #[test]
+    fn a_turn_kept_after_its_conversation_is_forgotten_stays_forgotten() {
+        let dir = store::test_dir("sides-forgotten");
+        let path = dir.join("sides.json");
+        let kept = |id: &str, answer: &str| Kept { id: id.into(), key: "claude:c:1".into(), title: "A session".into(), started_at: 1, last_at: 2, turns: vec![Turn { question: "why?".into(), answer: answer.into(), done: true, at: 1, ..Default::default() }], answering: false };
+        let id = format!("forgotten-{}", std::process::id());
+        keep_at(&path, kept(&id, "Because.")).unwrap();
+        keep_at(&path, kept("other", "No.")).unwrap();
+        forget_at(&path, &id).unwrap();
+        keep_at(&path, kept(&id, "Because, and more.")).unwrap();
+        assert_eq!(load(&path).iter().map(|k| k.id.as_str()).collect::<Vec<_>>(), ["other"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn whats_read_of_a_session_has_the_ones_still_answering_in_place_of_whats_kept_of_them() {
-        let kept = |id: &str, last_at: i64, done: bool| Kept { id: id.into(), key: "claude:c:1".into(), title: "A session".into(), started_at: 1, last_at, turns: vec![Turn { question: "why?".into(), done, at: last_at, ..Default::default() }] };
-        let all = with_closing(vec![kept("b", 20, true), kept("a", 10, true)], vec![kept("a", 30, false)]);
-        assert_eq!(all.iter().map(|k| (k.id.as_str(), k.last_at, k.turns[0].done)).collect::<Vec<_>>(), [("a", 30, false), ("b", 20, true)]);
+        let kept = |id: &str, last_at: i64, done: bool| Kept { id: id.into(), key: "claude:c:1".into(), title: "A session".into(), started_at: 1, last_at, turns: vec![Turn { question: "why?".into(), done, at: last_at, ..Default::default() }], answering: false };
+        let all = with_closing(vec![kept("b", 20, true), kept("a", 10, true)], vec![Kept { answering: true, ..kept("a", 30, false) }]);
+        assert_eq!(all.iter().map(|k| (k.id.as_str(), k.last_at, k.turns[0].done, k.answering)).collect::<Vec<_>>(), [("a", 30, false, true), ("b", 20, true, false)]);
+        // What's kept never says it's answering.
+        assert!(!serde_json::to_value(&all[1]).unwrap().as_object().unwrap().contains_key("answering"));
     }
 
     #[test]
@@ -1110,7 +1161,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("codealong-sides-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("sides.json");
-        let kept = |id: &str, key: &str, last_at: i64, answer: &str| Kept { id: id.into(), key: key.into(), title: "A session".into(), started_at: 1, last_at, turns: vec![Turn { question: "why?".into(), answer: answer.into(), done: true, at: 1, ..Default::default() }] };
+        let kept = |id: &str, key: &str, last_at: i64, answer: &str| Kept { id: id.into(), key: key.into(), title: "A session".into(), started_at: 1, last_at, turns: vec![Turn { question: "why?".into(), answer: answer.into(), done: true, at: 1, ..Default::default() }], answering: false };
         assert!(past_in(&path, "claude:c:1").is_empty());
         keep_in(&path, kept("a", "claude:c:1", 10, "Because.")).unwrap();
         keep_in(&path, kept("b", "codex:x:2", 20, "No.")).unwrap();
@@ -1135,7 +1186,7 @@ mod tests {
     #[test]
     fn the_board_lists_each_sessions_side_conversations_the_open_one_in_place_of_what_was_kept() {
         let turn = |q: &str, at: i64, done: bool| Turn { question: q.into(), done, at, ..Default::default() };
-        let kept = |id: &str, key: &str, started_at: i64| Kept { id: id.into(), key: key.into(), title: "A session".into(), started_at, last_at: started_at + 1, turns: vec![turn("\n  Why is it slow?\nIt was fast.", started_at, true)] };
+        let kept = |id: &str, key: &str, started_at: i64| Kept { id: id.into(), key: key.into(), title: "A session".into(), started_at, last_at: started_at + 1, turns: vec![turn("\n  Why is it slow?\nIt was fast.", started_at, true)], answering: false };
         let all: Vec<(String, Glance)> = [kept("a", "claude:c:1", 10), kept("b", "claude:c:1", 50), kept("c", "codex:x:2", 30)].iter().map(|k| (k.key.clone(), glance_of_kept(k))).collect();
         assert_eq!(all[0].1, Glance { id: "a".into(), question: "Why is it slow?".into(), asked: 1, running: false, open: false, started_at: 10, last_at: 11 });
         // `a` asked again: its copy answers the second question.
@@ -1153,7 +1204,7 @@ mod tests {
     fn a_kept_file_that_does_not_read_is_never_written_over() {
         let dir = store::test_dir("sides-unreadable");
         let path = dir.join("sides.json");
-        let kept = |id: &str| Kept { id: id.into(), key: "claude:c:1".into(), title: "A session".into(), started_at: 1, last_at: 2, turns: vec![Turn { question: "why?".into(), answer: "Because.".into(), done: true, at: 1, ..Default::default() }] };
+        let kept = |id: &str| Kept { id: id.into(), key: "claude:c:1".into(), title: "A session".into(), started_at: 1, last_at: 2, turns: vec![Turn { question: "why?".into(), answer: "Because.".into(), done: true, at: 1, ..Default::default() }], answering: false };
         keep_in(&path, kept("a")).unwrap();
         for bytes in [r#"{"version":2,"kept":[]}"#, r#"[{"id":"a","key":"claude:c:1","#] {
             std::fs::write(&path, bytes).unwrap();

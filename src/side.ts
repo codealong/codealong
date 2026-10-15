@@ -26,6 +26,11 @@ const sides = new Map<string, Side>();
 /** The side conversations closed while their copies answered, by id, as the engine last said, until
  *  they've answered: a new map whenever one changes, for `useClosing`. */
 let closing: ReadonlyMap<string, Side> = new Map();
+/** The ones closed, and of those the ones whose copies have stopped, by id. A closed one is never
+ *  open again, nor answering once it has stopped, so what says so was sent before and came late:
+ *  the engine tells of one from more than one thread (its copy's, a window's close). */
+const closedIds = new Set<string>();
+const stoppedIds = new Set<string>();
 const hearers = new Set<() => void>();
 let listening = false;
 
@@ -81,6 +86,7 @@ const ended = (side: Side | undefined) => (side ? side.turns.filter((t) => t.don
  *  of it changed if a turn ended or it closed, so that's read again. */
 export function noteSide(side: Side): void {
   if (side.closed) return noteClosing(side);
+  if (side.turns.length > 0 && closedIds.has(side.id)) return;
   const before = sides.get(side.key);
   if (side.turns.length > 0) sides.set(side.key, side);
   else sides.delete(side.key);
@@ -93,21 +99,25 @@ export function noteSide(side: Side): void {
 /** Takes what the engine says of one closed while its copy answered. Once it has answered, what's
  *  kept of it is what it said, until that's read again. */
 function noteClosing(side: Side): void {
+  if (stoppedIds.has(side.id)) return;
+  closedIds.add(side.id);
   const before = closing.get(side.id);
   const next = new Map(closing);
   if (side.running) next.set(side.id, side);
   else {
+    stoppedIds.add(side.id);
     next.delete(side.id);
     const list = kept.get(side.key);
-    if (list) kept.set(side.key, list.map((k) => (k.id === side.id ? { ...k, turns: side.turns } : k)));
+    if (list) kept.set(side.key, list.map((k) => (k.id === side.id ? { ...k, turns: side.turns, answering: false } : k)));
   }
   closing = next;
   if (!side.running || ended(before) !== ended(side)) readKept(side.key);
   tell();
 }
 
-/** The side conversations closed while their copies answered, by id, each as far as it's got:
- *  read as they answer, as the kept ones are. */
+/** The side conversations closed while their copies answered, by id, each as far as it's got since
+ *  this window heard of it: read as they answer, as the kept ones are. One closed before is
+ *  answering in what's kept (`SideKept.answering`) until it's heard of here. */
 export function useClosing(): ReadonlyMap<string, Side> {
   useEffect(listen, []);
   return useSyncExternalStore(subscribe, () => closing);
@@ -249,6 +259,7 @@ export function useKept(key: string): SideKept[] {
 export function endSide(key: string, close: (key: string) => Promise<void>): void {
   const side = sides.get(key);
   if (!side) return;
+  closedIds.add(side.id);
   noteSide({ id: side.id, key, turns: [], running: false, ended: true });
   // It's let go either way. Closing one here can't fail (side.rs); only another device that
   // doesn't answer can, and its copy goes on there whatever this window says.
@@ -262,6 +273,7 @@ export function forgetSide(key: string, id: string): void {
     key,
     (kept.get(key) ?? NONE).filter((k) => k.id !== id),
   );
+  stoppedIds.add(id);
   if (closing.has(id)) {
     const next = new Map(closing);
     next.delete(id);

@@ -1550,7 +1550,8 @@ fn side_forget(id: String) -> Result<(), String> {
     side::forget(&id).map_err(words)
 }
 
-/// Ends a session's side conversation: its copy stops, and what was said is kept to read.
+/// Closes a session's side conversation: a copy that's answering answers what it was asked and
+/// then ends (side.rs `close`), and what was said is kept to read.
 #[tauri::command]
 async fn side_close(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<(), String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
@@ -1567,7 +1568,8 @@ async fn pr_side_ask(engine: State<'_, engine::Handle>, key: String, account: St
     blocking(move || side::ask_pr(&engine.board(), &config::current().map_err(words)?, &key, &account, &text).map_err(words)).await?
 }
 
-/// Ends a PR's conversation: its agent stops, and what was said is kept to read.
+/// Closes a PR's conversation: an agent that's answering answers what it was asked and then
+/// ends, and what was said is kept to read.
 #[tauri::command(async)]
 fn pr_side_close(key: String) {
     side::close(&key);

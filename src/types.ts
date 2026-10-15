@@ -2182,6 +2182,8 @@ export interface SideKept {
   /** When it was last asked or answered. */
   lastAt: number;
   turns: SideTurn[];
+  /** It was closed while its copy answered, and the copy is answering still: read as it is. */
+  answering?: boolean;
 }
 
 /** The reply a session Codealong runs is writing (acp.rs). */

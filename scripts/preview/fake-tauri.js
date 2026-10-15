@@ -643,7 +643,7 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'side_past') {
       var live = Object.keys(window.__closing || {}).map(function (id) {
         var c = window.__closing[id];
-        return { id: c.id, key: c.key, title: '', startedAt: c.startedAt || 0, lastAt: c.turns.reduce(function (m, t) { return Math.max(m, t.at || 0); }, 0), turns: c.turns };
+        return { id: c.id, key: c.key, title: '', startedAt: c.startedAt || 0, lastAt: c.turns.reduce(function (m, t) { return Math.max(m, t.at || 0); }, 0), turns: c.turns, answering: true };
       });
       return Promise.resolve((window.__past || []).concat(live).filter(function (k) { return k.key === (args || {}).key; }).sort(function (a, b) { return b.lastAt - a.lastAt; }));
     }
