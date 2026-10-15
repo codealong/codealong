@@ -19,13 +19,15 @@
 }
 
 /* On a session's one line (Sessions' One line), what it's doing or said last gives way first (it
-   only takes the room that's left), then its lane (Jev's read, its worktree), then its title. The
-   text's own box would count what it's doing as room the title needs, so its pieces sit on the
-   line itself. The lane gives way a million times as fast as the title: at a hundred the title
-   still lost a pixel or two of a shortfall, enough to end in an ellipsis beside room the lane had
-   left. */
+   only takes the room that's left), then its lane (its status and helper chips, Jev's read, its
+   worktree), then its title. The text's own box would count what it's doing as room the title
+   needs, so its pieces sit on the line itself. The lane gives way a million times as fast as the
+   title (at a hundred the title still lost a pixel or two of a shortfall, enough to end in an
+   ellipsis beside room the lane had left) and packs its chips to the right, so the status chips
+   stay at the line's end after the worktree wraps away. */
 .ca-agentline-tags {
   flex: 0 1000000 auto;
+  justify-content: flex-end;
   margin-left: auto;
 }
 .ca-agentline-tags:empty {

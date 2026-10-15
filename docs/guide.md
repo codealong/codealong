@@ -78,8 +78,8 @@ says when it started. A row leads with the session's title, then what it's doing
 that needs you has a label beside its title for what it waits on (Asks you, Needs approval,
 Message, Stuck, Error). Its second line says where and why: its worktree, its todo and Jev's read,
 then its account, with the worktree's PR and diff at the right. Rows, after Sort by, puts each
-session on one line instead (its title, then its worktree and PR at the line's end); there
-its status says its account when you point at it. A snoozed session's row says how long until it's
+session on one line instead (its title, then its status, worktree and PR chips at the line's end);
+there its status says its account when you point at it. A snoozed session's row says how long until it's
 back, and a quiet one's says Quiet. Here letters alone do nothing, so a word typed on the list by
 mistake doesn't pin, archive or rename: the keys are the chords, and they work from the panel's box
 too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their pins show only here.

@@ -288,18 +288,19 @@ function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
 }
 
 /**
- * A session's line: its emblem and title first, then a label for what it waits on you for, then
- * what it's doing or said last, which gives way first when the line is short. A session another
- * worktree has, on this one's row, says what it did here first: made it, or worked in it.
+ * A session's line: its emblem and title first, then a label for what it waits on you for (or at
+ * the line's end with the other chips when `flag` is false), then what it's doing or said last,
+ * which gives way first when the line is short. A session another worktree has, on this one's row,
+ * says what it did here first: made it, or worked in it.
  */
-function SessionText({ s, now }: { s: Session; now: number }) {
+function SessionText({ s, now, flag = true }: { s: Session; now: number; flag?: boolean }) {
   return (
     <span className="ca-agentline-text">
       <SessionEmblem emblem={s.emblem} />
       <span className="ca-lane-headline ca-agentline-title">
         <Rich text={s.title} now={now} />
       </span>
-      <FlagChip session={s} />
+      {flag && <FlagChip session={s} />}
       {(s.detail || s.visitor) && (
         <span className="ca-lane-detail ca-agentline-detail">
           {s.visitor && (s.detail ? `${s.visitor} · ` : s.visitor)}
@@ -630,9 +631,9 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * One session in the Sessions view. On two lines: what it's about first (its title, what it waits
  * on you for, and what it's doing or said last), then where and why (its worktree, todo and
  * insights, its account, and the worktree's PR and diff). On one line (`slim`): what it's about,
- * then its worktree and PR at the line's end. A helper under the session it works for is on one
- * line either way, and says only what the session's row doesn't: its worktree only when it works
- * in another, and no PR or diff.
+ * then its status, worktree and PR chips at the line's end, the worktree giving way before the
+ * status chips. A helper under the session it works for is on one line either way, and says only
+ * what the session's row doesn't: its worktree only when it works in another, and no PR or diff.
  */
 function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere }: AgentRowProps) {
   const started = age === 'started';
@@ -658,8 +659,9 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
       {oneLine ? (
         <div className="ca-seg ca-seg-main">
           <div className="ca-agentrow-line1">
-            <SessionText s={s} now={now} />
+            <SessionText s={s} now={now} flag={false} />
             <span className="ca-chips ca-agentline-tags">
+              <FlagChip session={s} />
               <HelperChip session={s} nested={nested} />
               <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
               <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />

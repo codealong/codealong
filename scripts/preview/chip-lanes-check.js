@@ -118,10 +118,17 @@
         // A chip that wrapped away is still in the page, below its lane's one line.
         var onLine = function (r) {
           var lane = r.querySelector('.ca-agentline-tags');
-          return !!lane && all('.ca-chip', lane).some(function (c) { return c.getBoundingClientRect().top < lane.getBoundingClientRect().top + 14; });
+          return lane ? all('.ca-chip', lane).filter(function (c) { return c.getBoundingClientRect().top < lane.getBoundingClientRect().top + 14; }) : [];
         };
-        var titles = slim.filter(function (r) { var t = r.querySelector('.ca-agentline-title'); return t.scrollWidth > t.clientWidth + 1 && onLine(r); });
+        var titles = slim.filter(function (r) { var t = r.querySelector('.ca-agentline-title'); return t.scrollWidth > t.clientWidth + 1 && onLine(r).length > 0; });
         check('a title gives way only after the chips have', titles.length === 0, titles.length + ' rows');
+        var leftAligned = slim.filter(function (r) {
+          var chips = onLine(r);
+          if (chips.length === 0) return false;
+          var lane = r.querySelector('.ca-agentline-tags').getBoundingClientRect();
+          return lane.right - 4 - chips[chips.length - 1].getBoundingClientRect().right > 1;
+        });
+        check('the chips sit at the right end of the line', leftAligned.length === 0, leftAligned.length + ' rows');
         // Rows hit where they're drawn: the board is a stacking context, so WebKit draws its
         // positioned rows in its scroller's layer, not each in a layer of its own (App.css).
         var board = document.querySelector('.ca-board');
