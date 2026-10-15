@@ -35,15 +35,23 @@ const STORE_DB: &str = "store.db";
 const TAIL_MESSAGES: usize = 60;
 /// How much of a transcript's end is read for what a command line chat is on.
 const TAIL_BYTES: u64 = 256 * 1024;
-/// The folders of a workspace, and of your home, that Cursor reads skills from, its own first.
-/// Claude Code's, Codex's and Grok's are its "third-party" ones, which the app reads unless its
-/// setting is turned off and the command line always does (it has no Grok); a skill two of them
-/// have at the same place is read once, from the first (3.22.7's agent, 2026.08.11's command line).
-const SKILL_FOLDERS: [&str; 5] = [".cursor/skills", ".claude/skills", ".codex/skills", ".grok/skills", ".agents/skills"];
+/// The folders of a workspace, and of your home, that Cursor's command line reads skills from,
+/// which is where Codealong runs a skill by name (`skill_mention`). Claude Code's and Codex's
+/// are its "third-party" ones, which it always reads and the app reads unless its setting is
+/// turned off; the app reads Grok's `.grok/skills` too. A skill two of them have at the same
+/// place is one skill (3.22.7's agent, 2026.08.11's command line).
+const SKILL_FOLDERS: [&str; 4] = [".cursor/skills", ".claude/skills", ".codex/skills", ".agents/skills"];
 /// The skills Cursor ships, which it keeps in your home.
 const OWN_SKILLS: &str = ".cursor/skills-cursor";
 /// How many folders down a skills folder Cursor looks for a `SKILL.md`.
 const SKILL_DEPTH: usize = 10;
+
+/// A folder of skills as the command line reads it: a skill is named by its folder, its file's
+/// `name` being only its title (`getSkillIdForPath`), and one whose `metadata.surfaces` doesn't
+/// list `cli` is left out (`parseSkillMarkdown`).
+fn skill_root(dir: PathBuf) -> crate::skills::Root {
+    crate::skills::Root::skills(dir, SKILL_DEPTH).named_by_folder().on_surface("cli")
+}
 
 /// The app's global state database for the account kept in `home`. Only the account in
 /// `~/.cursor` has the app's chats: one in a folder of its own (`CURSOR_CONFIG_DIR`) is the
@@ -1613,14 +1621,15 @@ impl crate::harness::Adapter for Cursor {
         Some(crate::util::home().join(SKILL_FOLDERS[0]))
     }
 
-    fn worktree_skills(&self, dir: &Path) -> Vec<crate::skills::Root> {
-        SKILL_FOLDERS.iter().map(|f| crate::skills::Root::skills(dir.join(f), SKILL_DEPTH)).collect()
+    /// The session's own folder's, its workspace: Cursor reads none above it.
+    fn worktree_skills(&self, folders: &[PathBuf]) -> Vec<crate::skills::Root> {
+        folders.first().map(|dir| SKILL_FOLDERS.iter().map(|f| skill_root(dir.join(f))).collect()).unwrap_or_default()
     }
 
     /// The same folders in your home, and the skills Cursor ships.
     fn account_skills(&self, _account: &AccountCfg) -> Vec<crate::skills::Root> {
         let home = crate::util::home();
-        std::iter::once(OWN_SKILLS).chain(SKILL_FOLDERS).map(|f| crate::skills::Root::skills(home.join(f), SKILL_DEPTH)).collect()
+        std::iter::once(OWN_SKILLS).chain(SKILL_FOLDERS).map(|f| skill_root(home.join(f))).collect()
     }
 
     /// The command line runs a skill a prompt names as `/name` (its `findSkillReferences`), as a
@@ -2278,9 +2287,12 @@ mod tests {
         let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/elsewhere/cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let home = crate::util::home();
         let dirs: Vec<PathBuf> = Cursor.account_skills(&account).into_iter().map(|r| r.dir).collect();
-        assert_eq!(dirs, [".cursor/skills-cursor", ".cursor/skills", ".claude/skills", ".codex/skills", ".grok/skills", ".agents/skills"].map(|f| home.join(f)));
-        let dirs: Vec<PathBuf> = Cursor.worktree_skills(Path::new("/r")).into_iter().map(|r| r.dir).collect();
-        assert_eq!(dirs, SKILL_FOLDERS.map(|f| Path::new("/r").join(f)));
+        assert_eq!(dirs, [".cursor/skills-cursor", ".cursor/skills", ".claude/skills", ".codex/skills", ".agents/skills"].map(|f| home.join(f)));
+        // The session's own folder's, not those of the folders above it.
+        let roots = Cursor.worktree_skills(&[PathBuf::from("/r/app"), PathBuf::from("/r")]);
+        assert_eq!(roots.iter().map(|r| r.dir.clone()).collect::<Vec<_>>(), SKILL_FOLDERS.map(|f| Path::new("/r/app").join(f)));
+        // Named by their folders, and only those for the command line.
+        assert!(roots.iter().all(|r| r.by_folder && r.surface == Some("cli")));
         assert_eq!(Cursor.skills_dir(&account), Some(home.join(".cursor/skills")));
         assert_eq!(Cursor.skill_mention("pr-review_2").as_deref(), Some("/pr-review_2"));
         // A name the command line wouldn't find in the prompt.

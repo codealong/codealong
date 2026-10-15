@@ -98,8 +98,8 @@ impl crate::harness::Adapter for Codex {
 
     /// `.agents/skills` in each folder from the project's root to the session's, and the
     /// project's `.codex/skills` (its core-skills loader, which looks six folders down).
-    fn worktree_skills(&self, dir: &Path) -> Vec<crate::skills::Root> {
-        vec![crate::skills::Root::skills(dir.join(".agents/skills"), SKILL_DEPTH), crate::skills::Root::skills(dir.join(".codex/skills"), SKILL_DEPTH)]
+    fn worktree_skills(&self, folders: &[PathBuf]) -> Vec<crate::skills::Root> {
+        folders.iter().flat_map(|dir| [crate::skills::Root::skills(dir.join(".agents/skills"), SKILL_DEPTH), crate::skills::Root::skills(dir.join(".codex/skills"), SKILL_DEPTH)]).collect()
     }
 
     /// Its home's `skills` (the ones Codex ships are in `.system` there) and `~/.agents/skills`.

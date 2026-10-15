@@ -41,17 +41,30 @@ pub struct Root {
     pub kind: Kind,
     /// What its skills' names start with: a plugin's name, for `plugin:skill`.
     pub prefix: Option<String>,
+    /// Its harness names a skill by its folder, whatever its file's `name` says.
+    pub by_folder: bool,
+    /// The harness's program that reads it, which a skill's `metadata.surfaces` can leave out
+    /// (Cursor's say `cli`, `ide` or `cloud`): one that lists others isn't read. None reads all.
+    pub surface: Option<&'static str>,
 }
 
 impl Root {
     pub fn skills(dir: PathBuf, depth: usize) -> Root {
-        Root { dir, kind: Kind::Skills { depth }, prefix: None }
+        Root { dir, kind: Kind::Skills { depth }, prefix: None, by_folder: false, surface: None }
     }
     pub fn commands(dir: PathBuf) -> Root {
-        Root { dir, kind: Kind::Commands, prefix: None }
+        Root { dir, kind: Kind::Commands, prefix: None, by_folder: false, surface: None }
     }
     pub fn of_plugin(mut self, plugin: &str) -> Root {
         self.prefix = Some(plugin.to_string());
+        self
+    }
+    pub fn named_by_folder(mut self) -> Root {
+        self.by_folder = true;
+        self
+    }
+    pub fn on_surface(mut self, surface: &'static str) -> Root {
+        self.surface = Some(surface);
         self
     }
 }
@@ -167,7 +180,7 @@ fn up_to_root(folder: &Path) -> Vec<PathBuf> {
 /// Every harness's skills in a folder of a worktree, the nearest folder's first.
 fn read_worktree(folder: &Path) -> Vec<(Harness, File)> {
     let dirs = up_to_root(folder);
-    harness::all().flat_map(|a| dirs.iter().flat_map(|dir| a.worktree_skills(dir)).flat_map(|root| read_root(&root)).map(|f| (a.harness(), f)).collect::<Vec<_>>()).collect()
+    harness::all().flat_map(|a| a.worktree_skills(&dirs).iter().flat_map(read_root).map(|f| (a.harness(), f)).collect::<Vec<_>>()).collect()
 }
 
 /// An account's skills: its folders' first, which describe a name both have, then what its
@@ -250,7 +263,7 @@ fn walk_skills(dir: &Path, depth: usize, root: &Root, seen: &mut HashSet<PathBuf
             Ok(text) => {
                 if seen.insert(std::fs::canonicalize(&file).unwrap_or(file)) {
                     let folder = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-                    out.extend(skill_file(&text, folder, root.prefix.as_deref()));
+                    out.extend(root_skill(&text, folder, root));
                 }
             }
             Err(_) => walk_skills(&path, depth - 1, root, seen, out),
@@ -300,6 +313,34 @@ fn skill_file(text: &str, folder: &str, prefix: Option<&str>) -> Option<File> {
         typed: front.get("user-invocable").map(String::as_str) != Some("false"),
         by_model: front.get("disable-model-invocation").map(String::as_str) != Some("true"),
     })
+}
+
+/// A `SKILL.md` in `folder` as `root`'s harness reads it: named by the folder where the harness
+/// names skills so, and None where its `metadata.surfaces` leaves out the root's program.
+fn root_skill(text: &str, folder: &str, root: &Root) -> Option<File> {
+    if let (Some(surface), Some(listed)) = (root.surface, surfaces(text)) {
+        if !listed.iter().any(|s| s == surface) {
+            return None;
+        }
+    }
+    let file = skill_file(text, folder, root.prefix.as_deref())?;
+    if !root.by_folder {
+        return Some(file);
+    }
+    let name = named(folder, root.prefix.as_deref());
+    typeable(&name).then_some(File { name, ..file })
+}
+
+/// The programs a skill's `metadata.surfaces` lists, a list or words split by commas; None when
+/// it lists none. `front_matter` keeps `metadata`, a map, as its lines run together
+/// (`surfaces: - ide - cloud`), so the list is the words after `surfaces:` up to the next key.
+fn surfaces(text: &str) -> Option<Vec<String>> {
+    let (front, _) = front_matter(text);
+    let metadata = front.get("metadata")?;
+    let after = metadata.split_once("surfaces:")?.1;
+    let words = after.split(|c: char| c.is_whitespace() || matches!(c, ',' | '[' | ']')).filter(|w| !w.is_empty() && *w != "-");
+    let listed: Vec<String> = words.take_while(|w| !w.ends_with(':')).map(|w| unquoted(w)).collect();
+    (!listed.is_empty()).then_some(listed)
 }
 
 /// A file's first words, its heading's marks left off: what describes one that doesn't say.
@@ -415,6 +456,25 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_programs_a_skill_is_for() {
+        let with = |metadata: &str| surfaces(&format!("---\nname: x\nmetadata:\n{metadata}\ndescription: y\n---\n"));
+        let list = |words: &[&str]| Some(words.iter().map(|w| w.to_string()).collect::<Vec<_>>());
+        // As Cursor's own skills write it, and the other ways its command line takes.
+        assert_eq!(with("  surfaces:\n    - ide\n    - cloud"), list(&["ide", "cloud"]));
+        assert_eq!(with("  surfaces: cli, ide"), list(&["cli", "ide"]));
+        assert_eq!(with("  surfaces: [\"cli\"]"), list(&["cli"]));
+        // Up to the next key.
+        assert_eq!(with("  surfaces:\n    - cli\n  author: someone"), list(&["cli"]));
+        assert_eq!(with("  author: someone"), None);
+        assert_eq!(surfaces("---\nname: x\n---\n"), None);
+        // A root for the command line leaves out one for the app alone, and names by folder.
+        let root = Root::skills(PathBuf::from("/s"), 1).named_by_folder().on_surface("cli");
+        assert!(root_skill("---\nname: x\nmetadata:\n  surfaces:\n    - ide\n---\n", "x", &root).is_none());
+        assert_eq!(root_skill("---\nname: deploy\nmetadata:\n  surfaces: cli\n---\n", "release", &root).unwrap().name, "release");
+        assert_eq!(root_skill("---\nname: deploy\n---\n", "release", &Root::skills(PathBuf::from("/s"), 1)).unwrap().name, "deploy");
+    }
+
+    #[test]
     fn a_skill_is_named_by_its_file_then_its_folder() {
         let named = skill_file("---\nname: deploy\ndescription: Deploys\ndisable-model-invocation: true\n---\n", "folder", None).unwrap();
         assert_eq!((named.name.as_str(), named.typed, named.by_model), ("deploy", true, false));
@@ -431,32 +491,45 @@ mod tests {
         let dir = scratch("skills-worktree");
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         // Claude Code's own, one both read through a link, one only Codex reads, a command, and
-        // one in a folder above the one asked about. Cursor reads all those folders but the
-        // commands', and one of its own.
+        // one in a folder below the root. Cursor reads the skills folders of the folder asked
+        // about alone, names a skill by its folder, and leaves out one only for its app.
         write(&dir.join(".claude/skills/ship/SKILL.md"), "---\nname: ship\ndescription: Ships\nargument-hint: \"[branch]\"\n---\n");
         write(&dir.join(".claude/skills/conventions/SKILL.md"), "---\nname: conventions\ndescription: House rules\nuser-invocable: false\n---\n");
+        write(&dir.join(".claude/skills/settings/SKILL.md"), "---\nname: settings\ndescription: Sets\nmetadata:\n  surfaces:\n    - ide\n    - cloud\n---\n");
         write(&dir.join(".claude/commands/git/review.md"), "Review the diff\n");
         write(&dir.join(".codex/skills/probe/SKILL.md"), "---\nname: probe\ndescription: Probes\n---\n");
         std::fs::create_dir_all(dir.join(".agents")).unwrap();
         std::os::unix::fs::symlink("../.claude/skills", dir.join(".agents/skills")).unwrap();
         write(&dir.join("app/.claude/skills/local/SKILL.md"), "---\ndescription: Only here\n---\n");
-        write(&dir.join(".cursor/skills/tidy/SKILL.md"), "---\nname: tidy\ndescription: Tidies\n---\n");
+        write(&dir.join(".cursor/skills/tidy-up/SKILL.md"), "---\nname: tidy\ndescription: Tidies\n---\n");
 
         let cfg = Config::default();
         let app = dir.join("app").to_string_lossy().into_owned();
-        let listed = list(&[app.clone()], &[], &cfg);
+        let root = dir.to_string_lossy().into_owned();
+        let listed = list(&[app.clone(), root], &[], &cfg);
         assert_eq!(listed.folders[0].folder, app);
-        let said: Vec<(String, Vec<(String, String)>)> = listed.folders[0].skills.iter().map(|s| (s.name.clone(), s.written.clone().into_iter().collect())).collect();
+        let said = |i: usize| -> Vec<(String, Vec<(String, String)>)> { listed.folders[i].skills.iter().map(|s| (s.name.clone(), s.written.clone().into_iter().collect())).collect() };
         let pair = |h: &str, w: &str| (h.to_string(), w.to_string());
         assert_eq!(
-            said,
+            said(0),
             vec![
                 ("git:review".to_string(), vec![pair("claude", "/git:review")]),
                 ("local".to_string(), vec![pair("claude", "/local"), pair("cursor", "/local")]),
-                ("probe".to_string(), vec![pair("codex", "$probe"), pair("cursor", "/probe")]),
-                ("ship".to_string(), vec![pair("claude", "/ship"), pair("codex", "$ship"), pair("cursor", "/ship")]),
-                ("tidy".to_string(), vec![pair("cursor", "/tidy")]),
+                ("probe".to_string(), vec![pair("codex", "$probe")]),
+                ("settings".to_string(), vec![pair("claude", "/settings"), pair("codex", "$settings")]),
+                ("ship".to_string(), vec![pair("claude", "/ship"), pair("codex", "$ship")]),
                 // Kept off the menu by its file: last.
+                ("conventions".to_string(), vec![pair("claude", "/conventions"), pair("codex", "$conventions")]),
+            ]
+        );
+        assert_eq!(
+            said(1),
+            vec![
+                ("git:review".to_string(), vec![pair("claude", "/git:review")]),
+                ("probe".to_string(), vec![pair("codex", "$probe"), pair("cursor", "/probe")]),
+                ("settings".to_string(), vec![pair("claude", "/settings"), pair("codex", "$settings")]),
+                ("ship".to_string(), vec![pair("claude", "/ship"), pair("codex", "$ship"), pair("cursor", "/ship")]),
+                ("tidy-up".to_string(), vec![pair("cursor", "/tidy-up")]),
                 ("conventions".to_string(), vec![pair("claude", "/conventions"), pair("codex", "$conventions"), pair("cursor", "/conventions")]),
             ]
         );

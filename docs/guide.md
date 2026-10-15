@@ -1362,9 +1362,11 @@ that have it; the session starts where the panel is set to, on one of them. In a
 the list has Codealong's own commands, then the skills of the session's worktree and of its
 account: ↑ ↓ choose, ⇥ finishes the name, Escape puts the list away. The name goes as the agent
 takes it: `/name` to Claude Code and Cursor, `$name` to Codex. Cursor reads its own skills folders
-and Claude Code's, Codex's and the shared `.agents/skills`, so their skills are offered on it too;
-its command line runs only names of letters, digits, `-` and `_` this way. A Cursor app chat gets
-the prompt on the clipboard, to paste into Cursor.
+and Claude Code's, Codex's and the shared `.agents/skills`, in the session's own folder (not the
+ones above it) and in your home, so their skills are offered on it too, each by the name of its
+folder, as Cursor's command line runs it; only names of letters, digits, `-` and `_` run that way,
+and a skill only for Cursor's app isn't offered. A Cursor app chat gets the prompt on the
+clipboard, to paste into Cursor.
 
 An account's own skills are its personal ones, its plugins' and the ones claude.ai syncs into it
 (for Cursor, the ones it ships too), and for Claude Code also the skills Claude Code has built in: `/design` and `/slides` where the

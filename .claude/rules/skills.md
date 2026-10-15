@@ -51,19 +51,22 @@ under `src-tauri/src/` unless they start with `plugin/`.
   nothing found runs one by name.
 - Where Cursor finds skills (the app 3.22.7's `cursor-agent-exec` extension and the command line
   2026.08.11's bundle) and `/name` in a prompt: `cursor.rs` (`SKILL_FOLDERS`, `OWN_SKILLS`,
-  `skill_mention`). Not there: both read only the workspace's root and your home, not the
-  folders between (the app also finds `.cursor/skills` and the others nested anywhere under the
-  root, ten folders down, skipping hidden ones, `node_modules`, `dist` and `build`), and follow
-  links. A skill is keyed by its path with the `.cursor/`, `.claude/`, `.codex/`, `.grok/` or
-  `.agents/` part taken out, so `~/.cursor/skills/codealong` and `~/.codex/skills/codealong` are
-  one skill, the first folder's. The app's third-party setting is `thirdPartyExtensibilityEnabled`
-  in the ItemTable's `applicationUser` (true when absent); with it off it reads only `.cursor` and
-  `.agents`. It leaves out Codex's own skills (`imagegen`, `openai-docs`, `plugin-creator`,
-  `skill-creator`, `skill-installer`) wherever they are under `.codex/skills`, and loads Claude
-  Code's enabled plugins (`~/.claude/plugins/installed_plugins.json`) with their skills. The
-  command line names a skill by its folder, not its `name` (two folders of one name get `-2` or
-  their path), skips one `user-invocable: false` or whose `metadata.surfaces` doesn't list `cli`,
-  and runs `.claude/commands` and `.cursor/commands` files (top level only) as `/name args` too.
+  `skill_root`, `skill_mention`, `worktree_skills`: the workspace's own folder, none above it),
+  `skills.rs` (`root_skill`, `surfaces`). Not there: the app also finds `.cursor/skills` and the
+  others nested anywhere under the workspace, ten folders down, skipping hidden ones,
+  `node_modules`, `dist` and `build`, and both follow links. A skill is keyed by its path with the
+  `.cursor/`, `.claude/`, `.codex/`, `.grok/` or `.agents/` part taken out, so
+  `~/.cursor/skills/codealong` and `~/.codex/skills/codealong` are one skill. The app's
+  third-party setting is `thirdPartyExtensibilityEnabled` in the ItemTable's `applicationUser`
+  (true when absent); with it off it reads only `.cursor` and `.agents`. It leaves out Codex's own
+  skills (`imagegen`, `openai-docs`, `plugin-creator`, `skill-creator`, `skill-installer`)
+  wherever they are under `.codex/skills`, and loads Claude Code's enabled plugins
+  (`~/.claude/plugins/installed_plugins.json`) with their skills, which Codealong doesn't list for
+  it. Two folders of one name in one skills folder are named `-2` or by their path by the
+  command line, which Codealong doesn't follow. The command line skips a skill marked
+  `user-invocable: false`, and runs `.claude/commands` and `.cursor/commands` files (top level
+  only) as `/name args` too. Cursor's own `canvas` and `update-cursor-settings` list only `ide`
+  (and `cloud`) in `metadata.surfaces`, `update-cli-config` only `cli`.
   Checked with `-p` and with its terminal UI's first prompt in tmux (2026-10-15): a `/name` from
   `.cursor/skills` and from a repo's `.claude/skills` ran a skill kept from the model
   (`disable-model-invocation: true`); in the terminal UI the agent found it itself ("Used

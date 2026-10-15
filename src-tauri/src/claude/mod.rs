@@ -144,8 +144,9 @@ impl crate::harness::Adapter for ClaudeCode {
         Some(account.home_path().join("skills"))
     }
 
-    fn worktree_skills(&self, dir: &Path) -> Vec<crate::skills::Root> {
-        skills::in_folder(&dir.join(".claude"))
+    /// The `.claude` folder of each, as Claude Code looks up the tree.
+    fn worktree_skills(&self, folders: &[PathBuf]) -> Vec<crate::skills::Root> {
+        folders.iter().flat_map(|dir| skills::in_folder(&dir.join(".claude"))).collect()
     }
 
     fn account_skills(&self, account: &crate::config::AccountCfg) -> Vec<crate::skills::Root> {

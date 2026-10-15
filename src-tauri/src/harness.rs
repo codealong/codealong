@@ -410,9 +410,10 @@ pub trait Adapter: Sync {
         None
     }
 
-    /// The folders of `dir`, a folder of a worktree, it reads skills from when a session runs
-    /// there (skills.rs asks for each folder from the session's up to the worktree's root).
-    fn worktree_skills(&self, _dir: &Path) -> Vec<crate::skills::Root> {
+    /// The folders it reads skills from when a session runs in a folder of a worktree: `folders`
+    /// are that folder and those above it up to the worktree's root, nearest first (skills.rs),
+    /// and it reads skills folders in the ones it looks in.
+    fn worktree_skills(&self, _folders: &[PathBuf]) -> Vec<crate::skills::Root> {
         Vec::new()
     }
 
