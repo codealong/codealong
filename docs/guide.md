@@ -358,7 +358,7 @@ A message that starts with `!` is a command rather than words, for any harness: 
 tab of your terminal, in the folder the session works in, as you (*Commands in your terminal*), and
 once it ends the session gets a message from you with the command, how it ended and the last of
 what it printed, so its agent reads it as Claude Code's own `!` has it read what a command printed.
-The line under the box says so as you type it, and its button shows a terminal. It runs whatever the
+What the box says (*What the box says*) says so as you type it, and its button shows a terminal. It runs whatever the
 session is doing, as it doesn't reach the session until it ends; a session on another device takes
 it as a message, as before. A message that opens with an image isn't a command, its `!` being the
 image's.
@@ -372,8 +372,9 @@ its prompt back, so the agent never sees it: the panel shows that prompt faint, 
 and puts it back in the box, as Claude Code does in its own. The next message Codealong types into
 that terminal clears Claude Code's copy first (not in Terminal, which can't press a single key).
 
-Under the box at the right are the mode a running session is in, the session's account (its
-harness on hover), beside where you write to it, and a small pie for its context window. The mode
+At the left of the box's foot, under where you write, are the mode a running session is in, the
+session's account (its harness on hover) and a small pie for its context window; its model and the
+send button are at the right. The mode
 is how much it does without asking you, in its harness's own words, said lowercase, with what
 that means on hover (and in the header's Details): Claude Code's Manual, Plan, Accept edits, Auto,
 Don't Ask or Bypass (a terminal session's from its transcript, where a switch shows
@@ -428,6 +429,19 @@ with words) shows it working in every window as you give it, before its agent ha
 one that doesn't go brings the call back, saying why. After a plain Deny the session shows as its
 agent has it once that's read: Claude Code ends the turn there, others carry on.
 
+#### What the box says
+
+What the box has to say goes on the strip at the top of the panel, at its left, where the panel has
+one (Sessions, the notch, the waiting window): how a message went (Sending…, then what Codealong did
+with it, or why it didn't go, in red), what what you've typed will do (a `!` command, a `/` command
+or skill, the side conversation), and the keys that aren't a chat box's usual ones (⌘⏎ send + next,
+⌃⏎ send now, ↑ for suggested replies, what ⏎ and ⌘⏎ do while it waits on you). How the last one went
+comes before the keys, for the few seconds it shows. What doesn't fit beside the strip's buttons
+goes on a line of its own under them (in the notch it's cut short, all of it on hover). On the
+canvas, in the floating bar's peek and in a session kept on the desktop, which have no strip, it's
+said on a line under the box while there's something to say; the keys aren't, as the buttons'
+tooltips have them.
+
 #### Stop and send now
 
 The box's send button sits inside it, at its corner, and its placeholder says how a message gets
@@ -462,10 +476,8 @@ you press it again; Escape in the box then leaves the keys with the window.
 
 #### The strip
 
-A strip at the top of the panel says how many more wait on you, in one chip with each kind's glyph
-and how many, and how the last one went. Pointing at the chip (or clicking it) lists what it counts
-under it, kind by kind, the next first, each with where it is, as a folded pill on the bar lists its
-sessions; a click on one shows it, as ⌘] would. It has what's commonly done to a session as buttons
+A strip at the top of the panel says how the last one went and what the box has to say (*What the
+box says*). It has what's commonly done to a session as buttons
 that say their keys: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4, one for each of its menu's times: 15
 minutes, 1 hour, 3 hours, the next morning), Close (⌃⌘W, which closes its terminal, or ends a
 background job where the session is one; the conversation stays, to go on with later), Archive (⌃⌘A)
@@ -1327,7 +1339,7 @@ again (N earlier); neither GitHub nor anyone on the PR sees them, and Review kee
 meanwhile. It has no title bar: a strip along the top, with the window's buttons at its start and
 that drags the window, has what's commonly done, with its keys (⌘E marks a finished turn seen, ⌃⌘1
 to ⌃⌘4 snooze, ⌃⌘A archives, ⌃⌘R renames, ⌃⌘P pins it in Sessions), and says how the last one went
-and how many are left. Once one is sent a message, allowed, reviewed, marked seen, snoozed or
+and what the box has to say. Once one is sent a message, allowed, reviewed, marked seen, snoozed or
 archived, the next that waits on you takes its place. ⌘] or ⌥⇧↓ skips to the next (a skipped one
 comes round again after the rest) and ⌘[ or ⌥⇧↑ goes back, ⌥↑ ⌥↓ step along what waits, and ⌃- ⌃⇧-
 go back and forward through the ones you looked at. A message that doesn't go is back in its
@@ -1471,8 +1483,8 @@ waits on you as a session's panel in Sessions does, with the same keys: ⌘⏎ s
 session waits on) and goes on to the next that waits on you, ⌘E marks a finished turn seen and goes
 on (from one that runs it goes on all the same), ⌘] or ⌥⇧↓ skips to the next and ⌘[ or ⌥⇧↑ goes
 back, ⌥↑ ⌥↓ step along the bar's sessions, the running ones too, and ⌃- and ⌃⇧- go back and forward
-through the ones you looked at there. A strip over the header says how many more wait and how the
-last one went (a message that didn't go after ⌘⏎ went on says why there, or on its session's pill
+through the ones you looked at there. A strip over the header says how the last one went and what
+the box has to say (a message that didn't go after ⌘⏎ went on says why there, or on its session's pill
 once the notch has closed), and has what's commonly done to the session as buttons that say their keys, as its
 panel in Sessions has: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4), Close (⌃⌘W), Archive (⌃⌘A), Back
 (⌃-), Next (⌘]) and × (esc). The PRs waiting on your review are in that same list, after the

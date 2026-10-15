@@ -52,7 +52,7 @@ export function slashCommand(text: string, s: Session): { command: SlashCommand;
   return command ? { command, rest: (m[2] ?? '').trim() } : null;
 }
 
-/** The commands what's typed so far could be becoming, for the hint under the box: a `/` and the
+/** The commands what's typed so far could be becoming, for what the box says of them: a `/` and the
  *  start of a name, or a whole name and what follows it. */
 export function slashMatches(text: string, s: Session): SlashCommand[] {
   const whole = slashCommand(text, s);

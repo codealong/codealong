@@ -19,8 +19,6 @@
   var title = function () { var t = document.querySelector('.ca-notch-session .ca-sessinsp-title, .ca-notch-session .ca-sessinsp-head h2'); return t ? t.textContent.trim() : ''; };
   var shows = function (item) { return function () { return is('session') && title().indexOf(item.title.slice(0, 20)) === 0; }; };
   var keysCalls = function () { return calls('notch_keys').map(function (a) { return a.on; }); };
-  // What the strip counts of what else waits on you: the total, then its chip's words.
-  var counted = function () { var c = q('.ca-notch-session .ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + c.getAttribute('aria-label'); };
   var lastShape = function () { var s = calls('notch_shape'); return s[s.length - 1]; };
   var fits = function () { return calls('fit_bar').map(function (a) { return a.width + 'x' + a.height; }); };
   var key = function (init) { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
@@ -119,14 +117,13 @@
       check('says the shape with the session in it', Math.abs(s.h - card.bottom) < 1 && s.w >= 560, JSON.stringify(s) + ' card to ' + card.bottom);
       check('the window has room for it and its shadow', Number(windowAtStart.split('x')[1]) >= s.h + 30, windowAtStart);
       var strip = document.querySelector('.ca-notch-session .ca-reply-queue');
-      check('counts what else waits', /^2 · Waiting on you after this one: /.test(counted()), counted());
-      // At the narrowest a session gets, the counts and every button share one line, the counts whole.
+      check('the strip counts nothing of what’s left', !q('.ca-reply-queue .ca-chip'), (q('.ca-reply-queue') || {}).textContent);
+      // At the narrowest a session gets, what it says and every button share one line, what it
+      // says cut short there rather than put the buttons on a line of their own.
       var note = strip.querySelector('.ca-reply-queue-note').getBoundingClientRect();
-      var text = document.createRange();
-      text.selectNodeContents(strip.querySelector('.ca-reply-queue-note'));
       var keysBox = strip.querySelector('.ca-hotkeys').getBoundingClientRect();
       var lastKey = strip.querySelector('.ca-hotkey:last-child').getBoundingClientRect();
-      check('the strip is one line, the count whole', strip.getBoundingClientRect().height < 34 && Math.abs(note.top + note.height / 2 - (keysBox.top + keysBox.height / 2)) < 4 && text.getBoundingClientRect().width <= note.width && lastKey.right <= strip.getBoundingClientRect().right, 'strip ' + Math.round(strip.getBoundingClientRect().width) + ' by ' + Math.round(strip.getBoundingClientRect().height) + ', count ' + Math.round(text.getBoundingClientRect().width) + ' of ' + Math.round(note.width));
+      check('the strip is one line', strip.getBoundingClientRect().height < 34 && Math.abs(note.top + note.height / 2 - (keysBox.top + keysBox.height / 2)) < 4 && lastKey.right <= strip.getBoundingClientRect().right, 'strip ' + Math.round(strip.getBoundingClientRect().width) + ' by ' + Math.round(strip.getBoundingClientRect().height) + ', saying ' + Math.round(note.width) + ' wide');
       key({ key: ']', code: 'BracketRight', metaKey: true });
       return until(shows(items[1]), 3000, '⌘] to the next');
     })
@@ -155,7 +152,6 @@
     })
     .then(function () {
       check('⌥↓ steps along the bar, to the ones running too', true);
-      check('on one that doesn’t wait the strip counts what does, not what more', /^3 · Waiting on you: /.test(counted()), counted());
       var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
       check('the strip has the common actions with their keys', labels.join('|') === 'Seen⌘E|Done⇧⌘E|Snooze⌃⌘1–4|' + labels[3] + '|Archive⌃⌘A|Back⌃-|Next⌘]|esc' && /⌃⌘W$/.test(labels[3]), labels.join('|'));
       // Nothing to mark seen on one that runs: ⌘E goes on as ⌘] does.

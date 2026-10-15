@@ -2,8 +2,8 @@
 // told what they printed (actions.rs `run_command`): Run on a `!` block in a reply asks for that,
 // with the block as written and the folder the session works in, says it's running, and says why
 // under the block when it can't start; a command you ran with `!` before shows with what it
-// printed and runs again the same way; and `!` in the box runs too, its button and the line under
-// it saying so, ⏎, ⌃⏎ and ⌘⏎ running it, the box clearing, and having it back with why when it
+// printed and runs again the same way; and `!` in the box runs too, its button and the strip over
+// the header saying so, ⏎, ⌃⏎ and ⌘⏎ running it, the box clearing, and having it back with why when it
 // can't start. Needs a session whose newest page has a reply with a ``` block led by `!` and a
 // command run with `!`:
 //   PREVIEW_TRANSCRIPT=<key> PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/run-bang-check.js
@@ -50,7 +50,8 @@
   var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
   var box = function () { return document.querySelector('.ca-sessinsp textarea'); };
   var sendButton = function () { return document.querySelector('.ca-sessinsp .ca-composer-send:not(.is-now)'); };
-  var under = function () { var n = document.querySelector('.ca-sessinsp .ca-composer-under .ca-composer-note'); return n ? n.textContent : ''; };
+  // What the box says, on the strip over the header.
+  var under = function () { var n = document.querySelector('.ca-sessinsp .ca-reply-queue-note'); return n ? n.textContent : ''; };
   var press = function (opts) {
     box().dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: 'Enter', bubbles: true, cancelable: true }, opts || {})));
   };
@@ -120,7 +121,7 @@
       return until(function () { return sendButton() && sendButton().getAttribute('aria-label') === 'Run in your terminal'; }, 3000).then(function () {
         check('the box’s button runs it', /^Run it in a new .+ tab, as you \(⏎\)$/.test(sendButton().title), sendButton().title);
         check('no Send now beside it, which would send it into the turn', !document.querySelector('.ca-sessinsp .ca-composer-send.is-now'));
-        check('the line under the box says what happens', /runs it in a new .+ tab, as you; .+ is told what it prints once it ends/.test(under()), under());
+        check('the strip says what happens', /runs it in a new .+ tab, as you; .+ is told what it prints once it ends/.test(under()), under());
         var before = calls('run_command').length;
         // ⏎ runs it, as the button does.
         press();

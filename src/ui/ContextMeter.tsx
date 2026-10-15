@@ -1,4 +1,4 @@
-// How full a session's context window is, under its reply box at the right, after its account, as
+// How full a session's context window is, in its reply box's foot after its account, as
 // Claude Code and Codex show theirs: a small pie and its share of the window (or its tokens, where
 // the window isn't known). Hovering it, or giving it the keyboard, shows a card with the numbers
 // and what the session has cost so far, from the token ledger (ledger.rs). The figure comes with
@@ -72,12 +72,13 @@ function ContextCard({ session: s, anchor }: { session: Session; anchor: HTMLEle
       live = false;
     };
   }, [s.key, here]);
-  // Above the meter, which sits at the foot of its window, kept inside the window.
+  // Above the meter, which sits at the foot of its window, from its left edge, kept inside the
+  // window.
   useLayoutEffect(() => {
     const card = ref.current;
     if (!card) return;
     const r = anchor.getBoundingClientRect();
-    card.style.left = `${Math.max(8, Math.min(r.right - card.offsetWidth, window.innerWidth - card.offsetWidth - 8))}px`;
+    card.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - card.offsetWidth - 8))}px`;
     card.style.top = `${Math.max(8, r.top - card.offsetHeight - 6)}px`;
   });
   const c = s.context;

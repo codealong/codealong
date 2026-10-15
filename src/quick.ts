@@ -8,7 +8,7 @@
 import { agoPhrase, middleTruncate } from './format';
 import { heldForAgent } from './prStatus';
 import { branchLabel, byStatusTime, sessionHomes, unattended } from './lanes';
-import { inQueueOrder, reviewWhere, sessionWhere, statusWaits, type Reads } from './queue';
+import { inQueueOrder, statusWaits, type Reads } from './queue';
 import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
 import type { Codec } from './stored';
@@ -118,9 +118,6 @@ export const QUEUE_READS: Reads<QueueRow> = {
   sinceOf: (r) => (r.kind === 'session' ? statusTime(r.session) : reviewSince(r.pr)),
   waitsOf: (r) => (r.kind === 'session' ? statusWaits(r.session.status) : 'reviews'),
   titleOf: (r) => (r.kind === 'session' ? r.session.title : `#${r.pr.number} ${r.pr.title}`),
-  statusOf: (r) => (r.kind === 'session' ? r.session.status : null),
-  whereOf: (r) => (r.kind === 'session' ? sessionWhere(r.lane.callsign, r.session.account) : reviewWhere(r.pr.repo, r.pr.requestedBy)),
-  emblemOf: (r) => (r.kind === 'session' ? r.session.emblem : undefined),
 };
 
 /** The empty panel's list: what waits on you in the order the waiting window works through it

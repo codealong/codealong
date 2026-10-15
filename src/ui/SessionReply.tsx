@@ -26,12 +26,14 @@
 // words in the box it denies the call and sends them instead, as ⏎ does, and with none it allows it.
 // With words, it declines questions the same way and goes on.
 //
-// The box is laid out as chat apps' are: the send button sits inside it, at its corner, and the
-// placeholder says how a message gets there (typed into its Ghostty tab, a message from
-// Codealong, its app: send.rs `way_in`). What else it has to say (how a send went, the keys that
-// aren't the usual ones) goes on a line below it, which ends with the mode it runs in
-// (ModeLabel.tsx), the session's account and how full its context is (ContextMeter.tsx): who the
-// message goes to and what it may do about it, beside where you write it.
+// The box is laid out as chat apps' are: the placeholder says how a message gets there (typed
+// into its Ghostty tab, a message from Codealong, its app: send.rs `way_in`), and a row at its
+// foot has, at the left, the mode it runs in (ModeLabel.tsx), the session's account and how full
+// its context is (ContextMeter.tsx), who the message goes to and what it may do about it, and at
+// the right its model and the send button. What else it has to say (how a send went, what what's
+// typed will do, the keys that aren't the usual ones: `BoxSays`) goes on the strip at the top of
+// a window that has one (SessionPanel.tsx `QueueStrip`), whose keys it joins. Elsewhere it goes on
+// a line under the box while there's something to say, the keys left to the buttons' tooltips.
 //
 // A few of Codealong's own slash commands work in the box (slash.ts): `/fork [prompt]` forks the
 // session into a copy that goes on in the background, on the prompt when there is one, and you
@@ -46,7 +48,7 @@
 // While a side conversation shows above it (the open one, the list, one being read, or a question
 // whose copy is starting), the box is the side conversation's, as Codex's `/side` takes its box
 // until you go back: ⏎ asks the copy (a new one when none is open), Escape leaves the session's
-// turn alone, and the placeholder and the line under the box say where it goes. Closing what
+// turn alone, and the placeholder and what the box says (`BoxSays`) say where it goes. Closing what
 // shows gives the box back to the session. What shows is the same in every window showing the
 // session (side.ts), and the box holds a draft of its own while it's the side conversation's
 // (drafts.ts `sideDraft`), so what's typed for the copy never reaches the session from any of them.
@@ -190,9 +192,21 @@ interface ComposerProps {
    *  it printed (api.ts `runCommand`). None for a session on another device, where it goes as
    *  any message does. */
   runIn?: string;
+  /** Takes what the box has to say, for the strip at the top of the window (SessionPanel.tsx
+   *  `QueueStrip`): the box says nothing under itself then. */
+  onSays?: (says: BoxSays | null) => void;
 }
 
 type Note = { text: string; error: boolean };
+
+/** What the box has to say: how something done in it went, or what what's typed will do; or, with
+ *  `keys`, only the keys that aren't a chat box's usual ones, which only a window that says its
+ *  keys on a strip shows. */
+export interface BoxSays {
+  text: string;
+  error: boolean;
+  keys: boolean;
+}
 
 /** How a message to each session would go, as the engine last said, so a box that shows again
  *  says it at once. */
@@ -237,7 +251,7 @@ function land(key: string, note: Note): boolean {
   return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn, onSays }: ComposerProps) {
   // A side conversation shows above the box, in this window and every other, so the box is its.
   const aside = useAside(s.key) || onlyAside;
   // Out in a window of its own, where what's asked of it here shows.
@@ -605,7 +619,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
       setCaret(next.caret);
     });
   };
-  // A skill the box names whole, with what may follow it, for the line under the box.
+  // A skill the box names whole, with what may follow it, for what the box says.
   const skill = !command && !listing ? skillNamed(text, skills) : undefined;
   // Replies suggested for it, above the box, while they're the session's: not while the box is a
   // side conversation's, a message is on its way, or the slash list has the room.
@@ -674,27 +688,48 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const stopButton = canStop && empty && !aside;
   // Into the turn it's taking at once, where it can be reached that way.
   const canSendNow = !!s.steerable && !waiting && !aside;
-  const said = note?.error
-    ? note.text
+  const said = (text: string, keys = false): BoxSays => ({ text, error: false, keys });
+  const keys = hint(waiting, !!onNext, !!onAllow, canSendNow, denies, !empty, !!suggested && !text);
+  const says: BoxSays | null = note?.error
+    ? { ...note, keys: false }
     : going
-      ? 'Sending…'
+      ? said('Sending…')
       : forking
-        ? 'Forking…'
+        ? said('Forking…')
         : switching
-        ? 'Switching its model…'
+        ? said('Switching its model…')
         : asking
-          ? 'Asking a copy of it…'
+          ? said('Asking a copy of it…')
           : starting
-          ? 'Starting it in your terminal…'
+          ? said('Starting it in your terminal…')
           : runs
-          ? `⏎ runs it in a new ${terminal} tab, as you; ${s.account} is told what it prints once it ends.`
+          ? said(`⏎ runs it in a new ${terminal} tab, as you; ${s.account} is told what it prints once it ends.`)
           : listing
-          ? '↑ ↓ choose · ⇥ finishes the name · esc puts the list away'
+          ? said('↑ ↓ choose · ⇥ finishes the name · esc puts the list away', true)
           : commands.length > 0
-          ? commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · ')
+          ? said(commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · '))
           : skill
-          ? `/${skill.name}${skill.hint ? ` ${skill.hint}` : ''}: ${skill.description}`
-          : (note?.text ?? (stopping ? 'Stopping…' : onlyAside ? SESSION_SIDES.open : aside ? `To the side conversation, not ${s.account}. Close it or pop it out above to message ${s.account}.` : hint(waiting, !!onNext, !!onAllow, canSendNow, denies, !empty, !!suggested && !text)));
+          ? said(`/${skill.name}${skill.hint ? ` ${skill.hint}` : ''}: ${skill.description}`)
+          : note
+          ? said(note.text)
+          : stopping
+          ? said('Stopping…')
+          : onlyAside
+          ? said(SESSION_SIDES.open)
+          : aside
+          ? said(`To the side conversation, not ${s.account}. Close it or pop it out above to message ${s.account}.`)
+          : keys
+          ? said(keys, true)
+          : null;
+  // The strip takes what the box says as it changes, and nothing once the box has gone.
+  const saysText = says?.text;
+  const saysError = !!says?.error;
+  const saysKeys = !!says?.keys;
+  useEffect(() => {
+    if (!onSays) return;
+    onSays(saysText === undefined ? null : { text: saysText, error: saysError, keys: saysKeys });
+    return () => onSays(null);
+  }, [onSays, saysText, saysError, saysKeys]);
   return (
     <div ref={root} className={cx('ca-composer', aside && 'is-aside')}>
       {listing && <SlashList options={options} active={at} onPick={complete} onHover={setPicked} />}
@@ -814,6 +849,13 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           onPaste={paste}
           aria-label={aside ? `Question on the side about ${s.title}` : `Message to ${s.title}`}
         />
+        <div className="ca-composer-tools ca-composer-who">
+          {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
+          {s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
+          {/* A side conversation's copy runs on the session's account too, so it stays. */}
+          <AccountLabel session={s} small />
+          {!aside && <ContextMeter session={s} />}
+        </div>
         <div className="ca-composer-buttons">
           {resuming && account && !aside && resuming.places.length > 1 && <ResumePlace picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
           {resuming && account && !aside && resuming.takesAModel && <ResumeModel account={account} picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
@@ -853,18 +895,13 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           )}
         </div>
       </div>
-      <div className="ca-composer-under">
-        {said && (
-          <span className={cx('ca-composer-note', note?.error && 'is-error')} role="status">
-            {said}
-          </span>
-        )}
-        {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
-        {s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
-        {/* A side conversation's copy runs on the session's account too, so it stays. */}
-        <AccountLabel session={s} small />
-        {!aside && <ContextMeter session={s} />}
-      </div>
+      {/* With no strip to take it, it's said here while there's something to say, but not the
+          keys: the buttons' tooltips have them, as the rest of such a window does. */}
+      {!onSays && says && !says.keys && (
+        <span className={cx('ca-composer-note', says.error && 'is-error')} role="status">
+          {says.text}
+        </span>
+      )}
     </div>
   );
 }
@@ -1426,6 +1463,9 @@ export interface ReplyProps {
   /** Going on to the next session that waits on you: ⌘⏎ in the box sends, or allows the call this
    *  one waits on, then goes on, saying what was done. */
   onNext?: (done: string) => void;
+  /** Takes what the box has to say, where the window has a strip to say it on
+   *  (`ComposerProps.onSays`). */
+  onSays?: (says: BoxSays | null) => void;
 }
 
 /** A session's side conversation in a window of its own (kept.rs `pop_side`, Peek.tsx): the
@@ -1443,7 +1483,7 @@ export function SideReply({ session, terminal, inWindow }: { session: Session; t
 /** The bottom of a session's panel: what it waits on you for, if anything, its side conversation
  *  while it has one, and the box that sends it a message. The box is the same one throughout, so
  *  it keeps what's in it as the session starts and stops waiting. */
-export function Reply({ session, terminal, runIn, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext }: ReplyProps) {
+export function Reply({ session, terminal, runIn, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, onSays }: ReplyProps) {
   const waiting = !takesReply(session);
   // What the box's ⌘⏎ and ⌘⌫ do, once there's a call to answer here.
   const [call, setCall] = useState<CallKeys | null>(null);
@@ -1454,7 +1494,7 @@ export function Reply({ session, terminal, runIn, onOpen, autoFocus, keys, onSen
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} onSays={onSays} />
     </>
   );
 }

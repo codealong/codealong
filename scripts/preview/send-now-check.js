@@ -1,7 +1,8 @@
 // Checks Send now in a session's reply box (SessionReply.tsx), in the floating bar's peek: while
 // its turn runs and the engine says it can take a message at once (`steerable`), the bolt beside
-// Send and ⌃⏎ send with `now`, ⏎ sends as usual, and the line under the box says the key; with
-// nothing typed there's no bolt.
+// Send and ⌃⏎ send with `now`, ⏎ sends as usual, and the bolt's tooltip says the key, which the
+// peek, with no strip to say keys on, doesn't say under the box; with nothing typed there's no
+// bolt. sessions-says-check.js checks the strip saying it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/send-now-check.js
 (function () {
   // This runs before the app's script: pick a session that doesn't wait on you, with no draft,
@@ -61,12 +62,13 @@
     .then(function () { return until(function () { return !!document.querySelector('.ca-peek .ca-composer-send.is-stop'); }, 5000).catch(function () {}); })
     .then(function () {
       check('no bolt with nothing typed, where Stop is', !bolt() && !!document.querySelector('.ca-peek .ca-composer-send.is-stop'));
-      check('the line under the box says the key', note().indexOf('⌃⏎ send now') >= 0, note());
+      check('nothing under the box says the key', note() === '', note());
       type(box(), 'Also check the docs');
       return until(function () { return !!bolt(); }, 2000).catch(function () {});
     })
     .then(function () {
       check('the bolt shows beside Send once something is typed', !!bolt() && !!document.querySelector('.ca-peek .ca-composer-send[aria-label="Send"]'));
+      check('its tooltip says the key', !!bolt() && bolt().title.indexOf('⌃⏎') >= 0, bolt() && bolt().title);
       bolt().click();
       return until(function () { return sends().length === 1; }, 5000);
     })

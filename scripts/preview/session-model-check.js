@@ -52,8 +52,8 @@
       check('the box has no place to go on in beside it', !q('.ca-placemenu', field()), 'a place chip');
       check('the chip sits beside Send', !!q('.ca-composer-send', chip().closest('.ca-composer-buttons')), 'apart');
       if (picked.effort) check('after the model, the effort its latest reply was made at, as its harness writes it', effort() === picked.effort, effort() || 'none');
-      var mode = q('.ca-peek .ca-composer-under .ca-mode-name');
-      if (mode) check('under the box the mode is said lowercase', mode.innerText === mode.innerText.toLowerCase(), mode.innerText);
+      var mode = q('.ca-peek .ca-composer-who .ca-mode-name');
+      if (mode) check('in the box’s foot the mode is said lowercase', mode.innerText === mode.innerText.toLowerCase(), mode.innerText);
       // `/effort` set another, on the longest name a model has.
       window.__emit('board', withSession(function (s) { s.effort = 'xhigh'; s.model = 'claude-fable-5-1[1m]'; }));
       return until(function () { return effort() === 'xhigh'; }, 3000, 'the effort didn’t follow the session: ' + effort());

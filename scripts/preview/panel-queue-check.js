@@ -2,8 +2,10 @@
 // SessionsView.tsx `waitingQueue`): four sessions that need you, two of them on a call to allow,
 // and one whose turn ended. ⌘⏎ in the box sends and goes on; on a call, ⌘⏎ with words in the box
 // denies it with them and goes on, and in an empty box allows it and goes on; ⌘] skips and ⌘[
-// goes back, a skipped one comes round again, and a plain ⏎ sends and stays. Clicking a row puts the cursor in the box, and Escape there gives the list its keys
-// back. (A synthetic press doesn't focus the list first as a real one does.)
+// goes back, a skipped one comes round again, and a plain ⏎ sends and stays. The strip says how
+// the last one went, then the box's keys once that's gone, and counts nothing. Clicking a row
+// puts the cursor in the box, and Escape there gives the list its keys back. (A synthetic press
+// doesn't focus the list first as a real one does.)
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/panel-queue-check.js
 (function () {
   // This runs before the app's script: the board it gets has five sessions waiting on you, made
@@ -57,22 +59,21 @@
 
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var strip = function () { var t = document.querySelector('.ca-sessinsp .ca-reply-queue-note'); return t ? t.textContent : ''; };
-  // What the strip counts of what else waits on you: the total, then its chip's words.
-  var counted = function () { var c = q('.ca-sessinsp .ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + c.getAttribute('aria-label'); };
-  var note = function () { var t = document.querySelector('.ca-sessinsp .ca-composer:not(.is-approval) .ca-composer-note'); return t ? t.textContent : ''; };
+  // What the box says, which the strip says once how the last one went has gone (NOTICE_MS).
+  var note = strip;
+  var says = function (what) { return until(function () { return what.test(note()); }, 6000).catch(function () {}); };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea'); };
   var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
-  // Whether the strip is one line, where its counts and its buttons fit side by side: what it
-  // says never puts the buttons on a line of their own. Where they don't fit, nothing to check.
+  // Whether the strip is one line, where its buttons fit: what it says never puts them on a line
+  // of their own. Where they don't fit, nothing to check.
   var oneLine = function () {
     var s = q('.ca-sessinsp .ca-reply-queue');
     if (!s) return 'no strip';
-    var counts = q('.ca-reply-queue-counts', s);
     var keys = q('.ca-hotkeys', s);
     var cs = getComputedStyle(s);
     var room = s.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - parseFloat(cs.columnGap);
-    var needs = (counts ? counts.getBoundingClientRect().width : 0) + keys.scrollWidth;
+    var needs = keys.scrollWidth;
     var tall = s.getBoundingClientRect().height;
     return needs > room ? 'no room: ' + Math.round(needs) + ' of ' + Math.round(room) : tall < 34 ? 'one line' : 'two lines, ' + Math.round(needs) + ' of ' + Math.round(room);
   };
@@ -86,10 +87,11 @@
     })
     .then(function () {
       check('clicking a row puts the cursor in its box', document.activeElement === box());
-      check('a session that waits on you counts what’s left', /^4 · Waiting on you after this one: /.test(counted()), counted());
-      check('the strip is one line where the counts and buttons fit', /^(one line|no room)/.test(oneLine()), oneLine());
+      check('the strip counts nothing of what’s left', !q('.ca-sessinsp .ca-reply-queue .ca-chip'), q('.ca-sessinsp .ca-reply-queue').textContent);
+      check('the strip is one line where the buttons fit', /^(one line|no room)/.test(oneLine()), oneLine());
       window.note('strip at ' + Math.round(q('.ca-sessinsp .ca-reply-queue').getBoundingClientRect().width) + ': ' + oneLine());
-      check('the box says what ⌘⏎ does', /⌘⏎ send \+ next/.test(note()), note());
+      check('the strip says what ⌘⏎ does in the box', /⌘⏎ send \+ next/.test(note()), note());
+      check('and nothing is said under the box', !q('.ca-sessinsp .ca-composer:not(.is-approval) > .ca-composer-note'));
       type(box(), 'Yes, go ahead.');
       key(box(), { key: 'Enter', metaKey: true });
       return on('Queue B');
@@ -103,7 +105,7 @@
     })
     .then(function () {
       type(box(), 'Use the other remote.');
-      return wait(50);
+      return says(/^⏎ denies it and sends this instead · ⌘⏎ \+ next/);
     })
     .then(function () {
       check('with words in the box, it says ⌘⏎ denies with them and goes on', /^⏎ denies it and sends this instead · ⌘⏎ \+ next/.test(note()), note());
@@ -115,7 +117,7 @@
       check('⌘⏎ with words denies the call with them and goes on', title() === 'Queue C' && !!answer && answer[1].answer === 'deny' && answer[1].message === 'Use the other remote.', JSON.stringify(answer && answer[1]));
       check('typing nothing at the prompt', calls('send_to_session').length === 1, calls('send_to_session').length);
       check('and says how that went', /Queue B: Denied it/.test(strip()), strip());
-      return until(function () { return document.querySelector('.ca-sessinsp .ca-composer.is-approval'); }, 3000).then(function () { return wait(50); });
+      return until(function () { return document.querySelector('.ca-sessinsp .ca-composer.is-approval'); }, 3000).then(function () { return says(/^⌘⏎ allow \+ next/); });
     })
     .then(function () {
       check('in an empty box it says ⌘⏎ allows', /^⌘⏎ allow \+ next/.test(note()), note());
@@ -151,7 +153,6 @@
     })
     .then(function () {
       check('a plain ⏎ sends and stays', title() === 'Queue D' && calls('send_to_session').length === 2, title());
-      check('once it no longer waits on you the strip counts only what else does', !/after this one/.test(counted()), counted());
       // The strip is always there in Sessions, with what's commonly done to a session and its keys:
       // Close, or End job where the session is a background job, as the board has it today.
       var keys = Array.prototype.map.call(document.querySelectorAll('.ca-sessinsp .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });

@@ -37,7 +37,8 @@
   padding: 10px 12px 8px;
 }
 
-/* Working through what waits on you: how the last one went, and what's left. */
+/* Working through what waits on you: what the session's box has to say, how the last one went,
+   and the way on. */
 .ca-reply-queue {
   position: relative;
   display: flex;
@@ -60,123 +61,22 @@
 .ca-reply-queue-note.is-error {
   color: var(--alert);
 }
-/* What else waits on you, counted as the notch counts it, in one chip (primitives.tsx `Chip`):
-   each kind's glyph and how many. A click on it, or the pointer resting on it, lists what it
-   counts (`.ca-queue-list`). */
-.ca-reply-queue-chip {
-  display: inline-flex;
-  vertical-align: middle;
-}
-.ca-chip.ca-reply-queue-counts {
-  gap: 7px;
-  font-variant-numeric: tabular-nums;
-}
-.ca-chip.ca-reply-queue-counts.is-open {
-  background: var(--surface-selected);
-  color: var(--ink);
-}
-.ca-reply-queue-count {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-/* What the chip counts (SessionPanel.tsx `QueueList`): under it while the pointer is on either,
-   or once it's clicked, a part for each kind, the next first. Placed by its script, within the
-   session. */
-.ca-queue-list {
-  position: absolute;
-  z-index: var(--z-popover);
-  display: flex;
-  flex-direction: column;
-  width: max-content;
-  min-width: 220px;
-  max-width: min(420px, calc(100% - 16px));
-  overflow: auto;
-  padding: var(--space-1);
-  box-sizing: border-box;
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-popover);
-  color: var(--ink);
-}
-.ca-queue-list-part + .ca-queue-list-part {
-  margin-top: var(--space-1);
-  padding-top: var(--space-1);
-  border-top: 1px solid var(--line);
-}
-.ca-queue-list-head {
-  margin: 0;
-  padding: 2px var(--space-2) var(--space-1);
-  color: var(--ink-3);
-  font: var(--type-caption-strong);
-}
-.ca-queue-list-row {
-  appearance: none;
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: 26px;
-  padding: 0 var(--space-2);
-  box-sizing: border-box;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink);
-  font: var(--type-meta);
-  text-align: left;
-  cursor: default;
-}
-.ca-queue-list-row:hover {
-  background: var(--surface-selected);
-}
-.ca-queue-list-row:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--focus);
-}
-.ca-queue-list-row > .ca-glyph,
-.ca-queue-list-row > .ca-icon {
-  flex: none;
-}
-.ca-queue-list-title,
-.ca-queue-list-where {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ca-queue-list-title {
-  flex: 0 1 auto;
-}
-/* Where it is, after the title and short of room cut first: the account comes last. */
-.ca-queue-list-where {
-  flex: 0 3 auto;
-  margin-left: auto;
-  padding-left: var(--space-2);
-  color: var(--ink-3);
-  font: var(--type-caption);
-}
 .ca-reply-queue .ca-btn {
   flex: none;
 }
 /* With what's commonly done to the session as buttons that say their keys (SessionPanel.tsx
-   `Hotkeys`): one line wherever the counts and the buttons fit side by side; where the strip is
-   shorter than that, the buttons go on a line of their own. */
+   `Hotkeys`): one line where what it says fits beside them, at their left. Where it doesn't, it
+   goes on a line of its own under them, so the buttons never move for it, and only something
+   longer than that whole line is cut short (its tooltip has all of it). */
 .ca-reply-queue.has-keys {
   container: queuestrip / inline-size;
-  flex-wrap: wrap;
+  flex-wrap: wrap-reverse;
   gap: 2px 8px;
   padding-top: 3px;
   padding-bottom: 3px;
 }
 .ca-reply-queue.has-keys .ca-reply-queue-note {
-  flex: none;
-}
-/* How the last one went takes the room the buttons leave, cut short there (its tooltip has all
-   of it), so it never puts them on a line of their own for the few seconds it shows. */
-.ca-reply-queue.has-keys .ca-reply-queue-note.is-notice {
-  flex: 1 1 0;
+  flex: 1 1 auto;
 }
 /* On a line of their own that's still too short (the waiting window at its narrowest, a PR's
    five), they wrap rather than run past the strip's end, the last line to the right. */
@@ -235,9 +135,8 @@
     padding: 0 3px;
   }
 }
-/* Closer still where the strip is about as narrow as one line gets: the room the chip around the
-   counts takes, given back, so the strip stays one line down to the width it did before the
-   counts were a chip. */
+/* Closer still where the strip is about as narrow as one line gets, so it stays one line, with
+   room left at its start to say something. */
 @container queuestrip (max-width: 520px) {
   .ca-hotkey {
     gap: 2px;
@@ -271,8 +170,14 @@
    back: the note starts 80 points in, after the strip's padding and gap (20px), and 11px is half
    a hotkey's height, which the spacer has so the first line does too. */
 .ca-reply-queue.is-titlebar {
+  flex-wrap: wrap;
   padding-top: max(0px, calc(16px / var(--card-zoom, 1) - 11px));
   padding-bottom: max(3px, calc(16px / var(--card-zoom, 1) - 11px));
+}
+/* What it says stays on that first line, beside the window's buttons, cut short where the strip's
+   buttons leave it less room, rather than put them on a line of their own. */
+.ca-reply-queue.is-titlebar .ca-reply-queue-note {
+  flex: 1 1 0;
 }
 .ca-reply-queue.is-titlebar::before {
   content: '';

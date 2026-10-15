@@ -51,7 +51,8 @@
   var box = function () { return q('.ca-sessinsp .ca-composer textarea'); };
   var strip = function () { return q('.ca-sessinsp .ca-suggest'); };
   var rows = function () { return all('.ca-sessinsp .ca-suggest-reply'); };
-  var note = function () { var n = q('.ca-sessinsp .ca-composer-note'); return n ? n.textContent : ''; };
+  // What the box says, on the strip over the header.
+  var note = function () { var n = q('.ca-sessinsp .ca-reply-queue-note'); return n ? n.textContent : ''; };
   var sends = function () { return sent('send_to_session'); };
   var show = function () {
     row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
@@ -78,7 +79,7 @@
       check('with who suggested them', !!head && /Suggested by Supervisor/.test(head.textContent), head ? head.textContent : '');
       var n = q('.ca-sessinsp .ca-suggest-note');
       check('and the note', !!n && /asks whether to push/.test(n.textContent), n ? n.textContent : '');
-      check('the line under the box says ↑ goes to them', /↑ suggested replies/.test(note()), note());
+      check('the strip says ↑ in the box goes to them', /↑ suggested replies/.test(note()), note());
       type(box(), 'My own draft');
       return wait(50);
     })

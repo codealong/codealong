@@ -1,9 +1,10 @@
-// Checks that a session's account is said under its reply box (SessionReply.tsx, primitives.tsx
-// `AccountLabel`), not in its header: at the right of the line under the box, just before how
-// full its context is and at its size and color, as typed, with its harness on hover; and that in
-// a box short of room what the box says gives way, while the account and the meter stay whole,
-// and a name too long for the line is cut rather than push the meter out. Every session here says
-// its context is 30% full, so the meter is there to stand beside, in its quiet color.
+// Checks that a session's account is said in its reply box (SessionReply.tsx, primitives.tsx
+// `AccountLabel`), not in its header: at the left of the box's foot, just before how full its
+// context is and at its size and color, as typed, with its harness on hover, the model and Send
+// at the right; and that in a box short of room the account and the meter stay whole and on the
+// line, and a name too long for it is cut rather than push the meter or the buttons out. Every
+// session here says its context is 30% full, so the meter is there to stand beside, in its quiet
+// color.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/reply-account-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/reply-account-check.js
 //   scripts/preview.sh sessions '' scripts/preview/reply-account-check.js
@@ -28,7 +29,7 @@
   var sessions = [];
   board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { sessions.push(s); }); });
   var whole = function (el) { return el.scrollWidth <= el.clientWidth + 1; };
-  var label = function () { return q('.ca-composer-under .ca-account'); };
+  var label = function () { return q('.ca-composer-who .ca-account'); };
 
   until(function () {
     // In Sessions, a session is shown once a row is picked.
@@ -37,47 +38,44 @@
       if (row) row.click();
     }
     return label();
-  }, 20000, 'the account under the box')
+  }, 20000, 'the account in the box')
     .then(function (label) {
-      var under = label.closest('.ca-composer-under');
+      var who = label.closest('.ca-composer-who');
+      var field = who.closest('.ca-composer-field');
+      var buttons = q('.ca-composer-buttons', field);
       var title = q('.ca-sessinsp-title').getAttribute('title');
       var s = sessions.filter(function (x) { return x.title === title; })[0];
       if (!s) return stopped('no session on the board is titled ' + title);
-      var meter = under.querySelector('.ca-context');
-      check('it is just before the context meter, at the end of the line', !!meter && label.nextElementSibling === meter && under.lastElementChild === meter, under.innerHTML.slice(0, 160));
-      var room = under.getBoundingClientRect();
+      var meter = who.querySelector('.ca-context');
+      check('it is just before the context meter, which ends the row', !!meter && label.nextElementSibling === meter && who.lastElementChild === meter, who.innerHTML.slice(0, 160));
+      var room = field.getBoundingClientRect();
       var at = label.getBoundingClientRect();
-      check('it sits at the right of the line', at.left > room.left + room.width / 2, Math.round(at.left - room.left) + ' of ' + Math.round(room.width));
+      check('it sits at the left of the box’s foot', at.left < room.left + room.width / 2 && at.right <= buttons.getBoundingClientRect().left, Math.round(at.left - room.left) + ' of ' + Math.round(room.width));
+      check('under where you write', at.top >= q('textarea', field).getBoundingClientRect().bottom - 1, Math.round(at.top));
       check('it names the account as typed', label.textContent === s.account, label.textContent + ' for ' + s.account);
       check('at the size of the meter beside it', getComputedStyle(label).fontSize === getComputedStyle(meter).fontSize, getComputedStyle(label).fontSize + ' beside ' + getComputedStyle(meter).fontSize);
       check('and in its color', getComputedStyle(label).color === getComputedStyle(meter).color, getComputedStyle(label).color + ' beside ' + getComputedStyle(meter).color);
       check('its harness is on hover', /\(.+\)$/.test(label.getAttribute('title') || ''), label.getAttribute('title'));
       check('the header doesn’t name it', !q('.ca-sessinsp-meta .ca-account'), q('.ca-sessinsp-meta').textContent);
 
-      // Short of room: a box as narrow as a card gets, with something long to say.
-      q('.ca-composer').style.width = '260px';
-      var note = under.querySelector('.ca-composer-note');
-      if (!note) {
-        note = document.createElement('span');
-        note.className = 'ca-composer-note';
-        under.insertBefore(note, under.firstChild);
-      }
-      note.textContent = '⌘⏎ send + next · ⌃⏎ send now, into the turn it’s taking';
+      // Short of room: a box as narrow as a card gets.
+      q('.ca-composer').style.width = '300px';
       var name = label.querySelector('.ca-account-name');
-      room = under.getBoundingClientRect();
-      at = label.getBoundingClientRect();
-      var m = meter.getBoundingClientRect();
-      check('squeezed, it stays inside the line', at.left >= room.left && m.right <= room.right + 1, Math.round(m.right) + ' past ' + Math.round(room.right));
-      check('squeezed, it stays whole', whole(name), name.scrollWidth + ' in ' + name.clientWidth);
-      check('squeezed, the meter stays on one line', m.height < 24, Math.round(m.height) + 'px tall');
-      check('squeezed, what the box says gives way instead', note.getBoundingClientRect().width < room.width - at.width - m.width, Math.round(note.getBoundingClientRect().width) + 'px wide');
+      var fits = function () {
+        var r = field.getBoundingClientRect();
+        var m = meter.getBoundingClientRect();
+        var b = buttons.getBoundingClientRect();
+        return { r: r, m: m, b: b, ok: m.right <= b.left + 1 && b.right <= r.right + 1 && m.height < 24 };
+      };
+      var f = fits();
+      check('squeezed, the meter stays on its line, short of the buttons', f.ok, Math.round(f.m.right) + ' to ' + Math.round(f.b.left) + ', ' + Math.round(f.m.height) + 'px tall');
+      check('squeezed, the buttons stay in the box', f.b.right <= f.r.right + 1, Math.round(f.b.right) + ' past ' + Math.round(f.r.right));
 
-      // A name longer than the line has room for beside the meter is cut, and the meter stays in.
+      // A name longer than the row has room for is cut, and the meter and the buttons stay in.
       name.textContent = 'an-account-named-at-very-great-length-for-this-box';
-      room = under.getBoundingClientRect();
-      m = meter.getBoundingClientRect();
-      check('a name too long for the line is cut', !whole(name), name.scrollWidth + ' in ' + name.clientWidth);
-      check('and the meter stays inside the line', m.right <= room.right + 1 && m.height < 24, Math.round(m.right) + ' past ' + Math.round(room.right));
+      f = fits();
+      check('a name too long for the row is cut', !whole(name), name.scrollWidth + ' in ' + name.clientWidth);
+      check('and the meter and the buttons stay in the box', f.ok, Math.round(f.m.right) + ' to ' + Math.round(f.b.left) + ', ' + Math.round(f.b.right) + ' in ' + Math.round(f.r.right));
     })
     .then(done)
     .catch(stopped);

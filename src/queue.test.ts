@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answered, chordPressed, firstLeft, inQueueOrder, keyStep, left, leftAfter, leftGoesOn, listed, pickStep, placeOf, QUEUE_CHORDS, queueKey, reviewWhere, seenStep, sessionWhere, standing, statusWaits, stepAlong, stepTo, waitCounts, waitCountWords, waits, type Handled, type QueueView, type Reads, type Shown, type Waits } from './queue';
+import { answered, chordPressed, firstLeft, inQueueOrder, keyStep, left, leftAfter, leftGoesOn, placeOf, QUEUE_CHORDS, queueKey, seenStep, standing, statusWaits, stepAlong, stepTo, waits, type Handled, type QueueView, type Reads, type Shown, type Waits } from './queue';
 
 // A window's rows, as the bar's pills are: a session's key, when its status began, what it waits
 // on you as, its title.
@@ -16,9 +16,6 @@ const READS: Reads<Row> = {
   sinceOf: (r) => r.since,
   waitsOf: (r) => r.waits ?? 'unread',
   titleOf: (r) => `Queue ${r.key}`,
-  statusOf: (r) => (r.waits === 'reviews' ? null : (r.waits ?? 'working')),
-  whereOf: (r) => sessionWhere(`wt-${r.key}`, 'claude'),
-  emblemOf: () => undefined,
 };
 const NOW = 1_000;
 const keys = (rows: Row[]) => rows.map((r) => r.key);
@@ -388,50 +385,5 @@ describe('a session that left what waits on you', () => {
 
   it('moves nothing when it isn’t the one shown', () => {
     expect(left(card(B), none, 'A', 'archived', NOW)).toMatchObject({ went: 'away' });
-  });
-});
-
-describe('waitCounts', () => {
-  it('counts what waits by kind, as the notch does', () => {
-    const rows: Waits[] = ['needs', 'unread', 'reviews', 'needs'];
-    expect(waitCounts(rows, (w) => w)).toEqual({ needs: 2, reviews: 1, unread: 1 });
-    expect(waitCounts([], (w: Waits) => w)).toEqual({ needs: 0, reviews: 0, unread: 0 });
-  });
-
-  it('says each count in words', () => {
-    expect([waitCountWords('needs', 1), waitCountWords('needs', 2)]).toEqual(['1 needs you', '2 need you']);
-    expect([waitCountWords('reviews', 1), waitCountWords('reviews', 3)]).toEqual(['1 PR to review', '3 PRs to review']);
-    expect(waitCountWords('unread', 2)).toEqual('2 your turn');
-  });
-});
-
-describe('the strip’s lists', () => {
-  it('lists what’s left with each one’s glyph, title and where it is, the next first', () => {
-    const stands = standing(sessions(B), none);
-    expect(stands && listed(stands.left, READS)).toEqual([
-      { key: 'C', waits: 'unread', title: 'Queue C', status: 'unread', where: 'wt-C · claude' },
-      { key: 'D', waits: 'unread', title: 'Queue D', status: 'unread', where: 'wt-D · claude' },
-      { key: 'A', waits: 'needs', title: 'Queue A', status: 'needs', where: 'wt-A · claude' },
-    ]);
-    const pr: Row = { key: 'P', since: 15, waits: 'reviews' };
-    expect(listed([pr], READS)[0]).toMatchObject({ waits: 'reviews', status: null });
-  });
-
-  it('says where a session is with its account last, and a PR by its repo and who asked', () => {
-    expect(sessionWhere('codealong/strip', 'claude2')).toBe('codealong/strip · claude2');
-    expect(sessionWhere(null, 'claude2')).toBe('claude2');
-    expect(reviewWhere('codealong', 'octocat')).toBe('codealong · asked by octocat');
-    expect(reviewWhere('codealong', null)).toBe('codealong');
-  });
-
-  it('goes to the one picked as a step by hand: nothing dealt with, nothing said', () => {
-    const handled: Handled = new Map([['B', 20]]);
-    expect(pickStep(sessions(A), handled, 'D')).toEqual({ went: 'on', to: D, words: null, handled });
-    expect(pickStep(card(A), none, 'C')).toMatchObject({ went: 'on', to: C });
-  });
-
-  it('stays where one picked no longer waits, or is the one shown', () => {
-    expect(pickStep(sessions(A, [A, B]), none, 'C')).toEqual({ went: 'stay', handled: none });
-    expect(pickStep(sessions(A), none, 'A')).toEqual({ went: 'stay', handled: none });
   });
 });

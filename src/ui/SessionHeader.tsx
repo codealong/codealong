@@ -6,8 +6,8 @@
 // (each one's card on hover), the latest page on the web it made (ArtifactBits.tsx) and the todo
 // it's on. The rest is in Details and the ⋯ menu.
 //
-// Its account (the harness's name alone didn't say which of its accounts) is under the reply box,
-// beside where you write to it (SessionReply.tsx); where there's no box, as for a session on a
+// Its account (the harness's name alone didn't say which of its accounts) is in the reply box's
+// foot, beside where you write to it (SessionReply.tsx); where there's no box, as for a session on a
 // device that can't be reached, it ends the line of where it stands, as it does on a row.
 //
 // A session that came of another (a fork, or started by its agent) names it in a line over the

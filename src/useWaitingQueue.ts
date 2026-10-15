@@ -30,9 +30,6 @@ export const SESSION_READS: Reads<{ session: Session; lane?: Lane }> = {
   sinceOf: (r) => statusTime(r.session),
   waitsOf: (r) => rules.statusWaits(r.session.status),
   titleOf: (r) => r.session.title,
-  statusOf: (r) => r.session.status,
-  whereOf: (r) => rules.sessionWhere(r.lane?.callsign, r.session.account),
-  emblemOf: (r) => r.session.emblem,
 };
 
 /** What a window says of itself: its lists and the session shown (queue.ts `QueueView`), and how
@@ -148,12 +145,11 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
     setNote(null);
   }, []);
   const next = useCallback(() => void run('next'), [run]);
-  const pick = useCallback((key: string) => void take(rules.pickStep(now.current.view, handled.current, key)), [take]);
 
   const stands = rules.standing(view, handled.current);
   const after = stands?.left[0];
   const queue: Queue | undefined = stands
-    ? { counts: rules.waitCounts(stands.left, view.reads.waitsOf), left: rules.listed(stands.left, view.reads), next: after !== undefined ? { title: view.reads.titleOf(after) } : null, onNext: next, onPick: pick, waiting: stands.waiting }
+    ? { next: after !== undefined ? { title: view.reads.titleOf(after) } : null, onNext: next, waiting: stands.waiting }
     : undefined;
   const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error } : null;
   const first = view.shown ? null : (rules.firstLeft(view, handled.current) ?? null);

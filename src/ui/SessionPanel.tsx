@@ -11,47 +11,40 @@
 //
 // Answered in turn, it works through what waits on you: ⌘⏎ in the box sends (or allows the call
 // the session waits on) and goes on to the next, the check (⌘E) marks a finished turn seen and
-// goes on, ⌘] skips to it, and a strip above the header says how many more there are and how the
-// last one went; pointing at its chip of counts lists the ones it counts, and a click on one shows
-// it. Where a session is worked from the keyboard (its panel in Sessions, the notch)
-// the strip is always there and has what's commonly done to a session as buttons that say their
-// keys: mark seen, mark done, snooze, close its terminal, archive, back and next (`Hotkeys`). The keys it
-// says are read from where they're kept: a session's own from menus.ts `CHORDS` and snooze.ts
-// `SNOOZE_CHORDS`, the ones for getting about from queue.ts `QUEUE_CHORDS`. In Sessions, ⇧⌘F
+// goes on, and ⌘] skips to it. Where a session is worked from the keyboard (its panel in
+// Sessions, the notch, the waiting window) a strip above the header has what's commonly done to
+// a session as buttons that say their keys: mark seen, mark done, snooze, close its terminal,
+// archive, back and next (`Hotkeys`). At its left it says what the box has to say (how a send
+// went, what what's typed will do, the box's own keys: SessionReply.tsx `BoxSays`) and how the
+// last one went. The keys it says are read from where they're kept: a session's own from
+// menus.ts `CHORDS` and snooze.ts `SNOOZE_CHORDS`, the ones for getting about from queue.ts
+// `QUEUE_CHORDS`. In Sessions, ⇧⌘F
 // expands it to the whole window, so the list is out of the way while you do. Rename in a pill's
 // or a row's menu shows it with its name ready to change.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { runCommand } from '../api';
 import { below, showContextMenu, type MenuGroup, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
 import { seenable } from '../lanes';
-import { useLatest } from '../latest';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
-import { AWAY_CHORD, QUEUE_CHORDS, WAITS, waitCountWords, type Listed, type QueueAction, type WaitCounts } from '../queue';
+import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
-import { cardZoom, scaleOf } from '../zoom';
-import { Button, Chip, cx, Icon, Rich, SessionEmblem, StatusGlyph, WaitsGlyph } from './primitives';
+import { cardZoom } from '../zoom';
+import { Button, cx, Icon, Rich } from './primitives';
 import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
-import { Reply } from './SessionReply';
+import { Reply, type BoxSays } from './SessionReply';
 import { SessionThread } from './SessionThread';
-import { useDismiss } from './useDismiss';
 
-/** Working through what waits on you: what's left after this one, and the next. */
+/** Working through what waits on you: the next after this one. */
 export interface Queue {
-  /** How many of each kind wait on you besides the one shown, which the strip counts. */
-  counts: WaitCounts;
-  /** Those it counts, the next first, as pointing at its chip lists them (queue.ts `Listed`). */
-  left: Listed[];
   /** The next one, by its title: a row's session, or a pill on the bar. */
   next: Pick<Session, 'title'> | null;
   onNext: () => void;
-  /** Shows one of `left` in place of the one shown: a step by hand, as ⌘] is. */
-  onPick: (key: string) => void;
   /** False when the session shown isn't itself one of those waiting (it runs, say): the strip
-   *  still counts them and goes to them, but sending doesn't go on. */
+   *  still goes on to them, but sending doesn't go on. */
   waiting?: boolean;
 }
 
@@ -102,160 +95,16 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
   onThreadMenu?: (items: MenuSpec) => void;
 }
 
-/** What else waits on you in words, as the chip says it to a screen reader and the list it shows
- *  is named: `Waiting on you after this one: 2 need you, 1 your turn`. */
-function queueWords(queue: Queue): string {
-  const words = WAITS.filter((w) => queue.counts[w] > 0)
-    .map((w) => waitCountWords(w, queue.counts[w]))
-    .join(', ');
-  return `${queue.waiting === false ? 'Waiting on you' : 'Waiting on you after this one'}: ${words}`;
-}
-
-/** How long the pointer rests on the chip before its list shows, and is off both before it goes. */
-const LIST_AFTER_MS = 250;
-const LIST_GOES_MS = 200;
-/** Room kept between the chip and its list, and between the list and the session's edges. */
-const LIST_GAP = 4;
-const LIST_EDGE = 8;
-
-/** Whether the chip's list is up, and whether a click put it there (it stays until a press
- *  elsewhere or Escape) or the pointer did (it goes when the pointer leaves, or on any key). */
-interface CountList {
-  up: { clicked: boolean } | null;
-  chip: RefObject<HTMLSpanElement>;
-  point: () => void;
-  leave: () => void;
-  keep: () => void;
-  click: () => void;
-  close: () => void;
-}
-
-function useCountList(): CountList {
-  const [up, setUp] = useState<CountList['up']>(null);
-  const upNow = useLatest(up);
-  const chip = useRef<HTMLSpanElement>(null);
-  const timer = useRef(0);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  const keep = () => window.clearTimeout(timer.current);
-  return {
-    up,
-    chip,
-    keep,
-    point: () => {
-      keep();
-      if (!upNow.current) timer.current = window.setTimeout(() => setUp({ clicked: false }), LIST_AFTER_MS);
-    },
-    leave: () => {
-      keep();
-      if (!upNow.current?.clicked) timer.current = window.setTimeout(() => setUp(null), LIST_GOES_MS);
-    },
-    click: () => {
-      keep();
-      setUp((u) => (u?.clicked ? null : { clicked: true }));
-    },
-    close: () => {
-      keep();
-      setUp(null);
-    },
-  };
-}
-
-/** What else waits on you, as the notch counts it, in one chip: each kind's glyph and how many.
- *  Pointing at it, or clicking it, lists what it counts (`QueueList`). */
-function QueueCounts({ queue, list }: { queue: Queue; list: CountList }) {
-  const kinds = WAITS.filter((w) => queue.counts[w] > 0);
-  if (kinds.length === 0) return null;
+/** What the strip says at its left: what the box said of something done in it or of what's
+ *  typed, else how the one before went, else the box's keys. Where it doesn't fit beside the
+ *  buttons it goes on a line under them, or is cut short where the strip keeps to one line
+ *  (SessionPanel.css), its tooltip having all of it. */
+function StripNote({ says, notice }: { says?: BoxSays | null; notice: Notice | null | undefined }) {
+  const shown = says && !says.keys ? says : (notice ?? says);
   return (
-    <span ref={list.chip} className="ca-reply-queue-chip" onPointerEnter={list.point} onPointerLeave={list.leave}>
-      <Chip className={cx('ca-reply-queue-counts', list.up && 'is-open')} label={queueWords(queue)} expanded={!!list.up} act={list.click}>
-        {kinds.map((w) => (
-          <span key={w} className="ca-reply-queue-count" data-waits={w}>
-            <WaitsGlyph waits={w} />
-            {queue.counts[w]}
-          </span>
-        ))}
-      </Chip>
+    <span className={cx('ca-reply-queue-note', shown?.error && 'is-error')} role="status" title={shown?.text}>
+      {shown?.text}
     </span>
-  );
-}
-
-/** What the strip says: how the one before went, else what else waits on you, counted. */
-function QueueNote({ queue, notice, list }: { queue: Queue | undefined; notice: Notice | null | undefined; list: CountList }) {
-  return (
-    <span className={cx('ca-reply-queue-note', notice && 'is-notice', notice?.error && 'is-error')} role="status" title={notice?.text}>
-      {notice ? notice.text : queue && <QueueCounts queue={queue} list={list} />}
-    </span>
-  );
-}
-
-/** What the chip counts, under it: a part for each kind, in the order the chip counts them, each
- *  in the order ⌘] goes through them, as a folded pill on the bar lists its sessions: each one's
- *  glyph, its title and where it is. A click on one shows it here. It's drawn in the strip, so a
- *  card's zoom draws it too, and kept within the session. */
-function QueueList({ queue, list, strip }: { queue: Queue; list: CountList; strip: RefObject<HTMLDivElement> }) {
-  const pop = useRef<HTMLDivElement>(null);
-  const up = list.up;
-  const parts = up ? WAITS.map((w) => ({ waits: w, rows: queue.left.filter((l) => l.waits === w) })).filter((p) => p.rows.length > 0) : [];
-  useDismiss(pop, list.close, { when: parts.length > 0, inside: (t) => !!list.chip.current?.contains(t), keys: up?.clicked ? 'escape' : 'any', blur: true });
-  // Under the chip, the rows' glyphs under its first glyph, as far down as the session goes;
-  // scrolling within itself past that.
-  useLayoutEffect(() => {
-    const el = pop.current;
-    const s = strip.current;
-    const chip = list.chip.current;
-    const first = chip?.querySelector('.ca-reply-queue-count > :first-child');
-    if (!el || !s || !chip || !first) return;
-    const scale = scaleOf(s);
-    const sr = s.getBoundingClientRect();
-    const cr = chip.getBoundingClientRect();
-    const glyph = first.getBoundingClientRect().left;
-    const rowGlyph = el.querySelector('.ca-queue-list-row > :first-child');
-    const inset = rowGlyph ? rowGlyph.getBoundingClientRect().left - el.getBoundingClientRect().left : 0;
-    const room = (s.parentElement ?? s).getBoundingClientRect();
-    el.style.maxHeight = `${Math.max(0, (room.bottom - cr.bottom) / scale - LIST_GAP - LIST_EDGE)}px`;
-    el.style.top = `${(cr.bottom - sr.top) / scale + LIST_GAP}px`;
-    el.style.left = `${Math.max(LIST_EDGE, Math.min((glyph - inset - sr.left) / scale, s.offsetWidth - el.offsetWidth - LIST_EDGE))}px`;
-  });
-  if (parts.length === 0) return null;
-  return (
-    <div
-      ref={pop}
-      className="ca-queue-list"
-      role="menu"
-      aria-label={queueWords(queue)}
-      data-tauri-drag-region="false"
-      onPointerEnter={list.keep}
-      onPointerLeave={list.leave}
-      onContextMenu={(e) => {
-        // A row is another session than the one shown, whose menu the card has.
-        e.preventDefault();
-        e.stopPropagation();
-      }}
-    >
-      {parts.map((p) => (
-        <div key={p.waits} className="ca-queue-list-part" role="group" aria-label={waitCountWords(p.waits, p.rows.length)}>
-          <p className="ca-queue-list-head">{waitCountWords(p.waits, p.rows.length)}</p>
-          {p.rows.map((r) => (
-            <button
-              key={r.key}
-              type="button"
-              role="menuitem"
-              className="ca-queue-list-row"
-              title={r.where ? `${r.title} · ${r.where}` : r.title}
-              onClick={() => {
-                list.close();
-                queue.onPick(r.key);
-              }}
-            >
-              {r.status ? <StatusGlyph status={r.status} title="" /> : <WaitsGlyph waits={r.waits} />}
-              <SessionEmblem emblem={r.emblem} size={14} />
-              <span className="ca-queue-list-title">{r.title}</span>
-              {r.where && <span className="ca-queue-list-where">{r.where}</span>}
-            </button>
-          ))}
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -300,24 +149,22 @@ interface QueueStripProps {
   /** What's commonly done to the thing shown, as `Hotkey` buttons, where it isn't a session (a
    *  PR waiting on your review, PrCard.tsx): in place of the session's five. */
   buttons?: ReactNode;
+  /** What the session's box has to say, said at the strip's left (`StripNote`). */
+  says?: BoxSays | null;
 }
 
-/** Above a session answered in turn: how the one before went, else what else waits on you, and
+/** Above a session answered in turn: what its box has to say and how the one before went, and
  *  the way on to the next (⌘]). With `hotkeys` it's always there, and has what's commonly done to
  *  the session as buttons that say their keys, the ones the session's menu runs (menus.ts); the
  *  keys for back, next and putting it away are the queue's (queue.ts). */
-export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own }: QueueStripProps) {
+export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own, says }: QueueStripProps) {
   const next = queue?.next;
   const [nextKey, nextToo] = queueSigns('next');
-  const strip = useRef<HTMLDivElement>(null);
-  const list = useCountList();
-  const listed = queue && !notice && <QueueList queue={queue} list={list} strip={strip} />;
   if (!hotkeys) {
     if (!notice && !next) return null;
     return (
-      <div ref={strip} className="ca-reply-queue">
-        <QueueNote queue={queue} notice={notice} list={list} />
-        {listed}
+      <div className="ca-reply-queue">
+        <StripNote says={says} notice={notice} />
         {next && queue && (
           <Button variant="ghost" size="sm" kbd={[...nextKey]} title={`Next: ${next.title}`} onClick={queue.onNext}>
             Next
@@ -368,9 +215,8 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
     </div>
   );
   return (
-    <div ref={strip} className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
-      <QueueNote queue={queue} notice={notice} list={list} />
-      {listed}
+    <div className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
+      <StripNote says={says} notice={notice} />
       {buttons}
     </div>
   );
@@ -389,9 +235,11 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const replies = !device || (device.online && device.remoteControl);
   const key = s.key;
   const run = useMemo(() => (folder === null ? undefined : { folder, terminal, own: (command: string, at: string) => runCommand(key, at, command) }), [folder, terminal, key]);
+  // What the box has to say, which the strip says where there is one; elsewhere the box says it.
+  const [says, setSays] = useState<BoxSays | null>(null);
   const body = (
     <>
-          <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
+          <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} says={says} />
           <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} />
           <SessionThread
             key={s.key}
@@ -419,7 +267,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
             </p>
           ) : (
-            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} />
+            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} onSays={hotkeys ? setSays : undefined} />
           )}
     </>
   );

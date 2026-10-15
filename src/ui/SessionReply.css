@@ -11,9 +11,10 @@
   background: var(--surface);
 }
 /* The box itself, as chat apps draw theirs: what's attached, then the text across the box's whole
-   width, its scrollbar at the box's edge once it has one, then a row at its foot with the model
-   and Send at the right (and before the model, where a session that isn't running goes on,
-   ResumeBar.tsx). What the box has to say goes below it. */
+   width, its scrollbar at the box's edge once it has one, then a row at its foot: who a message
+   goes to at the left (`.ca-composer-who`), and the model and Send at the right (and before the
+   model, where a session that isn't running goes on, ResumeBar.tsx). What the box has to say
+   goes on the strip at the top of the window, or below the box where there's none. */
 .ca-composer-field {
   /* What opens over the conversation from inside it (ModelMenu.tsx) is placed against it. */
   position: relative;
@@ -146,21 +147,19 @@
   align-items: center;
   gap: var(--space-2);
 }
-/* What the box has to say at the left, and at the right the session's account and how full its
-   context is (ContextMeter.tsx). What the box says gives way first; the account's name is cut
-   only when it and the meter don't fit on the line together. */
-.ca-composer-under {
-  display: flex;
-  align-items: center;
+/* At the left of the box's foot, who a message goes to and what it may do about it: the mode the
+   session runs in (ModeLabel.tsx), its account and how full its context is (ContextMeter.tsx), on
+   one line, level with the buttons at the right and lined up with the text above. Short of room
+   the mode's and the account's names are cut, never the meter. */
+.ca-composer-tools.ca-composer-who {
+  flex-wrap: nowrap;
   gap: var(--space-2);
-  min-width: 0;
+  min-height: 26px;
+  margin-bottom: 5px;
+  padding: 0 0 0 10px;
 }
-.ca-composer-under .ca-account,
-.ca-composer-under .ca-mode {
-  margin-left: auto;
-}
-.ca-composer-under .ca-mode + .ca-account {
-  margin-left: 0;
+.ca-composer-who > .ca-context {
+  flex: none;
 }
 .ca-composer-note {
   flex: 1;

@@ -49,8 +49,6 @@
 
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var strip = function () { var t = document.querySelector('.ca-reply-queue-note'); return t ? t.textContent : ''; };
-  // What the strip counts of what else waits on you: the total, then its chip's words.
-  var counted = function () { var c = q('.ca-reply-queue-counts'); if (!c) return ''; var n = all('.ca-reply-queue-count', c).reduce(function (sum, x) { return sum + Number(x.textContent); }, 0); return n + ' · ' + c.getAttribute('aria-label'); };
   var empty = function () { var e = document.querySelector('.ca-waiting-empty'); return e ? e.textContent : ''; };
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
 
@@ -59,7 +57,7 @@
     .then(function () { return on('Queue A'); })
     .then(function () {
       check('it opens on the longest wait', title() === 'Queue A', title());
-      check('with the rest to go through', /^2 · Waiting on you after this one: /.test(counted()), counted());
+      check('with the rest to go through', !!q('.ca-hotkey[title^="Next that waits on you: "]'), (q('.ca-hotkey[title^="Next"]') || {}).title);
       window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight', metaKey: true, bubbles: true, cancelable: true }));
       return on('Queue B');
     })
