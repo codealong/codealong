@@ -45,12 +45,25 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   1); the notes the agent goes on after carry only the error (24.3.2): a request it tries again,
   "API error (attempt N): …", one a try (eight in a row while the network was down), and a
   stream cut off that it picks up, "The stream was interrupted. Please continue…" (every note on
-  this Mac; `ERROR_FOR_YOU`, `ends_turn`). In the transcript a note is `ERROR_MESSAGE`, its
-  content empty. A reply that makes calls turns done in
+  this Mac; `ERROR_FOR_YOU`, `ends_turn`). In the transcript a note the agent goes on after is
+  `ERROR_MESSAGE`, with `error` and `content` ("Error: …"); the note that ends a turn never gets
+  there (its step's index is skipped), so how a turn failed is read from the database
+  (`turn_failed`). A reply that makes calls turns done in
   the same write that adds its first call's step (watched every 4 ms), so a done reply or a
   turn's error note as the latest step is a turn's end (`STEP_ENDS_TURN`, `steps_now`). A call that fails
   (7) hands its error to the model, which goes on (19 of 19 here); a canceled one (6) ended its
   turn every time (`STEP_CANCELED`). No step was ever interrupted (12).
+- Why a turn failed, from its note's payload (the error, Google's `google.rpc` details as JSON,
+  the HTTP status): `antigravity.rs` (`ERROR_SAID`, `ERROR_DETAILS`, `failed_of`, `FailedOn`),
+  and what the board makes of it, `board.rs` (`antigravity_session`). Every turn that stopped
+  partway in two days of use here (2026-10-14 and 15) ended on such a note, never by the model's
+  own choice: four on `write: broken pipe`, sent on a connection the network dropped while the
+  agent waited minutes on a permission prompt or a command, which `agy` doesn't try again though
+  it tries a failed dial eight times (`CONNECTION_LOST`, carried on by reconnect.rs through
+  `api_address`); one on the quota (`429 RESOURCE_EXHAUSTED`, `ErrorInfo` reason
+  `QUOTA_EXHAUSTED` with `quotaResetTimeStamp`); and one on a 404 for the model that the same
+  prompt sent again got past. A background command's wait ("I'll proceed once they finish")
+  always came back by itself.
 - The transcript (`brain/<id>/.system_generated/logs/transcript_full.jsonl`, and
   `transcript.jsonl` with each argument a string of JSON), its fields, the `<USER_REQUEST>`
   wrapping, results as steps of their own in the calls' order, lines out of step order, and a

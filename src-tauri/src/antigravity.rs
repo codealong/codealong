@@ -216,6 +216,8 @@ pub struct Conversation {
     pub idled_by_another: bool,
     /// The permissions its latest turn ran with (`turn_mode`).
     pub mode: Option<SessionMode>,
+    /// Its latest turn ended on an error (`turn_failed`).
+    pub failed: Option<Failed>,
     /// What the log of the terminal UI that has it open says (`Said`).
     pub said: Said,
 }
@@ -390,6 +392,106 @@ fn step_began(payload: &[u8]) -> Option<i64> {
 /// read is taken to.
 fn ends_turn(payload: Option<&[u8]>) -> bool {
     payload.map_or(true, |p| !proto_at(p, &ERROR_FOR_YOU).is_empty())
+}
+
+/// Where an error note's payload has the error as the agent had it ("request failed: Post …:
+/// write: broken pipe", "RESOURCE_EXHAUSTED (code 429): Individual quota reached…"), and
+/// Google's details of it, one `google.rpc` detail as JSON each (`ErrorInfo` with its `reason`
+/// and `metadata`, `RetryInfo`). Beside them, 24.3.7 is the HTTP status (2 for a request that got
+/// none), 24.3.3 the error with its stack and 24.3.5 the response's body. Every note that ended a
+/// turn on this Mac, 1.3.5, 2026-10-14 and 15.
+const ERROR_SAID: [u64; 3] = [24, 3, 2];
+const ERROR_DETAILS: [u64; 3] = [24, 3, 10];
+
+/// The words a failed turn's note has for you when they say only that it failed.
+const TERMINATED: &str = "Agent execution terminated due to error.";
+
+/// How a request's error ends when it lost its connection to the API or couldn't make one, in
+/// Go's words. Seen ending turns: "write: broken pipe", four turns in three conversations within
+/// seven minutes on 2026-10-14, each sent after the agent had waited minutes on a permission
+/// prompt or a command, on a connection the network had dropped meanwhile. "dial tcp: lookup …:
+/// no such host" was seen too, which `agy` tried again itself; the rest are Go's words for the
+/// same kinds of loss. A refused connection is left out, as Claude Code's is
+/// (claude/transcript.rs `CONNECTION_LOST`): it doesn't come right by waiting.
+const CONNECTION_LOST: &[&str] = &[
+    "broken pipe",
+    "connection reset by peer",
+    "no such host",
+    "network is unreachable",
+    "network is down",
+    "no route to host",
+    "i/o timeout",
+    "TLS handshake timeout",
+    "EOF",
+    "http2: client connection lost",
+];
+
+/// Why a turn ended on an error.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FailedOn {
+    /// Its request lost its connection to the API, or couldn't make one (`CONNECTION_LOST`).
+    Connection,
+    /// The account's quota refused it (`ErrorInfo` reason `QUOTA_EXHAUSTED`), until when, where
+    /// the note says (`quotaResetTimeStamp`).
+    Quota { resets_at: Option<i64> },
+    /// Anything else: on 2026-10-15 a 404 for the model ("models/barium-b-agy is not found"),
+    /// which the same prompt sent again got past.
+    Other,
+}
+
+/// A turn that ended on an error, by the note it ended with (`turn_failed`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Failed {
+    pub on: FailedOn,
+    /// When the note was written.
+    pub at: i64,
+    /// What went wrong, in a line.
+    pub said: String,
+}
+
+/// Why the turn an error note ended failed, and what went wrong in a line. None for a note that
+/// doesn't end its turn (`ends_turn`).
+fn failed_of(payload: &[u8]) -> Option<(FailedOn, String)> {
+    let text = |path: &[u64]| proto_at(payload, path).first().map(|b| String::from_utf8_lossy(b).trim().to_string()).filter(|t| !t.is_empty());
+    let for_you = text(&ERROR_FOR_YOU)?;
+    let error = text(&ERROR_SAID).unwrap_or_default();
+    let details: Vec<Value> = proto_at(payload, &ERROR_DETAILS).into_iter().filter_map(|d| serde_json::from_slice(d).ok()).collect();
+    if let Some(quota) = details.iter().find(|d| d.get("reason").and_then(Value::as_str) == Some("QUOTA_EXHAUSTED")) {
+        let resets_at = quota.pointer("/metadata/quotaResetTimeStamp").and_then(Value::as_str).and_then(parse_rfc3339_ms);
+        // Its "Resets in 2h14m8s." counts from the note, and the limit says when it lifts.
+        let said = for_you.split(" Resets in ").next().unwrap_or(&for_you);
+        return Some((FailedOn::Quota { resets_at }, one_line(said, 140)));
+    }
+    if CONNECTION_LOST.iter().any(|w| error.ends_with(w)) {
+        // Go's words for the loss are the error's last part ("broken pipe").
+        let cause = error.rsplit(": ").next().unwrap_or(&error);
+        return Some((FailedOn::Connection, format!("Its request to the API failed: {cause}")));
+    }
+    let said = match request_cause(&error) {
+        Some(cause) => format!("Its request to the API failed: {cause}"),
+        None if for_you == TERMINATED && !error.is_empty() => error,
+        None => for_you,
+    };
+    Some((FailedOn::Other, one_line(&said, 140)))
+}
+
+/// What a request that failed before an answer came says went wrong, without the agent's
+/// prefixes and the address it went to, which take more than a line: `agent executor error: …
+/// request failed: Post "https://…": Post "https://oauth2…/token": dial tcp: lookup …: no such
+/// host` is `dial tcp: lookup …: no such host`.
+fn request_cause(error: &str) -> Option<&str> {
+    let rest = error.split_once("request failed: ")?.1;
+    Some(rest.rsplit_once("\": ").map_or(rest, |(_, cause)| cause))
+}
+
+/// How the conversation's latest turn failed, when its latest step is the error note it ended
+/// with, from its own database; `written` is when the note was written when it doesn't say.
+fn turn_failed(dir: &Path, id: &str, written: i64) -> Option<Failed> {
+    let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
+    let (kind, status, payload): (i64, i64, Option<Vec<u8>>) = db.query_row("SELECT step_type, status, step_payload FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok()?;
+    let payload = payload.filter(|_| kind == STEP_ERROR && status == STEP_DONE)?;
+    let (on, said) = failed_of(&payload)?;
+    Some(Failed { on, at: step_began(&payload).unwrap_or(written), said })
 }
 
 /// The steps of a conversation whose permission prompt is up (`STEP_WAITING`), by their index:
@@ -1410,11 +1512,14 @@ impl Reader {
                 Some(old) if !held && old.last_modified == c.last_modified && old.step_count == c.step_count => {
                     c.tail = old.tail.clone();
                     c.mode = old.mode.clone();
+                    c.failed = old.failed.clone();
                 }
                 old => {
                     added |= old.is_none();
                     c.tail = transcript_file(&c.dir, &c.id).map(|p| tail(&p, c.cwd.as_deref())).unwrap_or_default();
                     c.mode = turn_mode(&c.dir, &c.id);
+                    // The note a failed turn ends with never reaches the transcript.
+                    c.failed = turn_failed(&c.dir, &c.id, c.last_modified);
                 }
             }
             if c.running() || held {
@@ -1851,6 +1956,11 @@ impl crate::harness::Adapter for Antigravity {
         folders(home).iter().flat_map(|f| read_conversations(f, since, &HashSet::new())).filter_map(|c| c.cwd).collect()
     }
 
+    /// `CLOUD_CODE`'s host, where `agy` sends the model's requests (its error notes name it).
+    fn api_address(&self) -> Option<&'static str> {
+        Some("daily-cloudcode-pa.googleapis.com:443")
+    }
+
     /// The quotas are read through the command line (`read_usage`); without it they're only
     /// in the app.
     fn no_limits(&self, account: &AccountCfg) -> Option<&'static str> {
@@ -2058,8 +2168,15 @@ mod tests {
     /// An error note's payload: what went wrong, and words for you when there are some
     /// (`ERROR_FOR_YOU`).
     fn error_note(error: &str, for_you: Option<&str>) -> Vec<u8> {
+        error_note_with(error, for_you, &[])
+    }
+
+    /// An error note with Google's details of the error, each a `google.rpc` detail as JSON
+    /// (`ERROR_DETAILS`).
+    fn error_note_with(error: &str, for_you: Option<&str>, google: &[&str]) -> Vec<u8> {
         let mut details = for_you.map(|w| vec![(1, w.as_bytes().to_vec())]).unwrap_or_default();
         details.push((2, error.as_bytes().to_vec()));
+        details.extend(google.iter().map(|d| (10, d.as_bytes().to_vec())));
         proto_message(&[(24, proto_message(&[(3, proto_message(&details))]))])
     }
 
@@ -2478,6 +2595,69 @@ mod tests {
         assert!(!ends_turn(Some(&error_note("API error (attempt 1): request failed", None))));
         assert!(!ends_turn(Some(&error_note("The stream was interrupted. Please continue.", None))));
         assert!(ends_turn(None));
+    }
+
+    /// The notes that ended turns on this Mac (2026-10-14 and 15), with other addresses.
+    #[test]
+    fn a_failed_turns_note_says_why() {
+        let broken = error_note("agent executor error: generating and executing: request failed: Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": write tcp [2001:db8::1]:60363->[2001:db8::2]:443: write: broken pipe", Some(TERMINATED));
+        assert_eq!(failed_of(&broken), Some((FailedOn::Connection, "Its request to the API failed: broken pipe".to_string())));
+        let lookup = error_note("agent executor error: request failed: Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": Post \"https://oauth2.googleapis.com/token\": dial tcp: lookup oauth2.googleapis.com: no such host", Some(TERMINATED));
+        assert_eq!(failed_of(&lookup), Some((FailedOn::Connection, "Its request to the API failed: no such host".to_string())));
+        // The quota, until the time its details give, without the countdown from when it was written.
+        let said = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 2h14m8s.";
+        let quota = error_note_with(
+            &format!("RESOURCE_EXHAUSTED (code 429): {said}"),
+            Some(said),
+            &[
+                r#"{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"QUOTA_EXHAUSTED","domain":"cloudcode-pa.googleapis.com","metadata":{"model":"gemini-4-argon-high","quotaResetDelay":"2h14m8.934659116s","quotaResetTimeStamp":"2026-10-15T07:08:42Z","uiMessage":"true"}}"#,
+                r#"{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"8048.934659116s"}"#,
+            ],
+        );
+        let resets_at = parse_rfc3339_ms("2026-10-15T07:08:42Z");
+        assert_eq!(failed_of(&quota), Some((FailedOn::Quota { resets_at }, "Individual quota reached. Please upgrade your subscription to increase your limits.".to_string())));
+        // Anything else says what went wrong, where the words for you say only that it failed.
+        let missing = "NOT_FOUND (code 404): models/barium-b-agy is not found for API version v1main, or is not supported for generateContent.";
+        assert_eq!(failed_of(&error_note(missing, Some(TERMINATED))), Some((FailedOn::Other, missing.to_string())));
+        // A refused connection doesn't come right by waiting. Its cause is said whole, where the
+        // address it went to would take the line.
+        let refused = error_note("agent executor error: generating and executing: request failed: Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": dial tcp [2001:db8::2]:443: connect: connection refused", Some(TERMINATED));
+        assert_eq!(failed_of(&refused), Some((FailedOn::Other, "Its request to the API failed: dial tcp [2001:db8::2]:443: connect: connection refused".to_string())));
+        // A note the agent goes on after ends no turn.
+        assert_eq!(failed_of(&error_note("API error (attempt 1): request failed: Post \"https://oauth2.googleapis.com/token\": dial tcp: lookup oauth2.googleapis.com: no such host", None)), None);
+    }
+
+    /// The note a failed turn ends with is read from the conversation's own database, which the
+    /// transcript never has, and is behind it once the conversation goes on.
+    #[test]
+    fn reads_how_the_latest_turn_failed() {
+        let root = crate::fixtures::scratch("antigravity-failed");
+        let dir = root.join("antigravity-cli");
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
+        summaries
+            .execute_batch(&format!(
+                "{SCHEMA}\
+                 INSERT INTO conversation_summaries (conversation_id, preview, step_count, last_modified_time, workspace_uris, status, last_user_input_time, app_data_dir) VALUES \
+                 ('c1', 'Slim chips', 3, '2026-10-15 00:52:58+00:00', '[]', 'CASCADE_RUN_STATUS_IDLE', '2026-10-15 00:47:00+00:00', 'antigravity-cli');"
+            ))
+            .unwrap();
+        let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
+        steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, step_payload BLOB); INSERT INTO steps (idx, step_type, status) VALUES (0, 14, 3), (1, 132, 3);").unwrap();
+        let at = 1_792_025_577_777;
+        let note = [began(at), error_note("agent executor error: request failed: Post \"https://daily-cloudcode-pa.googleapis.com/\": write tcp [2001:db8::1]:60363->[2001:db8::2]:443: write: broken pipe", Some(TERMINATED))].concat();
+        steps.execute("INSERT INTO steps VALUES (2, 17, 3, ?1)", [note]).unwrap();
+
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false };
+        let seen = crate::state::SeenState::default();
+        let look = Look { seen: &seen, since: 0, now: at + 60_000, ps: Default::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new() }], looked_at: Some(Instant::now()), ..Reader::default() };
+        reader.reread(&account, &look);
+        assert_eq!(reader.conversations["antigravity"][0].failed, Some(Failed { on: FailedOn::Connection, at, said: "Its request to the API failed: broken pipe".into() }));
+        // Told to carry on, it goes on.
+        steps.execute("INSERT INTO steps (idx, step_type, status) VALUES (3, 14, 3)", []).unwrap();
+        reader.reread(&account, &look);
+        assert_eq!(reader.conversations["antigravity"][0].failed, None);
     }
 
     /// The session that waited, read from its folder: a turn its UI started goes on, whatever the

@@ -387,7 +387,7 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={continues} onChange={(e) => saveSessions({ continue_after_network_error: e.target.checked })} />
         <span>Carry on after a network error</span>
-        <small>When a session’s turn ends because it couldn’t reach its API, as happens when the Mac sleeps with the lid closed or the network drops, Codealong tells it to carry on once the API can be reached again. Claude Code sessions, for now.</small>
+        <small>When a session’s turn ends because it couldn’t reach its API, as happens when the Mac sleeps with the lid closed or the network drops, Codealong tells it to carry on once the API can be reached again. Claude Code sessions, and Antigravity’s in its command line, for now.</small>
       </label>
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={resumes} onChange={(e) => saveSessions({ resume_for_sessions_it_started: e.target.checked })} />

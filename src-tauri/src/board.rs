@@ -5,7 +5,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::antigravity::{Conversation, Process};
+use crate::antigravity::{Conversation, FailedOn, Process};
 use crate::claude::{RegistryEntry, TranscriptInfo};
 use crate::codex::ThreadInfo;
 use crate::opencode::{Live, SessionRow};
@@ -547,11 +547,14 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
 /// app's agent is up. A turn is under way only while what runs it is there: the command line's
 /// conversation in its own process, the app's in the app's agent, which is taken to have gone
 /// quiet when nothing has been written for a while. A step whose permission prompt is up needs
-/// you. The summary keeps no word for a failure, so none shows as one.
+/// you. A turn that ended on an error says why, by the note it ended with: a lost connection
+/// (which the engine may carry on, `engine::with_connections`), the account's quota, or anything
+/// else, which shows as an error until it's seen.
 pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Option<&Process>, app_running: bool, seen_at: i64, now: i64) -> Session {
     // Its latest step can be later than its summary says: another `agy` writes back older copies
-    // of the row.
-    let active = c.latest_step_at.map_or(c.last_modified, |at| at.max(c.last_modified));
+    // of the row. The note a failed turn ended with is its latest step, read whether or not a
+    // process has it.
+    let active = [c.latest_step_at, c.failed.as_ref().map(|f| f.at)].into_iter().flatten().fold(c.last_modified, i64::max);
     let fresh = now - active < ANTIGRAVITY_STALE_MS;
     // While its process has the conversation, its summary is the process's word, unless another
     // `agy` that started since marked it idle; a step that runs or waits says so too, and a
@@ -574,11 +577,20 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
     } else {
         Status::Idle
     };
+    let failed = c.failed.as_ref().filter(|_| !matches!(status, Status::Working | Status::Needs));
+    let limit = failed.and_then(|f| match f.on {
+        FailedOn::Quota { resets_at } => Some(SessionLimit { at: f.at, resets_at, ..SessionLimit::default() }),
+        _ => None,
+    });
+    let connection_lost = failed.filter(|f| f.on == FailedOn::Connection).map(|f| ConnectionLost { at: f.at, continues: false });
+    // A lost connection reads as a finished turn, as Claude Code's does: it says so beside it.
+    let status = if failed.is_some_and(|f| f.on != FailedOn::Connection) && status == Status::Unread { Status::Error } else { status };
     let title = c.title.clone().or_else(|| c.preview.clone()).unwrap_or_else(|| "Antigravity conversation".to_string());
     let excerpt = match status {
         Status::Needs => c.tail.open.first().map(|call| call.asked()).or_else(|| Some("A step waits for you to allow it".to_string())),
         Status::Working => c.tail.last_tool.clone().or_else(|| c.preview.clone()),
-        _ => c.tail.last_text.clone().or_else(|| c.preview.clone()),
+        // What went wrong, where the reply before it would read as the turn's end.
+        _ => failed.map(|f| f.said.clone()).or_else(|| c.tail.last_text.clone()).or_else(|| c.preview.clone()),
     };
     // Its terminal, when it's the command line's own UI rather than a print run.
     let terminal = process.filter(|p| p.terminal).map(|p| p.pid);
@@ -608,6 +620,8 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         resume_command: c.cli.then(|| format!("{} --conversation {}", crate::antigravity::cli_command(account), c.id)),
         mode: c.mode.clone(),
         queued_at: process.and_then(|_| c.said.queued.last().copied()),
+        limit,
+        connection_lost,
         ..known
     }
 }
@@ -3668,6 +3682,45 @@ mod tests {
         // An account with a command of its own resumes with it.
         let own = AccountCfg { command: Some("agy --sandbox".into()), ..a.clone() };
         assert_eq!(antigravity_session(&own, &c, None, false, 0, NOW).resume_command.as_deref(), Some("agy --sandbox --conversation c2"));
+    }
+
+    /// The four turns in three conversations that a dropped connection ended on 2026-10-14, the
+    /// one the quota refused and the one a 404 ended: each says why where its last reply ("I'll
+    /// proceed once they finish") read as if it had stopped by itself.
+    #[test]
+    fn an_antigravity_turn_that_failed_says_why() {
+        use crate::antigravity::Failed;
+        let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let ui = Process { pid: 41, conversation: Some("c3".into()), terminal: true, logs: Vec::new() };
+        let mut c = Conversation { id: "c3".into(), cli: true, status: "cascade_run_status_idle".into(), last_modified: NOW - 1_000, last_input: Some(NOW - 60_000), ..Default::default() };
+        c.tail.last_text = Some("Running the browser checks now; I'll proceed once they finish.".into());
+        let failed = |on: FailedOn, said: &str| Some(Failed { on, at: NOW - 1_000, said: said.into() });
+
+        // A lost connection: a finished turn, which the engine may carry on, saying what failed.
+        c.failed = failed(FailedOn::Connection, "Its request to the API failed: broken pipe");
+        let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.connection_lost, s.limit.is_some()), (Status::Unread, Some(ConnectionLost { at: NOW - 1_000, continues: false }), false));
+        assert_eq!((s.live, s.excerpt.as_deref()), (true, Some("Its request to the API failed: broken pipe")));
+        // The quota: stopped at its limit until it lifts, which waits on you.
+        c.failed = failed(FailedOn::Quota { resets_at: Some(NOW + 8_000_000) }, "Individual quota reached.");
+        let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.connection_lost.is_some()), (Status::Error, false));
+        assert_eq!(s.limit, Some(SessionLimit { at: NOW - 1_000, resets_at: Some(NOW + 8_000_000), ..SessionLimit::default() }));
+        assert_eq!(session_headline(&s).0, format!("`antigravity` hit its usage limit · {}", s.title));
+        // Anything else is an error until it's seen, in its own words.
+        c.failed = failed(FailedOn::Other, "NOT_FOUND (code 404): models/barium-b-agy is not found");
+        let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.limit.is_none(), s.excerpt.as_deref()), (Status::Error, true, Some("NOT_FOUND (code 404): models/barium-b-agy is not found")));
+        assert_eq!(antigravity_session(&a, &c, Some(&ui), false, NOW, NOW).status, Status::Idle);
+        // Its terminal closed, and another `agy` put back an older copy of its row: the note says
+        // when it failed, which you haven't seen.
+        let restored = Conversation { last_modified: NOW - 30_000, ..c.clone() };
+        let s = antigravity_session(&a, &restored, None, false, NOW - 20_000, NOW);
+        assert_eq!((s.status, s.last_activity), (Status::Error, NOW - 1_000));
+        // Sent something since, it works again, and the failure is behind it.
+        c.status = "cascade_run_status_running".into();
+        let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.limit, s.connection_lost), (Status::Working, None, None));
     }
 
     #[test]

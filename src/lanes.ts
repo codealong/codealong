@@ -6,6 +6,7 @@
 // are.
 
 import { shortOf } from './devices';
+import { MOVES_ACCOUNTS } from './harness';
 import { agoPhrase, duration, withTimes } from './format';
 import type { InsightLabel } from './insights';
 import { resetsPhrase } from './format';
@@ -441,12 +442,13 @@ function limitName(meter: string | null): string {
 }
 
 /** What a usage limit that stopped a session comes to, in a sentence or two: which limit, when it
- *  lifts, and where it could go on (left out where a button beside it offers the move). */
-export function limitWords(account: string, limit: SessionLimit, now: number, offered = false): string {
+ *  lifts, and where it could go on (left out where a button beside it offers the move, and where
+ *  its harness can't move a session to another account: `moves`, `MOVES_ACCOUNTS`). */
+export function limitWords(account: string, limit: SessionLimit, now: number, offered = false, moves = true): string {
   const lifted = limit.resetsAt != null && limit.resetsAt <= now;
   const spent = limit.spendCapped ? ', with no extra usage to carry it' : '';
   const when = lifted ? ' It has lifted since: send it something to go on.' : limit.resetsAt != null ? ` It lifts ${resetsPhrase(limit.resetsAt, now)}.` : '';
-  const where = lifted || offered ? '' : limit.moveTo ? ` ${limit.moveTo} has room: move it there to go on now.` : ' No other account has room.';
+  const where = lifted || offered || !moves ? '' : limit.moveTo ? ` ${limit.moveTo} has room: move it there to go on now.` : ' No other account has room.';
   return `It stopped at ${account}’s ${limitName(limit.meter)}${spent}.${when}${where}`;
 }
 
@@ -470,7 +472,7 @@ export function cutOffWords(offered = false): string {
  */
 export function sessionFlag(s: Session): InsightLabel | null {
   if (s.stalledSince != null) return { label: 'Stuck', tone: 'warn', title: 'It says it’s busy, but nothing has happened for a while. It may be waiting on something.' };
-  if (s.limit && s.status !== 'working') return { label: 'Limit', tone: 'bad', title: limitWords(s.account, s.limit, Date.now()) };
+  if (s.limit && s.status !== 'working') return { label: 'Limit', tone: 'bad', title: limitWords(s.account, s.limit, Date.now(), false, MOVES_ACCOUNTS.includes(s.harness)) };
   if (s.connectionLost && s.status !== 'working') return { label: 'Network error', tone: 'warn', title: connectionLostWords(s.connectionLost) };
   if (s.cutOff != null && s.status !== 'working') return { label: 'Cut off', tone: 'bad', title: cutOffWords() };
   if (s.status === 'error') return { label: 'Error', tone: 'bad', title: 'It stopped with an error.' };

@@ -400,6 +400,8 @@ describe('sessionFlag', () => {
     expect(limitWords('claude2', { ...limit, spendCapped: false, meter: 'session' }, NOW, true)).toBe('It stopped at claude2’s 5-hour limit. It lifts in 3h.');
     expect(limitWords('claude2', { ...limit, meter: 'model:Opus', spendCapped: false, resetsAt: null, moveTo: null }, NOW)).toBe('It stopped at claude2’s weekly Opus limit. No other account has room.');
     expect(limitWords('claude2', { ...limit, spendCapped: false, resetsAt: NOW - 1 }, NOW)).toBe('It stopped at claude2’s weekly limit. It has lifted since: send it something to go on.');
+    // A harness that can't move a session to another account says nothing of other accounts.
+    expect(limitWords('antigravity', { ...limit, meter: null, spendCapped: false, moveTo: null }, NOW, false, false)).toBe('It stopped at antigravity’s usage limit. It lifts in 3h.');
     // Seen, it rests with the limit still said; tried again, it's working and says nothing of it.
     expect(flag({ status: 'idle', limit })).toBe('Limit');
     expect(flag({ status: 'working', limit })).toBeNull();

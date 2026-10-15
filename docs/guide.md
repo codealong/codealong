@@ -199,21 +199,24 @@ account's prompt cache doesn't carry over.
 #### Usage limits
 
 A session whose turn its account's usage limit stopped says so (Limit, with which limit and when it
-lifts, from what Claude Code wrote), and its panel offers to move it to the account with room: one
-of its harness's other accounts, chosen as Auto chooses, that isn't near a limit by its meters and
-whose own sessions weren't refused since they last got through (a spend limit shows on no meter).
+lifts, from what Claude Code or Antigravity wrote). A Claude Code session's panel offers to move it
+to the account with room: one of its harness's other accounts, chosen as Auto chooses, that isn't
+near a limit by its meters and whose own sessions weren't refused since they last got through (a
+spend limit shows on no meter).
 Moved, it's told to carry on where it stopped. `[limits] when_hit = "move"` (Settings › Automation)
 moves it there by itself, as soon as it stops; a session moved there that stops again is offered a
 move rather than moved back.
 
 #### Network errors
 
-A Claude Code session whose turn ended because it couldn't reach its API says so (Network error):
-with the lid closed the Mac wakes for a few seconds every minute or two without DNS, and Claude
-Code's retries run out there. Codealong tells it to carry on once the API can be reached again, once
-for each time, and leaves it for you (with a notice) when it loses the connection again straight
-after a few times running; `[sessions] continue_after_network_error = false` (Settings › Automation)
-turns that off.
+A Claude Code session, or an Antigravity one in its command line, whose turn ended because it
+couldn't reach its API says so (Network error): with the lid closed the Mac wakes for a few seconds
+every minute or two without DNS, and Claude Code's retries run out there; Antigravity gives up at
+once on a connection the network dropped while it waited on a permission prompt or a command.
+Codealong tells it to carry on once the API can be reached again, once for each time, and leaves it
+for you (with a notice) when it loses the connection again straight after a few times running;
+`[sessions] continue_after_network_error = false` (Settings › Automation) turns that off. Any other
+error that ends an Antigravity turn shows as one (Error), in its own words, until you've seen it.
 
 #### Cut off
 
