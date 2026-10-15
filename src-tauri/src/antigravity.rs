@@ -757,29 +757,73 @@ pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
 
 /* ---- Starting a conversation ---- */
 
-/// How long a list of models is good for.
+/// How long a list of models is good for, and how soon a read that got none is tried again: one
+/// that failed (an `agy` that didn't answer in its 30 seconds, under load) used to leave the
+/// menus without Antigravity's models for the hour.
 const MODELS_FOR: Duration = Duration::from_secs(60 * 60);
+const MODELS_AGAIN: Duration = Duration::from_secs(60);
+
+/// The list of models last read, kept for the next launch: without it the menus had none of
+/// Antigravity's models from a launch until its first read answered, seconds and, under load,
+/// longer. A cache, which macOS may clear; a copy of the app with a home of its own has its own.
+fn kept_models_path() -> PathBuf {
+    crate::util::home().join("Library/Caches/Codealong/agy-models.json")
+}
+
+/// The command line's list of models, and when to ask for it again.
+#[derive(Debug, Default)]
+struct KeptModels {
+    list: Vec<crate::start::ModelOption>,
+    ask_at: Option<Instant>,
+}
+
+impl KeptModels {
+    /// Whether to ask now. Once asked, not again for the hour, so a slow answer isn't asked
+    /// for twice; `on_answer` says when.
+    fn on_wanted(&mut self, now: Instant) -> bool {
+        let due = self.ask_at.map_or(true, |at| now >= at);
+        if due {
+            self.ask_at = Some(now + MODELS_FOR);
+        }
+        due
+    }
+
+    /// What the command line answered: a list, kept for the hour; or none, asked for again in a
+    /// minute, the list before it kept meanwhile. True for a list.
+    fn on_answer(&mut self, now: Instant, listed: Vec<crate::start::ModelOption>) -> bool {
+        if listed.is_empty() {
+            self.ask_at = Some(now + MODELS_AGAIN);
+            return false;
+        }
+        self.list = listed;
+        self.ask_at = Some(now + MODELS_FOR);
+        true
+    }
+}
 
 /// The models the command line offers (`agy models`), which asks Google for them and takes a
-/// second or two: asked off the caller's thread and kept for an hour, so the first call has
-/// none. The reader asks as the app starts, so the list is there by the time a panel wants it.
+/// second or two: asked off the caller's thread, kept for an hour (`KeptModels`), and on disk
+/// for the next launch (`kept_models_path`), which starts with the last list while it asks again.
+/// The reader asks as the app starts, so the list is fresh by the time a panel wants it.
 fn models(command: &str) -> Vec<crate::start::ModelOption> {
-    static KEPT: std::sync::Mutex<Option<(Instant, Vec<crate::start::ModelOption>)>> = std::sync::Mutex::new(None);
-    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
-    if kept.as_ref().map_or(true, |(at, _)| at.elapsed() >= MODELS_FOR) {
-        // Marked asked now, so a slow answer isn't asked for twice.
-        let have = kept.take().map(|(_, list)| list).unwrap_or_default();
-        *kept = Some((Instant::now(), have));
+    static KEPT: std::sync::Mutex<Option<KeptModels>> = std::sync::Mutex::new(None);
+    let mut lock = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+    let kept = lock.get_or_insert_with(|| KeptModels { list: crate::store::read_or_default(&kept_models_path()), ask_at: None });
+    if kept.on_wanted(Instant::now()) {
         let command = format!("{command} models");
         std::thread::spawn(move || {
             // Through a shell: an account's command may set variables first.
             let listed = procs::run_background("/bin/sh", &["-c", &command], None, Duration::from_secs(30)).map(|out| listed_models(&out)).unwrap_or_default();
-            if !listed.is_empty() {
-                *KEPT.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), listed));
+            let mut lock = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(kept) = lock.as_mut() {
+                if kept.on_answer(Instant::now(), listed) {
+                    // Not worth a notice: the next launch asks again.
+                    let _ = crate::store::save(&kept_models_path(), &kept.list);
+                }
             }
         });
     }
-    kept.as_ref().map(|(_, list)| list.clone()).unwrap_or_default()
+    kept.list.clone()
 }
 
 /// `agy models` prints a line a model: what `--model` takes, a tab, and its name.
@@ -1878,6 +1922,27 @@ mod tests {
         assert_eq!(mode(), Some((ModeKind::Asks, "Strict".to_string())));
         assert_eq!(turn_mode(&dir, "gone"), None);
         assert_eq!(proto_fields(&[0x08]), []);
+    }
+
+    /// A list is kept for the hour; a read that got none is asked for again in a minute, the
+    /// list before it kept; nothing is asked twice while an answer is awaited.
+    #[test]
+    fn models_are_asked_again_soon_after_a_read_that_got_none() {
+        let model = |id: &str| crate::start::ModelOption { id: id.into(), label: id.into() };
+        let t = Instant::now();
+        let s = |n: u64| t + Duration::from_secs(n);
+        let mut kept = KeptModels { list: vec![model("kept-from-last-launch")], ask_at: None };
+        assert!(kept.on_wanted(t), "the first want asks");
+        assert!(!kept.on_wanted(s(10)), "not again while it's asked");
+        // It got none: the last launch's list stays, and it's asked again a minute on.
+        assert!(!kept.on_answer(s(30), Vec::new()));
+        assert_eq!(kept.list, [model("kept-from-last-launch")]);
+        assert!(!kept.on_wanted(s(80)));
+        assert!(kept.on_wanted(s(90)));
+        assert!(kept.on_answer(s(92), vec![model("gemini")]));
+        assert_eq!(kept.list, [model("gemini")]);
+        assert!(!kept.on_wanted(s(92 + 3599)));
+        assert!(kept.on_wanted(s(92 + 3600)), "a list is good for the hour");
     }
 
     #[test]

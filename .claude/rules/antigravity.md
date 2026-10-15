@@ -47,7 +47,11 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   `TargetFile`): `antigravity.rs` (`call`).
 - `agy` opens its terminal UI: `-i <prompt>`, `--conversation <id>`, `--model` with what `agy
   models` lists, and `--add-dir` are in `antigravity.rs` (`Antigravity::start_in_terminal`,
-  `Antigravity::resume`, `models`, `listed_models`, `cli_args`). `-c` goes on with the folder's
+  `Antigravity::resume`, `models`, `listed_models`, `cli_args`). `agy models` asks Google and
+  answered in 4 s at a load near 900 (1.3.5, 2026-10-14), so its list is read in the background,
+  kept an hour, asked again a minute after a read that got none, and kept in
+  `~/Library/Caches/Codealong/agy-models.json` for the next launch (`KeptModels`,
+  `kept_models_path`). `-c` goes on with the folder's
   last conversation (`cache/last_conversations.json`), `--add-dir` repeats, and it takes
   `--effort`, `--mode accept-edits|plan` and `--sandbox`. A prompt that starts with `-` is taken
   as the option's value. There's no way to choose a conversation's id.
