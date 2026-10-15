@@ -354,10 +354,15 @@ function Said({ item, result, now, label, head, onPutBack, onMenu }: { item: Tra
 function PeerText({ item }: { item: TranscriptItem }) {
   const [opened, setOpened] = useState(false);
   const finding = useContext(FindContext);
-  const found = !!finding && says(finding, shownText(item));
+  const box = useRef<HTMLDivElement>(null);
+  // Found as the find reads it: the text laid out, where its Markdown made plain (`shownText`)
+  // can differ (`__init__.py` in code).
+  const [found, setFound] = useState(false);
+  useLayoutEffect(() => {
+    setFound(!!finding && says(finding, box.current?.textContent ?? ''));
+  }, [finding, item.text]);
   const whole = opened || found;
   const [long, setLong] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = box.current;
     if (!el || whole) return;

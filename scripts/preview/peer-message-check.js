@@ -14,7 +14,7 @@
   var picked = null;
   var points = [];
   for (var i = 1; i <= 24; i++) points.push('- Finding ' + i + ': the reader at `apps/server/src/issue/IssueTools.ts` sends this sheet to Astra.');
-  var long = 'Wes asks: is there a rule that sends about **10%** or less of the reads to Astra? The log is [run.log](files/0123456789abcdef/run.log):\n\n![image](images/0123456789abcdef.png)\n\n' + points.join('\n') + '\n\nThe last line says zeppelin, which only the whole message shows.';
+  var long = 'Wes asks: is there a rule that sends about **10%** or less of the reads to Astra? The log is [run.log](files/0123456789abcdef/run.log):\n\n![image](images/0123456789abcdef.png)\n\n' + points.join('\n') + '\n\nThe last line says zeppelin and `__init__.py`, which only the whole message shows.';
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
@@ -96,8 +96,9 @@
       box.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true }));
       return until(function () { return field(); }, 2000)
         .then(function () {
-          // Cut by Show less, it opens all the same: the find counts what the cut would hide.
-          type(field(), 'zeppelin');
+          // Cut by Show less, it opens all the same: the find counts what the cut would hide,
+          // as it's laid out (Markdown made plain would drop the underscores).
+          type(field(), '__init__.py');
           return until(function () { return !cut(peers()[0]); }, 2000);
         })
         .then(function () {
