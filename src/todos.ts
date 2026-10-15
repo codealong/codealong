@@ -229,9 +229,12 @@ export function todoSuggestions(s: TodoSuggested, todo: Todo, labels: Label[], t
   return { project, labels: chosenLabels, dependsOn: deps };
 }
 
-/** Whether a todo says enough to ask about: a few words in its title. */
+/** Whether a todo says enough to ask about: a few words in its title, or a title with a
+ *  description (such as a screenshot). */
 export function worthSuggesting(todo: Todo): boolean {
-  return todo.title.trim().split(/\s+/).length >= 3;
+  const title = todo.title.trim();
+  if (!title) return false;
+  return title.split(/\s+/).length >= 3 || todo.description.trim().length > 0;
 }
 
 /** A change applied the way the engine applies it, so a window can show it at once. */
@@ -646,7 +649,14 @@ export function attachmentRef(a: Attachment): string {
 export function withoutAttachment(text: string, path: string): string {
   const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return text
-    .replace(new RegExp(`[ \\t]*!?\\[[^\\]\\n]*\\]\\(${escaped}\\)[ \\t]*\\n?`, 'g'), '')
+    .replace(new RegExp(`([ \\t]*)(!?\\[[^\\]\\n]*\\]\\(${escaped}\\))([ \\t]*)(\\n?)`, 'g'), (match, lead: string, _ref: string, tail: string, nl: string, offset: number, str: string) => {
+      const atLineStart = offset === 0 || str[offset - 1] === '\n';
+      const atLineEnd = nl !== '' || offset + match.length === str.length;
+      if (atLineStart && atLineEnd) return '';
+      if (atLineStart) return '';
+      if (atLineEnd) return nl;
+      return lead || tail ? ' ' : '';
+    })
     .replace(/\n{3,}/g, '\n\n')
     .trimEnd();
 }
@@ -669,3 +679,35 @@ export function insertAttachments(text: string, at: number, kept: Attachment[]):
   }
   return { text: out, cursor };
 }
+
+/** Splits text into its words and the attachments it holds, for a composer that shows
+ *  attachments in a strip rather than as markdown in its text box. */
+export function splitAttachments(text: string): { text: string; attachments: Attachment[] } {
+  const attachments = attachmentsIn(text);
+  let words = text;
+  for (const a of attachments) words = withoutAttachment(words, a.path);
+  return { text: words.replace(/^\n+/, ''), attachments };
+}
+
+/** Joins a composer's words with its attached images and files, each on a line of its own at
+ *  the end, without repeating any the words still name. */
+export function withAttachments(text: string, attachments: Attachment[]): string {
+  const refs = attachments.filter((a) => !text.includes(`(${a.path})`)).map(attachmentRef);
+  if (refs.length === 0) return text;
+  const trimmed = text.trimEnd();
+  return trimmed ? `${trimmed}\n\n${refs.join('\n')}` : refs.join('\n');
+}
+
+/** Adds newly kept attachments to a list in order, without repeats. */
+export function mergeAttachments(current: Attachment[], added: Attachment[]): Attachment[] {
+  const seen = new Set(current.map((a) => a.path));
+  const next = [...current];
+  for (const a of added) {
+    if (!seen.has(a.path)) {
+      seen.add(a.path);
+      next.push(a);
+    }
+  }
+  return next;
+}
+

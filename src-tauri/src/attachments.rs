@@ -8,20 +8,23 @@
 //! - Any other file is `files/<hash>/<name>`, its name made safe for a path, and written
 //!   `[<name>](files/<hash>/<name>)`.
 //!
-//! A start swaps in each one's full path, since no harness takes a file any other way when a
-//! session starts:
+//! A start or send hands each attachment to the harness the way it takes one:
 //!
-//! - Claude Code reads `@"<path>"` in its first prompt as a file mention and attaches a file of
-//!   up to 256 KB (an image as an image; a PDF whatever its size); a bigger one it reads with its
-//!   Read tool. `--add-dir` on the folders lets it do that without asking (start.rs).
+//! - Where the protocol or command takes images itself (sessions Codealong runs over ACP,
+//!   OpenCode's service, `codex -i`, Codex's app and app-server), the images are taken out of the
+//!   text (`take_images_in`, `read_images_in`) and sent as image parts or options; other files stay
+//!   in the text as paths.
+//! - Claude Code reads `@"<path>"` in a prompt as a file mention and attaches a file of up to
+//!   256 KB (an image as an image; a PDF whatever its size); a bigger one it reads with its Read
+//!   tool. `--add-dir` on the folders lets it do that without asking (start.rs).
 //! - The Claude app's and Codex's new-session links take text only (their `file` parameters are
-//!   dropped or go elsewhere), and OpenCode has no `--add-dir`, so the agent gets the path and
-//!   opens the file itself.
+//!   dropped or go elsewhere), so the agent gets the path and opens the file itself.
 //!
 //! A session's record has a prompt as it went out, so its conversation reads each path as the
-//! reference it was (`written_in`). The images a prompt came with from elsewhere (pasted into a
-//! terminal, attached in a harness's own app) are in the record itself; reading the conversation
-//! keeps those here too (`keep_image_in`, from transcript.rs), so they show in place the same way.
+//! reference it was (`written_in`). The images a prompt came with as image parts (sent that way
+//! from here, pasted into a terminal, or attached in a harness's own app) are in the record
+//! itself; reading the conversation keeps those here too (`keep_image_in`, from transcript.rs),
+//! so they show in place the same way.
 
 use std::path::{Path, PathBuf};
 
@@ -356,6 +359,66 @@ pub fn swap_images(text: &str, mut with: impl FnMut(&str) -> String) -> String {
 
 pub fn expand(text: &str, style: Style) -> String {
     expand_in(text, &images_dir(), &files_dir(), style)
+}
+
+/// Strips each image reference in `text` that `take` accepts, and expands the rest according to
+/// `style`. When an image sits alone on its line, the line goes with it, so taking an attached
+/// image out of a prompt leaves no blank line behind.
+fn strip_images_in(text: &str, images: &Path, files: &Path, style: Style, mut take: impl FnMut(&str, &Path) -> bool) -> String {
+    let short = shorten_in(text, images, files);
+    let stripped = replace(&short, |start, end, kind, rest| {
+        if kind != Kind::Image || !take(rest, &images.join(rest)) {
+            return None;
+        }
+        let (mut from, mut to) = markdown_span(&short, start, end).unwrap_or((start, end));
+        let line_start = short[..from].rfind('\n').map_or(0, |i| i + 1);
+        let line_end = short[to..].find('\n').map_or(short.len(), |i| to + i);
+        let blank = |s: &str| s.bytes().all(|b| b == b' ' || b == b'\t');
+        if blank(&short[line_start..from]) && blank(&short[to..line_end]) {
+            from = line_start;
+            to = (line_end + 1).min(short.len());
+        } else if blank(&short[to..line_end]) {
+            from = short[..from].trim_end_matches([' ', '\t']).len();
+            to = line_end;
+        } else if blank(&short[line_start..from]) {
+            from = line_start;
+            to = line_end - short[to..line_end].trim_start_matches([' ', '\t']).len();
+        } else if short[..from].ends_with(' ') && short[to..].starts_with(' ') {
+            to += 1;
+        }
+        Some((from, to, String::new()))
+    });
+    expand_in(stripped.trim_matches('\n').trim_end_matches([' ', '\t']), images, files, style)
+}
+
+/// Takes the kept images out of `text` as full paths (in order, without repeats) and expands any
+/// other attachments in the remaining text according to `style`, for harnesses that take images
+/// through an option or an input array of their own (`codex -i`, Codex's `localImage`).
+pub fn take_images_in(text: &str, images: &Path, files: &Path, style: Style) -> (String, Vec<PathBuf>) {
+    let mut paths = Vec::new();
+    let out = strip_images_in(text, images, files, style, |_, full| {
+        if !paths.iter().any(|p| p == full) {
+            paths.push(full.to_path_buf());
+        }
+        true
+    });
+    (out, paths)
+}
+
+/// Reads the kept images in `text` from disk as `(name, mime_type, base64)` (in order, without
+/// repeats), taking the ones that are there out of `text` and expanding the rest according to
+/// `style`, for protocols that carry image bytes alongside the text (ACP, OpenCode's service).
+pub fn read_images_in(text: &str, images: &Path, files: &Path, style: Style) -> (String, Vec<(String, String, String)>) {
+    let mut read: Vec<(String, String, String)> = Vec::new();
+    let out = strip_images_in(text, images, files, style, |rest, full| {
+        if read.iter().any(|(name, _, _)| name == rest) {
+            return true;
+        }
+        let Ok(bytes) = std::fs::read(full) else { return false };
+        read.push((rest.to_string(), mime(rest).to_string(), data_encoding::BASE64.encode(&bytes)));
+        true
+    });
+    (out, read)
 }
 
 /// Text that went out with full paths (`Style::Path`) as a window writes it again, each kept
@@ -712,5 +775,33 @@ mod tests {
         assert!(locate_in(&images, &files, &kept.path).unwrap().exists());
         assert!(!locate_in(&images, &files, &gone.path).unwrap().exists());
         assert!(!locate_in(&images, &files, &shot.path).unwrap().exists());
+    }
+
+    #[test]
+    fn takes_images_out_of_the_text_and_expands_other_files() {
+        let (images, files) = (Path::new("/Users/me/Library/Application Support/Codealong/images"), Path::new("/f"));
+        let a = "0123456789abcdef.png";
+        let b = "fedcba9876543210.webp";
+        let fh = "0123456789abcdef";
+        let (text, taken) = take_images_in(&format!("Match this:\n![image](images/{a})\nand [crash.log](files/{fh}/crash.log)\n![shot](images/{b})\n![again](images/{a})"), images, files, Style::Path);
+        assert_eq!(text, format!("Match this:\nand [crash.log](/f/{fh}/crash.log)"));
+        assert_eq!(taken, vec![images.join(a), images.join(b)]);
+        // Works the same when the text was expanded already, or has only images.
+        let expanded = expand_in(&format!("Match this:\n![image](images/{a})"), images, files, Style::Path);
+        assert_eq!(take_images_in(&expanded, images, files, Style::Path), ("Match this:".to_string(), vec![images.join(a)]));
+        assert_eq!(take_images_in(&format!("![image](images/{a})\n![image](images/{b})"), images, files, Style::Path), (String::new(), vec![images.join(a), images.join(b)]));
+        assert_eq!(take_images_in(&format!("Before ![image](images/{a}) after"), images, files, Style::Path), ("Before after".to_string(), vec![images.join(a)]));
+    }
+
+    #[test]
+    fn reads_kept_images_from_disk_and_leaves_missing_ones_as_paths() {
+        let (images, files) = (crate::fixtures::scratch("attach-read-i"), crate::fixtures::scratch("attach-read-f"));
+        let kept = keep_in(&images, &files, PNG, "shot.png").unwrap();
+        let missing = "0123456789abcdef.jpg";
+        let prompt = format!("Check this:\n![image]({})\nand ![missing](images/{missing})", kept.path);
+        let (text, read) = read_images_in(&prompt, &images, &files, Style::Path);
+        assert_eq!(text, format!("Check this:\nand ![missing]({}/{missing})", images.display()));
+        let name = kept.path.strip_prefix(IMAGES).unwrap();
+        assert_eq!(read, vec![(name.to_string(), "image/png".to_string(), data_encoding::BASE64.encode(PNG))]);
     }
 }

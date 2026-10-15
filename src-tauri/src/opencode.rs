@@ -697,7 +697,7 @@ impl crate::send::Own for Posted {
     fn deliver(&self, d: &crate::send::Delivery) -> anyhow::Result<crate::send::Sent> {
         let title = d.title();
         let svc = service(&d.account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running, so Codealong can't reach {title}. Open it and send it there."))?;
-        post(&svc, &format!("/api/session/{}/prompt", urlencoding::encode(&d.session.id)), &prompt_body(&crate::attachments::expand(d.text, crate::attachments::Style::Path), d.now))?;
+        post(&svc, &format!("/api/session/{}/prompt", urlencoding::encode(&d.session.id)), &prompt_body(d.text, d.now))?;
         Ok(crate::send::sent(if d.now {
             format!("Sent now to {title} in OpenCode: it takes it into the turn it's taking.")
         } else if d.busy() {
@@ -709,9 +709,23 @@ impl crate::send::Own for Posted {
 }
 
 /// What the service is posted for a prompt: queued, so a running turn takes it after its step,
-/// or, sent `now`, steered into the turn at once.
+/// or, sent `now`, steered into the turn at once. Kept images on disk go in `files` as data URLs,
+/// taken out of the text; other attachments stay in the text as paths.
+fn prompt_body_in(text: &str, now: bool, images: &Path, files: &Path) -> Value {
+    let (prose, read) = crate::attachments::read_images_in(text, images, files, crate::attachments::Style::Path);
+    let mut body = serde_json::json!({ "text": prose, "delivery": if now { "steer" } else { "queue" } });
+    if !read.is_empty() {
+        body["files"] = Value::Array(
+            read.into_iter()
+                .map(|(name, mime, data)| serde_json::json!({ "type": "file", "url": format!("data:{mime};base64,{data}"), "filename": name, "mime": mime }))
+                .collect(),
+        );
+    }
+    body
+}
+
 fn prompt_body(text: &str, now: bool) -> Value {
-    serde_json::json!({ "text": text, "delivery": if now { "steer" } else { "queue" } })
+    prompt_body_in(text, now, &crate::attachments::images_dir(), &crate::attachments::files_dir())
 }
 
 /// A value for a double-quoted string in a curl config file, where backslash escapes apply.
@@ -785,10 +799,16 @@ pub fn terminal_for<'a>(terminals: &'a [Terminal], row: &SessionRow, latest_in_d
 /// An OpenCode message's items (transcript.rs): a user's text, or an assistant's text and tool parts.
 pub fn conversation_items(v: &Value, seq: u64, at: i64) -> Vec<Item> {
     let mut out = Vec::new();
-    if let Some(t) = v.get("text").and_then(Value::as_str) {
-        if !t.trim().is_empty() {
-            out.push(item(at, "you", t.trim()));
-        }
+    let images: Vec<crate::transcript::Image> = v
+        .get("files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f.get("url").and_then(Value::as_str).and_then(crate::transcript::Image::from_data_url))
+        .collect();
+    let user_text = v.get("text").and_then(Value::as_str).unwrap_or("").trim();
+    if !user_text.is_empty() || !images.is_empty() {
+        out.push(Item { images, ..item(at, "you", user_text) });
     }
     for p in v.get("content").and_then(Value::as_array).into_iter().flatten() {
         match p.get("type").and_then(Value::as_str) {
@@ -1155,7 +1175,7 @@ impl crate::harness::Adapter for OpenCode {
     fn fork_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, _cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
         let (svc, id) = fork_in_service(ctx.account, s)?;
         if !prompt.trim().is_empty() {
-            let body = serde_json::json!({ "text": crate::attachments::expand(prompt.trim(), crate::attachments::Style::Path), "delivery": "queue" });
+            let body = prompt_body(prompt.trim(), false);
             post(&svc, &format!("/api/session/{}/prompt", urlencoding::encode(&id)), &body).map_err(|e| anyhow::anyhow!("OpenCode forked {} but didn't take the prompt: {e}", s.title))?;
         }
         Ok(Some(Session::key_for(Harness::Opencode, &ctx.account.name, &id)))
@@ -1571,6 +1591,22 @@ mod tests {
         assert_eq!(OpenCode.routes(&account, &s), vec![Posted.into()]);
         assert_eq!(prompt_body("two\nlines", false).to_string(), r#"{"delivery":"queue","text":"two\nlines"}"#);
         assert_eq!(prompt_body("now", true).to_string(), r#"{"delivery":"steer","text":"now"}"#);
+
+        let dir = crate::fixtures::scratch("oc-img");
+        let imgs = dir.join("images");
+        let files = dir.join("files");
+        let shot = "0123456789abcdef.png";
+        std::fs::create_dir_all(&imgs).unwrap();
+        std::fs::write(imgs.join(shot), b"\x89PNG").unwrap();
+        let body = prompt_body_in(&format!("Look\n\n![image](images/{shot})"), false, &imgs, &files);
+        assert_eq!(body["text"], "Look");
+        assert_eq!(body["files"][0]["mime"], "image/png");
+        assert_eq!(body["files"][0]["filename"], shot);
+        assert_eq!(body["files"][0]["url"], "data:image/png;base64,iVBORw==");
+        let items = conversation_items(&body, 1, 100);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].text, "Look");
+        assert_eq!(items[0].images, vec![crate::transcript::Image { number: None, base64: "iVBORw==".into() }]);
     }
 
     /// A password with a backslash or a quote in it signs in the same on a read as on a post:

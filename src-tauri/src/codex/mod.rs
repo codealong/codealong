@@ -262,17 +262,22 @@ impl crate::harness::Adapter for Codex {
         Ok(format!("Stopped “{}”.", s.title))
     }
 
-    /// `codex resume <id> <prompt>`; its files go as paths, and `--` keeps a prompt that starts
-    /// with a dash from reading as an option.
+    /// `codex resume -i <image>… -- <id> <prompt>`; its other files go as paths, and `--` keeps a
+    /// prompt that starts with a dash from reading as an option.
     /// `codex resume` takes no model or effort here (`takes_model`), and without a prompt it
     /// opens on the thread and waits for one.
     fn resume(&self, account: &AccountCfg, s: &Session, ask: &crate::harness::StartAsk) -> anyhow::Result<(String, Vec<(String, String)>)> {
-        let prompt = crate::attachments::expand(ask.prompt, crate::attachments::Style::Path).trim().to_string();
-        if prompt.is_empty() {
-            return Ok((format!("{} resume -- {}\n", terminal_ui(account), s.id), Vec::new()));
+        let (prompt, images) = crate::attachments::take_images_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Path);
+        let prompt = prompt.trim();
+        let mut input = format!("{} resume", terminal_ui(account));
+        for p in &images {
+            input.push_str(&format!(" -i {}", crate::util::sh_quote(&p.to_string_lossy())));
         }
-        let input = format!("{} resume -- {} \"${}\"\n", terminal_ui(account), s.id, crate::start::PROMPT_VAR);
-        Ok((input, vec![(crate::start::PROMPT_VAR.to_string(), prompt)]))
+        if prompt.is_empty() {
+            return Ok((format!("{input} -- {}\n", s.id), Vec::new()));
+        }
+        let input = format!("{input} -- {} \"${}\"\n", s.id, crate::start::PROMPT_VAR);
+        Ok((input, vec![(crate::start::PROMPT_VAR.to_string(), prompt.to_string())]))
     }
 
     /// Its resume command without the update offer, as every terminal UI Codealong opens
@@ -376,14 +381,12 @@ impl crate::harness::Adapter for Codex {
     /// ends them before the prompt; other files are paths it can read.
     fn start_in_terminal(&self, account: &AccountCfg, ask: &crate::harness::StartAsk) -> crate::harness::Typed {
         use crate::attachments::{self, Style};
-        let prompt = attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, Style::Path);
+        let (prompt, images) = attachments::take_images_in(ask.prompt, ask.images_dir, ask.files_dir, Style::Path);
         let prompt = prompt.trim();
         let mut input = terminal_ui(account);
         let mut env = Vec::new();
-        for rel in attachments::referenced(ask.prompt).iter().filter(|r| r.starts_with("images/")) {
-            if let Some(name) = rel.strip_prefix("images/") {
-                input.push_str(&format!(" -i {}", crate::util::sh_quote(&ask.images_dir.join(name).to_string_lossy())));
-            }
+        for img in &images {
+            input.push_str(&format!(" -i {}", crate::util::sh_quote(&img.to_string_lossy())));
         }
         if !prompt.is_empty() {
             input.push_str(&format!(" -- \"${}\"", crate::start::PROMPT_VAR));

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, itemPrimaryHolds, nextColor, panelTodos, pieces, primaryHolds, sectionOf, snippet, todoAgent, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import type { Label, Lane, Session, Todo } from './types';
@@ -203,6 +203,19 @@ describe('prompts and images', () => {
     expect(insertAttachments('', 0, [img]).text).toBe(`![image](images/${shot})`);
     expect(withoutAttachment(`One\n\n![image](images/${shot})\n\nTwo`, `images/${shot}`)).toBe('One\n\nTwo');
     expect(withoutAttachment(`One\n[Crash 1.log](${log})\nTwo`, log)).toBe('One\nTwo');
+    expect(withoutAttachment(`Before ![image](images/${shot}) after`, `images/${shot}`)).toBe('Before after');
+    expect(withoutAttachment(`Before ![image](images/${shot})\nAfter`, `images/${shot}`)).toBe('Before\nAfter');
+    expect(splitAttachments(`One\n\n![image](images/${shot})\n[Crash 1.log](${log})\n\nTwo`)).toEqual({
+      text: 'One\n\nTwo',
+      attachments: [{ ...img, name: 'image' }, { ...file, name: 'Crash 1.log' }],
+    });
+    expect(splitAttachments(`Before ![image](images/${shot}) after`)).toEqual({
+      text: 'Before after',
+      attachments: [{ ...img, name: 'image' }],
+    });
+    expect(withAttachments('One\n\nTwo', [img, file])).toBe(`One\n\nTwo\n\n![image](images/${shot})\n[Crash 1.log](${log})`);
+    expect(withAttachments('', [img])).toBe(`![image](images/${shot})`);
+    expect(mergeAttachments([img], [img, file])).toEqual([img, file]);
   });
 
   it('pastes text over the pictures apps put next to it, and attaches files', () => {
@@ -430,8 +443,10 @@ describe('suggestions from Jev', () => {
     expect(todoSuggestions({ ...none, projects: [['Blog', 0.6]] }, me, labels, [me], ['Acme', 'Blog']).project).toBeNull();
   });
 
-  it('asks once the title says something', () => {
+  it('asks once the title says something, or has a description or screenshot with it', () => {
     expect(worthSuggesting(todo('x', { title: 'Fix it' }))).toBe(false);
+    expect(worthSuggesting(todo('x', { title: '', description: '![image](images/0123456789abcdef.png)' }))).toBe(false);
+    expect(worthSuggesting(todo('x', { title: 'Bar overlaps', description: '![image](images/0123456789abcdef.png)' }))).toBe(true);
     expect(worthSuggesting(todo('x', { title: 'Retry failed export jobs' }))).toBe(true);
   });
 });

@@ -43,9 +43,10 @@ pub fn ipc_take(buf: &mut Vec<u8>) -> Option<Value> {
 /// A thread with no turns yet needs its model named: the window otherwise sends an empty one,
 /// which the API refuses.
 pub fn codex_start_request(request_id: &str, client_id: &str, owner: &str, thread: &str, text: &str, message_id: &str, model: Option<(&str, Option<&str>)>) -> Value {
+    let (_, input) = appserver::input_items(text);
     let mut request = json!({
         "threadId": thread,
-        "input": [{ "type": "text", "text": text, "text_elements": [] }],
+        "input": input,
         "clientUserMessageId": message_id,
     });
     if let Some((m, effort)) = model {
@@ -266,6 +267,7 @@ pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Opti
 /// which the window reads the thread's folders from and puts back in the box if the steer is
 /// turned down.
 pub fn codex_steer_request(request_id: &str, client_id: &str, owner: &str, thread: &str, text: &str, message_id: &str, cwd: &str, at: i64) -> Value {
+    let (prose, input) = appserver::input_items(text);
     json!({
         "type": "request",
         "requestId": request_id,
@@ -277,12 +279,12 @@ pub fn codex_steer_request(request_id: &str, client_id: &str, owner: &str, threa
         "params": {
             "conversationId": thread,
             "clientUserMessageId": message_id,
-            "input": [{ "type": "text", "text": text, "text_elements": [] }],
+            "input": input,
             "attachments": [],
             "restoreMessage": {
                 "id": message_id,
-                "text": text,
-                "context": { "prompt": text, "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": [cwd] },
+                "text": prose,
+                "context": { "prompt": prose, "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": [cwd] },
                 "cwd": cwd,
                 "createdAt": at,
             },
@@ -601,6 +603,13 @@ mod tests {
         assert_eq!((&m["id"], &p["clientUserMessageId"]), (&json!("u1"), &json!("u1")));
         assert_eq!((&m["text"], &m["cwd"], &m["createdAt"]), (&json!("and the docs"), &json!("/r/app"), &json!(1_790_000_000_000i64)));
         assert_eq!(m["context"], json!({ "prompt": "and the docs", "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": ["/r/app"] }));
+        // Attached images go as `localImage` items, taken out of the text.
+        let img = attachments::images_dir().join("0123456789abcdef.png");
+        let with_img = codex_steer_request("r", "me", "owner", "t1", "Match this:\n![image](images/0123456789abcdef.png)", "u1", "/r/app", 1_790_000_000_000);
+        assert_eq!(with_img["params"]["input"], json!([{ "type": "text", "text": "Match this:", "text_elements": [] }, { "type": "localImage", "path": img }]));
+        assert_eq!(with_img["params"]["restoreMessage"]["text"], "Match this:");
+        let img_only = codex_start_request("r", "me", "owner", "t1", "![image](images/0123456789abcdef.png)", "u1", None);
+        assert_eq!(img_only["params"]["turnStart"]["request"]["input"], json!([{ "type": "localImage", "path": img }]));
     }
 
     /// A router that answers Codealong's join and its lookups for a thread's window with

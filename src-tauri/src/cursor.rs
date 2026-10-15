@@ -1775,15 +1775,23 @@ impl crate::harness::Adapter for Cursor {
     /// `cursor-agent --resume <id> <prompt>` goes on with a chat in its terminal UI, on the
     /// model asked for, as a start is; without a prompt it opens on the chat and waits for one.
     fn resume(&self, account: &AccountCfg, s: &Session, ask: &crate::harness::StartAsk) -> anyhow::Result<(String, Vec<(String, String)>)> {
-        let prompt = crate::attachments::expand(ask.prompt, crate::attachments::Style::Path).trim().to_string();
+        use crate::start::{FILES_VAR, IMAGES_VAR, PROMPT_VAR};
+        let (has_images, has_files) = crate::attachments::kinds(ask.prompt);
+        let prompt = crate::attachments::expand_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Path).trim().to_string();
         let mut input = format!("{} --resume {}", cli_command(account), s.id);
+        let mut env = Vec::new();
+        for (has, var, dir) in [(has_images, IMAGES_VAR, ask.images_dir), (has_files, FILES_VAR, ask.files_dir)] {
+            if has {
+                input.push_str(&format!(" --add-dir \"${var}\""));
+                env.push((var.to_string(), dir.to_string_lossy().to_string()));
+            }
+        }
         if let Some(m) = ask.model {
             input.push_str(&format!(" --model '{m}'"));
         }
-        let mut env = Vec::new();
         if !prompt.is_empty() {
-            input.push_str(&format!(" \"${}\"", crate::start::PROMPT_VAR));
-            env.push((crate::start::PROMPT_VAR.to_string(), crate::start::as_argument(&prompt)));
+            input.push_str(&format!(" \"${PROMPT_VAR}\""));
+            env.push((PROMPT_VAR.to_string(), crate::start::as_argument(&prompt)));
         }
         input.push('\n');
         Ok((input, env))

@@ -397,6 +397,7 @@ impl Agent {
         let caps = self.caps.lock().unwrap_or_else(|e| e.into_inner());
         match what {
             "load" => caps.get("loadSession").and_then(Value::as_bool).unwrap_or(false),
+            "image" => caps.pointer("/promptCapabilities/image").and_then(Value::as_bool).unwrap_or(false),
             other => caps.pointer(&format!("/sessionCapabilities/{other}")).is_some(),
         }
     }
@@ -683,12 +684,45 @@ fn pick(p: &Permission, answer: Answer) -> std::result::Result<&Offered, &'stati
 
 // ---- what the app does ----
 
+/// The parameters a session starts, resumes, loads or forks with: when the agent takes
+/// `additionalDirectories` (claude-agent-acp offers `sessionCapabilities.additionalDirectories`),
+/// Codealong's attachments folders go with the session so the agent can read attached files
+/// without asking.
+fn session_params(ag: &Agent, cwd: &Path, id: Option<&str>) -> Value {
+    let mut params = match id {
+        Some(id) => json!({ "sessionId": id, "cwd": cwd, "mcpServers": [] }),
+        None => json!({ "cwd": cwd, "mcpServers": [] }),
+    };
+    if ag.can("additionalDirectories") {
+        params["additionalDirectories"] = json!([crate::attachments::images_dir(), crate::attachments::files_dir()]);
+    }
+    params
+}
+
+/// The content blocks `session/prompt` sends for `text`: kept images on disk go as ACP `image`
+/// blocks when the agent takes them, taken out of the text so the agent doesn't also see their
+/// paths, and other attachments stay in the text as paths.
+fn prompt_blocks_in(text: &str, can_image: bool, images: &Path, files: &Path) -> Value {
+    if !can_image {
+        return json!([{ "type": "text", "text": crate::attachments::expand_in(text, images, files, crate::attachments::Style::Path) }]);
+    }
+    let (prose, read) = crate::attachments::read_images_in(text, images, files, crate::attachments::Style::Path);
+    let mut blocks = Vec::new();
+    if !prose.is_empty() || read.is_empty() {
+        blocks.push(json!({ "type": "text", "text": prose }));
+    }
+    for (_, mime, data) in read {
+        blocks.push(json!({ "type": "image", "mimeType": mime, "data": data }));
+    }
+    Value::Array(blocks)
+}
+
 /// Starts a session in `cwd` on `prompt` and returns its key. The turn runs on; the board shows it.
 pub fn start(a: &AccountCfg, cwd: &Path, prompt: &str, model: Option<&str>, effort: Option<&str>) -> Result<String> {
     in_app()?;
     let harness = Harness::from_config(&a.harness);
     let ag = agent(a)?;
-    let r = ag.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }), Some(REQUEST_TIMEOUT))?;
+    let r = ag.request("session/new", session_params(&ag, cwd, None), Some(REQUEST_TIMEOUT))?;
     let id = r.get("sessionId").and_then(Value::as_str).ok_or_else(|| anyhow!("{}'s agent made no session.", a.name))?.to_string();
     let options = tune(&ag, &id, &r, model, effort)?;
     let key = key_of(harness, &a.name, &id);
@@ -801,7 +835,7 @@ pub fn fork(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str) -> Result<String
     if !ag.can("fork") {
         bail!("{}'s agent can't fork a session.", a.name);
     }
-    let r = ag.request("session/fork", json!({ "sessionId": id, "cwd": cwd, "mcpServers": [] }), Some(REQUEST_TIMEOUT))?;
+    let r = ag.request("session/fork", session_params(&ag, cwd, Some(id)), Some(REQUEST_TIMEOUT))?;
     let copy = r.get("sessionId").and_then(Value::as_str).ok_or_else(|| anyhow!("{}'s agent made no copy.", a.name))?.to_string();
     let key = key_of(harness, &a.name, &copy);
     let cwd_s = cwd.to_string_lossy().into_owned();
@@ -809,9 +843,9 @@ pub fn fork(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str) -> Result<String
     // codex-acp lets go of the thread once it's copied (1.13.1), so the first prompt picks it up
     // again as it would a session from before the process started.
     state().sessions.insert(key.clone(), Hosted { account: a.name.clone(), id: copy, cwd: cwd_s, loaded: false, remembered: true, ..Default::default() });
-    let text = crate::attachments::expand(prompt.trim(), crate::attachments::Style::Path);
+    let text = prompt.trim();
     if !text.is_empty() {
-        send(a, &key, &text)?;
+        send(a, &key, text)?;
     }
     notify(Change::Board);
     Ok(key)
@@ -885,7 +919,7 @@ pub fn send(a: &AccountCfg, key: &str, text: &str) -> Result<String> {
 /// Opens a session in the process: resumed where the agent can, else loaded from its history.
 /// Returns the agent's answer, which lists the session's config options.
 fn load(ag: &Arc<Agent>, key: &str, id: &str, cwd: &str) -> Result<Value> {
-    let params = json!({ "sessionId": id, "cwd": cwd, "mcpServers": [] });
+    let params = session_params(ag, Path::new(cwd), Some(id));
     let answer = if ag.can("resume") {
         ag.request("session/resume", params, Some(REQUEST_TIMEOUT))?
     } else if ag.can("load") {
@@ -965,7 +999,7 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
             if let Some(b) = began {
                 note_turn(&key, b, true);
             }
-            let prompt = json!([{ "type": "text", "text": text }]);
+            let prompt = prompt_blocks_in(&text, ag.can("image"), &crate::attachments::images_dir(), &crate::attachments::files_dir());
             let Some(r) = ag.request_if("session/prompt", json!({ "sessionId": id, "prompt": prompt }), None, || turn.send()) else {
                 if let Some(b) = began {
                     note_turn(&key, b, false);
@@ -2007,5 +2041,37 @@ mod tests {
         assert_eq!(adapter_command(&a).unwrap().0, "my-agent --acp");
         let ag: AccountCfg = serde_json::from_value(json!({ "name": "ag", "harness": "antigravity", "home": "~/.gemini" })).unwrap();
         assert!(adapter_command(&ag).is_err());
+    }
+
+    #[test]
+    fn sends_kept_images_as_acp_image_blocks_and_leaves_files_as_paths() {
+        let (images, files) = (crate::fixtures::scratch("acp-img"), crate::fixtures::scratch("acp-files"));
+        let png: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89";
+        let shot = crate::attachments::keep_in(&images, &files, png, "shot.png").unwrap();
+        let doc = crate::attachments::keep_in(&images, &files, b"log", "crash.log").unwrap();
+        let text = format!("Match this:\n![image]({})\nand [crash.log]({})", shot.path, doc.path);
+        let b64 = data_encoding::BASE64.encode(png);
+        assert_eq!(
+            prompt_blocks_in(&text, true, &images, &files),
+            json!([
+                { "type": "text", "text": format!("Match this:\nand [crash.log]({}/{})", files.display(), doc.path.strip_prefix("files/").unwrap()) },
+                { "type": "image", "mimeType": "image/png", "data": b64 },
+            ])
+        );
+        // An image alone sends only the image block; an agent without image capability gets paths.
+        assert_eq!(prompt_blocks_in(&format!("![image]({})", shot.path), true, &images, &files), json!([{ "type": "image", "mimeType": "image/png", "data": b64 }]));
+        assert_eq!(
+            prompt_blocks_in(&format!("![image]({})", shot.path), false, &images, &files),
+            json!([{ "type": "text", "text": format!("![image]({}/{})", images.display(), shot.path.strip_prefix("images/").unwrap()) }])
+        );
+        let dir = store::test_dir("acp-img-caps");
+        let ag = stand_in("test-adapter-img-caps", "while IFS= read -r _; do :; done", &dir);
+        assert!(!ag.can("image"));
+        *ag.caps.lock().unwrap() = json!({ "promptCapabilities": { "image": false } });
+        assert!(!ag.can("image"));
+        *ag.caps.lock().unwrap() = json!({ "promptCapabilities": { "image": true } });
+        assert!(ag.can("image"));
+        state().agents.remove("test-adapter-img-caps");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

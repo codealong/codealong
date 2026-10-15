@@ -1554,11 +1554,11 @@ mod tests {
         // Without images, nothing changes.
         let Plan::Terminal { input, .. } = plan_in(&a, Place::Terminal, Path::new("/r/x"), "Fix it", id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
-        // The Codex CLI gets the image with -i as well as its path, `--` before the prompt.
+        // The Codex CLI gets the image with -i and taken out of the prompt, `--` before the prompt.
         let cx2 = account("codex2", "codex", "~/.codex2", Some("CODEX_HOME=~/.codex2 codex"));
         let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), None, true, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!(input, format!("CODEX_HOME=~/.codex2 codex -c check_for_update_on_startup=false -i '{}/0123456789abcdef.png' -- \"$CODEALONG_PROMPT\"\n", dir.display()));
-        assert_eq!(env, vec![(PROMPT_VAR.to_string(), format!("Match this:\n![image]({}/0123456789abcdef.png)", dir.display()))]);
+        assert_eq!(env, vec![(PROMPT_VAR.to_string(), "Match this:".to_string())]);
         let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), "", id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!((input.as_str(), env.len()), ("CODEX_HOME=~/.codex2 codex -c check_for_update_on_startup=false\n", 0));
         // Codex opens the path; the Claude app gets the same mention the terminal does.

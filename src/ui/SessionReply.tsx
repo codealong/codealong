@@ -78,7 +78,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import { answerAhead, sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
 import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionEffort, switchSessionModel } from '../api';
-import { filesToAttach, keepFiles } from '../attachInput';
+import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
 import { stoppable } from '../lanes';
@@ -88,8 +88,8 @@ import { completed, matching, mentionAt, mentionsIn, sessionSkills, skillNamed, 
 import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
 import { accountOf, useStartAccounts } from '../startAccounts';
 import { sessionSkillsFor, useSkills } from '../useSkills';
-import { attachmentsIn, insertAttachments, withoutAttachment } from '../todos';
-import type { Answers, Pending, Question, Sent, Session, StartPlace, Suggestions, Way } from '../types';
+import { mergeAttachments, splitAttachments, withAttachments } from '../todos';
+import type { Answers, Attachment, Pending, Question, Sent, Session, StartPlace, Suggestions, Way } from '../types';
 import { CodeBlock } from './CopyButton';
 import { bangCommand } from './RunButton';
 import { AttachmentStrip } from './DescriptionEditor';
@@ -260,19 +260,25 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   // apart so what's typed for one never goes to the other.
   const draft = aside ? sideDraft(s.key) : s.key;
   const draftNow = useLatest(draft);
-  const [text, setTextNow] = useState(() => readDraft(draft));
+  const initialDraft = splitAttachments(readDraft(draft));
+  const [text, setTextNow] = useState(initialDraft.text);
+  const [attached, setAttachedNow] = useState<Attachment[]>(initialDraft.attachments);
   const [drafting, setDrafting] = useState(draft);
   if (drafting !== draft) {
+    const next = splitAttachments(readDraft(draft));
     setDrafting(draft);
-    setTextNow(readDraft(draft));
+    setTextNow(next.text);
+    setAttachedNow(next.attachments);
   }
   // A message to this session on its way, from this box or any other.
   const going = sending(useAhead(), s.key);
   const [note, setNote] = useState<Note | null>(() => landed.get(s.key) ?? null);
   const box = useRef<HTMLTextAreaElement>(null);
+  const field = useRef<HTMLDivElement>(null);
   const latest = useRef(text);
   latest.current = text;
-  const attached = attachmentsIn(text);
+  const attachedNow = useRef(attached);
+  attachedNow.current = attached;
   const way = useWay(s);
   // The suggestions (by when they were made) that what this box sent answered, or that were
   // dismissed here: they go at once, the board saying so a moment later.
@@ -315,16 +321,35 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const setText = (t: string) => {
     setTextNow(t);
     latest.current = t;
-    writeDraft(draftNow.current, t);
+    writeDraft(draftNow.current, withAttachments(t, attachedNow.current));
+  };
+  const setAttached = (next: Attachment[]) => {
+    setAttachedNow(next);
+    attachedNow.current = next;
+    writeDraft(draftNow.current, withAttachments(latest.current, next));
+  };
+  const clearBox = () => {
+    setTextNow('');
+    latest.current = '';
+    setAttachedNow([]);
+    attachedNow.current = [];
+    writeDraft(draftNow.current, '');
+  };
+  const loadDraft = (raw: string): string => {
+    const next = splitAttachments(raw);
+    setTextNow(next.text);
+    latest.current = next.text;
+    setAttachedNow(next.attachments);
+    attachedNow.current = next.attachments;
+    return next.text;
   };
 
   // Another window wrote to this draft too, or sent what was written, or a prompt the session
   // took back was put back here.
   useEffect(
     () =>
-      onDraftChange(draft, (t, focus) => {
-        setTextNow(t);
-        latest.current = t;
+      onDraftChange(draft, (raw, focus) => {
+        const t = loadDraft(raw);
         const el = box.current;
         if (!focus || !el) return;
         el.focus();
@@ -342,9 +367,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     const hear = (n: Note) => {
       setNote(n);
       if (!n.error) return;
-      const t = readDraft(draftNow.current);
-      setTextNow(t);
-      latest.current = t;
+      loadDraft(readDraft(draftNow.current));
       box.current?.focus();
     };
     const boxes = hearing.get(s.key) ?? new Set<(note: Note) => void>();
@@ -419,11 +442,12 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
    *  deny it sends goes on to the next with `next` once it's in. */
   const send = (now = false, next = false, chosen?: string): boolean => {
     // A skill's name goes as the session's harness takes it.
-    const t = chosen?.trim() ?? writtenFor(text.trim(), skills, s.harness);
+    const words = chosen?.trim() ?? writtenFor(text.trim(), skills, s.harness);
+    const t = chosen !== undefined ? words : withAttachments(words, attached);
     if (!t) return false;
     if (waiting) return denySaying(t, next, chosen !== undefined);
     setNote(null);
-    if (chosen === undefined) setText('');
+    if (chosen === undefined) clearBox();
     // What happens next is told to whichever box is showing then: this one may be gone by then
     // (the peek closes as it sends).
     const key = s.key;
@@ -453,10 +477,10 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const denySaying = (t: string, next: boolean, chosen = false): boolean => {
     if (!onDenySaying) return false;
     const key = s.key;
-    const typed = chosen ? t : text;
+    const typed = chosen ? t : withAttachments(text, attached);
     const suggestedAt = s.suggestions?.at;
     setNote(null);
-    if (!chosen) setText('');
+    if (!chosen) clearBox();
     void onDenySaying(t, next).then((why) => {
       if (why == null) {
         if (suggestedAt !== undefined) setAnswered(suggestedAt);
@@ -474,13 +498,14 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const fork = (prompt: string) => {
     if (forking) return;
     const key = s.key;
-    const typed = text;
+    const full = withAttachments(prompt, attached);
+    const typed = withAttachments(text, attached);
     // It goes back where it was typed: the session's draft or its side conversation's.
     const from = draft;
     setForking(true);
     setNote(null);
-    setText('');
-    forkSession(key, { background: true, prompt })
+    clearBox();
+    forkSession(key, { background: true, prompt: full })
       .then(
         (started) => void land(key, { text: started?.message ?? 'Forked in the background.', error: false }),
         (e: unknown) => {
@@ -526,13 +551,14 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const askAside = (question: string) => {
     if (asking) return;
     const key = s.key;
+    const full = withAttachments(question, attached);
     setNote(null);
-    setText('');
+    clearBox();
     // Out in a window of its own, that comes forward to show it, leaving the keyboard here. It's
     // up already: only a window gone meanwhile fails, and the next `side-windows` puts it back
     // above this box.
     if (popped) void sideWindow(key, false).catch(() => {});
-    if (!question) {
+    if (!full) {
       showSides(key, { kind: 'list' });
       return;
     }
@@ -542,11 +568,11 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     setAsking(true);
     // The question shows as the engine tells of it (side.ts), as its answer does: what this
     // resolves with can be behind what's been heard since.
-    sideAsk(key, question)
+    sideAsk(key, full)
       .catch((e: unknown) => {
         const why = errorText(e);
         const side = sideDraft(key);
-        writeDraft(side, [question, readDraft(side)].filter((t) => t.trim()).join('\n\n'));
+        writeDraft(side, [full, readDraft(side)].filter((t) => t.trim()).join('\n\n'));
         notAsked(key);
         if (!land(key, { text: why, error: true })) onFailed?.(why);
       })
@@ -559,7 +585,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     if (runs) return runOwn();
     const command = slashCommand(text, s);
     if (!command && aside) {
-      if (!text.trim()) return false;
+      if (empty) return false;
       askAside(text.trim());
       return true;
     }
@@ -569,26 +595,23 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     return true;
   };
 
-  // A pasted screenshot or file goes in at the cursor, on a line of its own; the agent gets its
-  // path (send.rs expands it).
+  // A pasted or dropped screenshot or file goes into the attachment strip above the box; the
+  // agent gets it natively where the harness takes images, or as a path it can read.
+  const addAttachments = (kept: Attachment[]) => {
+    setAttached(mergeAttachments(attachedNow.current, kept));
+    window.requestAnimationFrame(() => box.current?.focus());
+  };
+  useFileDrop(field, addAttachments, (why) => setNote({ text: why, error: true }));
   const paste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = filesToAttach(e);
     if (files.length === 0) return;
     e.preventDefault();
-    const at = e.currentTarget.selectionStart;
     keepFiles(files)
-      .then((kept) => {
-        const r = insertAttachments(latest.current, at, kept);
-        setText(r.text);
-        window.requestAnimationFrame(() => {
-          box.current?.focus();
-          box.current?.setSelectionRange(r.cursor, r.cursor);
-        });
-      })
+      .then(addAttachments)
       .catch((err: unknown) => setNote({ text: errorText(err), error: true }));
   };
 
-  const empty = !text.trim();
+  const empty = !text.trim() && attached.length === 0;
   // A command goes even while the session waits on you: it doesn't reach the session.
   const command = slashCommand(text, s);
   const commands = slashMatches(text, s);
@@ -747,6 +770,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
         />
       )}
       <div
+        ref={field}
         className="ca-composer-field"
         onMouseDown={(e) => {
           // A press anywhere in the box but its buttons and its menus puts the cursor in it.
@@ -755,7 +779,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           box.current?.focus();
         }}
       >
-        {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setText(withoutAttachment(latest.current, a.path))} />}
+        {attached.length > 0 && <AttachmentStrip items={attached} onRemove={(a) => setAttached(attachedNow.current.filter((x) => x.path !== a.path))} />}
         <BoxText
           ref={box}
           value={text}
@@ -807,7 +831,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             }
             // ⌘⌫ with nothing written denies the call it waits on; with words, it deletes them as
             // it does in any box.
-            if (e.key === 'Backspace' && e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && onDeny && !aside && !text.trim()) {
+            if (e.key === 'Backspace' && e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && onDeny && !aside && empty) {
               e.preventDefault();
               onDeny();
               return;
@@ -830,12 +854,12 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             // While it waits on a call answered here, ⌘⏎ answers it and goes on: what you wrote
             // denies it and is sent instead, as with ⏎, and an empty box allows it. Questions are
             // declined with what you wrote the same way.
-            if (e.metaKey && waiting && onDenySaying && text.trim()) {
+            if (e.metaKey && waiting && onDenySaying && !empty) {
               e.preventDefault();
               send(false, true);
               return;
             }
-            if (e.metaKey && onAllow && !text.trim()) {
+            if (e.metaKey && onAllow && empty) {
               e.preventDefault();
               onAllow();
               return;

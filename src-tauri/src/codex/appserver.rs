@@ -106,8 +106,28 @@ fn queue_hello() -> Value {
     json!({ "clientInfo": rpc::client_info(), "capabilities": { "experimentalApi": true } })
 }
 
+/// The prompt's text and the `input` items Codex's app and app-server take for `text`: kept
+/// images go as `{ "type": "localImage", "path": "<path>" }` items, taken out of the text, and
+/// other attachments stay in the text as paths.
+pub fn input_items_in(text: &str, images: &Path, files: &Path) -> (String, Value) {
+    let (prose, taken) = crate::attachments::take_images_in(text, images, files, crate::attachments::Style::Path);
+    let mut items = Vec::new();
+    if !prose.is_empty() || taken.is_empty() {
+        items.push(json!({ "type": "text", "text": prose, "text_elements": [] }));
+    }
+    for path in taken {
+        items.push(json!({ "type": "localImage", "path": path }));
+    }
+    (prose, Value::Array(items))
+}
+
+pub fn input_items(text: &str) -> (String, Value) {
+    input_items_in(text, &crate::attachments::images_dir(), &crate::attachments::files_dir())
+}
+
 fn add_to_queue(s: &Server, thread_id: &str, text: &str, message_id: &str) -> Result<()> {
-    let params = json!({ "threadId": thread_id, "input": [{ "type": "text", "text": text, "text_elements": [] }], "clientUserMessageId": message_id });
+    let (_, input) = input_items(text);
+    let params = json!({ "threadId": thread_id, "input": input, "clientUserMessageId": message_id });
     match s.answer("thread/queue/add", params) {
         Ok(_) => Ok(()),
         Err(Failure::Refused(e)) => bail!("Codex didn't queue it: {}", e.get("message").and_then(Value::as_str).unwrap_or("unknown error")),

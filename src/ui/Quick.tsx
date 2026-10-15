@@ -88,7 +88,7 @@ import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
-import { attachmentsIn, blockedBy, insertAttachments, newTodo, primaryHolds, snippet, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withoutAttachment } from '../todos';
+import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
@@ -253,6 +253,7 @@ export function Quick() {
   const [opener, setOpener] = useState<string | null>(null);
   const [project, setProject] = useState<string>(() => readStored(PROJECT_KEY, asText, ALL_PROJECTS));
   const [text, setText] = useState('');
+  const [attached, setAttached] = useState<Attachment[]>([]);
   const [laneId, setLaneId] = useState<string | null>(null);
   // The account or Auto, model, effort and place picked for a new session, and whether it gets a
   // new worktree (useStartChoice.ts).
@@ -288,6 +289,19 @@ export function Quick() {
   const list = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const textNow = useLatest(text);
+  const attachedNow = useLatest(attached);
+  const fullPrompt = withAttachments(text, attached);
+  const fullPromptNow = useLatest(fullPrompt);
+  const loadPrompt = (raw: string): string => {
+    const next = splitAttachments(raw);
+    setText(next.text);
+    setAttached(next.attachments);
+    return next.text;
+  };
+  const clearPrompt = () => {
+    setText('');
+    setAttached([]);
+  };
   const cachedOptions = useRef<{ at: number; options: StartOptions } | null>(null);
   // Jev's answers by project and text, so going back to what you typed doesn't ask again. Each
   // open starts afresh: sessions come and go.
@@ -355,10 +369,10 @@ export function Quick() {
         setProject(improving && b?.improve?.project ? b.improve.project : (ctx.project ?? readStored(PROJECT_KEY, asText, ALL_PROJECTS)));
         setLaneId(at);
         setTodoIds(ctx.todos ?? (ctx.todo ? [ctx.todo] : []));
-        const typed = textNow.current;
+        const typed = fullPromptNow.current;
         const typedFor = todoIdsNow.current;
         setDraft((d) => nextDraft(typed, typedFor, d));
-        setText(ctx.prompt ?? '');
+        loadPrompt(ctx.prompt ?? '');
         setRecall(null);
         setAgent(null);
         setEffort(null);
@@ -376,7 +390,7 @@ export function Quick() {
         if (ts.length > 0) {
           const homes = sessionHomes(b.lanes);
           const now = Date.now();
-          setText(todosPrompt(ts, (t) => primaryHolds(t, homes, now)));
+          loadPrompt(todosPrompt(ts, (t) => primaryHolds(t, homes, now)));
           const laneById = new Map(b.lanes.map((l) => [l.id, l]));
           if (!ctx.laneId) setLaneId(ts.map((t) => todoItem(t, laneById, homes, new Map()).lane?.id).find(Boolean) ?? null);
         }
@@ -441,7 +455,7 @@ export function Quick() {
       offHidden();
     };
     // Once: the refs and setters are the same objects on every render.
-  }, [textNow, todoIdsNow, setAgent, setEffort, setPlace, setNewWorktree]);
+  }, [fullPromptNow, todoIdsNow, setAgent, setEffort, setPlace, setNewWorktree]);
 
   useEffect(
     () =>
@@ -650,7 +664,6 @@ export function Quick() {
       return at ? [{ todo: t, at }] : [];
     });
   }, [board, forTodos]);
-  const attached = attachmentsIn(text);
   // Improve Codealong's pictures of the windows, shown with the attachments and sent after them:
   // with a start, a send to a session, a todo saved.
   const shots = improve?.shots ?? [];
@@ -683,16 +696,10 @@ export function Quick() {
       .catch((e: unknown) => setError(errorText(e)));
   };
 
-  // Attachments go in at the cursor, each on a line of its own.
+  // Attachments go into the strip below the input rather than as markdown in the text box.
   const addAttachments = (kept: Attachment[]) => {
-    const el = input.current;
-    const t = textNow.current;
-    const r = insertAttachments(t, el && document.activeElement === el ? el.selectionStart : t.length, kept);
-    setText(r.text);
-    window.requestAnimationFrame(() => {
-      input.current?.focus();
-      input.current?.setSelectionRange(r.cursor, r.cursor);
-    });
+    setAttached((prev) => mergeAttachments(prev, kept));
+    refocus();
   };
   useFileDrop(inputBox, addAttachments, setError);
 
@@ -700,10 +707,10 @@ export function Quick() {
 
   // With a todo to start, the input holds its prompt, not a search: only the new session is
   // listed.
-  const prompted = text.trim().length > 0;
+  const prompted = text.trim().length > 0 || attached.length > 0;
   const query = todo || slash ? '' : text.trim();
-  // With nothing typed, a few todos ready to start go under the sessions, which leave them room.
-  const listing = !query && !todo && !slash;
+  // With nothing typed or attached, a few todos ready to start go under the sessions, which leave them room.
+  const listing = !query && attached.length === 0 && !todo && !slash;
   const readyList = useMemo(() => (board && listing ? readyTodos(board, current) : null), [board, current, listing]);
   const attention = useMemo(() => (board && listing ? attentionRows(board, current, MAX_ROWS - (readyList?.rows.length ?? 0)) : null), [board, current, listing, readyList]);
   // Below them, the rest of the day's sessions, for ↓ to reach one that isn't waiting on you.
@@ -740,9 +747,11 @@ export function Quick() {
   const foundTodos = useMemo(() => (board && query ? findTodos(board, current, query) : []), [board, current, query]);
   const foundPrs = useMemo(() => (board && query ? findPrs(board, current, query) : []), [board, current, query]);
 
-  // With routing on, what you type goes to Jev once you pause, and its suggestions lead the
-  // list, so ⏎ does the likeliest. A word or two is a search and isn't sent.
-  const routeFor = board?.jev?.quick_panel && !todo && worthRouting(query) ? `${current}\n${query}` : null;
+  // With routing on, what you type (and any pictures attached to it) goes to Jev once you pause,
+  // and its suggestions lead the list, so ⏎ does the likeliest. A word or two alone is a search
+  // and isn't sent.
+  const routePrompt = query ? withShots(withAttachments(query, attached)) : '';
+  const routeFor = board?.jev?.quick_panel && !todo && worthRouting(routePrompt) ? `${current}\n${routePrompt}` : null;
   const [routed, setRouted] = useState<{ for: string; route: Route } | null>(null);
   const [routeError, setRouteError] = useState<{ for: string; message: string } | null>(null);
   useEffect(() => {
@@ -805,7 +814,7 @@ export function Quick() {
 
   // The panel's height, as the list may change it while you type, told to quick.rs
   // (useQuickSize.ts).
-  useQuickSize({ card, list, scroller, input, text, opens, shown, room, answered: !routing && (!textFor || !!textFound), opening, reported });
+  useQuickSize({ card, list, scroller, input, text: fullPrompt, opens, shown, room, answered: !routing && (!textFor || !!textFound), opening, reported });
 
   // The last answer orders the sessions found too while the next is worked out, so the ones it
   // put first don't drop back at every key.
@@ -839,8 +848,8 @@ export function Quick() {
   });
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   useEffect(() => {
-    writeStored(DRAFT_KEY, draftCodec, nextDraft(text, todoIds, draft));
-  }, [text, todoIds, draft]);
+    writeStored(DRAFT_KEY, draftCodec, nextDraft(fullPrompt, todoIds, draft));
+  }, [fullPrompt, todoIds, draft]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
 
   useEffect(() => {
@@ -866,7 +875,7 @@ export function Quick() {
   /** Opens one of a worktree's targets where it lives (open.ts): the panel puts itself away,
    *  and comes back as it was if the open fails. */
   const openHere = (lane: Lane, target: string) => {
-    const kept = textNow.current;
+    const kept = fullPromptNow.current;
     openWhere(where(lane, target), {
       from: 'panel',
       report: {
@@ -874,13 +883,13 @@ export function Quick() {
           shownNow.current
             ? setError(message)
             : reopen(() => {
-                setText(kept);
+                loadPrompt(kept);
                 setError(message);
               }),
         info: setInfo,
       },
       before: () => {
-        setText('');
+        clearPrompt();
         setActiveKey(null);
         setError(null);
         void hideQuick();
@@ -896,7 +905,7 @@ export function Quick() {
   /** What picking a session does: Codealong shows it, with its conversation, rather than the
    *  terminal or app it runs in. The search that found it is done with, as when it opens there. */
   const showSession = (lane: Lane, session: Session) => {
-    setText('');
+    clearPrompt();
     setActiveKey(null);
     setError(null);
     revealSession(lane, session);
@@ -907,7 +916,7 @@ export function Quick() {
    *  with its name ready to change. The search that found it is done with, as when it opens
    *  where it lives. */
   const answerIn = (key: string, rename = false) => {
-    setText('');
+    clearPrompt();
     setActiveKey(null);
     setError(null);
     void hideQuick();
@@ -922,7 +931,7 @@ export function Quick() {
    *  when you say so. */
   const prepareTodo = (r: TodoRow) => {
     setTodoIds([r.item.todo.id]);
-    setText(todoPrompt(r.item.todo, board ? primaryHolds(r.item.todo, sessionHomes(board.lanes), Date.now()) : undefined));
+    loadPrompt(todoPrompt(r.item.todo, board ? primaryHolds(r.item.todo, sessionHomes(board.lanes), Date.now()) : undefined));
     if (r.item.lane) setLaneId(r.item.lane.id);
     setActiveKey(COMPOSE);
     setError(null);
@@ -963,7 +972,7 @@ export function Quick() {
   /** What picking a PR does: Codealong shows it, as a session is shown, rather than GitHub. The
    *  search that found it is done with. */
   const showPr = (pr: PrItem) => {
-    setText('');
+    clearPrompt();
     setActiveKey(null);
     setError(null);
     revealPr(pr);
@@ -1101,7 +1110,8 @@ export function Quick() {
     if (choice) remember(choice, placeNow);
     if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow), placeNow);
     // The skill that starts the prompt goes as the account's agent takes it.
-    const written = skillNow && harness && !over ? writtenFor(text, [skillNow.skill], harness) : text;
+    const base = skillNow && harness && !over ? writtenFor(text, [skillNow.skill], harness) : text;
+    const written = withAttachments(base, attached);
     // Improve Codealong: the pictures of the windows go after what you wrote.
     const prompt = withShots(written);
     const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
@@ -1109,9 +1119,9 @@ export function Quick() {
     const id = Date.now();
     const to = opener ?? 'main';
     // The panel is fresh for next time; a failed start brings back what you had.
-    const kept = { text, todoIds, newWorktree, improve };
-    keepPrompt(text);
-    setText('');
+    const kept = { text, attached, todoIds, newWorktree, improve };
+    keepPrompt(fullPrompt);
+    clearPrompt();
     setTodoIds([]);
     setNewWorktree(false);
     setImprove(null);
@@ -1125,6 +1135,7 @@ export function Quick() {
         void tellOpener(to, { phase: 'end', id, key: null, message: null });
         reopen(() => {
           setText(kept.text);
+          setAttached(kept.attached);
           setTodoIds(kept.todoIds);
           setNewWorktree(kept.newWorktree);
           setImprove(kept.improve);
@@ -1137,13 +1148,15 @@ export function Quick() {
    *  send brings it back with what you wrote and why. */
   const send = (session: Session) => {
     const words = textNow.current;
+    const keptAttached = attachedNow.current;
+    const full = withAttachments(words, keptAttached);
     // Improve Codealong's pictures go with what's sent too, as they go with a start.
-    const prompt = withShots(words);
+    const prompt = withShots(full);
     const kept = improve;
     const id = Date.now();
     const to = opener ?? 'main';
-    keepPrompt(words);
-    setText('');
+    keepPrompt(full);
+    clearPrompt();
     setImprove(null);
     setActiveKey(null);
     setError(null);
@@ -1155,6 +1168,7 @@ export function Quick() {
         void tellOpener(to, { phase: 'end', id, key: null, message: null });
         reopen(() => {
           setText(words);
+          setAttached(keptAttached);
           setImprove(kept);
           setError(errorText(e));
         });
@@ -1165,13 +1179,15 @@ export function Quick() {
    *  its description. */
   const saveTodo = (where: Lane) => {
     const words = textNow.current.trim();
-    const prompt = withShots(words);
-    const title = todoTitle(words);
+    const keptAttached = attachedNow.current;
+    const full = withAttachments(words, keptAttached);
+    const prompt = withShots(full);
+    const title = todoTitle(words || full);
     const t = newTodo({ title, description: prompt === title ? '' : prompt, project: where.project, worktrees: [where.id] }, Date.now());
     const to = opener ?? 'main';
     const kept = improve;
-    keepPrompt(words);
-    setText('');
+    keepPrompt(full);
+    clearPrompt();
     setImprove(null);
     setActiveKey(null);
     setError(null);
@@ -1181,6 +1197,7 @@ export function Quick() {
       .catch((e: unknown) =>
         reopen(() => {
           setText(words);
+          setAttached(keptAttached);
           setImprove(kept);
           setError(errorText(e));
         }),
@@ -1284,19 +1301,19 @@ export function Quick() {
     }
     // ↑ in the empty input brings back the draft, then earlier prompts, and ↓ goes forward again
     // to the empty input; once you change what came back, the arrows move through the list.
-    const recalled = recall !== null && el.value === recallable[recall];
+    const recalled = recall !== null && withAttachments(el.value, attached) === recallable[recall];
     const plainKey = !e.altKey && !e.metaKey && !e.shiftKey && !e.ctrlKey;
-    const walk = (e.key === 'ArrowUp' && (recalled || (!el.value && keys.indexOf(active) <= 0))) || (e.key === 'ArrowDown' && recalled);
+    const walk = (e.key === 'ArrowUp' && (recalled || (!el.value && attached.length === 0 && keys.indexOf(active) <= 0))) || (e.key === 'ArrowDown' && recalled);
     if (plainKey && walk) {
       const at = recalled ? recall + (e.key === 'ArrowUp' ? 1 : -1) : 0;
       if (at >= recallable.length) return e.preventDefault();
       e.preventDefault();
       const next = at < 0 ? '' : recallable[at];
+      const shownText = loadPrompt(next);
       setRecall(at < 0 ? null : at);
-      setText(next);
       setTodoIds(at === 0 && draft && recallable[0] === draft.text ? draft.todos : []);
       setActiveKey(null);
-      window.requestAnimationFrame(() => el.setSelectionRange(next.length, next.length));
+      window.requestAnimationFrame(() => el.setSelectionRange(shownText.length, shownText.length));
       return;
     }
     if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.metaKey && !e.shiftKey) {
@@ -1604,7 +1621,7 @@ export function Quick() {
           <div className="ca-quick-attached">
             <AttachmentStrip
               items={[...shots, ...attached]}
-              onRemove={(a) => (shots.some((s) => s.path === a.path) ? setImprove((i) => i && { shots: i.shots.filter((s) => s.path !== a.path) }) : setText(withoutAttachment(text, a.path)))}
+              onRemove={(a) => (shots.some((s) => s.path === a.path) ? setImprove((i) => i && { shots: i.shots.filter((s) => s.path !== a.path) }) : setAttached((prev) => prev.filter((x) => x.path !== a.path)))}
             />
           </div>
         )}
