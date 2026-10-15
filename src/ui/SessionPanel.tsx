@@ -60,8 +60,9 @@ export interface Hotkeys {
    *  and leaves room at its start for the window's buttons. */
   titleBar?: boolean;
 }
-/** How the one before went: sent, or why it didn't go. */
-export type Notice = { text: string; error: boolean };
+/** How the one before went: sent, or why it didn't go. `at` numbers each time it's said
+ *  (useWaitingQueue.ts), so the same words said again are new to the strip. */
+export type Notice = { text: string; error: boolean; at?: number };
 
 export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' | 'compact' | 'accountBelow' | 'inMain'> {
   /** A panel in the main window, or a card of its own (the bar's peek, the waiting
@@ -103,11 +104,12 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
  *  of it. */
 function StripNote({ says, notice }: { says?: BoxSays | null; notice: Notice | null | undefined }) {
   const said = says && !says.keys ? says : null;
+  const saying = notice ? (notice.at ?? notice.text) : undefined;
   // Which came last, as each changes: the window's, when both change at once.
-  const [last, setLast] = useState({ notice: notice?.text, said: said?.text, box: false });
-  if (last.notice !== notice?.text || last.said !== said?.text) {
-    const box = notice && notice.text !== last.notice ? false : said && said.text !== last.said ? true : last.box;
-    setLast({ notice: notice?.text, said: said?.text, box });
+  const [last, setLast] = useState({ notice: saying, said: said?.text, box: false });
+  if (last.notice !== saying || last.said !== said?.text) {
+    const box = saying !== undefined && saying !== last.notice ? false : said && said.text !== last.said ? true : last.box;
+    setLast({ notice: saying, said: said?.text, box });
   }
   const shown = (last.box ? (said ?? notice) : (notice ?? said)) ?? says;
   return (

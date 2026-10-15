@@ -82,6 +82,8 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   // What the strip says, and the session it says it on: how one went is for the one gone on to,
   // not for whichever shows after a click elsewhere.
   const [note, setNote] = useState<(Notice & { on: string }) | null>(null);
+  // How many times something has been said (`Notice.at`).
+  const sayings = useRef(0);
   // Where the session shown stood the last time the list had it waiting (queue.ts
   // `QueueView.was`): an answer can take it off the list before it's in.
   const was = useRef<Place | null>(null);
@@ -104,7 +106,7 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
     const { options: o } = now.current;
     handled.current = step.handled;
     if (step.to !== undefined) {
-      setNote(step.words ? { on: o.reads.keyOf(step.to), text: step.words, error: false } : null);
+      setNote(step.words ? { on: o.reads.keyOf(step.to), text: step.words, error: false, at: ++sayings.current } : null);
       o.show(step.to, how);
     }
     return step.went;
@@ -137,7 +139,7 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   const again = useCallback((key: string) => void handled.current.delete(key), []);
   const say = useCallback((notice: Notice | null, onKey?: string) => {
     const on = onKey ?? now.current.view.shown?.key;
-    setNote(notice && on ? { ...notice, on } : null);
+    setNote(notice && on ? { ...notice, on, at: ++sayings.current } : null);
     return on !== undefined;
   }, []);
   const fresh = useCallback(() => {
@@ -151,7 +153,7 @@ export function useWaitingQueue<T, H = undefined>(options: WaitingQueueOptions<T
   const queue: Queue | undefined = stands
     ? { next: after !== undefined ? { title: view.reads.titleOf(after) } : null, onNext: next, waiting: stands.waiting }
     : undefined;
-  const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error } : null;
+  const notice = note && note.on === view.shown?.key ? { text: note.text, error: note.error, at: note.at } : null;
   const first = view.shown ? null : (rules.firstLeft(view, handled.current) ?? null);
 
   return { queue, notice, first, run, onKey, answered, left, again, say, fresh };
