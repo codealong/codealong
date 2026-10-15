@@ -440,7 +440,10 @@ fn write_folder(d: &Path, run: &Run, closes_after: Duration) -> Result<()> {
 /// is zero, a closer started as the command ends claims the tab as a close does once that's up,
 /// and hangs up the wrapper, which closes the tab as `close` does; your Return first stops it,
 /// quietly (a shell says so when what it waits on is killed). It sleeps rather than `read -t`
-/// timing out: macOS's `/bin/sh` can be dash, whose `read` has no `-t`. The command is read from its file, so nothing in it is quoted twice.
+/// timing out: macOS's `/bin/sh` can be dash, whose `read` has no `-t`. The command is sourced
+/// from its file, so nothing in it is quoted twice, and runs a command at a time as typed lines
+/// do: zsh parses all of an `eval`'s text first, so an alias one line defines wouldn't work on the
+/// next.
 pub fn wrapper(d: &Path, run: &Run, closes_after: Duration) -> String {
     let d = sh_quote(&d.to_string_lossy());
     let title = run.session_title.trim();
@@ -472,7 +475,7 @@ case "${{SHELL##*/}}" in
   zsh|bash|ksh|sh) run="$SHELL" ;;
   *) run=/bin/sh ;;
 esac
-CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; eval "$(cat "$CODEALONG_RUN_DIR/{COMMAND}")"'
+CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; . "$CODEALONG_RUN_DIR/{COMMAND}"'
 status=$?
 printf '%s\n' "$status" > "$d/{EXIT}"
 printf '\n\033[2m%s %s. %s\033[0m ' 'It exited with status' "$status" {ended}
@@ -1391,6 +1394,23 @@ mod tests {
         assert_eq!(pids.split_whitespace().count(), 2, "{pids}");
         assert!(!d.join(format!("{PIDS}.new")).exists(), "written whole, then moved into place");
         assert!(std::fs::read_to_string(d.join(SHELL)).unwrap().parse::<u32>().is_ok());
+    }
+
+    /// In zsh, as most Macs' login shell is, the command runs a line at a time as typed lines
+    /// would, so an alias one line defines works on the next (an `eval` of the whole text parses it
+    /// all first). zsh with a home of the test's own, so none of your startup files run.
+    #[test]
+    fn a_command_runs_a_line_at_a_time_in_zsh() {
+        let d = crate::fixtures::scratch("terminal-wrapper-zsh");
+        std::fs::write(d.join(COMMAND), "alias greet='echo hello from an alias'\ngreet\n").unwrap();
+        let run = Run { session: "k".into(), session_title: "A test".into(), ..Default::default() };
+        let text = wrapper(&d, &run, Duration::ZERO).replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
+        let home = d.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let out = std::process::Command::new("/bin/sh").arg("-c").arg(&text).env("SHELL", "/bin/zsh").env("HOME", &home).env("ZDOTDIR", &home).output().unwrap();
+        let shown = String::from_utf8_lossy(&out.stdout);
+        assert!(shown.contains("hello from an alias"), "{shown}{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(std::fs::read_to_string(d.join(EXIT)).unwrap().trim(), "0");
     }
 
     /// Once the command ends, the wrapper closes its tab by itself when the wait is up, having
