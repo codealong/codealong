@@ -318,7 +318,8 @@
 }
 /* A message of yours on its way (ahead.ts, SessionThread.tsx): faint until the session's record
    has it, fainter while it's still being sent, and marked when the session shows no sign of it. */
-.ca-thread-you .ca-desc-img img {
+.ca-thread-you .ca-desc-img img,
+.ca-thread-peer .ca-desc-img img {
   max-height: 200px;
 }
 .ca-thread-said.is-ahead .ca-thread-you {

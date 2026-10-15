@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isValidElement, type ReactNode } from 'react';
 import { blocks, inline, linked } from './Markdown';
+import { FileChip, KeptImage } from './DescriptionEditor';
 import { prLabel, prRefOf } from '../prLinks';
 
 /** The web links in a line, as [the words they show, url], found through their elements. A bare
@@ -33,6 +34,17 @@ describe('inline', () => {
 
   it("doesn't put a link inside a link", () => {
     expect(links(inline('[https://a.io](https://a.io)'))).toEqual([['https://a.io', 'https://a.io']]);
+  });
+
+  it('shows a file or an image Codealong keeps as a prompt of yours does, and any other image as before', () => {
+    const kept = inline('The log is [run.log](files/0123456789abcdef/run.log): ![shot](images/0123456789abcdef.png)');
+    const props = (type: unknown) => kept.filter((n) => isValidElement(n) && n.type === type).map((n) => (isValidElement<Record<string, unknown>>(n) ? n.props : null));
+    expect(props(FileChip)).toEqual([{ name: 'run.log', path: 'files/0123456789abcdef/run.log' }]);
+    expect(props(KeptImage)).toEqual([{ name: '0123456789abcdef.png', alt: 'shot' }]);
+    // Not one it keeps: its `!` and its link's words, a web link opening.
+    expect(links(inline('![chart](https://a.io/c.png) and ![x](images/elsewhere.png)'))).toEqual([['chart', 'https://a.io/c.png']]);
+    const text = (n: ReactNode): string => (Array.isArray(n) ? n.map(text).join('') : isValidElement<{ children?: ReactNode }>(n) ? text(n.props.children) : n == null ? '' : String(n));
+    expect(text(inline('![x](images/elsewhere.png) [y](files/nope/y)'))).toBe('!x y');
   });
 });
 

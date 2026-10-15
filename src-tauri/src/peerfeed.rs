@@ -127,6 +127,20 @@ pub fn for_older(v: &mut serde_json::Value) {
     }
 }
 
+/// A conversation's page for a device from before `proto::PEER_ITEMS`, which would show another
+/// session's message as the agent's own words: each as the note the builds before sent of it, its
+/// first line under who it's from.
+pub fn peer_items_as_notes(page: &mut serde_json::Value) {
+    use serde_json::Value;
+    let Some(items) = page.get_mut("items").and_then(Value::as_array_mut) else { return };
+    for it in items.iter_mut().filter(|it| it.get("kind").and_then(Value::as_str) == Some("peer")) {
+        let from = it.as_object_mut().and_then(|o| o.remove("from")).and_then(|f| f.as_str().map(|f| format!(", “{f}”"))).unwrap_or_default();
+        let said = crate::util::one_line(it.get("text").and_then(Value::as_str).unwrap_or_default(), 200);
+        it["kind"] = "note".into();
+        it["text"] = format!("{}{from}: {said}", crate::send::FROM_ANOTHER_SESSION).into();
+    }
+}
+
 /// A lane as another device may see it: nothing that only works here.
 pub fn shareable(lane: &Lane) -> Lane {
     let mut l = lane.clone();
@@ -448,6 +462,18 @@ mod tests {
         let mut answer = serde_json::json!({ "accounts": [{ "name": "claude", "harness": "claude" }, { "name": "cursor", "harness": "cursor" }], "lane": { "sessions": [serde_json::to_value(&cursor).unwrap()] }, "harness": "cursor" });
         for_older(&mut answer);
         assert_eq!(answer, serde_json::json!({ "accounts": [{ "name": "claude", "harness": "claude" }], "lane": { "sessions": [] }, "harness": "cursor" }));
+    }
+
+    /// A device from before `peer` items gets another session's message as the note it showed.
+    #[test]
+    fn a_device_from_before_gets_another_sessions_message_as_a_note() {
+        let item = |kind: &'static str, text: &str, from: Option<&str>| crate::transcript::Item { from: from.map(String::from), ..crate::transcript::item(5, kind, text) };
+        let page = crate::transcript::Page { items: vec![item("peer", "Which test fails?\n\n- The parser's", Some("Review the parser")), item("peer", "Looks good", None), item("you", "Thanks", None)], before: None, after: 9 };
+        let mut v = serde_json::to_value(&page).unwrap();
+        peer_items_as_notes(&mut v);
+        let theirs: codealong_peer::api::Page = serde_json::from_value(v).unwrap();
+        let said: Vec<(&str, &str, Option<&str>)> = theirs.items.iter().map(|i| (i.kind.as_str(), i.text.as_str(), i.from.as_deref())).collect();
+        assert_eq!(said, [("note", "From another session, “Review the parser”: Which test fails?", None), ("note", "From another session: Looks good", None), ("you", "Thanks", None)]);
     }
 
     /// A device from before emblems came in more than the label colors gets the label colors

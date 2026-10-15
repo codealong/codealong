@@ -6,7 +6,8 @@
 // reply, whose later messages (between its tool calls) go on under that heading. A heading comes
 // again where the speaker changes, after a note, or after a pause (`headingsOf`). Another
 // session's message heads itself with who it's from, and shows whole: a long one by its first
-// lines until Show all, and whole while ⌘F finds something in it (`PeerText`). A right-click on
+// lines until Show all, and whole while ⌘F finds something in it (`PeerText`); a file or an image
+// it was sent with shows as in a prompt of yours (Markdown.tsx). A right-click on
 // a message copies it as it was written, markdown and all, or what you'd selected in it; in a
 // card the session's own menu follows.
 //
@@ -347,12 +348,14 @@ function Said({ item, result, now, label, head, onPutBack, onMenu }: { item: Tra
 }
 
 /** Another session's message, written as an agent's reply is. One longer than the cut shows its
- *  first lines until Show all, and whole while ⌘F finds something in it; a click says which from
- *  then on. Whether it's longer is measured while it's cut, as the panel's width lays it out. */
+ *  first lines until Show all (Show less cuts it again), and whole while ⌘F finds something in it,
+ *  whose text the cut would hide though the find counts it. Whether it's longer is measured while
+ *  it's cut, as the panel's width lays it out. */
 function PeerText({ item }: { item: TranscriptItem }) {
-  const [opened, setOpened] = useState<boolean | null>(null);
+  const [opened, setOpened] = useState(false);
   const finding = useContext(FindContext);
-  const whole = opened ?? (!!finding && says(finding, shownText(item)));
+  const found = !!finding && says(finding, shownText(item));
+  const whole = opened || found;
   const [long, setLong] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -371,9 +374,9 @@ function PeerText({ item }: { item: TranscriptItem }) {
       <div ref={box} className={cx('ca-thread-peertext', !whole && 'is-cut', !whole && long && 'is-long')}>
         <Markdown text={item.text} className="ca-thread-agent" />
       </div>
-      {long && (
-        <button type="button" className="ca-linkbtn" aria-expanded={whole} onClick={() => setOpened(!whole)}>
-          {whole ? 'Show less' : 'Show all'}
+      {long && !found && (
+        <button type="button" className="ca-linkbtn" aria-expanded={opened} onClick={() => setOpened(!opened)}>
+          {opened ? 'Show less' : 'Show all'}
         </button>
       )}
     </div>

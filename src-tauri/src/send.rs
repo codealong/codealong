@@ -133,8 +133,9 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
 }
 
 /// How a Mac before 2026-10-14 began its note of another session's message, which another
-/// device may still send (changes.rs `texts`, and the windows' ahead.ts `inRecord`); a Mac since
-/// sends the message whole, as a `peer` item.
+/// device may still send (changes.rs `texts`, and the windows' ahead.ts `inRecord`), and which a
+/// device from before still gets (peerfeed.rs `peer_items_as_notes`); a Mac since sends the
+/// message whole, as a `peer` item.
 pub const FROM_ANOTHER_SESSION: &str = "From another session";
 
 /// How an agent's message begins, for each way `byline` words it.

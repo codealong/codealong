@@ -17,7 +17,7 @@ import { errorText } from '../report';
 const open = (path: string) => void openAttachment(path);
 
 /** A kept file in text: its name, and a click opens it. */
-function FileChip({ name, path, onRemove }: { name: string; path: string; onRemove?: () => void }) {
+export function FileChip({ name, path, onRemove }: { name: string; path: string; onRemove?: () => void }) {
   return (
     <span className="ca-filechip">
       <button
@@ -113,7 +113,7 @@ export function AttachmentStrip({ items, onRemove }: { items: Attachment[]; onRe
 
 /** A kept image in text: a click opens it. One that isn't on this Mac (it was sent from another
  *  device, or cleared since) says so in place of a broken picture. */
-function KeptImage({ name, alt }: { name: string; alt: string }) {
+export function KeptImage({ name, alt }: { name: string; alt: string }) {
   const [missing, setMissing] = useState(false);
   if (missing) {
     return (

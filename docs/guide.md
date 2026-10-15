@@ -290,8 +290,10 @@ note in the conversation or a pause of ten minutes (the agent woken by a backgro
 Another session's message (an agent's, sent with `codealong session send`) shows whole, under who
 it's from and set apart by a rule at its left, in any harness: one Claude Code took on its
 cross-session socket, and one typed into a session of another harness, without the line saying
-whose it is. A long one shows its first ten lines, fading out, until Show all (Show less cuts it
-again), and shows whole while ⌘F finds something in it. On the phone it's a note. An artifact Claude Code published shows under its call as its title, a link that opens it,
+whose it is. A file or an image sent with it shows as in a prompt of yours, a chip or the image in
+place. A long one shows its first ten lines, fading out, until Show all (Show less cuts it again),
+and shows whole while ⌘F finds something in it. A device whose build is from before gets the note
+it showed, the message's first line under who it's from; so does the phone, as a note. An artifact Claude Code published shows under its call as its title, a link that opens it,
 with what the call did (Published · version 3), and stays out of a fold; web links in a tool's
 output open too. A prompt shows the images you sent with it in place, whether you sent them from
 Codealong, pasted them into the session's terminal or attached them in the Claude or Codex app;

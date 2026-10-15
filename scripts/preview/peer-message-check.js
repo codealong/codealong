@@ -1,8 +1,9 @@
 // Checks another session's message in a session's conversation (SessionThread.tsx `PeerText`):
 // it heads itself with whose it is, apart from yours and the agent's, and it's there whole. A
 // long one shows its first lines, fading out, with Show all, which opens it (and Show less cuts
-// it again); ⌘F finding a word in its cut-off part opens it while the bar is open. A short one
-// shows whole with nothing to open, and the agent's reply after it heads itself again.
+// it again); ⌘F finding a word in its cut-off part opens it while the bar is open, Show less or
+// not. A file and an image it was sent with show as in a prompt of yours. A short one shows whole
+// with nothing to open, and the agent's reply after it heads itself again.
 //   scripts/preview.sh sessions '' scripts/preview/peer-message-check.js
 // As PREVIEW_INIT, after a line setting `window.__peer_screenshot = true`, it leaves the long
 // message cut and in view for a screenshot.
@@ -13,7 +14,7 @@
   var picked = null;
   var points = [];
   for (var i = 1; i <= 24; i++) points.push('- Finding ' + i + ': the reader at `apps/server/src/issue/IssueTools.ts` sends this sheet to Astra.');
-  var long = 'Wes asks: is there a rule that sends about **10%** or less of the reads to Astra?\n\n' + points.join('\n') + '\n\nThe last line says zeppelin, which only the whole message shows.';
+  var long = 'Wes asks: is there a rule that sends about **10%** or less of the reads to Astra? The log is [run.log](files/0123456789abcdef/run.log):\n\n![image](images/0123456789abcdef.png)\n\n' + points.join('\n') + '\n\nThe last line says zeppelin, which only the whole message shows.';
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
@@ -67,6 +68,7 @@
       check('says whom the long one is from', heading(a) === 'From “Review 1021”', heading(a));
       check('and the one whose record names no session', heading(b) === 'From another session', heading(b));
       check('the whole message is there, past its first line', text(a).textContent.indexOf('zeppelin') >= 0 && text(a).querySelectorAll('li').length === 24, text(a).textContent.slice(-80));
+      check('the files it was sent with show as in a prompt of yours', !!text(a).querySelector('.ca-filechip') && !!text(a).querySelector('.ca-desc-img, .ca-desc-noimg') && text(a).textContent.indexOf('![') < 0, text(a).innerHTML.slice(0, 400));
       var t = text(a);
       check('the long one is cut, fading out', cut(a) && t.classList.contains('is-long') && t.clientHeight < t.scrollHeight && getComputedStyle(t).maskImage !== 'none', t.clientHeight + ' of ' + t.scrollHeight);
       check('with Show all', !!toggle(a) && toggle(a).textContent === 'Show all' && toggle(a).getAttribute('aria-expanded') === 'false', toggle(a) && toggle(a).outerHTML);
@@ -83,56 +85,28 @@
     })
     .then(function () {
       check('Show less cuts it again', toggle(peers()[0]).textContent === 'Show all');
+      if (window.__peer_screenshot) {
+        var thread = document.querySelector('.ca-sessinsp .ca-thread');
+        thread.scrollTop = Math.max(0, peers()[0].offsetTop - 120);
+        return 'stay';
+      }
       var box = document.querySelector('.ca-sessinsp .ca-composer textarea');
       if (!box) throw new Error('no box to press ⌘F from');
       box.focus();
       box.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true }));
-      return until(function () { return field(); }, 2000);
-    })
-    .then(function () {
-      type(field(), 'zeppelin');
-      // The one you cut stays cut, as a click says from then on; the find opens one you haven't.
-      return until(function () { return document.querySelector('.ca-thread-findcount'); }, 2000);
-    })
-    .then(function () {
-      check('a message cut by a click stays cut while finding', cut(peers()[0]));
-      field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-      return until(function () { return !field(); }, 2000);
-    })
-    .then(function () {
-      // Another session's panel, then this one again: the message is fresh, as you haven't clicked it.
-      var other = Array.prototype.filter.call(document.querySelectorAll('[id^="row-"]'), function (r) { return r !== row(); })[0];
-      if (!other) throw new Error('no second session to step away to');
-      other.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      other.click();
-      return until(function () { return peers().length === 0; }, 3000).then(function () {
-        row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-        row().click();
-        return until(function () { return peers().length === 2 && cut(peers()[0]); }, 5000);
-      });
-    })
-    .then(function () {
-      if (window.__peer_screenshot) {
-        var a = peers()[0];
-        var thread = document.querySelector('.ca-sessinsp .ca-thread');
-        thread.scrollTop = Math.max(0, a.offsetTop - 120);
-        return 'stay';
-      }
-      var box = document.querySelector('.ca-sessinsp .ca-composer textarea');
-      box.focus();
-      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true }));
       return until(function () { return field(); }, 2000)
         .then(function () {
+          // Cut by Show less, it opens all the same: the find counts what the cut would hide.
           type(field(), 'zeppelin');
           return until(function () { return !cut(peers()[0]); }, 2000);
         })
         .then(function () {
-          check('⌘F finding a word in its cut-off part opens it', !cut(peers()[0]));
+          check('⌘F finding a word in its cut-off part opens it', !cut(peers()[0]) && !toggle(peers()[0]));
           field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
           return until(function () { return !field(); }, 2000);
         })
         .then(function () {
-          check('and closing the find cuts it again', cut(peers()[0]));
+          check('and closing the find cuts it again', cut(peers()[0]) && toggle(peers()[0]).textContent === 'Show all');
         });
     })
     .then(function (stay) {

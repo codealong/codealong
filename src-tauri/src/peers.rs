@@ -818,11 +818,12 @@ impl Inner {
 
     /// Runs a linked device's request, after checking it may make it.
     fn answer(&self, from: &str, method: &str, params: Value) -> std::result::Result<Value, String> {
-        let (linked, watching, control, me, them, older) = {
+        let (linked, watching, control, me, them, older, notes) = {
             let st = self.lock();
             let watching = st.linked.iter().find(|l| l.key == from).is_some_and(Linked::watches);
             let older = st.conns.get(from).is_some_and(|c| !peerfeed::knows_every_harness(&c.knows));
-            (Self::is_linked(&st, from), watching, st.cfg.remote_control, self.my_name(&st), self.name_of(&st, from), older)
+            let notes = st.conns.get(from).is_some_and(|c| !c.knows.iter().any(|k| k == peerproto::PEER_ITEMS));
+            (Self::is_linked(&st, from), watching, st.cfg.remote_control, self.my_name(&st), self.name_of(&st, from), older, notes)
         };
         if !linked {
             return Err(format!("{me} isn't linked with this device."));
@@ -836,9 +837,12 @@ impl Inner {
         let key = params.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
         let started = std::time::Instant::now();
         let mut got = (self.hooks.answer)(method, params, watching);
-        if older {
-            if let Ok(v) = &mut got {
+        if let Ok(v) = &mut got {
+            if older {
                 peerfeed::for_older(v);
+            }
+            if notes && (method == codealong_peer::api::SESSION_PAGE || method == codealong_peer::api::SESSION_NEWER) {
+                peerfeed::peer_items_as_notes(v);
             }
         }
         if acts {

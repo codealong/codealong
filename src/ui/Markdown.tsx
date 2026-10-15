@@ -1,7 +1,9 @@
 // Just enough Markdown for what agents write back: headings, lists, quotes, fenced code, tables,
 // and **bold**, *italics*, `code` and [links](url) inside lines. Built as React elements, never as
 // HTML, so nothing in a transcript can put markup on the page. Web links, written as links or bare,
-// open in the browser; any other link shows as its text. A link to a GitHub PR is the PR's
+// open in the browser; a file or an image Codealong keeps (`[name](files/…)`, `![image](images/…)`,
+// as a message sent with attachments refers to them) shows as in a prompt of yours, a chip that
+// opens it or the image in place; any other link shows as its text. A link to a GitHub PR is the PR's
 // (PrLink.tsx): a bare one reads `name#123`, and hovering it shows the PR and its sessions.
 // A tool's output isn't Markdown, but the web links in it open the same way (`linked`).
 // The directives Codex's app draws (directives.ts) are drawn as it draws them, near enough: a
@@ -14,7 +16,9 @@ import { openUrl } from '../api';
 import { ATTRS, attrsOf, cardAt, cardFields, cardKind, COMMENT, opensCard, tonesOf, toneLabel, type Card } from '../directives';
 import { tildePath } from '../format';
 import { prLabel, prRefOf } from '../prLinks';
+import { isKeptFile, keptImageOf } from '../todos';
 import { CodeBlock, CopyButton } from './CopyButton';
+import { FileChip, KeptImage } from './DescriptionEditor';
 import { PrLink } from './PrLink';
 import { cx, Icon, Seg } from './primitives';
 
@@ -254,8 +258,9 @@ export function blocks(src: string): Block[] {
 }
 
 /** A line's inline marks, each its own group: code, bold, a link (words, then where), a bare link
- *  in angle brackets, a Codex follow-up (label, then attributes), a file Codex cites, italics. */
-const INLINE = String.raw`\`([^\`]+)\`|\*\*([^*]+)\*\*|__([^_]+)__|\[([^\]]+)\]\(([^)\s]+)[^)]*\)|<(https?:\/\/[^\s>]+)>|(?<![\w:]):codex-followup\[([^\]]*)\]${ATTRS}|(?<![\w:]):codex-file-citation${ATTRS}|\*([^*\s][^*]*)\*`;
+ *  in angle brackets, a Codex follow-up (label, then attributes), a file Codex cites, italics, an
+ *  image (words, then where). */
+const INLINE = String.raw`\`([^\`]+)\`|\*\*([^*]+)\*\*|__([^_]+)__|\[([^\]]+)\]\(([^)\s]+)[^)]*\)|<(https?:\/\/[^\s>]+)>|(?<![\w:]):codex-followup\[([^\]]*)\]${ATTRS}|(?<![\w:]):codex-file-citation${ATTRS}|\*([^*\s][^*]*)\*|!\[([^\]\n]*)\]\(([^)\s]+)\)`;
 
 /** A line's inline marks as elements: code first, so nothing inside backticks is read as a mark.
  *  Inside a link (`links` false) nothing more becomes a link, since links can't nest. Codex's
@@ -277,6 +282,8 @@ export function inline(text: string, links = true): ReactNode[] {
           <Link key={n++} url={m[5]}>
             {inline(m[4], false)}
           </Link>
+        ) : links && isKeptFile(m[5]) ? (
+          <FileChip key={n++} name={m[4]} path={m[5]} />
         ) : (
           <Fragment key={n++}>{inline(m[4], links)}</Fragment>
         ),
@@ -284,7 +291,12 @@ export function inline(text: string, links = true): ReactNode[] {
     else if (m[6] != null) out.push(links ? <Link key={n++} url={m[6]} /> : m[6]);
     else if (m[7] != null) out.push(<FollowUp key={n++} label={m[7]} prompt={attrsOf(m[8]).prompt ?? ''} />);
     else if (m[9] != null) out.push(<CitedFile key={n++} path={attrsOf(m[9]).path ?? ''} />);
-    else out.push(<em key={n++}>{inline(m[10], links)}</em>);
+    else if (m[10] != null) out.push(<em key={n++}>{inline(m[10], links)}</em>);
+    else {
+      // Any other image reads as it did before images were drawn: its `!`, then its link.
+      const kept = keptImageOf(m[12]);
+      out.push(kept ? <KeptImage key={n++} name={kept} alt={m[11]} /> : <Fragment key={n++}>!{inline(m[0].slice(1), links)}</Fragment>);
+    }
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(...(links ? bare(text.slice(last), n++) : [text.slice(last)]));

@@ -561,8 +561,22 @@ export function snippet(description: string, max = 140): string {
 }
 
 const IMAGE_NAME = /^[0-9a-f]{16}\.(png|jpg|gif|webp)$/;
+/** Where attachments.rs keeps a file and how it names it: `files/<hash>/<name>`. */
+const FILE_PATH = String.raw`files\/[0-9a-f]{16}\/[^)\s/]+`;
 /** `[name](files/<hash>/<name>)`, as attachments.rs keeps and names them. */
-const FILE_LINK = /(?<!!)\[([^\]\n]*)\]\((files\/[0-9a-f]{16}\/[^)\s/]+)\)/g;
+const FILE_LINK = new RegExp(String.raw`(?<!!)\[([^\]\n]*)\]\((${FILE_PATH})\)`, 'g');
+const KEPT_FILE = new RegExp(`^${FILE_PATH}$`);
+
+/** Whether a link goes to a file Codealong keeps (`files/<hash>/<name>`). */
+export function isKeptFile(target: string): boolean {
+  return KEPT_FILE.test(target);
+}
+
+/** The name of the image Codealong keeps that an image's link goes to (`images/<name>`), or null. */
+export function keptImageOf(target: string): string | null {
+  const name = target.startsWith('images/') ? target.slice('images/'.length) : '';
+  return IMAGE_NAME.test(name) ? name : null;
+}
 
 /** A piece of a description as it's shown: text, or an image kept by Codealong. */
 export type Piece = { kind: 'text'; text: string } | { kind: 'image'; name: string; alt: string };
