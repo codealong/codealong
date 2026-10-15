@@ -1279,6 +1279,20 @@ pub fn started_by<'a>(pid: u32, parent: impl Fn(u32) -> Option<u32>, by_pid: &Ha
     None
 }
 
+/// The session that started a headless run: the nearest running session above its process
+/// (`started_by`), else the one named in the environment the run started with (`under`, a
+/// harness and a session ID: `harness::started_under`) of the sessions on the board (`by_id`). A
+/// script an agent starts on its own (`start_new_session`, `nohup … &`) is launchd's once its
+/// launcher returns, so no session is above it, but it keeps what the agent's tool set: an
+/// eval's driver did, and each `claude -p` its judge ran was listed as a session of its own. A
+/// script you run in a terminal of yours carries no session's.
+pub fn run_started_by<'a>(pid: u32, parent: impl Fn(u32) -> Option<u32>, under: impl Fn(u32) -> Option<(Harness, String)>, by_pid: &HashMap<u32, &'a str>, by_id: &HashMap<(Harness, &str), &'a str>) -> Option<&'a str> {
+    started_by(pid, parent, by_pid).or_else(|| {
+        let (harness, id) = under(pid)?;
+        by_id.get(&(harness, id.as_str())).copied()
+    })
+}
+
 /// Whether replies suggested for a session still answer where it stands: it's been sent nothing
 /// since the prompt whose reply the suggester read (`prompt_at`; a prompt of yours, from Codealong
 /// or where it runs), and no turn of its has started since they were suggested. A turn that
@@ -4090,6 +4104,30 @@ mod tests {
         // Nor once a process on the way is gone, nor round a loop.
         assert_eq!(started_by(41, parent, &by_pid), None);
         assert_eq!(started_by(90, parent, &by_pid), None);
+    }
+
+    #[test]
+    fn a_headless_run_no_session_is_above_is_the_one_its_environment_names() {
+        // The judge's claude -p (40) under a driver the agent started on its own (30), left to
+        // launchd; a run beside the agent (50); one from a terminal of yours (77); one whose
+        // session isn't on the board (88).
+        let parents = HashMap::from([(40, 30), (30, 1), (50, 10), (10, 1), (77, 1), (88, 1)]);
+        let under = |p: u32| match p {
+            40 | 50 => Some((Harness::Claude, "agent".to_string())),
+            88 => Some((Harness::Claude, "gone".to_string())),
+            _ => None,
+        };
+        let by_pid = HashMap::from([(10, "claude:claude2:beside")]);
+        let by_id = HashMap::from([((Harness::Claude, "agent"), "claude:claude2:agent")]);
+        let found = |pid| run_started_by(pid, |p: u32| parents.get(&p).copied(), under, &by_pid, &by_id);
+        assert_eq!(found(40), Some("claude:claude2:agent"));
+        // The session above it is the one that ran it, whatever its environment says.
+        assert_eq!(found(50), Some("claude:claude2:beside"));
+        assert_eq!(found(77), None);
+        assert_eq!(found(88), None);
+        // An ID is another harness's session's only under that harness.
+        let codex = HashMap::from([((Harness::Codex, "agent"), "codex:codex:agent")]);
+        assert_eq!(run_started_by(40, |p: u32| parents.get(&p).copied(), under, &by_pid, &codex), None);
     }
 
     #[test]

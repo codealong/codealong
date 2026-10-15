@@ -321,6 +321,45 @@ pub fn cwd_of(pid: u32) -> Option<std::path::PathBuf> {
     }
 }
 
+/// The environment one of your processes was started with, from the kernel (`sysctl`
+/// KERN_PROCARGS2, which `ps -E` reads): what it inherited, whoever its parent is now. None once
+/// it's gone, and for another user's process. Apple's own programs (`/bin/sleep`, `/bin/zsh`)
+/// show none but to root, which `ps` runs as: only their arguments come back (macOS 26).
+pub fn environment(pid: u32) -> Option<HashMap<String, String>> {
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+    let mut len: libc::size_t = 0;
+    // SAFETY: with no buffer, sysctl only writes the size it needs into `len`.
+    if unsafe { libc::sysctl(mib.as_mut_ptr(), 3, std::ptr::null_mut(), &mut len, std::ptr::null_mut(), 0) } != 0 {
+        return None;
+    }
+    let mut buf = vec![0u8; len];
+    // SAFETY: sysctl writes at most `len` bytes into `buf`, which holds that many, and sets
+    // `len` to how many it wrote.
+    if unsafe { libc::sysctl(mib.as_mut_ptr(), 3, buf.as_mut_ptr() as *mut libc::c_void, &mut len, std::ptr::null_mut(), 0) } != 0 {
+        return None;
+    }
+    buf.truncate(len);
+    procargs_environment(&buf)
+}
+
+/// The environment in KERN_PROCARGS2's bytes: the argument count, the executable's path and
+/// the NULs that pad it, the arguments and then the environment, each ending in a NUL, and an
+/// empty string after the last. An argument can be empty (`--tools ''`), so they're counted
+/// rather than skipped; the padding is skipped as `ps` skips it.
+fn procargs_environment(buf: &[u8]) -> Option<HashMap<String, String>> {
+    let argc = i32::from_ne_bytes(buf.get(..4)?.try_into().ok()?);
+    let rest = &buf[4..];
+    let mut at = rest.iter().position(|&b| b == 0)?;
+    while rest.get(at) == Some(&0) {
+        at += 1;
+    }
+    for _ in 0..argc {
+        at += rest.get(at..)?.iter().position(|&b| b == 0)? + 1;
+    }
+    let vars = rest.get(at..)?.split(|&b| b == 0).take_while(|v| !v.is_empty());
+    Some(vars.filter_map(|v| std::str::from_utf8(v).ok()?.split_once('=')).map(|(k, v)| (k.to_string(), v.to_string())).collect())
+}
+
 /// The PATH as the login shell sets it, with none of Codealong's own additions: what a
 /// command typed in a terminal can find. None when the shell didn't answer.
 pub fn login_path() -> Option<&'static str> {
@@ -835,6 +874,34 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn reads_the_environment_past_the_arguments_empty_ones_too() {
+        let mut buf = 3i32.to_ne_bytes().to_vec();
+        buf.extend_from_slice(b"/usr/local/bin/claude\0\0\0\0claude\0--tools\0\0HOME=/Users/me\0SESSION=a=b\0\0ptr_munge=\0");
+        let env = procargs_environment(&buf).unwrap();
+        // The empty argument isn't taken for the end of the arguments, and nothing past the
+        // environment's end is in it.
+        assert_eq!(env, HashMap::from([("HOME".to_string(), "/Users/me".to_string()), ("SESSION".to_string(), "a=b".to_string())]));
+        assert_eq!(procargs_environment(&3i32.to_ne_bytes()), None);
+    }
+
+    /// The kernel shows no one but root the environment of Apple's own programs (`/bin/sleep`
+    /// gave the arguments alone; `ps` is setuid root), so the process read is this test run again,
+    /// waiting to be read.
+    #[test]
+    fn reads_a_running_process_environment_as_it_was_started() {
+        const NAME: &str = "procs::tests::reads_a_running_process_environment_as_it_was_started";
+        if std::env::var_os("CODEALONG_TEST_VAR").is_some() {
+            std::thread::sleep(Duration::from_secs(10));
+            return;
+        }
+        let mut child = Command::new(std::env::current_exe().unwrap()).args([NAME, "--exact"]).env("CODEALONG_TEST_VAR", "from the parent").stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("this test");
+        let env = environment(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(env.unwrap().get("CODEALONG_TEST_VAR").map(String::as_str), Some("from the parent"));
+    }
 
     /// A process made the leader of a new session on a terminal of its own is that terminal's
     /// foreground group, as a shell in a tab is at its prompt.

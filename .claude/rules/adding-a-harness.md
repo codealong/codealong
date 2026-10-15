@@ -46,7 +46,8 @@ a change to what's sent shows there. What each harness records and accepts is in
      throwaway conversation of a session's, or one of its own about a PR), `stop`,
      `exit_command` (an exit that cleans up the worktree it made, with
      `Session::own_worktree`), `rename`,
-     `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`;
+     `interrupts` and `interrupt`, `archive`, `skips_permission_prompts`, `runs_its_commands`,
+     `session_var` (the variable its commands are given the session's ID in);
    - starting (start.rs): `places`, `start_in_terminal`, `runs_in_background` with
      `background_command` and `start_in_background`, `app_link` and `start_in_app`, `models`,
      `takes_model`, `offers_model`, `efforts`, `default_model`, `makes_worktrees`,

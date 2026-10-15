@@ -376,6 +376,13 @@ impl crate::harness::Adapter for ClaudeCode {
         true
     }
 
+    /// Set in its Bash tool's shells and kept by what they start: an eval's driver an agent
+    /// started on its own (`start_new_session`) and left to launchd still had it, and so did
+    /// each `claude -p` its judge ran (2.1.296).
+    fn session_var(&self) -> Option<&'static str> {
+        Some("CLAUDE_CODE_SESSION_ID")
+    }
+
     fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Typed> {
         Ok(fork_as(ctx.account, &shell_word(&resume_from(ctx.account, s)), &crate::start::new_session_id(), ""))
     }

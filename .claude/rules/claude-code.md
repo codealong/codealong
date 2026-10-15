@@ -89,7 +89,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   A fork into a terminal (`--resume --fork-session` without `--bg`) records nothing of the
   kind: its transcript's lines are copies (the same uuids) with no mark, so Codealong notes the
   ones it makes (`origins.rs`). A `claude` started from another session's Bash tool inherits
-  `CLAUDE_CODE_SESSION_ID` and `CLAUDE_CODE_CHILD_SESSION=1`, but nothing on disk says so.
+  `CLAUDE_CODE_SESSION_ID` and `CLAUDE_CODE_CHILD_SESSION=1` (and `CLAUDE_PID`, the session's
+  process), but nothing on disk says so. The kernel keeps them in the environment the process
+  started with (`procs::environment`), however far it is from the session: an eval's driver an
+  agent started with `start_new_session` was launchd's once its launcher returned, and it and
+  every `claude -p` its judge ran (named `cwd-xx` from the judge's `cwd` folder) still named
+  the agent's session, which is how a headless run no session is above is found to be one's
+  (`claude/mod.rs` `session_var`, `engine.rs` `with_run_origins`). An inherited
+  `CLAUDE_CODE_ENTRYPOINT=cli` didn't keep such a run from being `sdk-cli` (2.1.296,
+  2026-10-14).
 - Warm spares (from 2.1.286), which Claude Code's own lookups and `read_registry` skip:
   `claude/registry.rs` (`RegistryEntry::spare`, `read_registry`). A spare's registry entry says
   `"spare": true`, `kind: bg`, `status: idle` and `name` its job ID, and its roster entry

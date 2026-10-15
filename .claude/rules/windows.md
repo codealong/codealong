@@ -61,7 +61,8 @@ under `src-tauri/src/`.
   `_simulateMouseMove:`.
 - `proc_pidinfo` answers only for your own processes, `sysctl` KERN_PROC_PID for any, and a
   killed process stuck in the kernel is reaped on a thread of its own: `procs.rs` (`listed`,
-  `run`).
+  `run`). KERN_PROCARGS2 gives your own processes' environments, but not those of Apple's own
+  programs, which only root sees: `procs.rs` (`environment`).
 - A plain JS `listen()` hears events sent to any window, and a window's own `emit` goes to every
   window: `src/api.ts` (`onWindowEvent`), and `lib.rs` beside the Settings menu's `emit_to`.
 - A window's label must be listed in `src-tauri/capabilities/default.json` (a `*` at the end

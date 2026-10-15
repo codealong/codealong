@@ -1762,7 +1762,10 @@ While it doesn't need you, a headless run isn't an agent of yours at work: it's 
 worktree's status, the status filters and their counts, your devices' lines, the floating bar and
 the mark, as a helper is. Codealong looks for the session that ran it while it runs: the nearest
 of the run's parent processes that's a session's own, as a command an agent runs goes on under
-that agent (an eval's `claude -p` under python, under the shell the agent's tool opened). That
+that agent (an eval's `claude -p` under python, under the shell the agent's tool opened). Where
+none is, as for a script an agent set going on its own to carry on after its command returned,
+it's the session the run's environment names: a Claude Code session's commands are given its ID
+(`CLAUDE_CODE_SESSION_ID`), and whatever they start keeps it. That
 session is where the run came from (its header says *Started by*), and Sessions counts its runs on
 its row rather than listing them, a row a call: a chip says how many, with the working glyph while
 any is at work. Rest the pointer on it for the helpers' card for them: each run (the first 20),

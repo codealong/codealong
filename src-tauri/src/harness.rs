@@ -239,6 +239,13 @@ pub trait Adapter: Sync {
         false
     }
 
+    /// The environment variable its sessions give the commands they run, set to the session's
+    /// ID, which whatever those start inherits: a process that has left the session's tree
+    /// still says which session started it (`started_under`).
+    fn session_var(&self) -> Option<&'static str> {
+        None
+    }
+
     /// Whether the session, which isn't running, would hold another agent's message for its
     /// user if it ran, by the mode its files say it last ran in: a message from a sender that
     /// doesn't skip permission prompts, to one that does. It's resumed on such a message only
@@ -829,6 +836,12 @@ pub fn scratch_owner(path: &Path) -> Option<(Harness, String)> {
     ADAPTERS.iter().find_map(|a| Some((a.harness(), a.scratch_owner(path)?)))
 }
 
+/// The session a process's environment (`procs::environment`) says started it, by its harness
+/// and ID (`Adapter::session_var`).
+pub fn started_under(env: &HashMap<String, String>) -> Option<(Harness, String)> {
+    ADAPTERS.iter().find_map(|a| Some((a.harness(), env.get(a.session_var()?)?.clone())))
+}
+
 /// A reader for each harness, in the adapters' order.
 pub fn readers(wake: &Wake) -> Vec<Box<dyn Reader>> {
     ADAPTERS.iter().map(|a| a.reader(wake.clone())).collect()
@@ -1061,6 +1074,14 @@ pub fn find<'a>(board: &'a crate::model::Board, cfg: &'a Config, key: &str) -> R
 mod tests {
     use super::*;
     use crate::model::{Status, Surface};
+
+    #[test]
+    fn a_process_environment_names_the_claude_code_session_whose_command_started_it() {
+        let env = HashMap::from([("HOME".to_string(), "/Users/me".to_string()), ("CLAUDE_CODE_SESSION_ID".to_string(), "d6098a2f".to_string())]);
+        assert_eq!(started_under(&env), Some((Harness::Claude, "d6098a2f".to_string())));
+        // A terminal of yours names none.
+        assert_eq!(started_under(&HashMap::from([("HOME".to_string(), "/Users/me".to_string())])), None);
+    }
     use crate::send::{agent_routes, Route};
     use serde_json::json;
 

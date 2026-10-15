@@ -1632,9 +1632,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
     /// Each headless run with the session that started it as its origin, where nothing else
     /// said where it came from: the nearest of its process's parents that's a running session's
-    /// own (`board::started_by`). Looked up while it runs, a run's ancestry stays the same, and
-    /// it's kept once the run ends and has no process to climb from, until it leaves the board
-    /// or Codealong quits.
+    /// own, else the session its process's environment names (`board::run_started_by`). Looked
+    /// up while it runs, a run's ancestry and environment stay the same, and it's kept once the
+    /// run ends and has no process to look at, until it leaves the board or Codealong quits.
     fn with_run_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
         let mut known = self.run_origins.lock().unwrap_or_else(|e| e.into_inner());
         if !sessions.iter().any(|s| s.headless) {
@@ -1642,10 +1642,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             return sessions;
         }
         let by_pid: HashMap<u32, &str> = sessions.iter().filter(|s| s.live && !s.headless).filter_map(|s| Some((s.pid?, s.key.as_str()))).collect();
+        let by_id: HashMap<(Harness, &str), &str> = sessions.iter().filter(|s| !s.headless).map(|s| ((s.harness, s.id.as_str()), s.key.as_str())).collect();
+        let under = |pid: u32| harness::started_under(&procs::environment(pid)?);
         let found: Vec<(String, String)> = sessions
             .iter()
             .filter(|s| s.headless && s.live && s.origin.is_none() && !known.contains_key(&s.key))
-            .filter_map(|s| Some((s.key.clone(), board::started_by(s.pid?, procs::parent_pid, &by_pid)?.to_string())))
+            .filter_map(|s| Some((s.key.clone(), board::run_started_by(s.pid?, procs::parent_pid, under, &by_pid, &by_id)?.to_string())))
             .collect();
         known.extend(found);
         let on_board: HashSet<&str> = sessions.iter().filter(|s| s.headless).map(|s| s.key.as_str()).collect();
