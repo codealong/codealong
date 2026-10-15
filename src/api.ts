@@ -284,8 +284,8 @@ export async function runCommand(key: string, folder: string, text: string): Pro
   return invoke<string>('run_command', { key, folder, text });
 }
 
-/** Types a block of shell commands from a session's conversation into a new terminal in `cwd`
- *  (runcode.rs): what it runs leaves out the comments. */
+/** Runs a block of shell commands from a session's conversation in a new tab in `cwd`
+ *  (runcode.rs), which closes a while after they end: what it runs leaves out the comments. */
 export async function runInTerminal(cwd: string, text: string): Promise<void> {
   if (!inTauri) throw new Error('Running a command needs the app.');
   await invoke('run_in_terminal', { cwd, text });

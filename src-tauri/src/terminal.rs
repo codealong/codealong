@@ -2,7 +2,9 @@
 //! exact command, it runs in a new tab of your terminal beside the session's, as you (your shell,
 //! its settings and your sign-ins, outside any sandbox), and what it prints goes back to the agent.
 //! The Claude app's Code tab does the same in its own Terminal panel (its `run_in_terminal` tool);
-//! this is it for every harness, in the terminal you use.
+//! this is it for every harness, in the terminal you use. The commands you run from a session
+//! (`!` in its box, Run on a block: actions.rs `run_command`, runcode.rs) run the same way, so
+//! every tab Codealong opens for a command is one it can tell the state of, and close.
 //!
 //! Asking. The command hands the app the request over its socket and waits there (server.rs), as
 //! Claude Code's permission hook does (claude/asks.rs): the connection's thread holds it here until
@@ -22,7 +24,8 @@
 //! command's status. The line typed into the new tab `exec`s the wrapper (`TYPED`, `wrapper`), so
 //! the tab is the run's until you take a shell in it with Return once it has ended, and an agent
 //! may close it only till then (`close`): nothing outside a shell can tell its prompt from a
-//! `read` of yours. Each run has a folder (`dir`) with the request, the command, the wrapper, its
+//! `read` of yours. Unless you take a shell there, the tab closes by itself a while after the
+//! command ends (`[apps] close_command_tabs_after`, `wrapper`). Each run has a folder (`dir`) with the request, the command, the wrapper, its
 //! processes, what it printed, and its exit status once it ends. Runs are kept a week (`prune`).
 //! An agent's sandbox may keep its command from looking at your processes, so the command asks the
 //! app where a run stands, and to stop or close it, when it's up (server.rs).
@@ -139,7 +142,8 @@ pub fn refused(command: &str) -> Option<&'static str> {
 #[serde(rename_all = "camelCase")]
 pub struct Run {
     pub id: String,
-    /// The session whose agent asked, or that you ran it for, by key, and its title then.
+    /// The session whose agent asked, or that you ran it for, by key, and its title then. Empty
+    /// for a block you ran with Run (runcode.rs), which no session waits on or is told about.
     pub session: String,
     pub session_title: String,
     pub command: String,
@@ -337,7 +341,7 @@ pub fn new_id() -> (String, i64) {
     loop {
         let now = now_ms().max(1) as u64;
         let next = |last: u64| last.max(now - 1) + 1;
-        let at = match LAST_ID.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
+        let at = match LAST_ID.try_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
             Ok(last) | Err(last) => next(last),
         };
         let id = format!("{PREFIX}{}", base36(at));
@@ -363,10 +367,11 @@ fn base36(mut n: u64) -> String {
 
 // Starting a run.
 
-/// Opens a tab for an allowed request, or a command you ran for a session (`reports`), and has it
-/// run the command there: its folder written, then a line typed into the new tab's shell that runs
-/// the wrapper. The tab goes beside the terminals in its folder's lanes
-/// (`board::terminal_neighbours`), named like a session's.
+/// Opens a tab for an allowed request, a command you ran for a session (`reports`), or one you ran
+/// from a block (no session), and has it run the command there: its folder written, then a line
+/// typed into the new tab's shell that runs the wrapper. The tab goes beside the terminals in its
+/// folder's lanes (`board::terminal_neighbours`), named like a session's, and closes as
+/// `[apps] close_command_tabs_after` says once the command ends.
 pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str, reports: bool) -> Result<Run> {
     let cwd = &asked.ask.cwd;
     if !cwd.is_absolute() || !cwd.is_dir() {
@@ -385,7 +390,8 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
         reports,
     };
     let d = dir(&run.id);
-    write_folder(&d, &run).with_context(|| format!("writing {}", d.display()))?;
+    let minutes = crate::config::current().map_or(crate::config::CLOSE_COMMAND_TABS_AFTER, |c| c.apps.close_command_tabs_after);
+    write_folder(&d, &run, Duration::from_secs(u64::from(minutes) * 60)).with_context(|| format!("writing {}", d.display()))?;
     let near = crate::board::terminal_neighbours(lanes, cwd);
     let label = crate::board::tab_label(lanes, cwd, &format!("Run {}", one_line(&run.command, 60)));
     let place = crate::launch::Placement { new_terminal: apps.new_terminal, near: &near, behind: false, label: label.as_deref() };
@@ -407,7 +413,8 @@ const ENV: &str = "CODEALONG_RUN";
 /// skips such lines, as a session's launcher line is (launch.rs).
 const TYPED: &str = " exec sh \"$CODEALONG_RUN/run.sh\"\n";
 
-fn write_folder(d: &Path, run: &Run) -> Result<()> {
+/// A run's folder, its wrapper closing the tab `closes_after` the command ends (zero: never).
+fn write_folder(d: &Path, run: &Run, closes_after: Duration) -> Result<()> {
     std::fs::create_dir_all(runs_dir())?;
     let _ = std::fs::set_permissions(runs_dir(), std::fs::Permissions::from_mode(0o700));
     std::fs::create_dir(d)?;
@@ -419,7 +426,7 @@ fn write_folder(d: &Path, run: &Run) -> Result<()> {
     };
     write(RECORD, &serde_json::to_string_pretty(run)?)?;
     write(COMMAND, &format!("{}\n", run.command.trim_end_matches('\n')))?;
-    write(WRAPPER, &wrapper(d, &run.session_title, run.reports))?;
+    write(WRAPPER, &wrapper(d, run, closes_after))?;
     Ok(())
 }
 
@@ -429,19 +436,33 @@ fn write_folder(d: &Path, run: &Run) -> Result<()> {
 /// functions; `/bin/sh` with the tab's environment when your shell isn't one these words suit,
 /// fish), and notes how it ended. Then it waits for Return, which gives you a login shell of your
 /// own in the tab once it has claimed the tab (`CLAIM`), so the tab isn't closed under you; when a
-/// close claimed it first, the tab is closing, and Return ends the wrapper. The command is read
-/// from its file, so nothing in it is quoted twice.
-pub fn wrapper(d: &Path, session_title: &str, reports: bool) -> String {
+/// close claimed it first, the tab is closing, and Return ends the wrapper. Unless `closes_after`
+/// is zero, a closer started as the command ends claims the tab as a close does once that's up,
+/// and hangs up the wrapper, which closes the tab as `close` does; your Return first stops it,
+/// quietly (a shell says so when what it waits on is killed). It sleeps rather than `read -t`
+/// timing out: macOS's `/bin/sh` can be dash, whose `read` has no `-t`. The command is read from its file, so nothing in it is quoted twice.
+pub fn wrapper(d: &Path, run: &Run, closes_after: Duration) -> String {
     let d = sh_quote(&d.to_string_lossy());
-    let title = session_title.trim();
-    let says = sh_quote(&match (reports, title.is_empty()) {
-        (true, true) => "Codealong runs this as you asked; what it prints goes to the session when it ends:".to_string(),
-        (true, false) => format!("Codealong runs this for {title}, as you asked; what it prints goes to it when it ends:"),
-        (false, true) => "Codealong runs this for an agent, as you allowed:".to_string(),
-        (false, false) => format!("Codealong runs this for {title}, as you allowed:"),
+    let title = run.session_title.trim();
+    let says = sh_quote(&match (run.session.is_empty(), run.reports, title.is_empty()) {
+        (true, _, _) => "Codealong runs this as you asked:".to_string(),
+        (false, true, true) => "Codealong runs this as you asked; what it prints goes to the session when it ends:".to_string(),
+        (false, true, false) => format!("Codealong runs this for {title}, as you asked; what it prints goes to it when it ends:"),
+        (false, false, true) => "Codealong runs this for an agent, as you allowed:".to_string(),
+        (false, false, false) => format!("Codealong runs this for {title}, as you allowed:"),
     });
+    let secs = closes_after.as_secs();
+    let (ended, closer, kept) = if secs == 0 {
+        (sh_quote("Press Return for a shell in this tab."), String::new(), String::new())
+    } else {
+        (
+            sh_quote(&format!("This tab closes in {}, unless you press Return for a shell in it.", in_words(secs))),
+            format!("(sleep {secs} && mkdir \"$d/{CLAIM}\" && : > \"$d/{CLAIM}/{CLOSING}\" && kill -HUP $$) 2>/dev/null &\ncloser=$!\n"),
+            "  pkill -P \"$closer\" 2>/dev/null; kill \"$closer\" 2>/dev/null\n".to_string(),
+        )
+    };
     format!(
-        r#"# A command an agent asked to run in your terminal, as you allowed it (Codealong's terminal.rs).
+        r#"# A command run in your terminal, as you allowed or asked (Codealong's terminal.rs).
 d={d}
 printf '%s %s\n' "$$" "$PPID" > "$d/{PIDS}.new" && mv -f "$d/{PIDS}.new" "$d/{PIDS}"
 printf '\n\033[2m%s\033[0m\n' {says}
@@ -454,12 +475,24 @@ esac
 CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; eval "$(cat "$CODEALONG_RUN_DIR/{COMMAND}")"'
 status=$?
 printf '%s\n' "$status" > "$d/{EXIT}"
-printf '\n\033[2m%s %s. %s\033[0m ' 'It exited with status' "$status" 'Press Return for a shell in this tab.'
-if read -r _ && mkdir "$d/{CLAIM}" 2>/dev/null; then
-  exec "${{SHELL:-/bin/zsh}}" -l
+printf '\n\033[2m%s %s. %s\033[0m ' 'It exited with status' "$status" {ended}
+{closer}if read -r _ && mkdir "$d/{CLAIM}" 2>/dev/null; then
+{kept}  exec "${{SHELL:-/bin/zsh}}" -l
 fi
 "#
     )
+}
+
+/// How long until a run's tab closes, in words: "a minute", "10 minutes", "an hour".
+fn in_words(secs: u64) -> String {
+    match secs {
+        1 => "a second".into(),
+        s if s < 60 => format!("{s} seconds"),
+        60 => "a minute".into(),
+        3600 => "an hour".into(),
+        s if s % 3600 == 0 => format!("{} hours", s / 3600),
+        s => format!("{} minutes", s.div_ceil(60)),
+    }
 }
 
 /// Removes the folders of runs that ended more than a week ago.
@@ -1048,8 +1081,9 @@ mod tests {
     /// that nobody sees, with `script` and your login shell (its startup files run). A password
     /// typed at a prompt that doesn't echo it stays out of what's kept, a progress line drawn over
     /// itself reads as it ended, the exit status is kept, `stop` interrupts a command as Ctrl-C
-    /// does, and `close` ends a tab still the run's, and not once you took a shell in it.
-    /// `cargo test a_command_runs_in_a_tab_under_script -- --ignored`.
+    /// does, `close` ends a tab still the run's, and not once you took a shell in it, and a tab
+    /// closes by itself once its wait is up. `cargo test a_command_runs_in_a_tab_under_script --
+    /// --ignored`.
     #[test]
     #[ignore]
     fn a_command_runs_in_a_tab_under_script_and_is_read_and_stopped() {
@@ -1058,7 +1092,7 @@ mod tests {
         let tmux = |args: &[&str]| std::process::Command::new("tmux").args(args).env_remove("TMUX").output().unwrap();
         let begin = |id: &str, command: &str| {
             let run = Run { id: id.into(), session: "k".into(), session_title: "A test".into(), command: command.into(), cwd: scratch.to_path_buf(), terminal: "tmux".into(), asked_at: now_ms(), allowed_at: now_ms(), ..Default::default() };
-            write_folder(&dir(id), &run).unwrap();
+            write_folder(&dir(id), &run, Duration::ZERO).unwrap();
             // As the tab has it: the folder in the shell's environment, then the line typed.
             let line = format!("export {ENV}={}; {}; sleep 60", sh_quote(&dir(id).to_string_lossy()), TYPED.trim());
             assert!(tmux(&["new-session", "-d", "-s", id, "-x", "100", "-y", "20", &line]).status.success());
@@ -1105,9 +1139,9 @@ mod tests {
         // Closing: in your login zsh, the line typed into it as a new tab's shell gets it, which
         // makes the wrapper the tab's shell. A tab still the run's closes; one you took a shell in
         // once it ended stays.
-        let tab_with = |id: &str| {
+        let tab_with = |id: &str, closes_after: Duration| {
             let run = Run { id: id.into(), session: "k".into(), session_title: "A test".into(), command: "echo closing".into(), cwd: scratch.to_path_buf(), terminal: "tmux".into(), asked_at: now_ms(), allowed_at: now_ms(), ..Default::default() };
-            write_folder(&dir(id), &run).unwrap();
+            write_folder(&dir(id), &run, closes_after).unwrap();
             assert!(tmux(&["new-session", "-d", "-s", id, "-x", "100", "-y", "20", "/bin/zsh -l"]).status.success());
             let typed = format!("export {ENV}={}; {}", sh_quote(&dir(id).to_string_lossy()), TYPED.trim());
             tmux(&["send-keys", "-t", id, &typed, "Enter"]);
@@ -1116,14 +1150,14 @@ mod tests {
             noted_pid(&dir(id), PIDS, 0, run.allowed_at).unwrap()
         };
         let id = format!("run-test-close-{}", std::process::id());
-        let tab = tab_with(&id);
+        let tab = tab_with(&id, Duration::ZERO);
         let said = close(&id).unwrap();
         tmux(&["kill-session", "-t", &id]);
         assert!(said.starts_with("Its tab's shell has ended"), "{said}");
         assert!(!procs::pid_alive(tab));
 
         let id = format!("run-test-taken-{}", std::process::id());
-        let tab = tab_with(&id);
+        let tab = tab_with(&id, Duration::ZERO);
         tmux(&["send-keys", "-t", &id, "Enter"]);
         let start = Instant::now();
         while !dir(&id).join(CLAIM).exists() && start.elapsed() < Duration::from_secs(10) {
@@ -1134,6 +1168,19 @@ mod tests {
         tmux(&["kill-session", "-t", &id]);
         assert!(refused.starts_with("Your user took a shell in its tab"), "{refused}");
         assert!(alive, "the shell you took there, under the same pid");
+
+        // Left alone, the tab closes by itself once its wait is up: the tmux session, whose shell
+        // the wrapper was, ends.
+        let id = format!("run-test-closes-{}", std::process::id());
+        let tab = tab_with(&id, Duration::from_secs(2));
+        let start = Instant::now();
+        while tmux(&["has-session", "-t", &id]).status.success() && start.elapsed() < Duration::from_secs(15) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let open = tmux(&["has-session", "-t", &id]).status.success();
+        tmux(&["kill-session", "-t", &id]);
+        assert!(!open && !procs::pid_alive(tab), "closed by itself");
+        assert!(dir(&id).join(CLAIM).join(CLOSING).exists());
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 
@@ -1324,7 +1371,8 @@ mod tests {
     fn the_wrapper_runs_the_command_from_its_file_and_keeps_its_status() {
         let d = crate::fixtures::scratch("terminal-wrapper");
         std::fs::write(d.join(COMMAND), "printf '%s\\n' \"it's $((40 + 2))\"; shopt -q login_shell && case $- in *i*) echo 'a login shell, interactive';; esac; exit 3\n").unwrap();
-        let text = wrapper(&d, "Fix the 'build'", false).replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
+        let run = Run { session: "k".into(), session_title: "Fix the 'build'".into(), ..Default::default() };
+        let text = wrapper(&d, &run, Duration::ZERO).replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
         // sh, in a home of the test's own, so none of your startup files run: a login sh reads
         // ~/.profile, an interactive one $ENV. The test's profile shows it was read.
         let home = d.join("home");
@@ -1343,5 +1391,73 @@ mod tests {
         assert_eq!(pids.split_whitespace().count(), 2, "{pids}");
         assert!(!d.join(format!("{PIDS}.new")).exists(), "written whole, then moved into place");
         assert!(std::fs::read_to_string(d.join(SHELL)).unwrap().parse::<u32>().is_ok());
+    }
+
+    /// Once the command ends, the wrapper closes its tab by itself when the wait is up, having
+    /// claimed it as a close does; Return before then takes a shell there, which the wait then
+    /// leaves alone. In `sh`, with a stub in `script`'s place, as above, and a pipe for the tab's
+    /// keyboard.
+    #[test]
+    fn the_wrapper_closes_its_tab_after_the_wait_unless_you_took_a_shell_there() {
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::{Child, Command, Stdio};
+        let start = |name: &str| -> (crate::fixtures::Scratch, Child) {
+            let d = crate::fixtures::scratch(name);
+            std::fs::write(d.join(COMMAND), "echo ran\n").unwrap();
+            let run = Run { session: "k".into(), session_title: "A test".into(), ..Default::default() };
+            let text = wrapper(&d, &run, Duration::from_secs(1)).replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
+            assert!(text.contains("This tab closes in a second, unless you press Return for a shell in it."), "{text}");
+            let home = d.join("home");
+            std::fs::create_dir_all(&home).unwrap();
+            let child = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(&text)
+                .env("SHELL", "/bin/sh")
+                .env("HOME", &home)
+                .env_remove("ENV")
+                .env_remove("BASH_ENV")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            (d, child)
+        };
+        let ended = |child: &mut Child, within: Duration| {
+            let started = Instant::now();
+            loop {
+                if let Some(status) = child.try_wait().unwrap() {
+                    return Some(status);
+                }
+                if started.elapsed() > within {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+
+        let (d, mut tab) = start("terminal-wrapper-closes");
+        let status = ended(&mut tab, Duration::from_secs(15));
+        let _ = tab.kill();
+        assert_eq!(status.and_then(|s| s.signal()), Some(libc::SIGHUP), "hung up once the wait was up: {status:?}");
+        assert_eq!(std::fs::read_to_string(d.join(EXIT)).unwrap().trim(), "0");
+        assert!(d.join(CLAIM).join(CLOSING).exists() && !taken(&d), "claimed as a close claims it");
+
+        let (d, mut tab) = start("terminal-wrapper-taken");
+        let mut keys = tab.stdin.take().unwrap();
+        keys.write_all(b"\n").unwrap();
+        let early = ended(&mut tab, Duration::from_secs(3));
+        assert!(early.is_none(), "the shell you took is still there past the wait: {early:?}");
+        assert!(taken(&d));
+        keys.write_all(b"exit 7\n").unwrap();
+        drop(keys);
+        let status = ended(&mut tab, Duration::from_secs(10));
+        let _ = tab.kill();
+        assert_eq!(status.and_then(|s| s.code()), Some(7), "your shell ended as you ended it: {status:?}");
+    }
+
+    #[test]
+    fn how_long_until_a_tab_closes_reads_as_words() {
+        assert_eq!([1, 30, 60, 600, 3600, 7200, 5400].map(in_words), ["a second", "30 seconds", "a minute", "10 minutes", "an hour", "2 hours", "90 minutes"]);
     }
 }

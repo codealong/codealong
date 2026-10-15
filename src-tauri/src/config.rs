@@ -1007,12 +1007,24 @@ pub struct AppsCfg {
     /// (flash.rs). Off by default: the terminal is outlined either way.
     #[serde(default)]
     pub move_pointer: bool,
+    /// How many minutes after a command Codealong ran in a tab of your terminal ends that the tab
+    /// closes by itself, unless you took a shell there (terminal.rs `wrapper`); 0 keeps it open.
+    #[serde(default = "default_close_command_tabs_after")]
+    pub close_command_tabs_after: u32,
 }
 
 impl Default for AppsCfg {
     fn default() -> Self {
-        AppsCfg { terminal: default_terminal(), editor: default_editor(), new_terminal: NewTerminal::default(), move_pointer: false }
+        AppsCfg { terminal: default_terminal(), editor: default_editor(), new_terminal: NewTerminal::default(), move_pointer: false, close_command_tabs_after: default_close_command_tabs_after() }
     }
+}
+
+/// Long enough to read how a command ended, or to come back from another app and see it; what it
+/// printed is kept a week whatever this says.
+pub const CLOSE_COMMAND_TABS_AFTER: u32 = 10;
+
+fn default_close_command_tabs_after() -> u32 {
+    CLOSE_COMMAND_TABS_AFTER
 }
 
 /// Where a terminal Codealong opens goes: a window of its own, a tab in the front window (after
@@ -1470,7 +1482,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
     set_tables(doc, "accounts", rows);
 }
 
-const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\" or \"terminal\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n";
+const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\" or \"terminal\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
@@ -1798,6 +1810,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     // Opt-in: only a file that turns it on, or has it already, gets the key.
     if cfg.apps.move_pointer || doc["apps"].get("move_pointer").is_some() {
         set_value(&mut doc["apps"]["move_pointer"], Value::from(cfg.apps.move_pointer));
+    }
+    if cfg.apps.close_command_tabs_after != CLOSE_COMMAND_TABS_AFTER || doc["apps"].get("close_command_tabs_after").is_some() {
+        set_value(&mut doc["apps"]["close_command_tabs_after"], Value::from(i64::from(cfg.apps.close_command_tabs_after)));
     }
 
     set_theme(&mut doc, cfg.appearance.theme);
@@ -2241,6 +2256,9 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(&format!("new_terminal = {}\n", q(cfg.apps.new_terminal.as_str())));
     if cfg.apps.move_pointer {
         s.push_str("move_pointer = true\n");
+    }
+    if cfg.apps.close_command_tabs_after != CLOSE_COMMAND_TABS_AFTER {
+        s.push_str(&format!("close_command_tabs_after = {}\n", cfg.apps.close_command_tabs_after));
     }
     s.push('\n');
     s.push_str(APPEARANCE_COMMENT);
@@ -2916,6 +2934,22 @@ mod tests {
         // Turned back on, the table stays, saying so.
         let on = with_config(&out, &full()).unwrap();
         assert!(on.contains("[sessions]\ncontinue_after_network_error = true"), "{on}");
+    }
+
+    #[test]
+    fn a_command_tab_closes_after_ten_minutes_unless_the_file_says_otherwise() {
+        assert_eq!(toml::from_str::<Config>("").unwrap().apps.close_command_tabs_after, CLOSE_COMMAND_TABS_AFTER);
+        let old = render(&full());
+        assert!(!old.contains("close_command_tabs_after ="), "the default isn't written: {old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("close_command_tabs_after ="));
+        let mut never = full();
+        never.apps.close_command_tabs_after = 0;
+        let out = with_config(&old, &never).unwrap();
+        assert!(out.contains("close_command_tabs_after = 0"), "{out}");
+        assert_eq!(parse(&out).unwrap(), never);
+        assert_eq!(parse(&render(&never)).unwrap(), never);
+        // Set back to the default, the line stays, saying so.
+        assert!(with_config(&out, &full()).unwrap().contains(&format!("close_command_tabs_after = {CLOSE_COMMAND_TABS_AFTER}")));
     }
 
     #[test]

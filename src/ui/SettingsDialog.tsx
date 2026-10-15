@@ -45,6 +45,23 @@ const NEW_TERMINALS: { id: NewTerminal; label: string; says: string }[] = [
   { id: 'window', label: 'New window', says: 'A window of its own every time.' },
 ];
 
+/** How long a command's tab stays once the command ends, in minutes (`[apps]
+ *  close_command_tabs_after`, config.rs `CLOSE_COMMAND_TABS_AFTER` the default); 0 keeps it open. */
+const CLOSE_COMMAND_TABS_AFTER = 10;
+const CLOSE_COMMAND_TABS: { id: number; label: string }[] = [
+  { id: 1, label: '1 minute' },
+  { id: 10, label: '10 minutes' },
+  { id: 60, label: '1 hour' },
+  { id: 0, label: 'Never' },
+];
+
+/** The choices, with the file's own wait among them when it says another. */
+function closeCommandTabsOptions(current: number): { id: number; label: string }[] {
+  if (CLOSE_COMMAND_TABS.some((o) => o.id === current)) return CLOSE_COMMAND_TABS;
+  const waits = [...CLOSE_COMMAND_TABS.filter((o) => o.id > 0), { id: current, label: `${current} minutes` }].sort((a, b) => a.id - b.id);
+  return [...waits, ...CLOSE_COMMAND_TABS.filter((o) => o.id === 0)];
+}
+
 const WHEN_LIMITED: { id: WhenLimited; label: string; says: string }[] = [
   { id: 'suggest', label: 'Suggest a move', says: 'The session says which account has room, with a button that moves it there to carry on.' },
   { id: 'move', label: 'Move it', says: 'Codealong moves it to the account with room as soon as it stops, and it carries on there: in a new terminal, or as a background job if it was one.' },
@@ -207,6 +224,7 @@ interface PaneProps {
 
 function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: PaneProps & { view: ConfigView; theme: Theme; onPickTheme: (t: Theme) => void; now: number }) {
   const searchDays = cfg.search?.days ?? MAX_SEARCH_DAYS;
+  const closeCommandTabs = cfg.apps.close_command_tabs_after ?? CLOSE_COMMAND_TABS_AFTER;
   return (
     <>
       <div className="ca-settings-intro">
@@ -258,6 +276,17 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
               ? 'Terminal can’t open a tab for another app, so new terminals always open as windows there.'
               : NEW_TERMINALS.find((t) => t.id === (cfg.apps.new_terminal ?? 'project'))?.says}
           </small>
+        </div>
+        <div className="ca-field">
+          <span>Close a command's tab once it ends</span>
+          <Seg
+            className="ca-settings-theme"
+            label="Close a command's tab once it ends"
+            options={closeCommandTabsOptions(closeCommandTabs)}
+            value={closeCommandTabs}
+            onPick={(id) => id !== closeCommandTabs && void onSave({ ...cfg, apps: { ...cfg.apps, close_command_tabs_after: id } })}
+          />
+          <small>A tab Codealong opens to run a command (Run on a block, or one an agent asked for) closes this long after the command ends, unless you pressed Return there for a shell. What it printed is kept a week.</small>
         </div>
         <label className="ca-field ca-settings-check">
           <input type="checkbox" checked={cfg.apps.move_pointer ?? false} onChange={(e) => void onSave({ ...cfg, apps: { ...cfg.apps, move_pointer: e.target.checked } })} />

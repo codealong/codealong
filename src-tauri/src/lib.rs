@@ -1233,14 +1233,14 @@ async fn run_command(engine: State<'_, engine::Handle>, peers: State<'_, peers::
 }
 
 /// Runs a command from a session's conversation (a shell block in a reply, or a command the agent
-/// ran) in a new terminal in `cwd`, where the window says it ran or belongs (runcode.rs).
+/// ran) in a new tab in `cwd`, where the window says it ran or belongs (runcode.rs).
 #[tauri::command]
 async fn run_in_terminal(app: tauri::AppHandle, window: tauri::WebviewWindow, engine: State<'_, engine::Handle>, cwd: String, text: String) -> Result<(), String> {
     let engine = engine.inner().clone();
     blocking(move || {
         let dir = std::path::PathBuf::from(&cwd);
-        let (apps, near) = engine.read(|b| (b.apps.clone(), board::terminal_neighbours(&b.lanes, &dir)));
-        runcode::run(&apps, &near, &dir, &text).map_err(words)?;
+        let (apps, lanes) = engine.read(|b| (b.apps.clone(), b.lanes.clone()));
+        runcode::run(&apps, &lanes, &dir, &text).map_err(words)?;
         // A click in the bar's peek, the quick panel, a card on the desktop or a session kept there
         // leaves Codealong inactive, and macOS may not bring the terminal forward for an app that isn't.
         let label = window.label();

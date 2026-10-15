@@ -1,33 +1,35 @@
 //! Running a command from a session's conversation in a new terminal: a shell block in an agent's
-//! reply, or a command the agent ran. It's typed into the new terminal's shell a line at a time,
-//! as resuming and attaching are, so it shows there and goes into the history as if you had typed
-//! it. What's typed is the block without its comments: zsh takes `#` as a comment only with
-//! `interactive_comments` set, which it isn't by default, so a comment after a command would reach
-//! the command as arguments. A line that starts a command loses its indentation too (a block in a
-//! list comes indented with it), which would keep it out of a history that skips lines starting
-//! with a space. Quoted text over several lines and here-documents go as they are.
+//! reply, or a command the agent ran. It runs in a tab of its own as a command an agent asks for
+//! does (terminal.rs), for no session: the tab closes by itself a while after the commands end
+//! unless you take a shell there, and Codealong knows the tabs it opened this way. What runs is
+//! the block without its comments: zsh takes `#` as a comment only with `interactive_comments`
+//! set, which it isn't by default, and the commands run in your interactive shell, so a comment
+//! after a command would reach the command as arguments. A line that starts a command loses its
+//! indentation too (a block in a list comes indented with it). Quoted text over several lines and
+//! here-documents go as they are.
 
 use std::collections::VecDeque;
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
 
-use crate::launch;
-use crate::model::AppNames;
-use crate::util::tilde;
+use crate::model::{AppNames, Lane};
+use crate::terminal;
 
-/// Types a block's commands into a new terminal in `dir`, placed as `[apps] new_terminal` says,
-/// beside the terminals of `near` (`board::terminal_neighbours`). A folder that's gone is an
-/// error, not a reason to run it somewhere else.
-pub fn run(apps: &AppNames, near: &[Vec<String>], dir: &Path, block: &str) -> Result<()> {
+/// Runs a block's commands in a new tab in `dir`, placed as `[apps] new_terminal` says, beside
+/// the terminals in its folder's lanes (terminal.rs `start`). A folder that's gone is an error,
+/// not a reason to run it somewhere else.
+pub fn run(apps: &AppNames, lanes: &[Lane], dir: &Path, block: &str) -> Result<terminal::Run> {
     if unseen(block) {
         bail!("It has characters that don't show here, so it isn't run: what ran wouldn't be what you see.");
     }
-    let typed = input(block).ok_or_else(|| anyhow!("There's no command in it to run."))?;
-    if !dir.is_absolute() || !dir.is_dir() {
-        bail!("It would run in {}, which isn't there any more.", tilde(dir));
+    let command = input(block).ok_or_else(|| anyhow!("There's no command in it to run."))?;
+    if let Some(why) = terminal::refused(&command) {
+        bail!("{why}");
     }
-    launch::terminal_open(&apps.terminal_id, launch::Placement { new_terminal: apps.new_terminal, near, behind: false, label: None }, dir, Some(&typed))
+    let (id, at) = terminal::new_id();
+    let asked = terminal::Asked { id, ask: terminal::Ask { session: String::new(), command, cwd: dir.to_path_buf() }, at };
+    terminal::start(&asked, apps, lanes, "", false)
 }
 
 /// What a line ends inside, for the lines after it.
@@ -48,7 +50,7 @@ struct Heredoc {
     tabs: bool,
 }
 
-/// What to type for a block of shell commands: its lines, each ending in a newline, without
+/// What runs for a block of shell commands: its lines, each ending in a newline, without
 /// comments and the blank lines between commands. None when there's no command in it.
 pub fn input(block: &str) -> Option<String> {
     let mut out: Vec<&str> = Vec::new();

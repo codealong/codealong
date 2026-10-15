@@ -470,6 +470,7 @@ terminal = "ghostty"           # or "iterm2", "terminal"
 editor = "cursor"              # or "vscode", "zed", "xcode"… (Settings lists those installed), or an app's name
 new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
 move_pointer = false           # move the pointer to a terminal brought forward on another screen
+close_command_tabs_after = 10   # minutes after a command Codealong runs in your terminal ends that its tab closes; 0 keeps it (Settings › General)
 
 [appearance]
 theme = "system"               # follows macOS; or "light", "dark"

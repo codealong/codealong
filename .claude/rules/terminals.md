@@ -135,10 +135,9 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   types to run it: `launch.rs` (`launcher`), `launch/terminal_app.rs` (`open`).
 - Typing the next line only once the shell reads a key at a time, each line led by Ctrl-U:
   `launch.rs` (`wait_for_shell`, `fresh_line`).
-- Run on a code block types a block's commands without their comments, one line each, since zsh
-  takes `#` as a comment only with `interactive_comments` set: `runcode.rs` (module header).
-  bash's interactive shells take comments. Lines typed before the shell is up (Ghostty's initial
-  input) or after (iTerm2, Terminal) ran alike in zsh 5.9 and bash 3.2 on a pty.
+- Run on a code block runs a block's commands without their comments, since zsh takes `#` as a
+  comment only with `interactive_comments` set: `runcode.rs` (module header). bash's interactive
+  shells take comments. They run in a tab of their own as `codealong terminal run`'s do (below).
 
 ## Reading what a tab printed
 
@@ -165,7 +164,12 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   --close` hangs up only a tab that's still the run's, each claiming the tab with one `mkdir` so
   a close and your Return at once never both have it: `terminal.rs` (`TYPED`, `wrapper`,
   `close`, `CLAIM`). The terminal closes a tab whose shell ended as its settings say (Ghostty does;
-  Terminal's `shellExitAction` above may keep it).
+  Terminal's `shellExitAction` above may keep it). A run's tab closes itself once
+  `[apps] close_command_tabs_after` is up, its wrapper claiming it as `close` does and hanging
+  itself up, unless you took a shell there first: `terminal.rs` (`wrapper`). It sleeps rather than
+  `read -t`, which macOS's `/bin/sh` has as bash 3.2 but not as dash, which
+  `/private/var/select/sh` may name. Run on a code block runs this way too (`runcode.rs`), so a
+  block's commands don't land in your shell's history.
 - macOS's `/bin/sh` runs as the shell `/private/var/select/sh` names (`bash` here), and that's the
   name the kernel gives the process (`ps -o ucomm`), not `sh`.
 - An agent's sandbox may keep its command from looking at your processes or signalling them (a

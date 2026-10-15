@@ -357,8 +357,10 @@ output once you've opened it.
 A right-click on a message has Copy message, which copies it as it was written, Markdown and all,
 and Copy for what you'd selected in it; in the peek, the notch, the waiting window and a kept
 session, the session's own menu follows. Code blocks have Copy on hover, and a shell block in a reply (`bash`, `sh`, `zsh`…) or a command the
-agent ran has Run beside it: that opens a new terminal where the session works, or where the command
-ran, and types the commands there without their comments. A block with no language counts as shell
+agent ran has Run beside it: that runs the commands without their comments in a new tab of your
+terminal, where the session works or where the command ran, as a command in your terminal does
+(*Commands in your terminal*): in your login shell, the tab closing by itself a while after they end
+unless you press Return there for a shell. A block with no language counts as shell
 when each of its lines starts with a command on your PATH (`git`, `npm`, `cd`…), so output, a path or
 a config file keeps Copy alone. A block led by `!` is one an agent writes for you to run with what
 it prints coming back to it (a sign-in, a command that needs you): Run runs it as `!` in the
@@ -1416,10 +1418,12 @@ waits on you for it, wherever that shows (its panel, the notch, Waiting on you, 
 tab of your terminal beside the session's, in that folder, and runs it there in your login shell
 (zsh or bash, interactive, with your aliases and your sign-ins, outside any sandbox): you can watch
 it, type into it (a password prompt, a browser sign-in) and stop it with Ctrl-C. Once it ends the
-tab says how, and Return there gives you a shell in it. What it prints goes back to the agent,
-colors and progress lines drawn over
-themselves resolved; what you type isn't kept, so a password typed at a prompt that hides it isn't
-either. Deny tells the agent no, with what you write in the box when you write something. It's asked
+tab says how, and Return there gives you a shell in it; otherwise the tab closes by itself 10
+minutes after (Settings › General › Close a command's tab once it ends; `close_command_tabs_after`
+in config.toml's `[apps]`, in minutes, 0 to keep it open), so tabs of finished commands don't pile
+up. A tab you took a shell in is yours and stays. What it prints goes back to the agent, colors and
+progress lines drawn over themselves resolved; what you type isn't kept, so a password typed at a
+prompt that hides it isn't either. Deny tells the agent no, with what you write in the box when you write something. It's asked
 every time: there's no Always, and only you allow it, on this Mac or from your phone, never the
 agent's command or another Mac. The request goes away if the agent stops waiting for your answer.
 You run commands this way yourself too, with `!` in a session's box or Run on a `!` block

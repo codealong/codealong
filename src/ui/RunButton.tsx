@@ -1,6 +1,7 @@
-// Running a command from a session's conversation: a button beside a shell block's Copy that types
-// its commands into a new terminal (runcode.rs), in the folder the session works in or the one the
-// command ran in, and says for a moment that it did. A block with no language is a shell block
+// Running a command from a session's conversation: a button beside a shell block's Copy that runs
+// its commands in a new tab of your terminal (runcode.rs), in the folder the session works in or
+// the one the command ran in, and says for a moment that it did. The tab closes by itself a while
+// after they end (`[apps] close_command_tabs_after`) unless you take a shell there. A block with no language is a shell block
 // when each of its lines starts with a command this Mac has (`isCommandBlock`), as agents often
 // write one for you to run. A block led by `!` is a command whose output is for the session, as an
 // agent writes one for you to run: it runs in a new tab of yours, as you, and the session is told
@@ -109,7 +110,7 @@ export function RunButton({ text, target, onFailed }: { text: string; target: Ru
     return () => window.clearTimeout(id);
   }, [state]);
   const own = target.own;
-  const title = own ? `Run in a new ${target.terminal} tab in ${tildePath(target.folder)}, as you: the session is told what it prints once it ends` : `Run in ${target.terminal}, in ${tildePath(target.folder)}`;
+  const title = own ? `Run in a new ${target.terminal} tab in ${tildePath(target.folder)}, as you: the session is told what it prints once it ends` : `Run in a new ${target.terminal} tab in ${tildePath(target.folder)}`;
   const doneTitle = own ? `Running in ${target.terminal}: the session is told what it prints once it ends` : `Opened in ${target.terminal}`;
   return (
     <button
