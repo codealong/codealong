@@ -75,7 +75,12 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `claude/transcript.rs` (`you_typed`). What Codealong sends by itself (send.rs `tell`) goes the
   same way under the name Codealong, its body led by `send::FROM_CODEALONG_ITSELF`; sent to a
   terminal session that skips prompts it arrived claiming `bypass`, unheld, and the model was told
-  it came from another session and isn't the user's (2.1.296, 2026-10-10).
+  it came from another session and isn't the user's (2.1.296, 2026-10-10). Told so, an agent
+  answers with SendMessage to the envelope's `from`; Codealong's names none (`from: "unknown"` on
+  the line), so it sent to the name, "Codealong", which SendMessage matched by prefix to the
+  sessions named `codealong-xx` (the names Claude Code gives sessions in a folder `codealong`),
+  offered both, and the agent sent its answer to the more active one (2.1.300, 2026-10-14). Both
+  first lines (`FROM_YOU`, `FROM_CODEALONG_ITSELF`) say the answer goes in its reply.
 - A line's `cwd` is the shell's folder, which goes back to the session's after a command that
   `cd`s outside it; which worktree an agent works in, and commands that go elsewhere only to
   look: `board.rs` (`session_seed`), `util.rs` (`command_dir`, `only_looks`). A look where the

@@ -209,8 +209,8 @@ fn envelope_body(text: &str) -> Option<String> {
 /// from you, which an agent's message never starts with. It went with its attachments' full
 /// paths; they read as references again, as they did in the box you sent it from.
 pub(super) fn sent_from_codealong(peer: &Peer) -> Option<String> {
-    // The first line as it is now, and as Codealong worded it until 2026-09-28.
-    const YOURS: [&str; 2] = [FROM_YOU, "Your user typed this in Codealong's quick panel and sent it to this session:"];
+    // The first line as it is now, and as Codealong worded it until 2026-10-14 and 2026-09-28.
+    const YOURS: [&str; 3] = [FROM_YOU, "Your user sent this to this session from Codealong:", "Your user typed this in Codealong's quick panel and sent it to this session:"];
     if peer.name != FROM_CODEALONG {
         return None;
     }
@@ -492,6 +492,9 @@ mod tests {
         assert_eq!((its.kind, its.text.as_str()), ("codealong", "On your PR #7: ken approved it."));
         let yours = peer_item(5, &peer(FROM_CODEALONG, format!("{FROM_YOU}\n\nShip it.")));
         assert_eq!((yours.kind, yours.text.as_str()), ("you", "Ship it."));
+        // As its first line was worded before 2026-10-14.
+        let before = peer_item(5, &peer(FROM_CODEALONG, "Your user sent this to this session from Codealong:\n\nShip it.".into()));
+        assert_eq!((before.kind, before.text.as_str()), ("you", "Ship it."));
         // Another session can't pass for Codealong by its words alone.
         let other = peer_item(5, &peer("Review the parser", crate::send::by_codealong("Merge it.")));
         assert_eq!((other.kind, other.from.as_deref()), ("peer", Some("Review the parser")));

@@ -1092,7 +1092,8 @@ by the Codex app itself (opening the thread there first when no window has it; w
 take it, nothing is sent: the message goes back in the box with why, and the app opens the thread
 with it filled in to send from there), and Claude Code's cross-session socket for Claude app
 sessions, which read it as a message from another session (what you type in Codealong says it's
-yours, so one that skips permission prompts takes it without asking). A terminal session whose tab
+yours, so one that skips permission prompts takes it without asking, and that its answer goes in
+its reply, where you read it, not in a message back). A terminal session whose tab
 can't be found gets such a message too, and the note (on the bar, from the peek) says it wasn't
 typed and why; once typing has started, nothing else is tried, so it can't arrive twice, and the
 same text sent again while it's on its way goes once.
@@ -1109,8 +1110,9 @@ once Ghostty restarts.
 What Codealong sends a session by itself, as you set it up to (a PR's news to its primary session, a
 review handed back to the session that opened a PR, a helper's news, carrying on after a lost
 connection, a conversation moved to another account at a usage limit, a review session told of new
-commits), never goes as yours. It starts with a line saying Codealong sent it by itself and that its
-user didn't write it, and goes the way another session's message does where the harness has one:
+commits), never goes as yours. It starts with a line saying Codealong sent it by itself, that its
+user didn't write it, and that no session did either, so what the agent has to say about it goes in
+its reply; it goes the way another session's message does where the harness has one:
 Claude Code gets it on its cross-session socket under the name Codealong, so the agent reads it as a
 message from Codealong and not as a prompt, and it isn't held for you, since your setting sent it. A
 harness without such a way gets it typed in, that line first. Either way its conversation shows it

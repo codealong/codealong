@@ -83,8 +83,13 @@ pub enum Sender {
 }
 
 /// The line what Codealong sends by itself starts with (`Sender::Codealong`), as the session
-/// reads it and as its conversation is told apart from yours.
-pub const FROM_CODEALONG_ITSELF: &str = "Codealong sent this by itself, as your user set it up to; it isn't something your user wrote.";
+/// reads it and as its conversation is told apart from yours. It says that what the session has
+/// to say goes in its reply, as yours does (claude/peer.rs `FROM_YOU`): no session sent it.
+pub const FROM_CODEALONG_ITSELF: &str = "Codealong sent this by itself, as your user set it up to; it isn't something your user wrote. No session sent it either: anything you'd say about it goes in your reply here, where your user reads it.";
+
+/// How that line was worded until 2026-10-14, which older records start with. The line now
+/// starts with it, so it's looked for second.
+const FROM_CODEALONG_ITSELF_BEFORE: &str = "Codealong sent this by itself, as your user set it up to; it isn't something your user wrote.";
 
 /// Text Codealong sends by itself as a session gets it: after the line that says so. For what goes
 /// in some other way than a send (a resume's or a start's prompt).
@@ -94,7 +99,8 @@ pub fn by_codealong(text: &str) -> String {
 
 /// Text that `by_codealong` led, without its line: what Codealong said.
 pub fn from_codealong(text: &str) -> Option<&str> {
-    text.trim_start().strip_prefix(FROM_CODEALONG_ITSELF).map(str::trim)
+    let t = text.trim_start();
+    [FROM_CODEALONG_ITSELF, FROM_CODEALONG_ITSELF_BEFORE].iter().find_map(|first| t.strip_prefix(first)).map(str::trim)
 }
 
 /// Sends a session what Codealong has to tell it by itself (`Sender::Codealong`), the way its
@@ -147,7 +153,7 @@ const AGENT_BYLINES: [&str; 2] = ["This message is from another agent, ", "This 
 pub fn without_byline(text: &str) -> &str {
     let t = text.trim();
     match t.split_once("\n\n") {
-        Some((intro, rest)) if AGENT_BYLINES.iter().chain([&FROM_CODEALONG_ITSELF]).any(|s| intro.starts_with(s)) => rest.trim(),
+        Some((intro, rest)) if AGENT_BYLINES.iter().chain([&FROM_CODEALONG_ITSELF, &FROM_CODEALONG_ITSELF_BEFORE]).any(|s| intro.starts_with(s)) => rest.trim(),
         _ => t,
     }
 }
@@ -1051,6 +1057,9 @@ mod tests {
         assert_eq!((d.agent, d.bypasses), (Some("Codealong"), true));
         assert_eq!(from_codealong(&msg.text), Some("On your PR #7: ken approved it."));
         assert_eq!(from_codealong("On your PR #7"), None);
+        // As it was worded before, too.
+        let before = format!("{FROM_CODEALONG_ITSELF_BEFORE}\n\nOn your PR #7: ken approved it.");
+        assert_eq!((from_codealong(&before), without_byline(&before)), (Some("On your PR #7: ken approved it."), "On your PR #7: ken approved it."));
         assert_eq!(without_byline(&msg.text), "On your PR #7: ken approved it.");
         assert_eq!(by_codealong(" Carry on. "), format!("{FROM_CODEALONG_ITSELF}\n\nCarry on."));
 

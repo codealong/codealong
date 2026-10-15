@@ -131,8 +131,29 @@ dock=(HOME="$HOME" USER="$me" LOGNAME="$me" SHELL="${SHELL:-/bin/zsh}" PATH=/usr
 agent="$(launchctl getenv SSH_AUTH_SOCK || true)"
 [ -z "$agent" ] || dock+=(SSH_AUTH_SOCK="$agent")
 [ -z "${__CF_USER_TEXT_ENCODING:-}" ] || dock+=(__CF_USER_TEXT_ENCODING="$__CF_USER_TEXT_ENCODING")
-open_app() { env -i "${dock[@]}" /usr/bin/open "$installed"; }
+# A new copy (`-n`) every time: macOS takes a copy that quit while processes it started still run
+# (lsappinfo: "exited-with-subordinates") for one still open, and a plain `open` then only brings
+# it forward, so nothing opened, and the copy that was running stayed (2026-10-14).
+open_app() { env -i "${dock[@]}" /usr/bin/open -n "$installed"; }
 open_app || { sleep 2; open_app; }
+# Opened, the new copy asks whichever copy answers on the socket to quit and takes the socket from
+# it (server::take_over): a copy the pkill above didn't match, too, one started by typing
+# `codealong` in a terminal, whose command line is that word alone. It's relaunched once the new
+# copy holds the socket, and not before.
+sock="$HOME/Library/Application Support/Codealong/codealong.sock"
+new_copy="^$(re "$installed")/Contents/MacOS/codeal[o]ng$"
+took=""
+holder=""
+for _ in $(seq 1 300); do
+  holder="$(lsof -t "$sock" 2>/dev/null | head -1 || true)"
+  case " $(pgrep -f "$new_copy" | tr '\n' ' ' || true) " in
+  *" ${holder:-none} "*)
+    took=1
+    break
+    ;;
+  esac
+  sleep 0.2
+done
 # A Dock pin made while builds ran from the bundle folder points at nothing once they're moved to
 # Applications, and the Dock shows the running app under a question mark. It's pointed at
 # Applications, and the Dock restarted to read it, once. Nothing here may stop the script.
@@ -157,8 +178,9 @@ repin() {
   rm -f "$prefs"
 }
 repin
-# For the next relaunch to know what runs (above). A build with uncommitted changes names no commit.
-if [ -n "$built" ]; then echo "$built" >"$launched"; else rm -f "$launched"; fi
+# For the next relaunch to know what runs (above). A build with uncommitted changes names no commit,
+# and one that didn't take over runs none of it.
+if [ -n "$took" ] && [ -n "$built" ]; then echo "$built" >"$launched"; else rm -f "$launched"; fi
 
 # Names what was launched, for the agent reporting it: the commit, where it stands against
 # origin/main, and whether uncommitted changes went into the build.
@@ -181,4 +203,10 @@ if [ -z "$(find "$target/pruned" -mtime -1 2>/dev/null)" ]; then
 fi
 # The main checkout is brought up to origin/main too (landing's step 3), and says how that went.
 scripts/catch-up-main.sh
+if [ -z "$took" ]; then
+  running_now="nothing"
+  [ -z "$holder" ] || running_now="pid $holder ($(ps -o command= -p "$holder" 2>/dev/null | cut -c1-120))"
+  echo "Not relaunched: Codealong Dev from $(git rev-parse --short HEAD) was opened, but after waiting for it $running_now answered as Codealong. lsappinfo list shows what macOS has open."
+  exit 1
+fi
 echo "Relaunched Codealong Dev from $(git rev-parse --short HEAD) ($where)"

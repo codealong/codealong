@@ -3400,9 +3400,9 @@ fn find_me(c: &mut Client) -> Result<(Option<String>, Option<&'static str>)> {
     if let Some(me) = &c.me {
         return Ok(me.clone());
     }
-    // The nearest: a session started from another's shell (`claude -p` run by an agent) is inside it.
     let live: Vec<&Session> = all_sessions(c.board()?).into_iter().map(|(s, _)| s).filter(|s| s.live).collect();
-    let by_process = procs::ancestors(std::process::id()).into_iter().find_map(|p| live.iter().find(|s| s.pid == Some(p))).map(|s| s.key.clone());
+    let chain: Vec<(u32, String)> = procs::ancestors(std::process::id()).into_iter().filter_map(|p| procs::parent_and_name(p).map(|(_, name)| (p, name))).collect();
+    let by_process = session_above(&chain, &live);
     let me = match by_process {
         Some(key) => (Some(key), Some("process")),
         None => match running_this(c)? {
@@ -3415,6 +3415,17 @@ fn find_me(c: &mut Client) -> Result<(Option<String>, Option<&'static str>)> {
     };
     c.me = Some(me.clone());
     Ok(me)
+}
+
+/// The live session nearest above this command, given its chain of processes (`chain`, this
+/// command first, each with its name): a session started from another's shell (`claude -p` run
+/// by an agent) is inside it. The chain is read only as far as Codealong's own app, a process of
+/// the same program as this command: what the app runs (a helper through its Codex service) isn't
+/// run by the session whose shell started the app, which it would otherwise be taken for once the
+/// app was opened from an agent's terminal (2026-10-14).
+fn session_above(chain: &[(u32, String)], live: &[&Session]) -> Option<String> {
+    let (_, me) = chain.first()?;
+    chain.iter().skip(1).take_while(|(_, name)| name != me).find_map(|(p, _)| live.iter().find(|s| s.pid == Some(*p))).map(|s| s.key.clone())
 }
 
 /// How recently a session that isn't in a turn by the board's last look was active, for it to
@@ -5535,6 +5546,22 @@ mod tests {
 
     fn session(key: &str, live: bool, visitor: Option<&str>) -> Session {
         Session { live, status_since: Some(0), visitor: visitor.map(String::from), ..crate::fixtures::session(key) }
+    }
+
+    /// A Codex helper's command, run under the app opened from a Claude session's terminal, was
+    /// taken for that session's: its byline named it and the reply went there (2026-10-14).
+    #[test]
+    fn a_command_is_a_sessions_only_up_to_codealongs_own_app() {
+        let at = |key: &str, pid: u32| Session { pid: Some(pid), ..session(key, true, None) };
+        let (setup, agent) = (at("claude:claude:setup", 100), at("claude:claude:agent", 300));
+        let live = [&setup, &agent];
+        let chain = |links: &[(u32, &str)]| links.iter().map(|(p, n)| (*p, n.to_string())).collect::<Vec<_>>();
+        // Under the app's Codex service, which the app runs, under the shell of the session that opened it.
+        let helper = chain(&[(50, "codealong"), (51, "zsh"), (52, "codex"), (53, "node"), (60, "codealong"), (61, "zsh"), (100, "claude")]);
+        assert_eq!(session_above(&helper, &live), None);
+        // A session's own shell finds it, a `claude -p` started from another's the nearer one.
+        assert_eq!(session_above(&chain(&[(50, "codealong"), (51, "zsh"), (300, "claude"), (60, "codealong")]), &live).as_deref(), Some("claude:claude:agent"));
+        assert_eq!(session_above(&chain(&[(50, "codealong"), (51, "zsh"), (300, "claude"), (52, "zsh"), (100, "claude")]), &live).as_deref(), Some("claude:claude:agent"));
     }
 
 

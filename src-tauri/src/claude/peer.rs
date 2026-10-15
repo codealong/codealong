@@ -27,9 +27,12 @@ use crate::send::{Delivery, Own, Sent, Way};
 
 /// The sender's name on what you send, and the line its text starts with. The session's
 /// transcript keeps both (conversation.rs, `sent_from_codealong`), which is how its panel knows the
-/// message was yours.
+/// message was yours. The line says the answer goes in the session's reply: no session sent it,
+/// so the envelope names nothing to answer, and an agent that answered with SendMessage, as
+/// Claude Code tells it to answer another session, sent it to whichever session's name begins
+/// with "Codealong" (2026-10-14).
 pub const FROM_CODEALONG: &str = "Codealong";
-pub const FROM_YOU: &str = "Your user sent this to this session from Codealong:";
+pub const FROM_YOU: &str = "Your user sent this to this session from Codealong, where they read your replies. No session sent it, so answer here, not with SendMessage:";
 
 /// The prompt as a cross-session message. The envelope is the one Claude Code writes for its
 /// own sends (`<cross-session-message from-name="…">`, the body on lines of its own), so the
@@ -227,7 +230,7 @@ mod tests {
         assert_eq!(
             peer_frame("abc", "m1", " run the tests\n", Some("bypass"), None),
             concat!(
-                r#"{"message":{"content":"<cross-session-message from-name=\"Codealong\" from-mode=\"bypass\">\nYour user sent this to this session from Codealong:\n\nrun the tests\n</cross-session-message>","role":"user"},"#,
+                r#"{"message":{"content":"<cross-session-message from-name=\"Codealong\" from-mode=\"bypass\">\nYour user sent this to this session from Codealong, where they read your replies. No session sent it, so answer here, not with SendMessage:\n\nrun the tests\n</cross-session-message>","role":"user"},"#,
                 r#""msgV":1,"msg_id":"m1","priority":"next","session_id":"abc","type":"user"}"#,
                 "\n"
             )
