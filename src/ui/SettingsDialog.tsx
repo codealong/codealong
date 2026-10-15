@@ -1037,7 +1037,7 @@ function dayOptions(current: number): Profile[] {
   return days.map((d) => ({ id: String(d), name: d === 0 ? 'Off: titles only' : d === 1 ? 'The last day' : `The last ${d} days` }));
 }
 
-const JEV_OFF: JevCfg = { model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false, emblems: false };
+const JEV_OFF: JevCfg = { model: 'jev-preview', quick_panel: false, sessions: false, todos: false, pull_requests: false, emblems: false };
 
 type JevFeature = 'quick_panel' | 'sessions' | 'todos' | 'pull_requests' | 'emblems';
 
@@ -1213,7 +1213,7 @@ function JevPane({ jev, routingPrompt, disabled, onChange, onRoutingPrompt }: { 
           <span>Model</span>
           <code className="ca-ic ca-jev-model">{jev.model}</code>
           <small>
-            <code className="ca-ic">jev-latest</code> follows TypeSafe’s newest stable release, and <code className="ca-ic">jev-preview</code> its newest. To change it, or stay on one version, set <code className="ca-ic">model</code> under <code className="ca-ic">[jev]</code> in config.toml.
+            <code className="ca-ic">jev-preview</code> follows TypeSafe’s newest release as it comes out, and <code className="ca-ic">jev-latest</code> its newest stable one. To change it, or stay on one version, set <code className="ca-ic">model</code> under <code className="ca-ic">[jev]</code> in config.toml.
           </small>
         </div>
       </fieldset>

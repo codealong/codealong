@@ -18,8 +18,10 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   levels), `noul` (yes/no) or, on 1.14 with the images header, `box` (one bounding box); answers
   carry `probabilities` and a `confidence`. A 400's `detail` is `{error_type, message}`.
 - Models: `jev-1.14.0` (from 2026-10-14) and `jev-1.13.0`; `jev-latest` is the newest stable one
-  (1.13.0 until about 2026-10-21, then 1.14.0), `jev-preview` the newest of any (1.14.0). A
-  reply's `model` names the version that answered. 60 days' notice before 1.13 goes, 30 for
+  (1.13.0 until about 2026-10-21, then 1.14.0), `jev-preview` the newest of any (1.14.0), and
+  Codealong's default (`config.rs` `default_jev_model`, asked 2026-10-15). `GET /v1/models`
+  lists only those two aliases, not the versions. A reply's `model` names the version that
+  answered. 60 days' notice before 1.13 goes, 30 for
   1.14. Both: 64k tokens per request, 32k for the state plus the longest question (262k each
   with `TypeSafe-Danger-Zone-Long-Context: true`, slower and less accurate); $0.042 per million
   input tokens, output free. The state is billed once however many questions there are.

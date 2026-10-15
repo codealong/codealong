@@ -91,7 +91,8 @@ impl Default for Config {
 /// turn it on; the API key lives in the login keychain, not here.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JevCfg {
-    /// The model every request names: `jev-latest`, or a version such as `jev-1.13.0`.
+    /// The model every request names: `jev-preview`, TypeSafe's newest release, by default;
+    /// `jev-latest`, its newest stable one; or a version such as `jev-1.14.0`.
     #[serde(default = "default_jev_model")]
     pub model: String,
     /// The quick panel suggests where what you type goes, warns about work already under way and
@@ -127,8 +128,10 @@ impl JevCfg {
     }
 }
 
+/// The alias TypeSafe moves to each release as it comes out; `jev-latest` waits until a release
+/// is called stable (1.14 came out a week before it).
 fn default_jev_model() -> String {
-    "jev-latest".to_string()
+    "jev-preview".to_string()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -1611,7 +1614,7 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
         return Err(format!("[search] days is {}; the board goes back {MAX_SEARCH_DAYS} days, so that's the most.", cfg.search.days));
     }
     if cfg.jev.model.trim().is_empty() {
-        return Err("[jev] model is empty; use \"jev-latest\".".into());
+        return Err("[jev] model is empty; use \"jev-preview\".".into());
     }
     let reviewer = cfg.reviews.account.trim();
     if !reviewer.is_empty() && !valid_reviewer(cfg, reviewer) {
@@ -3065,7 +3068,7 @@ mod tests {
         let out = with_config(&text, &on).unwrap();
         let shortcuts = out.find("[shortcuts]").unwrap();
         let jev = out
-            .find(&format!("{JEV_COMMENT}[jev]\nmodel = \"jev-latest\"\nquick_panel = false\nsessions = true\ntodos = false\npull_requests = false\nemblems = false\n"))
+            .find(&format!("{JEV_COMMENT}[jev]\nmodel = \"jev-preview\"\nquick_panel = false\nsessions = true\ntodos = false\npull_requests = false\nemblems = false\n"))
             .unwrap_or_else(|| panic!("{out}"));
         assert!(jev > shortcuts && jev < out.find("[[accounts]]").unwrap(), "{out}");
         // Turned off again, the table stays and says so.
