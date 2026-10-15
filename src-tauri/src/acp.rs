@@ -31,7 +31,7 @@ use serde_json::{json, Value};
 
 use crate::config::{self, AccountCfg};
 use crate::harness::{Answer, Pending, Switch};
-use crate::model::{Harness, Session, Status};
+use crate::model::{Harness, ModeKind, Session, SessionMode, Status};
 use crate::rpc::{self, Failure};
 use crate::store;
 use crate::util::{now_ms, sh_quote, truncate};
@@ -579,6 +579,19 @@ fn on_update(account: &str, link: &rpc::Link, params: &Value) {
         if h.replaying {
             return;
         }
+        // Its options as the agent changes them itself: claude-agent-acp switches the mode as a
+        // plan is approved ("Yes, and use auto mode"), or from auto when the model doesn't take it.
+        let options = match kind {
+            "config_option_update" => u.get("configOptions").cloned(),
+            "current_mode_update" => u.get("currentModeId").and_then(Value::as_str).and_then(|m| with_current(&h.options, "mode", m)),
+            _ => None,
+        };
+        if let Some(options) = options {
+            h.options = options;
+            drop(st);
+            notify(Change::Board);
+            return;
+        }
         match kind {
             "agent_message_chunk" => {
                 if let Some(t) = u.pointer("/content/text").and_then(Value::as_str) {
@@ -808,18 +821,38 @@ fn tune(ag: &Agent, id: &str, answer: &Value, model: Option<&str>, effort: Optio
     let mut options = answer.get("configOptions").cloned().unwrap_or(Value::Null);
     for (category, value) in [("model", model), ("thought_level", effort)] {
         let Some((v, config_id)) = value.and_then(|v| Some((v, offered_option(&options, category, v)?))) else { continue };
-        let got = ag.request("session/set_config_option", json!({ "sessionId": id, "configId": config_id, "value": v }), Some(REQUEST_TIMEOUT))?;
-        if let Some(o) = got.get("configOptions") {
-            options = o.clone();
-        }
+        options = set_config(ag, id, options, &config_id, v)?;
     }
     Ok(options)
 }
 
+/// Sets session `id`'s config option `config_id` to `value`. Returns its options as the agent
+/// lists them after, or as they were (`options`) when its answer doesn't list them.
+fn set_config(ag: &Agent, id: &str, options: Value, config_id: &str, value: &str) -> Result<Value> {
+    let got = ag.request("session/set_config_option", json!({ "sessionId": id, "configId": config_id, "value": value }), Some(REQUEST_TIMEOUT))?;
+    Ok(got.get("configOptions").cloned().unwrap_or(options))
+}
+
 /// Switches a session Codealong runs to a model or an effort level (`send::switch_model`,
-/// `switch_effort`), picking it up in the account's process first when that's new since. The
-/// model or level must be one its agent offers: the levels are its model's.
+/// `switch_effort`). The model or level must be one its agent offers: the levels are its model's.
 pub fn switch(a: &AccountCfg, key: &str, to: Switch) -> Result<()> {
+    let category = match to {
+        Switch::Model(_) => "model",
+        Switch::Effort(_) => "thought_level",
+    };
+    set_option(a, key, category, to.value())
+}
+
+/// Switches a session Codealong runs to another of the modes its agent offers
+/// (`send::switch_mode`): its config option in the category `mode`, which claude-agent-acp
+/// passes on to its `claude` at once, mid-turn too, as Shift+Tab does in a terminal.
+pub fn switch_mode(a: &AccountCfg, key: &str, mode: &str) -> Result<()> {
+    set_option(a, key, "mode", mode)
+}
+
+/// Sets a session's config option in `category` to `value`, one its agent offers, picking the
+/// session up in the account's process first when that's new since.
+fn set_option(a: &AccountCfg, key: &str, category: &str, value: &str) -> Result<()> {
     in_app()?;
     let (id, cwd, loaded) = {
         let st = state();
@@ -834,15 +867,10 @@ pub fn switch(a: &AccountCfg, key: &str, to: Switch) -> Result<()> {
         load(&ag, key, &id, &cwd)?;
     }
     let options = state().sessions.get(key).map(|h| h.options.clone()).unwrap_or_default();
-    let (model, effort) = match to {
-        Switch::Model(m) => (Some(m), None),
-        Switch::Effort(e) => (None, Some(e)),
+    let Some(config_id) = offered_option(&options, category, value) else {
+        bail!("{}'s agent doesn't offer {value}.", a.name);
     };
-    let category = if model.is_some() { "model" } else { "thought_level" };
-    if offered_option(&options, category, to.value()).is_none() {
-        bail!("{}'s agent doesn't offer {}.", a.name, to.value());
-    }
-    let options = tune(&ag, &id, &json!({ "configOptions": options }), model, effort)?;
+    let options = set_config(&ag, &id, options, &config_id, value)?;
     set(key, |h| h.options = options);
     notify(Change::Board);
     Ok(())
@@ -879,6 +907,28 @@ fn offered_option(options: &Value, category: &str, value: &str) -> Option<String
     let o = options.as_array()?.iter().find(|o| o.get("category").and_then(Value::as_str) == Some(category))?;
     let id = o.get("id")?.as_str()?.to_string();
     o.get("options")?.as_array()?.iter().any(|x| x.get("value").and_then(Value::as_str) == Some(value)).then_some(id)
+}
+
+/// The modes a session's agent offers (its config option in the category `mode`), in its order,
+/// each named as its harness names it, or in the agent's own words where the harness doesn't
+/// know it, and with its id for a switch.
+fn modes_offered(options: &Value, harness: Harness) -> Vec<SessionMode> {
+    let Some(o) = options.as_array().and_then(|os| os.iter().find(|o| o.get("category").and_then(Value::as_str) == Some("mode"))) else { return Vec::new() };
+    let adapter = crate::harness::adapter(harness);
+    let said = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    o.get("options").and_then(Value::as_array).into_iter().flatten().filter_map(|v| {
+        let id = v.get("value")?.as_str()?;
+        let named = adapter.mode(id).unwrap_or_else(|| SessionMode::new(ModeKind::Other, &said(v, "name"), &said(v, "description")));
+        Some(named.with_id(id))
+    }).collect()
+}
+
+/// A session's config options with the one in `category` set to `value`; None when it has none.
+fn with_current(options: &Value, category: &str, value: &str) -> Option<Value> {
+    let mut options = options.clone();
+    let o = options.as_array_mut()?.iter_mut().find(|o| o.get("category").and_then(Value::as_str) == Some(category))?;
+    o["currentValue"] = json!(value);
+    Some(options)
 }
 
 /// The value a session's config option in `category` is set to (`currentValue`).
@@ -1255,6 +1305,11 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
     if let Some(e) = current_option(&h.options, "thought_level").filter(|e| e != "default") {
         s.effort = Some(e);
     }
+    // Its mode the same way, and the modes its agent offers, which it can be switched to here.
+    s.modes = modes_offered(&h.options, s.harness);
+    if let Some(m) = current_option(&h.options, "mode").and_then(|m| s.modes.iter().find(|o| o.id == m)) {
+        s.mode = Some(m.clone());
+    }
     if let Some(p) = h.permissions.first() {
         s.status = Status::Needs;
         s.status_since = Some(p.asked_at);
@@ -1342,6 +1397,81 @@ mod tests {
         overlay(&mut s, 0);
         assert_eq!(s.effort.as_deref(), Some("xhigh"));
         state().sessions.remove(&key);
+    }
+
+    /// The modes claude-agent-acp 0.81.2 offers a session (`buildAvailableModes`, bypass allowed),
+    /// as its `mode` config option lists them, the one it's in `current`.
+    fn claude_modes(current: &str) -> Value {
+        json!([{ "id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": current, "options": [
+            { "value": "default", "name": "Manual", "description": "Always ask before making changes" },
+            { "value": "acceptEdits", "name": "Accept edits", "description": "Automatically accept all file edits" },
+            { "value": "plan", "name": "Plan", "description": "Create a plan before making changes" },
+            { "value": "auto", "name": "Auto", "description": "Claude handles permission decisions" },
+            { "value": "bypassPermissions", "name": "Bypass permissions", "description": "Accepts all permissions" },
+        ] }])
+    }
+
+    /// A hosted session is in the mode its agent says, named as its harness names its modes, and
+    /// can be switched to the others its agent offers; a harness that doesn't know a mode leaves it
+    /// in its agent's words.
+    #[test]
+    fn a_hosted_session_is_in_the_mode_its_agent_says() {
+        let key = key_of(Harness::Claude, "test-modes", "s1");
+        state().sessions.insert(key.clone(), Hosted { account: "test-modes".into(), id: "s1".into(), cwd: "/w".into(), options: claude_modes("auto"), ..Default::default() });
+        let mut s = crate::fixtures::session(&key);
+        s.mode = crate::claude::session_mode("default");
+        overlay(&mut s, 0);
+        let said = |m: &SessionMode| (m.id.clone(), m.label.clone(), m.kind);
+        assert_eq!(s.mode.as_ref().map(said), Some(("auto".into(), "Auto".into(), ModeKind::Auto)));
+        assert_eq!(s.modes.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["default", "acceptEdits", "plan", "auto", "bypassPermissions"]);
+        assert_eq!(said(&s.modes[0]), ("default".into(), "Manual".into(), ModeKind::Asks));
+        state().sessions.remove(&key);
+
+        let key = key_of(Harness::Codex, "test-modes", "s2");
+        let options = json!([{ "id": "mode", "category": "mode", "currentValue": "read-only", "options": [{ "value": "read-only", "name": "Read Only", "description": "Reads, and asks before it changes anything" }] }]);
+        state().sessions.insert(key.clone(), Hosted { account: "test-modes".into(), id: "s2".into(), cwd: "/w".into(), options, ..Default::default() });
+        let mut s = crate::fixtures::session(&key);
+        overlay(&mut s, 0);
+        assert_eq!(s.mode, Some(SessionMode::new(ModeKind::Other, "Read Only", "Reads, and asks before it changes anything").with_id("read-only")));
+        state().sessions.remove(&key);
+    }
+
+    /// A switch sets the agent's `mode` option and shows what it answers; a mode it switches to
+    /// by itself (a plan approved, a model that doesn't take auto) shows as it says so.
+    #[test]
+    fn a_mode_switch_and_the_agents_own_reach_the_board() {
+        init(|_| {});
+        let dir = store::test_dir("acp-mode");
+        let answer = serde_json::to_string(&claude_modes("auto")).unwrap();
+        let script = [
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; id=$(printf '%s' "$line" | sed -n 's/^{"id":\([0-9]*\),.*/\1/p'); case "$line" in"#.to_string(),
+            format!(r#"*'"method":"session/set_config_option"'*) echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"configOptions\":$(cat '{}')}}}}";; esac; done"#, dir.join("answer").display()),
+        ]
+        .join(" ");
+        std::fs::write(dir.join("answer"), answer).unwrap();
+        let account = "test-adapter-mode";
+        let key = key_of(Harness::Claude, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, options: claude_modes("default"), ..Default::default() });
+        let _ag = stand_in(account, &script, &dir);
+        let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "claude", "home": "/h" })).unwrap();
+        let mode = || {
+            let mut s = crate::fixtures::session(&key);
+            overlay(&mut s, 0);
+            s.mode.map(|m| m.id)
+        };
+        assert!(switch_mode(&a, &key, "dontAsk").unwrap_err().to_string().contains("doesn't offer dontAsk"));
+        switch_mode(&a, &key, "auto").unwrap();
+        assert!(heard(&dir)[0].contains(r#""configId":"mode","sessionId":"s1","value":"auto""#), "{:?}", heard(&dir));
+        assert_eq!(mode().as_deref(), Some("auto"));
+        let link = state().agents[account].client.link();
+        let says = |update: Value| hear(account, &link, &json!({ "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": "s1", "update": update } }));
+        says(json!({ "sessionUpdate": "current_mode_update", "currentModeId": "plan" }));
+        assert_eq!(mode().as_deref(), Some("plan"));
+        says(json!({ "sessionUpdate": "config_option_update", "configOptions": claude_modes("acceptEdits") }));
+        assert_eq!(mode().as_deref(), Some("acceptEdits"));
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

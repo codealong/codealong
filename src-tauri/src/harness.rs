@@ -174,6 +174,13 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// One of its modes, by the id its records and its ACP agent give it (Claude Code's
+    /// `acceptEdits`), named as its own windows name it. None for one it doesn't know, which a
+    /// session Codealong runs names in its agent's words (acp.rs `overlay`).
+    fn mode(&self, _id: &str) -> Option<crate::model::SessionMode> {
+        None
+    }
+
     /// Types a switch (`model_command` or `effort_command`, and the value: `text`) into a running
     /// session's terminal by `typ`, which answers whether it went in, and sees it through: a
     /// question the harness asks before it takes the switch is answered, and what it keeps of the

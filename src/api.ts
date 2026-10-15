@@ -878,6 +878,13 @@ export async function switchSessionEffort(key: string, effort: string): Promise<
   return invoke<string>('switch_session_effort', { key, effort });
 }
 
+/** Switches a session Codealong runs to `mode`, one of the modes its agent offers
+ *  (`Session.modes`, by id), for that session alone (send.rs `switch_mode`). Says what happened. */
+export async function switchSessionMode(key: string, mode: string): Promise<string> {
+  if (!inTauri) return 'Switched.';
+  return invoke<string>('switch_session_mode', { key, mode });
+}
+
 /** Whether there's a TypeSafe API key in the keychain. */
 export async function jevKey(): Promise<boolean> {
   if (!inTauri) return false;

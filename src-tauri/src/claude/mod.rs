@@ -708,6 +708,10 @@ impl crate::harness::Adapter for ClaudeCode {
         Some("/effort")
     }
 
+    fn mode(&self, id: &str) -> Option<crate::model::SessionMode> {
+        session_mode(id)
+    }
+
     /// The question Claude Code asks before a switch, answered, and the defaults `/model` and
     /// `/effort` saved put back: `switch::typed`. What the command says is in the session's own
     /// transcript, not one whose conversation it `continues`.

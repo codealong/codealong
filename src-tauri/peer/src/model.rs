@@ -306,6 +306,12 @@ pub struct Session {
     /// where the harness doesn't say, and from Macs before 2026-10-13.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<SessionMode>,
+    /// The modes it can be switched to here, each with its `id`, in the order its agent offers
+    /// them: for a session Codealong runs, whose agent takes a switch (acp.rs `overlay`); none
+    /// for one that runs elsewhere, whose mode is changed there. Empty from Macs before
+    /// 2026-10-14.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modes: Vec<SessionMode>,
     /// How much of its model's context window its conversation fills now, as its latest call
     /// sent it. None where the harness doesn't say, before its first reply, and from Macs before
     /// 2026-10-12.
@@ -523,6 +529,7 @@ impl Session {
             model: None,
             effort: None,
             mode: None,
+            modes: Vec::new(),
             context: None,
             own_worktree: None,
             helper: None,
@@ -544,6 +551,11 @@ pub struct SessionMode {
     pub label: String,
     /// What that means, in a sentence.
     pub detail: String,
+    /// Its harness's id for it (Claude Code's `acceptEdits`), which a switch to it names
+    /// (`session-mode`): set where Codealong can switch a session to it (`Session::modes`), and
+    /// on the mode such a session is in; empty otherwise.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
 }
 
 /// How much a mode lets a session do without asking you, from the least.
@@ -569,7 +581,12 @@ pub enum ModeKind {
 
 impl SessionMode {
     pub fn new(kind: ModeKind, label: &str, detail: &str) -> Self {
-        SessionMode { kind, label: label.to_string(), detail: detail.to_string() }
+        SessionMode { kind, label: label.to_string(), detail: detail.to_string(), id: String::new() }
+    }
+
+    /// The same, as `id` names it for a switch.
+    pub fn with_id(self, id: &str) -> Self {
+        SessionMode { id: id.to_string(), ..self }
     }
 }
 

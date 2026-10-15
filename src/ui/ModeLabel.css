@@ -5,3 +5,61 @@
 .ca-mode.is-small .ca-mode-name { text-transform: lowercase; }
 .ca-mode .ca-icon { flex: none; color: var(--ink-3); }
 .ca-mode-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The mode of a session Codealong runs, as a chip that switches it (`ModeMenu`): said as the
+   label beside it is, lowercase and quiet, until it's hovered. Its menu opens above the box at its
+   left edge, under the chip, the way the model's opens at its right by Send. */
+/* Pulled left by the chip's own padding, so its icon lines up with the text above as the label's
+   does; on the wrapper, which the chip's `max-width` is measured against. */
+.ca-modemenu {
+  min-width: 0;
+  margin-left: -6px;
+}
+.ca-modemenu-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 4px 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  font: var(--type-caption);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-modemenu-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: lowercase;
+}
+.ca-modemenu-chip > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-modemenu-chip:hover,
+.ca-modemenu-chip[aria-expanded='true'] {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.ca-modemenu-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-modemenu-chip:disabled {
+  cursor: default;
+}
+.ca-modemenu-chip:disabled:hover {
+  background: transparent;
+  color: var(--ink-3);
+}
+.ca-modemenu .ca-picker.is-up {
+  top: auto;
+  right: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: min(360px, 100%);
+  max-height: min(360px, var(--ca-menu-room, 60vh));
+}

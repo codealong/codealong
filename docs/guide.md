@@ -391,7 +391,13 @@ its auto-run setting (Run Everything, Auto-review, Allowlist, Ask Every Time), t
 the app's; Antigravity's tool permission from its latest turn (Request review, Strict, Auto, Proceed
 in sandbox, Always proceed, which `--dangerously-skip-permissions` also gives). Antigravity's
 accept-edits and plan modes aren't written where Codealong reads, so they don't show. Codealong only
-says the mode: it's changed where the session runs. The pie says how full the context window is,
+says the mode of a session that runs elsewhere: it's changed there. A session Codealong runs itself
+starts in the mode its account's settings give new sessions (Claude Code's `permissions.defaultMode`
+in the account's `settings.json`: without one it's Manual, even where Claude Code's terminal starts
+in Auto), and its mode is a menu of the modes its agent offers (Claude Code's Manual, Accept edits,
+Plan, Auto and Bypass); ⇧⇥ in its box steps to the next, as in Claude Code's terminal. Either
+switches that session alone, mid-turn too and while it waits on you: what it asks from then on goes
+by the new mode, and what it asks now still waits for your answer. The pie says how full the context window is,
 as its latest call left
 it, counted as its harness counts it for its own meter: Claude Code's input,
 cache reads and cache writes against the model's window (a million tokens for the 1M models),
@@ -405,7 +411,8 @@ don't say, so their sessions have none.
 
 When a session waits on you to allow a tool call, the call shows above the box with Allow (⌘⏎) and
 Deny (⌘⌫, with nothing written in the box, and the session stays shown so you can say what to do
-instead): OpenCode's are answered through its service, Claude Code's through the Codealong plugin's
+instead): a session Codealong runs is answered through its agent, and calls it asks about together
+(Claude Code reading several files at once) show one after another; OpenCode's are answered through its service, Claude Code's through the Codealong plugin's
 `PermissionRequest` hook when the account has the plugin (wherever the session runs: any terminal,
 the Claude app), with Always too where Claude Code offers to allow calls like it from now on (its
 button says what that adds), and otherwise by a keypress in its Ghostty, iTerm2 or tmux tab, only

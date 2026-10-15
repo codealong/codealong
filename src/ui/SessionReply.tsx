@@ -30,7 +30,9 @@
 // into its Ghostty tab, a message from Codealong, its app: send.rs `way_in`), and a row at its
 // foot has, at the left, the mode it runs in (ModeLabel.tsx), the session's account and how full
 // its context is (ContextMeter.tsx), who the message goes to and what it may do about it, and at
-// the right its model and the send button. What else it has to say (how a send went, what what's
+// the right its model and the send button. The mode of a session Codealong runs is a menu of the
+// modes its agent offers, and ⇧⇥ in the box steps to the next, as it does in Claude Code's
+// terminal: mid-turn too, and while it waits on you, where what it asks next goes by the new mode. What else it has to say (how a send went, what what's
 // typed will do, the keys that aren't the usual ones: `BoxSays`) goes on the strip at the top of
 // a window that has one (SessionPanel.tsx `QueueStrip`), whose keys it joins. Elsewhere it goes on
 // a line under the box while there's something to say, the keys left to the buttons' tooltips.
@@ -77,7 +79,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent } from 'react';
 import { answerAhead, sendAhead, sending, useAhead } from '../ahead';
 import { shortOf } from '../devices';
-import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionEffort, switchSessionModel } from '../api';
+import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPending, sessionWay, sideAsk, sideWindow, switchSessionEffort, switchSessionMode, switchSessionModel } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
@@ -94,7 +96,7 @@ import { CodeBlock } from './CopyButton';
 import { bangCommand } from './RunButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Markdown } from './Markdown';
-import { ModeLabel } from './ModeLabel';
+import { ModeLabel, ModeMenu, nextMode } from './ModeLabel';
 import { AccountLabel, BoxText, Button, Chip, cx, Icon, Rich, Seg } from './primitives';
 import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
@@ -307,15 +309,29 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const switchesEffort = switchable && !!account && (account.efforts?.length ?? 0) > 0 && (!!s.hosted || !!account.switchesEffort);
   const saysModel = !resuming && (s.live || way?.kind === 'cursor') && (switches || switchesEffort || !!s.model);
   const [switching, setSwitching] = useState(false);
-  const switchTo = (switched: Promise<string>) => {
+  const switchTo = (switched: Promise<string>, failed?: () => void) => {
     setSwitching(true);
     setNote(null);
     switched
       .then(
         (said) => setNote({ text: said, error: false }),
-        (e: unknown) => setNote({ text: errorText(e), error: true }),
+        (e: unknown) => {
+          failed?.();
+          setNote({ text: errorText(e), error: true });
+        },
       )
       .finally(() => setSwitching(false));
+  };
+  // The mode of one Codealong runs switches here, any time (ModeLabel.tsx). The one picked shows
+  // at once, and stays until the board has it, so a second ⇧⇥ steps on from it.
+  const modes = s.modes ?? [];
+  const switchesMode = here && s.live && !!s.hosted && modes.length > 1;
+  const [modePicked, setModePicked] = useState<string | null>(null);
+  useEffect(() => setModePicked(null), [s.key, s.mode?.id]);
+  const mode = (modePicked ? modes.find((m) => m.id === modePicked) : null) ?? s.mode;
+  const switchMode = (id: string) => {
+    setModePicked(id);
+    switchTo(switchSessionMode(s.key, id), () => setModePicked(null));
   };
 
   const setText = (t: string) => {
@@ -815,6 +831,13 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                 return;
               }
             }
+            // ⇧⇥ steps to its next mode, where Codealong runs it.
+            if (e.key === 'Tab' && e.shiftKey && switchesMode && !aside && !e.metaKey && !e.ctrlKey && !e.altKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              const to = nextMode(modes, mode);
+              if (to?.id && !switching) switchMode(to.id);
+              return;
+            }
             // ↑ in the empty box goes to the replies suggested above it, and nowhere else: the
             // window's own keys would read it as the list's once the box no longer has the keyboard.
             if (e.key === 'ArrowUp' && !text && suggested && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.nativeEvent.isComposing && intoSuggestions()) {
@@ -876,7 +899,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
         <div className="ca-composer-footrow">
           <div className="ca-composer-tools ca-composer-who">
             {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
-            {s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
+            {switchesMode && !aside ? <ModeMenu mode={mode} modes={modes} disabled={switching} onPick={switchMode} onDone={() => box.current?.focus()} /> : s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
             {/* A side conversation's copy runs on the session's account too, so it stays. */}
             <AccountLabel session={s} small />
             {!aside && <ContextMeter session={s} />}

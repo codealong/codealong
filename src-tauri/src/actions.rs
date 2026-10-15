@@ -225,6 +225,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_RESUME, here: resume, command: resume_is_its_users, ..ANY },
     Request { name: api::SESSION_MODEL, here: switch_model, ..ANY },
     Request { name: api::SESSION_EFFORT, here: switch_effort, ..ANY },
+    Request { name: api::SESSION_MODE, here: switch_mode, ..ANY },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
     Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal, ..ANY },
     // A move opens a terminal too, and closes the session's own. Which account a conversation
@@ -837,6 +838,13 @@ fn switch_model(engine: &Handle, c: &Call) -> Result<Value, String> {
 fn switch_effort(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Effort = c.read()?;
     to_value(send::switch_effort(&engine.board(), &cfg()?, c.session()?, &p.effort).map_err(words)?)
+}
+
+/// Switches a session Codealong runs to another of the modes its agent offers, for it alone
+/// (`send::switch_mode`). Says what happened.
+fn switch_mode(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Mode = c.read()?;
+    to_value(send::switch_mode(&engine.board(), &cfg()?, c.session()?, &p.mode).map_err(words)?)
 }
 
 /// Stops the turn it's taking: one Codealong runs, through its agent; any other, through its

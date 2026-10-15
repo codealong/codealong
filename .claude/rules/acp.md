@@ -43,6 +43,17 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   (2026-10-14, Opus 5.5 reading three pasted images in `default` mode): each waits for its own
   answer (`Hosted::permissions`). The ACP SDK withdraws one whose call was aborted with a
   `$/cancel_request {requestId}` notification and still waits for its answer (`on_withdrawn`).
+- claude-agent-acp's modes are its config option `mode` (category `mode`), each `{value, name,
+  description}` (`dist/session-mode.js` `buildAvailableModes`: default "Manual", acceptEdits,
+  plan, auto, and bypassPermissions when bypass is allowed, as Codealong's launch allows it). A
+  session starts at `permissions.defaultMode` from the account's settings, else `default`, so
+  without that setting it asks, even where Claude Code's terminal starts in auto
+  (`hasSeenAutoDefaultNotice` in `~/.claude.json`, 2026-10-14). `session/set_config_option`
+  with `configId: "mode"` switches it at once, mid-turn too (`query.setPermissionMode`), and the
+  agent says of switches it makes itself (a plan approved "and use auto mode", a model that
+  doesn't take auto) with `current_mode_update {currentModeId}` and `config_option_update
+  {configOptions}`, which also comes before its answer to a `set_config_option`: `acp.rs`
+  (`switch_mode`, `on_update`, `modes_offered`).
 - A plan to approve is a `session/request_permission` whose `toolCall.kind` is `switch_mode`,
   the plan in `rawInput.plan` (`acp.rs` `is_plan`). claude-agent-acp 0.81.2 asks so for
   `ExitPlanMode` (`toolCall.name` too, title "Approve Plan", `_meta.permission.title` "Ready to

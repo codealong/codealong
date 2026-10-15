@@ -70,6 +70,10 @@ pub const SESSION_MODEL: &str = "session-model";
 /// that session alone, answering what happened in a sentence. Macs before 2026-10-14 refuse it as
 /// a request they don't know.
 pub const SESSION_EFFORT: &str = "session-effort";
+/// Switches a session its Mac runs itself (`key`) to another of the modes its agent offers
+/// (`mode`, one of `Session::modes` by its id), for that session alone, answering what happened
+/// in a sentence. Macs before 2026-10-14 refuse it as a request they don't know.
+pub const SESSION_MODE: &str = "session-mode";
 /// Done with a session (`key`): it ends as far as its Mac can end it without ending more than it
 /// (its terminal tab closes, its background job stops), and is marked seen and archived,
 /// answering `Done`. Work under way holds it unless `stop` ends that too. Macs before 2026-10-07
@@ -205,6 +209,15 @@ pub mod params {
         #[serde(skip_serializing_if = "String::is_empty")]
         pub key: String,
         pub effort: String,
+    }
+
+    /// `session-mode`: the mode, by its id (`SessionMode::id`: `auto`, `acceptEdits`).
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Mode {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub mode: String,
     }
 
     /// `session-resume`: where it goes on, and the prompt it goes on with, or none to wait for one.
@@ -454,7 +467,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 36] = [
+pub const REQUESTS: [(&str, Reach); 37] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -486,6 +499,7 @@ pub const REQUESTS: [(&str, Reach); 36] = [
     (SESSION_RESUME, Reach::Control),
     (SESSION_MODEL, Reach::Control),
     (SESSION_EFFORT, Reach::Control),
+    (SESSION_MODE, Reach::Control),
     (SESSION_DONE, Reach::Control),
     (PR_REVIEW, Reach::Control),
     (PR_MERGE, Reach::Control),

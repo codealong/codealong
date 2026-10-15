@@ -3,7 +3,8 @@
 // effort under them, or what a running one switches to, its effort too (SessionModel.tsx). The
 // lines are the start menu's for that account (StartControls.tsx `agentLine`); what picking one
 // does is the caller's. The place a session that isn't running goes on in is a chip of the same
-// kind beside it (`BoxMenu`).
+// kind beside it (`BoxMenu`), and so is the mode of a session Codealong runs, at the foot's other
+// end (ModeLabel.tsx `ModeMenu`).
 
 import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { AgentOption, ModelOption } from '../start';
@@ -47,14 +48,15 @@ export function ModelMenu({ account, lines, models, value, label, detail, title,
 export type MenuFoot = ReactNode | ((close: () => void) => ReactNode);
 
 /** A box menu's classes, and its chip's, by what it picks. */
-const BOX_MENU = { model: ['ca-modelmenu', 'ca-modelmenu-chip'], place: ['ca-placemenu', 'ca-placemenu-chip'] } as const;
+const BOX_MENU = { model: ['ca-modelmenu', 'ca-modelmenu-chip'], place: ['ca-placemenu', 'ca-placemenu-chip'], mode: ['ca-modemenu', 'ca-modemenu-chip'] } as const;
 
 interface BoxMenuProps {
   kind: keyof typeof BOX_MENU;
   sections: PickerSection[];
   value: string | null;
-  /** Before the chip's words. */
+  /** Before the chip's words, at its size. */
   icon?: string;
+  iconSize?: number;
   label: ReactNode;
   detail?: string | null;
   title: string;
@@ -71,7 +73,7 @@ interface BoxMenuProps {
 
 /** A quiet chip beside Send that opens its menu above the box, against the box's right edge, or
  *  under it (`down`). */
-export function BoxMenu({ kind, sections, value, icon, label, detail, title, disabled, placeholder, foot, onStep, onPick, onDone, down }: BoxMenuProps) {
+export function BoxMenu({ kind, sections, value, icon, iconSize = 14, label, detail, title, disabled, placeholder, foot, onStep, onPick, onDone, down }: BoxMenuProps) {
   const [open, setOpen] = useState(false);
   // The room above the box, as the menu opens: a window sized to what it shows (the peek) has no
   // more than its conversation's height to open the menu into.
@@ -92,7 +94,7 @@ export function BoxMenu({ kind, sections, value, icon, label, detail, title, dis
   return (
     <div ref={chip} className={BOX_MENU[kind][0]} style={room == null ? undefined : ({ '--ca-menu-room': `${room}px` } as CSSProperties)}>
       <button type="button" data-picker-trigger className={BOX_MENU[kind][1]} title={title} disabled={disabled} aria-haspopup="dialog" aria-expanded={open} onClick={() => (open ? close() : show())}>
-        {icon && <Icon name={icon} size={14} />}
+        {icon && <Icon name={icon} size={iconSize} />}
         <span>{label}</span>
         {detail && <span className="ca-modelmenu-detail">{detail}</span>}
         <Icon name="chevron-down" size={12} />
