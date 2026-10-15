@@ -16,7 +16,8 @@
 //! A turn running as the app or its process ends is cut off partway, its agent's own record
 //! ending it as stopped: hosted.json notes each turn while it runs (`note_turn`), so a session
 //! whose turn is still noted at launch, or whose process ended under it, shows as cut off
-//! (`Session::cut_off`) rather than as one stopped on purpose.
+//! (`Session::cut_off`) rather than as one stopped on purpose, and is told to carry on
+//! (reconnect.rs, autoreview.rs for a review).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

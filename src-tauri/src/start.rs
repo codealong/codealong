@@ -884,8 +884,12 @@ fn tuning<'a>(adapter: &dyn Adapter, place: Place, model: Option<&'a str>, effor
 }
 
 /// What a session whose last turn was cut off (`Session::cut_off`) is told as it's resumed with
-/// nothing else to say. A command its last step ran may have been stopped partway.
-pub const CARRY_ON: &str = "Your last turn was cut off partway: what was running you ended (its terminal closed, Codealong or the Mac restarted, or it was killed). Check what your last step did, since a command it ran may have been stopped, then carry on where you left off.";
+/// nothing else to say, or by Codealong itself after a relaunch (reconnect.rs). A command its last
+/// step ran may have been stopped partway, and Claude Code records the call the cut ended as one
+/// its user rejected ("The user doesn't want to proceed with this tool use", then "[Request
+/// interrupted by user for tool use]", seen in a session Codealong ran, cut off by a relaunch on
+/// 2026-10-15), which the agent, and whoever reads the transcript, takes for a no.
+pub const CARRY_ON: &str = "Your last turn was cut off partway: what was running you ended (its terminal closed, Codealong or the Mac restarted, or it was killed). If the call you were making then says your user rejected it or interrupted you, that was the cut, not them. Check what your last step did, since a command it ran may have been stopped, then carry on where you left off.";
 
 /// How a session that wasn't running went on: the key it goes on under (a copy's, where its
 /// harness copied it; none where the harness hasn't said yet), and what to say of it, as a send

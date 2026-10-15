@@ -340,6 +340,11 @@ pub struct SessionsCfg {
     /// the network dropped) is told to carry on once the API can be reached again (reconnect.rs).
     #[serde(default = "yes")]
     pub continue_after_network_error: bool,
+    /// A session Codealong runs itself whose turn was cut off partway, by Codealong quitting
+    /// (another session's relaunch, an update) or its agent's process ending, is told to carry on
+    /// once Codealong is back (reconnect.rs): its agent ran as Codealong's child, and ended with it.
+    #[serde(default = "yes")]
+    pub continue_after_restart: bool,
     /// A session that isn't running is resumed out of sight when a session it started sends it
     /// a message (`codealong session send`), with that message, rather than nothing being sent:
     /// it asked for the work the message reports (send.rs `wakes`). Claude Code's background
@@ -351,7 +356,7 @@ pub struct SessionsCfg {
 
 impl Default for SessionsCfg {
     fn default() -> Self {
-        SessionsCfg { continue_after_network_error: true, resume_for_sessions_it_started: true }
+        SessionsCfg { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true }
     }
 }
 
@@ -1490,7 +1495,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), or \"round-robin\".\n";
-const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, resume it out of sight with that message.\n";
+const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, resume it out of sight with that message.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that, failing checks and\n# conflicts.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own
@@ -1902,6 +1907,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             place_after(&mut doc, "sessions", after);
         }
         set_value(&mut doc["sessions"]["continue_after_network_error"], Value::from(cfg.sessions.continue_after_network_error));
+        set_value(&mut doc["sessions"]["continue_after_restart"], Value::from(cfg.sessions.continue_after_restart));
         set_value(&mut doc["sessions"]["resume_for_sessions_it_started"], Value::from(cfg.sessions.resume_for_sessions_it_started));
     }
 
@@ -2329,6 +2335,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(SESSIONS_COMMENT);
         s.push_str("[sessions]\n");
         s.push_str(&format!("continue_after_network_error = {}\n", cfg.sessions.continue_after_network_error));
+        s.push_str(&format!("continue_after_restart = {}\n", cfg.sessions.continue_after_restart));
         s.push_str(&format!("resume_for_sessions_it_started = {}\n", cfg.sessions.resume_for_sessions_it_started));
     }
     if cfg.reviews != ReviewsCfg::default() {
@@ -2474,7 +2481,7 @@ mod tests {
                     members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into() }, GroupMemberCfg { account: "codex".into(), model: String::new() }],
                 }],
             },
-            sessions: SessionsCfg { continue_after_network_error: false, resume_for_sessions_it_started: false },
+            sessions: SessionsCfg { continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false },
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), other_harness: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
@@ -2927,13 +2934,28 @@ mod tests {
         let mut off = full();
         off.sessions.continue_after_network_error = false;
         let out = with_config(&old, &off).unwrap();
-        assert!(out.contains(&format!("{SESSIONS_COMMENT}[sessions]\ncontinue_after_network_error = false\nresume_for_sessions_it_started = true")), "{out}");
+        assert!(out.contains(&format!("{SESSIONS_COMMENT}[sessions]\ncontinue_after_network_error = false\ncontinue_after_restart = true\nresume_for_sessions_it_started = true")), "{out}");
         assert!(out.find("[sessions]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert_eq!(parse(&out).unwrap(), off);
         assert_eq!(parse(&render(&off)).unwrap(), off);
         // Turned back on, the table stays, saying so.
         let on = with_config(&out, &full()).unwrap();
         assert!(on.contains("[sessions]\ncontinue_after_network_error = true"), "{on}");
+    }
+
+    #[test]
+    fn continuing_after_a_restart_is_on_unless_the_file_turns_it_off() {
+        assert!(toml::from_str::<Config>("").unwrap().sessions.continue_after_restart);
+        // A file written before the setting has it on, and keeps the others as they were.
+        let older: Config = toml::from_str("[sessions]\ncontinue_after_network_error = false\n").unwrap();
+        assert!(older.sessions.continue_after_restart && !older.sessions.continue_after_network_error);
+        let old = render(&full());
+        let mut off = full();
+        off.sessions.continue_after_restart = false;
+        let out = with_config(&old, &off).unwrap();
+        assert!(out.contains("[sessions]\ncontinue_after_network_error = true\ncontinue_after_restart = false\n"), "{out}");
+        assert_eq!(parse(&out).unwrap(), off);
+        assert_eq!(parse(&render(&off)).unwrap(), off);
     }
 
     #[test]
@@ -2962,7 +2984,7 @@ mod tests {
         let mut off = full();
         off.sessions.resume_for_sessions_it_started = false;
         let out = with_config(&old, &off).unwrap();
-        assert!(out.contains("[sessions]\ncontinue_after_network_error = true\nresume_for_sessions_it_started = false"), "{out}");
+        assert!(out.contains("[sessions]\ncontinue_after_network_error = true\ncontinue_after_restart = true\nresume_for_sessions_it_started = false"), "{out}");
         assert_eq!(parse(&out).unwrap(), off);
         assert_eq!(parse(&render(&off)).unwrap(), off);
     }

@@ -563,7 +563,7 @@ enum SessionCmd {
     },
     /// A session's conversation as its own record has it, for reading what another agent did and where it stands: the newest part (about 60 items), or the part before `--before`. Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the call in a line, with its input and output when the record has them there), a call's output (`result`), another session's message (`peer`, with the sending session's name in `from` where its record says), Codealong's own message (`codealong`) or a note (compaction, a message held for its user to allow). Oldest first; `before` is the cursor for the part before, null at the start; `lastPromptAt` is the session's as it was read, for `session suggest --prompt-at`. Inputs and outputs are cut short unless --full. Any harness, and sessions on your other devices.
     Transcript(TranscriptArgs),
-    /// Wait for a session's turn to end, and print its reply: for a helper you started (`codealong start --helper`), or a session you sent a message. It also comes back when the session waits on your user (a call to allow, a question, an error: `waitsOnUser`, with what it waits on in `excerpt`), since they answer it in Codealong and you may want to tell them; then wait again with --until-done. `ended` says the turn is over, `reply` is its last reply, and `lastPromptAt` the session's as read, for `--since` next time. Fails once --timeout passes with it still working, or if the session is gone. A Claude Code agent can run it in the background and be told when it's done.
+    /// Wait for a session's turn to end, and print its reply: for a helper you started (`codealong start --helper`), or a session you sent a message. It also comes back when the session waits on your user (a call to allow, a question, an error: `waitsOnUser`, with what it waits on in `excerpt`), since they answer it in Codealong and you may want to tell them; then wait again with --until-done. A session Codealong runs (a Codex helper, say) whose turn is cut off by Codealong restarting is waited on through the restart, since Codealong tells it to carry on as it comes back (`[sessions] continue_after_restart`). `ended` says the turn is over, `reply` is its last reply, and `lastPromptAt` the session's as read, for `--since` next time. Fails once --timeout passes with it still working, or if the session is gone. A Claude Code agent can run it in the background and be told when it's done.
     Wait(SessionWaitArgs),
     /// Suggest replies to a session for its user to send with one click: what they might answer it, written by an agent that read it (a supervisor going over the sessions that wait on its user: `codealong sessions --waiting`, then `session transcript` for each). Codealong shows them above the session's box, wherever that shows; picking one sends it as the user's own message, and the user can type their own instead. Nothing reaches the session until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're turned down if the user replied since (they'd answer the turn before), or while it takes a turn. They stay until something is sent to the session or a turn of its starts; suggesting again replaces them, and --clear takes them away. Write each as the user would send it, in their words and ready to go as it is: short, and the best first. Say why, or what to weigh, in --note. A session that asks its user questions (`session pending` shows them, with their choices) takes no replies, which would only decline them: --pick picks one of a question's own choices instead, with why in a few words after it, and its question box shows it picked, with why beside it, to answer with one click. The session's `suggestions` in `session show` and `sessions` are the ones it has now.
     Suggest(SuggestArgs),
@@ -1132,18 +1132,18 @@ impl Client {
     fn board(&mut self) -> Result<&Board> {
         self.note();
         if self.board.is_none() {
-            let board = match self.app.is_some() {
+            // An app that answered before and doesn't now is restarting: the board is a light one
+            // until it's back.
+            let (board, from_app) = match self.app.is_some() {
                 true => match server::ask(&Request::Board) {
-                    Some(Ok(v)) => {
-                        self.from_app = true;
-                        serde_json::from_value(v).context("reading the app's board")?
-                    }
+                    Some(Ok(v)) => (serde_json::from_value(v).context("reading the app's board")?, true),
                     Some(Err(e)) => bail!("{e}"),
-                    None => engine::light_snapshot(),
+                    None => (engine::light_snapshot(), false),
                 },
-                false => engine::light_snapshot(),
+                false => (engine::light_snapshot(), false),
             };
             self.board = Some(board);
+            self.from_app = from_app;
         }
         Ok(self.board.as_ref().unwrap())
     }
@@ -1151,7 +1151,6 @@ impl Client {
     /// The board read again, for a decision that mustn't go by one read a while ago.
     fn fresh_board(&mut self) -> Result<&Board> {
         self.board = None;
-        self.from_app = false;
         self.board()
     }
 
@@ -2554,6 +2553,10 @@ const WAIT_EVERY: std::time::Duration = std::time::Duration::from_secs(3);
 /// How long `session wait` waits for a session the board doesn't have yet to show up: one just
 /// started can take a moment.
 const WAIT_TO_SHOW_MS: i64 = 2 * 60_000;
+/// How long `session wait` waits on a session Codealong runs whose turn Codealong quitting cut off,
+/// for Codealong to tell it to carry on as it comes back (reconnect.rs; autoreview.rs for a
+/// review) and the turn to go on: seconds, its agent being picked up again in a new process.
+const WAIT_CARRY_ON_MS: i64 = 3 * 60_000;
 
 /// Where a session `session wait` waits on stands.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2621,9 +2624,14 @@ enum Seen {
 struct Watch {
     /// `--until-done`: a call to allow or a question is part of the turn, waited through.
     through_user: bool,
+    /// `[sessions] continue_after_restart`: a session Codealong runs, cut off by Codealong
+    /// quitting, is told to carry on as it comes back.
+    carries_on: bool,
     was_working: bool,
     /// Its last prompt when a look first found it still, and when.
     still: Option<(i64, i64)>,
+    /// When a look first found it cut off, to be carried on.
+    cut: Option<i64>,
 }
 
 impl Watch {
@@ -2632,8 +2640,18 @@ impl Watch {
     /// looks with no new prompt between and `replied` (asked only then) says its record has a
     /// reply after what's waited on, or once it has held still a minute. The first look can come
     /// before a message just sent reaches the board, and the reply it finds then is the turn
-    /// before's.
+    /// before's. A turn Codealong quitting cut off goes on once Codealong tells it to: it's waited
+    /// through for a few minutes, after which it waits on its user as an error does.
     fn look(&mut self, s: &Session, now: i64, replied: impl FnOnce() -> bool) -> Seen {
+        if self.carries_on && crate::reconnect::cut_off_here(s) {
+            if now - *self.cut.get_or_insert(now) < WAIT_CARRY_ON_MS {
+                self.was_working = true;
+                self.still = None;
+                return Seen::Going;
+            }
+        } else {
+            self.cut = None;
+        }
         match waited(s) {
             Waited::Working => {
                 self.was_working = true;
@@ -2679,14 +2697,20 @@ fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
     let started = now_ms();
     let mut since = a.since;
     let mut seen = false;
-    let mut watch = Watch { through_user: a.until_done, ..Watch::default() };
+    let carries_on = c.cfg().is_ok_and(|cfg| cfg.sessions.continue_after_restart);
+    let mut watch = Watch { through_user: a.until_done, carries_on, ..Watch::default() };
     let page = |c: &mut Client| -> Result<Vec<api::Item>> {
         let got = c.act(api::SESSION_PAGE, &key, params::Page::default(), None)?;
         Ok(serde_json::from_value::<api::Page>(got).context("The conversation didn't read")?.items)
     };
     loop {
         let found = c.board()?.session(&key).map(|(_, s)| s.clone());
+        // The app answered as the wait began and doesn't now: it's restarting (another session's
+        // relaunch, an update), and a board read from the files has nothing of a session it runs
+        // but its record, which ends a cut-off turn as stopped. Nothing is judged until it's back.
+        let restarting = c.app.is_some() && !c.from_app;
         match found {
+            _ if restarting => {}
             None if seen => bail!("{key} is gone from the board."),
             None if now_ms() - started > WAIT_TO_SHOW_MS => bail!("There's no session {key}."),
             None => {}
@@ -2715,6 +2739,9 @@ fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
             }
         }
         if now_ms() - started > timeout {
+            if restarting {
+                bail!("Codealong stopped answering, so whether {key} is done can't be said: once it's open again, `codealong session wait {key}` waits on.");
+            }
             bail!("{key} is still at it after {}: `codealong session wait {key}` waits on.", a.timeout);
         }
         std::thread::sleep(WAIT_EVERY);
@@ -5509,6 +5536,31 @@ mod tests {
         assert_eq!(w.look(&s(Status::Idle, 2), 6_000, || false), Seen::Going);
         // No reply after it (a turn that ended on a call): over once it has held still a minute.
         assert_eq!(w.look(&s(Status::Idle, 2), 3_000 + WAIT_STILL_MS, || false), Seen::Ended);
+    }
+
+    #[test]
+    fn a_wait_goes_on_through_a_cut_codealong_carries_on() {
+        let s = |status| Session { status, last_prompt_at: 1, ..Session::new(crate::model::Harness::Codex, "codex", "rev") };
+        let cut = |status| Session { hosted: true, cut_off: Some(1_000), ..s(status) };
+        let never = || -> bool { panic!("the record isn't read while the board says enough") };
+        // Codealong quit under its turn: it's carried on as Codealong comes back, and the wait sees
+        // that turn to its end, whether the cut shows as an error or, seen already, idle.
+        for shown in [Status::Error, Status::Idle] {
+            let mut w = Watch { carries_on: true, ..Watch::default() };
+            assert_eq!(w.look(&s(Status::Working), 0, never), Seen::Going);
+            assert_eq!(w.look(&cut(shown), 3_000, never), Seen::Going);
+            assert_eq!(w.look(&cut(shown), 6_000, never), Seen::Going);
+            assert_eq!(w.look(&s(Status::Working), 9_000, never), Seen::Going);
+            assert_eq!(w.look(&s(Status::Unread), 12_000, never), Seen::Ended);
+        }
+        // Not carried on a few minutes later: it waits on its user, as an error does.
+        let mut w = Watch { carries_on: true, ..Watch::default() };
+        assert_eq!(w.look(&cut(Status::Error), 3_000, never), Seen::Going);
+        assert_eq!(w.look(&cut(Status::Error), 3_000 + WAIT_CARRY_ON_MS, never), Seen::OnUser);
+        // Nor waited through with the setting off, or for one cut off in a terminal.
+        assert_eq!(Watch::default().look(&cut(Status::Error), 0, never), Seen::OnUser);
+        let terminal = Session { hosted: false, ..cut(Status::Error) };
+        assert_eq!(Watch { carries_on: true, ..Watch::default() }.look(&terminal, 0, never), Seen::OnUser);
     }
 
     #[test]

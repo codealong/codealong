@@ -390,15 +390,17 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
 
 /** `[limits] when_hit` and `continue_when_lifted`: what's done about a session its account's
  *  usage limit stopped; `[sessions] continue_after_network_error`, about one a lost connection
- *  stopped; and `[sessions] resume_for_sessions_it_started`, about one that stopped before a
- *  session it started sent it a message. */
+ *  stopped; `[sessions] continue_after_restart`, about one Codealong runs that its quitting cut
+ *  off; and `[sessions] resume_for_sessions_it_started`, about one that stopped before a session
+ *  it started sent it a message. */
 function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const limits = { when_hit: 'suggest' as WhenLimited, continue_when_lifted: true, ...cfg.limits };
   const value = limits.when_hit;
   const lifted = limits.continue_when_lifted ?? true;
   const agents = MOVES_ACCOUNTS.map((h) => HARNESS_WORD[h]).join(', ');
-  const sessions: SessionsCfg = { continue_after_network_error: true, resume_for_sessions_it_started: true, ...cfg.sessions };
+  const sessions: SessionsCfg = { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, ...cfg.sessions };
   const continues = sessions.continue_after_network_error;
+  const restarts = sessions.continue_after_restart ?? true;
   const resumes = sessions.resume_for_sessions_it_started ?? true;
   const saveSessions = (change: Partial<SessionsCfg>) => void onSave({ ...cfg, sessions: { ...sessions, ...change } });
   return (
@@ -419,6 +421,11 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
         <input type="checkbox" checked={continues} onChange={(e) => saveSessions({ continue_after_network_error: e.target.checked })} />
         <span>Carry on after a network error</span>
         <small>When a session’s turn ends because it couldn’t reach its API, as happens when the Mac sleeps with the lid closed or the network drops, Codealong tells it to carry on once the API can be reached again. Claude Code sessions, and Antigravity’s in its command line, for now.</small>
+      </label>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={restarts} onChange={(e) => saveSessions({ continue_after_restart: e.target.checked })} />
+        <span>Carry on after Codealong restarts</span>
+        <small>A session that runs in Codealong itself stops when Codealong quits, as it does for an update or a new build. When that cuts off a turn partway, Codealong tells the session to carry on once it’s back. Sessions in a terminal or another app aren’t affected when Codealong quits.</small>
       </label>
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={resumes} onChange={(e) => saveSessions({ resume_for_sessions_it_started: e.target.checked })} />

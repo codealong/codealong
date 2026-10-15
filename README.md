@@ -258,7 +258,8 @@ OpenCode's service. Paste screenshots or files into it. From there you can also:
 Out of room mid-task? A Claude Code session stopped by its usage limit offers to move to an
 account with room and carry on, or moves by itself if you let it. Lid closed and the network
 dropped? Codealong tells the session to carry on once the connection is back. Terminal quit
-partway through a turn? The session says it was cut off, and Carry on picks it up.
+partway through a turn? The session says it was cut off, and Carry on picks it up; one running in
+Codealong itself is told to carry on as Codealong comes back from a restart.
 
 ### Pull requests, with their agents
 
@@ -506,6 +507,7 @@ continue_when_lifted = true    # tell a session still stopped at its limit to ca
 
 [sessions]
 continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Automation)
+continue_after_restart = true  # tell a session Codealong runs to carry on when Codealong quitting cut off its turn (Settings › Automation)
 resume_for_sessions_it_started = true  # resume a session that isn't running, out of sight, when one it started sends it a message (Settings › Automation)
 
 [routing]

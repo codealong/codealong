@@ -14,6 +14,9 @@ export type Merge = 'clean' | 'conflicts' | 'behind' | 'blocked' | 'unstable' | 
 /** `[sessions]` (config.rs `SessionsCfg`). */
 export interface SessionsCfg {
   continue_after_network_error: boolean;
+  /** A session Codealong runs, cut off by Codealong quitting, is told to carry on as it comes back
+   *  (reconnect.rs). Files from before it have none: on. */
+  continue_after_restart?: boolean;
   /** A session that isn't running is resumed out of sight when one it started sends it a
    *  message (send.rs `wakes`). Files from before it have none: on. */
   resume_for_sessions_it_started?: boolean;

@@ -239,6 +239,19 @@ a session Codealong runs itself whose turn was under way when Codealong quit or 
 ended, which its agent's own record ends as stopped (Codealong notes each such turn while it runs,
 in hosted.json).
 
+A session Codealong runs itself is its agent's, and its agent is a process of Codealong's, so
+Codealong quitting (an update, or a new build relaunched) ends the turns it was taking. Once
+Codealong is back it tells each such session to carry on, at once and without waiting on you: the
+message picks it up again in a new process of its agent, says it was cut off, and that a call the
+cut ended may read as one you rejected, which you didn't. A session that last did something more
+than an hour before is left for you, since Codealong was gone a while. Each cut is told once; a
+session cut off again straight after a few times running (its agent dies as it's picked up) is
+left for you, with a notice. An automatic review is carried on by its round instead (*Automatic
+reviews*).
+`codealong session wait` on such a session (a Codex helper, say) waits through the restart and
+the carrying on, rather than coming back with the cut. `[sessions] continue_after_restart = false`
+(Settings › Automation) turns that off.
+
 #### Move to another worktree
 
 Move to worktree, in the same menu (in the main window, the quick panel and the waiting window),

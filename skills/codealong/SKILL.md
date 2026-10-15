@@ -340,7 +340,9 @@ user's sessions with nothing tying them to yours.
   `excerpt`): tell your user, then wait again with `--until-done`, which waits through it to
   the turn's end. In Claude Code, run the wait in the background
   so you're told when it's done. To ask it more, `session send <key>` and wait again with
-  `--since` the time you sent.
+  `--since` the time you sent. A helper that runs in Codealong itself (a Codex one, usually) is
+  cut off when the app restarts, and Codealong tells it to carry on as it comes back; the wait
+  waits through that, so don't start another.
 - Or start it with `--report` too and end your turn: Codealong sends you a message when its
   turn ends or it waits on your user, naming it and the command that prints its reply. Use
   one or the other, not both, or you'll hear of it twice.

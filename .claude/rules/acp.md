@@ -92,4 +92,9 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   `failed to record rollout items: thread … not found` (2026-10-12: a Codex review cut off by a
   relaunch, its `turn_aborted` 1.5 s before the next app's start). So the record can't tell that
   from a Stop: hosted.json notes each turn while it runs, and one still noted at launch was cut off
-  (`acp.rs` `note_turn`, `Hosted::cut_off`, `overlay`).
+  (`acp.rs` `note_turn`, `Hosted::cut_off`, `overlay`). claude-agent-acp 0.81.2's `claude`
+  (2.1.280) ends the call it was making with the result "The user doesn't want to proceed with
+  this tool use. The tool use was rejected…" and then "[Request interrupted by user for tool
+  use]", as if you had said no (2026-10-15: three relaunches cut one session off, each about 5 s
+  before the next app's perf log began). Codealong tells such a session to carry on as it comes
+  back, saying the rejection was the cut (reconnect.rs, `start::CARRY_ON`).
