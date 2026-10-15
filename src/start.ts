@@ -1,14 +1,14 @@
 // The rules for starting a session from the quick panel: the account and model Auto starts,
 // what the agent menu offers (every account on every model it can start on), and where each
-// choice can open. Auto chooses among every account that can start a session, preferred ones
-// first (config.toml's `preferred`), so it keeps to the agents you'd rather use while they have
-// room. start.rs's `auto_pick` has the same rule for `codealong start`.
+// choice can open. Auto chooses among every account that can start a session, those of the
+// first account's harness first (or from `[routing] auto` when set), so it keeps to one agent
+// while its accounts have room. start.rs's `auto_pick` has the same rule for `codealong start`.
 
 import { resetsPhrase } from './format';
 import { HARNESS_WORD } from './harness';
 import { failedNotice } from './notices';
 import { readStored, writeStored, type Codec } from './stored';
-import type { Harness, Lane, Meter, Notice, ResumeIn, StartAccount, StartOptions, StartPlace, Usage } from './types';
+import type { Harness, Lane, Meter, Notice, ResumeIn, RoutingGroup, StartAccount, StartOptions, StartPlace, Usage } from './types';
 
 /** The notice while where each account can start a session can't be read (the main window's
  *  Review with and the quick panel ask), which ends once it's read. */
@@ -24,7 +24,7 @@ export function keepPlaceFailed(e: unknown): Notice {
   return failedNotice(KEEP_PLACE_NOTICE, 'Can’t save where sessions start', 'Couldn’t save where the quick panel started a session as its account’s start in config.toml', e);
 }
 
-/** An account's name, or `auto` for Auto. */
+/** An account's name, a routing group's name, or `auto` for Auto. */
 export type Choice = string;
 
 export const AUTO: Choice = 'auto';
@@ -37,6 +37,14 @@ const KEPT_FOR_RUNNING = 5;
 
 export function isAuto(c: Choice | null): boolean {
   return c === AUTO;
+}
+
+export function isGroup(c: Choice | null, groups: RoutingGroup[] = []): RoutingGroup | undefined {
+  return c ? groups.find((g) => g.name === c) : undefined;
+}
+
+export function capOf(usageCap?: number | null): number {
+  return usageCap != null && usageCap >= 1 && usageCap <= 100 ? usageCap : NEAR_LIMIT;
 }
 
 /** Families that have their own weekly limits on Claude plans, as the usage report names them. */
@@ -65,14 +73,14 @@ export function metersFor(u: Usage, model: string | null): Meter[] {
   return u.meters.filter((x) => x.model === null || named(x.model));
 }
 
-function near(m: Meter): boolean {
-  return m.severity === 'critical' || m.percent >= NEAR_LIMIT;
+function near(m: Meter, cap = NEAR_LIMIT): boolean {
+  return m.severity === 'critical' || m.percent >= capOf(cap);
 }
 
 /** Whether a model's own limit (Fable's week, say) still has room on an account. */
-export function modelHasRoom(u: Usage | undefined, model: string): boolean {
+export function modelHasRoom(u: Usage | undefined, model: string, cap = NEAR_LIMIT): boolean {
   const own = modelMeter(u, model);
-  return !own || !near(own);
+  return !own || !near(own, cap);
 }
 
 /** Auto's account, and why: its weekly limit resets soonest, so its room is the first to be
@@ -82,6 +90,8 @@ export interface AutoPick {
   reason: 'reset' | 'room' | 'first';
   /** The weekly reset, for `reset`. */
   resetsAt: number | null;
+  /** The explicit model a routing group member set, when Auto or a group picked one. */
+  model?: string | null;
 }
 
 /** Whether an account's command line would take `model`: one it lists, and for Claude Code any,
@@ -95,32 +105,32 @@ function startable(accounts: StartAccount[]): StartAccount[] {
   return accounts.filter((a) => a.places.length > 0);
 }
 
-/** The accounts Auto prefers among those that can start sessions: the ones marked preferred,
- *  else those of the first account's harness, so that without a star Auto keeps to one agent
- *  until its accounts are out of room. start.rs's `preferred_names` has the same rule. */
+/** The accounts Auto prefers among those that can start sessions: those of the first account's
+ *  harness, so Auto keeps to one agent until its accounts are out of room. start.rs's
+ *  `preferred_names` has the same rule. */
 export function preferredNames(accounts: StartAccount[]): string[] {
   const can = startable(accounts);
-  if (can.some((a) => a.preferred)) return can.filter((a) => a.preferred).map((a) => a.name);
   return can.filter((a) => a.harness === can[0]?.harness).map((a) => a.name);
 }
 
 /**
  * The account Auto starts, for a session on `model` (null for each account's default; else only
  * the accounts whose command line takes it, `offersModel`). Only the limits each account's model spends count, so an account out
- * of Fable can still start Opus, and an account at 90% of one of them has no room. Preferred
+ * of Fable can still start Opus, and an account at its `usageCap` (90% by default) of one of them has no room. Preferred
  * accounts with room go first, then a preferred one without numbers yet, then the others the
  * same way, and only when all are near a limit the least full of them. Among accounts with
  * room, the one whose weekly limit resets soonest wins, so no week's room goes unused, while its
- * fullest limit is under 85% (`KEPT_FOR_RUNNING`); without such a reset, the one whose fullest
+ * fullest limit is under `usageCap - KEPT_FOR_RUNNING`; without such a reset, the one whose fullest
  * limit is least full. Signed-out accounts are passed over. Null when no account can start a
  * session.
  */
-export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, model: string | null = null): AutoPick | null {
+export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, model: string | null = null, autoGroup?: RoutingGroup | null): AutoPick | null {
+  if (autoGroup) return pickFromGroup(autoGroup, accounts, usage, now, model);
   const preferred = preferredNames(accounts);
   const candidates = startable(accounts)
     .filter((a) => model === null || offersModel(a, model))
-    .map((a) => ({ name: a.name, preferred: preferred.includes(a.name), on: model ?? a.defaultModel }));
-  const measured: { name: string; preferred: boolean; full: number; near: boolean; reset: number | null }[] = [];
+    .map((a) => ({ name: a.name, preferred: preferred.includes(a.name), on: model ?? a.defaultModel, cap: capOf(a.usageCap) }));
+  const measured: { name: string; preferred: boolean; full: number; near: boolean; reset: number | null; cap: number }[] = [];
   const unknown: typeof candidates = [];
   for (const c of candidates) {
     const u = usage.find((x) => x.account === c.name);
@@ -131,11 +141,11 @@ export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, 
       continue;
     }
     const resets = meters.filter((m) => (m.key === 'week' || m.key.startsWith('model:')) && m.resetsAt !== null && m.resetsAt > now).map((m) => m.resetsAt as number);
-    measured.push({ name: c.name, preferred: c.preferred, full: Math.max(...meters.map((m) => m.percent)), near: meters.some(near), reset: resets.length > 0 ? Math.min(...resets) : null });
+    measured.push({ name: c.name, preferred: c.preferred, full: Math.max(...meters.map((m) => m.percent)), near: meters.some((m) => near(m, c.cap)), reset: resets.length > 0 ? Math.min(...resets) : null, cap: c.cap });
   }
   const leastFull = (pool: typeof measured): AutoPick => ({ account: pool.reduce((best, m) => (m.full < best.full ? m : best)).name, reason: 'room', resetsAt: null });
   const best = (pool: typeof measured): AutoPick => {
-    const soon = pool.filter((m) => m.reset !== null && m.full < NEAR_LIMIT - KEPT_FOR_RUNNING).sort((a, b) => (a.reset as number) - (b.reset as number) || a.full - b.full);
+    const soon = pool.filter((m) => m.reset !== null && m.full < m.cap - KEPT_FOR_RUNNING).sort((a, b) => (a.reset as number) - (b.reset as number) || a.full - b.full);
     return soon.length > 0 ? { account: soon[0].name, reason: 'reset', resetsAt: soon[0].reset } : leastFull(pool);
   };
   for (const pref of [true, false]) {
@@ -149,32 +159,72 @@ export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, 
   return first ? { account: first.name, reason: 'first', resetsAt: null } : null;
 }
 
+/** The account and model a routing group picks now (start.rs `pick_from_group`). */
+export function pickFromGroup(
+  group: RoutingGroup,
+  accounts: StartAccount[],
+  usage: Usage[],
+  now: number,
+  model: string | null = null,
+  avoid: Harness | null = null,
+): AutoPick | null {
+  const can = startable(accounts);
+  const rawMembers = group.members.length > 0 ? group.members : can.map((a) => ({ account: a.name, model: '' }));
+  const members = rawMembers.flatMap((m) => {
+    const a = can.find((x) => x.name === m.account);
+    if (!a) return [];
+    const explicit = m.model?.trim() || model || null;
+    if (explicit && !offersModel(a, explicit)) return [];
+    const checkModel = explicit ?? a.defaultModel;
+    const cap = capOf(a.usageCap);
+    const u = usage.find((x) => x.account === a.name);
+    const usable = !u?.needsSignIn;
+    const roomy = usable && (u ? metersFor(u, checkModel) : []).every((x) => !near(x, cap));
+    return [{ account: a, explicitModel: explicit, checkModel, roomy, usable }];
+  });
+  if (members.length === 0) return null;
+  const roomy = members.filter((m) => m.roomy);
+  let pool = roomy.length > 0 ? roomy : members.filter((m) => m.usable);
+  if (pool.length === 0) pool = members;
+  if (avoid && pool.some((m) => m.account.harness !== avoid)) {
+    pool = pool.filter((m) => m.account.harness !== avoid);
+  }
+  const asAccounts = pool.map((m) => ({ ...m.account, defaultModel: m.checkModel }));
+  const picked = autoPick(asAccounts, usage, now, null);
+  if (!picked) return null;
+  const chosen = pool.find((m) => m.account.name === picked.account) ?? pool[0];
+  return { ...picked, account: chosen.account.name, model: chosen.explicitModel };
+}
+
 /** The choices the sheet lists: Auto when there's more than one account to choose between,
- *  then every account. */
-export function choices(accounts: StartAccount[], pick: AutoPick | null): Choice[] {
-  return [...(offersAuto(accounts, pick) ? [AUTO] : []), ...accounts.map((a) => a.name)];
+ *  any routing groups, then every account. */
+export function choices(accounts: StartAccount[], pick: AutoPick | null, groups: RoutingGroup[] = []): Choice[] {
+  return [...(offersAuto(accounts, pick) ? [AUTO] : []), ...groups.map((g) => g.name), ...accounts.map((a) => a.name)];
 }
 
 function offersAuto(accounts: StartAccount[], pick: AutoPick | null): boolean {
   return !!pick && startable(accounts).length > 1;
 }
 
-/** Where a choice can open. Auto opens where the account it picks can. */
-export function placesFor(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null): StartAccount['places'] {
-  const name = accountFor(choice, pick);
+/** Where a choice can open. Auto or a routing group opens where the account it picks can. */
+export function placesFor(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0): StartAccount['places'] {
+  const name = accountFor(choice, pick, groups, accounts, usage, now);
   return accounts.find((a) => a.name === name)?.places ?? [];
 }
 
 /** The account a choice starts right now. */
-export function accountFor(choice: Choice | null, pick: AutoPick | null): string | null {
+export function accountFor(choice: Choice | null, pick: AutoPick | null, groups: RoutingGroup[] = [], accounts: StartAccount[] = [], usage: Usage[] = [], now = 0): string | null {
   if (!choice) return null;
-  return isAuto(choice) ? (pick?.account ?? null) : choice;
+  if (isAuto(choice)) return pick?.account ?? null;
+  const g = isGroup(choice, groups);
+  if (g) return pickFromGroup(g, accounts, usage, now)?.account ?? null;
+  return choice;
 }
 
 /** The choice the panel opens with: `wanted` (what a failed start had) while it's still
  *  offered, else the first on the list that can start a session, which is Auto where there's one. */
-export function initialChoice(accounts: StartAccount[], pick: AutoPick | null, wanted: Choice | undefined): Choice | null {
-  const offered = choices(accounts, pick).filter((c) => placesFor(c, accounts, pick).length > 0);
+export function initialChoice(accounts: StartAccount[], pick: AutoPick | null, wanted: Choice | undefined, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0): Choice | null {
+  const offered = choices(accounts, pick, groups).filter((c) => placesFor(c, accounts, pick, groups, usage, now).length > 0);
   return wanted && offered.includes(wanted) ? wanted : (offered[0] ?? null);
 }
 
@@ -184,17 +234,17 @@ export interface ModelOption {
   label: string;
 }
 
-/** One line of the agent menu: Auto for a harness, or an account on a model. */
+/** One line of the agent menu: Auto, a routing group, or an account on a model. */
 export interface AgentOption {
-  /** `auto:<harness>`, or `<account>|<model>` with no model for the account's own default. */
+  /** `auto`, a routing group name, or `<account>|<model>` with no model for the account's own default. */
   id: string;
   choice: Choice;
   /** Null for the account's default model (or the one its app picks). */
   model: string | null;
 }
 
-export function agentId(choice: Choice, model: string | null): string {
-  return isAuto(choice) ? choice : `${choice}|${model ?? ''}`;
+export function agentId(choice: Choice, model: string | null, groups: RoutingGroup[] = []): string {
+  return isAuto(choice) || isGroup(choice, groups) ? choice : `${choice}|${model ?? ''}`;
 }
 
 /** The choice and model an agent menu id stands for. Account names and models have no `|`. */
@@ -223,11 +273,14 @@ export function takesModel(a: StartAccount | undefined): boolean {
   return !!a && (a.models ? a.models.length > 0 : a.harness === 'claude') && a.places.some((p) => p.place === 'terminal');
 }
 
-/** What the agent menu lists: Auto when it's offered, then every account, on its own
- *  default and, where Codealong can ask for one, on each of its models (`models` for an
- *  account that came without its own list). */
-export function agentOptions(accounts: StartAccount[], models: ModelOption[], pick: AutoPick | null): AgentOption[] {
+/** What the agent menu lists: Auto when it's offered, any routing groups that can start here,
+ *  then every account, on its own default and, where Codealong can ask for one, on each of its
+ *  models (`models` for an account that came without its own list). */
+export function agentOptions(accounts: StartAccount[], models: ModelOption[], pick: AutoPick | null, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0): AgentOption[] {
   const out: AgentOption[] = offersAuto(accounts, pick) ? [{ id: AUTO, choice: AUTO, model: null }] : [];
+  for (const g of groups) {
+    if (pickFromGroup(g, accounts, usage, now)) out.push({ id: g.name, choice: g.name, model: null });
+  }
   for (const a of accounts) {
     out.push({ id: agentId(a.name, null), choice: a.name, model: null });
     if (takesModel(a)) for (const m of a.models ?? models) out.push({ id: agentId(a.name, m.id), choice: a.name, model: m.id });
@@ -273,31 +326,33 @@ const FALLBACK = ['opus', 'sonnet'];
  * other model with room, with the default's context size. `model` is null for the default, and
  * `spent` is the limit that ruled the default out.
  */
-export function autoModel(defaultModel: string | null, u: Usage | undefined): { model: string | null; spent: Meter | null } {
+export function autoModel(defaultModel: string | null, u: Usage | undefined, cap = NEAR_LIMIT): { model: string | null; spent: Meter | null } {
   const own = modelMeter(u, defaultModel);
-  if (!own || !near(own)) return { model: null, spent: null };
+  if (!own || !near(own, cap)) return { model: null, spent: null };
   const long = /\[1m\]$/i.test(defaultModel ?? '');
   const family = modelFamily(defaultModel);
   for (const f of FALLBACK) {
     if (f === family) continue;
     const m = modelMeter(u, f);
-    if (!m || !near(m)) return { model: long ? `${f}[1m]` : f, spent: own };
+    if (!m || !near(m, cap)) return { model: long ? `${f}[1m]` : f, spent: own };
   }
   return { model: null, spent: own };
 }
 
-/** The place an account's `start` setting names; for Auto, the one the account it picks names. */
-export function settledPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null): StartPlace | null {
-  const name = accountFor(choice, pick);
+/** The place an account's `start` setting names; for Auto or a routing group, the one the account it picks names. */
+export function settledPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0): StartPlace | null {
+  const name = accountFor(choice, pick, groups, accounts, usage, now);
   return accounts.find((a) => a.name === name)?.chosen ?? null;
 }
 
 /** The accounts a start in `place` keeps it for as their `start` (start.rs `keep_place`): the
- *  account chosen, or for Auto every account it picks among that can start there, so whichever
- *  it picks next, and `codealong start` on auto, opens there too. */
-export function keepPlaceFor(choice: Choice | null, accounts: StartAccount[], place: StartPlace): string[] {
+ *  account chosen, or for Auto or a routing group every account it picks among that can start
+ *  there, so whichever it picks next, and `codealong start` on auto, opens there too. */
+export function keepPlaceFor(choice: Choice | null, accounts: StartAccount[], place: StartPlace, groups: RoutingGroup[] = [], autoGroup?: string): string[] {
   if (!choice) return [];
-  const names = isAuto(choice) ? preferredNames(accounts) : [choice];
+  const gName = isAuto(choice) ? autoGroup : choice;
+  const g = gName ? groups.find((x) => x.name === gName) : undefined;
+  const names = g ? (g.members.length > 0 ? g.members.map((m) => m.account) : preferredNames(accounts)) : isAuto(choice) ? preferredNames(accounts) : [choice];
   return names.filter((n) => accounts.find((a) => a.name === n)?.places.some((p) => p.place === place));
 }
 
@@ -309,9 +364,9 @@ export function withChosen(o: StartOptions, names: string[], place: StartPlace):
 
 /** Where a choice opens at first: where its account's settings say, else where it last opened,
  *  while that's still offered. */
-export function initialPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, last: StartPlace | undefined): StartPlace | null {
-  const places = placesFor(choice, accounts, pick);
-  const want = settledPlace(choice, accounts, pick) ?? last;
+export function initialPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, last: StartPlace | undefined, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0): StartPlace | null {
+  const places = placesFor(choice, accounts, pick, groups, usage, now);
+  const want = settledPlace(choice, accounts, pick, groups, usage, now) ?? last;
   return places.find((p) => p.place === want)?.place ?? places[0]?.place ?? null;
 }
 
@@ -388,20 +443,39 @@ export interface ChosenStart {
  * adapter, so picking one leaves only those places; the effort goes wherever the model does, to
  * a harness that takes one, except to Haiku.
  */
-export function startChoice(accounts: StartAccount[], models: ModelOption[], efforts: { id: string; label: string }[], usage: Usage[], pick: AutoPick | null, agents: AgentOption[], first: Choice | null, picks: StartPicks, lastPlace: (choice: Choice) => StartPlace | undefined): ChosenStart {
+export function startChoice(
+  accounts: StartAccount[],
+  models: ModelOption[],
+  efforts: { id: string; label: string }[],
+  usage: Usage[],
+  pick: AutoPick | null,
+  agents: AgentOption[],
+  first: Choice | null,
+  picks: StartPicks,
+  lastPlace: (choice: Choice) => StartPlace | undefined,
+  groups: RoutingGroup[] = [],
+  now = 0,
+): ChosenStart {
   const { agent, effort, place, newWorktree } = picks;
-  const agentNow = agent && agents.some((o) => o.id === agent) ? agent : first ? agentId(first, null) : null;
+  const agentNow = agent && agents.some((o) => o.id === agent) ? agent : first ? agentId(first, null, groups) : null;
   const { choice, model: chosenModel } = agentNow ? parseAgent(agentNow) : { choice: null, model: null };
-  const autoFor = isAuto(choice);
-  const account = accountFor(choice, pick);
+  const group = isGroup(choice, groups);
+  const autoFor = isAuto(choice) || !!group;
+  const activePick = isAuto(choice) ? pick : group ? pickFromGroup(group, accounts, usage, now) : null;
+  const account = accountFor(choice, pick, groups, accounts, usage, now);
   const accountInfo = accounts.find((a) => a.name === account);
   const harness = accountInfo?.harness ?? null;
-  const autoModelPick = autoFor ? autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account)) : null;
-  const allPlaces = placesFor(choice, accounts, pick);
+  const cap = capOf(accountInfo?.usageCap);
+  const autoModelPick = autoFor
+    ? activePick?.model
+      ? { model: activePick.model, spent: null }
+      : autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account), cap)
+    : null;
+  const allPlaces = placesFor(choice, accounts, pick, groups, usage, now);
   const takesEffort = (accountInfo?.efforts?.length ?? 0) > 0;
   const tuned = !!chosenModel || (!!effort && takesEffort);
   const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place)) : allPlaces;
-  const placeNow = [place, choice ? (settledPlace(choice, accounts, pick) ?? lastPlace(choice)) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
+  const placeNow = [place, choice ? (settledPlace(choice, accounts, pick, groups, usage, now) ?? lastPlace(choice)) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
   // A harness whose command line makes a worktree for a session (Claude Code's `--worktree`).
   const makesWorktree = !!placeNow && onCommandLine(placeNow) && !!accountInfo?.worktree;
   // A harness whose command line takes a model; Codealong hands it to an adapter the same way.
@@ -551,12 +625,13 @@ export function startingLabel(place: StartPlace, account: string, onModel: strin
   return `Opening a new thread in Codex${onMac}…`;
 }
 
-/** What the agent chip says: Auto or the account, and after it the account Auto picked, the
- *  model and the effort. With no accounts, why: another Mac's may not have come yet. */
-export function agentChipWords(c: { auto: boolean; account: string | null; accounts: number; remote: { read: boolean; error: string | null } | null; model: string | null; effortWord: string | null }): { label: string; detail: string } {
+/** What the agent chip says: Auto, the routing group, or the account, and after it the account
+ *  Auto or the group picked, the model and the effort. With no accounts, why: another Mac's may
+ *  not have come yet. */
+export function agentChipWords(c: { auto: boolean; group?: string | null; account: string | null; accounts: number; remote: { read: boolean; error: string | null } | null; model: string | null; effortWord: string | null }): { label: string; detail: string } {
   const none = c.remote && !c.remote.read ? (c.remote.error ? 'Couldn’t read its accounts' : 'Reading accounts…') : 'No accounts';
-  const label = c.accounts === 0 ? none : c.auto ? 'Auto' : (c.account ?? 'No account');
-  const detail = [c.auto ? c.account : null, c.model, c.effortWord ? `${c.effortWord} effort` : null].filter(Boolean).join(' · ');
+  const label = c.accounts === 0 ? none : c.group ? c.group : c.auto ? 'Auto' : (c.account ?? 'No account');
+  const detail = [c.auto || c.group ? c.account : null, c.model, c.effortWord ? `${c.effortWord} effort` : null].filter(Boolean).join(' · ');
   return { label, detail };
 }
 
@@ -572,7 +647,8 @@ export function autoWhy(p: AutoPick, spent: Meter | null, fallback: boolean, now
 /** The agent menu's Auto line: what its filter matches, and the account, model and why. */
 export function autoOptionWords(pick: AutoPick, accounts: StartAccount[], usage: Usage[], models: ModelOption[], now: number): { text: string; detail: string } {
   const a = accounts.find((x) => x.name === pick.account);
-  const m = autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === pick.account));
+  const cap = capOf(a?.usageCap);
+  const m = pick.model ? { model: pick.model, spent: null } : autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === pick.account), cap);
   const model = m.model ?? a?.defaultModel ?? null;
   const why = autoWhy(pick, m.spent, !preferredNames(accounts).includes(pick.account), now);
   return {
@@ -581,11 +657,24 @@ export function autoOptionWords(pick: AutoPick, accounts: StartAccount[], usage:
   };
 }
 
-/** An account's heading in the agent menu: its agent, plan and star, and what shows when its
+/** A routing group's line in the agent menu: what its filter matches, and the account, model and strategy. */
+export function groupOptionWords(group: RoutingGroup, pick: AutoPick, accounts: StartAccount[], usage: Usage[], models: ModelOption[], now: number): { text: string; detail: string } {
+  const a = accounts.find((x) => x.name === pick.account);
+  const cap = capOf(a?.usageCap);
+  const m = pick.model ? { model: pick.model, spent: null } : autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === pick.account), cap);
+  const model = m.model ?? a?.defaultModel ?? null;
+  const strat = group.strategy === 'alternate-harness' ? 'alternates harnesses' : group.strategy === 'round-robin' ? 'round robin' : autoWhy(pick, m.spent, false, now);
+  return {
+    text: `${group.name} ${pick.account} ${a ? HARNESS_WORD[a.harness] : ''} ${model ?? ''}`,
+    detail: [pick.account, model ? modelName(model, models) : null, strat].filter(Boolean).join(' · '),
+  };
+}
+
+/** An account's heading in the agent menu: its agent and plan, and what shows when its
  *  meters don't. */
 export function accountHeadWords(a: StartAccount, u: Usage | undefined, note: string): { detail: string; note: string } {
   const cant = a.places.length === 0;
-  return { detail: [HARNESS_WORD[a.harness], u?.plan, a.preferred ? 'Preferred' : null].filter(Boolean).join(' · '), note: cant ? 'Can’t start from here' : note };
+  return { detail: [HARNESS_WORD[a.harness], u?.plan].filter(Boolean).join(' · '), note: cant ? 'Can’t start from here' : note };
 }
 
 /** One of an account's lines in the agent menu: what its filter matches, and what it says. */

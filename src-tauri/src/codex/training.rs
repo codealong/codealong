@@ -130,7 +130,7 @@ mod tests {
     use serde_json::json;
 
     fn account() -> AccountCfg {
-        AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }
+        AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
     }
 
     /// As `settings/user` answered on 2026-10-13, with the rest of the settings left out.

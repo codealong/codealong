@@ -867,6 +867,7 @@ mod tests {
             lanes: Vec::new(),
             sessions: Vec::new(),
             head_oid: None,
+            authored_by: None,
             auto_review: None,
         }
     }

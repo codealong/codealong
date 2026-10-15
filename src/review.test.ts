@@ -100,6 +100,14 @@ describe('reviewPicks', () => {
     const reviews = { auto: false, account: 'opencode', model: 'big', own: { auto: false } };
     expect(reviewPicks(more, [], 0, true, reviews)[0]).toEqual({ kind: 'review', label: 'opencode, big in Codealong, as Settings says', account: null });
     expect(reviewPicks(more, [], 0, true, reviews, true)[0]).toEqual({ kind: 'review', label: 'Auto (another harness than its session’s)', account: null });
+    const ownGroup = { auto: false, own: { auto: false, account: 'reviewers', other_harness: true } };
+    const groups = [{ name: 'reviewers', strategy: 'alternate-harness' as const, members: [{ account: 'opencode', model: '' }, { account: 'claude', model: '' }] }];
+    expect(reviewPicks(more, [], 0, true, ownGroup, true, groups)).toEqual([
+      { kind: 'review', label: 'reviewers (opencode) in Codealong, as Settings says', account: null },
+      { kind: 'review', label: 'claude in the background', account: 'claude' },
+      { kind: 'review', label: 'opencode in Codealong', account: 'opencode' },
+      { kind: 'codex-app', label: 'The Codex app’s own review' },
+    ]);
   });
   it('offers no choice of one, and without a checkout only Codex’s own review page', () => {
     expect(reviewPicks(ACCOUNTS, [], 0, true).map((p) => p.label)).toEqual(['claude in the background', 'The Codex app’s own review']);

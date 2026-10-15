@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion, type SuggestionContext } from './route';
+import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion, type SuggestionContext } from './route';
 import { startHappens, startTitleWords, startWhereWords } from './start';
 import * as fx from './testing/fixtures';
 import type { Board, Lane, Route, Session } from './types';
@@ -329,3 +329,29 @@ describe('alreadyOnWords', () => {
     expect(alreadyOnWords(null)).toBe('');
   });
 });
+
+describe('resolveSuggestedAgent', () => {
+  const ghostty = { place: 'terminal' as const, label: 'Ghostty' };
+  const accounts = [
+    fx.startAccount({ name: 'claude', places: [ghostty], models: [{ id: 'opus', label: 'Opus' }] }),
+    fx.startAccount({ name: 'claude2', places: [ghostty], models: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }] }),
+    fx.startAccount({ name: 'codex', harness: 'codex', places: [ghostty], models: [{ id: 'gpt-5', label: 'GPT-5' }] }),
+  ];
+
+  it('attaches Jev’s top agent pick to start suggestions and resolves it to an account with room', () => {
+    const r = route({
+      action: 'start',
+      actions: [['start', 1]],
+      lanes: [{ id: '/api', p: 1 }],
+      agents: [{ id: 'claude:opus', p: 0.8 }],
+    });
+    expect(suggestions(r, b)[0]).toMatchObject({ kind: 'start', agent: 'claude:opus' });
+    // claude is near its limit, so resolveSuggestedAgent picks claude2 on opus.
+    const u = [fx.usage({ account: 'claude', meters: [fx.meter({ key: 'week', percent: 95, severity: 'critical' })] }), fx.usage({ account: 'claude2', meters: [fx.meter({ key: 'week', percent: 20 })] })];
+    expect(resolveSuggestedAgent('claude:opus', accounts, [], u, fx.NOW)).toEqual({ account: 'claude2', model: 'opus' });
+    // A routing group resolves through pickFromGroup.
+    const groups = [{ name: 'fast', strategy: 'usage' as const, members: [{ account: 'claude2', model: 'sonnet' }] }];
+    expect(resolveSuggestedAgent('fast', accounts, groups, u, fx.NOW)).toEqual({ account: 'claude2', model: 'sonnet' });
+  });
+});
+

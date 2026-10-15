@@ -90,8 +90,7 @@ build it yourself? See [Building from source](#building-from-source).
 2. **Tell it where your code lives**, if that isn't `~/projects`: Settings (⌘,) › General. Group
    your repos into projects under Settings › Projects.
 3. **Check your accounts** in Settings › Accounts. Accounts Codealong found but didn't add wait
-   under *Found on this Mac*; add one with a click. Star the ones you'd like new work to go to
-   first.
+   under *Found on this Mac*; add one with a click.
 4. **Install the agent tools** from Settings › Agents. This puts the `codealong` command on your
    PATH, adds Codealong's plugin to each Claude Code account (so you can answer its permission
    prompts and questions from Codealong), and gives every agent a skill that tells it how to use
@@ -218,9 +217,10 @@ typing a prompt and start it, choosing:
   Codealong itself;
 - and, with other Macs linked, **which Mac** (⌘D).
 
-*Auto* picks the account with room: your starred accounts first while they have room (an account
-at 90% of a limit has none), and of the rest, the one whose week resets soonest, so no week's
-allowance goes unused, until it's at 85% and what's left is for the sessions already on it. A
+*Auto* picks the account with room (or from your routing group in Settings › Automation): an
+account at its usage cap (90% by default) has none, and among those with room it picks the one
+whose week resets soonest, so no week's allowance goes unused, until it's within 5% of its cap and
+what's left is for the sessions already on it. A
 question that isn't about any of your repos can go to a chat of its own. Type `/` to find your
 repos' skills by name.
 
@@ -506,10 +506,20 @@ when_hit = "suggest"           # a session stopped at its usage limit offers a m
 continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Automation)
 resume_for_sessions_it_started = true  # resume a session that isn't running, out of sight, when one it started sends it a message (Settings › Automation)
 
+[routing]
+auto = ""                      # the routing group Auto uses for new sessions and reviews; "" picks among accounts of the first harness with room
+prompt = ""                    # instructions for Jev in the quick panel to suggest an agent, model or routing group for what you type
+
+[[routing.groups]]
+name = "reviewers"             # offered in the quick panel, `codealong start --account`, and as the reviewer for PRs
+strategy = "alternate-harness" # "usage" (most room / soonest reset), "alternate-harness" (rotates across harnesses), or "round-robin"
+members = [{ account = "claude-work", model = "opus" }, { account = "codex" }]  # [] includes every enabled account that can start
+
 [reviews]
 auto = false                   # an agent reviews each PR that waits on your review, and again on new commits (Settings › Automation)
-account = ""                   # the account it runs on; "" for the one Auto would start
-model = ""                     # the model it starts on; "" for the account's own
+account = ""                   # the account or routing group it runs on; "" for the one Auto would start
+model = ""                     # the model it starts on; "" for the account's or group member's own
+other_harness = true           # prefer a harness other than the PR author's (from its session here or Co-Authored-By / Generated with trailers)
 prompt = ""                    # what it's told to do (what to look for, subagents to start); "" for Codealong's own
 start = "no-terminal"          # where its session runs, yours too: "no-terminal" (Claude Code's background service, else Codealong); "codealong"; "background" (a terminal behind your windows where the account has neither); "terminal" (in front, as new_terminal says)
 post = "draft"                 # "draft": a draft review of yours to finish; "comment": a comment; "none": stays in the session
@@ -517,8 +527,9 @@ submit = "never"               # submit the agent's verdict as your review once 
 
 [reviews.own]
 auto = false                   # an agent reviews each PR a session of yours opened here, and again on new commits (Settings › Automation)
-account = ""                   # the account it runs on; "" for Auto's among those of another harness than the PR's session
-model = ""                     # the model it starts on; "" for the account's own
+account = ""                   # the account or routing group it runs on; "" for Auto's
+model = ""                     # the model it starts on; "" for the account's or group member's own
+other_harness = true           # prefer a harness other than the PR's session or trailers
 prompt = ""                    # what it's told to do; "" for Codealong's own
 send = true                    # hand each review to the session that opened the PR; nothing goes on GitHub
 drafts = false                 # review your draft PRs too; others' drafts are never reviewed
@@ -554,7 +565,7 @@ home = "~/.claude-work"
 command = "claude-work"        # used for `claude-work --resume <id>`
 start = "background"           # where new sessions start: terminal, background, claude-app (~/.claude only), codex-app (~/.codex only), codealong; a start from the quick panel sets it
 # acp = "my-adapter --stdio"   # the Agent Client Protocol adapter Codealong runs its sessions through, in place of the installed one
-preferred = true               # Auto starts it over accounts without this while it has room
+usage_cap = 90                 # Auto, routing groups and reviews pass over it once a meter reaches this percent (default 90)
 monthly = 200                  # what its plan costs you a month, in dollars: Paid in the Usage window
 # per_token = true             # it pays by the token (an API key): what its work cost at API prices was paid
 # disabled = true              # turned off: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show

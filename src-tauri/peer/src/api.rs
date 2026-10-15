@@ -851,7 +851,8 @@ pub struct StartAccount {
     pub unavailable: Option<String>,
     /// The model a session starts on without `--model`: the account's settings.json `model`.
     pub default_model: Option<String>,
-    /// Its `preferred` setting: Auto starts it over accounts without one while it has room.
+    /// Kept for peers of older builds that read `preferred` on `StartAccount`.
+    #[serde(default)]
     pub preferred: bool,
     /// The models a start on its command line can ask for, as the harness takes them; none when
     /// it takes none, or from a device that lists only Claude Code's (`claude_models`).
@@ -877,6 +878,28 @@ pub struct StartAccount {
     /// Missing from Macs before 2026-10-14.
     #[serde(default)]
     pub switches_effort: bool,
+    /// Where Auto and routing groups pass over this account for one with more room (1 to 100
+    /// percent); None is 90%. Missing from Macs before 2026-10-14.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_cap: Option<u8>,
+}
+
+/// A model group from `[[routing.groups]]` that starts and reviews can pick in place of one
+/// account.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RoutingGroup {
+    pub name: String,
+    pub strategy: String,
+    pub members: Vec<GroupMember>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GroupMember {
+    pub account: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model: String,
 }
 
 /// Where a session that isn't running goes on, and on what: a place its account starts sessions
@@ -912,6 +935,12 @@ pub struct StartOptions {
     /// devices that don't know `effort` yet, which start on the account's own.
     #[serde(default)]
     pub claude_efforts: Vec<ModelOption>,
+    /// Model groups (`[[routing.groups]]` in config.toml) that starts and reviews can pick.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<RoutingGroup>,
+    /// The group Auto starts from (`[routing] auto`), when one is set.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub auto_group: String,
 }
 
 /// What the sheet asks for.
@@ -1128,6 +1157,16 @@ pub struct Pick {
     pub p: f64,
 }
 
+/// An account and model Jev suggests starting with (`Route::agents`), with its probability.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentPick {
+    pub account: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub p: f64,
+}
+
 /// A repo's latest starts from the quick panel: how many went into a new worktree, of how many.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Default)]
 pub struct Habit {
@@ -1165,6 +1204,10 @@ pub struct Route {
     pub habit: Habit,
     /// A live session that may already be doing this work, when Jev thinks one is.
     pub duplicate: Option<Pick>,
+    /// The accounts and models Jev suggests starting with, when `[routing] prompt` asks it, most
+    /// likely first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<AgentPick>,
     /// The versioned model that answered, such as `jev-1.13.0`.
     pub model: String,
     pub ms: u64,

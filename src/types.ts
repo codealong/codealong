@@ -557,8 +557,6 @@ export interface Usage {
   loading: boolean;
   /** Its harness keeps no limits Codealong can read, and `error` says why. */
   noLimits?: boolean;
-  /** Its `preferred` setting: Auto starts it over accounts without one while it has room. */
-  preferred?: boolean;
 }
 
 /** Where an account stands on its provider training on what it sends (training.rs). */
@@ -585,17 +583,43 @@ export interface AccountCfg {
   command: string | null;
   /** Where a new session starts unless you pick another; absent leaves it to the usual place. */
   start?: StartPlace | null;
-  /** Auto starts it over accounts that aren't preferred while it has room. */
-  preferred?: boolean;
   /** The command that runs its Agent Client Protocol adapter. */
   acp?: string | null;
   /** What its plan costs you a month, in dollars: what the Usage window counts as paid. */
   monthly?: number | null;
   /** It pays for each token at API prices (an API key). */
   per_token?: boolean;
+  /** The usage meter percentage at or above which Auto and routing groups pass over this account
+   *  (1 to 100; 90 when omitted). */
+  usage_cap?: number | null;
   /** Turned off: Codealong starts nothing on it and leaves it out of the usage bar; its sessions
    *  still show. */
   disabled?: boolean;
+}
+
+/** How a routing group picks among its members with room (config.rs `RoutingStrategy`). */
+export type RoutingStrategy = 'usage' | 'alternate-harness' | 'round-robin';
+
+/** One member of a `[[routing.groups]]` table (config.rs `GroupMemberCfg`). */
+export interface GroupMemberCfg {
+  account: string;
+  model?: string;
+}
+
+/** A `[[routing.groups]]` table in config.toml (config.rs `RoutingGroupCfg`). */
+export interface RoutingGroupCfg {
+  name: string;
+  strategy: RoutingStrategy;
+  members: GroupMemberCfg[];
+}
+
+/** `[routing]` in config.toml (config.rs `RoutingCfg`). */
+export interface RoutingCfg {
+  /** The routing group `Auto` uses when starting sessions; empty uses the first account's harness by usage room. */
+  auto?: string;
+  /** Optional guidance for Jev when suggesting an agent or model in the quick panel. */
+  prompt?: string;
+  groups?: RoutingGroupCfg[];
 }
 
 /** A `[[projects]]` table in config.toml. */
@@ -630,6 +654,8 @@ export interface Config {
   updates?: { check: boolean };
   /** What's done about a session a usage limit stopped. Older files have none: suggest. */
   limits?: { when_hit: WhenLimited };
+  /** Routing groups and default routing rules. Older files have none. */
+  routing?: RoutingCfg;
   /** What Codealong does for sessions by itself. Older files have none: carry on after a lost
    *  connection, and resume a session for one it started. */
   sessions?: SessionsCfg;
@@ -664,6 +690,7 @@ export interface ReviewsPatch {
   auto?: boolean;
   account?: string;
   model?: string;
+  other_harness?: boolean;
   prompt?: string;
   post?: ReviewPost;
   submit?: ReviewSubmit;
@@ -724,10 +751,13 @@ export type NudgeAbout = 'everything' | 'feedback' | 'feedback-and-checks';
 export interface ReviewsCfg {
   /** An agent reviews each open PR that waits on your review, and again when new commits come in. */
   auto: boolean;
-  /** The account it runs on; empty for the one Auto would start. */
+  /** The account or routing group it runs on; empty for the one Auto would start. */
   account?: string;
   /** The model it starts on; empty for the account's own. */
   model?: string;
+  /** Keep off the harness that wrote the PR (from a session here or a commit/PR trailer) when
+   *  another harness in the pool can review. Older files have none: on. */
+  other_harness?: boolean;
   /** What it's told to do; empty for Codealong's own instructions (`ConfigView.reviewPrompt`). */
   prompt?: string;
   /** Where review sessions start, of your own PRs too. Older files have none: never in a
@@ -746,10 +776,13 @@ export interface ReviewsCfg {
  *  provider than the session that opened each, kept here and handed back to that session. */
 export interface OwnReviewsCfg {
   auto: boolean;
-  /** The account they run on; empty for the one Auto would start among those of another harness
-   *  than the PR's session. */
+  /** The account or routing group they run on; empty for the one Auto would start among those of
+   *  another harness than the PR's session. */
   account?: string;
   model?: string;
+  /** Keep off the harness that opened the PR when another harness in the pool can review. Older
+   *  files have none: on. */
+  other_harness?: boolean;
   /** What the reviewer is told to do; empty for Codealong's own instructions. */
   prompt?: string;
   /** Hand each review to the session that opened the PR. Older files have none: on. */
@@ -1153,6 +1186,8 @@ export interface Route {
   habit: { new: number; of: number };
   /** A live session that may already be doing this work. */
   duplicate: RoutePick | null;
+  /** Agent or model picks Jev weighed when `[routing] prompt` is set, the likeliest first. */
+  agents?: RoutePick[];
   model: string;
   ms: number;
   inputTokens: number;
@@ -1307,6 +1342,8 @@ export interface PrItem {
   sessions: PrSession[];
   /** The commit its branch is at, when GitHub says. */
   headOid?: string;
+  /** The harness a commit trailer or PR body says wrote it (github.rs `authored_by`). */
+  authoredBy?: Harness | null;
   /** Where Codealong's own review of it stands, once it's had one (autoreview.rs). */
   autoReview?: AutoReview;
 }
@@ -1529,8 +1566,8 @@ export interface StartAccount {
   chosen: StartPlace | null;
   /** Why there's nowhere, when `places` is empty. */
   unavailable: string | null;
-  /** Its `preferred` setting: Auto starts it over accounts without one while it has room. */
-  preferred: boolean;
+  /** Its `usage_cap` setting (1 to 100); absent uses 90. */
+  usageCap?: number | null;
   /** The model a session starts on without one chosen: the account's settings.json `model`. */
   defaultModel: string | null;
   /** The models a start on its command line can ask for, as its harness takes them; none when
@@ -1560,6 +1597,19 @@ export interface ResumeIn {
   effort: string | null;
 }
 
+/** One member of a routing group as `StartOptions` sends it (peer/src/api.rs `GroupMember`). */
+export interface GroupMember {
+  account: string;
+  model?: string;
+}
+
+/** A routing group as `StartOptions` sends it (peer/src/api.rs `RoutingGroup`). */
+export interface RoutingGroup {
+  name: string;
+  strategy: RoutingStrategy | string;
+  members: GroupMember[];
+}
+
 export interface StartOptions {
   /** In config order. */
   accounts: StartAccount[];
@@ -1570,6 +1620,10 @@ export interface StartOptions {
   /** Effort levels a Claude Code start can ask for, lowest first, as `--effort` takes them.
    *  Missing from devices that don't know them yet: they start on the account's own. */
   claudeEfforts?: { id: string; label: string }[];
+  /** Routing groups from `[routing]`. */
+  groups?: RoutingGroup[];
+  /** The routing group `[routing] auto` names, or empty. */
+  autoGroup?: string;
 }
 
 /** What a helper session works for: the session whose agent started it, or the PR it reviews. */

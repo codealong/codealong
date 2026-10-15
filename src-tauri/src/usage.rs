@@ -22,7 +22,7 @@ pub fn loading(account: &AccountCfg) -> Usage {
         needs_sign_in: false,
         loading: true,
         no_limits: false,
-        preferred: account.preferred,
+        preferred: false,
         rate_limited: false,
     }
 }
@@ -64,10 +64,10 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
         home: a.home.clone(),
         command: a.command.clone(),
         start: a.start.clone(),
-        preferred: a.preferred,
         acp: a.acp.clone(),
         monthly: a.monthly,
         per_token: a.per_token,
+        usage_cap: a.usage_cap,
         disabled: a.disabled,
         folder_exists: dir.is_dir(),
         signed_in,

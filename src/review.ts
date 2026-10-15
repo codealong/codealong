@@ -10,8 +10,8 @@ import type { MenuAction } from './contextMenu';
 import { FRESH_SIDES } from './harness';
 import { commentsWord, submittedWord } from './prDraft';
 import { errorText, type Report } from './report';
-import { autoPick } from './start';
-import type { AutoReview, Draft, Lane, PrItem, ReviewsCfg, ReviewStart, StartAccount, StartPlace, Usage, Verdict } from './types';
+import { autoPick, isGroup, pickFromGroup } from './start';
+import type { AutoReview, Draft, Lane, PrItem, ReviewsCfg, ReviewStart, RoutingGroup, StartAccount, StartPlace, Usage, Verdict } from './types';
 
 /** One entry of the Review with menu: a round on `account`, or on the reviewer Settings names for
  *  none; or Codex's own review page. */
@@ -60,7 +60,8 @@ export function reviewLane(pr: Pick<PrItem, 'repoSlug' | 'lanes'>, lanes: Lane[]
 function settingsReviewer(reviews: ReviewsCfg | null | undefined, mine: boolean): { account: string; model: string; avoids: boolean } {
   const r = mine ? reviews?.own : reviews;
   const account = r?.account?.trim() ?? '';
-  return { account, model: r?.model?.trim() ?? '', avoids: mine && !account };
+  const otherHarness = r?.other_harness ?? mine;
+  return { account, model: r?.model?.trim() ?? '', avoids: otherHarness && !account };
 }
 
 /**
@@ -70,22 +71,27 @@ function settingsReviewer(reviews: ReviewsCfg | null | undefined, mine: boolean)
  * that can start one where Settings says reviews start (`reviewsRunIn`). They need a checkout of
  * the repo (`hasLane`); Codex's own review page, last, doesn't.
  */
-export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: number, hasLane: boolean, reviews?: ReviewsCfg | null, mine = false): ReviewPick[] {
+export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: number, hasLane: boolean, reviews?: ReviewsCfg | null, mine = false, groups: RoutingGroup[] = []): ReviewPick[] {
   const start = reviews?.start ?? 'no-terminal';
   const runsIn = (a: StartAccount) => reviewsRunIn(a, start);
   const can = hasLane ? accounts.filter((a) => runsIn(a)) : [];
   const each: ReviewPick[] = can.map((a) => ({ kind: 'review', label: `${a.name} ${runsIn(a)}`, account: a.name }));
   const named = settingsReviewer(reviews, mine);
   const set = named.account ? can.find((a) => a.name === named.account) : undefined;
+  const group = named.account ? isGroup(named.account, groups) : undefined;
+  const groupPick = group ? pickFromGroup(group, can, usage, now, named.model || null) : null;
+  const groupAccount = groupPick ? can.find((a) => a.name === groupPick.account) : undefined;
   const pick = named.account || named.avoids ? null : autoPick(can, usage, now);
   const picked = pick ? can.find((a) => a.name === pick.account) : undefined;
   const first: ReviewPick | null = set
     ? { kind: 'review', label: `${set.name}${named.model ? `, ${named.model}` : ''} ${runsIn(set)}, as Settings says`, account: null }
-    : named.avoids && can.length > 1
-      ? { kind: 'review', label: 'Auto (another harness than its session’s)', account: null }
-      : picked && can.length > 1
-        ? { kind: 'review', label: `Auto (${picked.name}) ${runsIn(picked)}`, account: null }
-        : null;
+    : group && groupAccount
+      ? { kind: 'review', label: `${group.name} (${groupAccount.name}) ${runsIn(groupAccount)}, as Settings says`, account: null }
+      : named.avoids && can.length > 1
+        ? { kind: 'review', label: 'Auto (another harness than its session’s)', account: null }
+        : picked && can.length > 1
+          ? { kind: 'review', label: `Auto (${picked.name}) ${runsIn(picked)}`, account: null }
+          : null;
   const app: ReviewPick[] = accounts.some((a) => a.places.some((p) => p.place === 'codex-app')) ? [{ kind: 'codex-app', label: 'The Codex app’s own review' }] : [];
   return [...(first ? [first] : []), ...each, ...app];
 }
@@ -99,9 +105,9 @@ export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: numbe
  * way through `report.busy`, where the window shows one), and `started` hears that the review is
  * under way, where the window goes on to the next thing that waits on you.
  */
-export function reviewItems(pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>, lanes: Lane[], accounts: StartAccount[], usage: Usage[], report: Report, started?: () => void, now = Date.now(), reviews?: ReviewsCfg | null): MenuAction[] {
+export function reviewItems(pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>, lanes: Lane[], accounts: StartAccount[], usage: Usage[], report: Report, started?: () => void, now = Date.now(), reviews?: ReviewsCfg | null, groups: RoutingGroup[] = []): MenuAction[] {
   const key = pr.key;
-  const picks = reviewPicks(accounts, usage, now, !!key && !!reviewLane(pr, lanes), reviews, !!pr.mine);
+  const picks = reviewPicks(accounts, usage, now, !!key && !!reviewLane(pr, lanes), reviews, !!pr.mine, groups);
   return picks.map((pick) => ({
     label: pick.label,
     run: () => {

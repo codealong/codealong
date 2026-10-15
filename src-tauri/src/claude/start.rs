@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn stops_a_job_by_the_id_it_attaches_to() {
-        let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         assert_eq!(stop_command(&a, "claude2 attach 6e07c149").as_deref(), Some("claude2 stop 6e07c149"));
         assert_eq!(stop_command(&a, "claude2 attach 6e07c149; rm -rf ~"), None);
         assert_eq!(stop_command(&a, "claude2 --resume 6e07c149"), None);
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn forks_under_an_id_it_picks() {
-        let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let f = fork_as(&a, "4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f", "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a", "");
         assert_eq!(f.input, "claude2 --resume 4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f --fork-session --session-id 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a\n");
         assert_eq!(f.key.as_deref(), Some("claude:claude2:9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a"));
@@ -247,7 +247,7 @@ mod tests {
         use crate::harness::Adapter;
         let id = "4f1c2a9e-0b7d-4e21-9c55-1a2b3c4d5e6f";
         let home = crate::fixtures::scratch("move-folder");
-        let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let a = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let ctx = crate::harness::Ctx { account: &a };
         let s = Session::new(Harness::Claude, "claude2", id);
         // It resumes by its own ID wherever the terminal opens, so its key stays.
@@ -274,8 +274,8 @@ mod tests {
         }
         let earlier = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
         std::fs::File::options().write(true).open(old.join(format!("{id}.jsonl"))).unwrap().set_modified(earlier).unwrap();
-        let from = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
-        let to = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let from = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let to = crate::config::AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let ctx = crate::harness::Ctx { account: &from };
         let moved = super::super::ClaudeCode.move_to(&ctx, &Session::new(Harness::Claude, "claude", id), &to, "").unwrap();
         let path = new.join(format!("{id}.jsonl")).to_string_lossy().replace('\'', "'\\''");
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn forks_into_the_background_with_the_prompt_quoted_last() {
-        let a = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: Some("claude2".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let a = AccountCfg { name: "claude2".into(), harness: "claude".into(), home: "~/.claude2".into(), command: Some("claude2".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let dirs = (Path::new("/i"), Path::new("/f"));
         let id = "3628c9e6-0309-4a30-aed9-3e68d0e66b7e";
         assert_eq!(fork_command_in(&a, id, "", dirs), format!("claude2 --resume {id} --fork-session --bg"));
@@ -327,7 +327,7 @@ mod tests {
     #[ignore]
     fn background_round_trip() {
         let folder = PathBuf::from(std::env::var("CODEALONG_TEST_FOLDER").expect("CODEALONG_TEST_FOLDER"));
-        let a = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let a = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let prompt = "Reply with just ok. Don't expand $HOME or `this` or $(say nope) -v";
         let crate::start::Plan::Background { cwd, command } = crate::start::plan(&a, crate::start::Place::Background, &folder, prompt, "unused", Some("haiku"), None, false) else { panic!() };
         let (job, id) = start_background(&a, &cwd, &command).unwrap();

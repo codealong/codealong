@@ -533,12 +533,6 @@ export async function getAccounts(): Promise<AccountInfo[]> {
   return res.ok ? ((await res.json()) as AccountInfo[]) : [];
 }
 
-/** Stars an account, or takes its star away: Auto starts preferred accounts first. */
-export async function setPreferred(account: string, preferred: boolean): Promise<void> {
-  if (!inTauri) throw new Error('Starring an account needs the app.');
-  await invoke('set_preferred', { account, preferred });
-}
-
 /** Keeps where a start from the quick panel opened as `start` for its accounts in config.toml,
  *  which `codealong start` goes by too (start.rs `keep_place`). */
 export async function keepStartPlace(accounts: string[], place: StartPlace): Promise<void> {

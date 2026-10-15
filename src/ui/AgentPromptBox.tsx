@@ -10,8 +10,8 @@
 // box loses the keyboard; the agent as it's picked.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { agentChipWords, agentId, agentOptions, AUTO, autoPick, isAuto, parseAgent } from '../start';
-import type { StartAccount, Usage } from '../types';
+import { agentChipWords, agentId, agentOptions, AUTO, autoPick, isAuto, isGroup, parseAgent, pickFromGroup } from '../start';
+import type { RoutingGroup, StartAccount, Usage } from '../types';
 import { BoxMenu } from './ModelMenu';
 import { BoxText } from './primitives';
 import { agentMenuSections } from './StartControls';
@@ -19,9 +19,13 @@ import { agentMenuSections } from './StartControls';
 export interface AgentPromptBoxProps {
   /** The accounts it may run on, as start options list them. */
   accounts: StartAccount[];
+  /** Routing groups configured in `[routing]`, when any. */
+  groups?: RoutingGroup[];
+  /** The routing group Auto delegates to (`[routing] auto`), when set. */
+  autoGroup?: string;
   usage: Usage[];
   now: number;
-  /** The account picked, empty for Auto, and its model, empty for the account's own. */
+  /** The account or routing group picked, empty for Auto, and its model, empty for the account's own. */
   account: string;
   model: string;
   /** The instructions written; empty for `defaultPrompt`. */
@@ -32,8 +36,8 @@ export interface AgentPromptBoxProps {
   hint: string;
   /** What Auto means here, on its line in the menu. */
   autoTitle: string;
-  /** What the chip says Auto starts, where that isn't one account for every run (another
-   *  harness than each PR's session's); else the account Auto would start now. */
+  /** What the chip says Auto or a routing group starts, where that isn't one account for every run
+   *  (another harness than each PR's session's); else the account it would start now. */
   autoSays?: string;
   /** What going back to the default instructions says. */
   defaultLabel?: string;
@@ -42,14 +46,25 @@ export interface AgentPromptBoxProps {
   onPrompt: (prompt: string) => void;
 }
 
-export function AgentPromptBox({ accounts, usage, now, account, model, prompt, defaultPrompt, label, hint, autoTitle, autoSays, defaultLabel = 'Use the default instructions', disabled, onAgent, onPrompt }: AgentPromptBoxProps) {
+export function AgentPromptBox({ accounts, groups = [], autoGroup, usage, now, account, model, prompt, defaultPrompt, label, hint, autoTitle, autoSays, defaultLabel = 'Use the default instructions', disabled, onAgent, onPrompt }: AgentPromptBoxProps) {
   const models = useMemo(() => accounts.flatMap((a) => a.models ?? []).filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i), [accounts]);
-  const pick = useMemo(() => autoPick(accounts, usage, now), [accounts, usage, now]);
-  const agents = useMemo(() => agentOptions(accounts, models, pick), [accounts, models, pick]);
-  const chosen = account ? agentId(account, model || null) : AUTO;
-  const sections = agentMenuSections(agents, accounts, pick, usage, models, now, chosen, autoTitle);
-  const words = agentChipWords({ auto: !account, account: account || pick?.account || null, accounts: accounts.length, remote: null, model: model || null, effortWord: null });
-  const chip = !account && autoSays ? { ...words, detail: autoSays } : words;
+  const autoGroupObj = useMemo(() => (autoGroup ? groups.find((g) => g.name === autoGroup) ?? null : null), [autoGroup, groups]);
+  const pick = useMemo(() => autoPick(accounts, usage, now, null, autoGroupObj), [accounts, usage, now, autoGroupObj]);
+  const agents = useMemo(() => agentOptions(accounts, models, pick, groups, usage, now), [accounts, models, pick, groups, usage, now]);
+  const chosen = account ? agentId(account, model || null, groups) : AUTO;
+  const sections = agentMenuSections(agents, accounts, pick, usage, models, now, chosen, autoTitle, groups);
+  const group = isGroup(account, groups);
+  const groupPick = group ? pickFromGroup(group, accounts, usage, now) : null;
+  const words = agentChipWords({
+    auto: !account,
+    group: group?.name ?? null,
+    account: group ? (groupPick?.account ?? null) : (account || pick?.account || null),
+    accounts: accounts.length,
+    remote: null,
+    model: (group ? groupPick?.model : model) || null,
+    effortWord: null,
+  });
+  const chip = (!account || group) && autoSays ? { ...words, detail: autoSays } : words;
 
   const shown = prompt.trim() || defaultPrompt;
   const [draft, setDraft] = useState(shown);
@@ -84,7 +99,7 @@ export function AgentPromptBox({ accounts, usage, now, account, model, prompt, d
             kind="model"
             sections={sections}
             value={chosen}
-            icon={account ? undefined : 'sparkles'}
+            icon={!account || group ? 'sparkles' : undefined}
             label={chip.label}
             detail={chip.detail}
             title="Which account it runs on, and on which model"

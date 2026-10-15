@@ -14,6 +14,7 @@ import {
   autoWhy,
   choices,
   effortNote,
+  groupOptionWords,
   initialChoice,
   initialPlace,
   keepPlaceFor,
@@ -26,6 +27,7 @@ import {
   onCommandLine,
   onModelWords,
   parseAgent,
+  pickFromGroup,
   placeNote,
   placesFor,
   placeTakesModel,
@@ -50,7 +52,7 @@ import {
   type StartPlan,
 } from './start';
 import * as fx from './testing/fixtures';
-import type { Meter, StartAccount, Usage } from './types';
+import type { Meter, RoutingGroup, StartAccount, Usage } from './types';
 
 const ghostty = { place: 'terminal' as const, label: 'Ghostty' };
 const claudeApp = { place: 'claude-app' as const, label: 'Claude app' };
@@ -82,7 +84,6 @@ function usage(account: string, session: number, week: number, weekResetsIn: num
 }
 
 const pick = (u: Usage[], accounts = ACCOUNTS) => autoPick(accounts, u, NOW);
-const star = (...names: string[]) => ACCOUNTS.map((a) => ({ ...a, preferred: names.includes(a.name) }));
 
 // start.rs's auto_pick tests the same cases.
 describe('Auto', () => {
@@ -118,19 +119,14 @@ describe('Auto', () => {
     expect(pick([usage('claude', 92, 20), usage('claude2', 95, 70, 6)])).toEqual({ account: 'codex', reason: 'first', resetsAt: null });
   });
 
-  it('keeps to preferred accounts while one has room', () => {
+  it('keeps to the first account’s harness while one has room', () => {
     const codexSoon = usage('codex', 0, 10, 3);
-    // Without a star, the first account's agent is preferred.
     expect(preferredNames(ACCOUNTS)).toEqual(['claude', 'claude2']);
     expect(pick([usage('claude', 50, 80), usage('claude2', 50, 85), codexSoon])?.account).toBe('claude');
     // Out of room on both: Codex.
     expect(pick([usage('claude', 50, 95), usage('claude2', 91, 85), codexSoon])).toEqual({ account: 'codex', reason: 'reset', resetsAt: NOW + 3 * HOUR });
-    // A preferred account without numbers yet still goes first.
+    // An account of the first harness without numbers yet still goes first.
     expect(pick([codexSoon])).toEqual({ account: 'claude', reason: 'first', resetsAt: null });
-    // Stars decide once there are any.
-    expect(preferredNames(star('claude2'))).toEqual(['claude2']);
-    expect(pick([usage('claude', 10, 20, 6), usage('claude2', 50, 80), codexSoon], star('claude2'))?.account).toBe('claude2');
-    expect(pick([usage('claude', 10, 20, 6), usage('claude2', 50, 95), codexSoon], star('claude2'))?.account).toBe('codex');
   });
 
   it('passes over signed-out accounts', () => {
@@ -166,7 +162,7 @@ describe('Auto', () => {
   });
 
   it('asked for a model, considers the accounts whose command line takes it', () => {
-    const other: StartAccount = { name: 'agy', harness: 'antigravity', places: [ghostty], chosen: null, unavailable: null, defaultModel: null, preferred: false, models: [{ id: 'gemini-pro', label: 'Gemini Pro' }] };
+    const other: StartAccount = { name: 'agy', harness: 'antigravity', places: [ghostty], chosen: null, unavailable: null, defaultModel: null, models: [{ id: 'gemini-pro', label: 'Gemini Pro' }] };
     // Another harness takes only the models it lists; Claude Code takes any model's name.
     expect(autoPick([other], [], NOW, 'gemini-pro')?.account).toBe('agy');
     expect(autoPick([other], [], NOW, 'opus')).toBeNull();
@@ -226,7 +222,7 @@ describe('the sheet opens with', () => {
     // Auto's for every account it picks among, so whichever it picks next opens there too.
     expect(keepPlaceFor(AUTO, ACCOUNTS, 'terminal')).toEqual(['claude', 'claude2']);
     expect(keepPlaceFor(AUTO, ACCOUNTS, 'claude-app')).toEqual(['claude']);
-    expect(keepPlaceFor(AUTO, star('codex'), 'codex-app')).toEqual(['codex']);
+    expect(keepPlaceFor(AUTO, [...ACCOUNTS].reverse(), 'codex-app')).toEqual(['codex']);
     expect(keepPlaceFor(null, ACCOUNTS, 'terminal')).toEqual([]);
     // And in the panel's copy, so the next open goes there before it reads them again.
     const kept = withChosen({ accounts: ACCOUNTS, codexProjects: [], claudeModels: [] }, ['claude', 'claude2'], 'terminal');
@@ -434,11 +430,11 @@ describe('what the quick panel says of a start', () => {
   });
 
   it('writes the agent menu’s lines', () => {
-    const accounts = [fx.startAccount({ name: 'claude', places: [ghostty], defaultModel: 'opus', preferred: true }), fx.startAccount({ name: 'claude2', places: [ghostty] })];
+    const accounts = [fx.startAccount({ name: 'claude', places: [ghostty], defaultModel: 'opus' }), fx.startAccount({ name: 'codex', harness: 'codex', places: [ghostty] })];
     expect(autoOptionWords({ account: 'claude', reason: 'room', resetsAt: null }, accounts, [], models, NOW)).toEqual({ text: 'auto claude Claude Code opus', detail: 'claude · Opus · most room' });
-    expect(autoOptionWords({ account: 'claude2', reason: 'first', resetsAt: null }, accounts, [], models, NOW)).toEqual({ text: 'auto claude2 Claude Code ', detail: 'claude2 · preferred accounts are near their limits' });
+    expect(autoOptionWords({ account: 'codex', reason: 'first', resetsAt: null }, accounts, [], models, NOW)).toEqual({ text: 'auto codex Codex ', detail: 'codex · preferred accounts are near their limits' });
 
-    expect(accountHeadWords(accounts[0], fx.usage({ account: 'claude', plan: 'Max' }), 'No usage yet')).toEqual({ detail: 'Claude Code · Max · Preferred', note: 'No usage yet' });
+    expect(accountHeadWords(accounts[0], fx.usage({ account: 'claude', plan: 'Max' }), 'No usage yet')).toEqual({ detail: 'Claude Code · Max', note: 'No usage yet' });
     expect(accountHeadWords(fx.startAccount({ name: 'off', harness: 'codex' }), undefined, 'No usage yet')).toEqual({ detail: 'Codex', note: 'Can’t start from here' });
 
     const claude = accounts[0];
@@ -628,3 +624,74 @@ describe('resuming a session that isn’t running', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('usageCap and routing groups', () => {
+  it('respects an account’s usageCap and reserves the last 5% before it', () => {
+    const capped = ACCOUNTS.map((a) => (a.name === 'claude' ? { ...a, usageCap: 70 } : a));
+    // At 72%, claude is past its 70% cap, so Auto picks claude2.
+    expect(autoPick(capped, [usage('claude', 10, 72, 24), usage('claude2', 10, 40, 100)], NOW)?.account).toBe('claude2');
+    // At 66%, claude is in its last 5% before 70%, so its earlier reset no longer leads.
+    expect(autoPick(capped, [usage('claude', 10, 66, 24), usage('claude2', 10, 40, 100)], NOW)?.account).toBe('claude2');
+    // At 64%, claude still has room before its reserve and its earlier reset wins.
+    expect(autoPick(capped, [usage('claude', 10, 64, 24), usage('claude2', 10, 40, 100)], NOW)?.account).toBe('claude');
+  });
+
+  it('picks from a routing group and avoids a harness when asked', () => {
+    const accounts = [
+      fx.startAccount({ name: 'claude', places: [ghostty], models: [{ id: 'opus', label: 'Opus' }] }),
+      fx.startAccount({ name: 'claude2', places: [ghostty], models: [{ id: 'sonnet', label: 'Sonnet' }] }),
+      fx.startAccount({ name: 'codex', harness: 'codex', places: [ghostty], models: [{ id: 'gpt-5', label: 'GPT-5' }] }),
+    ];
+    const usageGroup: RoutingGroup = {
+      name: 'fast',
+      strategy: 'usage',
+      members: [
+        { account: 'claude', model: 'opus' },
+        { account: 'claude2', model: 'sonnet' },
+      ],
+    };
+    expect(pickFromGroup(usageGroup, accounts, [usage('claude', 10, 95), usage('claude2', 10, 20)], NOW)).toMatchObject({
+      account: 'claude2',
+      model: 'sonnet',
+    });
+
+    const altGroup: RoutingGroup = {
+      name: 'reviewers',
+      strategy: 'alternate-harness',
+      members: [{ account: 'claude', model: '' }, { account: 'codex', model: 'gpt-5' }],
+    };
+    expect(pickFromGroup(altGroup, accounts, [], NOW, null, 'claude')).toMatchObject({
+      account: 'codex',
+      model: 'gpt-5',
+    });
+  });
+
+  it('offers routing groups in the agent menu and resolves them in startChoice', () => {
+    const models = [{ id: 'opus', label: 'Opus' }];
+    const accounts = [
+      fx.startAccount({ name: 'claude', places: [ghostty], models }),
+      fx.startAccount({ name: 'codex', harness: 'codex', places: [codexApp] }),
+    ];
+    const groups: RoutingGroup[] = [
+      {
+        name: 'reviewers',
+        strategy: 'alternate-harness',
+        members: [{ account: 'claude', model: 'opus' }, { account: 'codex', model: '' }],
+      },
+    ];
+    const pick = autoPick(accounts, [], NOW, null, groups[0]);
+    expect(pick).toMatchObject({ account: 'claude', model: 'opus' });
+    const opts = agentOptions(accounts, models, pick, groups);
+    expect(opts.slice(0, 2)).toEqual([
+      { id: AUTO, choice: AUTO, model: null },
+      { id: 'reviewers', choice: 'reviewers', model: null },
+    ]);
+    expect(groupOptionWords(groups[0], pick!, accounts, [], models, NOW)).toEqual({
+      text: 'reviewers claude Claude Code opus',
+      detail: 'claude · Opus · alternates harnesses',
+    });
+    const c = startChoice(accounts, models, [], [], pick, opts, 'reviewers', { agent: agentId('reviewers', null, groups), effort: null, place: null, newWorktree: false }, () => undefined, groups, NOW);
+    expect([c.choice, c.account, c.modelNow, c.startsOn, c.modelShown]).toEqual(['reviewers', 'claude', 'opus', 'opus', 'Opus']);
+  });
+});
+

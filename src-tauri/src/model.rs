@@ -64,14 +64,14 @@ pub struct AccountInfo {
     pub command: Option<String>,
     /// Where its sessions start unless you pick another (config.toml's `start`).
     pub start: Option<String>,
-    /// Auto starts it over accounts that aren't preferred (config.toml's `preferred`).
-    pub preferred: bool,
-    /// config.toml's `acp`, `monthly` and `per_token`, named as there: Settings saves the
+    /// config.toml's `acp`, `monthly`, `per_token` and `usage_cap`, named as there: Settings saves the
     /// accounts whole, so it hands back what it was given.
     pub acp: Option<String>,
     pub monthly: Option<f64>,
     #[serde(rename = "per_token")]
     pub per_token: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "usage_cap")]
+    pub usage_cap: Option<u8>,
     /// Turned off (config.toml's `disabled`): Codealong starts nothing on it.
     pub disabled: bool,
     pub folder_exists: bool,
@@ -299,6 +299,9 @@ pub struct PrItem {
     /// The commit its branch is at, when GitHub says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub head_oid: Option<String>,
+    /// Which harness wrote the PR when its head commit or description says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authored_by: Option<Harness>,
     /// Where Codealong's own review of it stands, once it's had one (autoreview.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_review: Option<AutoReview>,

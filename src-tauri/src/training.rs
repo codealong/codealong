@@ -208,7 +208,7 @@ mod tests {
     use super::*;
 
     fn account(name: &str) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }
+        AccountCfg { name: name.into(), harness: "claude".into(), home: format!("~/.{name}"), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
     }
 
     fn reading(name: &str, state: State) -> Training {

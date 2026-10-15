@@ -166,8 +166,6 @@ pub enum Msg {
     SetTheme(Theme),
     /// The board windows' zoom, already saved to config.toml.
     SetZoom(u32),
-    /// An account's star, already saved to config.toml.
-    SetPreferred(String, bool),
     /// Sent every second while the perf log is on; how late it's read is the engine's lag.
     Ping(Instant),
     /// A change to a todo or to the labels, from a window. The reply is the time of the board
@@ -534,17 +532,6 @@ impl Handle {
     /// Saves the account list to config.toml. The watcher sees the change and reloads.
     pub fn save_accounts(&self, accounts: Vec<AccountCfg>) -> Result<()> {
         config::save_accounts(&accounts)
-    }
-
-    /// Stars an account, or takes its star away, in config.toml, and publishes it at once
-    /// rather than when the watcher notices the file.
-    pub fn set_preferred(&self, account: &str, preferred: bool) -> Result<()> {
-        let mut accounts = config::current()?.accounts;
-        let a = accounts.iter_mut().find(|a| a.name == account).ok_or_else(|| anyhow::anyhow!("There's no account named {account}."))?;
-        a.preferred = preferred;
-        config::save_accounts(&accounts)?;
-        let _ = self.tx.send(Msg::SetPreferred(account.to_string(), preferred));
-        Ok(())
     }
 
     /// Saves every setting to config.toml, in place. The watcher sees the change and reloads;
@@ -1927,12 +1914,6 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         rest.pull_requests = before.pull_requests.clone();
         // Sounds are read as each one plays (sounds.rs).
         rest.sounds = before.sounds.clone();
-        // A star only changes which account Auto picks; nothing to rescan for it.
-        for a in &mut rest.accounts {
-            if let Some(b) = before.accounts.iter().find(|b| b.name == a.name) {
-                a.preferred = b.preferred;
-            }
-        }
         if rest == before {
             self.dirty = true;
             return;
@@ -2104,14 +2085,6 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 }
                 Ok(Msg::SetZoom(zoom)) => {
                     self.cfg.appearance.zoom = zoom;
-                    self.publish();
-                }
-                Ok(Msg::SetPreferred(account, preferred)) => {
-                    // Published now: the quick panel's Auto takes stars from the board, and the
-                    // watcher's reload comes later.
-                    if let Some(a) = self.cfg.accounts.iter_mut().find(|a| a.name == account) {
-                        a.preferred = preferred;
-                    }
                     self.publish();
                 }
                 Ok(Msg::Ping(sent)) => perf::lag("engine", sent.elapsed()),
@@ -3336,8 +3309,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
     /// The usage of each account that isn't turned off: one turned off has no place in the bar.
     fn compose_usage(&self, now: i64) -> Vec<Usage> {
-        let on: Vec<&AccountCfg> = self.cfg.accounts.iter().filter(|a| !a.disabled).collect();
-        on.iter()
+        self.cfg
+            .accounts
+            .iter()
+            .filter(|a| !a.disabled)
             .map(|a| {
                 let adapter = harness::of(a);
                 if let Some(why) = adapter.and_then(|h| h.no_limits(a)) {
@@ -3347,9 +3322,6 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 let read = adapter.and_then(|h| self.readers.iter().find(|r| r.harness() == h.harness())).and_then(|r| r.usage(a, now));
                 read.unwrap_or_else(|| self.usage.get(&a.name).cloned().unwrap_or_else(|| usage::loading(a)))
             })
-            // A read made before the star changed still carries the old one.
-            .zip(&on)
-            .map(|(u, a)| Usage { preferred: a.preferred, ..u })
             .collect()
     }
 
@@ -3912,7 +3884,7 @@ mod tests {
         use super::*;
         let stopped = crate::model::Session { live: false, resume_command: Some("claude --resume stopped".into()), ..crate::fixtures::session("stopped") };
         let board = Board { lanes: vec![crate::fixtures::lane("/r", vec![stopped])], ..Board::default() };
-        let off = config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: true };
+        let off = config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: true };
         let cfg = config::Config { accounts: vec![off], ..config::Config::default() };
         let e = open_with(&board, &cfg, "/r", "s|stopped|resume").unwrap_err().to_string();
         assert_eq!(e, "claude is turned off in Settings › Accounts.");

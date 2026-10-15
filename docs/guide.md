@@ -602,9 +602,13 @@ told, nor anything once the PR has ended, and the PR's card says so under its sw
 #### Automatic reviews
 
 With `[reviews] auto = true` (Settings › Automation), an agent reviews each open PR that asks for your
-review, isn't yours and isn't a draft, in a session of its own on `[reviews] account` and `model`
-(else the account Auto would start, on its own model), apart from the account new sessions start
-on. It runs where `[reviews] start` says (Settings › Automation, Where reviews run), which by
+review, isn't yours and isn't a draft, in a session of its own on `[reviews] account` (an account or
+routing group) and `model` (else the account Auto would start, on its own model), apart from the
+account new sessions start on. With `[reviews] other_harness = true` (the default), Auto or a
+routing group prefers a harness other than the one that wrote the PR (read from a session on this
+Mac, or from `Co-Authored-By:` and `Generated with` lines in the PR's head commit or description)
+whenever another harness in the pool can review, and passes over any account that has reached its
+`usage_cap`. It runs where `[reviews] start` says (Settings › Automation, Where reviews run), which by
 default (`"no-terminal"`) never opens a terminal: under Claude Code's background service, else in
 Codealong through the account's Agent Client Protocol adapter (Codex, OpenCode), so an account that
 can do neither (Antigravity, Cursor) doesn't review. `"codealong"` runs every reviewer in Codealong,
@@ -630,10 +634,11 @@ the bar and the queues while it doesn't need you, its turns never Your turn.
 
 Review with… on a PR (its panel's header, its menu, its card's strip, ⌃⌘R) starts the same review
 by hand, whatever `[reviews] auto` says: first the reviewer Settings names (Auto's account when it
-names none), then each account that can run one where reviews run, saying where. It's a round like
+names none), then each routing group and account that can run one where reviews run, saying where. It's a round like
 any other, on the PR's card and in its Reviews tab, its review posted where `[reviews] post` says and
 submitted as `[reviews] submit` does; it reviews a commit reviewed already too, a second review going
-into your draft after the first. That account's session for the PR, when it has one, is asked again.
+into your draft after the first. That account's session for the PR, when it has one, is asked again
+unless the account has since hit its usage cap, in which case a roomy reviewer takes over.
 One that can't start says why where you asked for it. So Settings › Automation shows the reviewer,
 where reviews go and what's submitted with automatic reviews off as well. The Codex app's own review
 page is offered last, apart from Codealong's.
@@ -670,10 +675,10 @@ it.
 
 With `[reviews.own] auto = true` (Settings › Automation, Review the pull requests your sessions
 open), each open PR of yours that a session here opened (its primary, see *Nudging a PR's primary
-session*) is reviewed the same way, by an agent on `[reviews.own] account` and `model`, else on the
-account Auto would start among those of another harness than that session's, so another model reads
-what one wrote (Codex reviews what Claude Code wrote, say); one of the same harness only when no
-other can start. Drafts wait until they're ready for review unless `[reviews.own] drafts` (Review
+session*) is reviewed the same way, by an agent on `[reviews.own] account` (an account or routing
+group) and `model`, else on the account Auto would start, preferring another harness than the PR's
+when `[reviews.own] other_harness = true` (the default), so another model reads what one wrote
+(Codex reviews what Claude Code wrote, say); one of the same harness only when no other can start. Drafts wait until they're ready for review unless `[reviews.own] drafts` (Review
 your draft pull requests too) says to review them as well; a draft of someone else's that asks for
 your review is never reviewed. Nor is a PR whose session is gone or archived. Its
 instructions are `[reviews.own] prompt`, else Codealong's own; it's told the review goes back to the
@@ -1120,7 +1125,9 @@ stopped one counts half against running ones), since sending to it doesn't resum
 Suggested is there from the moment what you type goes to Jev (a few words, not a word or two of a
 search), saying it's working until Jev answers. At the next key the last answer's suggestions stay
 where they were, dimmed and without keys, doing nothing until Jev answers again, and the group only
-grows while you type, so the rows under it hold still. Jev never picks the model: a new session starts on the one the start menu shows. The API key stays in
+grows while you type, so the rows under it hold still. With `[routing] prompt` set (Settings ›
+Automation), Jev also suggests an agent, model or routing group for a new session, resolved to an
+account with room; without one, a new session starts on the one the start menu shows. The API key stays in
 the login keychain. What you type, repo names and session titles and latest lines go to TypeSafe.
 Images you paste go too, each where it is in the text, so a screenshot can say which app or
 session you mean: up to four, scaled down to what Jev takes (padded out when they're tiny). When
@@ -1247,15 +1254,21 @@ ends a turn, as it does for sessions running elsewhere. The agent keeps the sess
 records, so it can be resumed in a terminal too, and after Codealong restarts, sending to it picks
 it up again.
 
-#### Auto
+#### Auto and routing groups
 
-Auto, the default (and `codealong start`'s), keeps to preferred accounts (starred in Settings ›
-Accounts; without a star, those of the first account's agent) while one has room, judged by the
-limits its default model spends, where 90% of a limit is no room; the others only once they're all
+Auto, the default (and `codealong start`'s), keeps to accounts of the first account's agent while
+one has room (or uses Auto's routing group when `[routing] auto` names one), judged by the limits
+its default model spends, where `usage_cap` (90% by default, set per account in Settings › Accounts)
+of a limit is no room; the others only once they're all
 out. Among them it takes the one whose weekly limit resets soonest, so no week's room goes unused,
-until that one is at 85% of a limit, the last 5% before 90% being left to the sessions already
+until that one is within 5% of its cap, that last 5% being left to the sessions already
 running on it; else the one with the most room. It starts on that default model, or the next best
-(Opus, then Sonnet) when the default's own weekly limit is nearly used up. Codealong only launches:
+(Opus, then Sonnet) when the default's own weekly limit is nearly used up. Named **routing groups**
+(`[[routing.groups]]`, Settings › Automation) group `(account, model)` members under a strategy:
+`"usage"` (most room / soonest reset), `"alternate-harness"` (rotates across the group's harnesses)
+or `"round-robin"`, skipping accounts at their usage cap. A routing group is offered after Auto in
+the quick panel, in `codealong start --account <group>`, as the reviewer for PRs, or as Auto's own
+rule (`[routing] auto = "<group>"`). Codealong only launches:
 the session shows on the board like any other, and the panel stays on whatever you're looking at
 when it appears.
 

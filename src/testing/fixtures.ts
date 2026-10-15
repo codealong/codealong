@@ -236,7 +236,7 @@ export function usage(over: Partial<Usage> = {}): Usage {
 
 /** An account as the new-session sheet offers it, with nowhere to start yet. */
 export function startAccount(over: Partial<StartAccount> = {}): StartAccount {
-  return { name: 'claude', harness: 'claude', places: [], chosen: null, unavailable: null, preferred: false, defaultModel: null, ...over };
+  return { name: 'claude', harness: 'claude', places: [], chosen: null, unavailable: null, defaultModel: null, ...over };
 }
 
 /** A session's pill on the floating bar, in Needs you. Its status is its group, and its title,

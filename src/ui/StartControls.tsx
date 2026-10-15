@@ -5,8 +5,8 @@
 
 import { usageNote } from '../harness';
 import type { AgentOption, AutoPick, ModelOption } from '../start';
-import { accountHeadWords, agentOptionWords, autoOptionWords, effortNote, isAuto, placeNote } from '../start';
-import type { Harness, Meter, StartAccount, StartPlace, Usage } from '../types';
+import { accountHeadWords, agentOptionWords, autoOptionWords, effortNote, groupOptionWords, isAuto, pickFromGroup, placeNote } from '../start';
+import type { Harness, Meter, RoutingGroup, StartAccount, StartPlace, Usage } from '../types';
 import type { PickerOption, PickerSection } from './Picker';
 import { Icon, Kbd, Seg } from './primitives';
 import { UsageMeter } from './UsageBar';
@@ -81,17 +81,27 @@ export function AccountHead({ name, detail, meters, note, now }: { name: string;
 
 /**
  * The agent menu, as the quick panel starts a session with it and an automation picks its agent:
- * Auto first where it's offered, saying whom it would start now (`autoTitle` says what it means
- * there), then each account under its heading with its usage, each with its own model and its
- * models, `chosen` checked.
+ * Auto and any routing groups first where they're offered, saying whom they would start now
+ * (`autoTitle` says what Auto means there), then each account under its heading with its usage,
+ * each with its own model and its models, `chosen` checked.
  */
-export function agentMenuSections(agents: AgentOption[], accounts: StartAccount[], pick: AutoPick | null, usage: Usage[], models: ModelOption[], now: number, chosen: string | null, autoTitle: string): PickerSection[] {
+export function agentMenuSections(agents: AgentOption[], accounts: StartAccount[], pick: AutoPick | null, usage: Usage[], models: ModelOption[], now: number, chosen: string | null, autoTitle: string, groups: RoutingGroup[] = []): PickerSection[] {
   const out: PickerSection[] = [];
+  const autoOptions: PickerOption[] = [];
   const auto = agents.find((o) => isAuto(o.choice));
   if (auto && pick) {
     const said = autoOptionWords(pick, accounts, usage, models, now);
-    out.push({ key: 'auto', options: [{ id: auto.id, text: said.text, label: 'Auto', detail: said.detail, lead: <Icon name="sparkles" size={14} />, title: autoTitle }] });
+    autoOptions.push({ id: auto.id, text: said.text, label: 'Auto', detail: said.detail, lead: <Icon name="sparkles" size={14} />, title: autoTitle });
   }
+  for (const g of groups) {
+    const opt = agents.find((o) => o.choice === g.name);
+    const gp = opt ? pickFromGroup(g, accounts, usage, now) : null;
+    if (opt && gp) {
+      const said = groupOptionWords(g, gp, accounts, usage, models, now);
+      autoOptions.push({ id: opt.id, text: said.text, label: g.name, detail: said.detail, lead: <Icon name="sparkles" size={14} />, title: `Routing group (${g.strategy})` });
+    }
+  }
+  if (autoOptions.length > 0) out.push({ key: 'auto', options: autoOptions });
   for (const a of accounts) {
     const u = usage.find((x) => x.account === a.name);
     const mine = agents.filter((o) => !isAuto(o.choice) && o.choice === a.name);

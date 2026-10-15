@@ -335,15 +335,46 @@ fn named_seat(account: &str, model: &str, t: Option<&Tracked>) -> Seat {
     Seat { session: t.and_then(|t| t.sessions.get(&who).cloned()), who, account, model, avoid: None }
 }
 
-/// The reviewer of `pr`: `[reviews.own]`'s for a PR of yours, whose Auto keeps off the harness of
-/// the session that opened it, else `seat`.
+/// The harness that wrote `pr`: the session that opened it here, else what its commit trailer or
+/// description says (`PrItem::authored_by`).
+pub fn pr_harness(lanes: &[Lane], pr: &PrItem) -> Option<Harness> {
+    origin(lanes, pr).map(|(_, o)| o.harness).or(pr.authored_by)
+}
+
+/// The reviewer of `pr`: `[reviews.own]`'s for a PR of yours, else `seat`, keeping off the harness
+/// that wrote the PR when `other_harness` is on.
 fn seat_for(cfg: &ReviewsCfg, t: Option<&Tracked>, lanes: &[Lane], pr: &PrItem) -> Seat {
-    if !pr.mine {
-        return seat(cfg, t);
+    let (mut s, other_harness) = if pr.mine {
+        (named_seat(&cfg.own.account, &cfg.own.model, t), cfg.own.other_harness)
+    } else {
+        (seat(cfg, t), cfg.other_harness)
+    };
+    if s.account.is_none() && other_harness {
+        s.avoid = pr_harness(lanes, pr);
     }
-    let mut s = named_seat(&cfg.own.account, &cfg.own.model, t);
-    if s.account.is_none() {
-        s.avoid = origin(lanes, pr).map(|(_, o)| o.harness);
+    s
+}
+
+/// Whether `key`'s account is at a usage limit: a session of it was refused, or its meters are at
+/// its usage cap for the model it runs on.
+fn session_at_limit(board: &Board, accounts: &[AccountCfg], key: &str, model: Option<&str>, now: i64) -> bool {
+    let Some((_, s)) = board.session(key) else { return false };
+    let all = crate::start::all_sessions(&board.lanes);
+    if crate::start::refused_accounts(&all, now).contains(&s.account) {
+        return true;
+    }
+    let cap = accounts.iter().find(|a| a.name == s.account).and_then(|a| a.usage_cap);
+    let check_model = model.or(s.model.as_deref());
+    board.usage.iter().any(|u| u.account == s.account && (u.needs_sign_in || crate::start::near_limit(u, check_model, cap)))
+}
+
+/// `seat_for`, starting afresh when the PR's kept session is on an account at its usage limit.
+fn seat_in(cfg: &ReviewsCfg, t: Option<&Tracked>, board: &Board, pr: &PrItem, now: i64) -> Seat {
+    let mut s = seat_for(cfg, t, &board.lanes, pr);
+    if let Some(key) = s.session.as_deref() {
+        if session_at_limit(board, &[], key, s.model.as_deref(), now) {
+            s.session = None;
+        }
     }
     s
 }
@@ -767,7 +798,7 @@ impl Reviewer {
             }
             running += 1;
             self.busy.insert(key);
-            jobs.push(Job::Review { pr: pr.clone(), head, since: t.and_then(|t| t.done_head()).map(String::from), seat: seat_for(cfg, t, &board.lanes, pr), by_hand: false });
+            jobs.push(Job::Review { pr: pr.clone(), head, since: t.and_then(|t| t.done_head()).map(String::from), seat: seat_in(cfg, t, board, pr, now), by_hand: false });
         }
         if changed {
             self.save();
@@ -1521,28 +1552,34 @@ fn start_words(start: ReviewStart) -> &'static str {
     }
 }
 
-/// The account a new review runs on, and where: `account`, else the one Auto would start among
-/// the accounts that can start one where `[reviews] start` says (`review_place`), of another
-/// harness than `avoid` when one of them can.
-fn reviewer_place(cfg: &Config, board: &Board, account: Option<&str>, avoid: Option<Harness>) -> Result<(String, Place), String> {
+/// The account and model a new review runs on, and where: `seat`'s account (or the one Auto or
+/// the routing group it names picks among the accounts that can start one where `[reviews] start`
+/// says, of another harness than `avoid` when one of them can) and model.
+fn reviewer_place(cfg: &Config, board: &Board, seat: &Seat, avoid: Option<Harness>) -> Result<(String, Option<String>, Place), String> {
     let start = cfg.reviews.start;
     let can = |a: &AccountCfg| review_place(a, start).is_some();
-    let name = match account.map(str::trim).filter(|a| !a.is_empty()) {
+    let asked = seat.account.as_deref().map(str::trim).filter(|a| !a.is_empty());
+    let (name, model) = match asked {
         None => {
-            let other = |a: &AccountCfg| crate::harness::of(a).map(|h| h.harness()) != avoid;
-            avoid
-                .and_then(|_| crate::start::pick_account_where(cfg, &board.usage, &[], None, now_ms(), |a| other(a) && can(a)))
-                .or_else(|| crate::start::pick_account_where(cfg, &board.usage, &[], None, now_ms(), can))
-                .ok_or_else(|| format!("no account can start a review {}; Settings › Automation says where reviews start", start_words(start)))?
+            let picked = crate::start::resolve_group(cfg, Some(board), AUTO, &[], seat.model.as_deref(), avoid, true, now_ms(), can)
+                .and_then(std::result::Result::ok)
+                .ok_or_else(|| format!("no account can start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
+            (picked.account, seat.model.clone().or(picked.model))
         }
-        Some(n) => n.to_string(),
+        Some(n) if cfg.routing.groups.iter().any(|g| g.name == n) => {
+            let picked = crate::start::resolve_group(cfg, Some(board), n, &[], seat.model.as_deref(), avoid, true, now_ms(), can)
+                .and_then(std::result::Result::ok)
+                .ok_or_else(|| format!("no account in {n} can start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
+            (picked.account, seat.model.clone().or(picked.model))
+        }
+        Some(n) => (n.to_string(), seat.model.clone()),
     };
     let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| format!("there's no account named {name}"))?;
     if a.disabled {
         return Err(format!("{name} is turned off in Settings › Accounts"));
     }
     let place = review_place(a, start).ok_or_else(|| format!("{name} can't start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
-    Ok((name, place))
+    Ok((name, model, place))
 }
 
 /// Links a review's session to its PR, so the PR's card lists it.
@@ -1593,7 +1630,8 @@ fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, mo
 #[allow(clippy::too_many_arguments)]
 fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, seat: &Seat) -> Part {
     let at = now_ms();
-    if let Some(key) = seat.session.as_deref().filter(|k| board.session(k).is_some()) {
+    let can_switch = seat.account.as_deref().is_none_or(|n| cfg.routing.groups.iter().any(|g| g.name == n));
+    if let Some(key) = seat.session.as_deref().filter(|k| board.session(k).is_some() && !(can_switch && session_at_limit(board, &cfg.accounts, k, seat.model.as_deref(), at))) {
         let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
         match hand(engine, board, cfg, pr, key, seat.model.as_deref(), again_prompt(pr, head, since, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files)) {
             Ok((session, pending)) => return Part::asked(&seat.who, session, pending, at),
@@ -1657,11 +1695,13 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
 /// where `[reviews] start` says, in the worktree `side::pr_lane` picks, on the first prompt.
 #[allow(clippy::too_many_arguments)]
 fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, seat: &Seat) -> Result<StartSpec, String> {
-    let (account, place) = reviewer_place(cfg, board, seat.account.as_deref(), seat.avoid)?;
-    let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this Mac", pr.repo_slug))?;
     let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
+    let other_harness = if pr.mine { reviews.own.other_harness } else { reviews.other_harness };
+    let avoid = seat.avoid.or_else(|| other_harness.then(|| pr_harness(&board.lanes, pr)).flatten());
+    let (account, model, place) = reviewer_place(cfg, board, seat, avoid)?;
+    let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this Mac", pr.repo_slug))?;
     let prompt = first_prompt(pr, head, since, holds, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files);
-    Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model: seat.model.clone(), effort: None, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
+    Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model, effort: None, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
 }
 
 /// Reads the review a turn wrote after `at`: its session's last message once the turn ended.
@@ -2107,6 +2147,7 @@ mod tests {
             lanes: Vec::new(),
             sessions: Vec::new(),
             head_oid: Some(head.into()),
+            authored_by: None,
             auto_review: None,
         }
     }
@@ -2599,6 +2640,19 @@ mod tests {
         // Its instructions are config.toml's, else Codealong's.
         assert_eq!(instructions(&cfg("", "")), INSTRUCTIONS);
         assert_eq!(instructions(&ReviewsCfg { prompt: "  Start two subagents.  ".into(), ..cfg("", "") }), "Start two subagents.");
+        // A PR whose commit trailer says which harness wrote it keeps Auto off that harness when
+        // other_harness is on, and starts afresh when its kept session hit a usage limit.
+        let trailer_pr = PrItem { authored_by: Some(Harness::Claude), ..pr(7, HEAD) };
+        assert_eq!(seat_for(&on(), None, &[], &trailer_pr).avoid, Some(Harness::Claude));
+        assert_eq!(seat_for(&ReviewsCfg { other_harness: false, ..on() }, None, &[], &trailer_pr).avoid, None);
+        let mut t = Tracked::default();
+        t.sessions.insert(AUTO.into(), S.into());
+        let limited = Session {
+            limit: Some(crate::model::SessionLimit { at: NOW - 1_000, resets_at: Some(NOW + 60_000), ..Default::default() }),
+            ..session(Status::Error, NOW - 1_000)
+        };
+        let b = board(vec![trailer_pr.clone()], vec![limited]);
+        assert_eq!(seat_in(&on(), Some(&t), &b, &trailer_pr, NOW).session, None);
     }
 
     #[test]

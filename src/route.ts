@@ -6,8 +6,8 @@
 import { agoPhrase } from './format';
 import { homeOf, sessionWhy } from './lanes';
 import { mainCheckoutOf, newWorkIn } from './reusable';
-import { startDoes, startTitleWords, startWhereWords } from './start';
-import type { Board, Lane, Route, RoutePick, Session, StartPlace } from './types';
+import { autoPick, pickFromGroup, startDoes, startTitleWords, startWhereWords } from './start';
+import type { Board, Lane, Route, RoutePick, RoutingGroup, Session, StartAccount, StartPlace, Usage } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
 export type Sureness = 'sure' | 'likely' | 'unsure';
@@ -15,8 +15,30 @@ export type Sureness = 'sure' | 'likely' | 'unsure';
 export type Suggestion =
   | { kind: 'send'; key: string; lane: Lane; session: Session; p: number }
   | { kind: 'open'; key: string; lane: Lane; session: Session; p: number }
-  | { kind: 'start'; key: string; lane: Lane; newWorktree: boolean; p: number }
+  | { kind: 'start'; key: string; lane: Lane; newWorktree: boolean; p: number; agent?: string }
   | { kind: 'todo'; key: string; lane: Lane; p: number };
+
+/** Resolves a Jev `route.agents` id (a routing group name or `<harness>[:<model>]`) to an account and model. */
+export function resolveSuggestedAgent(
+  agentId: string | undefined,
+  accounts: StartAccount[],
+  groups: RoutingGroup[],
+  usage: Usage[],
+  now: number,
+): { account: string; model: string | null } | null {
+  if (!agentId) return null;
+  const g = groups.find((x) => x.name === agentId);
+  if (g) {
+    const gp = pickFromGroup(g, accounts, usage, now);
+    return gp ? { account: gp.account, model: gp.model ?? null } : null;
+  }
+  const at = agentId.indexOf(':');
+  const harness = at < 0 ? agentId : agentId.slice(0, at);
+  const model = at < 0 ? null : agentId.slice(at + 1) || null;
+  const matching = accounts.filter((a) => a.harness === harness && a.places.length > 0);
+  const picked = autoPick(matching, usage, now, model);
+  return picked ? { account: picked.account, model: model ?? picked.model ?? null } : null;
+}
 
 /** Rows at most. */
 const ROWS = 3;
@@ -72,6 +94,7 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
     const open = find || (found.session.status === 'needs' && !found.session.asks && found.session.background == null);
     return { kind: open ? 'open' : 'send', key: `${open ? 'open' : 'send'}:${found.session.key}`, ...found, p };
   };
+  const agentPick = route.agents?.[0]?.id;
   /** Starting new work from Jev's worktree pick, `actionP` as likely as the action. In the very
    *  worktree Jev picked, it's as likely as that worktree; one chosen for it in the repo, or a new
    *  worktree, as likely as the repo. */
@@ -85,7 +108,7 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
     const lane = newWorktree ? (mainCheckoutOf(picked, board.lanes) ?? picked) : (reusable ?? picked);
     const repoP = route.repos.find((r) => r.id === `${picked.project}/${picked.repo}`)?.p;
     const p = actionP * (!newWorktree && lane.id === picked.id ? pick.p : (repoP ?? pick.p));
-    return { kind: 'start', key: newWorktree ? `start:new:${lane.project}/${lane.repo}` : `start:${lane.id}`, lane, newWorktree, p };
+    return { kind: 'start', key: newWorktree ? `start:new:${lane.project}/${lane.repo}` : `start:${lane.id}`, lane, newWorktree, p, ...(agentPick ? { agent: agentPick } : {}) };
   };
   const [s1, s2] = route.sessions;
   const [l1, l2] = route.lanes;
@@ -94,7 +117,7 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
   // of its own, in no project, when Jev thinks so more than it thinks of any one worktree.
   const noRepo = route.noRepo ?? 0;
   const chats = board.lanes.find((l) => l.startsChats && !l.device);
-  const startChat = (actionP: number): Suggestion | null => (chats && noRepo > 0 ? { kind: 'start', key: 'start:chat', lane: chats, newWorktree: false, p: actionP * noRepo } : null);
+  const startChat = (actionP: number): Suggestion | null => (chats && noRepo > 0 ? { kind: 'start', key: 'start:chat', lane: chats, newWorktree: false, p: actionP * noRepo, ...(agentPick ? { agent: agentPick } : {}) } : null);
   const inChat = !!chats && noRepo > sessionP(l1);
   const startNew = (actionP: number) => (inChat ? startChat(actionP) : startIn(l1, actionP));
 

@@ -508,6 +508,7 @@ mod tests {
             lanes: vec!["/work".into()],
             sessions: sessions.iter().map(|k| PrSession { key: (*k).into(), lane: "/work".into(), pushes: 0 }).collect(),
             head_oid: None,
+            authored_by: None,
             auto_review: None,
         }
     }

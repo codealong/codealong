@@ -788,6 +788,7 @@ nudge_about = "feedback-and-checks"
             lanes: Vec::new(),
             sessions: Vec::new(),
             head_oid: Some("1111111".into()),
+            authored_by: None,
             auto_review: None,
         }
     }

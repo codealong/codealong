@@ -7,8 +7,8 @@
 
 import type { Lane, NudgeAbout, OwnReviewsCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, TeamCfg, TeamFile } from './types';
 
-export const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', prompt: '', send: true, drafts: false };
-export const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', start: 'no-terminal', post: 'draft', submit: 'never', own: OWN_REVIEWS_OFF };
+export const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', prompt: '', send: true, drafts: false, other_harness: true };
+export const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', start: 'no-terminal', post: 'draft', submit: 'never', other_harness: true, own: OWN_REVIEWS_OFF };
 export const PULL_REQUESTS_OFF: Required<PullRequestsCfg> = { nudge_by_default: false, nudge_about: 'everything' };
 
 /** `[reviews]` with every value filled in, its own table too. */
@@ -46,6 +46,7 @@ export function reviewsFor(global: ReviewsCfg | undefined, mine: RepoCfg | undef
     start: g.start,
     post: m.post ?? g.post,
     submit: m.submit ?? g.submit,
+    other_harness: m.other_harness ?? g.other_harness,
     own: {
       auto: o.auto ?? g.own.auto,
       account: given(o.account) ? o.account.trim() : g.own.account,
@@ -53,6 +54,7 @@ export function reviewsFor(global: ReviewsCfg | undefined, mine: RepoCfg | undef
       prompt: given(o.prompt) ? o.prompt.trim() : g.own.prompt,
       send: o.send ?? g.own.send,
       drafts: o.drafts ?? g.own.drafts,
+      other_harness: o.other_harness ?? g.own.other_harness,
     },
   };
 }
@@ -83,7 +85,7 @@ export function nudgeAboutFor(board: { nudgeAbout?: NudgeAbout; repos?: Record<s
 }
 
 /** A setting Settings shows for a repo, by where it is in `[reviews]` and `[pull_requests]`. */
-export type Field = 'reviews.auto' | 'reviews.reviewer' | 'reviews.prompt' | 'reviews.post' | 'reviews.submit' | 'own.auto' | 'own.reviewer' | 'own.prompt' | 'own.send' | 'own.drafts' | 'prs.nudge_by_default' | 'prs.nudge_about';
+export type Field = 'reviews.auto' | 'reviews.reviewer' | 'reviews.other_harness' | 'reviews.prompt' | 'reviews.post' | 'reviews.submit' | 'own.auto' | 'own.reviewer' | 'own.other_harness' | 'own.prompt' | 'own.send' | 'own.drafts' | 'prs.nudge_by_default' | 'prs.nudge_about';
 
 /** Where a value for a repo comes from: your table for it, its team's file, or `[reviews]` and
  *  `[pull_requests]` as they go everywhere. */
@@ -97,11 +99,13 @@ export function sourceOf(field: Field, mine: RepoCfg | undefined, team: TeamCfg 
   const set: Record<Field, unknown[]> = {
     'reviews.auto': [r.auto],
     'reviews.reviewer': [r.account, r.model],
+    'reviews.other_harness': [r.other_harness],
     'reviews.prompt': [r.prompt],
     'reviews.post': [r.post],
     'reviews.submit': [r.submit],
     'own.auto': [o.auto],
     'own.reviewer': [o.account, o.model],
+    'own.other_harness': [o.other_harness],
     'own.prompt': [o.prompt],
     'own.send': [o.send],
     'own.drafts': [o.drafts],

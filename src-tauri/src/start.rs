@@ -29,7 +29,7 @@ pub const FILES_VAR: &str = "CODEALONG_FILES";
 
 /// What a start asks for and gets back goes between devices too (a phone starts sessions on your
 /// Macs), so those types are in codealong-peer.
-pub use codealong_peer::api::{ModelOption, Place, PlaceOption, ResumeIn, StartAccount, StartOptions, StartSpec, Started};
+pub use codealong_peer::api::{GroupMember, ModelOption, Place, PlaceOption, ResumeIn, RoutingGroup, StartAccount, StartOptions, StartSpec, Started};
 
 /// What a start does. `--snapshot --start-plan` prints it.
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -178,7 +178,8 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                 chosen,
                 unavailable,
                 default_model: if tuned { default_model(a) } else { None },
-                preferred: a.preferred,
+                preferred: false,
+                usage_cap: a.usage_cap,
                 models: if tuned { adapter.models(a) } else { Vec::new() },
                 efforts: if tuned { listed(adapter.efforts()) } else { Vec::new() },
                 worktree: adapter.makes_worktrees(),
@@ -191,7 +192,7 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
     // Devices that read the lists from here, before each account had its own, start Claude Code.
     let claude = crate::harness::adapter(Harness::Claude);
     let claude_models = accounts_in.iter().find(|a| harness_of(a) == Harness::Claude).map(|a| claude.models(a)).unwrap_or_default();
-    StartOptions { accounts, codex_projects, claude_models, claude_efforts: listed(claude.efforts()) }
+    StartOptions { accounts, codex_projects, claude_models, claude_efforts: listed(claude.efforts()), groups: Vec::new(), auto_group: String::new() }
 }
 
 fn listed(list: &[(&str, &str)]) -> Vec<ModelOption> {
@@ -218,30 +219,36 @@ pub struct AutoPick {
     pub resets_at: Option<i64>,
 }
 
-/// An account Auto could start: whether it's preferred (see `preferred_names`) and the model
-/// it would start on, None when that could be any.
+/// An account Auto could start: whether it's preferred (see `preferred_names`), the model it
+/// would start on (None when that could be any), and its usage cap (`AccountCfg::usage_cap`).
 pub struct Candidate<'a> {
     pub name: &'a str,
     pub preferred: bool,
     pub model: Option<&'a str>,
+    pub usage_cap: Option<u8>,
 }
 
 /// An account this close to any limit could stall a new session.
 const NEAR_LIMIT: f64 = 90.0;
 
-/// The room below `NEAR_LIMIT` that Auto leaves on the account whose week resets soonest rather
-/// than spend it first: the sessions already running there go on using it, and with every start
-/// sent their way too they'd run into the limit mid-turn (asked 2026-10-12).
+/// The room below an account's cap that Auto leaves on the account whose week resets soonest
+/// rather than spend it first: the sessions already running there go on using it, and with every
+/// start sent their way too they'd run into the limit mid-turn (asked 2026-10-12).
 const KEPT_FOR_RUNNING: f64 = 5.0;
 
-/// A limit with no room to start or move a session onto.
-fn near(m: &Meter) -> bool {
-    m.severity == Severity::Critical || m.percent >= NEAR_LIMIT
+fn cap_pct(cap: Option<u8>) -> f64 {
+    cap.map(f64::from).unwrap_or(NEAR_LIMIT)
 }
 
-/// Whether an account's meters say it's near a limit a session on `model` spends.
-pub fn near_limit(u: &Usage, model: Option<&str>) -> bool {
-    u.meters.iter().any(|m| spends(model, m.model.as_deref(), &u.meters) && near(m))
+/// A limit with no room to start or move a session onto.
+fn near(m: &Meter, cap: Option<u8>) -> bool {
+    m.severity == Severity::Critical || m.percent >= cap_pct(cap)
+}
+
+/// Whether an account's meters say it's near a limit a session on `model` spends, against `cap`
+/// (`NEAR_LIMIT` when None).
+pub fn near_limit(u: &Usage, model: Option<&str>, cap: Option<u8>) -> bool {
+    u.meters.iter().any(|m| spends(model, m.model.as_deref(), &u.meters) && near(m, cap))
 }
 
 /// How long a refusal at a limit counts as word that its account is out: a month covers a
@@ -281,21 +288,17 @@ pub fn limit_moves(sessions: &mut [Session], accounts: &[AccountCfg], usages: &[
         let candidates: Vec<Candidate> = accounts
             .iter()
             .filter(|a| a.name != s.account && !a.disabled && Harness::from_config(&a.harness) == s.harness && !refused.contains(&a.name))
-            .filter(|a| !usages.iter().any(|u| u.account == a.name && near_limit(u, model)))
-            .map(|a| Candidate { name: &a.name, preferred: a.preferred, model })
+            .filter(|a| !usages.iter().any(|u| u.account == a.name && near_limit(u, model, a.usage_cap)))
+            .map(|a| Candidate { name: &a.name, preferred: true, model, usage_cap: a.usage_cap })
             .collect();
         limit.move_to = auto_pick(&candidates, usages, now).map(|p| p.account);
     }
 }
 
 /// The accounts Auto prefers among those that can start sessions (`startable`, in config
-/// order): the ones config.toml marks `preferred`, else those of the first account's harness,
-/// so that without a star Auto keeps to one agent until its accounts are out of room.
-/// `src/start.ts`'s `preferredNames` has the same rule.
+/// order): those of the first account's harness, so Auto keeps to one agent until its accounts
+/// are out of room. `src/start.ts`'s `preferredNames` has the same rule.
 pub fn preferred_names<'a>(startable: &[&'a AccountCfg]) -> Vec<&'a str> {
-    if startable.iter().any(|a| a.preferred) {
-        return startable.iter().filter(|a| a.preferred).map(|a| a.name.as_str()).collect();
-    }
     let first = startable.first().map(|a| a.harness.as_str());
     startable.iter().filter(|a| Some(a.harness.as_str()) == first).map(|a| a.name.as_str()).collect()
 }
@@ -324,17 +327,19 @@ pub fn spends(model: Option<&str>, limit_model: Option<&str>, meters: &[Meter]) 
 }
 
 /// The account Auto starts, from `candidates` in config order. Only the limits each one's model
-/// spends count, and an account at 90% of one of them has no room. Preferred accounts with room
-/// go first, then a preferred one without numbers yet, then the others the same way, and only
-/// when all are near a limit the least full of them. Among accounts with room, the one whose
-/// weekly limit resets soonest wins, so no week's room goes unused, while its fullest limit is
-/// under 85% (`KEPT_FOR_RUNNING`); without such a reset, the one whose fullest limit is least
-/// full. Signed-out accounts are passed over. `src/start.ts`'s `autoPick` has the same rule.
+/// spends count, and an account at its usage cap (`usage_cap`, default 90%) of one of them has no
+/// room. Preferred accounts with room go first, then a preferred one without numbers yet, then the
+/// others the same way, and only when all are near a limit the least full of them. Among accounts
+/// with room, the one whose weekly limit resets soonest wins, so no week's room goes unused, while
+/// its fullest limit is under `cap - KEPT_FOR_RUNNING`; without such a reset, the one whose
+/// fullest limit is least full. Signed-out accounts are passed over. `src/start.ts`'s `autoPick`
+/// has the same rule.
 pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option<AutoPick> {
     struct Measured<'a> {
         name: &'a str,
         preferred: bool,
         full: f64,
+        cap: f64,
         near: bool,
         reset: Option<i64>,
     }
@@ -354,13 +359,14 @@ pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option
             name: c.name,
             preferred: c.preferred,
             full: meters.iter().map(|m| m.percent).fold(0.0, f64::max),
-            near: meters.iter().any(|m| near(m)),
+            cap: cap_pct(c.usage_cap),
+            near: meters.iter().any(|m| near(m, c.usage_cap)),
             reset: meters.iter().filter(|m| m.key == "week" || m.key.starts_with("model:")).filter_map(|m| m.resets_at).filter(|&at| at > now).min(),
         });
     }
     let least_full = |pool: &[&Measured]| pool.iter().min_by(|a, b| a.full.total_cmp(&b.full)).map(|m| AutoPick { account: m.name.to_string(), reason: AutoReason::Room, resets_at: None });
     let best = |pool: Vec<&Measured>| {
-        let soonest = pool.iter().filter(|m| m.reset.is_some() && m.full < NEAR_LIMIT - KEPT_FOR_RUNNING).min_by(|a, b| a.reset.cmp(&b.reset).then(a.full.total_cmp(&b.full)));
+        let soonest = pool.iter().filter(|m| m.reset.is_some() && m.full < (m.cap - KEPT_FOR_RUNNING).max(0.0)).min_by(|a, b| a.reset.cmp(&b.reset).then(a.full.total_cmp(&b.full)));
         match soonest {
             Some(m) => Some(AutoPick { account: m.name.to_string(), reason: AutoReason::Reset, resets_at: m.reset }),
             None => least_full(&pool),
@@ -380,11 +386,202 @@ pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option
     least_full(&all).or_else(|| candidates.iter().find(|c| c.preferred).or(candidates.first()).map(first))
 }
 
-/// Auto's account, by the quick panel's rule (`auto_pick`): among the accounts that can start a
-/// session (in one of `places`, when any are given; on `model`, when given, for the accounts whose
-/// command line takes it), preferred ones with room first, and among those the one whose week
-/// resets soonest. `codealong start`'s Auto, and the account automatic reviews run on unless
-/// config.toml names one (autoreview.rs).
+/// An account and optional model chosen from a routing group.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupPick {
+    pub account: String,
+    pub model: Option<String>,
+}
+
+/// The sessions on this Mac's `lanes`, flattened.
+pub fn all_sessions(lanes: &[Lane]) -> Vec<Session> {
+    lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| l.sessions.iter().cloned()).collect()
+}
+
+/// The accounts and harnesses of sessions on `lanes`, with when each started: review sessions
+/// (`Helper::pr`) when `reviews_only` is true, else your own sessions (`helper` none).
+pub fn recent_sessions(lanes: &[Lane], reviews_only: bool) -> Vec<(String, Harness, i64)> {
+    lanes
+        .iter()
+        .filter(|l| l.device.is_none())
+        .flat_map(|l| &l.sessions)
+        .filter(|s| s.visitor.is_none() && if reviews_only { s.helper.as_ref().is_some_and(|h| h.pr.is_some()) } else { s.helper.is_none() })
+        .map(|s| (s.account.clone(), s.harness, s.started_at.unwrap_or(s.last_activity)))
+        .collect()
+}
+
+/// Picks an account and model from `group` according to its strategy (`usage`,
+/// `alternate-harness`, or `round-robin`), passing over accounts that are turned off, refused at a
+/// limit (`refused_accounts`), or at their `usage_cap`, and keeping off `avoid` whenever another
+/// harness in the group can take the start.
+#[allow(clippy::too_many_arguments)]
+pub fn pick_from_group(
+    group: &config::RoutingGroupCfg,
+    cfg: &Config,
+    usages: &[Usage],
+    sessions: &[Session],
+    recent: &[(String, Harness, i64)],
+    places: &[Place],
+    model: Option<&str>,
+    avoid: Option<Harness>,
+    now: i64,
+    keep: impl Fn(&AccountCfg) -> bool,
+) -> Option<GroupPick> {
+    pick_from_group_in(group, cfg, usages, sessions, recent, places, model, avoid, now, &home(), keep)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn pick_from_group_in(
+    group: &config::RoutingGroupCfg,
+    cfg: &Config,
+    usages: &[Usage],
+    sessions: &[Session],
+    recent: &[(String, Harness, i64)],
+    places: &[Place],
+    model: Option<&str>,
+    avoid: Option<Harness>,
+    now: i64,
+    home: &Path,
+    keep: impl Fn(&AccountCfg) -> bool,
+) -> Option<GroupPick> {
+    struct Member<'a> {
+        account: &'a AccountCfg,
+        harness: Harness,
+        preferred: bool,
+        explicit_model: Option<String>,
+        check_model: Option<String>,
+        roomy: bool,
+        usable: bool,
+    }
+    let refused = refused_accounts(sessions, now);
+    let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg
+        .accounts
+        .iter()
+        .filter(|a| !a.disabled && keep(a))
+        .filter_map(|a| ordered_places(a, home).ok().filter(|p| !p.is_empty()).map(|p| (a, p)))
+        .collect();
+    let preferred = preferred_names(&startable.iter().map(|(a, _)| *a).collect::<Vec<_>>());
+    let raw: Vec<(&AccountCfg, &[Place], Option<&str>, bool)> = if group.members.is_empty() {
+        startable.iter().map(|(a, ps)| (*a, ps.as_slice(), None, preferred.contains(&a.name.as_str()))).collect()
+    } else {
+        group
+            .members
+            .iter()
+            .filter_map(|m| {
+                let (a, ps) = startable.iter().find(|(a, _)| a.name == m.account)?;
+                let member_model = Some(m.model.trim()).filter(|s| !s.is_empty());
+                Some((*a, ps.as_slice(), member_model, true))
+            })
+            .collect()
+    };
+    let asked_model = model.map(str::trim).filter(|s| !s.is_empty());
+    let members: Vec<Member> = raw
+        .into_iter()
+        .filter(|(a, offered, _, _)| {
+            (places.is_empty() || places.iter().any(|p| offered.contains(p)))
+                && asked_model.is_none_or(|m| crate::harness::of(a).is_some_and(|h| h.offers_model(a, m)))
+        })
+        .map(|(a, _, member_model, pref)| {
+            let explicit_model = asked_model.or(member_model).map(str::to_string);
+            let check_model = explicit_model.clone().or_else(|| crate::harness::of(a).and_then(|h| h.default_model(a)));
+            let u = usages.iter().find(|u| u.account == a.name);
+            let usable = !u.is_some_and(|u| u.needs_sign_in) && !refused.contains(&a.name);
+            let roomy = usable && !u.is_some_and(|u| near_limit(u, check_model.as_deref(), a.usage_cap));
+            Member {
+                account: a,
+                harness: harness_of(a),
+                preferred: pref,
+                explicit_model,
+                check_model,
+                roomy,
+                usable,
+            }
+        })
+        .collect();
+    if members.is_empty() {
+        return None;
+    }
+    let roomy: Vec<&Member> = members.iter().filter(|m| m.roomy).collect();
+    let mut pool = if !roomy.is_empty() {
+        roomy
+    } else {
+        let usable: Vec<&Member> = members.iter().filter(|m| m.usable).collect();
+        if !usable.is_empty() { usable } else { members.iter().collect() }
+    };
+    if let Some(h) = avoid {
+        if pool.iter().any(|m| m.harness != h) {
+            pool.retain(|m| m.harness != h);
+        }
+    }
+    let by_usage = |slice: &[&Member]| -> Option<GroupPick> {
+        let cs: Vec<Candidate> = slice
+            .iter()
+            .map(|m| Candidate { name: &m.account.name, preferred: m.preferred, model: m.check_model.as_deref(), usage_cap: m.account.usage_cap })
+            .collect();
+        let picked = auto_pick(&cs, usages, now)?;
+        let m = slice.iter().find(|m| m.account.name == picked.account)?;
+        Some(GroupPick { account: m.account.name.clone(), model: m.explicit_model.clone() })
+    };
+    match group.strategy {
+        config::RoutingStrategy::Usage => by_usage(&pool),
+        config::RoutingStrategy::AlternateHarness => {
+            let mut harnesses: Vec<Harness> = Vec::new();
+            for m in &pool {
+                if !harnesses.contains(&m.harness) {
+                    harnesses.push(m.harness);
+                }
+            }
+            let last_harness = |h: Harness| recent.iter().filter(|(_, rh, _)| *rh == h).map(|(_, _, at)| *at).max().unwrap_or(0);
+            let chosen = *harnesses.iter().min_by_key(|&&h| last_harness(h))?;
+            let in_harness: Vec<&Member> = pool.into_iter().filter(|m| m.harness == chosen).collect();
+            by_usage(&in_harness)
+        }
+        config::RoutingStrategy::RoundRobin => {
+            let last_account = |name: &str| recent.iter().filter(|(ra, _, _)| ra == name).map(|(_, _, at)| *at).max().unwrap_or(0);
+            let m = pool.iter().min_by_key(|m| last_account(&m.account.name))?;
+            Some(GroupPick { account: m.account.name.clone(), model: m.explicit_model.clone() })
+        }
+    }
+}
+
+/// Resolves `"auto"` (or empty) or a routing group's name in `cfg.routing.groups` to the account
+/// and model it picks; None when `name` is a single account rather than Auto or a group.
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_group(
+    cfg: &Config,
+    board: Option<&Board>,
+    name: &str,
+    places: &[Place],
+    model: Option<&str>,
+    avoid: Option<Harness>,
+    reviews_only: bool,
+    now: i64,
+    keep: impl Fn(&AccountCfg) -> bool,
+) -> Option<std::result::Result<GroupPick, String>> {
+    let trimmed = name.trim();
+    let default_group;
+    let group = if trimmed.is_empty() || trimmed == "auto" {
+        let auto_name = cfg.routing.auto.trim();
+        if !auto_name.is_empty() {
+            cfg.routing.groups.iter().find(|g| g.name == auto_name)?
+        } else {
+            default_group = config::RoutingGroupCfg { name: "auto".into(), strategy: config::RoutingStrategy::Usage, members: Vec::new() };
+            &default_group
+        }
+    } else {
+        cfg.routing.groups.iter().find(|g| g.name == trimmed)?
+    };
+    let usages = board.map(|b| b.usage.as_slice()).unwrap_or(&[]);
+    let sessions = board.map(|b| all_sessions(&b.lanes)).unwrap_or_default();
+    let recent = board.map(|b| recent_sessions(&b.lanes, reviews_only)).unwrap_or_default();
+    Some(pick_from_group(group, cfg, usages, &sessions, &recent, places, model, avoid, now, keep).ok_or_else(|| format!("no account in {} can start a session there", group.name)))
+}
+
+/// Auto's account, by the quick panel's rule (`auto_pick` or `[routing] auto`): among the accounts
+/// that can start a session (in one of `places`, when any are given; on `model`, when given, for
+/// the accounts whose command line takes it), those of the first account's harness with room first,
+/// and among those the one whose week resets soonest.
+#[cfg(test)]
 pub fn pick_account(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64) -> Option<String> {
     pick_account_where(cfg, usages, places, model, now, |_| true)
 }
@@ -392,17 +589,12 @@ pub fn pick_account(cfg: &Config, usages: &[Usage], places: &[Place], model: Opt
 /// `pick_account` among the accounts `keep` takes: the reviewer of a PR of yours, among those of
 /// another harness than the session that opened it (autoreview.rs).
 pub fn pick_account_where(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64, keep: impl Fn(&AccountCfg) -> bool) -> Option<String> {
-    let home = home();
-    let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg.accounts.iter().filter(|a| !a.disabled && keep(a)).filter_map(|a| ordered_places(a, &home).ok().filter(|p| !p.is_empty()).map(|p| (a, p))).collect();
-    let preferred = preferred_names(&startable.iter().map(|(a, _)| *a).collect::<Vec<_>>());
-    let models: Vec<Option<String>> = startable.iter().map(|(a, _)| model.map(str::to_string).or_else(|| crate::harness::of(a).and_then(|h| h.default_model(a)))).collect();
-    let candidates: Vec<Candidate> = startable
-        .iter()
-        .zip(&models)
-        .filter(|((a, offered), _)| (places.is_empty() || places.iter().any(|p| offered.contains(p))) && model.is_none_or(|m| crate::harness::of(a).is_some_and(|h| h.offers_model(a, m))))
-        .map(|((a, _), m)| Candidate { name: &a.name, preferred: preferred.contains(&a.name.as_str()), model: m.as_deref() })
-        .collect();
-    auto_pick(&candidates, usages, now).map(|p| p.account)
+    let default_group = config::RoutingGroupCfg { name: "auto".into(), strategy: config::RoutingStrategy::Usage, members: Vec::new() };
+    let group = Some(cfg.routing.auto.trim())
+        .filter(|s| !s.is_empty())
+        .and_then(|n| cfg.routing.groups.iter().find(|g| g.name == n))
+        .unwrap_or(&default_group);
+    pick_from_group(group, cfg, usages, &[], &[], places, model, None, now, keep).map(|p| p.account)
 }
 
 /// A model name safe to type into the shell inside single quotes: letters, digits and `-._:[]`.
@@ -428,7 +620,23 @@ pub fn effort_levels() -> Vec<&'static str> {
 pub fn options_for(cfg: &Config) -> StartOptions {
     let on: Vec<AccountCfg> = cfg.accounts.iter().filter(|a| !a.disabled).cloned().collect();
     let projects = on.iter().flat_map(|a| crate::harness::of(a).map(|h| h.app_projects(a)).unwrap_or_default()).collect();
-    options(&on, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)))
+    let mut out = options(&on, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)));
+    out.auto_group = cfg.routing.auto.trim().to_string();
+    out.groups = cfg
+        .routing
+        .groups
+        .iter()
+        .map(|g| RoutingGroup {
+            name: g.name.clone(),
+            strategy: g.strategy.word().to_string(),
+            members: g
+                .members
+                .iter()
+                .map(|m| GroupMember { account: m.account.clone(), model: m.model.trim().to_string() })
+                .collect(),
+        })
+        .collect();
+    out
 }
 
 /// The sheet's options for the accounts config.toml has now: what a window's new-session sheet
@@ -1058,7 +1266,7 @@ mod tests {
     }
 
     fn account(name: &str, harness: &str, home: &str, command: Option<&str>) -> AccountCfg {
-        AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }
+        AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: command.map(String::from), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
     }
 
     fn meter(key: &str, percent: f64, resets_at: Option<i64>) -> Meter {
@@ -1172,7 +1380,7 @@ mod tests {
     }
 
     fn cand(name: &str, preferred: bool) -> Candidate<'_> {
-        Candidate { name, preferred, model: None }
+        Candidate { name, preferred, model: None, usage_cap: None }
     }
 
     fn pick(cs: &[Candidate], us: &[Usage]) -> (String, AutoReason) {
@@ -1193,6 +1401,9 @@ mod tests {
         assert_eq!(pick(&cs, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", 95.0, 70.0, Some(6))]).0, "claude");
         // All near: the least full.
         assert_eq!(pick(&cs, &[usage("claude", 92.0, 20.0, Some(100)), usage("claude2", 95.0, 70.0, Some(6))]), ("claude".into(), AutoReason::Room));
+        // An account's own usage_cap passes it over before 90%.
+        let capped = [cand("claude", true), Candidate { usage_cap: Some(70), ..cand("claude2", true) }];
+        assert_eq!(pick(&capped, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", 30.0, 70.0, Some(6))]).0, "claude");
     }
 
     #[test]
@@ -1248,7 +1459,8 @@ mod tests {
         assert!(spends(Some("gpt-5.5-codex"), Some("GPT-5.3-Codex-Spark"), &codex));
         assert!(spends(Some("gpt-5.3-codex-spark"), Some("GPT-5.3-Codex-Spark"), &codex));
         let ag = Usage { meters: groups.to_vec(), ..usage("antigravity", 0.0, 0.0, None) };
-        assert!(near_limit(&ag, Some("gemini-3.8-flash-low")) && !near_limit(&ag, Some("claude-opus-4-6")));
+        assert!(near_limit(&ag, Some("gemini-3.8-flash-low"), None) && !near_limit(&ag, Some("claude-opus-4-6"), None));
+        assert!(near_limit(&ag, Some("claude-opus-4-6"), Some(10)));
         let mut u = usage("claude", 10.0, 20.0, Some(20));
         u.meters.push(Meter { model: Some("Fable".into()), ..meter("model:Fable", 100.0, Some(NOW + 20 * HOUR)) });
         let us = [u, usage("claude2", 20.0, 50.0, None)];
@@ -1258,13 +1470,62 @@ mod tests {
     }
 
     #[test]
-    fn prefers_starred_accounts_else_the_first_ones_agent() {
-        let a = |name: &str, harness: &str, preferred: bool| AccountCfg { preferred, ..account(name, harness, &format!("~/.{name}"), None) };
-        let (claude, claude2, codex) = (a("claude", "claude", false), a("claude2", "claude", false), a("codex", "codex", false));
+    fn routing_groups_alternate_harnesses_round_robin_and_respect_usage_caps() {
+        use config::{GroupMemberCfg, RoutingGroupCfg, RoutingStrategy};
+        let home = Path::new("/Users/me");
+        let cfg = Config {
+            accounts: vec![
+                AccountCfg { usage_cap: Some(80), ..account("claude", "claude", "/Users/me/.claude", Some("claude")) },
+                account("claude2", "claude", "/Users/me/.claude2", Some("claude2")),
+                account("codex", "codex", "/Users/me/.codex", Some("codex")),
+            ],
+            ..Config::default()
+        };
+        let members = vec![
+            GroupMemberCfg { account: "claude".into(), model: "opus".into() },
+            GroupMemberCfg { account: "claude2".into(), model: "sonnet".into() },
+            GroupMemberCfg { account: "codex".into(), model: String::new() },
+        ];
+        let alt = RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::AlternateHarness, members: members.clone() };
+        let usages = [usage("claude", 20.0, 30.0, Some(40)), usage("claude2", 10.0, 20.0, Some(80)), usage("codex", 15.0, 25.0, Some(20))];
+        // First pick takes the first harness (Claude) and the account in it whose week resets soonest (claude).
+        assert_eq!(
+            pick_from_group_in(&alt, &cfg, &usages, &[], &[], &[], None, None, NOW, home, |_| true),
+            Some(GroupPick { account: "claude".into(), model: Some("opus".into()) })
+        );
+        // After a Claude review, it switches to Codex.
+        let recent = vec![("claude".to_string(), Harness::Claude, NOW - 10)];
+        assert_eq!(
+            pick_from_group_in(&alt, &cfg, &usages, &[], &recent, &[], None, None, NOW, home, |_| true),
+            Some(GroupPick { account: "codex".into(), model: None })
+        );
+        // After Codex ran more recently than Claude, it switches back to Claude, passing over claude when it hits its 80% usage_cap.
+        let recent2 = vec![("claude".to_string(), Harness::Claude, NOW - 20), ("codex".to_string(), Harness::Codex, NOW - 5)];
+        let capped = [usage("claude", 20.0, 82.0, Some(40)), usage("claude2", 10.0, 20.0, Some(80)), usage("codex", 15.0, 25.0, Some(20))];
+        assert_eq!(
+            pick_from_group_in(&alt, &cfg, &capped, &[], &recent2, &[], None, None, NOW, home, |_| true),
+            Some(GroupPick { account: "claude2".into(), model: Some("sonnet".into()) })
+        );
+        // Avoiding Claude (for a PR Claude wrote) picks Codex even when Claude was used less recently.
+        assert_eq!(
+            pick_from_group_in(&alt, &cfg, &usages, &[], &recent2, &[], None, Some(Harness::Claude), NOW, home, |_| true),
+            Some(GroupPick { account: "codex".into(), model: None })
+        );
+        // Round-robin rotates across every roomy member in order.
+        let rr = RoutingGroupCfg { name: "rr".into(), strategy: RoutingStrategy::RoundRobin, members };
+        let recent_rr = vec![("claude".to_string(), Harness::Claude, NOW - 30), ("claude2".to_string(), Harness::Claude, NOW - 10)];
+        assert_eq!(
+            pick_from_group_in(&rr, &cfg, &usages, &[], &recent_rr, &[], None, None, NOW, home, |_| true),
+            Some(GroupPick { account: "codex".into(), model: None })
+        );
+    }
+
+    #[test]
+    fn prefers_the_first_accounts_agent() {
+        let a = |name: &str, harness: &str| account(name, harness, &format!("~/.{name}"), None);
+        let (claude, claude2, codex) = (a("claude", "claude"), a("claude2", "claude"), a("codex", "codex"));
         assert_eq!(preferred_names(&[&codex, &claude, &claude2]), vec!["codex"]);
         assert_eq!(preferred_names(&[&claude, &codex, &claude2]), vec!["claude", "claude2"]);
-        let starred = a("codex", "codex", true);
-        assert_eq!(preferred_names(&[&claude, &starred, &claude2]), vec!["codex"]);
     }
 
     #[test]

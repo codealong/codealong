@@ -23,17 +23,18 @@ export function useStartPicks() {
 export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options: StartOptions | null, usage: Usage[], now: number) {
   const { agent, setAgent, effort, setEffort, place, setPlace, newWorktree } = picks;
 
-  // Stars come with the board, which is current; where accounts can start is read less often.
-  const accounts = useMemo(() => (options ? withLists(options) : []).map((a) => ({ ...a, preferred: usage.find((u) => u.account === a.name)?.preferred ?? a.preferred })), [options, usage]);
+  const accounts = useMemo(() => (options ? withLists(options) : []), [options]);
+  const groups = useMemo(() => options?.groups ?? [], [options]);
+  const autoGroup = useMemo(() => (options?.autoGroup ? groups.find((g) => g.name === options.autoGroup) ?? null : null), [options, groups]);
   // Every account's models, for saying one by its name; each account lists its own.
   const models = useMemo(() => accounts.flatMap((a) => a.models ?? []).filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i), [accounts]);
   // The effort levels the agent menu offers: those of the accounts that take one.
   const efforts = useMemo(() => accounts.find((a) => (a.efforts?.length ?? 0) > 0)?.efforts ?? [], [accounts]);
   // Auto follows usage while the panel is up, and resolves when you start.
-  const pick = useMemo(() => autoPick(accounts, usage, now), [accounts, usage, now]);
-  const agents = useMemo(() => agentOptions(accounts, models, pick), [accounts, models, pick]);
-  const first = useMemo(() => initialChoice(accounts, pick, undefined), [accounts, pick]);
-  const chosen = startChoice(accounts, models, efforts, usage, pick, agents, first, { agent, effort, place, newWorktree }, (c) => remembered().places?.[c]);
+  const pick = useMemo(() => autoPick(accounts, usage, now, null, autoGroup), [accounts, usage, now, autoGroup]);
+  const agents = useMemo(() => agentOptions(accounts, models, pick, groups, usage, now), [accounts, models, pick, groups, usage, now]);
+  const first = useMemo(() => initialChoice(accounts, pick, undefined, groups, usage, now), [accounts, pick, groups, usage, now]);
+  const chosen = startChoice(accounts, models, efforts, usage, pick, agents, first, { agent, effort, place, newWorktree }, (c) => remembered().places?.[c], groups, now);
   const { choice, chosenModel } = chosen;
 
   /** Picks a line of the agent menu. A model is asked for on the command line or of Codealong's
@@ -42,7 +43,7 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
   const pickAgent = (id: string) => {
     const { choice: c, model } = parseAgent(id);
     setAgent(id);
-    const settled = c ? (settledPlace(c, accounts, pick) ?? remembered().places?.[c] ?? null) : null;
+    const settled = c ? (settledPlace(c, accounts, pick, groups, usage, now) ?? remembered().places?.[c] ?? null) : null;
     setPlace((p) => (model && p && placeTakesModel(p) ? p : settled));
   };
 
@@ -50,7 +51,7 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
    *  on its default. */
   const pickPlace = (p: StartPlace) => {
     setPlace(p);
-    if (!placeTakesModel(p) && choice && chosenModel) setAgent(agentId(choice, null));
+    if (!placeTakesModel(p) && choice && chosenModel) setAgent(agentId(choice, null, groups));
   };
 
   // The effort under the agent menu's models: a setting for whichever is chosen, so it stays
@@ -58,5 +59,5 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
   // it is, not as last drawn: a held key can repeat before the menu redraws.
   const stepEffort = (delta: -1 | 1) => setEffort((e) => effortStep(efforts, e, delta));
 
-  return { ...chosen, accounts, models, efforts, pick, agents, pickAgent, pickPlace, stepEffort };
+  return { ...chosen, accounts, groups, models, efforts, pick, agents, pickAgent, pickPlace, stepEffort };
 }

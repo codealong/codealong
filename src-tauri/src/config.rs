@@ -40,6 +40,8 @@ pub struct Config {
     #[serde(default)]
     pub limits: LimitsCfg,
     #[serde(default)]
+    pub routing: RoutingCfg,
+    #[serde(default)]
     pub sessions: SessionsCfg,
     #[serde(default)]
     pub reviews: ReviewsCfg,
@@ -73,6 +75,7 @@ impl Default for Config {
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
             limits: LimitsCfg::default(),
+            routing: RoutingCfg::default(),
             sessions: SessionsCfg::default(),
             reviews: ReviewsCfg::default(),
             pull_requests: PullRequestsCfg::default(),
@@ -257,6 +260,66 @@ impl WhenLimited {
     }
 }
 
+/// Model groups (`[[routing.groups]]`), which group Auto starts from (`auto`), and what Jev is
+/// told when suggesting an account and model for a start in the quick panel (`prompt`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct RoutingCfg {
+    /// The group Auto starts from; empty uses the first account's harness by usage room.
+    #[serde(default)]
+    pub auto: String,
+    /// What Jev is told when `[jev] quick_panel` is on, so it can suggest an account and model
+    /// for what you type alongside where it goes; empty asks for no model suggestion.
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub groups: Vec<RoutingGroupCfg>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct RoutingGroupCfg {
+    pub name: String,
+    #[serde(default)]
+    pub strategy: RoutingStrategy,
+    /// Which accounts and models are in the group; empty means every enabled account that can
+    /// start a session, on its own model.
+    #[serde(default)]
+    pub members: Vec<GroupMemberCfg>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum RoutingStrategy {
+    /// The member with the soonest weekly reset or the most room under its `usage_cap`.
+    #[default]
+    Usage,
+    /// Rotates across harnesses least-recently-used, then picks the best account of that
+    /// harness by usage room.
+    AlternateHarness,
+    /// Rotates evenly across the group's members that have room.
+    RoundRobin,
+}
+
+impl RoutingStrategy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RoutingStrategy::Usage => "usage",
+            RoutingStrategy::AlternateHarness => "alternate-harness",
+            RoutingStrategy::RoundRobin => "round-robin",
+        }
+    }
+
+    pub fn word(self) -> &'static str {
+        self.as_str()
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GroupMemberCfg {
+    pub account: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model: String,
+}
+
 /// What Codealong does for sessions by itself.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionsCfg {
@@ -287,13 +350,17 @@ pub struct ReviewsCfg {
     /// PR again when new commits come in while it still waits.
     #[serde(default)]
     pub auto: bool,
-    /// The account the reviews run on; empty for the one Auto would start. Apart from the
-    /// account new sessions start on.
+    /// The account or routing group the reviews run on; empty for the one Auto would start. Apart
+    /// from the account new sessions start on.
     #[serde(default)]
     pub account: String,
     /// The model they start on, as a start's `--model` takes it; empty for the account's own.
     #[serde(default)]
     pub model: String,
+    /// Prefer an account of another harness than the PR's author when Auto or a routing group picks
+    /// the reviewer and a session here or a trailer on the PR says which harness wrote it.
+    #[serde(default = "yes")]
+    pub other_harness: bool,
     /// What the reviewer is told to do, in place of Codealong's own instructions
     /// (autoreview.rs `INSTRUCTIONS`): what to look for and how, and whether to start subagents
     /// of its own. Empty for Codealong's. Which PR, where it's written out, that nothing is to
@@ -334,7 +401,7 @@ pub struct ReviewsCfg {
 
 impl Default for ReviewsCfg {
     fn default() -> Self {
-        ReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), start: ReviewStart::NoTerminal, post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
+        ReviewsCfg { auto: false, account: String::new(), model: String::new(), other_harness: true, prompt: String::new(), start: ReviewStart::NoTerminal, post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
     }
 }
 
@@ -346,13 +413,17 @@ pub struct OwnReviewsCfg {
     /// Review each open PR of yours that a session here opened, and again when new commits come in.
     #[serde(default)]
     pub auto: bool,
-    /// The account the reviews run on; empty for the one Auto would start among the accounts of
-    /// another harness than the PR's session, else Auto's.
+    /// The account or routing group the reviews run on; empty for the one Auto would start among
+    /// the accounts of another harness than the PR's session, else Auto's.
     #[serde(default)]
     pub account: String,
     /// The model they start on; empty for the account's own.
     #[serde(default)]
     pub model: String,
+    /// Prefer an account of another harness than the PR's author when Auto or a routing group picks
+    /// the reviewer.
+    #[serde(default = "yes")]
+    pub other_harness: bool,
     /// What the reviewer is told to do, as `[reviews] prompt` is; empty for Codealong's own.
     #[serde(default)]
     pub prompt: String,
@@ -372,7 +443,7 @@ pub struct OwnReviewsCfg {
 
 impl Default for OwnReviewsCfg {
     fn default() -> Self {
-        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), prompt: String::new(), send: true, drafts: false, team_instructions: String::new() }
+        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), other_harness: true, prompt: String::new(), send: true, drafts: false, team_instructions: String::new() }
     }
 }
 
@@ -531,12 +602,14 @@ impl RepoCfg {
         put(&mut mine.auto, &r.auto);
         put(&mut mine.account, &r.account);
         put(&mut mine.model, &r.model);
+        put(&mut mine.other_harness, &r.other_harness);
         put(&mut mine.prompt, &r.prompt);
         put(&mut mine.post, &r.post);
         put(&mut mine.submit, &r.submit);
         put(&mut mine.own.auto, &o.auto);
         put(&mut mine.own.account, &o.account);
         put(&mut mine.own.model, &o.model);
+        put(&mut mine.own.other_harness, &o.other_harness);
         put(&mut mine.own.prompt, &o.prompt);
         put(&mut mine.own.send, &o.send);
         put(&mut mine.own.drafts, &o.drafts);
@@ -562,6 +635,8 @@ pub struct ReviewsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_harness: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post: Option<ReviewPost>,
@@ -586,6 +661,8 @@ pub struct OwnReviewsPatch {
     pub account: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_harness: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -641,12 +718,14 @@ pub fn reviews_for(global: &ReviewsCfg, team: Option<&crate::teamfile::TeamCfg>,
         r.auto = m.auto.unwrap_or(r.auto);
         set(&mut r.account, &m.account);
         set(&mut r.model, &m.model);
+        r.other_harness = m.other_harness.unwrap_or(r.other_harness);
         set(&mut r.prompt, &m.prompt);
         r.post = m.post.unwrap_or(r.post);
         r.submit = m.submit.unwrap_or(r.submit);
         r.own.auto = m.own.auto.unwrap_or(r.own.auto);
         set(&mut r.own.account, &m.own.account);
         set(&mut r.own.model, &m.own.model);
+        r.own.other_harness = m.own.other_harness.unwrap_or(r.own.other_harness);
         set(&mut r.own.prompt, &m.own.prompt);
         r.own.send = m.own.send.unwrap_or(r.own.send);
         r.own.drafts = m.own.drafts.unwrap_or(r.own.drafts);
@@ -702,6 +781,10 @@ pub fn with_suggestions(text: &str, slug: &str, suggests: &RepoCfg) -> Result<St
     Ok(doc.to_string())
 }
 
+fn valid_reviewer(cfg: &Config, name: &str) -> bool {
+    cfg.accounts.iter().any(|a| a.name == name) || cfg.routing.groups.iter().any(|g| g.name.trim() == name)
+}
+
 /// Why the `[repos]` tables can't be saved, in words: an account that isn't one of yours, a model
 /// that can't be started on, or a key that isn't a repo's.
 pub fn check_repos(cfg: &Config) -> std::result::Result<(), String> {
@@ -712,8 +795,8 @@ pub fn check_repos(cfg: &Config) -> std::result::Result<(), String> {
         let accounts = [("[reviews]", &r.reviews.account, &r.reviews.model), ("[reviews.own]", &r.reviews.own.account, &r.reviews.own.model)];
         for (table, account, model) in accounts {
             if let Some(a) = account.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
-                if !cfg.accounts.iter().any(|x| x.name == a) {
-                    return Err(format!("{slug}'s {table} account is {a:?}, which isn't one of the [[accounts]]; use one of them, or \"\" for Auto."));
+                if !valid_reviewer(cfg, a) {
+                    return Err(format!("{slug}'s {table} account is {a:?}, which isn't one of the [[accounts]] or [[routing.groups]]; use one of them, or \"\" for Auto."));
                 }
             }
             if let Some(m) = model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
@@ -955,10 +1038,6 @@ pub struct AccountCfg {
     /// `background`, `claude-app`, `codex-app` or `codealong`. None leaves it to the usual place.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start: Option<String>,
-    /// Auto starts preferred accounts while one has room for the model, and the others only
-    /// when they're all near a limit.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub preferred: bool,
     /// The command that runs this account's Agent Client Protocol adapter, for sessions
     /// Codealong runs itself (acp.rs). None uses the one `codealong install` adds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -977,6 +1056,10 @@ pub struct AccountCfg {
     /// what you send them.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disabled: bool,
+    /// Where Auto and routing groups pass over this account for one with more room (1 to 100
+    /// percent); None is 90%.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_cap: Option<u8>,
 }
 
 impl AccountCfg {
@@ -1184,6 +1267,46 @@ pub fn check_accounts(accounts: &[AccountCfg]) -> std::result::Result<(), String
         if let Some(place) = a.start.as_deref() {
             crate::start::check_start(a, place, &crate::util::home())?;
         }
+        if let Some(cap) = a.usage_cap {
+            if !(1..=100).contains(&cap) {
+                return Err(format!("{}'s usage_cap is {cap}; it goes from 1 to 100 (percent).", a.name));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Why `[routing]` can't be saved, in words.
+pub fn check_routing(cfg: &Config) -> std::result::Result<(), String> {
+    let mut group_names = std::collections::HashSet::new();
+    for g in &cfg.routing.groups {
+        let name = g.name.trim();
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) {
+            return Err(format!("\"{}\" can't be a routing group name. Use letters, numbers, dots, dashes or underscores.", g.name));
+        }
+        if name.eq_ignore_ascii_case("auto") {
+            return Err(format!("A routing group can't be named {name:?}; set [routing] auto to the group Auto should use."));
+        }
+        if cfg.accounts.iter().any(|a| a.name == name) {
+            return Err(format!("Routing group {name:?} has the same name as an account in [[accounts]]."));
+        }
+        if !group_names.insert(name) {
+            return Err(format!("Two routing groups are named {name}."));
+        }
+        for m in &g.members {
+            let acc = m.account.trim();
+            if acc.is_empty() || !cfg.accounts.iter().any(|a| a.name == acc) {
+                return Err(format!("Routing group {name}'s member account is {acc:?}, which isn't one of the [[accounts]]."));
+            }
+            let model = m.model.trim();
+            if !model.is_empty() && !crate::start::valid_model(model) {
+                return Err(format!("Routing group {name}'s model is {model:?}, which isn't a model name Codealong can start a session on."));
+            }
+        }
+    }
+    let auto = cfg.routing.auto.trim();
+    if !auto.is_empty() && !group_names.contains(auto) {
+        return Err(format!("[routing] auto is {auto:?}, which isn't one of the [[routing.groups]]; use one of them, or \"\" for the default."));
     }
     Ok(())
 }
@@ -1233,9 +1356,6 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
             if let Some(p) = a.start.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
                 t["start"] = value(p);
             }
-            if a.preferred {
-                t["preferred"] = value(true);
-            }
             if let Some(c) = a.acp.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
                 t["acp"] = value(c);
             }
@@ -1247,6 +1367,9 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
             }
             if a.disabled {
                 t["disabled"] = value(true);
+            }
+            if let Some(cap) = a.usage_cap {
+                t["usage_cap"] = value(i64::from(cap));
             }
             t
         })
@@ -1261,6 +1384,7 @@ const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` se
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
+const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), or \"round-robin\".\n";
 const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, resume it out of sight with that message.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that, failing checks and\n# conflicts.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
@@ -1477,6 +1601,7 @@ pub fn check_projects(projects: &[ProjectCfg]) -> std::result::Result<(), String
 /// Why the whole config can't be saved, in words.
 pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     check_accounts(&cfg.accounts)?;
+    check_routing(cfg)?;
     check_projects(&cfg.projects)?;
     check_repos(cfg)?;
     if cfg.scan.iter().any(|s| s.trim().is_empty()) {
@@ -1489,16 +1614,16 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
         return Err("[jev] model is empty; use \"jev-latest\".".into());
     }
     let reviewer = cfg.reviews.account.trim();
-    if !reviewer.is_empty() && !cfg.accounts.iter().any(|a| a.name == reviewer) {
-        return Err(format!("[reviews] account is {reviewer:?}, which isn't one of the [[accounts]]; use one of them, or \"\" for Auto."));
+    if !reviewer.is_empty() && !valid_reviewer(cfg, reviewer) {
+        return Err(format!("[reviews] account is {reviewer:?}, which isn't one of the [[accounts]] or [[routing.groups]]; use one of them, or \"\" for Auto."));
     }
     let model = cfg.reviews.model.trim();
     if !model.is_empty() && !crate::start::valid_model(model) {
         return Err(format!("[reviews] model is {model:?}, which isn't a model name Codealong can start a session on."));
     }
     let reviewer = cfg.reviews.own.account.trim();
-    if !reviewer.is_empty() && !cfg.accounts.iter().any(|a| a.name == reviewer) {
-        return Err(format!("[reviews.own] account is {reviewer:?}, which isn't one of the [[accounts]]; use one of them, or \"\" for Auto."));
+    if !reviewer.is_empty() && !valid_reviewer(cfg, reviewer) {
+        return Err(format!("[reviews.own] account is {reviewer:?}, which isn't one of the [[accounts]] or [[routing.groups]]; use one of them, or \"\" for Auto."));
     }
     let model = cfg.reviews.own.model.trim();
     if !model.is_empty() && !crate::start::valid_model(model) {
@@ -1656,13 +1781,15 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["limits"]["when_hit"], Value::from(cfg.limits.when_hit.as_str()));
     }
 
+    set_routing(&mut doc, &cfg.routing);
+
     // Like [updates]: only a file that has the table or turns one of these off gets it.
     if cfg.sessions != SessionsCfg::default() || doc.get("sessions").is_some() {
         if !doc.get("sessions").is_some_and(toml_edit::Item::is_table_like) {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{SESSIONS_COMMENT}"));
             doc.insert("sessions", Item::Table(t));
-            let after = ["limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "sessions", after);
         }
         set_value(&mut doc["sessions"]["continue_after_network_error"], Value::from(cfg.sessions.continue_after_network_error));
@@ -1675,7 +1802,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{REVIEWS_COMMENT}"));
             doc.insert("reviews", Item::Table(t));
-            let after = ["sessions", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "reviews", after);
         }
         set_value(&mut doc["reviews"]["auto"], Value::from(cfg.reviews.auto));
@@ -1685,6 +1812,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["reviews"]["start"], Value::from(cfg.reviews.start.as_str()));
         set_value(&mut doc["reviews"]["post"], Value::from(cfg.reviews.post.as_str()));
         set_value(&mut doc["reviews"]["submit"], Value::from(cfg.reviews.submit.as_str()));
+        if !cfg.reviews.other_harness || doc["reviews"].get("other_harness").is_some() {
+            set_value(&mut doc["reviews"]["other_harness"], Value::from(cfg.reviews.other_harness));
+        }
         // What said who reviewed and where it went for a day (2026-10-09): `comment`, then
         // `reviewers` (folded into `account` and `model` as it's read) and `combine`; and
         // `auto_approve`, folded into `submit` (2026-10-11).
@@ -1710,6 +1840,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             set_value(&mut doc["reviews"]["own"]["prompt"], Value::from(own.prompt.trim()));
             set_value(&mut doc["reviews"]["own"]["send"], Value::from(own.send));
             set_value(&mut doc["reviews"]["own"]["drafts"], Value::from(own.drafts));
+            if !own.other_harness || doc["reviews"]["own"].get("other_harness").is_some() {
+                set_value(&mut doc["reviews"]["own"]["other_harness"], Value::from(own.other_harness));
+            }
         }
     }
 
@@ -1728,7 +1861,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{PULL_REQUESTS_COMMENT}"));
             doc.insert("pull_requests", Item::Table(t));
-            let after = ["reviews", "sessions", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "pull_requests", after);
         }
         set_value(&mut doc["pull_requests"]["nudge_by_default"], Value::from(cfg.pull_requests.nudge_by_default));
@@ -1741,7 +1874,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let mut t = Table::new();
             t.decor_mut().set_prefix(format!("\n{SOUNDS_COMMENT}"));
             doc.insert("sounds", Item::Table(t));
-            let after = ["pull_requests", "reviews", "sessions", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            let after = ["pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "sounds", after);
         }
         let sounds = &cfg.sounds;
@@ -1774,6 +1907,51 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         .collect();
     set_tables(&mut doc, "projects", projects);
     Ok(doc.to_string())
+}
+
+fn set_routing(doc: &mut toml_edit::DocumentMut, routing: &RoutingCfg) {
+    use toml_edit::{Array, ArrayOfTables, InlineTable, Item, Table, Value};
+    if *routing == RoutingCfg::default() && doc.get("routing").is_none() {
+        return;
+    }
+    if !doc.get("routing").is_some_and(Item::is_table_like) {
+        let mut t = Table::new();
+        t.decor_mut().set_prefix(format!("\n{ROUTING_COMMENT}"));
+        doc.insert("routing", Item::Table(t));
+        let after = ["limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+        place_after(doc, "routing", after);
+    }
+    set_value(&mut doc["routing"]["auto"], Value::from(routing.auto.trim()));
+    if !routing.prompt.trim().is_empty() || doc["routing"].get("prompt").is_some() {
+        set_value(&mut doc["routing"]["prompt"], Value::from(routing.prompt.trim()));
+    }
+    if routing.groups.is_empty() {
+        if let Some(t) = doc["routing"].as_table_like_mut() {
+            t.remove("groups");
+        }
+    } else {
+        let mut tables = ArrayOfTables::new();
+        for g in &routing.groups {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix("\n");
+            t["name"] = Item::Value(Value::from(g.name.trim()));
+            t["strategy"] = Item::Value(Value::from(g.strategy.as_str()));
+            if !g.members.is_empty() {
+                let mut members = Array::new();
+                for m in &g.members {
+                    let mut entry = InlineTable::new();
+                    entry.insert("account", Value::from(m.account.trim()));
+                    if !m.model.trim().is_empty() {
+                        entry.insert("model", Value::from(m.model.trim()));
+                    }
+                    members.push(Value::InlineTable(entry));
+                }
+                t["members"] = Item::Value(Value::Array(members));
+            }
+            tables.push(t);
+        }
+        doc["routing"]["groups"] = Item::ArrayOfTables(tables);
+    }
 }
 
 /// Adds `[jev]` with its comment when the file has none, after `[shortcuts]`.
@@ -1869,11 +2047,20 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
             ("auto", rv.auto.map(Value::from)),
             ("account", text(&rv.account)),
             ("model", text(&rv.model)),
+            ("other_harness", rv.other_harness.map(Value::from)),
             ("prompt", text(&rv.prompt)),
             ("post", rv.post.map(|v| Value::from(v.as_str()))),
             ("submit", rv.submit.map(|v| Value::from(v.as_str()))),
         ];
-        let own_values = [("auto", own.auto.map(Value::from)), ("account", text(&own.account)), ("model", text(&own.model)), ("prompt", text(&own.prompt)), ("send", own.send.map(Value::from)), ("drafts", own.drafts.map(Value::from))];
+        let own_values = [
+            ("auto", own.auto.map(Value::from)),
+            ("account", text(&own.account)),
+            ("model", text(&own.model)),
+            ("other_harness", own.other_harness.map(Value::from)),
+            ("prompt", text(&own.prompt)),
+            ("send", own.send.map(Value::from)),
+            ("drafts", own.drafts.map(Value::from)),
+        ];
         let prs = [("nudge_by_default", r.pull_requests.nudge_by_default.map(Value::from)), ("nudge_about", r.pull_requests.nudge_about.map(|v| Value::from(v.as_str())))];
         // `reviews` holds `own`, so it's made for an `own` value alone; with no value of its own
         // it has no header of its own either.
@@ -2019,6 +2206,11 @@ pub fn render(cfg: &Config) -> String {
         s.push_str("[limits]\n");
         s.push_str(&format!("when_hit = {}\n", q(cfg.limits.when_hit.as_str())));
     }
+    if cfg.routing != RoutingCfg::default() {
+        let mut routing = toml_edit::DocumentMut::new();
+        set_routing(&mut routing, &cfg.routing);
+        s.push_str(&routing.to_string());
+    }
     if cfg.sessions != SessionsCfg::default() {
         s.push('\n');
         s.push_str(SESSIONS_COMMENT);
@@ -2037,6 +2229,9 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("start = {}\n", q(cfg.reviews.start.as_str())));
         s.push_str(&format!("post = {}\n", q(cfg.reviews.post.as_str())));
         s.push_str(&format!("submit = {}\n", q(cfg.reviews.submit.as_str())));
+        if !cfg.reviews.other_harness {
+            s.push_str("other_harness = false\n");
+        }
         let own = &cfg.reviews.own;
         if *own != OwnReviewsCfg::default() {
             s.push('\n');
@@ -2048,6 +2243,9 @@ pub fn render(cfg: &Config) -> String {
             s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(own.prompt.trim())));
             s.push_str(&format!("send = {}\n", own.send));
             s.push_str(&format!("drafts = {}\n", own.drafts));
+            if !own.other_harness {
+                s.push_str("other_harness = false\n");
+            }
         }
     }
     if cfg.pull_requests != PullRequestsCfg::default() {
@@ -2064,7 +2262,7 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(&format!("your_turn = {}\n", q(&cfg.sounds.your_turn)));
     s.push_str(&format!("review_requested = {}\n", q(&cfg.sounds.review_requested)));
     s.push_str(&format!("volume = {}\n", cfg.sounds.volume));
-    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `preferred = true`: Auto starts this account over ones without it while it has room.\n# `monthly`: what its plan costs you a month, in dollars; `per_token = true`: it pays for each token\n# at API prices. The Usage window counts both as paid.\n# `disabled = true`: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show.\n");
+    s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `usage_cap`: where Auto and routing groups pass over this account for one with more room (1 to 100 percent; default 90).\n# `monthly`: what its plan costs you a month, in dollars; `per_token = true`: it pays for each token\n# at API prices. The Usage window counts both as paid.\n# `disabled = true`: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
         s.push_str(&format!("name = {}\n", q(&a.name)));
@@ -2075,9 +2273,6 @@ pub fn render(cfg: &Config) -> String {
         }
         if let Some(p) = &a.start {
             s.push_str(&format!("start = {}\n", q(p)));
-        }
-        if a.preferred {
-            s.push_str("preferred = true\n");
         }
         if let Some(c) = &a.acp {
             s.push_str(&format!("acp = {}\n", q(c)));
@@ -2090,6 +2285,9 @@ pub fn render(cfg: &Config) -> String {
         }
         if a.disabled {
             s.push_str("disabled = true\n");
+        }
+        if let Some(cap) = a.usage_cap {
+            s.push_str(&format!("usage_cap = {cap}\n"));
         }
     }
     s.push_str("\n# Projects group repos (by pattern) and plain folders.\n");
@@ -2139,8 +2337,8 @@ mod tests {
             appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
             shortcuts: ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: "Cmd+Ctrl+C".into(), waiting: "Ctrl+Option+N".into(), improve: "Ctrl+Option+I".into(), main_window: "Ctrl+Option+M".into() },
             accounts: vec![
-                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false },
-                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false },
+                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: Some(85), disabled: false },
+                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false },
             ],
             projects: vec![ProjectCfg {
                 name: "Spruce".into(),
@@ -2154,8 +2352,17 @@ mod tests {
             devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, port: 47000 },
             updates: UpdatesCfg { check: false },
             limits: LimitsCfg { when_hit: WhenLimited::Move },
+            routing: RoutingCfg {
+                auto: "reviewers".into(),
+                prompt: "Use Haiku for small edits.".into(),
+                groups: vec![RoutingGroupCfg {
+                    name: "reviewers".into(),
+                    strategy: RoutingStrategy::AlternateHarness,
+                    members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into() }, GroupMemberCfg { account: "codex".into(), model: String::new() }],
+                }],
+            },
             sessions: SessionsCfg { continue_after_network_error: false, resume_for_sessions_it_started: false },
-            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
+            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), other_harness: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), volume: 35 },
@@ -2170,14 +2377,14 @@ mod tests {
     #[test]
     fn saving_accounts_keeps_the_rest_of_the_file() {
         let text = render(&Config {
-            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }],
+            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }],
             projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None }],
             ..Config::default()
         });
         let text = text.replace("[apps]\n", "[apps]\n# my editor of choice\n");
         let accounts = vec![
-            AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false },
-            AccountCfg { name: "claude3".into(), harness: "claude".into(), home: "~/.claude3".into(), command: Some("CLAUDE_CONFIG_DIR=~/.claude3 claude".into()), start: Some("background".into()), preferred: true, acp: None, monthly: None, per_token: false, disabled: false },
+            AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false },
+            AccountCfg { name: "claude3".into(), harness: "claude".into(), home: "~/.claude3".into(), command: Some("CLAUDE_CONFIG_DIR=~/.claude3 claude".into()), start: Some("background".into()), acp: None, monthly: None, per_token: false, usage_cap: Some(80), disabled: false },
         ];
         let out = with_accounts(&text, &accounts).unwrap();
         assert!(out.contains("# my editor of choice"));
@@ -2190,7 +2397,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_accounts() {
-        let a = |name: &str, home: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: home.into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let a = |name: &str, home: &str| AccountCfg { name: name.into(), harness: "claude".into(), home: home.into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         assert!(check_accounts(&[a("claude", "~/.claude"), a("claude", "~/.claude2")]).is_err());
         assert!(check_accounts(&[a("claude", "~/.claude"), a("claude2", "~/.claude")]).is_err());
         assert!(check_accounts(&[a("my claude", "~/.claude")]).is_err());
@@ -2199,6 +2406,9 @@ mod tests {
         assert!(check_accounts(&[start("background")]).is_ok());
         assert!(check_accounts(&[start("claude-app")]).is_err(), "the Claude app runs ~/.claude only");
         assert!(check_accounts(&[start("the moon")]).is_err());
+        assert!(check_accounts(&[AccountCfg { usage_cap: Some(0), ..a("claude", "~/.claude") }]).is_err());
+        assert!(check_accounts(&[AccountCfg { usage_cap: Some(101), ..a("claude", "~/.claude") }]).is_err());
+        assert!(check_accounts(&[AccountCfg { usage_cap: Some(85), ..a("claude", "~/.claude") }]).is_ok());
     }
 
     #[test]
@@ -2224,7 +2434,7 @@ mod tests {
     fn setting_the_theme_adds_appearance_after_apps() {
         // A file written before there was a theme: no [appearance] table.
         let text = render(&Config {
-            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false }],
+            accounts: vec![AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }],
             projects: vec![ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec![], chrome_profile: None }],
             ..Config::default()
         });
@@ -2268,9 +2478,9 @@ mod tests {
 
     #[test]
     fn a_start_from_the_quick_panel_sets_only_its_accounts_start() {
-        let text = "scan = [\"~/code\"]\n\n# Harness accounts.\n[[accounts]]\nname = \"claude\"\nharness = \"claude\"\nhome = \"~/.claude\"\nstart = \"terminal\" # for now\n\n[[accounts]]\nname = \"claude2\"\nharness = \"claude\"\nhome = \"~/.claude2\"\npreferred = true\n\n[[accounts]]\nname = \"codex\"\nharness = \"codex\"\nhome = \"~/.codex\"\n";
+        let text = "scan = [\"~/code\"]\n\n# Harness accounts.\n[[accounts]]\nname = \"claude\"\nharness = \"claude\"\nhome = \"~/.claude\"\nstart = \"terminal\" # for now\n\n[[accounts]]\nname = \"claude2\"\nharness = \"claude\"\nhome = \"~/.claude2\"\nusage_cap = 85\n\n[[accounts]]\nname = \"codex\"\nharness = \"codex\"\nhome = \"~/.codex\"\n";
         let out = with_start(text, &["claude".into(), "claude2".into()], "background").unwrap();
-        let want = text.replace("\"terminal\" # for now", "\"background\" # for now").replace("preferred = true\n", "preferred = true\nstart = \"background\"\n");
+        let want = text.replace("\"terminal\" # for now", "\"background\" # for now").replace("usage_cap = 85\n", "usage_cap = 85\nstart = \"background\"\n");
         assert_eq!(out, want);
         let starts: Vec<Option<String>> = toml::from_str::<Config>(&out).unwrap().accounts.into_iter().map(|a| a.start).collect();
         assert_eq!(starts, vec![Some("background".into()), Some("background".into()), None]);
@@ -2423,8 +2633,8 @@ mod tests {
             appearance: AppearanceCfg { theme: Theme::Dark, ..AppearanceCfg::default() },
             shortcuts: ShortcutsCfg::default(),
             accounts: vec![
-                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false },
-                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false },
+                AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: Some("claude".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false },
+                AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false },
             ],
             projects: vec![
                 ProjectCfg { name: "Spruce".into(), repos: vec!["github.com/sprucehq/*".into()], folders: vec!["~/projects/sparkhq/vault".into()], chrome_profile: None },
@@ -2436,6 +2646,7 @@ mod tests {
             devices: DevicesCfg::default(),
             updates: UpdatesCfg::default(),
             limits: LimitsCfg::default(),
+            routing: RoutingCfg::default(),
             sessions: SessionsCfg::default(),
             reviews: ReviewsCfg::default(),
             pull_requests: PullRequestsCfg::default(),
@@ -2590,7 +2801,7 @@ mod tests {
         assert!(!old.contains("[reviews]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
         let mut on = full();
-        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), start: ReviewStart::Terminal, post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), other_harness: true, prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), start: ReviewStart::Terminal, post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\nmodel = \"opus\"\nprompt = ")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
@@ -2776,10 +2987,10 @@ mod tests {
         let none = toml::from_str::<Config>("").unwrap().reviews.own;
         assert_eq!(none, OwnReviewsCfg::default());
         // Each review goes back to the PR's session unless that's turned off, and drafts wait.
-        assert!(none.send && !none.auto && !none.drafts);
+        assert!(none.send && !none.auto && !none.drafts && none.other_harness);
         let old = render(&full());
         let mut on = full();
-        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), prompt: "Look hard at the tests.".into(), send: true, drafts: false, team_instructions: String::new() };
+        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), other_harness: true, prompt: "Look hard at the tests.".into(), send: true, drafts: false, team_instructions: String::new() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{OWN_REVIEWS_COMMENT}[reviews.own]\nauto = true\naccount = \"codex\"\nmodel = \"gpt-5.5\"\nprompt = \"Look hard at the tests.\"\nsend = true\ndrafts = false")), "{out}");
         // Right after [reviews], whose own lines stay as they were.
@@ -2797,6 +3008,35 @@ mod tests {
         let mut bad = on.clone();
         bad.reviews.own.account = "codex9".into();
         assert!(check(&bad).unwrap_err().contains("[reviews.own] account"));
+    }
+
+    #[test]
+    fn routing_groups_and_other_harness_are_checked_and_saved() {
+        let mut cfg = full();
+        cfg.routing = RoutingCfg {
+            auto: "reviewers".into(),
+            prompt: "Prefer fast models for small edits.".into(),
+            groups: vec![RoutingGroupCfg {
+                name: "reviewers".into(),
+                strategy: RoutingStrategy::AlternateHarness,
+                members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into() }, GroupMemberCfg { account: "codex".into(), model: String::new() }],
+            }],
+        };
+        cfg.reviews.account = "reviewers".into();
+        cfg.reviews.other_harness = false;
+        cfg.reviews.own.account = "reviewers".into();
+        cfg.reviews.own.other_harness = false;
+        assert_eq!(check(&cfg), Ok(()));
+        let out = with_config(&render(&full()), &cfg).unwrap();
+        assert_eq!(parse(&out).unwrap(), cfg);
+        assert_eq!(parse(&render(&cfg)).unwrap(), cfg);
+
+        let mut collision = cfg.clone();
+        collision.routing.groups[0].name = "claude".into();
+        assert!(check(&collision).unwrap_err().contains("same name as an account"));
+        let mut bad_auto = cfg.clone();
+        bad_auto.routing.auto = "missing".into();
+        assert!(check(&bad_auto).unwrap_err().contains("[routing] auto"));
     }
 
     #[test]

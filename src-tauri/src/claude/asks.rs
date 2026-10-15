@@ -565,7 +565,7 @@ mod tests {
 
     #[test]
     fn finds_the_account_by_its_folder() {
-        let acct = |name: &str, harness: &str, home: &str| crate::config::AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let acct = |name: &str, harness: &str, home: &str| crate::config::AccountCfg { name: name.into(), harness: harness.into(), home: home.into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let cfg = crate::config::Config { accounts: vec![acct("codex", "codex", "/h/.codex"), acct("claude2", "claude", "/h/.claude2")], ..Default::default() };
         assert_eq!(account_for(&cfg, Path::new("/h/.claude2")).map(|a| a.name.as_str()), Some("claude2"));
         assert!(account_for(&cfg, Path::new("/h/.codex")).is_none(), "not a Claude Code account");

@@ -2309,9 +2309,10 @@ Options:
           Say on stderr whether the app or the files answered
 
       --account <ACCOUNT>
-          The account to run it on. `auto` picks as the quick panel does: a preferred
-          account with room for the model (config.toml's `preferred`), and among those
-          the one whose weekly limit resets soonest
+          The account or routing group to run it on. `auto` picks as the quick panel
+          does: from `[routing] auto` when set, else an account of the first account's
+          harness with room under its `usage_cap`, and among those the one whose weekly
+          limit resets soonest
           
           [default: auto]
 

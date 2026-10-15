@@ -6,7 +6,7 @@
 // Settings › Agents does; that page is where each account's plugin or skill shows.
 
 import { useEffect, useState } from 'react';
-import { agentsStatus, foundAccounts, getAccounts, installAgents, openUrl, saveAccounts, setPreferred, signIn, stopTraining } from '../api';
+import { agentsStatus, foundAccounts, getAccounts, installAgents, openUrl, saveAccounts, signIn, stopTraining } from '../api';
 import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
 import { afterStop, flagged, readNote, trainingOf, trainingTag } from '../training';
@@ -27,6 +27,8 @@ interface Draft {
   monthly: string;
   /** It pays for each token at API prices. */
   perToken: boolean;
+  /** The usage percentage (1-100) at which Auto and routing groups pass over this account; empty for 90%. */
+  usageCap: string;
   /** Whether you typed in these fields; untouched ones follow the name. */
   touched: { home: boolean; command: boolean };
 }
@@ -136,13 +138,19 @@ export function suggestAccount(harness: Harness, taken: AccountCfg[]): Omit<Draf
   const nameFor = (i: number) => (i === 1 ? harness : `${harness}${i}`);
   while (names.has(nameFor(n)) || homes.has(defaultsFor(harness, nameFor(n)).home)) n++;
   const name = nameFor(n);
-  return { harness, name, start: null, monthly: '', perToken: false, ...defaultsFor(harness, name) };
+  return { harness, name, start: null, monthly: '', perToken: false, usageCap: '', ...defaultsFor(harness, name) };
 }
 
 /** A plan price as typed: dollars a month, or none for an empty or unreadable one. */
 export function monthlyOf(typed: string): number | null {
   const n = Number(typed.trim().replace(/^\$/, '').replace(/,/g, ''));
   return typed.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** A usage cap as typed: 1–100%, or null for empty or unreadable. */
+export function usageCapOf(typed: string): number | null {
+  const n = Math.round(Number(typed.trim().replace(/%$/, '')));
+  return typed.trim() !== '' && Number.isFinite(n) && n >= 1 && n <= 100 ? n : null;
 }
 
 /** Where a found account stands, in words: its sign-in, when it was last used, and the
@@ -161,7 +169,7 @@ export function foundNote(f: FoundAccount, now: number): string {
 /** An account as config.toml has it. Saving writes every account's table anew, so whatever the
  *  form doesn't edit (its ACP command) goes back as it came. */
 function toCfg(a: AccountCfg): AccountCfg {
-  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null, preferred: a.preferred ?? false, acp: a.acp ?? null, monthly: a.monthly ?? null, per_token: a.per_token ?? false, disabled: a.disabled ?? false };
+  return { name: a.name, harness: a.harness, home: a.home, command: a.command, start: a.start ?? null, acp: a.acp ?? null, monthly: a.monthly ?? null, per_token: a.per_token ?? false, disabled: a.disabled ?? false, usage_cap: a.usage_cap ?? null };
 }
 
 interface AccountsSectionProps {
@@ -212,19 +220,6 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
     return () => window.removeEventListener('focus', onFocus);
   }, []);
 
-  // The star goes through the engine, which publishes it at once, so the quick panel's Auto
-  // goes by it straight away; it shows here before that.
-  const star = async (name: string, on: boolean) => {
-    setError(null);
-    setAccounts((list) => list && list.map((x) => (x.name === name ? { ...x, preferred: on } : x)));
-    try {
-      await setPreferred(name, on);
-    } catch (e) {
-      setError(String(e));
-      await load();
-    }
-  };
-
   const save = async (next: AccountCfg[]) => {
     setBusy(true);
     setError(null);
@@ -269,7 +264,18 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
   const startEdit = (a: AccountInfo) => {
     setError(null);
     setRemoving(null);
-    setDraft({ original: a.name, harness: a.harness, name: a.name, home: a.home, command: a.command ?? a.name, start: a.start ?? null, monthly: a.monthly != null ? String(a.monthly) : '', perToken: a.per_token ?? false, touched: { home: true, command: true } });
+    setDraft({
+      original: a.name,
+      harness: a.harness,
+      name: a.name,
+      home: a.home,
+      command: a.command ?? a.name,
+      start: a.start ?? null,
+      monthly: a.monthly != null ? String(a.monthly) : '',
+      perToken: a.per_token ?? false,
+      usageCap: a.usage_cap != null ? String(a.usage_cap) : '',
+      touched: { home: true, command: true },
+    });
   };
 
   const submit = async () => {
@@ -283,11 +289,11 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
       home: draft.home.trim(),
       command: draft.command.trim() || null,
       start,
-      preferred: was?.preferred ?? false,
       acp: was?.acp ?? null,
       monthly: draft.perToken ? null : monthlyOf(draft.monthly),
       per_token: draft.perToken,
       disabled: was?.disabled ?? false,
+      usage_cap: usageCapOf(draft.usageCap),
     };
     const next = draft.original ? accounts.map((a) => (a.name === draft.original ? entry : a)) : [...accounts, entry];
     if (await save(next)) {
@@ -415,6 +421,14 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
         )}
         {!draft.perToken && <small>What the plan costs you, which the Usage window counts as paid, a day’s share at a time, against what its sessions would have cost at API prices. Empty leaves it out.</small>}
       </div>
+      <div className="ca-field">
+        <span>Usage cap</span>
+        <label className="ca-acct-monthly">
+          <input value={draft.usageCap} inputMode="numeric" placeholder="90" aria-label="Usage cap percentage" onChange={(e) => setDraft({ ...draft, usageCap: e.target.value })} />
+          <span>%</span>
+        </label>
+        <small>Auto, routing groups and automatic reviews pass over this account once any limit a session would spend reaches this percentage (90% when empty).</small>
+      </div>
       {!draft.original && skillBox(draft.harness === 'claude' ? 'Install the Codealong plugin' : 'Install the Codealong skill')}
       <div className="ca-acct-actions">
         <Button variant="primary" size="sm" type="submit" disabled={busy}>
@@ -444,17 +458,6 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
         return (
           <div key={a.name} id={`ca-acct-${a.name}`} className={cx('ca-ucard', 'ca-acct', focus === a.name && 'is-focus', a.disabled && 'is-off')}>
             <div className="ca-ucard-head">
-              <button
-                type="button"
-                className={cx('ca-acct-star', a.preferred ? 'is-on' : '')}
-                aria-pressed={!!a.preferred}
-                aria-label={`Preferred: ${a.name}`}
-                title={a.preferred ? 'Preferred: Auto starts this account while it has room. Click to stop preferring it.' : 'Prefer this account: Auto starts preferred accounts while one has room, and others only when they’re all near a limit.'}
-                disabled={busy}
-                onClick={() => void star(a.name, !a.preferred)}
-              >
-                <Icon name="star" size={16} />
-              </button>
               <span className="ca-ucard-name">{a.name}</span>
               <span className="ca-ucard-plan">{[HARNESS_WORD[a.harness], u?.plan].filter(Boolean).join(' · ')}</span>
               <span className="ca-acct-tags">
@@ -511,6 +514,12 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
                 <>
                   <dt>Pays</dt>
                   <dd>{a.per_token ? 'By the token' : `$${a.monthly} a month`}</dd>
+                </>
+              )}
+              {a.usage_cap != null && (
+                <>
+                  <dt>Usage cap</dt>
+                  <dd>{a.usage_cap}%</dd>
                 </>
               )}
             </dl>

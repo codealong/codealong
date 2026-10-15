@@ -6,7 +6,7 @@
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/accounts-off-check.js
 (function () {
   var info = function (name, harness, home, over) {
-    return Object.assign({ name: name, harness: harness, home: home, command: null, start: null, preferred: false, acp: null, monthly: null, per_token: false, disabled: false, folderExists: true, signedIn: true, email: null, signInNote: null }, over);
+    return Object.assign({ name: name, harness: harness, home: home, command: null, start: null, acp: null, monthly: null, per_token: false, disabled: false, folderExists: true, signedIn: true, email: null, signInNote: null }, over);
   };
   var accounts = [
     info('claude', 'claude', '~/.claude', { command: 'claude', email: 'ana@example.com' }),
@@ -46,7 +46,7 @@
       var saved = calls('save_accounts')[0][1].accounts;
       var off = saved.map(function (a) { return a.name + '=' + a.disabled; }).join(',');
       check('Turn off saves it turned off, and the others as they were', off === 'claude=true,cursor=true,opencode=false', off);
-      check('with what the form doesn’t show kept', saved[0].preferred === false && saved[0].command === 'claude' && saved[1].command === 'cursor-agent', JSON.stringify(saved[0]));
+      check('with what the form doesn’t show kept', saved[0].command === 'claude' && saved[1].command === 'cursor-agent', JSON.stringify(saved[0]));
       await until(function () { return card('claude') && card('claude').classList.contains('is-off'); }, 3000, 'the card didn’t show it turned off');
       check('its card then shows it turned off', tags('claude')[0] === 'Turned off' && !!button('Turn on', card('claude')), tags('claude').join(','));
 

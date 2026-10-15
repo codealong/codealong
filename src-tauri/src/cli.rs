@@ -886,7 +886,7 @@ struct StartArgs {
     /// Start it on a todo whose primary session is running, and make the new session the primary one. Without it, a session running this command that isn't that one is turned down; one started from a terminal works alongside it.
     #[arg(long, conflicts_with = "prompt")]
     take: bool,
-    /// The account to run it on. `auto` picks as the quick panel does: a preferred account with room for the model (config.toml's `preferred`), and among those the one whose weekly limit resets soonest.
+    /// The account or routing group to run it on. `auto` picks as the quick panel does: from `[routing] auto` when set, else an account of the first account's harness with room under its `usage_cap`, and among those the one whose weekly limit resets soonest.
     #[arg(long, default_value = "auto")]
     account: String,
     /// The worktree to run in: a path, or `.` (the default).
@@ -4374,12 +4374,12 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
         PlaceArg::CodexApp => Place::CodexApp,
         PlaceArg::Codealong => Place::Codealong,
     });
-    let account = match a.account.as_str() {
-        "auto" => {
-            let cfg = c.cfg()?.clone();
-            let usages = match c.app.is_some() {
-                true => c.board()?.usage.clone(),
-                false => Vec::new(),
+    let (account, model) = {
+        let cfg = c.cfg()?.clone();
+        if a.account == "auto" || cfg.routing.groups.iter().any(|g| g.name == a.account) {
+            let board = match c.app.is_some() {
+                true => Some(c.board()?.clone()),
+                false => None,
             };
             // A helper without --in goes where it starts out of sight.
             let places = match (place, a.helper) {
@@ -4387,9 +4387,13 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
                 (None, true) => start::OUT_OF_SIGHT.to_vec(),
                 (None, false) => Vec::new(),
             };
-            start::pick_account(&cfg, &usages, &places, a.model.as_deref(), now_ms()).ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?
+            let picked = start::resolve_group(&cfg, board.as_ref(), &a.account, &places, a.model.as_deref(), None, false, now_ms(), |_| true)
+                .and_then(std::result::Result::ok)
+                .ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?;
+            (picked.account, a.model.clone().or(picked.model))
+        } else {
+            (a.account.clone(), a.model.clone())
         }
-        name => name.to_string(),
     };
     // Without --in, the account's own first place: the one its `start` names, else the usual; a
     // helper's, out of sight.
@@ -4403,7 +4407,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             hidden.or(places.first().copied()).ok_or_else(|| anyhow!("{account} can't start a session from here."))?
         }
     };
-    let spec = StartSpec { lane_id, account, place, prompt, model: a.model.clone(), effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper, report: a.report };
+    let spec = StartSpec { lane_id, account, place, prompt, model, effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper, report: a.report };
     if a.dry_run {
         let cfg = c.cfg()?.clone();
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;

@@ -745,6 +745,7 @@ mod tests {
             requested_by: None,
             requested_at: None,
             reviewers_asked: Vec::new(),
+            authored_by: None,
         }
     }
 

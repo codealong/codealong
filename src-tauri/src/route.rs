@@ -31,7 +31,7 @@ const STOPPED_WITHIN_MS: i64 = 3 * 24 * 3600 * 1000;
 /// How much of a session's title, prompt or doing line goes in.
 const TEXT_CHARS: usize = 240;
 
-pub use codealong_peer::api::{Action, Pick, Route};
+pub use codealong_peer::api::{Action, AgentPick, Pick, Route};
 
 /// What goes to Jev, and how to read its answer back: option keys (`s1`, `w1`) stand for
 /// session keys and lane ids, so long paths never reach the model as labels.
@@ -47,6 +47,8 @@ pub struct Request {
     named: Vec<String>,
     /// The images pasted into what's typed, sent with it (`route`).
     images: crate::jev::Images,
+    /// The `(account, model)` options offered for the `agent` question (`a1`, `a2`, …).
+    agents: Vec<(String, Option<String>)>,
 }
 
 /// Sessions that could already be doing the work: running, and not waiting on you.
@@ -190,8 +192,56 @@ fn candidates<'a>(board: &'a Board, project: &str, now: i64) -> (Vec<(&'a Lane, 
     (sessions, lanes)
 }
 
+/// The agent and model options offered to Jev when `[routing] prompt` is set, with an account
+/// that has room for each.
+fn agent_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> (Map<String, Value>, Vec<(String, Option<String>)>) {
+    let mut cards = Map::new();
+    let mut picks = Vec::new();
+    if cfg.routing.prompt.trim().is_empty() {
+        return (cards, picks);
+    }
+    let home = crate::util::home();
+    let mut seen_harnesses = Vec::new();
+    for a in cfg.accounts.iter().filter(|a| !a.disabled && crate::start::ordered_places(a, &home).is_ok_and(|p| !p.is_empty())) {
+        let h = crate::model::Harness::from_config(&a.harness);
+        if !seen_harnesses.contains(&h) {
+            seen_harnesses.push(h);
+        }
+    }
+    for h in seen_harnesses {
+        let adapter = crate::harness::adapter(h);
+        let word = h.word();
+        if adapter.takes_model() {
+            let Some(sample) = cfg.accounts.iter().find(|a| !a.disabled && crate::model::Harness::from_config(&a.harness) == h) else { continue };
+            for m in adapter.models(sample) {
+                let Some(acct) = crate::start::pick_account_where(cfg, &board.usage, &[], Some(&m.id), now, |a| crate::model::Harness::from_config(&a.harness) == h) else { continue };
+                let key = format!("a{}", picks.len() + 1);
+                cards.insert(key, json!({ "agent": word, "model": m.id, "description": m.label }));
+                picks.push((acct, Some(m.id)));
+            }
+        } else {
+            let Some(acct) = crate::start::pick_account_where(cfg, &board.usage, &[], None, now, |a| crate::model::Harness::from_config(&a.harness) == h) else { continue };
+            let key = format!("a{}", picks.len() + 1);
+            cards.insert(key, json!({ "agent": word }));
+            picks.push((acct, None));
+        }
+    }
+    for g in &cfg.routing.groups {
+        let key = format!("a{}", picks.len() + 1);
+        cards.insert(key, json!({ "group": g.name, "strategy": g.strategy.word() }));
+        picks.push((g.name.clone(), None));
+    }
+    (cards, picks)
+}
+
 /// The request for what you typed, in the panel's project.
+#[cfg(test)]
 pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) -> Result<Request> {
+    request_with_routing(board, None, project, text, model, now)
+}
+
+/// `request`, adding an `agent` question when `[routing] prompt` is set in `cfg`.
+pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, project: &str, text: &str, model: &str, now: i64) -> Result<Request> {
     let text = text.trim();
     if text.is_empty() {
         bail!("Nothing to route.");
@@ -239,7 +289,9 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
         "todo": "The message is a note to do something later rather than now, and says so (for example 'later', 'todo', 'remember to', 'at some point', 'next week').",
     });
 
-    let body = json!({
+    let (agent_cards, agents) = cfg.map(|c| agent_candidates(board, c, now)).unwrap_or_default();
+
+    let mut body = json!({
         "model": model,
         "state": {
             "message": message,
@@ -276,6 +328,14 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
             },
         },
     });
+    if !agent_cards.is_empty() {
+        let prompt = cfg.map(|c| c.routing.prompt.trim()).unwrap_or_default();
+        body["questions"]["agent"] = json!({
+            "type": "choice",
+            "instructions": format!("When starting a new session for `message`, which coding agent and model should run it? Follow the user's routing rules:\n{prompt}"),
+            "criteria": Value::Object(agent_cards),
+        });
+    }
 
     Ok(Request {
         body,
@@ -285,6 +345,7 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
         lane_repos: lanes.iter().map(|l| format!("{}/{}", l.project, l.repo)).collect(),
         named: named_repos(text, &lanes),
         images,
+        agents,
     })
 }
 
@@ -373,6 +434,17 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         .next()
         .filter(|d| d.p >= DUPLICATE_AT);
 
+    let mut agents: Vec<AgentPick> = probabilities(&answers["agent"])
+        .iter()
+        .filter_map(|(k, p)| {
+            let n: usize = k.strip_prefix('a')?.parse().ok()?;
+            let (account, model) = req.agents.get(n.checked_sub(1)?)?.clone();
+            (*p >= SCORED_AT).then_some(AgentPick { account, model, p: *p })
+        })
+        .collect();
+    agents.sort_by(|a, b| b.p.partial_cmp(&a.p).unwrap_or(std::cmp::Ordering::Equal).then(a.account.cmp(&b.account)));
+    agents.truncate(TOP);
+
     let mut action = actions.first().map_or(Action::Start, |a| a.0);
     if matches!(action, Action::Send | Action::Find) && no_session > top_session {
         action = Action::Start;
@@ -390,6 +462,7 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         own_worktree_asked: answers["own_worktree"]["noul"].as_f64().unwrap_or(0.0),
         habit: Default::default(),
         duplicate,
+        agents,
         model: response["model"].as_str().unwrap_or_default().to_string(),
         ms,
         input_tokens: response["usage"]["input_tokens"].as_u64().unwrap_or(0),
@@ -408,7 +481,7 @@ pub fn suggest(board: &Board, project: &str, text: &str) -> Result<Route> {
 
 /// Routes what you typed: builds the request, asks Jev, reads the answer.
 pub fn route(board: &Board, cfg: &crate::config::Config, project: &str, text: &str) -> Result<Route> {
-    let mut req = request(board, project, text, cfg.jev.model.trim(), crate::util::now_ms())?;
+    let mut req = request_with_routing(board, Some(cfg), project, text, cfg.jev.model.trim(), crate::util::now_ms())?;
     let started = Instant::now();
     req.images.attach(&mut req.body);
     let response = crate::jev::ask(&req.body)?;

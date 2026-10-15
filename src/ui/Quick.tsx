@@ -68,6 +68,8 @@ import { prPills } from '../prStatus';
 import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
+  isAuto,
+  isGroup,
   keepPlaceFailed,
   keepPlaceFor,
   KEEP_PLACE_NOTICE,
@@ -85,7 +87,7 @@ import {
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
-import { alreadyOnWords, duplicateOf, rankedBy, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
+import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
@@ -231,9 +233,9 @@ function Marked({ text, marks }: { text: string; marks: [number, number][] }) {
 
 /** What Auto does when it starts a session, on its line in the agent menu. */
 const AUTO_STARTS =
-  `Starts a preferred account (starred in Settings › Accounts) while one has room, else another. Among them, the one whose weekly limit resets soonest, so its room isn't lost, ` +
+  `Starts an account of the first account’s harness while one has room (or from Auto’s routing group in Settings › Automation), else another. Among them, the one whose weekly limit resets soonest, so its room isn't lost, ` +
   `else the one whose fullest limit is least full, on its own default model; when that model's own limit is nearly used, on the next best. ` +
-  `An account at 90% of a limit has no room. Decided when you start.`;
+  `An account at its usage cap (90% by default) has no room. Decided when you start.`;
 
 export function Quick() {
   const [engineBoard, setBoard] = useState<Board | null>(null);
@@ -618,6 +620,7 @@ export function Quick() {
   // The account, model, effort and place a new session starts with (useStartChoice.ts).
   const {
     accounts,
+    groups: routingGroups,
     models,
     efforts,
     pick,
@@ -1097,9 +1100,12 @@ export function Quick() {
   };
 
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
-  const start = (over?: { lane: Lane; newWorktree: boolean }) => {
+  const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string }) => {
     const where = over?.lane ?? lane;
-    if (!where || !account || !placeNow) return;
+    const sgAgent = over?.agent ? resolveSuggestedAgent(over.agent, accounts, routingGroups, usage, now) : null;
+    const targetAccount = sgAgent?.account ?? account;
+    const targetModel = sgAgent ? sgAgent.model : modelNow;
+    if (!where || !targetAccount || !placeNow) return;
     // Improve Codealong's pictures are this Mac's files: a session on another Mac can't read them.
     const held = improve ? improveRemoteHold(improve.shots, shortOf(where.id) ? (deviceInfo?.name ?? 'another Mac') : null) : null;
     if (held) {
@@ -1108,14 +1114,15 @@ export function Quick() {
     }
     const newTree = harnessMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     if (choice) remember(choice, placeNow);
-    if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow), placeNow);
+    if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow, routingGroups, optionsForStart?.autoGroup), placeNow);
     // The skill that starts the prompt goes as the account's agent takes it.
     const base = skillNow && harness && !over ? writtenFor(text, [skillNow.skill], harness) : text;
     const written = withAttachments(base, attached);
     // Improve Codealong: the pictures of the windows go after what you wrote.
     const prompt = withShots(written);
-    const spec: StartSpec = { laneId: where.id, account, place: placeNow, prompt, model: modelNow, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
-    const label = startingLabel(placeNow, account, onModel, where, newTree, deviceInfo?.name ?? null);
+    const spec: StartSpec = { laneId: where.id, account: targetAccount, place: placeNow, prompt, model: targetModel, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
+    const targetOnModel = sgAgent ? onModelWords(sgAgent.model, effortWord, models) : onModel;
+    const label = startingLabel(placeNow, targetAccount, targetOnModel, where, newTree, deviceInfo?.name ?? null);
     const id = Date.now();
     const to = opener ?? 'main';
     // The panel is fresh for next time; a failed start brings back what you had.
@@ -1207,7 +1214,7 @@ export function Quick() {
   const suggest = (sg: Suggestion, alt: boolean) => {
     if (sg.kind === 'send') alt ? revealSession(sg.lane, sg.session) : send(sg.session);
     else if (sg.kind === 'open') (alt ? openSession : showSession)(sg.lane, sg.session);
-    else if (sg.kind === 'start') start({ lane: sg.lane, newWorktree: sg.newWorktree });
+    else if (sg.kind === 'start') start({ lane: sg.lane, newWorktree: sg.newWorktree, agent: sg.agent });
     else saveTodo(sg.lane);
   };
 
@@ -1426,7 +1433,10 @@ export function Quick() {
     })),
   ];
 
-  const agentSections: PickerSection[] = useMemo(() => agentMenuSections(agents, accounts, pick, usage, models, now, agentNow, AUTO_STARTS), [agents, accounts, pick, usage, models, now, agentNow]);
+  const agentSections: PickerSection[] = useMemo(
+    () => agentMenuSections(agents, accounts, pick, usage, models, now, agentNow, AUTO_STARTS, routingGroups),
+    [agents, accounts, pick, usage, models, now, agentNow, routingGroups],
+  );
 
   const pickAgent = (id: string) => {
     pickAgentLine(id);
@@ -1478,7 +1488,12 @@ export function Quick() {
   };
 
   /** A suggestion's row: what ⏎ does, and where. */
-  const describe = (sg: Suggestion) => suggestionWords(sg, { now, text, account, onModel, place: placeNow, makesWorktree, terminal: terminalName, behind, duplicate });
+  const describe = (sg: Suggestion) => {
+    const sgAgent = sg.kind === 'start' && sg.agent ? resolveSuggestedAgent(sg.agent, accounts, routingGroups, usage, now) : null;
+    const sgAccount = sgAgent?.account ?? account;
+    const sgOnModel = sgAgent ? onModelWords(sgAgent.model, effortWord, models) : onModel;
+    return suggestionWords(sg, { now, text, account: sgAccount, onModel: sgOnModel, place: placeNow, makesWorktree, terminal: terminalName, behind, duplicate });
+  };
 
   /** What a suggestion's row shows, but its keys. */
   const suggestionFace = (sg: Suggestion) => {
@@ -1548,7 +1563,8 @@ export function Quick() {
     return shown;
   };
   // Another Mac's accounts come a moment after it's picked, or not at all.
-  const agentChip = agentChipWords({ auto: autoFor, account, accounts: accounts.length, remote: deviceNow ? { read: !!startOptionsNow, error: remote?.error ?? null } : null, model: modelShown, effortWord });
+  const activeGroup = isGroup(choice, routingGroups);
+  const agentChip = agentChipWords({ auto: isAuto(choice), group: activeGroup?.name ?? null, account, accounts: accounts.length, remote: deviceNow ? { read: !!startOptionsNow, error: remote?.error ?? null } : null, model: modelShown, effortWord });
   // The hint names the shortcut that opened the panel this way: Improve Codealong's when improving,
   // the chat one when it opened on a chat.
   const shortcut = shortcutLabel(improve ? board?.improveShortcut : asChat ? board?.chatShortcut : board?.quickShortcut);
