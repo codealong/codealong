@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CODEALONG_PROJECT, improvePrompt, improveRemoteHold, improveTitle, improveWords, remoteImproveLane, withCodealongProject } from './improve';
+import { CODEALONG_PROJECT, improvePrompt, improveTitle, improveWords, remoteImproveLane, withCodealongProject } from './improve';
 import type { Attachment, Config, Lane } from './types';
 
 const shot = (name: string, hash: string): Attachment => ({ kind: 'image', name, path: `images/${hash}.png` });
@@ -60,11 +60,6 @@ describe('remoteImproveLane', () => {
     expect(remoteImproveLane([lane('@abc:/m/other', {}), lane('@abc:/chats', { codealong: true, startsChats: true })])).toBeNull();
   });
 
-  it('holds a start on another Mac while there are pictures', () => {
-    expect(improveRemoteHold([shot('Main window', 'a')], 'Mini')).toContain('a session on Mini can’t read them');
-    expect(improveRemoteHold([], 'Mini')).toBeNull();
-    expect(improveRemoteHold([shot('Main window', 'a')], null)).toBeNull();
-  });
 });
 
 describe('improveWords', () => {
@@ -73,11 +68,11 @@ describe('improveWords', () => {
     expect(improveWords({ project: 'Codealong', laneId: '/p/codealong' }, false)).toBeNull();
   });
 
-  it('says where another Mac has the source, without a button', () => {
+  it('says the session starts on the Mac that has the source, without a button', () => {
     const remote = { id: '@abc:/m/codealong', codealong: true, device: { name: 'Mini', short: 'abc', color: 'blue', online: true, lastSeen: null } } as unknown as Lane;
     const words = improveWords({}, false, remote);
     expect(words?.add).toBe(false);
-    expect(words?.text).toMatch(/^Codealong’s source is on Mini, not on this Mac/);
+    expect(words?.text).toMatch(/^Codealong’s source is on Mini, not on this Mac, so the session starts there and the pictures go with it/);
   });
 
   it('offers a project for a source in none, and says where to clone one otherwise', () => {

@@ -171,14 +171,21 @@ struct Request {
     back: fn(Value, &str) -> Result<Value, String>,
     /// How long another device is given to answer, when not as long as its kind takes (`ask`).
     wait: Option<Duration>,
+    /// Where its params carry a prompt, as a JSON pointer into what another device is asked: the
+    /// images it refers to go there first (`carry_images`).
+    prompt: Option<&'static str>,
     /// What's done instead when another device doesn't do it, given its short id, what it calls
     /// the session and why: it's from before the request, or doesn't let this device drive its
     /// agents. Its answer stands, unless this fails too.
     instead: Option<fn(&Handle, &Peers, &str, &str, &str) -> Result<Value, String>>,
 }
 
+/// How long an image is given to go one way or the other, as a phone gives it (codealong-peer's
+/// `client::IMAGE_WAIT`).
+const IMAGE_WAIT: Duration = Duration::from_secs(60);
+
 /// A request any linked device can make and the command too; each line says what differs.
-const ANY: Request = Request { name: "", only_here: None, command: |_| Ok(()), here: |_, _| Ok(Value::Null), there: with_key, back: |v, _| Ok(v), wait: None, instead: None };
+const ANY: Request = Request { name: "", only_here: None, command: |_| Ok(()), here: |_, _| Ok(Value::Null), there: with_key, back: |v, _| Ok(v), wait: None, prompt: None, instead: None };
 
 const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_PAGE, here: page, ..ANY },
@@ -186,8 +193,9 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_PENDING, here: pending, ..ANY },
     Request { name: api::SESSION_WAY, here: way, ..ANY },
     Request { name: api::SESSION_STREAM, here: stream, ..ANY },
-    Request { name: api::SESSION_ANSWER, here: answer_call, command: deny_only, ..ANY },
-    Request { name: api::SESSION_SEND, here: send_prompt, ..ANY },
+    // What a session's told carries the images it refers to, as what's sent it or started does.
+    Request { name: api::SESSION_ANSWER, here: answer_call, command: deny_only, prompt: Some("/message"), ..ANY },
+    Request { name: api::SESSION_SEND, here: send_prompt, prompt: Some("/text"), ..ANY },
     Request { name: api::SESSION_CANCEL, here: cancel, ..ANY },
     Request { name: api::SESSION_ARCHIVE, here: archive, ..ANY },
     Request { name: api::SESSION_RENAME, here: rename, ..ANY },
@@ -213,16 +221,17 @@ const REQUESTS: &[Request] = &[
     Request { name: api::PR_MERGE, here: pr_merge, ..ANY },
     // A review's snooze is kept here, as a session's is.
     Request { name: api::PR_SNOOZE, here: pr_snooze, ..ANY },
-    Request { name: api::IMAGE_KEEP, here: image_keep, ..ANY },
-    Request { name: api::IMAGE_READ, here: image_read, ..ANY },
+    // An image is megabytes, which a connection through a relay takes a while over.
+    Request { name: api::IMAGE_KEEP, here: image_keep, wait: Some(IMAGE_WAIT), ..ANY },
+    Request { name: api::IMAGE_READ, here: image_read, wait: Some(IMAGE_WAIT), ..ANY },
     // A search runs as you type, so a device slow to answer is left out rather than waited for.
     Request { name: api::SEARCH, here: search, back: found_back, wait: Some(Duration::from_secs(4)), ..ANY },
     Request { name: api::ROUTE, here: route, ..ANY },
     Request { name: api::START_OPTIONS, here: start_options, ..ANY },
-    Request { name: api::START, here: start, there: start_there, back: started_back, ..ANY },
+    Request { name: api::START, here: start, there: start_there, back: started_back, prompt: Some("/spec/prompt"), ..ANY },
     // A fork answers as a start does, with the copy by the key it has on its device.
-    Request { name: api::SESSION_FORK, here: fork, back: started_back, ..ANY },
-    Request { name: api::SESSION_RESUME, here: resume, command: resume_is_its_users, ..ANY },
+    Request { name: api::SESSION_FORK, here: fork, back: started_back, prompt: Some("/prompt"), ..ANY },
+    Request { name: api::SESSION_RESUME, here: resume, command: resume_is_its_users, prompt: Some("/prompt"), ..ANY },
     Request { name: api::SESSION_MODEL, here: switch_model, ..ANY },
     Request { name: api::SESSION_EFFORT, here: switch_effort, ..ANY },
     Request { name: api::SESSION_MODE, here: switch_mode, command: mode_is_its_users, ..ANY },
@@ -396,8 +405,44 @@ fn by_device(keys: Vec<String>) -> BTreeMap<Option<String>, Vec<String>> {
 /// here are the request's to say (`there`, `back`).
 fn ask_there(peers: &Peers, req: &Request, from: &From, device: &str, own: &str, params: Value) -> Result<Value, String> {
     elsewhere(req, from)?;
-    let params = (req.there)(params, own)?;
+    let mut params = (req.there)(params, own)?;
+    carry_images(peers, req, device, &mut params)?;
     (req.back)(ask(peers, req, device, params)?, device)
+}
+
+/// Has the images a prompt for another device refers to kept there before it goes
+/// (`api::IMAGE_KEEP`), as a phone has its own: a prompt names an image as this device keeps it,
+/// `images/<hash>.<ext>`, and the session there reads it from that device's folder. An image is
+/// named by its bytes, so it's kept there under the same name and the prompt goes as it is; one
+/// kept there under another name is named so in the prompt. A prompt with another file kept here
+/// isn't sent, since nothing takes one there (`attachments::going_with`).
+fn carry_images(peers: &Peers, req: &Request, device: &str, params: &mut Value) -> Result<(), String> {
+    use crate::attachments;
+    let Some(text) = req.prompt.and_then(|at| params.pointer_mut(at)) else { return Ok(()) };
+    let keep = find(api::IMAGE_KEEP).ok_or("Codealong doesn't know how to keep images.")?;
+    carry_images_in(text, (&attachments::images_dir(), &attachments::files_dir()), &peers.name(device), |asked| ask(peers, keep, device, asked))
+}
+
+/// `carry_images` for a prompt (`text`), with the folders attachments are kept in here, the
+/// device's name, and how it's asked to keep an image.
+fn carry_images_in(text: &mut Value, (images, files): (&std::path::Path, &std::path::Path), mac: &str, mut keep: impl FnMut(Value) -> Result<Value, String>) -> Result<(), String> {
+    let Some(prompt) = text.as_str() else { return Ok(()) };
+    let going = crate::attachments::going_with_in(prompt, images, files).map_err(|name| format!("“{name}” is a file kept on this Mac, and only images go to {mac} with what you send. Attach it there, or paste what's in it."))?;
+    if going.is_empty() {
+        return Ok(());
+    }
+    let mut prompt = prompt.to_string();
+    for (reference, file) in going {
+        let bytes = kept_image(&file, api::IMAGE_MAX_BYTES)?;
+        let name = file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let asked = to_value(params::ImageKeep { name, data: data_encoding::BASE64.encode(&bytes) })?;
+        let kept: api::Kept = typed(keep(asked).map_err(|why| if why.contains(UNKNOWN) { format!("Codealong on {mac} takes images only once it's updated, so nothing was sent.") } else { why })?)?;
+        if kept.path != reference {
+            prompt = prompt.replace(&reference, &kept.path);
+        }
+    }
+    *text = Value::String(prompt);
+    Ok(())
 }
 
 /// `name` from another device, from a window here: for what asks every linked device at once
@@ -1431,6 +1476,25 @@ fn image_read(_engine: &Handle, c: &Call) -> Result<Value, String> {
     serde_json::to_value(api::Image { data: data_encoding::BASE64.encode(&bytes), mime: attachments::mime(&p.path).into() }).map_err(words)
 }
 
+/// An image a session on another device refers to (`images/<hash>.<ext>`), for a window here to
+/// show (lib.rs `serve_image`): asked of that device (`api::IMAGE_READ`) and kept here by the
+/// bytes that came (`attachments::keep_image_in`), so it's asked for once. One at a time: a
+/// conversation's images all load at once, and a device cuts off one that asks it for too much
+/// at once (peers.rs `REQUESTS_MAX`).
+pub fn image_from(engine: &Handle, peers: &Peers, device: &str, path: &str) -> Result<Vec<u8>, String> {
+    use crate::attachments;
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    // A window may have had it come while this one waited.
+    if let Some(bytes) = attachments::locate(path).and_then(|f| std::fs::read(f).ok()) {
+        return Ok(bytes);
+    }
+    let image: api::Image = typed(run_on(engine, peers, api::IMAGE_READ, Some(device), params::ImageRead { path: path.into() })?)?;
+    let bytes = data_encoding::BASE64.decode(image.data.as_bytes()).map_err(|_| "The image didn't arrive whole.".to_string())?;
+    attachments::keep_image_in(&attachments::images_dir(), &bytes).ok_or("That isn't an image a window can show.")?;
+    Ok(bytes)
+}
+
 /// An image file's bytes, when it's a file of its own (not a link, which could lead anywhere)
 /// and no bigger than `most`.
 fn kept_image(file: &std::path::Path, most: usize) -> Result<Vec<u8>, String> {
@@ -1552,6 +1616,44 @@ mod tests {
         assert!(draft_shown(found("cd", 3), Some("ab"), 7).unwrap_err().contains("changed since it was shown"));
         // More comments than were read: one past them could have changed unseen.
         assert!(draft_shown(Some(("ab".into(), 101, 100)), Some("ab"), 7).unwrap_err().contains("101 comments, more than"));
+    }
+
+    #[test]
+    fn a_prompt_for_another_device_has_its_images_kept_there_first() {
+        use crate::attachments;
+        let dirs = (crate::fixtures::scratch("carry-i"), crate::fixtures::scratch("carry-f"));
+        let png = b"\x89PNG\r\n\x1a\nshot";
+        let shot = attachments::keep_in(&dirs.0, &dirs.1, png, "shot.png").unwrap();
+        let prompt = format!("Fix the spacing here:\n{}", shot.reference());
+        let carry = |text: &str, answer: Result<Value, String>| {
+            let mut text = json!(text);
+            let mut asked = Vec::new();
+            let done = carry_images_in(&mut text, (&dirs.0, &dirs.1), "Mini", |a| {
+                asked.push(a);
+                answer.clone()
+            });
+            (done.map(|_| text), asked)
+        };
+        let kept_as = |path: &str| Ok(json!({ "reference": format!("![shot.png]({path})"), "path": path }));
+
+        // Kept there under its name here: the prompt goes as it is, and the image went whole.
+        let (sent, asked) = carry(&prompt, kept_as(&shot.path));
+        assert_eq!(sent, Ok(json!(prompt)));
+        assert_eq!(asked, vec![json!({ "name": shot.path.strip_prefix(attachments::IMAGES).unwrap(), "data": data_encoding::BASE64.encode(png) })]);
+        // Kept under another name: the prompt names it so.
+        let (sent, _) = carry(&prompt, kept_as("images/fedcba9876543210.png"));
+        assert_eq!(sent, Ok(json!("Fix the spacing here:\n![shot.png](images/fedcba9876543210.png)")));
+        // Nothing kept here to take: nothing's asked.
+        let (sent, asked) = carry("images/0123456789abcdef.png, as it has it", kept_as(&shot.path));
+        assert_eq!((sent, asked.len()), (Ok(json!("images/0123456789abcdef.png, as it has it")), 0));
+        // A Mac from before images went between Macs says so, and nothing goes.
+        let (sent, _) = carry(&prompt, Err(format!("Codealong on this device {UNKNOWN} image-keep yet; update it here.")));
+        assert_eq!(sent, Err("Codealong on Mini takes images only once it's updated, so nothing was sent.".to_string()));
+        // Another file kept here can't go, and nothing's asked.
+        let log = attachments::keep_in(&dirs.0, &dirs.1, b"line 1\n", "crash.log").unwrap();
+        let (sent, asked) = carry(&format!("{prompt}\n{}", log.reference()), kept_as(&shot.path));
+        assert!(sent.unwrap_err().starts_with("“crash.log” is a file kept on this Mac, and only images go to Mini"));
+        assert!(asked.is_empty());
     }
 
     #[test]

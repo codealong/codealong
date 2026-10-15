@@ -47,13 +47,14 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { delivered, dismiss, inRecord, useAhead, type Ahead } from '../ahead';
 import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
+import { shortOf } from '../devices';
 import { putBack } from '../drafts';
 import { snippet } from '../todos';
 import { absolute, agoPhrase } from '../format';
 import type { HostedStream, Question, Session, Status, TranscriptItem, TranscriptPage } from '../types';
 import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
-import { DescriptionView } from './DescriptionEditor';
+import { DescriptionView, ImagesFrom } from './DescriptionEditor';
 import { FollowUpContext, Link, linked, Markdown } from './Markdown';
 import { cx, Icon, Rich, StatusGlyph } from './primitives';
 import { QuestionList } from './QuestionList';
@@ -833,80 +834,82 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   return (
     <RunContext.Provider value={run ?? null}>
       <FollowUpContext.Provider value={answeredBelow ? followUp : null}>
-        <ThreadFind host={{ key: s.key, scroller, roots: FIND_IN, ready: loaded, read: reading.current, before, pageAt, show }}>
-          <div className="ca-thread" ref={scroller} onScroll={onScroll}>
-            {/* Takes no room: it floats over the top of the view while it has a prompt to show. */}
-            <div className="ca-thread-pin">
-              {pinned && (
-                <button
-                  type="button"
-                  className="ca-thread-pinned"
-                  title="Go to this prompt (⌘⇧↑)"
-                  // The cursor stays in the box below.
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => goTo(pinned.key)}
-                >
-                  <span className="ca-thread-pintext">{pinned.text}</span>
-                  <Icon name="arrow-up" size={12} />
-                </button>
+        <ImagesFrom.Provider value={shortOf(s.key)}>
+          <ThreadFind host={{ key: s.key, scroller, roots: FIND_IN, ready: loaded, read: reading.current, before, pageAt, show }}>
+            <div className="ca-thread" ref={scroller} onScroll={onScroll}>
+              {/* Takes no room: it floats over the top of the view while it has a prompt to show. */}
+              <div className="ca-thread-pin">
+                {pinned && (
+                  <button
+                    type="button"
+                    className="ca-thread-pinned"
+                    title="Go to this prompt (⌘⇧↑)"
+                    // The cursor stays in the box below.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => goTo(pinned.key)}
+                  >
+                    <span className="ca-thread-pintext">{pinned.text}</span>
+                    <Icon name="arrow-up" size={12} />
+                  </button>
+                )}
+              </div>
+              {!loaded && <Reading what="Reading the conversation…" place="session" late />}
+              {loaded && before == null && items.length > 0 && <div className="ca-thread-start">The start of the session</div>}
+              {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
+              {rows.map((r) => {
+                if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} onOpen={askHere} />;
+                const it = r.item;
+                if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
+                if (it.kind === 'note') {
+                  return (
+                    <div key={keyOf(it)} className="ca-thread-note">
+                      {it.text}
+                    </div>
+                  );
+                }
+                const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
+                // What Codealong or another session sent says so, apart from yours and the agent's.
+                const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? peerLabel(it) : s.account;
+                return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={label} head={headings.headed.has(keyOf(it))} onPutBack={again} onMenu={onMenu} />;
+              })}
+              {showing.map((a) => (
+                <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
+              ))}
+              {streaming?.text && (
+                <Said
+                  item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }}
+                  now={now}
+                  label={`${s.account} · writing`}
+                  // Yours on their way are above it.
+                  head={showing.length > 0 || heads(headings.last, 'agent', now)}
+                  onMenu={onMenu}
+                />
+              )}
+              {streaming && !streaming.text && streaming.tool && !pending && (
+                <div className="ca-thread-note">
+                  <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
+                </div>
+              )}
+              {loaded && items.length === 0 && showing.length === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
+              {s.status === 'needs' && !pending && s.excerpt && (
+                <div className="ca-thread-tool is-asks">
+                  <div className="ca-thread-askrow">
+                    <span>
+                      <Rich text={s.excerpt} now={now} />
+                    </span>
+                    {/* A question in its reply is answered in the box below; anything else where it runs. */}
+                    {!s.asks && !answeredBelow && (
+                      <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
+                        <Icon name="arrow-up-right" size={13} />
+                        <span>Open to answer</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-            {!loaded && <Reading what="Reading the conversation…" place="session" late />}
-            {loaded && before == null && items.length > 0 && <div className="ca-thread-start">The start of the session</div>}
-            {loaded && before != null && <div className="ca-thread-start">Loading earlier…</div>}
-            {rows.map((r) => {
-              if (r.kind === 'tools') return <ToolRun key={keyOf(r.calls[0].item)} calls={r.calls} stateOf={stateOf} onOpen={askHere} />;
-              const it = r.item;
-              if (it.kind === 'tool') return <ToolLine key={keyOf(it)} item={it} result={r.result} state={stateOf(it)} onOpen={askHere} />;
-              if (it.kind === 'note') {
-                return (
-                  <div key={keyOf(it)} className="ca-thread-note">
-                    {it.text}
-                  </div>
-                );
-              }
-              const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
-              // What Codealong or another session sent says so, apart from yours and the agent's.
-              const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? peerLabel(it) : s.account;
-              return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={label} head={headings.headed.has(keyOf(it))} onPutBack={again} onMenu={onMenu} />;
-            })}
-            {showing.map((a) => (
-              <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
-            ))}
-            {streaming?.text && (
-              <Said
-                item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }}
-                now={now}
-                label={`${s.account} · writing`}
-                // Yours on their way are above it.
-                head={showing.length > 0 || heads(headings.last, 'agent', now)}
-                onMenu={onMenu}
-              />
-            )}
-            {streaming && !streaming.text && streaming.tool && !pending && (
-              <div className="ca-thread-note">
-                <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
-              </div>
-            )}
-            {loaded && items.length === 0 && showing.length === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
-            {s.status === 'needs' && !pending && s.excerpt && (
-              <div className="ca-thread-tool is-asks">
-                <div className="ca-thread-askrow">
-                  <span>
-                    <Rich text={s.excerpt} now={now} />
-                  </span>
-                  {/* A question in its reply is answered in the box below; anything else where it runs. */}
-                  {!s.asks && !answeredBelow && (
-                    <button type="button" className="ca-btn ca-btn--secondary ca-btn--sm" onClick={onOpen}>
-                      <Icon name="arrow-up-right" size={13} />
-                      <span>Open to answer</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </ThreadFind>
+          </ThreadFind>
+        </ImagesFrom.Provider>
       </FollowUpContext.Provider>
     </RunContext.Provider>
   );

@@ -1329,8 +1329,9 @@ Codealong's source is any checkout a scan finds whose `src-tauri/tauri.conf.json
 a clone under another name or a fork counts, and its worktrees carry a mark the phone reads too.
 When it's in none of your projects the panel says so, with a button that adds a `[[projects]]`
 table named Codealong for its repo (or its folder, with no remote); its worktrees come onto the
-board, and the panel moves onto them. When no checkout is found, it says to clone
-github.com/codealong/codealong into a folder Codealong searches. `codealong --snapshot --improve`
+board, and the panel moves onto them. When another of your Macs has the source and this one
+doesn't, the panel goes there, and the pictures go with the prompt. When no checkout is found, it
+says to clone github.com/codealong/codealong into a folder Codealong searches. `codealong --snapshot --improve`
 prints where a session would go. On the iPhone, the button at the top of the list does the same
 with a picture of the phone's screen, kept on the Mac the session starts on.
 
@@ -2030,7 +2031,10 @@ name; work on a device that's away stays, faded, as it was when last seen; the s
 narrow the views to the ones you pick. A session on another device shows its whole conversation in
 its panel; you can mark it seen or snooze it from here, and when that device lets its linked devices
 act on its sessions (remote control, off by default) send it a message, answer an approval or mark
-it done. Devices find each other on your tailnet when Tailscale runs, and reach linked devices
+it done. The images you paste into a message or a start for another device go there with it, and
+the images in another device's conversations come from it as they show; any other file you attach
+stays on the Mac you attached it on, so a message with one for another device isn't sent. Devices
+find each other on your tailnet when Tailscale runs, and reach linked devices
 anywhere through iroh; they talk directly, encrypted end to end, with no server of Codealong's in
 between. You link a device once: on your tailnet, both show the same six digits and you say yes on
 the other one; elsewhere, with a link code made on one device and entered on the other. Each

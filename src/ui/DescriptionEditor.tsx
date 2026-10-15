@@ -4,7 +4,7 @@
 // them from the Finder, or pick them with Attach, and they go in at the cursor. Changes save as
 // you type.
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, Fragment, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { imageUrl, openAttachment, openUrl } from '../api';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { attachmentsIn, inlines, insertAttachments, pieces, withoutAttachment } from '../todos';
@@ -111,15 +111,21 @@ export function AttachmentStrip({ items, onRemove }: { items: Attachment[]; onRe
   );
 }
 
+/** The device the images in what's shown are kept on, by its short id: a session on another
+ *  device refers to the images that device keeps. None for this one. */
+export const ImagesFrom = createContext<string | null>(null);
+
 /** A kept image in text: a click opens it. One that isn't on this Mac (it was sent from another
- *  device, or cleared since) says so in place of a broken picture. */
+ *  device, or cleared since), or that its device didn't send, says so in place of a broken
+ *  picture. */
 export function KeptImage({ name, alt }: { name: string; alt: string }) {
+  const from = useContext(ImagesFrom);
   const [missing, setMissing] = useState(false);
   if (missing) {
     return (
       <span className="ca-desc-noimg">
         <Icon name="photo" size={13} />
-        Image not on this Mac
+        {from ? 'Image didn’t come from its Mac' : 'Image not on this Mac'}
       </span>
     );
   }
@@ -133,7 +139,7 @@ export function KeptImage({ name, alt }: { name: string; alt: string }) {
         open(`images/${name}`);
       }}
     >
-      <img src={imageUrl(name)} alt={alt} draggable={false} onError={() => setMissing(true)} />
+      <img src={imageUrl(name, from)} alt={alt} draggable={false} onError={() => setMissing(true)} />
     </button>
   );
 }

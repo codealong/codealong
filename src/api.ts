@@ -952,9 +952,12 @@ export async function openAttachment(path: string): Promise<void> {
 /** A browser preview of the UI (scripts/preview.sh), where Tauri's IPC is a stand-in. */
 export const inPreview = typeof window !== 'undefined' && '__CODEALONG_PREVIEW__' in window;
 
-/** Where a window loads a kept image from. A preview serves them from ./images. */
-export function imageUrl(name: string): string {
-  return inTauri && !inPreview ? `codealong-image://localhost/${name}` : `./images/${name}`;
+/** Where a window loads a kept image from. One a session on another device refers to is that
+ *  device's (`from`, its short id), which the engine asks for when it isn't here too
+ *  (lib.rs `serve_image`). A preview serves them from ./images. */
+export function imageUrl(name: string, from: string | null = null): string {
+  if (!inTauri || inPreview) return `./images/${name}`;
+  return `codealong-image://localhost/${name}${from ? `?from=${encodeURIComponent(from)}` : ''}`;
 }
 
 /** Calls `cb` with the paths of files dropped on this window and where they landed. */

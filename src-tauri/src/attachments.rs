@@ -20,6 +20,11 @@
 //! - The Claude app's and Codex's new-session links take text only (their `file` parameters are
 //!   dropped or go elsewhere), so the agent gets the path and opens the file itself.
 //!
+//! A prompt for a session on another device, or a start there, takes its images to that device
+//! first (`going_with_in`, actions.rs `carry_images`), which keeps each under the name it has here,
+//! being named by its bytes; any other file stays here, so a prompt with one isn't sent. A
+//! window shows another device's images by asking it for them (lib.rs `serve_image`).
+//!
 //! A session's record has a prompt as it went out, so its conversation reads each path as the
 //! reference it was (`written_in`). The images a prompt came with as image parts (sent that way
 //! from here, pasted into a terminal, or attached in a harness's own app) are in the record
@@ -421,6 +426,23 @@ pub fn read_images_in(text: &str, images: &Path, files: &Path, style: Style) -> 
     (out, read)
 }
 
+/// What goes ahead of a prompt for another device (actions.rs `carry_images`): each image it
+/// refers to that's kept here, by its reference (`images/<hash>.<ext>`) and its file, in order
+/// and without repeats. A file kept here that isn't an image can't go (a device keeps only images
+/// for another: `image-keep`), so one is the error, by its name. A reference to nothing kept here
+/// is left for the device asked, which may keep it itself.
+pub fn going_with_in(text: &str, images: &Path, files: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    let mut going = Vec::new();
+    for reference in referenced(text) {
+        let Some(file) = locate_in(images, files, &reference).filter(|f| f.is_file()) else { continue };
+        match reference.strip_prefix(FILES) {
+            Some(rest) => return Err(rest.split_once('/').map_or(rest, |(_, name)| name).to_string()),
+            None => going.push((reference, file)),
+        }
+    }
+    Ok(going)
+}
+
 /// Text that went out with full paths (`Style::Path`) as a window writes it again, each kept
 /// file by its `images/…` or `files/…` reference, so it shows as it did when you sent it. Any
 /// other path under the folders (a name Codealong wouldn't have made) stays as it is.
@@ -803,5 +825,19 @@ mod tests {
         assert_eq!(text, format!("Check this:\nand ![missing]({}/{missing})", images.display()));
         let name = kept.path.strip_prefix(IMAGES).unwrap();
         assert_eq!(read, vec![(name.to_string(), "image/png".to_string(), data_encoding::BASE64.encode(PNG))]);
+    }
+
+    #[test]
+    fn a_prompt_for_another_device_takes_the_images_kept_here() {
+        let (images, files) = (crate::fixtures::scratch("attach-going-i"), crate::fixtures::scratch("attach-going-f"));
+        let shot = keep_in(&images, &files, PNG, "shot.png").unwrap();
+        // Twice in the text, and one the device asked keeps, not this one: it goes once, alone.
+        let elsewhere = "images/0123456789abcdef.jpg";
+        let prompt = format!("Fix this:\n{}\nas in {elsewhere}, and ![again]({})", shot.reference(), shot.path);
+        assert_eq!(going_with_in(&prompt, &images, &files), Ok(vec![(shot.path.clone(), images.join(shot.path.strip_prefix(IMAGES).unwrap()))]));
+        assert_eq!(going_with_in("Nothing attached", &images, &files), Ok(vec![]));
+        // Any other file kept here can't go, and says which.
+        let log = keep_in(&images, &files, b"line 1\n", "Crash report.log").unwrap();
+        assert_eq!(going_with_in(&format!("{}\n{}", shot.reference(), log.reference()), &images, &files), Err("Crash-report.log".to_string()));
     }
 }

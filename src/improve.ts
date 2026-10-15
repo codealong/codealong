@@ -51,20 +51,13 @@ export function withCodealongProject(cfg: Config, source: ImproveSource): Config
 }
 
 /** Codealong's source among your other Macs' worktrees (the devices' lanes, each id `@<short>:…`),
- *  to say where it is when this Mac has none: a main checkout first, a shown one before a hidden
- *  one, a connected Mac's first. The panel never starts there by itself: the pictures are kept on
- *  this Mac, and a session there couldn't read them (`improveRemoteHold`). */
+ *  for the panel to go to when this Mac has none: a main checkout first, a shown one before a
+ *  hidden one, a connected Mac's first. The pictures go there with the prompt (actions.rs
+ *  `carry_images`). */
 export function remoteImproveLane(lanes: Lane[]): Lane | null {
   const sources = lanes.filter((l) => l.codealong && !l.startsChats);
   const pick = (from: Lane[]) => from.find((l) => l.origin === 'main' && !l.hidden) ?? from.find((l) => !l.hidden) ?? from[0] ?? null;
   return pick(sources.filter((l) => l.device?.online)) ?? pick(sources);
-}
-
-/** Why a start on another Mac with the pictures can't go: they're this Mac's files. Null when
- *  there are no pictures, or the start is here. */
-export function improveRemoteHold(shots: Attachment[], mac: string | null): string | null {
-  if (!mac || shots.length === 0) return null;
-  return `The pictures are kept on this Mac, and a session on ${mac} can’t read them. Take them off the strip to start there, or start here.`;
 }
 
 /** What the panel says when Codealong's source isn't on this Mac's board in one of your projects:
@@ -76,7 +69,7 @@ export function improveWords(improve: Improve | undefined, loading: boolean, rem
   if (improve?.source) return { text: `Codealong’s source is in ${improve.source.root}, in none of your projects. A project for it puts its worktrees on the board, where this session starts.`, add: true };
   if (remote) {
     const mac = remote.device?.name ?? 'another Mac';
-    return { text: `Codealong’s source is on ${mac}, not on this Mac, and the pictures of the windows are this Mac’s. Start there from ${mac}, or clone github.com/codealong/codealong into a folder Codealong searches here (Settings › General lists them).`, add: false };
+    return { text: `Codealong’s source is on ${mac}, not on this Mac, so the session starts there and the pictures go with it. To start here, clone github.com/codealong/codealong into a folder Codealong searches (Settings › General lists them).`, add: false };
   }
   return { text: 'Codealong’s source isn’t in a folder Codealong searches. Clone github.com/codealong/codealong into one (Settings › General lists them), and a session can improve it from here.', add: false };
 }

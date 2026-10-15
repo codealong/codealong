@@ -52,7 +52,7 @@ import {
   todoOp,
   type QuickOpen,
 } from '../api';
-import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveRemoteHold, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
+import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
 import { boardAhead, boardView, observe, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, shortOf } from '../devices';
@@ -692,22 +692,31 @@ export function Quick() {
   const withShots = (words: string) => (improve ? improvePrompt(words, improve.shots) : words);
   // Improving with Codealong's source on none of this Mac's worktrees: the board says it's in
   // none of your projects (improve.ts), and a project can be made for it, after which the board
-  // lists its worktrees and the panel moves onto them, once; or another of your Macs has it,
-  // which the note says. The panel never starts there by itself: the pictures are this Mac's
-  // files, which a session there couldn't read, so a start there with them is held.
+  // lists its worktrees and the panel moves onto them, once; or another of your Macs has it, and
+  // the panel moves there once the board says this Mac has none, the pictures going with the
+  // prompt (actions.rs `carry_images`).
   const remoteSource = improve && !board?.improve?.laneId ? remoteImproveLane(devices?.lanes ?? []) : null;
   const improveNote = improve ? improveWords(board?.improve, !board || board.loading, remoteSource) : null;
   const improveSource = board?.improve?.source ?? null;
   // The source's worktree is taken from the board once per open: a worktree or Mac you pick
-  // after that stands.
+  // after that stands. Another Mac's waits for the board, which may yet find one here.
   const improveFollowed = useRef(false);
+  const remoteSourceId = board && !board.loading && !board.improve?.source ? (remoteSource?.id ?? null) : null;
+  const remoteSourceProject = remoteSource?.project ?? null;
   useEffect(() => {
-    if (!improve || improveFollowed.current || !board?.improve?.laneId) return;
-    improveFollowed.current = true;
-    setLaneId(board.improve.laneId);
-    setDevice(null);
-    if (board.improve.project) setProject(board.improve.project);
-  }, [improve, board?.improve?.laneId, board?.improve?.project]);
+    if (!improve || improveFollowed.current) return;
+    if (board?.improve?.laneId) {
+      improveFollowed.current = true;
+      setLaneId(board.improve.laneId);
+      setDevice(null);
+      if (board.improve.project) setProject(board.improve.project);
+    } else if (remoteSourceId) {
+      improveFollowed.current = true;
+      setLaneId(remoteSourceId);
+      setDevice(shortOf(remoteSourceId));
+      if (remoteSourceProject) setProject(remoteSourceProject);
+    }
+  }, [improve, board?.improve?.laneId, board?.improve?.project, remoteSourceId, remoteSourceProject]);
   const addCodealongProject = () => {
     if (!improveSource) return;
     const source = improveSource;
@@ -1127,12 +1136,6 @@ export function Quick() {
     const targetEffort = sgChoice ? sgChoice.effortNow : effortNow;
     const targetMakesWorktree = sgChoice ? sgChoice.makesWorktree : harnessMakesWorktree;
     if (!where || !targetAccount || !targetPlace) return;
-    // Improve Codealong's pictures are this Mac's files: a session on another Mac can't read them.
-    const held = improve ? improveRemoteHold(improve.shots, shortOf(where.id) ? (deviceInfo?.name ?? 'another Mac') : null) : null;
-    if (held) {
-      setError(held);
-      return;
-    }
     const newTree = targetMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     if (!sgChoice && choice && placeNow) {
       remember(choice, placeNow);

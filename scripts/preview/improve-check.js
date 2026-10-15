@@ -3,7 +3,8 @@
 // the engine took of the windows show as attachments and go into the prompt after what you
 // typed, one removed stays out; with Codealong's source in no project the panel says so and its
 // button saves config.toml with a Codealong project for the source; with no source it says where
-// to clone one; and an ordinary open after is itself again.
+// to clone one; with it only on another Mac the panel goes there and starts there with the
+// pictures; and an ordinary open after is itself again.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/improve-check.js
 // The board needs a worktree in a project and an account that can start.
 (function () {
@@ -67,6 +68,29 @@
       check('without the source it says where to clone it', box().textContent.indexOf('github.com/codealong/codealong') >= 0, box().textContent);
       check('and has no button', !q('button', box()));
       check('and no worktree to start in', compose().classList.contains('is-disabled') && q('.ca-quick-bar').textContent.indexOf('No worktree') >= 0, compose().textContent.slice(0, 80));
+
+      // The source on another Mac and none here: the panel goes there and starts there, the
+      // pictures going with the prompt (actions.rs `carry_images`).
+      var devices = await window.__TAURI_INTERNALS__.invoke('devices');
+      var mini = { key: 'ab'.repeat(32), short: 'abcdef0123', name: 'Mini', online: true, via: 'tailscale', since: Date.now(), lastSeen: null, remoteControl: true, app: '0.1.0', linkedBack: true, loading: false, usage: [], color: 'teal', kind: 'mac' };
+      var there = Object.assign({}, lane, { id: '@' + mini.short + ':/Users/sam/codealong', codealong: true, origin: 'main', hidden: false, startsChats: false, sessions: [], device: { name: mini.name, short: mini.short, color: mini.color, online: true, lastSeen: null } });
+      // The panel reads your devices as it opens, so they're answered from here meanwhile.
+      var withMini = Object.assign({}, devices, { enabled: true, devices: [mini], lanes: [there] });
+      var invoke = window.__TAURI_INTERNALS__.invoke;
+      window.__TAURI_INTERNALS__.invoke = function (cmd) { return cmd === 'devices' ? Promise.resolve(withMini) : invoke.apply(this, arguments); };
+      window.__emit('devices', withMini);
+      window.__quickOpen({ improve: { shots: SHOTS } }, Object.assign({}, board, { improve: {} }));
+      await until(function () { return box() && box().textContent.indexOf('Mini') >= 0; }, 5000, 'the note about the source on Mini');
+      check('the note says the session starts on the Mac with the source', box().textContent.indexOf('starts there and the pictures go with it') >= 0, box().textContent);
+      type(input(), 'Make the bar taller.');
+      await until(function () { return compose() && !compose().classList.contains('is-disabled'); }, 10000, 'a start on Mini that’s ready');
+      starts = calls('start_from_quick').length;
+      key(input(), { key: 'Enter', metaKey: true });
+      await until(function () { return calls('start_from_quick').length > starts; }, 5000, '⌘⏎ starting on Mini');
+      spec = calls('start_from_quick').pop()[1].spec;
+      check('the start is in Mini’s worktree, with the pictures', spec.laneId === there.id && spec.prompt.indexOf(SHOTS[0].path) >= 0, spec.laneId + ' ' + JSON.stringify(spec.prompt));
+      window.__TAURI_INTERNALS__.invoke = invoke;
+      window.__emit('devices', devices);
 
       // An ordinary open is itself again.
       window.__quickOpen({}, board);
