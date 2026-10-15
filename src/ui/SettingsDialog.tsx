@@ -849,7 +849,7 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
     id: 'quick_panel',
     label: 'Quick panel suggestions',
     does: 'As you type, suggests the session to send it to or the worktree to start it in; ⏎ does the first. Warns when a running session may already be on the same work, puts the sessions it thinks you mean first in the search, and, when Auto starts Claude Code, a smaller model for a small change.',
-    sends: 'What you type, and the project’s session titles and latest lines, branches, pull request titles and worktree names. Once each time you pause typing.',
+    sends: 'What you type, with the images you paste into it, and the project’s session titles and latest lines, branches, pull request titles and worktree names. Once each time you pause typing.',
   },
   {
     id: 'sessions',
@@ -861,7 +861,7 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
     id: 'todos',
     label: 'Todos',
     does: 'Links a new session to the todo it’s for when that’s clear. Says when a todo’s linked work looks done, with Mark done and Not yet. Suggests a todo’s project, labels and the todos it waits on as chips you click; nothing changes until you do.',
-    sends: 'Your open todos’ titles and descriptions, your label and project names, new sessions’ titles and first prompts, and linked sessions’ latest replies with their pull requests’ titles and states.',
+    sends: 'Your open todos’ titles and descriptions, the images in a todo you’re writing, your label and project names, new sessions’ titles and first prompts, and linked sessions’ latest replies with their pull requests’ titles and states.',
   },
   {
     id: 'pull_requests',
@@ -997,7 +997,7 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
           <span>Model</span>
           <code className="ca-ic ca-jev-model">{jev.model}</code>
           <small>
-            <code className="ca-ic">jev-latest</code> follows TypeSafe’s newest release. To stay on one version, set <code className="ca-ic">model</code> under <code className="ca-ic">[jev]</code> in config.toml.
+            <code className="ca-ic">jev-latest</code> follows TypeSafe’s newest stable release, and <code className="ca-ic">jev-preview</code> its newest. To change it, or stay on one version, set <code className="ca-ic">model</code> under <code className="ca-ic">[jev]</code> in config.toml.
           </small>
         </div>
       </fieldset>

@@ -482,7 +482,7 @@ improve = "Option+Cmd+,"            # the quick panel to improve Codealong itsel
 main_window = "Option+Cmd+;"        # Codealong's window you were in last; pressed there, hides Codealong
 
 [jev]                          # TypeSafe's Jev, each feature off until turned on (Settings › Jev)
-model = "jev-latest"
+model = "jev-latest"           # TypeSafe's newest stable release; jev-preview its newest, or a version (jev-1.14.0)
 quick_panel = false            # suggestions as you type in the quick panel
 sessions = false               # how each turn ended: asks you, stuck, landed, finished, risk
 todos = false                  # links sessions to todos, done hints, new todos' labels

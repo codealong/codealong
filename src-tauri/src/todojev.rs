@@ -321,6 +321,8 @@ pub struct Suggested {
 /// The request, and the label and todo ids its `label_N` and `dep_N` questions stand for.
 pub struct SuggestRequest {
     pub body: Value,
+    /// The images in the todo's description, sent with it (`suggest`).
+    images: jev::Images,
     projects: bool,
     labels: Vec<String>,
     deps: Vec<String>,
@@ -334,7 +336,8 @@ pub fn suggest(board: &Board, id: Option<&str>, title: &str, description: &str, 
         anyhow::bail!("Todo suggestions are off.");
     }
     let projects: Vec<String> = board.projects.iter().map(|p| p.name.clone()).filter(|p| p != crate::board::ELSEWHERE).collect();
-    let req = suggest_request(cfg.jev.model.trim(), id, title, description, project, &projects, &board.labels, &board.todos, board).ok_or_else(|| anyhow::anyhow!("Nothing to suggest."))?;
+    let mut req = suggest_request(cfg.jev.model.trim(), id, title, description, project, &projects, &board.labels, &board.todos, board).ok_or_else(|| anyhow::anyhow!("Nothing to suggest."))?;
+    req.images.attach(&mut req.body);
     Ok(suggest_read(&req, &jev::ask(&req.body)?))
 }
 
@@ -381,12 +384,15 @@ pub fn suggest_request(model: &str, id: Option<&str>, title: &str, description: 
     }
     let mut todo = Map::new();
     todo.insert("title".into(), json!(clip(title, 200)));
-    let d = clip(&plain_description(description), 800);
+    // Its images go where they are in it; a todo you're writing is often a screenshot and a line.
+    let mut images = jev::Images::default();
+    let d = clip(&plain_description(&images.swap(description)), 800);
     if !d.is_empty() {
         todo.insert("description".into(), json!(d));
     }
     Some(SuggestRequest {
         body: jev::body(model, json!({ "todo": Value::Object(todo) }), Value::Object(questions)),
+        images,
         projects: ask_project,
         labels: label_ids,
         deps: deps.iter().map(|t| t.id.clone()).collect(),
@@ -565,5 +571,13 @@ mod tests {
     #[test]
     fn descriptions_lose_their_images_and_keep_link_text() {
         assert_eq!(plain_description("See ![shot](images/a.png) and [the doc](files/x/doc.pdf) now"), "See  and the doc now");
+    }
+
+    #[test]
+    fn a_new_todos_images_go_where_they_are_in_its_description() {
+        let b = board(vec![lane("/a", "Acme", vec![], None), lane("/b", "Blog", vec![], None)]);
+        let projects = vec!["Acme".to_string(), "Blog".to_string()];
+        let req = suggest_request("m", None, "Bar overlaps", "Like this ![image](images/0123456789abcdef.png)\n[the log](files/x/a.log)", "", &projects, &[], &[], &b).unwrap();
+        assert_eq!(req.body["state"]["todo"]["description"], "Like this image-0123456789abcdef the log");
     }
 }

@@ -310,21 +310,14 @@ pub fn leads_with_link(text: &str) -> bool {
     references(text).iter().any(|r| markdown_span(text, r.0, r.1).is_some_and(|(from, _)| from == 0))
 }
 
-/// The text with each attachment as the agent should get it.
-pub fn expand_in(text: &str, images: &Path, files: &Path, style: Style) -> String {
+/// The text with each reference replaced as `with` says: `with(start, end, kind, rest)` gives
+/// the span to replace (the reference, or its whole `![…](…)`) and what goes there, or none to
+/// leave it.
+fn replace(text: &str, mut with: impl FnMut(usize, usize, Kind, &str) -> Option<(usize, usize, String)>) -> String {
     let mut out = String::with_capacity(text.len());
     let mut last = 0;
     for (start, end, kind, rest) in references(text) {
-        let full = match kind {
-            Kind::Image => images.join(rest),
-            Kind::File => files.join(rest),
-        };
-        let full = full.to_string_lossy().to_string();
-        let (from, to, with) = match (style, markdown_span(text, start, end)) {
-            (Style::Mention, Some((from, to))) => (from, to, format!("@\"{full}\"")),
-            (Style::Mention, None) => (start, end, format!("@\"{full}\"")),
-            (Style::Path, _) => (start, end, full),
-        };
+        let Some((from, to, with)) = with(start, end, kind, rest) else { continue };
         if from < last {
             continue;
         }
@@ -334,6 +327,31 @@ pub fn expand_in(text: &str, images: &Path, files: &Path, style: Style) -> Strin
     }
     out.push_str(&text[last..]);
     out
+}
+
+/// The text with each attachment as the agent should get it.
+pub fn expand_in(text: &str, images: &Path, files: &Path, style: Style) -> String {
+    replace(text, |start, end, kind, rest| {
+        let full = match kind {
+            Kind::Image => images.join(rest),
+            Kind::File => files.join(rest),
+        };
+        let full = full.to_string_lossy().to_string();
+        Some(match (style, markdown_span(text, start, end)) {
+            (Style::Mention, Some((from, to))) => (from, to, format!("@\"{full}\"")),
+            (Style::Mention, None) => (start, end, format!("@\"{full}\"")),
+            (Style::Path, _) => (start, end, full),
+        })
+    })
+}
+
+/// The text with each image in it, its whole `![…](…)` when it's written so, replaced by what
+/// `with` gives for the image's name (`<hash>.<ext>`). Files stay as they are.
+pub fn swap_images(text: &str, mut with: impl FnMut(&str) -> String) -> String {
+    replace(text, |start, end, kind, rest| {
+        let (from, to) = markdown_span(text, start, end).unwrap_or((start, end));
+        (kind == Kind::Image).then(|| (from, to, with(rest)))
+    })
 }
 
 pub fn expand(text: &str, style: Style) -> String {
@@ -569,6 +587,19 @@ mod tests {
             expand_in("[a.log](files/0123456789abcdef/a.log)", images, Path::new("/f"), Style::Path),
             "[a.log](/f/0123456789abcdef/a.log)"
         );
+    }
+
+    #[test]
+    fn images_are_swapped_whole_and_files_left() {
+        let text = "Fix ![image](images/0123456789abcdef.png) like images/fedcba9876543210.jpg, see [a.log](files/0123456789abcdef/a.log)";
+        let mut seen = Vec::new();
+        let out = swap_images(text, |name| {
+            seen.push(name.to_string());
+            format!("<{}>", seen.len())
+        });
+        assert_eq!(out, "Fix <1> like <2>, see [a.log](files/0123456789abcdef/a.log)");
+        assert_eq!(seen, ["0123456789abcdef.png", "fedcba9876543210.jpg"]);
+        assert_eq!(swap_images("no images here", |_| unreachable!()), "no images here");
     }
 
     #[test]

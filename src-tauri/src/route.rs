@@ -7,7 +7,8 @@
 //! Jev reads questions literally and is weak at dates and numbers, so times go in as words
 //! ("5 minutes ago") and each question asks one plain thing.
 //!
-//! The request goes through jev.rs, which holds the key.
+//! The request goes through jev.rs, which holds the key. Images pasted into what you type go
+//! with it, each where it was in the text (`jev::Images`).
 
 use std::collections::{BTreeMap, HashSet};
 use std::time::Instant;
@@ -44,6 +45,8 @@ pub struct Request {
     lane_repos: Vec<String>,
     /// The repos what's typed names (`named_repos`), by `<project>/<repo>`.
     named: Vec<String>,
+    /// The images pasted into what's typed, sent with it (`route`).
+    images: crate::jev::Images,
 }
 
 /// Sessions that could already be doing the work: running, and not waiting on you.
@@ -226,6 +229,9 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
         json!("None of these sessions: the message asks for new work, or names no session listed here."),
     );
 
+    let mut images = crate::jev::Images::default();
+    let message = images.swap(text);
+
     let actions = json!({
         "send": "The message is for one of the sessions in `sessions`: it continues, answers, corrects, redirects or follows up on that session's work, or asks that session a question.",
         "start": "The message asks for work that no session in `sessions` is doing, so a new session should start on it.",
@@ -236,7 +242,7 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
     let body = json!({
         "model": model,
         "state": {
-            "message": text,
+            "message": message,
             "sessions": Value::Object(session_cards),
         },
         "questions": {
@@ -278,6 +284,7 @@ pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) 
         lanes: lanes.iter().map(|l| l.id.clone()).collect(),
         lane_repos: lanes.iter().map(|l| format!("{}/{}", l.project, l.repo)).collect(),
         named: named_repos(text, &lanes),
+        images,
     })
 }
 
@@ -401,8 +408,9 @@ pub fn suggest(board: &Board, project: &str, text: &str) -> Result<Route> {
 
 /// Routes what you typed: builds the request, asks Jev, reads the answer.
 pub fn route(board: &Board, cfg: &crate::config::Config, project: &str, text: &str) -> Result<Route> {
-    let req = request(board, project, text, cfg.jev.model.trim(), crate::util::now_ms())?;
+    let mut req = request(board, project, text, cfg.jev.model.trim(), crate::util::now_ms())?;
     let started = Instant::now();
+    req.images.attach(&mut req.body);
     let response = crate::jev::ask(&req.body)?;
     let route = read(&req, &response, started.elapsed().as_millis() as u64)?;
     let habit = route.repos.first().map(|r| crate::starts::habit(&r.id)).unwrap_or_default();
@@ -477,6 +485,12 @@ mod tests {
         // Only running sessions that aren't waiting on you could already be doing it.
         let dup = req.body["questions"]["duplicate"]["criteria"].as_object().unwrap();
         assert_eq!(dup.keys().collect::<Vec<_>>(), vec!["none", "s1", "s2"]);
+    }
+
+    #[test]
+    fn a_pasted_image_goes_where_it_was_in_the_message() {
+        let req = request(&board(), "Acme", "make it look like ![image](images/0123456789abcdef.png) please", "jev-1.14.0", NOW).unwrap();
+        assert_eq!(req.body["state"]["message"], "make it look like image-0123456789abcdef please");
     }
 
     #[test]

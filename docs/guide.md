@@ -886,7 +886,8 @@ With Jev on for todos (Settings › Jev, `[jev] todos`), a session that starts o
 linked to the open todo it's for when Jev is sure; a todo whose linked sessions ended their turns,
 or whose PR merged, shows Looks done when Jev reads it as finished (Mark done, or Not yet until
 something moves on); and a todo's panel suggests its project, labels and the todos it waits on as
-chips you click. Nothing is asked twice: what was asked is kept in `jev-todos.json`.
+chips you click, reading the screenshots in the todo's description too. Nothing is asked twice:
+what was asked is kept in `jev-todos.json`.
 
 ### Canvas
 
@@ -1102,6 +1103,9 @@ search), saying it's working until Jev answers. At the next key the last answer'
 where they were, dimmed and without keys, doing nothing until Jev answers again, and the group only
 grows while you type, so the rows under it hold still. Jev never picks the model: a new session starts on the one the start menu shows. The API key stays in
 the login keychain. What you type, repo names and session titles and latest lines go to TypeSafe.
+Images you paste go too, each where it is in the text, so a screenshot can say which app or
+session you mean: up to four, scaled down to what Jev takes (padded out when they're tiny). When
+TypeSafe won't take one, Jev answers from the words alone.
 
 #### How a prompt gets to a session
 
