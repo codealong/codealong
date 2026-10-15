@@ -59,5 +59,5 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
   // it is, not as last drawn: a held key can repeat before the menu redraws.
   const stepEffort = (delta: -1 | 1) => setEffort((e) => effortStep(efforts, e, delta));
 
-  return { ...chosen, accounts, groups, models, efforts, pick, agents, pickAgent, pickPlace, stepEffort };
+  return { ...chosen, accounts, groups, models, efforts, pick, agents, first, pickAgent, pickPlace, stepEffort };
 }

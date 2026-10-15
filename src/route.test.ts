@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion, type SuggestionContext } from './route';
-import { startHappens, startTitleWords, startWhereWords } from './start';
+import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion, type SuggestionContext } from './route';
+import { agentOptions, autoPick, startHappens, startTitleWords, startWhereWords } from './start';
 import * as fx from './testing/fixtures';
 import type { Board, Lane, Route, Session } from './types';
 
@@ -332,10 +332,17 @@ describe('alreadyOnWords', () => {
 
 describe('resolveSuggestedAgent', () => {
   const ghostty = { place: 'terminal' as const, label: 'Ghostty' };
+  const claudeApp = { place: 'claude-app' as const, label: 'Claude app' };
+  const models = [
+    { id: 'opus', label: 'Opus' },
+    { id: 'sonnet', label: 'Sonnet' },
+    { id: 'gpt-5', label: 'GPT-5' },
+  ];
+  const efforts = [{ id: 'high', label: 'High' }];
   const accounts = [
-    fx.startAccount({ name: 'claude', places: [ghostty], models: [{ id: 'opus', label: 'Opus' }] }),
-    fx.startAccount({ name: 'claude2', places: [ghostty], models: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }] }),
-    fx.startAccount({ name: 'codex', harness: 'codex', places: [ghostty], models: [{ id: 'gpt-5', label: 'GPT-5' }] }),
+    fx.startAccount({ name: 'claude', places: [claudeApp, ghostty], models: [{ id: 'opus', label: 'Opus' }], efforts, worktree: true }),
+    fx.startAccount({ name: 'claude2', places: [ghostty], models: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }], efforts, worktree: true }),
+    fx.startAccount({ name: 'codex', harness: 'codex', places: [ghostty], models: [{ id: 'gpt-5', label: 'GPT-5' }], efforts: [], worktree: false }),
   ];
 
   it('attaches Jev’s top agent pick to start suggestions and resolves it to an account with room', () => {
@@ -359,6 +366,22 @@ describe('resolveSuggestedAgent', () => {
     expect(suggestions(rGroup, b)[0]).toMatchObject({ kind: 'start', agent: 'fast' });
     const groups = [{ name: 'fast', strategy: 'usage' as const, members: [{ account: 'claude2', model: 'sonnet' }] }];
     expect(resolveSuggestedAgent('fast', accounts, groups, u, fx.NOW)).toEqual({ account: 'claude2', model: 'sonnet' });
+
+    // With the picker on Claude app + high effort + newWorktree, Jev selecting Codex resolves a
+    // start choice that drops Claude-only place, effort, and worktree capabilities.
+    const pick = autoPick(accounts, [], fx.NOW);
+    const opts = agentOptions(accounts, models, pick);
+    const c = suggestedChoice('codex:gpt-5', accounts, models, efforts, [], pick, opts, 'claude', { agent: 'claude|', effort: 'high', place: 'claude-app', newWorktree: true });
+    expect(c).toMatchObject({
+      account: 'codex',
+      placeNow: 'terminal',
+      modelNow: 'gpt-5',
+      startsOn: 'gpt-5',
+      effortNow: null,
+      effortWord: null,
+      makesWorktree: false,
+      inNewWorktree: false,
+    });
   });
 });
 

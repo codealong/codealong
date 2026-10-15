@@ -704,6 +704,34 @@ describe('usageCap and routing groups', () => {
       account: 'claude2',
       model: 'sonnet',
     });
+
+    // Round-robin across members on the same account with different models rotates by member model.
+    const rrSameAcct: RoutingGroup = { ...multiModel, strategy: 'round-robin' };
+    const opusLane = [fx.lane({ id: '/r', sessions: [fx.session({ key: 's1', account: 'claude', harness: 'claude', model: 'claude-opus-4-6', startedAt: NOW - 5 })] })];
+    expect(pickFromGroup(rrSameAcct, accounts, [], NOW, null, null, opusLane)).toMatchObject({
+      account: 'claude',
+      model: 'sonnet',
+    });
+    const sonnetLane = [
+      fx.lane({
+        id: '/r',
+        sessions: [
+          fx.session({ key: 's1', account: 'claude', harness: 'claude', model: 'claude-opus-4-6', startedAt: NOW - 10 }),
+          fx.session({ key: 's2', account: 'claude', harness: 'claude', model: 'claude-sonnet-4-6', startedAt: NOW - 2 }),
+        ],
+      }),
+    ];
+    expect(pickFromGroup(rrSameAcct, accounts, [], NOW, null, null, sonnetLane)).toMatchObject({
+      account: 'claude',
+      model: 'opus',
+    });
+
+    // Remote Mac starts pass lanes scoped to that Mac (with `device` set) and keep rotation history.
+    const remoteLanes = [fx.lane({ id: 'abcd1234:/r', device: { short: 'abcd1234', name: 'Studio', color: 'blue', online: true, lastSeen: NOW }, sessions: [fx.session({ key: 's1', account: 'claude', harness: 'claude', startedAt: NOW - 10 })] })];
+    expect(pickFromGroup(altGroup, accounts, [], NOW, null, null, remoteLanes)).toMatchObject({
+      account: 'codex',
+      model: 'gpt-5',
+    });
   });
 
   it('offers routing groups in the agent menu and resolves them in startChoice, filtering out app places when a group sets a model', () => {

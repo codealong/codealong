@@ -2508,7 +2508,7 @@ mod tests {
             std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(format!("{l}\n").as_bytes()).unwrap();
         };
 
-        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false };
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: on_14th("17:50:00.000"), ps: Default::default() };
         let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: vec![log.clone()] }], looked_at: Some(Instant::now()), ..Reader::default() };
@@ -2924,7 +2924,7 @@ mod tests {
         std::fs::write(logs.join("transcript_full.jsonl"), format!("{}\n{}\n", LINES[0], ASKED[0])).unwrap();
         let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
         steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0); INSERT INTO steps VALUES (0, 14, 3), (5, 15, 3), (6, 132, 9);").unwrap();
-        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join("antigravity").to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join("antigravity").to_string_lossy().into_owned(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false };
         let ctx = Ctx { account: &account };
         let session = Session { surface: Surface::Cli, pid: Some(999_999), cwd: "/r/app".into(), ..Session::new(Harness::Antigravity, "antigravity", "c1") };
         use crate::harness::{Adapter as _, Answer};

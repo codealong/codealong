@@ -76,6 +76,7 @@ import {
   newWorktreeTitle,
   onModelWords,
   remember,
+  remembered,
   START_OPTIONS_NOTICE,
   startHappens,
   startingLabel,
@@ -87,7 +88,7 @@ import {
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
-import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
+import { alreadyOnWords, duplicateOf, rankedBy, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
@@ -626,6 +627,7 @@ export function Quick() {
     efforts,
     pick,
     agents,
+    first,
     agentNow,
     autoFor,
     account,
@@ -645,6 +647,22 @@ export function Quick() {
     pickPlace,
     stepEffort,
   } = useStartChoice(startPicks, optionsForStart, usage, now, allLanes);
+  const choiceForAgent = (suggestedAgent: string | undefined, overWorktree: boolean) =>
+    suggestedChoice(
+      suggestedAgent,
+      accounts,
+      models,
+      efforts,
+      usage,
+      pick,
+      agents,
+      first,
+      { agent: startPicks.agent, effort: startPicks.effort, place: placeNow, newWorktree: overWorktree },
+      (c) => remembered().places?.[c],
+      routingGroups,
+      now,
+      allLanes,
+    );
   // A chat has no repo to make a worktree of.
   const makesWorktree = harnessMakesWorktree && !lane?.startsChats;
   const inNewWorktree = newWorktreePicked && makesWorktree;
@@ -1102,27 +1120,32 @@ export function Quick() {
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
   const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string }) => {
     const where = over?.lane ?? lane;
-    const sgAgent = over?.agent ? resolveSuggestedAgent(over.agent, accounts, routingGroups, usage, now, allLanes) : null;
-    const targetAccount = sgAgent?.account ?? account;
-    const targetModel = sgAgent ? sgAgent.model : modelNow;
-    if (!where || !targetAccount || !placeNow) return;
+    const sgChoice = over?.agent ? choiceForAgent(over.agent, over.newWorktree) : null;
+    const targetAccount = sgChoice ? sgChoice.account : account;
+    const targetPlace = sgChoice ? sgChoice.placeNow : placeNow;
+    const targetModel = sgChoice ? sgChoice.modelNow : modelNow;
+    const targetEffort = sgChoice ? sgChoice.effortNow : effortNow;
+    const targetMakesWorktree = sgChoice ? sgChoice.makesWorktree : harnessMakesWorktree;
+    if (!where || !targetAccount || !targetPlace) return;
     // Improve Codealong's pictures are this Mac's files: a session on another Mac can't read them.
     const held = improve ? improveRemoteHold(improve.shots, shortOf(where.id) ? (deviceInfo?.name ?? 'another Mac') : null) : null;
     if (held) {
       setError(held);
       return;
     }
-    const newTree = harnessMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
-    if (choice) remember(choice, placeNow);
-    if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow, routingGroups, optionsForStart?.autoGroup), placeNow);
+    const newTree = targetMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
+    if (!sgChoice && choice && placeNow) {
+      remember(choice, placeNow);
+      if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow, routingGroups, optionsForStart?.autoGroup), placeNow);
+    }
     // The skill that starts the prompt goes as the account's agent takes it.
     const base = skillNow && harness && !over ? writtenFor(text, [skillNow.skill], harness) : text;
     const written = withAttachments(base, attached);
     // Improve Codealong: the pictures of the windows go after what you wrote.
     const prompt = withShots(written);
-    const spec: StartSpec = { laneId: where.id, account: targetAccount, place: placeNow, prompt, model: targetModel, effort: effortNow, worktree: newTree, todos: forTodos.map((t) => t.id) };
-    const targetOnModel = sgAgent ? onModelWords(sgAgent.model, effortWord, models) : onModel;
-    const label = startingLabel(placeNow, targetAccount, targetOnModel, where, newTree, deviceInfo?.name ?? null);
+    const spec: StartSpec = { laneId: where.id, account: targetAccount, place: targetPlace, prompt, model: targetModel, effort: targetEffort, worktree: newTree, todos: forTodos.map((t) => t.id) };
+    const targetOnModel = sgChoice ? onModelWords(sgChoice.startsOn, sgChoice.effortWord, models) : onModel;
+    const label = startingLabel(targetPlace, targetAccount, targetOnModel, where, newTree, deviceInfo?.name ?? null);
     const id = Date.now();
     const to = opener ?? 'main';
     // The panel is fresh for next time; a failed start brings back what you had.
@@ -1489,10 +1512,13 @@ export function Quick() {
 
   /** A suggestion's row: what ⏎ does, and where. */
   const describe = (sg: Suggestion) => {
-    const sgAgent = sg.kind === 'start' && sg.agent ? resolveSuggestedAgent(sg.agent, accounts, routingGroups, usage, now, allLanes) : null;
-    const sgAccount = sgAgent?.account ?? account;
-    const sgOnModel = sgAgent ? onModelWords(sgAgent.model, effortWord, models) : onModel;
-    return suggestionWords(sg, { now, text, account: sgAccount, onModel: sgOnModel, place: placeNow, makesWorktree, terminal: terminalName, behind, duplicate });
+    const sgChoice = sg.kind === 'start' && sg.agent ? choiceForAgent(sg.agent, sg.newWorktree) : null;
+    const sgAccount = sgChoice ? sgChoice.account : account;
+    const sgPlace = sgChoice ? sgChoice.placeNow : placeNow;
+    const sgMakesWorktree = (sgChoice ? sgChoice.makesWorktree : harnessMakesWorktree) && !sg.lane.startsChats;
+    const sgOnModel = sgChoice ? onModelWords(sgChoice.startsOn, sgChoice.effortWord, models) : onModel;
+    const sgBehind = (sgChoice ? sgChoice.places : places).find((p) => p.place === 'background')?.behind ?? false;
+    return suggestionWords(sg, { now, text, account: sgAccount, onModel: sgOnModel, place: sgPlace, makesWorktree: sgMakesWorktree, terminal: terminalName, behind: sgBehind, duplicate });
   };
 
   /** What a suggestion's row shows, but its keys. */

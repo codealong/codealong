@@ -6,7 +6,7 @@
 import { agoPhrase } from './format';
 import { homeOf, sessionWhy } from './lanes';
 import { mainCheckoutOf, newWorkIn } from './reusable';
-import { autoPick, pickFromGroup, startDoes, startTitleWords, startWhereWords } from './start';
+import { agentId, autoPick, pickFromGroup, startChoice, startDoes, startTitleWords, startWhereWords, type AgentOption, type AutoPick, type ChosenStart, type ModelOption, type StartPicks } from './start';
 import type { Board, Lane, Route, RoutePick, RoutingGroup, Session, StartAccount, StartPlace, Usage } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
@@ -20,27 +20,62 @@ export type Suggestion =
 
 /** Resolves a Jev `route.agents` id (a routing group name or `<account-or-harness>[:<model>]`) to an account and model. */
 export function resolveSuggestedAgent(
-  agentId: string | undefined,
+  agent: string | undefined,
   accounts: StartAccount[],
   groups: RoutingGroup[],
   usage: Usage[],
   now: number,
   lanes: Lane[] = [],
 ): { account: string; model: string | null } | null {
-  if (!agentId) return null;
-  const g = groups.find((x) => x.name === agentId);
+  if (!agent) return null;
+  const g = groups.find((x) => x.name === agent);
   if (g) {
     const gp = pickFromGroup(g, accounts, usage, now, null, null, lanes);
     return gp ? { account: gp.account, model: gp.model ?? null } : null;
   }
-  const at = agentId.indexOf(':');
-  const target = at < 0 ? agentId : agentId.slice(0, at);
-  const model = at < 0 ? null : agentId.slice(at + 1) || null;
+  const at = agent.indexOf(':');
+  const target = at < 0 ? agent : agent.slice(0, at);
+  const model = at < 0 ? null : agent.slice(at + 1) || null;
   const byName = accounts.find((a) => a.name === target && a.places.length > 0);
   const harness = byName ? byName.harness : target;
   const matching = accounts.filter((a) => a.harness === harness && a.places.length > 0);
   const picked = autoPick(matching, usage, now, model, null, lanes);
   return picked ? { account: picked.account, model: model ?? picked.model ?? null } : null;
+}
+
+/** Resolves the full start choice (`ChosenStart`) for a Jev-suggested agent/model, retaining the
+ *  chosen place and effort only where the suggested account and model support them. */
+export function suggestedChoice(
+  suggestedAgent: string | undefined,
+  accounts: StartAccount[],
+  models: ModelOption[],
+  efforts: { id: string; label: string }[],
+  usage: Usage[],
+  pick: AutoPick | null,
+  agents: AgentOption[],
+  first: string | null,
+  picks: StartPicks,
+  lastPlace: (choice: string) => StartPlace | undefined = () => undefined,
+  groups: RoutingGroup[] = [],
+  now = 0,
+  lanes: Lane[] = [],
+): ChosenStart | null {
+  const sg = resolveSuggestedAgent(suggestedAgent, accounts, groups, usage, now, lanes);
+  if (!sg) return null;
+  return startChoice(
+    accounts,
+    models,
+    efforts,
+    usage,
+    pick,
+    agents,
+    first,
+    { ...picks, agent: agentId(sg.account, sg.model) },
+    lastPlace,
+    groups,
+    now,
+    lanes,
+  );
 }
 
 /** Rows at most. */

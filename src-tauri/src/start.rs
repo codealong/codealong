@@ -413,16 +413,27 @@ pub fn all_sessions(lanes: &[Lane]) -> Vec<Session> {
     lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| l.sessions.iter().cloned()).collect()
 }
 
-/// The accounts and harnesses of sessions on `lanes`, with when each started: review sessions
-/// (`Helper::pr`) when `reviews_only` is true, else your own sessions (`helper` none).
-pub fn recent_sessions(lanes: &[Lane], reviews_only: bool) -> Vec<(String, Harness, i64)> {
+/// The accounts, harnesses and models of sessions on `lanes`, with when each started: review
+/// sessions (`Helper::pr`) when `reviews_only` is true, else your own sessions (`helper` none).
+pub fn recent_sessions(lanes: &[Lane], reviews_only: bool) -> Vec<(String, Harness, Option<String>, i64)> {
     lanes
         .iter()
         .filter(|l| l.device.is_none())
         .flat_map(|l| &l.sessions)
         .filter(|s| s.visitor.is_none() && if reviews_only { s.helper.as_ref().is_some_and(|h| h.pr.is_some()) } else { s.helper.is_none() })
-        .map(|s| (s.account.clone(), s.harness, s.started_at.unwrap_or(s.last_activity)))
+        .map(|s| (s.account.clone(), s.harness, s.model.clone(), s.started_at.unwrap_or(s.last_activity)))
         .collect()
+}
+
+fn model_matches(session_model: &str, member_model: &str) -> bool {
+    let sm = session_model.to_ascii_lowercase();
+    let mm = member_model.to_ascii_lowercase();
+    let sf = FAMILIES.iter().copied().find(|f| sm.contains(f));
+    let mf = FAMILIES.iter().copied().find(|f| mm.contains(f));
+    sm == mm
+        || sm.contains(&mm)
+        || mm.contains(&sm)
+        || (sf.is_some() && sf == mf && sm.ends_with("[1m]") == mm.ends_with("[1m]"))
 }
 
 /// Picks an account and model from `group` according to its strategy (`usage`,
@@ -435,7 +446,7 @@ pub fn pick_from_group(
     cfg: &Config,
     usages: &[Usage],
     sessions: &[Session],
-    recent: &[(String, Harness, i64)],
+    recent: &[(String, Harness, Option<String>, i64)],
     places: &[Place],
     model: Option<&str>,
     avoid: Option<Harness>,
@@ -451,7 +462,7 @@ pub fn pick_from_group_in(
     cfg: &Config,
     usages: &[Usage],
     sessions: &[Session],
-    recent: &[(String, Harness, i64)],
+    recent: &[(String, Harness, Option<String>, i64)],
     places: &[Place],
     model: Option<&str>,
     avoid: Option<Harness>,
@@ -546,14 +557,40 @@ pub fn pick_from_group_in(
                     harnesses.push(m.harness);
                 }
             }
-            let last_harness = |h: Harness| recent.iter().filter(|(_, rh, _)| *rh == h).map(|(_, _, at)| *at).max().unwrap_or(0);
+            let last_harness = |h: Harness| recent.iter().filter(|(_, rh, _, _)| *rh == h).map(|(_, _, _, at)| *at).max().unwrap_or(0);
             let chosen = *harnesses.iter().min_by_key(|&&h| last_harness(h))?;
             let in_harness: Vec<&Member> = pool.into_iter().filter(|m| m.harness == chosen).collect();
             by_usage(&in_harness)
         }
         config::RoutingStrategy::RoundRobin => {
-            let last_account = |name: &str| recent.iter().filter(|(ra, _, _)| ra == name).map(|(_, _, at)| *at).max().unwrap_or(0);
-            let m = pool.iter().min_by_key(|m| last_account(&m.account.name))?;
+            let last_member = |m: &Member| {
+                let shared = pool.iter().filter(|x| x.account.name == m.account.name).count() > 1;
+                recent
+                    .iter()
+                    .filter(|(ra, _, rm, _)| {
+                        if ra != &m.account.name {
+                            return false;
+                        }
+                        if !shared {
+                            return true;
+                        }
+                        if let Some(em) = m.explicit_model.as_deref().or(m.check_model.as_deref()) {
+                            rm.as_deref().is_some_and(|sm| model_matches(sm, em))
+                        } else {
+                            rm.as_deref().is_none_or(|sm| {
+                                !pool
+                                    .iter()
+                                    .filter(|x| x.account.name == m.account.name)
+                                    .filter_map(|x| x.explicit_model.as_deref())
+                                    .any(|em| model_matches(sm, em))
+                            })
+                        }
+                    })
+                    .map(|(_, _, _, at)| *at)
+                    .max()
+                    .unwrap_or(0)
+            };
+            let m = pool.iter().min_by_key(|m| last_member(m))?;
             Some(GroupPick { account: m.account.name.clone(), model: m.explicit_model.clone() })
         }
     }
@@ -1511,13 +1548,13 @@ mod tests {
             Some(GroupPick { account: "claude".into(), model: Some("opus".into()) })
         );
         // After a Claude review, it switches to Codex.
-        let recent = vec![("claude".to_string(), Harness::Claude, NOW - 10)];
+        let recent = vec![("claude".to_string(), Harness::Claude, Some("opus".to_string()), NOW - 10)];
         assert_eq!(
             pick_from_group_in(&alt, &cfg, &usages, &[], &recent, &[], None, None, NOW, home, |_| true),
             Some(GroupPick { account: "codex".into(), model: None })
         );
         // After Codex ran more recently than Claude, it switches back to Claude, passing over claude when it hits its 80% usage_cap.
-        let recent2 = vec![("claude".to_string(), Harness::Claude, NOW - 20), ("codex".to_string(), Harness::Codex, NOW - 5)];
+        let recent2 = vec![("claude".to_string(), Harness::Claude, Some("opus".to_string()), NOW - 20), ("codex".to_string(), Harness::Codex, None, NOW - 5)];
         let capped = [usage("claude", 20.0, 82.0, Some(40)), usage("claude2", 10.0, 20.0, Some(80)), usage("codex", 15.0, 25.0, Some(20))];
         assert_eq!(
             pick_from_group_in(&alt, &cfg, &capped, &[], &recent2, &[], None, None, NOW, home, |_| true),
@@ -1530,12 +1567,13 @@ mod tests {
         );
         // Round-robin rotates across every roomy member in order.
         let rr = RoutingGroupCfg { name: "rr".into(), strategy: RoutingStrategy::RoundRobin, members };
-        let recent_rr = vec![("claude".to_string(), Harness::Claude, NOW - 30), ("claude2".to_string(), Harness::Claude, NOW - 10)];
+        let recent_rr = vec![("claude".to_string(), Harness::Claude, Some("opus".to_string()), NOW - 30), ("claude2".to_string(), Harness::Claude, Some("sonnet".to_string()), NOW - 10)];
         assert_eq!(
             pick_from_group_in(&rr, &cfg, &usages, &[], &recent_rr, &[], None, None, NOW, home, |_| true),
             Some(GroupPick { account: "codex".into(), model: None })
         );
-        // Multiple members on the same account keep their own model when the second has more room.
+        // Multiple members on the same account keep their own model when the second has more room,
+        // and round-robin rotates across models on the same account.
         let same_acct = RoutingGroupCfg {
             name: "models".into(),
             strategy: RoutingStrategy::Usage,
@@ -1549,6 +1587,20 @@ mod tests {
         assert_eq!(
             pick_from_group_in(&same_acct, &cfg, &[per_model], &[], &[], &[], None, None, NOW, home, |_| true),
             Some(GroupPick { account: "claude2".into(), model: Some("sonnet".into()) })
+        );
+        let rr_models = RoutingGroupCfg { strategy: RoutingStrategy::RoundRobin, ..same_acct };
+        let after_opus = vec![("claude2".to_string(), Harness::Claude, Some("claude-opus-4-6".to_string()), NOW - 5)];
+        assert_eq!(
+            pick_from_group_in(&rr_models, &cfg, &usages, &[], &after_opus, &[], None, None, NOW, home, |_| true),
+            Some(GroupPick { account: "claude2".into(), model: Some("sonnet".into()) })
+        );
+        let after_sonnet = vec![
+            ("claude2".to_string(), Harness::Claude, Some("claude-opus-4-6".to_string()), NOW - 10),
+            ("claude2".to_string(), Harness::Claude, Some("claude-sonnet-4-6".to_string()), NOW - 2),
+        ];
+        assert_eq!(
+            pick_from_group_in(&rr_models, &cfg, &usages, &[], &after_sonnet, &[], None, None, NOW, home, |_| true),
+            Some(GroupPick { account: "claude2".into(), model: Some("opus".into()) })
         );
     }
 

@@ -108,9 +108,26 @@ function startable(accounts: StartAccount[]): StartAccount[] {
 
 const REFUSED_FOR = 31 * 24 * 3_600_000;
 
-/** The accounts a usage limit has stopped on this Mac's sessions (start.rs `refused_accounts`). */
+/** Lanes for the Mac a start targets: this Mac's when mixed with another's, or all of them when
+ *  already scoped to a remote Mac (`Quick.tsx`). */
+function targetLanes(lanes: Lane[]): Lane[] {
+  return lanes.some((l) => !l.device) ? lanes.filter((l) => !l.device) : lanes;
+}
+
+function modelMatches(sessionModel: string, memberModel: string): boolean {
+  const sm = sessionModel.toLowerCase();
+  const mm = memberModel.toLowerCase();
+  return (
+    sm === mm ||
+    sm.includes(mm) ||
+    mm.includes(sm) ||
+    (modelFamily(sessionModel) !== null && modelFamily(sessionModel) === modelFamily(memberModel) && sm.endsWith('[1m]') === mm.endsWith('[1m]'))
+  );
+}
+
+/** The accounts a usage limit has stopped on the target Mac's sessions (start.rs `refused_accounts`). */
 export function refusedAccounts(lanes: Lane[], now: number): Set<string> {
-  const sessions = lanes.filter((l) => !l.device).flatMap((l) => l.sessions);
+  const sessions = targetLanes(lanes).flatMap((l) => l.sessions);
   const refused = new Map<string, number>();
   for (const s of sessions) {
     const l = s.limit;
@@ -254,8 +271,7 @@ export function pickFromGroup(
     return { ...res.pick, account: chosen.account.name, model: chosen.explicitModel };
   };
   if (group.strategy === 'alternate-harness') {
-    const recent = lanes
-      .filter((l) => !l.device)
+    const recent = targetLanes(lanes)
       .flatMap((l) => l.sessions)
       .filter((s) => !s.visitor && !s.helper);
     const harnesses: Harness[] = [];
@@ -267,12 +283,25 @@ export function pickFromGroup(
     return byUsage(pool.filter((m) => m.account.harness === chosenHarness));
   }
   if (group.strategy === 'round-robin') {
-    const recent = lanes
-      .filter((l) => !l.device)
+    const recent = targetLanes(lanes)
       .flatMap((l) => l.sessions)
       .filter((s) => !s.visitor && !s.helper);
-    const lastAccount = (name: string) => Math.max(0, ...recent.filter((s) => s.account === name).map((s) => s.startedAt ?? s.lastActivity));
-    const chosen = pool.reduce((best, m) => (lastAccount(m.account.name) < lastAccount(best.account.name) ? m : best));
+    const lastMember = (m: (typeof pool)[number]) => {
+      const shared = pool.filter((x) => x.account.name === m.account.name).length > 1;
+      const targetModel = m.explicitModel ?? m.checkModel;
+      return Math.max(
+        0,
+        ...recent
+          .filter((s) => {
+            if (s.account !== m.account.name) return false;
+            if (!shared) return true;
+            if (targetModel) return !!s.model && modelMatches(s.model, targetModel);
+            return !s.model || !pool.some((x) => x.account.name === m.account.name && x.explicitModel && modelMatches(s.model!, x.explicitModel));
+          })
+          .map((s) => s.startedAt ?? s.lastActivity),
+      );
+    };
+    const chosen = pool.reduce((best, m) => (lastMember(m) < lastMember(best) ? m : best));
     return { account: chosen.account.name, reason: 'first', resetsAt: null, model: chosen.explicitModel };
   }
   return byUsage(pool);
@@ -540,7 +569,13 @@ export function startChoice(
   lanes: Lane[] = [],
 ): ChosenStart {
   const { agent, effort, place, newWorktree } = picks;
-  const agentNow = agent && agents.some((o) => o.id === agent) ? agent : first ? agentId(first, null, groups) : null;
+  const acceptedAgent = (id: string) => {
+    if (agents.some((o) => o.id === id)) return true;
+    const { choice: c, model: m } = parseAgent(id);
+    const a = accounts.find((x) => x.name === c);
+    return !!a && a.places.length > 0 && (!m || (takesModel(a) && offersModel(a, m)));
+  };
+  const agentNow = agent && acceptedAgent(agent) ? agent : first ? agentId(first, null, groups) : null;
   const { choice, model: chosenModel } = agentNow ? parseAgent(agentNow) : { choice: null, model: null };
   const group = isGroup(choice, groups);
   const autoFor = isAuto(choice) || !!group;
@@ -555,13 +590,13 @@ export function startChoice(
     : null;
   const allPlaces = placesFor(choice, accounts, pick, groups, usage, now, lanes);
   const takesEffort = (accountInfo?.efforts?.length ?? 0) > 0;
-  const tuned = !!chosenModel || (!!activePick?.model && allPlaces.some((p) => placeTakesModel(p.place))) || (!!effort && takesEffort);
+  const tuned = (!!chosenModel || !!activePick?.model || (!!effort && takesEffort)) && allPlaces.some((p) => placeTakesModel(p.place));
   const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place)) : allPlaces;
   const placeNow = [place, choice ? (settledPlace(choice, accounts, pick, groups, usage, now, lanes) ?? lastPlace(choice)) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
   // A harness whose command line makes a worktree for a session (Claude Code's `--worktree`).
   const makesWorktree = !!placeNow && onCommandLine(placeNow) && !!accountInfo?.worktree;
   // A harness whose command line takes a model; Codealong hands it to an adapter the same way.
-  const takesAModel = !!placeNow && placeTakesModel(placeNow) && (accountInfo?.models?.length ?? 0) > 0;
+  const takesAModel = !!placeNow && placeTakesModel(placeNow) && ((accountInfo?.models?.length ?? 0) > 0 || (!!chosenModel && !!accountInfo && offersModel(accountInfo, chosenModel)));
   const modelNow = takesAModel ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
   const defaultModel = accountInfo?.defaultModel ?? null;
   const startsOn = takesAModel ? (modelNow ?? defaultModel) : null;
