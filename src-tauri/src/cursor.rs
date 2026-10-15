@@ -46,11 +46,13 @@ const OWN_SKILLS: &str = ".cursor/skills-cursor";
 /// How many folders down a skills folder Cursor looks for a `SKILL.md`.
 const SKILL_DEPTH: usize = 10;
 
-/// A folder of skills as the command line reads it: a skill is named by its folder, its file's
-/// `name` being only its title (`getSkillIdForPath`), and one whose `metadata.surfaces` doesn't
-/// list `cli` is left out (`parseSkillMarkdown`).
-fn skill_root(dir: PathBuf) -> crate::skills::Root {
-    crate::skills::Root::skills(dir, SKILL_DEPTH).named_by_folder().on_surface("cli")
+/// A folder of skills as the command line reads it (its `CustomCommands`): a skill is a command
+/// named by its folder (`getSkillIdForPath`), and one kept off the menu or whose
+/// `metadata.surfaces` doesn't list `cli` is left out (`parseSkillMarkdown`). It follows a link
+/// out of a folder only among your personal skills (`findSkillMarkdownFiles`), not a
+/// workspace's or the ones it ships.
+fn skill_root(dir: PathBuf, personal: bool) -> crate::skills::Root {
+    crate::skills::Root::skills(dir, SKILL_DEPTH).as_commands(crate::skills::AsCommands { surface: "cli", contained: !personal })
 }
 
 /// The app's global state database for the account kept in `home`. Only the account in
@@ -1623,13 +1625,13 @@ impl crate::harness::Adapter for Cursor {
 
     /// The session's own folder's, its workspace: Cursor reads none above it.
     fn worktree_skills(&self, folders: &[PathBuf]) -> Vec<crate::skills::Root> {
-        folders.first().map(|dir| SKILL_FOLDERS.iter().map(|f| skill_root(dir.join(f))).collect()).unwrap_or_default()
+        folders.first().map(|dir| SKILL_FOLDERS.iter().map(|f| skill_root(dir.join(f), false)).collect()).unwrap_or_default()
     }
 
-    /// The same folders in your home, and the skills Cursor ships.
+    /// The skills Cursor ships, and the same folders in your home.
     fn account_skills(&self, _account: &AccountCfg) -> Vec<crate::skills::Root> {
         let home = crate::util::home();
-        std::iter::once(OWN_SKILLS).chain(SKILL_FOLDERS).map(|f| skill_root(home.join(f))).collect()
+        std::iter::once(skill_root(home.join(OWN_SKILLS), false)).chain(SKILL_FOLDERS.iter().map(|f| skill_root(home.join(f), true))).collect()
     }
 
     /// The command line runs a skill a prompt names as `/name` (its `findSkillReferences`), as a
@@ -2286,13 +2288,14 @@ mod tests {
         // An account kept elsewhere still reads your home's.
         let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/elsewhere/cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let home = crate::util::home();
-        let dirs: Vec<PathBuf> = Cursor.account_skills(&account).into_iter().map(|r| r.dir).collect();
-        assert_eq!(dirs, [".cursor/skills-cursor", ".cursor/skills", ".claude/skills", ".codex/skills", ".agents/skills"].map(|f| home.join(f)));
+        // Commands of the command line's, which follows a link out of a folder only among yours.
+        let how = |personal: bool| Some(crate::skills::AsCommands { surface: "cli", contained: !personal });
+        let roots: Vec<(PathBuf, _)> = Cursor.account_skills(&account).into_iter().map(|r| (r.dir, r.as_commands)).collect();
+        assert_eq!(roots[0], (home.join(".cursor/skills-cursor"), how(false)));
+        assert_eq!(roots[1..], [".cursor/skills", ".claude/skills", ".codex/skills", ".agents/skills"].map(|f| (home.join(f), how(true))));
         // The session's own folder's, not those of the folders above it.
-        let roots = Cursor.worktree_skills(&[PathBuf::from("/r/app"), PathBuf::from("/r")]);
-        assert_eq!(roots.iter().map(|r| r.dir.clone()).collect::<Vec<_>>(), SKILL_FOLDERS.map(|f| Path::new("/r/app").join(f)));
-        // Named by their folders, and only those for the command line.
-        assert!(roots.iter().all(|r| r.by_folder && r.surface == Some("cli")));
+        let roots: Vec<(PathBuf, _)> = Cursor.worktree_skills(&[PathBuf::from("/r/app"), PathBuf::from("/r")]).into_iter().map(|r| (r.dir, r.as_commands)).collect();
+        assert_eq!(roots, SKILL_FOLDERS.map(|f| (Path::new("/r/app").join(f), how(false))));
         assert_eq!(Cursor.skills_dir(&account), Some(home.join(".cursor/skills")));
         assert_eq!(Cursor.skill_mention("pr-review_2").as_deref(), Some("/pr-review_2"));
         // A name the command line wouldn't find in the prompt.

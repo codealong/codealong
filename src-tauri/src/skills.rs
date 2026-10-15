@@ -41,30 +41,36 @@ pub struct Root {
     pub kind: Kind,
     /// What its skills' names start with: a plugin's name, for `plugin:skill`.
     pub prefix: Option<String>,
-    /// Its harness names a skill by its folder, whatever its file's `name` says.
-    pub by_folder: bool,
-    /// The harness's program that reads it, which a skill's `metadata.surfaces` can leave out
-    /// (Cursor's say `cli`, `ide` or `cloud`): one that lists others isn't read. None reads all.
-    pub surface: Option<&'static str>,
+    /// Its harness makes a command of each skill in it (`command_skills`); None for one that
+    /// takes a skill as its file says.
+    pub as_commands: Option<AsCommands>,
+}
+
+/// How a harness that makes a command of each skill in a folder reads it (Cursor's command
+/// line): by the folder each is in, whatever its file's `name` says, and only the ones meant to
+/// be typed.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct AsCommands {
+    /// The harness's program, which a skill's `metadata.surfaces` can leave out (Cursor's say
+    /// `cli`, `ide` or `cloud`): one that lists only others isn't read.
+    pub surface: &'static str,
+    /// Only skills really in the folder: one a link takes out of it isn't read.
+    pub contained: bool,
 }
 
 impl Root {
     pub fn skills(dir: PathBuf, depth: usize) -> Root {
-        Root { dir, kind: Kind::Skills { depth }, prefix: None, by_folder: false, surface: None }
+        Root { dir, kind: Kind::Skills { depth }, prefix: None, as_commands: None }
     }
     pub fn commands(dir: PathBuf) -> Root {
-        Root { dir, kind: Kind::Commands, prefix: None, by_folder: false, surface: None }
+        Root { dir, kind: Kind::Commands, prefix: None, as_commands: None }
     }
     pub fn of_plugin(mut self, plugin: &str) -> Root {
         self.prefix = Some(plugin.to_string());
         self
     }
-    pub fn named_by_folder(mut self) -> Root {
-        self.by_folder = true;
-        self
-    }
-    pub fn on_surface(mut self, surface: &'static str) -> Root {
-        self.surface = Some(surface);
+    pub fn as_commands(mut self, how: AsCommands) -> Root {
+        self.as_commands = Some(how);
         self
     }
 }
@@ -233,12 +239,30 @@ const MAX_ENTRIES: usize = 2000;
 
 fn read_root(root: &Root) -> Vec<File> {
     let mut out = Vec::new();
-    let mut seen = HashSet::new();
     match root.kind {
-        Kind::Skills { depth } => walk_skills(&root.dir, depth, root, &mut seen, &mut out),
+        Kind::Skills { depth } => {
+            let mut found = Vec::new();
+            walk_skills(&root.dir, depth, &mut HashSet::new(), &mut found);
+            out = match root.as_commands {
+                Some(how) => command_skills(found, root, how),
+                None => found.iter().filter_map(|f| skill_file(&f.text, folder_name(&f.folder), root.prefix.as_deref())).collect(),
+            };
+        }
         Kind::Commands => walk_commands(&root.dir, &root.dir, 3, root, &mut out),
     }
     out
+}
+
+/// A `SKILL.md` found in a folder of skills: the folder it's in, where it really is, and what it
+/// says.
+struct Found {
+    folder: PathBuf,
+    real: PathBuf,
+    text: String,
+}
+
+fn folder_name(folder: &Path) -> &str {
+    folder.file_name().and_then(|n| n.to_str()).unwrap_or_default()
 }
 
 /// A folder's entries, by name, the hidden ones left out: links are followed, as the harnesses
@@ -249,7 +273,7 @@ fn entries(dir: &Path) -> Vec<PathBuf> {
     paths
 }
 
-fn walk_skills(dir: &Path, depth: usize, root: &Root, seen: &mut HashSet<PathBuf>, out: &mut Vec<File>) {
+fn walk_skills(dir: &Path, depth: usize, seen: &mut HashSet<PathBuf>, out: &mut Vec<Found>) {
     if depth == 0 {
         return;
     }
@@ -261,12 +285,12 @@ fn walk_skills(dir: &Path, depth: usize, root: &Root, seen: &mut HashSet<PathBuf
         match std::fs::read_to_string(&file) {
             // A skill reached twice (through a link) is one skill.
             Ok(text) => {
-                if seen.insert(std::fs::canonicalize(&file).unwrap_or(file)) {
-                    let folder = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-                    out.extend(root_skill(&text, folder, root));
+                let real = std::fs::canonicalize(&file).unwrap_or(file);
+                if seen.insert(real.clone()) {
+                    out.push(Found { folder: path, real, text });
                 }
             }
-            Err(_) => walk_skills(&path, depth - 1, root, seen, out),
+            Err(_) => walk_skills(&path, depth - 1, seen, out),
         }
     }
 }
@@ -306,6 +330,12 @@ fn typeable(name: &str) -> bool {
 fn skill_file(text: &str, folder: &str, prefix: Option<&str>) -> Option<File> {
     let (front, body) = front_matter(text);
     let name = named(front.get("name").map(String::as_str).filter(|n| !n.is_empty()).unwrap_or(folder), prefix);
+    described(name, &front, body)
+}
+
+/// A skill named `name`, as its front matter and body describe it. None for a name nobody could
+/// type.
+fn described(name: String, front: &HashMap<String, String>, body: &str) -> Option<File> {
     typeable(&name).then(|| File {
         name,
         description: one_line(front.get("description").map(String::as_str).filter(|d| !d.is_empty()).unwrap_or(first_line(body))),
@@ -315,31 +345,46 @@ fn skill_file(text: &str, folder: &str, prefix: Option<&str>) -> Option<File> {
     })
 }
 
-/// A `SKILL.md` in `folder` as `root`'s harness reads it: named by the folder where the harness
-/// names skills so, and None where its `metadata.surfaces` leaves out the root's program.
-fn root_skill(text: &str, folder: &str, root: &Root) -> Option<File> {
-    if let (Some(surface), Some(listed)) = (root.surface, surfaces(text)) {
-        if !listed.iter().any(|s| s == surface) {
-            return None;
+/// The skills of a folder a harness makes commands of, named as it names them: by the folder
+/// each is in, its file's `name` being only a title, or, for a folder name two of them share,
+/// by its path from the root (`api/review` is `api-review`). Not one kept off the menu, one whose
+/// `metadata.surfaces` leaves out the harness's program, or, in a folder that keeps to itself,
+/// one a link takes out of it.
+fn command_skills(found: Vec<Found>, root: &Root, how: AsCommands) -> Vec<File> {
+    let real_root = std::fs::canonicalize(&root.dir).unwrap_or_else(|_| root.dir.clone());
+    let found: Vec<Found> = found.into_iter().filter(|f| !how.contained || f.real.starts_with(&real_root)).collect();
+    let mut shared: HashMap<&str, usize> = HashMap::new();
+    for f in &found {
+        *shared.entry(folder_name(&f.folder)).or_default() += 1;
+    }
+    let id = |f: &Found| -> Option<String> {
+        let folder = folder_name(&f.folder);
+        if shared[folder] == 1 {
+            return Some(folder.to_string());
         }
-    }
-    let file = skill_file(text, folder, root.prefix.as_deref())?;
-    if !root.by_folder {
-        return Some(file);
-    }
-    let name = named(folder, root.prefix.as_deref());
-    typeable(&name).then_some(File { name, ..file })
+        let parts = f.folder.strip_prefix(&root.dir).ok()?.components().map(|c| c.as_os_str().to_str()).collect::<Option<Vec<_>>>()?;
+        Some(parts.join("-"))
+    };
+    found
+        .iter()
+        .filter(|f| surfaces(&f.text).is_none_or(|listed| listed.iter().any(|s| s == how.surface)))
+        .filter_map(|f| {
+            let (front, body) = front_matter(&f.text);
+            described(named(&id(f)?, root.prefix.as_deref()), &front, body).filter(|file| file.typed)
+        })
+        .collect()
 }
 
 /// The programs a skill's `metadata.surfaces` lists, a list or words split by commas; None when
 /// it lists none. `front_matter` keeps `metadata`, a map, as its lines run together
-/// (`surfaces: - ide - cloud`), so the list is the words after `surfaces:` up to the next key.
+/// (`surfaces: - ide - cloud`), so the list is the words after `surfaces:` up to the next key,
+/// each without the quotes around it or around the words it was split from (`"cli, ide"`).
 fn surfaces(text: &str) -> Option<Vec<String>> {
     let (front, _) = front_matter(text);
     let metadata = front.get("metadata")?;
     let after = metadata.split_once("surfaces:")?.1;
     let words = after.split(|c: char| c.is_whitespace() || matches!(c, ',' | '[' | ']')).filter(|w| !w.is_empty() && *w != "-");
-    let listed: Vec<String> = words.take_while(|w| !w.ends_with(':')).map(|w| unquoted(w)).collect();
+    let listed: Vec<String> = words.take_while(|w| !w.ends_with(':')).map(|w| w.trim_matches(|c| c == '"' || c == '\'').to_string()).filter(|w| !w.is_empty()).collect();
     (!listed.is_empty()).then_some(listed)
 }
 
@@ -463,15 +508,41 @@ mod tests {
         assert_eq!(with("  surfaces:\n    - ide\n    - cloud"), list(&["ide", "cloud"]));
         assert_eq!(with("  surfaces: cli, ide"), list(&["cli", "ide"]));
         assert_eq!(with("  surfaces: [\"cli\"]"), list(&["cli"]));
+        assert_eq!(with("  surfaces: \"cli, ide\""), list(&["cli", "ide"]));
         // Up to the next key.
         assert_eq!(with("  surfaces:\n    - cli\n  author: someone"), list(&["cli"]));
         assert_eq!(with("  author: someone"), None);
         assert_eq!(surfaces("---\nname: x\n---\n"), None);
-        // A root for the command line leaves out one for the app alone, and names by folder.
-        let root = Root::skills(PathBuf::from("/s"), 1).named_by_folder().on_surface("cli");
-        assert!(root_skill("---\nname: x\nmetadata:\n  surfaces:\n    - ide\n---\n", "x", &root).is_none());
-        assert_eq!(root_skill("---\nname: deploy\nmetadata:\n  surfaces: cli\n---\n", "release", &root).unwrap().name, "release");
-        assert_eq!(root_skill("---\nname: deploy\n---\n", "release", &Root::skills(PathBuf::from("/s"), 1)).unwrap().name, "deploy");
+    }
+
+    #[test]
+    fn a_harness_that_makes_commands_of_skills_names_them_by_folder() {
+        let dir = scratch("skills-as-commands");
+        let elsewhere = scratch("skills-as-commands-elsewhere");
+        // A title its file gives, two folders of one name, one kept off the menu, one only for
+        // another program, one for this one, and one a link takes out of the folder.
+        write(&dir.join("release/SKILL.md"), "---\nname: Deploy release\ndescription: Releases\n---\n");
+        write(&dir.join("api/review/SKILL.md"), "---\nname: review\n---\n");
+        write(&dir.join("web/review/SKILL.md"), "---\nname: review\n---\n");
+        write(&dir.join("rules/SKILL.md"), "---\nname: rules\nuser-invocable: false\n---\n");
+        write(&dir.join("canvas/SKILL.md"), "---\nname: canvas\nmetadata:\n  surfaces:\n    - ide\n---\n");
+        write(&dir.join("config/SKILL.md"), "---\nname: config\nmetadata:\n  surfaces: \"cli, ide\"\n---\n");
+        write(&elsewhere.join("shared/SKILL.md"), "---\nname: shared\n---\n");
+        std::os::unix::fs::symlink(elsewhere.join("shared"), dir.join("shared")).unwrap();
+
+        let read = |contained: bool| -> Vec<(String, String)> {
+            let root = Root::skills(dir.clone(), 3).as_commands(AsCommands { surface: "cli", contained });
+            let mut files: Vec<(String, String)> = read_root(&root).into_iter().map(|f| (f.name, f.description)).collect();
+            files.sort();
+            files
+        };
+        let pair = |n: &str, d: &str| (n.to_string(), d.to_string());
+        assert_eq!(read(true), [pair("api-review", ""), pair("config", ""), pair("release", "Releases"), pair("web-review", "")]);
+        // Followed out of the folder where the harness follows links.
+        assert_eq!(read(false), [pair("api-review", ""), pair("config", ""), pair("release", "Releases"), pair("shared", ""), pair("web-review", "")]);
+        // As its file says, for the others.
+        let names: Vec<String> = read_root(&Root::skills(dir.clone(), 3)).into_iter().map(|f| f.name).collect();
+        assert_eq!(names, ["review", "canvas", "config", "rules", "shared", "review"]);
     }
 
     #[test]
@@ -492,7 +563,8 @@ mod tests {
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         // Claude Code's own, one both read through a link, one only Codex reads, a command, and
         // one in a folder below the root. Cursor reads the skills folders of the folder asked
-        // about alone, names a skill by its folder, and leaves out one only for its app.
+        // about alone, names a skill by its folder, and leaves out one only for its app and one
+        // kept off the menu.
         write(&dir.join(".claude/skills/ship/SKILL.md"), "---\nname: ship\ndescription: Ships\nargument-hint: \"[branch]\"\n---\n");
         write(&dir.join(".claude/skills/conventions/SKILL.md"), "---\nname: conventions\ndescription: House rules\nuser-invocable: false\n---\n");
         write(&dir.join(".claude/skills/settings/SKILL.md"), "---\nname: settings\ndescription: Sets\nmetadata:\n  surfaces:\n    - ide\n    - cloud\n---\n");
@@ -530,7 +602,8 @@ mod tests {
                 ("settings".to_string(), vec![pair("claude", "/settings"), pair("codex", "$settings")]),
                 ("ship".to_string(), vec![pair("claude", "/ship"), pair("codex", "$ship"), pair("cursor", "/ship")]),
                 ("tidy-up".to_string(), vec![pair("cursor", "/tidy-up")]),
-                ("conventions".to_string(), vec![pair("claude", "/conventions"), pair("codex", "$conventions"), pair("cursor", "/conventions")]),
+                // Kept off the menu: not a command of Cursor's.
+                ("conventions".to_string(), vec![pair("claude", "/conventions"), pair("codex", "$conventions")]),
             ]
         );
         let ship = listed.folders[0].skills.iter().find(|s| s.name == "ship").unwrap();
