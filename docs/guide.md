@@ -418,7 +418,11 @@ Questions a Claude Code session asks you
 (its `AskUserQuestion`) show the same way through the plugin, one at a time under a strip of their
 headers, each with its choices listed as Claude Code lists them, what each says about itself under it,
 and a box for your own answer, and Answer sends your picks. Claude Code's own prompt stays up all the while, and
-whichever answer comes first counts. Another session's message that a Claude Code session holds for
+whichever answer comes first counts. An Antigravity command line conversation's questions (its
+`ask_question`) show the same way while it runs in a Ghostty, iTerm2 or tmux tab: Answer presses
+the keys there that give your picks, typing your own words into its Write-in box, and Decline
+skips them all and stops its turn. A question with more than eight choices is answered in its
+terminal. Another session's message that a Claude Code session holds for
 you to allow (it skips permission prompts and the sender didn't say it does too) shows the same way,
 all of it when Codealong sent it, with Deliver and Deny, pressed in its Ghostty, iTerm2 or tmux tab
 or typed into its background job; with several held, it opens where it runs, which shows them one at

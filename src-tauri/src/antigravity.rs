@@ -15,7 +15,8 @@ use rusqlite::Connection;
 use serde_json::Value;
 
 use crate::config::AccountCfg;
-use crate::harness::{Applied, Ctx, Look};
+use crate::harness::{Applied, Ctx, Look, Question};
+use crate::launch::Key;
 use crate::model::{Harness, ModeKind, Session, SessionMode, Surface};
 use crate::procs;
 use crate::transcript::{clip_input, clip_output, item, kept_whole, Item, Page};
@@ -518,6 +519,18 @@ pub struct Call {
     /// Its command only looks (`util::only_looks`), which is work only in the conversation's
     /// own folder.
     pub looks: bool,
+    /// What an `ask_question` call asks you.
+    pub questions: Vec<Question>,
+}
+
+impl Call {
+    /// What it waits on you for, as a line: the call, or what it asks you.
+    pub fn asked(&self) -> String {
+        match self.questions.first() {
+            Some(q) => format!("Asks you · {}", one_line(&q.question, 160)),
+            None => self.label.clone(),
+        }
+    }
 }
 
 /// One line of a transcript.
@@ -576,7 +589,102 @@ fn call(c: &Value, result_step: i64) -> Call {
         _ => arg(&args, "TargetFile").filter(|p| p.starts_with('/')),
     };
     let looks = command.as_deref().is_some_and(only_looks);
-    Call { result_step, label, input: command.clone().unwrap_or_else(rest), command, cwd, work, looks }
+    let questions = if name == ASK_QUESTION { questions_of(&args) } else { Vec::new() };
+    Call { result_step, label, input: command.clone().unwrap_or_else(rest), command, cwd, work, looks, questions }
+}
+
+/// The tool that asks you questions, each with choices to pick from.
+const ASK_QUESTION: &str = "ask_question";
+
+/// The questions in an `ask_question` call's arguments: `questions`, each `{question, options,
+/// is_multi_select}` with its options as plain labels, and no header or descriptions. The
+/// transcript without `_full` writes the list as a string of JSON.
+fn questions_of(args: &Value) -> Vec<Question> {
+    let listed = match args.get("questions") {
+        Some(Value::String(s)) => serde_json::from_str(s).unwrap_or(Value::Null),
+        Some(v) => v.clone(),
+        None => Value::Null,
+    };
+    let text = |v: &Value| v.as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+    let Value::Array(listed) = listed else { return Vec::new() };
+    listed
+        .iter()
+        .filter_map(|q| {
+            let options = q.get("options").and_then(Value::as_array).map(|o| o.iter().filter_map(|c| text(c).or_else(|| c.get("label").and_then(text))).map(|label| codealong_peer::api::Choice { label, description: None }).collect()).unwrap_or_default();
+            Some(Question { question: q.get("question").and_then(text)?, header: None, options, multi_select: q.get("is_multi_select").and_then(Value::as_bool) == Some(true) })
+        })
+        .collect()
+}
+
+/// What its result says for a question you skipped.
+const SKIPPED: &str = "User Skipped";
+
+/// Your answers, out of a question call's result: one for each question in its order, `A1:
+/// Green`, `A2: Mon, Wed`, your own words as you wrote them (lines and all), and `User Skipped`
+/// for one you skipped, which is left out. Each is keyed by its question's text.
+fn answers_of(result: &str, questions: &[Question]) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut out = std::collections::BTreeMap::new();
+    let Some(mut rest) = result.strip_prefix("A1: ") else { return out };
+    for (k, q) in questions.iter().enumerate() {
+        let (answer, after) = rest.split_once(&format!("\nA{}: ", k + 2)).unwrap_or((rest, ""));
+        let answer = answer.trim_end();
+        if answer != SKIPPED && !answer.is_empty() {
+            out.insert(q.question.clone(), picks_of(answer, q));
+        }
+        rest = after;
+    }
+    out
+}
+
+/// An answer as the choices it picked and your own words after them: a question that takes
+/// several joins the ones ticked with ", ", in their order, then what you wrote. A label with a
+/// comma of its own is still found whole.
+fn picks_of(answer: &str, q: &Question) -> Vec<String> {
+    if !q.multi_select || q.options.iter().any(|o| o.label == answer) {
+        return vec![answer.to_string()];
+    }
+    let mut out = Vec::new();
+    let mut rest = answer;
+    for o in &q.options {
+        match rest.strip_prefix(o.label.as_str()) {
+            Some("") => {
+                out.push(o.label.clone());
+                rest = "";
+            }
+            Some(after) if after.starts_with(", ") => {
+                out.push(o.label.clone());
+                rest = &after[2..];
+            }
+            _ => {}
+        }
+    }
+    if !rest.is_empty() {
+        out.push(rest.to_string());
+    }
+    out
+}
+
+/// A page with your answers on its question calls' results (`answers_of`). A result only
+/// numbers them, so they're keyed by its call's questions, found on the page or, for a result
+/// read without its call (one that came in after the call was read), in the record.
+fn with_answers(path: &Path, mut page: Page) -> Page {
+    let mut record: Option<Vec<Call>> = None;
+    for i in 0..page.items.len() {
+        let it = &page.items[i];
+        let Some(output) = it.output.as_deref().filter(|o| it.kind == "result" && o.starts_with("A1: ")) else { continue };
+        let id = it.id.as_deref();
+        let on_page = page.items.iter().find(|c| c.kind == "tool" && c.id.as_deref() == id && !c.questions.is_empty()).map(|c| &c.questions);
+        let asked = on_page.or_else(|| record.get_or_insert_with(|| asked_in(path)).iter().find(|c| Some(c.result_step.to_string().as_str()) == id).map(|c| &c.questions));
+        let answers = asked.map(|q| answers_of(output, q)).unwrap_or_default();
+        page.items[i].answers = answers;
+    }
+    page
+}
+
+/// Every question call in a record.
+fn asked_in(path: &Path) -> Vec<Call> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    text.lines().filter(|l| l.contains(ASK_QUESTION)).filter_map(|l| serde_json::from_str::<Value>(l).ok()).flat_map(|v| step(&v).map(|s| s.calls).unwrap_or_default()).filter(|c| !c.questions.is_empty()).collect()
 }
 
 /// What you asked, out of a `USER_INPUT` step: Antigravity wraps it in `<USER_REQUEST>` and
@@ -621,7 +729,7 @@ pub fn conversation_items(v: &Value, _at: i64) -> Vec<Item> {
             }
             for c in &s.calls {
                 let shell = c.command.as_deref().is_some_and(|cmd| !cmd.trim().is_empty() && kept_whole(cmd));
-                out.push(Item { id: Some(c.result_step.to_string()), input: Some(clip_input(&c.input)), shell, cwd: c.cwd.clone().filter(|_| shell), ..item(s.at, "tool", c.label.clone()) });
+                out.push(Item { id: Some(c.result_step.to_string()), input: Some(clip_input(&c.input)), shell, cwd: c.cwd.clone().filter(|_| shell), questions: c.questions.clone(), ..item(s.at, "tool", c.label.clone()) });
             }
             out
         }
@@ -1456,6 +1564,129 @@ impl Antigravity {
     fn record(&self, ctx: &Ctx, s: &Session) -> anyhow::Result<PathBuf> {
         transcript_file(&folder_of(ctx.account, s), &s.id).ok_or_else(|| anyhow::anyhow!("Antigravity hasn't written this conversation's record yet."))
     }
+
+    /// The call its one step that waits on you is, when that's the call you saw (`id`), with the
+    /// process whose terminal UI takes the keys that answer it: only a command line
+    /// conversation's does. Keys are pressed only while its database says so: a stray digit lands
+    /// in its input box, and with several calls waiting a key would answer whichever is up.
+    fn waiting_call(&self, ctx: &Ctx, s: &Session, id: &str) -> anyhow::Result<(u32, Call)> {
+        let (Surface::Cli, Some(pid)) = (s.surface, s.pid) else {
+            anyhow::bail!("Antigravity asks in {}; answer it there.", if s.surface == Surface::Cli { "its terminal" } else { "its own window" });
+        };
+        let open = tail(&self.record(ctx, s)?, None).open;
+        let call = |step: i64| open.iter().find(|c| c.result_step == step).cloned().unwrap_or_else(|| Call { label: "another call".into(), ..Call::default() });
+        match waiting_steps(&folder_of(ctx.account, s), &s.id).as_slice() {
+            [] => anyhow::bail!("It isn't waiting on you any more."),
+            [step] if step.to_string() == id => Ok((pid, call(*step))),
+            [step] => anyhow::bail!("It's waiting on a different call now: {}. Look again before answering.", call(*step).label),
+            _ => anyhow::bail!("It waits on more than one call; answer them in its terminal."),
+        }
+    }
+}
+
+/// A key to press in a terminal UI, or words to type there and send with Return.
+#[derive(Debug, Clone, PartialEq)]
+enum Press {
+    Key(Key),
+    Words(String),
+}
+
+/// The keys that pick a question's choices: 1 to 9, the last for the write-in that follows its
+/// own choices.
+const KEYED_CHOICES: usize = 9;
+
+/// How long between keys: an Escape and the key after it arriving together read as Alt and that
+/// key.
+const PRESS_GAP: Duration = Duration::from_millis(100);
+
+/// Presses `keys` in the terminal a session's process runs in, in order.
+fn press_all(pid: u32, s: &Session, keys: &[Press]) -> anyhow::Result<()> {
+    let cwd = Path::new(&s.cwd);
+    let Some(host) = crate::launch::terminal_host(pid, cwd)? else {
+        anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to answer.", crate::launch::presses_keys_in());
+    };
+    for (i, press) in keys.iter().enumerate() {
+        if i > 0 {
+            std::thread::sleep(PRESS_GAP);
+        }
+        match press {
+            Press::Key(key) => crate::launch::press_key(&host, *key)?,
+            Press::Words(words) => {
+                if let crate::launch::Typed::Nowhere(why) = crate::launch::terminal_type_session(pid, cwd, words, false, crate::launch::Submit::Return, false)? {
+                    anyhow::bail!("Your words couldn't be typed into it: {why}. Finish answering in its terminal.");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Your answer to a question as `answers` gives it (`Adapter::answer_questions`): a label or words
+/// of your own, or a list of them where it takes several; empty ones left out.
+fn given(answers: &Value, q: &Question) -> Vec<String> {
+    let words = |v: &Value| v.as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+    match answers.get(&q.question) {
+        Some(Value::Array(list)) => list.iter().filter_map(words).collect(),
+        Some(v) => words(v).into_iter().collect(),
+        None => Vec::new(),
+    }
+}
+
+/// The keys that answer its terminal UI's questions (1.3.5, in tmux, 2026-10-14): one question at
+/// a time, its choices numbered and Write-in after them. On one that takes one answer, a choice's
+/// digit picks it and goes on to the next; on one that takes several, each digit ticks its
+/// choice and Return goes on. Write-in's digit opens a box for your own words (a paste of several
+/// lines is taken whole), which Return sends, with what's ticked. Escape skips a question, its
+/// answer "User Skipped". On the last, what goes on submits them all, and the turn goes on.
+/// Left goes back a question, so it starts with enough of them to be at the first, wherever its
+/// terminal was left (Left on the first does nothing). Without `answers` they're declined:
+/// nothing there turns them down, so every question is skipped and one more Escape stops the
+/// turn as it goes on ("Interrupted · What should Antigravity CLI do instead?"), as a denied
+/// call's does.
+fn question_keys(questions: &[Question], answers: Option<&Value>) -> anyhow::Result<Vec<Press>> {
+    let digit = |i: usize| u8::try_from(i + 1).ok().filter(|_| i < KEYED_CHOICES).map(|n| Press::Key(Key::Digit(n)));
+    let mut out = vec![Press::Key(Key::Left); questions.len().saturating_sub(1)];
+    let mut answered = false;
+    for q in questions {
+        let given = answers.map(|a| given(a, q)).unwrap_or_default();
+        let too_many = || anyhow::anyhow!("“{}” has more choices than Codealong picks among with a key; answer it in its terminal.", one_line(&q.question, 80));
+        if given.is_empty() {
+            out.push(Press::Key(Key::Escape));
+            continue;
+        }
+        answered = true;
+        let index = |label: &str| q.options.iter().position(|o| o.label == label);
+        let write_in = |words: String, out: &mut Vec<Press>| -> anyhow::Result<()> {
+            out.push(digit(q.options.len()).ok_or_else(too_many)?);
+            out.push(Press::Words(words));
+            Ok(())
+        };
+        if !q.multi_select {
+            match index(&given[0]) {
+                Some(i) => out.push(digit(i).ok_or_else(too_many)?),
+                None => write_in(given[0].clone(), &mut out)?,
+            }
+            continue;
+        }
+        let mut ticked: Vec<usize> = given.iter().filter_map(|g| index(g)).collect();
+        ticked.sort_unstable();
+        ticked.dedup();
+        for i in ticked {
+            out.push(digit(i).ok_or_else(too_many)?);
+        }
+        let own: Vec<&str> = given.iter().filter(|g| index(g).is_none()).map(String::as_str).collect();
+        if own.is_empty() {
+            out.push(Press::Key(Key::Return));
+        } else {
+            write_in(own.join(", "), &mut out)?;
+        }
+    }
+    match answers {
+        Some(_) if !answered => anyhow::bail!("Pick an answer first."),
+        Some(_) => {}
+        None => out.push(Press::Key(Key::Escape)),
+    }
+    Ok(out)
 }
 
 impl crate::harness::Adapter for Antigravity {
@@ -1636,11 +1867,13 @@ impl crate::harness::Adapter for Antigravity {
     }
 
     fn conversation(&self, ctx: &Ctx, s: &Session, before: Option<u64>, limit: usize) -> anyhow::Result<Page> {
-        crate::transcript::file_page(&self.record(ctx, s)?, conversation_items, before, limit)
+        let path = self.record(ctx, s)?;
+        Ok(with_answers(&path, crate::transcript::file_page(&path, conversation_items, before, limit)?))
     }
 
     fn conversation_after(&self, ctx: &Ctx, s: &Session, after: u64) -> anyhow::Result<Page> {
-        crate::transcript::file_newer(&self.record(ctx, s)?, conversation_items, after)
+        let path = self.record(ctx, s)?;
+        Ok(with_answers(&path, crate::transcript::file_newer(&path, conversation_items, after)?))
     }
 
     /// The command line's conversation takes a prompt typed into its terminal, or a new terminal
@@ -1680,8 +1913,9 @@ impl crate::harness::Adapter for Antigravity {
         matches!(place, Place::Terminal | Place::Background)
     }
 
-    /// What its step waits on you to allow. The command line's terminal UI is answered here with
-    /// a key (`answer`); the app takes nothing from outside.
+    /// What its step waits on you to allow, or the questions it asks. The command line's terminal
+    /// UI is answered here with keys (`answer`, `answer_questions`); the app takes nothing from
+    /// outside.
     fn pending(&self, ctx: &Ctx, s: &Session) -> Option<crate::harness::Pending> {
         let open = tail(&self.record(ctx, s).ok()?, None).open;
         // Calls run side by side, so the first that hasn't finished may be one that still runs:
@@ -1689,11 +1923,14 @@ impl crate::harness::Adapter for Antigravity {
         let waiting = waiting_steps(&folder_of(ctx.account, s), &s.id);
         let c = open.iter().find(|c| waiting.contains(&c.result_step)).or(open.first())?.clone();
         let cannot = match (s.surface, s.pid) {
+            (Surface::Cli, Some(_)) if c.questions.iter().any(|q| q.options.len() >= KEYED_CHOICES) => Some(format!("A question of its has more than {} choices, more than Codealong picks among with a key; answer it in its terminal.", KEYED_CHOICES - 1)),
             (Surface::Cli, Some(_)) => None,
             (Surface::Cli, None) => Some("Antigravity asks in its terminal; answer it there.".to_string()),
             _ => Some("Antigravity asks in its own window; answer it there.".to_string()),
         };
-        Some(crate::harness::Pending { id: c.result_step.to_string(), label: c.label, input: Some(c.input), cannot, always: false, no_once: false, plan: false, message: false, always_rule: None, questions: Vec::new(), unwritten: false, terminal: None })
+        // Questions are answered with your picks, so their arguments aren't shown.
+        let input = c.questions.is_empty().then(|| c.input.clone());
+        Some(crate::harness::Pending { id: c.result_step.to_string(), label: c.asked(), input, cannot, always: false, no_once: false, plan: false, message: false, always_rule: None, questions: c.questions, unwritten: false, terminal: None })
     }
 
     /// Its terminal UI's permission prompt, with a key (1.3.4, in tmux, 2026-10-13): `1`, with no
@@ -1701,35 +1938,36 @@ impl crate::harness::Adapter for Antigravity {
     /// cancels it, which denies the call and ends the turn ("Interrupted · What should Antigravity
     /// CLI do instead?"). Its other choices (always, for the conversation or in its settings, and
     /// No) are numbered differently from one prompt to another, a file outside its workspace
-    /// having two or three, so they're left to its terminal. A key is pressed only while its
-    /// database says the one step that waits is the call you saw: a stray digit lands in its
-    /// input box, and with several calls waiting the key would answer whichever is up.
+    /// having two or three, so they're left to its terminal. Questions are declined by skipping
+    /// each and stopping the turn (`question_keys`).
     fn answer(&self, ctx: &Ctx, s: &Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         use crate::harness::Answer;
-        let (Surface::Cli, Some(pid)) = (s.surface, s.pid) else {
-            anyhow::bail!("Antigravity asks in {}; answer it there.", if s.surface == Surface::Cli { "its terminal" } else { "its own window" });
-        };
-        let open = tail(&self.record(ctx, s)?, None).open;
-        let label = |step: i64| open.iter().find(|c| c.result_step == step).map_or_else(|| "another call".to_string(), |c| c.label.clone());
-        let call = match waiting_steps(&folder_of(ctx.account, s), &s.id).as_slice() {
-            [] => anyhow::bail!("It isn't waiting on a permission prompt any more."),
-            [step] if step.to_string() == id => label(*step),
-            [step] => anyhow::bail!("It's waiting on a different call now: {}. Look again before answering.", label(*step)),
-            _ => anyhow::bail!("It waits on more than one call; answer them in its terminal."),
-        };
-        let key = match answer {
-            Answer::Allow => crate::launch::Key::Digit1,
-            Answer::Deny => crate::launch::Key::Escape,
+        let (pid, call) = self.waiting_call(ctx, s, id)?;
+        let keys = match answer {
+            Answer::Allow | Answer::Always if !call.questions.is_empty() => anyhow::bail!("It asks you questions: pick your answers."),
+            Answer::Allow => vec![Press::Key(Key::Digit(1))],
+            Answer::Deny if !call.questions.is_empty() => question_keys(&call.questions, None)?,
+            Answer::Deny => vec![Press::Key(Key::Escape)],
             Answer::Always => anyhow::bail!("Antigravity's prompt is answered here with Allow or Deny only."),
         };
-        let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
-            anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Open it to answer.", crate::launch::presses_keys_in());
-        };
-        crate::launch::press_key(&host, key)?;
+        press_all(pid, s, &keys)?;
         Ok(match answer {
-            Answer::Deny => format!("Denied {call}; it stops and waits for you."),
-            _ => format!("Allowed {call}."),
+            Answer::Deny if !call.questions.is_empty() => "Declined its questions; it stops and waits for you.".to_string(),
+            Answer::Deny => format!("Denied {}; it stops and waits for you.", call.label),
+            _ => format!("Allowed {}.", call.label),
         })
+    }
+
+    /// Its terminal UI's questions, with the keys that answer them there (`question_keys`).
+    fn answer_questions(&self, ctx: &Ctx, s: &Session, id: &str, answers: &Value) -> anyhow::Result<String> {
+        let (pid, call) = self.waiting_call(ctx, s, id)?;
+        if call.questions.is_empty() {
+            anyhow::bail!("It isn't asking you questions: allow or deny it.");
+        }
+        let keys = question_keys(&call.questions, Some(answers))?;
+        press_all(pid, s, &keys)?;
+        let said: Vec<String> = call.questions.iter().filter_map(|q| Some(format!("{} → {}", one_line(&q.question, 80), given(answers, q).join(", "))).filter(|_| !given(answers, q).is_empty())).collect();
+        Ok(format!("Answered: {}.", said.join("; ")))
     }
 
     fn open_calls(&self, ctx: &Ctx, s: &Session) -> Vec<String> {
@@ -2564,5 +2802,112 @@ mod tests {
         let on = read(serde_json::json!({"userSettings": {"telemetryEnabled": true}}));
         assert_eq!((on.state, on.can_stop), (State::On, true));
         assert_eq!(read(serde_json::json!({"userSettings": {"telemetryEnabled": true, "userDataCollectionForceDisabled": true}})).state, State::Off);
+    }
+
+    /// An `ask_question` call and its result as `agy` 1.3.5 wrote them (in tmux, 2026-10-14):
+    /// the first question skipped, the second's choice ticked with words of your own on two
+    /// lines. The transcript without `_full` writes the list as a string of JSON.
+    const ASKED: [&str; 3] = [
+        r#"{"step_index":5,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-15T02:12:32Z","tool_calls":[{"name":"ask_question","args":{"questions":[{"is_multi_select":false,"options":["Red","Green","Blue"],"question":"Which color?"},{"is_multi_select":true,"options":["Mon","Tue","Wed"],"question":"Which days?"},{"is_multi_select":false,"options":["Small","Large"],"question":"Which size?"}],"toolAction":"Asking preference questions","toolSummary":"Color, days, and size questions"}}]}"#,
+        r#"{"step_index":5,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-15T02:12:32Z","tool_calls":[{"name":"ask_question","args":{"questions":"[{\"is_multi_select\":false,\"options\":[\"Red\",\"Green\",\"Blue\"],\"question\":\"Which color?\"},{\"is_multi_select\":true,\"options\":[\"Mon\",\"Tue\",\"Wed\"],\"question\":\"Which days?\"},{\"is_multi_select\":false,\"options\":[\"Small\",\"Large\"],\"question\":\"Which size?\"}]","toolAction":"\"Asking preference questions\"","toolSummary":"\"Color, days, and size questions\""}}]}"#,
+        r#"{"step_index":6,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"2026-10-15T02:12:36Z","content":"Created At: 2026-10-14T19:12:36-07:00\nCompleted At: 2026-10-14T19:13:05-07:00\nA1: User Skipped\nA2: Tue, Thu too\nand Fri\nA3: Large"}"#,
+    ];
+
+    fn asked() -> Vec<Question> {
+        call(&serde_json::from_str::<Value>(ASKED[0]).unwrap()["tool_calls"][0], 6).questions
+    }
+
+    #[test]
+    fn reads_the_questions_it_asks_and_your_answers() {
+        let full = asked();
+        assert_eq!(full.iter().map(|q| (q.question.as_str(), q.options.len(), q.multi_select)).collect::<Vec<_>>(), [("Which color?", 3, false), ("Which days?", 3, true), ("Which size?", 2, false)]);
+        assert_eq!(call(&serde_json::from_str::<Value>(ASKED[1]).unwrap()["tool_calls"][0], 6).questions, full);
+        // On the board it asks you, and in the conversation it's the questions with your answers.
+        assert_eq!(call(&serde_json::from_str::<Value>(ASKED[0]).unwrap()["tool_calls"][0], 6).asked(), "Asks you · Which color?");
+        let items: Vec<Item> = ASKED[1..].iter().flat_map(|l| conversation_items(&serde_json::from_str(l).unwrap(), 0)).collect();
+        assert_eq!((items[0].kind, items[0].id.as_deref(), items[0].questions.len()), ("tool", Some("6"), 3));
+        let page = with_answers(Path::new("/nowhere"), Page { items, before: None, after: 0 });
+        let answers = &page.items[1].answers;
+        assert_eq!(answers.len(), 2, "a question you skipped has no answer");
+        assert_eq!(answers["Which days?"], ["Tue", "Thu too\nand Fri"]);
+        assert_eq!(answers["Which size?"], ["Large"]);
+        // A label with a comma of its own is found whole, among others or alone.
+        let q = Question { question: "Which?".into(), header: None, options: ["Mon, Tue", "Wed"].map(|l| codealong_peer::api::Choice { label: l.into(), description: None }).to_vec(), multi_select: true };
+        assert_eq!(picks_of("Mon, Tue, Wed", &q), ["Mon, Tue", "Wed"]);
+        assert_eq!(picks_of("Mon, Tue", &q), ["Mon, Tue"]);
+        assert_eq!(picks_of("Fri", &q), ["Fri"]);
+    }
+
+    /// A result read without its call, as one that came in after the call was read is: its
+    /// questions are found in the record.
+    #[test]
+    fn answers_read_after_their_questions_are_keyed_by_them() {
+        let dir = crate::fixtures::scratch("agy-answers");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("transcript_full.jsonl");
+        std::fs::write(&path, format!("{}\n{}\n", ASKED[0], ASKED[2])).unwrap();
+        let after = (ASKED[0].len() + 1) as u64;
+        let page = with_answers(&path, crate::transcript::file_newer(&path, conversation_items, after).unwrap());
+        assert_eq!((page.items.len(), page.items[0].answers["Which size?"].clone()), (1, vec!["Large".to_string()]));
+        // A command's result is left as it is, whatever it printed.
+        let page = with_answers(&path, Page { items: vec![Item { id: Some("9".into()), output: Some("A1: Green".into()), ..item(0, "result", "") }], before: None, after: 0 });
+        assert!(page.items[0].answers.is_empty());
+    }
+
+    #[test]
+    fn questions_are_answered_with_the_keys_its_terminal_takes() {
+        use Press::{Key as K, Words};
+        let questions = asked();
+        let keys = |answers: Value| question_keys(&questions, Some(&answers));
+        // Back to the first question; a choice there goes on; ticks, then Return; a choice on the
+        // last submits them all.
+        assert_eq!(
+            keys(serde_json::json!({"Which color?": "Green", "Which days?": ["Wed", "Mon", "Wed"], "Which size?": "Large"})).unwrap(),
+            [K(Key::Left), K(Key::Left), K(Key::Digit(2)), K(Key::Digit(1)), K(Key::Digit(3)), K(Key::Return), K(Key::Digit(2))]
+        );
+        // Your own words go in Write-in's box, with what's ticked; a question with no answer is
+        // skipped.
+        assert_eq!(
+            keys(serde_json::json!({"Which days?": ["Tue", "Thu too"], "Which size?": "  medium  "})).unwrap(),
+            [K(Key::Left), K(Key::Left), K(Key::Escape), K(Key::Digit(2)), K(Key::Digit(4)), Words("Thu too".into()), K(Key::Digit(3)), Words("medium".into())]
+        );
+        assert_eq!(keys(serde_json::json!({"Which color?": " "})).unwrap_err().to_string(), "Pick an answer first.");
+        // Declined, every question is skipped and the turn they go on in stopped.
+        assert_eq!(question_keys(&questions, None).unwrap(), [K(Key::Left), K(Key::Left), K(Key::Escape), K(Key::Escape), K(Key::Escape), K(Key::Escape)]);
+        // Only nine choices have a key, Write-in among them.
+        let mut long = questions[..1].to_vec();
+        long[0].options = (1..=9).map(|n| codealong_peer::api::Choice { label: format!("Choice {n}"), description: None }).collect();
+        assert_eq!(question_keys(&long, Some(&serde_json::json!({"Which color?": "Choice 9"}))).unwrap(), [K(Key::Digit(9))]);
+        assert!(question_keys(&long, Some(&serde_json::json!({"Which color?": "Purple"}))).unwrap_err().to_string().contains("more choices than Codealong picks among"));
+    }
+
+    /// A conversation in its terminal UI waiting on its questions, end to end: they show as
+    /// questions, are answered with picks only, and a key is pressed only in a terminal.
+    #[test]
+    fn a_question_waits_for_your_picks() {
+        let root = crate::fixtures::scratch("antigravity-asks");
+        let dir = root.join("antigravity-cli");
+        let logs = dir.join("brain/c1/.system_generated/logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        std::fs::write(logs.join("transcript_full.jsonl"), format!("{}\n{}\n", LINES[0], ASKED[0])).unwrap();
+        let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
+        steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0); INSERT INTO steps VALUES (0, 14, 3), (5, 15, 3), (6, 132, 9);").unwrap();
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: root.join("antigravity").to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let ctx = Ctx { account: &account };
+        let session = Session { surface: Surface::Cli, pid: Some(999_999), cwd: "/r/app".into(), ..Session::new(Harness::Antigravity, "antigravity", "c1") };
+        use crate::harness::{Adapter as _, Answer};
+        let waits = Antigravity.pending(&ctx, &session).unwrap();
+        assert_eq!((waits.id.as_str(), waits.label.as_str(), waits.input.is_none(), waits.cannot.is_none()), ("6", "Asks you · Which color?", true, true));
+        assert_eq!(waits.questions, asked());
+        assert_eq!(Antigravity.answer(&ctx, &session, "6", Answer::Allow).unwrap_err().to_string(), "It asks you questions: pick your answers.");
+        let picks = serde_json::json!({"Which color?": "Green"});
+        assert!(Antigravity.answer_questions(&ctx, &session, "6", &picks).unwrap_err().to_string().starts_with("It isn't in a terminal Codealong can press keys in"));
+        assert!(Antigravity.answer_questions(&ctx, &session, "5", &picks).unwrap_err().to_string().starts_with("It's waiting on a different call now"));
+        let in_app = Session { pid: None, ..session.clone() };
+        assert!(Antigravity.pending(&ctx, &in_app).unwrap().cannot.is_some());
+        assert!(Antigravity.answer_questions(&ctx, &in_app, "6", &picks).unwrap_err().to_string().contains("answer it there"));
+        steps.execute("UPDATE steps SET status = 3 WHERE idx = 6", []).unwrap();
+        assert_eq!(Antigravity.answer_questions(&ctx, &session, "6", &picks).unwrap_err().to_string(), "It isn't waiting on you any more.");
     }
 }

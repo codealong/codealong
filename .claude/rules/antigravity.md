@@ -40,8 +40,8 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   the database about 30 seconds after its last write, its WAL and `-shm` going with it.
 - Step types seen (1.3.5, 2026-10-14): 14 your prompt, 15 the model's reply, 17 an error's
   note, 101 a system message (a background command's result, which starts the agent again), 132
-  a command. The note a failed turn ends with ("Agent execution terminated due to error", an
-  `agent executor error` after it) has words for you in its payload (field 24.3.1, and 24.5 is
+  a command, and an `ask_question` too. The note a failed turn ends with ("Agent execution
+  terminated due to error", an `agent executor error` after it) has words for you in its payload (field 24.3.1, and 24.5 is
   1); the notes the agent goes on after carry only the error (24.3.2): a request it tries again,
   "API error (attempt N): …", one a try (eight in a row while the network was down), and a
   stream cut off that it picks up, "The stream was interrupted. Please continue…" (every note on
@@ -139,6 +139,15 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   Escape cancels. The call's step is waiting (9) while it's up. Escape stops a turn
   ("Interrupted · What should Antigravity CLI do instead?"). Codealong answers a prompt with 1 or
   Escape (`Antigravity::answer`) and doesn't stop its turns.
+- Questions (`ask_question`, 1.3.5, in tmux, 2026-10-14): the call's arguments, the dialog's keys
+  and the result's `A1: …` lines are in `antigravity.rs` (`questions_of`, `question_keys`,
+  `answers_of`). Its step waits (9) while the dialog is up, under `always-proceed` too, and the
+  transcript has the call but no result until it's answered, so its questions show at once.
+  Not said there: the dialog asks one question at a time ("Question 1/3"), ↑/↓ and → move,
+  Space toggles too, a skipped question shows `(skipped)` in the terminal, and Ctrl+C only says
+  "press ctrl+c again to exit". Keys arriving together as fast as tmux sends them, a paste
+  among them, are taken in order. The binary also names "auto-answer ask_question" (`skipped=true`)
+  and "user cancelled ask_question", which nothing seen did.
 - Workspace trust: which folders count, how the path is taken, and trusting one before a start:
   `antigravity.rs` (`TRUSTED_WORKSPACES`, `trust_folder`, `Antigravity::before_start`). The
   settings are `settings.json` in the command line's folder, written by agy indented by two

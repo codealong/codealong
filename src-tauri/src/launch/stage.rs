@@ -966,7 +966,7 @@ mod tests {
     /// stopping a turn do.
     fn press_all(pid: u32) -> anyhow::Result<()> {
         let host = terminal_host(pid, Path::new("/r/elsewhere"))?.ok_or_else(|| anyhow!("no terminal"))?;
-        for key in [Key::Digit1, Key::Escape, Key::CtrlC, Key::End, Key::Return] {
+        for key in [Key::Digit(1), Key::Escape, Key::CtrlC, Key::End, Key::Return, Key::Digit(4), Key::Left] {
             press_key(&host, key)?;
         }
         Ok(())
@@ -996,11 +996,13 @@ mod tests {
                 r#"GHOSTTY_ACTION ["T1", "text:\\x03"]"#,
                 r#"GHOSTTY_ACTION ["T1", "text:\\x1b[F"]"#,
                 r#"GHOSTTY_KEY ["T1", "enter"]"#,
+                r#"GHOSTTY_ACTION ["T1", "text:4"]"#,
+                r#"GHOSTTY_ACTION ["T1", "text:\\x1b[D"]"#,
             ]
         );
         let p = played(answer, || press_all(IN_ITERM));
         p.got.unwrap();
-        assert_eq!(p.log, [r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "1"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{3}"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}[F"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\r"]"#]);
+        assert_eq!(p.log, [r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "1"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{3}"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}[F"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\r"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "4"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}[D"]"#]);
         let p = played(answer, || press_all(IN_TMUX));
         p.got.unwrap();
         assert_eq!(
@@ -1012,6 +1014,8 @@ mod tests {
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "C-c"] (5s)"#,
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "End"] (5s)"#,
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "Enter"] (5s)"#,
+                r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "4"] (5s)"#,
+                r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "Left"] (5s)"#,
             ]
         );
 

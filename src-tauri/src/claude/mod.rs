@@ -323,7 +323,7 @@ impl crate::harness::Adapter for ClaudeCode {
             anyhow::bail!("Its plan prompt puts \"clear context\" first (showClearContextOnPlanAccept is on in its settings), so Codealong doesn't press a key for it. Answer it in its terminal.");
         }
         let key = match answer {
-            crate::harness::Answer::Allow => crate::launch::Key::Digit1,
+            crate::harness::Answer::Allow => crate::launch::Key::Digit(1),
             crate::harness::Answer::Deny => crate::launch::Key::Escape,
             crate::harness::Answer::Always => anyhow::bail!("Claude Code's prompt in a terminal is answered here with Allow or Deny only."),
         };

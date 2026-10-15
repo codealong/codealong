@@ -576,7 +576,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
     };
     let title = c.title.clone().or_else(|| c.preview.clone()).unwrap_or_else(|| "Antigravity conversation".to_string());
     let excerpt = match status {
-        Status::Needs => c.tail.open.first().map(|call| call.label.clone()).or_else(|| Some("A step waits for you to allow it".to_string())),
+        Status::Needs => c.tail.open.first().map(|call| call.asked()).or_else(|| Some("A step waits for you to allow it".to_string())),
         Status::Working => c.tail.last_tool.clone().or_else(|| c.preview.clone()),
         _ => c.tail.last_text.clone().or_else(|| c.preview.clone()),
     };

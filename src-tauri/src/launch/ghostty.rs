@@ -116,12 +116,11 @@ impl Terminal for Ghostty {
         // program as typing it does; `input text` would paste it, and Claude Code's prompt
         // ignores pastes.
         match key {
-            Key::Digit1 => osascript(GHOSTTY_ACTION, &[at, "text:1"])?,
             Key::Escape => osascript(GHOSTTY_KEY, &[at, "escape"])?,
             Key::CtrlC => osascript(GHOSTTY_ACTION, &[at, GHOSTTY_CTRL_C])?,
-            // End as the terminal sequence, which needs no key name of Ghostty's.
-            Key::End => osascript(GHOSTTY_ACTION, &[at, &text_action(key.typed())])?,
             Key::Return => osascript(GHOSTTY_KEY, &[at, "enter"])?,
+            // End and Left as their terminal sequences, which need no key names of Ghostty's.
+            Key::Digit(_) | Key::End | Key::Left => osascript(GHOSTTY_ACTION, &[at, &text_action(key.typed())])?,
         };
         Ok(())
     }

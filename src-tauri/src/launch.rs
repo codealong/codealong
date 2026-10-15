@@ -837,13 +837,19 @@ pub enum Submit {
 /// A key a harness's own prompt answers to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
-    Digit1,
+    /// A choice's number, 1 to 9: Yes in a permission prompt, a question's choice in
+    /// Antigravity's.
+    Digit(u8),
     Escape,
     CtrlC,
     /// The last of a list's choices, in Claude Code's dialogs.
     End,
+    /// Back to the question before, in Antigravity's questions.
+    Left,
     Return,
 }
+
+const DIGITS: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
 impl Key {
     /// What a terminal writes to the program for the key, without the keyboard protocols that
@@ -851,10 +857,11 @@ impl Key {
     /// 2026-10-07 for End as `ESC [ F`, `ESC O F` and `ESC [ 4 ~`).
     pub fn typed(self) -> &'static str {
         match self {
-            Key::Digit1 => "1",
+            Key::Digit(n) => DIGITS[usize::from(n.clamp(1, 9)) - 1],
             Key::Escape => "\x1b",
             Key::CtrlC => "\x03",
             Key::End => "\x1b[F",
+            Key::Left => "\x1b[D",
             Key::Return => "\r",
         }
     }
@@ -1146,7 +1153,7 @@ end run
             let typed = terminal_type_session(pid, &dir, "ab\ncd", false, Submit::Return, false).unwrap();
             if profile == "iterm2" {
                 let host = terminal_host(pid, &dir).unwrap().expect("iTerm2 presses keys");
-                press_key(&host, Key::Digit1).and_then(|_| press_key(&host, Key::Escape)).unwrap();
+                press_key(&host, Key::Digit(1)).and_then(|_| press_key(&host, Key::Escape)).unwrap();
             } else {
                 assert!(terminal_host(pid, &dir).is_err(), "Terminal can't press a key alone");
             }
@@ -1364,7 +1371,7 @@ end run
             std::thread::sleep(Duration::from_millis(100));
         }
         let host = TerminalHost { terminal: &ghostty::Ghostty, at: id.clone() };
-        let pressed = press_key(&host, Key::Digit1).and_then(|_| press_key(&host, Key::Escape));
+        let pressed = press_key(&host, Key::Digit(1)).and_then(|_| press_key(&host, Key::Escape));
         for _ in 0..50 {
             if std::fs::metadata(&out).map(|m| m.len() >= 2).unwrap_or(false) {
                 break;

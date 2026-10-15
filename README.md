@@ -188,8 +188,9 @@ next agent waiting, **⌘⌫** denies, **⌘E** marks a finished turn seen, **�
 **⌃⌘1** to **⌃⌘4** snooze a session for 15 minutes, an hour, three hours or until tomorrow morning.
 
 Approvals and questions can be answered for Claude Code (in a terminal, as a background job or in
-the Claude app), OpenCode, and any agent you run inside Codealong. Codex, Cursor and Antigravity
-sessions show what they're waiting on, and open where they ask.
+the Claude app), OpenCode, Antigravity's command line in a terminal, and any agent you run inside
+Codealong. Codex, Cursor and the Antigravity app show what they're waiting on, and open where they
+ask.
 
 <p align="center">
   <picture>

@@ -89,10 +89,11 @@ impl Terminal for Tmux {
 
     fn press(&self, at: &str, key: Key) -> Result<()> {
         let name = match key {
-            Key::Digit1 => "1",
+            Key::Digit(_) => key.typed(),
             Key::Escape => "Escape",
             Key::CtrlC => "C-c",
             Key::End => "End",
+            Key::Left => "Left",
             Key::Return => "Enter",
         };
         let bin = bin().ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?;
