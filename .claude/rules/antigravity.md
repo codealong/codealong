@@ -68,17 +68,29 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   the prompt. Its `init` event names the tools and `permission_mode` (`request-review`), but
   1.3.1 has no event to ask a permission over stdin or answer one.
 - A print run writes its summary row only as it ends. The terminal UI writes its row as a turn
-  starts (running, the time and step count as they were), when a step waits on you and as the
-  turn ends (idle, with the time and count of its latest step), not at each step:
-  `antigravity.rs` (`started`), `board.rs` (`antigravity_session`).
+  starts (running, the time and step count as they were), when a step waits on you, as a
+  command's step starts (running, counting that step; 1.3.5) and as the turn ends (idle, with
+  the time and count of its latest step), not at each step: `antigravity.rs` (`started`),
+  `board.rs` (`antigravity_session`). A command that runs long goes to the background on its
+  own: the turn ends with the agent saying it waits, the row idle with `not_fully_idle` 1, the
+  command's step running (2); its result comes back as a `SYSTEM_MESSAGE` step (type 101) that
+  starts the agent again, the row written running (1.3.5, in tmux, 2026-10-14).
 - Every `agy` that starts, print runs too (Codealong's usage read every couple of minutes among
   them), writes every conversation it doesn't run itself back to the command line's table as
-  idle (`IDLE`, `not_fully_idle` 0, the rest of the row as it was; "summary store: starting
-  background reconciliation (trigger=startup)" in its log). So a turn in a terminal UI reads
-  idle until that UI writes its row again, which can be minutes: `antigravity.rs`
-  (`idled_by_another`), `board.rs` (`antigravity_session`). Neither `ANTIGRAVITY_APP_DATA_DIR`
-  nor `JETSKI_APP_DATA_DIR` moves a run to another folder, and another `HOME` loses the
-  sign-in, so a usage read can't keep out of the table (1.3.4, 2026-10-13).
+  idle (`IDLE`, `not_fully_idle` 0; "summary store: starting background reconciliation
+  (trigger=startup)" in its log), the rest of the row from its own copy,
+  `jetbox_summaries_proto.pb` beside the table, which can be far older: on 2026-10-14 a turn
+  the UI had written at 182 steps went back to 114 steps and a time 30 minutes earlier, exactly
+  the file's copy, and a finished conversation's row from 93 steps to 78. Its log counts them
+  ("[Summaries] reconcile checked 33 conversations, restored 1", at 17:28, 17:34 and 17:38
+  during that turn). So a turn in a
+  terminal UI reads idle, with an older time and count, until that UI writes its row again,
+  which can be minutes: `antigravity.rs` (`idled_by_another`), `board.rs`
+  (`antigravity_session`). A row's step count matches its database's steps after its own UI's
+  turn end, but a finished one's can be put back too, so a count short of the steps doesn't by
+  itself say a turn is under way. Neither `ANTIGRAVITY_APP_DATA_DIR` nor `JETSKI_APP_DATA_DIR`
+  moves a run to another folder, and another `HOME` loses the sign-in, so a usage read can't
+  keep out of the table (1.3.4, 2026-10-13).
 - Which `agy` has which conversation, by the `presence/<id>.lock` it holds open: `antigravity.rs`
   (header, `held_conversation`, `processes`). The lock files stay behind after.
 - The terminal UI's first run asks for a color scheme and then shows Terms of Service and a

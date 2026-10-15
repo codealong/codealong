@@ -201,13 +201,14 @@ impl Conversation {
 /// Whether a conversation's summary says idle only because another `agy` started, from its row
 /// as last read and now. Each `agy`, print runs too (the usage read among them), writes every
 /// conversation it doesn't run itself back to the command line's table as idle when it starts,
-/// the rest of the row as it was, while the process that runs one goes on with its turn. That
-/// process writes the row only as a turn starts, waits on you and ends, and an ending writes
-/// the time and count of the latest step, which a turn always changes. So an idle row with the
-/// time and step count it had while the turn was under way, by the row or by a step that ran,
-/// is another's doing, until the row is written again.
+/// from its own copy of the row (`jetbox_summaries_proto.pb`), which can be far older than the
+/// table: its time and step count go back. The process that runs a conversation goes on with
+/// its turn, writing the row as a turn starts, a step waits on you, a command starts and a turn
+/// ends, and an ending writes the time and count of the latest step, later than any the turn
+/// wrote before. So an idle row no newer than the one read while the turn was under way, by
+/// the row or by a step that ran, is another's doing, until the row is written again.
 pub fn idled_by_another(before: Option<&Conversation>, now: &Conversation) -> bool {
-    !now.running() && before.is_some_and(|b| (b.running() || b.idled_by_another || b.step_under_way) && b.last_modified == now.last_modified && b.step_count == now.step_count)
+    !now.running() && before.is_some_and(|b| (b.running() || b.idled_by_another || b.step_under_way) && now.last_modified <= b.last_modified && now.step_count <= b.step_count)
 }
 
 /// A folder's conversations changed since `since_ms`, plus any in `keep` (pinned ones), newest
@@ -1685,6 +1686,10 @@ mod tests {
         assert!(idled_by_another(Some(&running), &idle));
         // Read again unchanged, it's still the other's doing.
         assert!(idled_by_another(Some(&Conversation { idled_by_another: true, ..idle.clone() }), &idle));
+        // The other writes its own older copy of the row: the time and count go back.
+        let older = Conversation { last_modified: 400, step_count: 2, ..idle.clone() };
+        assert!(idled_by_another(Some(&running), &older));
+        assert!(idled_by_another(Some(&Conversation { idled_by_another: true, ..idle.clone() }), &older));
         // First read after the flip, a step that ran said the turn was under way: it still is
         // while the model thinks before its next step.
         assert!(idled_by_another(Some(&Conversation { step_under_way: true, ..idle.clone() }), &idle));
@@ -1807,6 +1812,10 @@ mod tests {
         steps.execute("UPDATE steps SET status = 3 WHERE idx = 2", []).unwrap();
         reader.reread(&account, &look);
         assert!(reader.conversations["antigravity"][0].idled_by_another);
+        assert_eq!(status(&reader), crate::model::Status::Working);
+        // Another `agy` starts and writes back its own older copy of the row.
+        summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:12+00:00', step_count = 1", []).unwrap();
+        reader.reread(&account, &look);
         assert_eq!(status(&reader), crate::model::Status::Working);
         summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:50+00:00', step_count = 4", []).unwrap();
         reader.reread(&account, &look);
