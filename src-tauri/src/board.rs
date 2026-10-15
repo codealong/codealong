@@ -538,6 +538,8 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
         origin: row.fork_of.as_ref().map(|id| SessionOrigin { key: Session::key_for(Harness::Opencode, &account.name, id), how: OriginHow::Fork }),
         context: row.context.as_ref().map(|(used, model)| ContextUse { used: *used, window: model.as_deref().and_then(crate::prices::context_window) }),
         mode: row.agent.as_deref().map(crate::opencode::agent_mode),
+        model: row.model.clone(),
+        effort: row.effort.clone(),
         ..known
     }
 }
@@ -619,6 +621,8 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         excerpt,
         resume_command: c.cli.then(|| format!("{} --conversation {}", crate::antigravity::cli_command(account), c.id)),
         mode: c.mode.clone(),
+        // Its level is part of the model's name, as `--model` takes it.
+        model: c.model.clone(),
         queued_at: process.and_then(|_| c.said.queued.last().copied()),
         limit,
         connection_lost,

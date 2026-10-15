@@ -218,6 +218,8 @@ pub struct Conversation {
     pub mode: Option<SessionMode>,
     /// Its latest turn ended on an error (`turn_failed`).
     pub failed: Option<Failed>,
+    /// The model its latest turn ran on, as `--model` takes it (`turn_model`).
+    pub model: Option<String>,
     /// What the log of the terminal UI that has it open says (`Said`).
     pub said: Said,
 }
@@ -523,6 +525,21 @@ fn turn_mode(dir: &Path, id: &str) -> Option<SessionMode> {
     let policy = proto_ints(config, &[8, 3, 6]).into_iter().next()?;
     let asks_to_read = proto_at(config, &[42, 3]).into_iter().flat_map(|grants| proto_at(grants, &[3])).any(|g| g == b"read_file(/)");
     policy_mode(policy, asks_to_read)
+}
+
+/// Where a row of a conversation's `executor_metadata` keeps the model its turn ran on, with its
+/// level, as `agy models` lists it and `--model` takes it (`gemini-4-argon-high`): every
+/// conversation on this Mac, the command line's and the app's (1.3.5, 2026-10-15). The rows
+/// come several a turn, the latest last; `gen_metadata`'s, one a request, name the model
+/// without its level.
+const TURN_MODEL: [u64; 3] = [10, 1, 28];
+
+/// The model a conversation's latest turn ran on (`TURN_MODEL`).
+fn turn_model(dir: &Path, id: &str) -> Option<String> {
+    let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
+    let row: Vec<u8> = db.query_row("SELECT data FROM executor_metadata ORDER BY idx DESC LIMIT 1", [], |r| r.get(0)).ok()?;
+    let model = proto_at(&row, &TURN_MODEL).into_iter().next()?;
+    std::str::from_utf8(model).ok().map(str::trim).filter(|m| crate::start::valid_model(m)).map(str::to_string)
 }
 
 /// A turn's `auto_execution_policy` as a mode: OFF (1), AUTO (2), EAGER (3) or
@@ -1513,6 +1530,7 @@ impl Reader {
                     c.tail = old.tail.clone();
                     c.mode = old.mode.clone();
                     c.failed = old.failed.clone();
+                    c.model = old.model.clone();
                 }
                 old => {
                     added |= old.is_none();
@@ -1520,6 +1538,7 @@ impl Reader {
                     c.mode = turn_mode(&c.dir, &c.id);
                     // The note a failed turn ends with never reaches the transcript.
                     c.failed = turn_failed(&c.dir, &c.id, c.last_modified);
+                    c.model = turn_model(&c.dir, &c.id);
                 }
             }
             if c.running() || held {
@@ -2821,6 +2840,25 @@ mod tests {
         assert_eq!(mode(), Some((ModeKind::Asks, "Strict".to_string())));
         assert_eq!(turn_mode(&dir, "gone"), None);
         assert_eq!(proto_fields(&[0x08]), []);
+    }
+
+    #[test]
+    fn reads_the_model_its_latest_turn_ran_on() {
+        let message = proto_message;
+        // The model among the row's other settings, as a real row has them.
+        let row = |model: &str| message(&[(2, b"/Users/sam/app".to_vec()), (10, message(&[(1, message(&[(3, b"enable-programmatic-tools".to_vec()), (28, model.as_bytes().to_vec())]))]))]);
+        let dir = crate::fixtures::scratch("agy-model");
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        let db = Connection::open(dir.join("conversations/c1.db")).unwrap();
+        db.execute_batch("CREATE TABLE executor_metadata (idx INTEGER PRIMARY KEY, data BLOB);").unwrap();
+        assert_eq!(turn_model(&dir, "c1"), None, "no turn yet");
+        let insert = |idx: i64, data: Vec<u8>| db.execute("INSERT INTO executor_metadata VALUES (?1, ?2)", rusqlite::params![idx, data]).unwrap();
+        insert(0, row("gemini-3.8-flash-high"));
+        insert(1, row("gemini-3.8-flash-low"));
+        assert_eq!(turn_model(&dir, "c1").as_deref(), Some("gemini-3.8-flash-low"), "the latest turn's");
+        insert(2, row("not a model\n"));
+        assert_eq!(turn_model(&dir, "c1"), None);
+        assert_eq!(turn_model(&dir, "gone"), None);
     }
 
     /// A list is kept for the hour; a read that got none is asked for again in a minute, the

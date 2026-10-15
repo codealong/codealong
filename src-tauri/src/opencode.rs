@@ -51,6 +51,12 @@ pub struct SessionRow {
     /// The agent its next turn runs as (`agent`), else the one its latest reply ran as: `build`,
     /// `plan` or one of yours.
     pub agent: Option<String>,
+    /// The model its next turn runs on (`model`), else the one its latest reply came from, by
+    /// its id within its provider (`big-pickle`).
+    pub model: Option<String>,
+    /// The reasoning variant its latest reply was made at (`high`), when that reply was on
+    /// `model` and one was picked: `default` is none.
+    pub effort: Option<String>,
 }
 
 impl SessionRow {
@@ -136,6 +142,17 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
             }
         }
     }
+    // The model picked for its next turn, `{id, providerID}`, kept beside the agent and asked
+    // apart for the same reason.
+    if let Ok(mut stmt) = db.prepare("SELECT id, model FROM session_v2 WHERE model IS NOT NULL AND model != ''") {
+        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+            for (id, model) in rows.flatten() {
+                if let Some(row) = by_id.get_mut(&id) {
+                    row.model = serde_json::from_str::<Value>(&model).ok().as_ref().and_then(|m| m.get("id")).and_then(Value::as_str).filter(|m| !m.is_empty()).map(str::to_string);
+                }
+            }
+        }
+    }
     // The newest user and assistant message of each session; `seq` counts up within a session.
     let mut stmt = db.prepare(
         "SELECT m.session_id, m.type, m.time_created, m.time_updated, m.data FROM session_message m \
@@ -159,6 +176,15 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
                 row.last_tool = tool;
                 if row.agent.is_none() {
                     row.agent = v.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty()).map(str::to_string);
+                }
+                // A reply's `model` is `{id, providerID, variant}`. Its variant says nothing of a
+                // model it was switched to since.
+                let replied = v.pointer("/model/id").and_then(Value::as_str).filter(|m| !m.is_empty());
+                if row.model.is_none() {
+                    row.model = replied.map(str::to_string);
+                }
+                if replied.is_some() && replied == row.model.as_deref() {
+                    row.effort = v.pointer("/model/variant").and_then(Value::as_str).filter(|e| !e.is_empty() && *e != "default").map(str::to_string);
                 }
             }
             _ => {}
@@ -1459,6 +1485,28 @@ mod tests {
         assert_eq!((got["ses_a"].as_deref(), got["ses_b"].as_deref()), (Some("build"), Some("plan")));
         assert_eq!(agent_mode("plan").kind, ModeKind::Plan);
         assert_eq!((agent_mode("build").label, agent_mode("review").label), ("Build".to_string(), "Review".to_string()));
+    }
+
+    #[test]
+    fn its_model_is_the_one_picked_else_its_latest_replys_with_that_replys_variant() {
+        let models = |db: &Connection| read_sessions_from(db, 0, &HashSet::new()).unwrap().into_iter().map(|r| (r.id, (r.model, r.effort))).collect::<HashMap<_, _>>();
+        let replies = "INSERT INTO session_v2 (id, directory, time_created, time_updated) VALUES ('ses_a', '/r', 1, 1), ('ses_b', '/r', 1, 1), ('ses_c', '/r', 1, 1);\
+             INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES \
+             ('m1', 'ses_a', 'assistant', 1, 2, 2, '{\"model\":{\"id\":\"gpt-6\",\"providerID\":\"openai\",\"variant\":\"high\"}}'), \
+             ('m2', 'ses_b', 'assistant', 1, 2, 2, '{\"model\":{\"id\":\"gpt-6\",\"providerID\":\"openai\",\"variant\":\"high\"}}'), \
+             ('m3', 'ses_c', 'assistant', 1, 2, 2, '{\"model\":{\"id\":\"big-pickle\",\"providerID\":\"opencode\",\"variant\":\"default\"}}');";
+        let pair = |m: &str, e: Option<&str>| (Some(m.to_string()), e.map(str::to_string));
+        // A database from before the column goes by the replies; `default` is no variant picked.
+        let got = models(&db_with(replies));
+        assert_eq!((&got["ses_a"], &got["ses_c"]), (&pair("gpt-6", Some("high")), &pair("big-pickle", None)));
+        // Switched to another model since its latest reply: that reply's variant isn't the new one's.
+        let picked = db_with(&format!(
+            "ALTER TABLE session_v2 ADD COLUMN model TEXT; {replies} \
+             UPDATE session_v2 SET model = '{{\"id\":\"gpt-6\",\"providerID\":\"openai\"}}' WHERE id = 'ses_a'; \
+             UPDATE session_v2 SET model = '{{\"id\":\"claude-opus-5-5\",\"providerID\":\"anthropic\"}}' WHERE id = 'ses_b';"
+        ));
+        let got = models(&picked);
+        assert_eq!((&got["ses_a"], &got["ses_b"]), (&pair("gpt-6", Some("high")), &pair("claude-opus-5-5", None)));
     }
 
     #[test]

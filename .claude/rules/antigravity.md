@@ -184,6 +184,10 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   agent mode to the conversation (plan puts `/plan ` before the prompt, by its code, unseen).
   The hub app's own settings are `userSettings` in `~/.gemini/config/config.json`, per project
   under `settings` in `projects/<id>.json`; its conversations seen had only the model per turn.
+- The model a turn ran on, its level in its name as `--model` takes it, is in the
+  conversation's `executor_metadata`, the command line's and the app's alike: `antigravity.rs`
+  (`turn_model`, `TURN_MODEL`). Not in the steps. A conversation that went from
+  `gemini-3.8-flash-high` to `-low` between turns had a row for each (2026-10-15).
 - It has no Agent Client Protocol mode, so Codealong can't run it itself. Google says running
   the binary as a child process on the user's sign-in is supported and counts against the same
   limits.
