@@ -95,10 +95,12 @@ export function agentMenuSections(agents: AgentOption[], accounts: StartAccount[
   }
   for (const g of groups) {
     const opt = agents.find((o) => o.choice === g.name);
-    const gp = opt ? pickFromGroup(g, accounts, usage, now, null, null, lanes) : null;
+    const gp = pickFromGroup(g, accounts, usage, now, null, null, lanes);
     if (opt && gp) {
       const said = groupOptionWords(g, gp, accounts, usage, models, now);
       autoOptions.push({ id: opt.id, text: said.text, label: g.name, detail: said.detail, lead: <Icon name="sparkles" size={14} />, title: `Routing group (${g.strategy})` });
+    } else {
+      autoOptions.push({ id: g.name, text: `${g.name} routing group`, label: g.name, detail: 'No account in this group can start here', lead: <Icon name="sparkles" size={14} />, disabled: true, title: `Routing group (${g.strategy})` });
     }
   }
   if (autoOptions.length > 0) out.push({ key: 'auto', options: autoOptions });

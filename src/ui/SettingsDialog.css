@@ -421,3 +421,13 @@
   color: var(--ink-2);
   white-space: pre-wrap;
 }
+/* Settings › Automation: a routing group's account row with its model menu at the right. */
+.ca-routing-member {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  max-width: 440px;
+  min-height: 26px;
+}

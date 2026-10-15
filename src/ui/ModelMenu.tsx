@@ -36,11 +36,13 @@ export interface ModelMenuProps {
   onPick: (id: string) => void;
   /** The menu closed, picked or not: the box takes the keyboard back. */
   onDone: () => void;
+  /** Opens under the chip rather than over it. */
+  down?: boolean;
 }
 
-export function ModelMenu({ account, lines, models, value, label, detail, title, disabled, foot, onStep, onPick, onDone }: ModelMenuProps) {
+export function ModelMenu({ account, lines, models, value, label, detail, title, disabled, foot, onStep, onPick, onDone, down }: ModelMenuProps) {
   const section = { key: account.name, options: lines.map((o) => agentLine(o, account, models, value)) };
-  return <BoxMenu kind="model" sections={[section]} value={value} label={label} detail={detail} title={title} disabled={disabled} placeholder="Model" foot={foot} onStep={onStep} onPick={onPick} onDone={onDone} />;
+  return <BoxMenu kind="model" sections={[section]} value={value} label={label} detail={detail} title={title} disabled={disabled} placeholder="Model" foot={foot} onStep={onStep} onPick={onPick} onDone={onDone} down={down} />;
 }
 
 /** What a box menu has under its lines: a row of its own, or one made with what closes the menu,

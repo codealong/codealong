@@ -10,8 +10,8 @@
 // box loses the keyboard; the agent as it's picked.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { agentChipWords, agentId, agentOptions, AUTO, autoPick, isAuto, isGroup, parseAgent, pickFromGroup } from '../start';
-import type { RoutingGroup, StartAccount, Usage } from '../types';
+import { agentChipWords, agentId, agentOptions, AUTO, autoPick, isAuto, isGroup, modelName, parseAgent, pickFromGroup } from '../start';
+import type { Lane, RoutingGroup, StartAccount, Usage } from '../types';
 import { BoxMenu } from './ModelMenu';
 import { BoxText } from './primitives';
 import { agentMenuSections } from './StartControls';
@@ -23,6 +23,8 @@ export interface AgentPromptBoxProps {
   groups?: RoutingGroup[];
   /** The routing group Auto delegates to (`[routing] auto`), when set. */
   autoGroup?: string;
+  /** Recent lanes, so alternate-harness and round-robin groups reflect recent starts. */
+  lanes?: Lane[];
   usage: Usage[];
   now: number;
   /** The account or routing group picked, empty for Auto, and its model, empty for the account's own. */
@@ -46,22 +48,23 @@ export interface AgentPromptBoxProps {
   onPrompt: (prompt: string) => void;
 }
 
-export function AgentPromptBox({ accounts, groups = [], autoGroup, usage, now, account, model, prompt, defaultPrompt, label, hint, autoTitle, autoSays, defaultLabel = 'Use the default instructions', disabled, onAgent, onPrompt }: AgentPromptBoxProps) {
+export function AgentPromptBox({ accounts, groups = [], autoGroup, lanes = [], usage, now, account, model, prompt, defaultPrompt, label, hint, autoTitle, autoSays, defaultLabel = 'Use the default instructions', disabled, onAgent, onPrompt }: AgentPromptBoxProps) {
   const models = useMemo(() => accounts.flatMap((a) => a.models ?? []).filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i), [accounts]);
   const autoGroupObj = useMemo(() => (autoGroup ? groups.find((g) => g.name === autoGroup) ?? null : null), [autoGroup, groups]);
-  const pick = useMemo(() => autoPick(accounts, usage, now, null, autoGroupObj), [accounts, usage, now, autoGroupObj]);
-  const agents = useMemo(() => agentOptions(accounts, models, pick, groups, usage, now), [accounts, models, pick, groups, usage, now]);
+  const pick = useMemo(() => autoPick(accounts, usage, now, null, autoGroupObj, lanes), [accounts, usage, now, autoGroupObj, lanes]);
+  const agents = useMemo(() => agentOptions(accounts, models, pick, groups, usage, now, lanes), [accounts, models, pick, groups, usage, now, lanes]);
   const chosen = account ? agentId(account, model || null, groups) : AUTO;
-  const sections = agentMenuSections(agents, accounts, pick, usage, models, now, chosen, autoTitle, groups);
+  const sections = agentMenuSections(agents, accounts, pick, usage, models, now, chosen, autoTitle, groups, lanes);
   const group = isGroup(account, groups);
-  const groupPick = group ? pickFromGroup(group, accounts, usage, now) : null;
+  const groupPick = group ? pickFromGroup(group, accounts, usage, now, null, null, lanes) : null;
+  const rawModel = (group ? groupPick?.model : !account ? pick?.model : model) || null;
   const words = agentChipWords({
     auto: !account,
     group: group?.name ?? null,
     account: group ? (groupPick?.account ?? null) : (account || pick?.account || null),
     accounts: accounts.length,
     remote: null,
-    model: (group ? groupPick?.model : model) || null,
+    model: rawModel ? modelName(rawModel, models) : null,
     effortWord: null,
   });
   const chip = (!account || group) && autoSays ? { ...words, detail: autoSays } : words;

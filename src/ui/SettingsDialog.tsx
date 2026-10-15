@@ -11,11 +11,13 @@ import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import { reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
+import { agentId, agentOptions, modelName, parseAgent, withLists } from '../start';
 import type { ChromeProfile, Config, ConfigView, GroupMemberCfg, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Training, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
+import { ModelMenu } from './ModelMenu';
 import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
 import { Button, cx, Dialog, Icon, NavItem, Seg } from './primitives';
@@ -436,6 +438,13 @@ function AutomationPane({ cfg, disabled, onSave, onReload, defaultPrompt, usage,
   const [repo, setRepo] = useState<string | null>(focus);
   // A worktree's menu asks for its repo while Settings is open.
   useEffect(() => setRepo(focus), [focus]);
+  const [all, setAll] = useState<StartAccount[]>([]);
+  useEffect(() => {
+    // Without them the box says there are no accounts, and config.toml's choice stays as it is.
+    startOptions()
+      .then((o) => setAll(withLists(o)))
+      .catch(() => {});
+  }, []);
   const mine = repo ? mineOf(cfg.repos, repo) : undefined;
   const file = repo ? teamFileOf(teamFiles, repo) : undefined;
   const team = file?.settings ?? undefined;
@@ -461,13 +470,13 @@ function AutomationPane({ cfg, disabled, onSave, onReload, defaultPrompt, usage,
       <p className="ca-settings-lede">What Codealong does by itself: for your sessions when something stops them, and for your pull requests, everywhere or in one repo.</p>
       <RepoPicker repo={repo} choices={choices} onPick={setRepo} />
       {repo && <TeamSettings repo={repo} file={file} disabled={disabled} onTaken={onReload} />}
-      <ReviewsField reviews={reviews} set={setReviews} setOwn={setOwn} scope={scope} team={team} disabled={disabled} defaultPrompt={defaultPrompt} usage={usage} now={now} groups={routingGroups} autoGroup={autoGroup} />
+      <ReviewsField reviews={reviews} set={setReviews} setOwn={setOwn} scope={scope} team={team} disabled={disabled} defaultPrompt={defaultPrompt} all={all} lanes={lanes} usage={usage} now={now} groups={routingGroups} autoGroup={autoGroup} />
       <NudgeField prs={prs} set={setPrs} scope={scope} disabled={disabled} />
       {repo ? (
         <p className="ca-settings-lede">Routing groups, usage limits and lost connections go the same in every repo: pick Everywhere to change them.</p>
       ) : (
         <>
-          <RoutingField cfg={cfg} disabled={disabled} onSave={onSave} />
+          <RoutingField cfg={cfg} all={all} disabled={disabled} onSave={onSave} />
           <LimitsField cfg={cfg} disabled={disabled} onSave={onSave} />
         </>
       )}
@@ -612,14 +621,7 @@ function TeamWords({ repo, words }: { repo: string; words: string }) {
  *  (autoreview.rs). Only accounts that can start a review where `start` says are offered, and
  *  where reviews start goes for every repo, so it shows only without one picked. `reviews` is as
  *  it goes everywhere, or for the repo `scope` names, and `set` changes it there. */
-function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultPrompt, usage, now, groups, autoGroup }: { reviews: Reviews; set: (next: Partial<Omit<ReviewsCfg, 'own'>>) => void; setOwn: (next: Partial<OwnReviewsCfg>) => void; scope?: Scope; team?: TeamCfg; disabled: boolean; defaultPrompt: string; usage: Usage[]; now: number; groups: RoutingGroup[]; autoGroup: string }) {
-  const [all, setAll] = useState<StartAccount[]>([]);
-  useEffect(() => {
-    // Without them the box says there are no accounts, and config.toml's choice stays as it is.
-    startOptions()
-      .then((o) => setAll(o.accounts))
-      .catch(() => {});
-  }, []);
+function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultPrompt, all, lanes, usage, now, groups, autoGroup }: { reviews: Reviews; set: (next: Partial<Omit<ReviewsCfg, 'own'>>) => void; setOwn: (next: Partial<OwnReviewsCfg>) => void; scope?: Scope; team?: TeamCfg; disabled: boolean; defaultPrompt: string; all: StartAccount[]; lanes: Lane[]; usage: Usage[]; now: number; groups: RoutingGroup[]; autoGroup: string }) {
   const start = REVIEW_STARTS.find((s) => s.id === reviews.start) ?? REVIEW_STARTS[0];
   const accounts = all.filter((a) => reviewsRunIn(a, start.id));
   const post = REVIEW_POSTS.find((p) => p.id === reviews.post) ?? REVIEW_POSTS[0];
@@ -645,6 +647,7 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
           accounts={accounts}
           groups={groups}
           autoGroup={autoGroup}
+          lanes={lanes}
           usage={usage}
           now={now}
           account={reviews.account}
@@ -654,6 +657,7 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
           label="What the reviewer is told"
           hint="What to look for, and how"
           autoTitle="The account the quick panel’s Auto would start, picked again for each pull request: an account with room (or from Auto’s routing group), the one whose week resets soonest. Reviews keep to accounts that can start a session out of the way."
+          autoSays={reviews.other_harness ? 'another harness' : undefined}
           defaultLabel="Use Codealong’s instructions"
           disabled={disabled}
           onAgent={(account, model) => set({ account, model })}
@@ -698,7 +702,7 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
           {scope && team && team.neverSubmit.length > 0 && ` In ${scope.repo}, its team never has ${team.neverSubmit.map((v) => VERDICT_WORDS[v]).join(' or ')} submitted for anyone.`}
         </small>
       </label>
-      <OwnReviewsField own={reviews.own} setOwn={setOwn} scope={scope} team={team} accounts={accounts} all={all} groups={groups} autoGroup={autoGroup} start={start} defaultPrompt={defaultPrompt} usage={usage} now={now} disabled={disabled} />
+      <OwnReviewsField own={reviews.own} setOwn={setOwn} scope={scope} team={team} accounts={accounts} all={all} lanes={lanes} groups={groups} autoGroup={autoGroup} start={start} defaultPrompt={defaultPrompt} usage={usage} now={now} disabled={disabled} />
     </fieldset>
   );
 }
@@ -718,7 +722,7 @@ function ReviewerRuns({ account, accounts, groups, start, auto }: { account: str
  *  model or provider than the session that opened it, its review kept here and handed back to
  *  that session (autoreview.rs). The reviewer is the same box as the one above, among the same
  *  accounts (`accounts`, of `all`), and runs where reviews run (`start`). */
-function OwnReviewsField({ own, setOwn, scope, team, accounts, all, groups, autoGroup, start, defaultPrompt, usage, now, disabled }: { own: Required<OwnReviewsCfg>; setOwn: (next: Partial<OwnReviewsCfg>) => void; scope?: Scope; team?: TeamCfg; accounts: StartAccount[]; all: StartAccount[]; groups: RoutingGroup[]; autoGroup: string; start: (typeof REVIEW_STARTS)[number]; defaultPrompt: string; usage: Usage[]; now: number; disabled?: boolean }) {
+function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, groups, autoGroup, start, defaultPrompt, usage, now, disabled }: { own: Required<OwnReviewsCfg>; setOwn: (next: Partial<OwnReviewsCfg>) => void; scope?: Scope; team?: TeamCfg; accounts: StartAccount[]; all: StartAccount[]; lanes: Lane[]; groups: RoutingGroup[]; autoGroup: string; start: (typeof REVIEW_STARTS)[number]; defaultPrompt: string; usage: Usage[]; now: number; disabled?: boolean }) {
   return (
     <>
       <label className="ca-field ca-settings-check">
@@ -742,6 +746,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, groups, auto
               accounts={accounts}
               groups={groups}
               autoGroup={autoGroup}
+              lanes={lanes}
               usage={usage}
               now={now}
               account={own.account}
@@ -802,10 +807,22 @@ const ROUTING_STRATEGIES: { id: RoutingStrategy; label: string; says: string }[]
 
 /** `[routing]`: routing groups (`[[routing.groups]]`) that Auto, `codealong start`, and automatic
  *  reviews can pick from, and which group `Auto` delegates to when starting new sessions. */
-function RoutingField({ cfg, disabled, onSave }: PaneProps) {
+function RoutingField({ cfg, all, disabled, onSave }: PaneProps & { all: StartAccount[] }) {
   const routing: RoutingCfg = cfg.routing ?? {};
   const groups: RoutingGroupCfg[] = routing.groups ?? [];
-  const [draft, setDraft] = useState<{ original: string | null; name: string; strategy: RoutingStrategy; members: GroupMemberCfg[]; useForAuto: boolean } | null>(null);
+  const reviews = reviewsEverywhere(cfg.reviews);
+  const allModels = useMemo(() => all.flatMap((a) => a.models ?? []).filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i), [all]);
+  const [draft, setDraft] = useState<{
+    original: string | null;
+    name: string;
+    strategy: RoutingStrategy;
+    members: GroupMemberCfg[];
+    useForAuto: boolean;
+    useForReviews: boolean;
+    useForOwnReviews: boolean;
+  } | null>(null);
+  const [promptDraft, setPromptDraft] = useState(routing.prompt ?? '');
+  useEffect(() => setPromptDraft(routing.prompt ?? ''), [routing.prompt]);
   const saveRouting = (next: RoutingCfg) => void onSave({ ...cfg, routing: next });
   const autoProfiles: Profile[] = [
     { id: '', name: 'First harness with room (default)' },
@@ -817,15 +834,30 @@ function RoutingField({ cfg, disabled, onSave }: PaneProps) {
     const entry: RoutingGroupCfg = { name: draft.name.trim(), strategy: draft.strategy, members: draft.members };
     const nextGroups = draft.original ? groups.map((g) => (g.name === draft.original ? entry : g)) : [...groups, entry];
     const nextAuto = draft.useForAuto ? entry.name : draft.original && routing.auto === draft.original ? '' : routing.auto;
-    saveRouting({ ...routing, auto: nextAuto, groups: nextGroups });
+    const wasReviewGroup = !!draft.original && reviews.account === draft.original;
+    const nextReviewAcct = draft.useForReviews ? entry.name : wasReviewGroup ? '' : reviews.account;
+    const nextReviewModel = draft.useForReviews ? (wasReviewGroup ? reviews.model : '') : wasReviewGroup ? '' : reviews.model;
+    const wasOwnGroup = !!draft.original && reviews.own.account === draft.original;
+    const nextOwnAcct = draft.useForOwnReviews ? entry.name : wasOwnGroup ? '' : reviews.own.account;
+    const nextOwnModel = draft.useForOwnReviews ? (wasOwnGroup ? reviews.own.model : '') : wasOwnGroup ? '' : reviews.own.model;
+    void onSave({
+      ...cfg,
+      routing: { ...routing, auto: nextAuto, groups: nextGroups },
+      reviews: {
+        ...reviews,
+        account: nextReviewAcct,
+        model: nextReviewModel,
+        own: { ...reviews.own, account: nextOwnAcct, model: nextOwnModel },
+      },
+    });
     setDraft(null);
   };
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <label className="ca-field">
-        <span>Auto routing</span>
+        <span>Auto routing for new sessions</span>
         <ProfileSelect value={routing.auto ?? ''} profiles={autoProfiles} onChange={(auto) => saveRouting({ ...routing, auto })} />
-        <small>Which rule Auto uses in the quick panel, in automatic reviews, and in codealong start when no account or group is named.</small>
+        <small>Which rule Auto uses in the quick panel and in codealong start when no account or group is named (and for reviews left on Auto). To use a different routing group for reviews, pick that group on The reviewer or Reviewer of your pull requests above, or check it on the group below.</small>
       </label>
       <div className="ca-field">
         <span>Routing groups</span>
@@ -834,16 +866,35 @@ function RoutingField({ cfg, disabled, onSave }: PaneProps) {
           <div className="ca-settings-cards">
             {groups.map((g) => {
               const strat = ROUTING_STRATEGIES.find((s) => s.id === (g.strategy ?? 'usage')) ?? ROUTING_STRATEGIES[0];
-              const membersWord = (g.members ?? []).length === 0 ? 'All enabled accounts' : (g.members ?? []).map((m) => (m.model ? `${m.account} (${m.model})` : m.account)).join(', ');
+              const membersWord =
+                (g.members ?? []).length === 0
+                  ? 'All enabled accounts'
+                  : (g.members ?? []).map((m) => (m.model ? `${m.account} (${modelName(m.model, allModels)})` : m.account)).join(', ');
               return (
                 <div key={g.name} className="ca-ucard">
                   <div className="ca-ucard-head">
                     <span className="ca-ucard-name">{g.name}</span>
                     <span className="ca-ucard-plan">{strat.label} · {membersWord}</span>
-                    {routing.auto === g.name && <span className="ca-tag is-ok">Default for Auto</span>}
+                    {routing.auto === g.name && <span className="ca-tag is-ok">New sessions (Auto)</span>}
+                    {reviews.account === g.name && <span className="ca-tag is-ok">PR reviews</span>}
+                    {reviews.own.account === g.name && <span className="ca-tag is-ok">Your PR reviews</span>}
                   </div>
                   <div className="ca-acct-actions">
-                    <Button variant="ghost" size="sm" onClick={() => setDraft({ original: g.name, name: g.name, strategy: g.strategy ?? 'usage', members: g.members ?? [], useForAuto: routing.auto === g.name })}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setDraft({
+                          original: g.name,
+                          name: g.name,
+                          strategy: g.strategy ?? 'usage',
+                          members: g.members ?? [],
+                          useForAuto: routing.auto === g.name,
+                          useForReviews: reviews.account === g.name,
+                          useForOwnReviews: reviews.own.account === g.name,
+                        })
+                      }
+                    >
                       Edit
                     </Button>
                     <Button
@@ -852,7 +903,22 @@ function RoutingField({ cfg, disabled, onSave }: PaneProps) {
                       onClick={() => {
                         const nextGroups = groups.filter((x) => x.name !== g.name);
                         const nextAuto = routing.auto === g.name ? '' : routing.auto;
-                        saveRouting({ ...routing, auto: nextAuto, groups: nextGroups });
+                        const removingReviews = reviews.account === g.name;
+                        const removingOwn = reviews.own.account === g.name;
+                        void onSave({
+                          ...cfg,
+                          routing: { ...routing, auto: nextAuto, groups: nextGroups },
+                          reviews: {
+                            ...reviews,
+                            account: removingReviews ? '' : reviews.account,
+                            model: removingReviews ? '' : reviews.model,
+                            own: {
+                              ...reviews.own,
+                              account: removingOwn ? '' : reviews.own.account,
+                              model: removingOwn ? '' : reviews.own.model,
+                            },
+                          },
+                        });
                       }}
                     >
                       Remove
@@ -871,7 +937,7 @@ function RoutingField({ cfg, disabled, onSave }: PaneProps) {
             <label className="ca-field">
               <span>Name</span>
               <input value={draft.name} placeholder="reviewers" spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-              <small>Shown in the quick panel’s agent menu and in the reviewer picker.</small>
+              <small>Shown in the quick panel’s agent menu and in the reviewer model select.</small>
             </label>
             <div className="ca-field">
               <span>Strategy</span>
@@ -883,8 +949,19 @@ function RoutingField({ cfg, disabled, onSave }: PaneProps) {
               <small>Leave all unchecked to include every enabled account.</small>
               {cfg.accounts.map((a) => {
                 const member = draft.members.find((m) => m.account === a.name);
+                const startAcct = all.find((x) => x.name === a.name);
+                const baseModels = startAcct?.models ?? [];
+                const currentModel = member?.model?.trim() || null;
+                const models = currentModel && !baseModels.some((m) => m.id === currentModel) ? [...baseModels, { id: currentModel, label: currentModel }] : baseModels;
+                const menuAcct: StartAccount = {
+                  ...(startAcct ?? { name: a.name, harness: a.harness, chosen: null, defaultModel: null, places: [], unavailable: null }),
+                  models,
+                  places: startAcct && startAcct.places.length > 0 ? startAcct.places : [{ place: 'terminal', label: 'Terminal' }],
+                };
+                const lines = agentOptions([menuAcct], models, null);
+                const defaultLabel = menuAcct.defaultModel ? modelName(menuAcct.defaultModel, models) : null;
                 return (
-                  <div key={a.name} className="ca-shortcut-row">
+                  <div key={a.name} className="ca-routing-member">
                     <label className="ca-check">
                       <input
                         type="checkbox"
@@ -899,29 +976,58 @@ function RoutingField({ cfg, disabled, onSave }: PaneProps) {
                       </span>
                       <span>{a.name} ({HARNESS_WORD[a.harness]})</span>
                     </label>
-                    {member && (
-                      <input
-                        value={member.model ?? ''}
-                        placeholder="Default model"
-                        aria-label={`Model for ${a.name}`}
-                        spellCheck={false}
-                        onChange={(e) => {
-                          const next = draft.members.map((m) => (m.account === a.name ? { ...m, model: e.target.value } : m));
-                          setDraft({ ...draft, members: next });
-                        }}
-                      />
-                    )}
+                    {member &&
+                      (models.length > 0 ? (
+                        <ModelMenu
+                          account={menuAcct}
+                          lines={lines}
+                          models={models}
+                          value={agentId(a.name, currentModel)}
+                          label={currentModel ? modelName(currentModel, models) : 'Default model'}
+                          detail={!currentModel ? defaultLabel : null}
+                          title={`Model for ${a.name}`}
+                          disabled={disabled}
+                          down
+                          onPick={(id) => {
+                            const { model: picked } = parseAgent(id);
+                            const next = draft.members.map((m) => (m.account === a.name ? { ...m, model: picked ?? '' } : m));
+                            setDraft({ ...draft, members: next });
+                          }}
+                          onDone={() => {}}
+                        />
+                      ) : (
+                        <span className="ca-modelmenu-said" title={`The model is chosen in ${HARNESS_WORD[a.harness]}`}>
+                          Default model
+                        </span>
+                      ))}
                   </div>
                 );
               })}
             </div>
-            <label className="ca-check">
-              <input type="checkbox" checked={draft.useForAuto} onChange={(e) => setDraft({ ...draft, useForAuto: e.target.checked })} />
-              <span className="ca-check-box" aria-hidden="true">
-                <Icon name="check" size={11} stroke={2.5} />
-              </span>
-              <span>Use for Auto when starting new sessions and reviews</span>
-            </label>
+            <div className="ca-field">
+              <span>Use this group for</span>
+              <label className="ca-check">
+                <input type="checkbox" checked={draft.useForAuto} onChange={(e) => setDraft({ ...draft, useForAuto: e.target.checked })} />
+                <span className="ca-check-box" aria-hidden="true">
+                  <Icon name="check" size={11} stroke={2.5} />
+                </span>
+                <span>New sessions on Auto</span>
+              </label>
+              <label className="ca-check">
+                <input type="checkbox" checked={draft.useForReviews} onChange={(e) => setDraft({ ...draft, useForReviews: e.target.checked })} />
+                <span className="ca-check-box" aria-hidden="true">
+                  <Icon name="check" size={11} stroke={2.5} />
+                </span>
+                <span>Reviews of pull requests that wait on your review</span>
+              </label>
+              <label className="ca-check">
+                <input type="checkbox" checked={draft.useForOwnReviews} onChange={(e) => setDraft({ ...draft, useForOwnReviews: e.target.checked })} />
+                <span className="ca-check-box" aria-hidden="true">
+                  <Icon name="check" size={11} stroke={2.5} />
+                </span>
+                <span>Reviews of pull requests your sessions open</span>
+              </label>
+            </div>
             <div className="ca-acct-actions">
               <Button variant="primary" size="sm" type="submit" disabled={!draft.name.trim()}>
                 {draft.original ? 'Save group' : 'Add group'}
@@ -933,12 +1039,40 @@ function RoutingField({ cfg, disabled, onSave }: PaneProps) {
           </form>
         ) : (
           <div>
-            <Button size="sm" icon="plus" onClick={() => setDraft({ original: null, name: '', strategy: 'alternate-harness', members: [], useForAuto: groups.length === 0 && !routing.auto })}>
+            <Button
+              size="sm"
+              icon="plus"
+              onClick={() =>
+                setDraft({
+                  original: null,
+                  name: '',
+                  strategy: 'alternate-harness',
+                  members: [],
+                  useForAuto: groups.length === 0 && !routing.auto,
+                  useForReviews: false,
+                  useForOwnReviews: false,
+                })
+              }
+            >
               Add routing group
             </Button>
           </div>
         )}
       </div>
+      <label className="ca-field">
+        <span>Jev routing instructions</span>
+        <textarea
+          rows={3}
+          value={promptDraft}
+          placeholder="Use Claude Opus for architecture and complex refactors; use Codex for quick fixes and tests."
+          disabled={disabled}
+          onChange={(e) => setPromptDraft(e.target.value)}
+          onBlur={() => {
+            if (promptDraft.trim() !== (routing.prompt ?? '').trim()) saveRouting({ ...routing, prompt: promptDraft.trim() });
+          }}
+        />
+        <small>When Quick panel suggestions are on in Jev, Jev suggests which agent, model or routing group to start new work on in the quick panel based on what you type and these instructions.</small>
+      </label>
     </fieldset>
   );
 }
