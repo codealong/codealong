@@ -558,7 +558,7 @@ perf_log = false               # true logs timings to ~/Library/Logs/Codealong/p
 input = 3
 output = 15
 
-[[accounts]]
+[[accounts]]                   # in the usage bar's order: dragging a chip there moves its table
 name = "claude-work"           # what the board shows
 harness = "claude"             # claude, codex, opencode, antigravity or cursor
 home = "~/.claude-work"
