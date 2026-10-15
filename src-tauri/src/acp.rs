@@ -81,7 +81,8 @@ struct Permission {
     /// An answer to it is being written: a second isn't sent with it.
     answering: bool,
     /// When it was asked: the session waits on you from then, not from when its turn began, so
-    /// a window that answered the call before can tell the next one from it (ahead.ts).
+    /// a window that answered the call before can tell the next one from it (ahead.ts). Each is
+    /// later than the one asked before it, which shows first.
     asked_at: i64,
 }
 
@@ -117,7 +118,10 @@ struct Hosted {
     turn: Option<Claim>,
     /// When the running turn started, or the last one ended.
     since: i64,
-    permission: Option<Permission>,
+    /// The permission requests waiting for an answer, in the order asked: each waits for its own,
+    /// and an agent asks several at once for calls it makes together (claude-agent-acp asks for
+    /// each of the parallel reads Claude Code makes). The first is the one shown.
+    permissions: Vec<Permission>,
     /// Prompts sent while a turn ran, sent in order once it ends.
     queue: Vec<String>,
     /// Replaying history into the process (`session/load`): its updates aren't news.
@@ -505,6 +509,7 @@ fn hear(account: &str, link: &rpc::Link, msg: &Value) {
     match (method, msg.get("id")) {
         (Some("session/update"), _) => on_update(account, link, msg.get("params").unwrap_or(&Value::Null)),
         (Some("session/request_permission"), Some(id)) => on_permission(account, link, id.clone(), msg.get("params").unwrap_or(&Value::Null)),
+        (Some("$/cancel_request"), None) => on_withdrawn(account, link, msg.pointer("/params/requestId").unwrap_or(&Value::Null)),
         (Some(_), Some(id)) => {
             // Files and terminals are the agents' own; nothing else was offered.
             let _ = link.refuse(id, -32601, "Codealong doesn't offer that.");
@@ -548,7 +553,7 @@ fn let_go(st: &mut State, account: &str) {
             h.since = now_ms();
             h.error = Some("Its agent stopped.".into());
         }
-        h.permission = None;
+        h.permissions.clear();
         h.queue.clear();
     }
 }
@@ -631,9 +636,26 @@ fn on_permission(account: &str, link: &rpc::Link, rpc: Value, params: &Value) {
     {
         let mut st = state();
         let Some(h) = st.sessions.get_mut(&key) else { return };
-        // A request still unanswered is overtaken: the agent only asks one at a time.
-        h.permission = Some(Permission { rpc, tool_call, label, input, options, plan, answering: false, asked_at: now_ms() });
+        // After the one before it, in the same millisecond too: it shows once that's answered.
+        let asked_at = h.permissions.last().map_or(0, |p| p.asked_at + 1).max(now_ms());
+        h.permissions.push(Permission { rpc, tool_call, label, input, options, plan, answering: false, asked_at });
     }
+    notify(Change::Board);
+}
+
+/// The agent withdrew a request of its own (`$/cancel_request`, as the ACP SDK sends it when the
+/// call it asked about is aborted): it no longer waits on that answer, so the request goes, and
+/// is answered as cancelled, since JSON-RPC answers every request.
+fn on_withdrawn(account: &str, link: &rpc::Link, rpc: &Value) {
+    {
+        let mut st = state();
+        if !current(&st, account, link) {
+            return;
+        }
+        let Some(h) = st.sessions.values_mut().find(|h| h.account == account && h.permissions.iter().any(|p| &p.rpc == rpc)) else { return };
+        h.permissions.retain(|p| &p.rpc != rpc);
+    }
+    let _ = link.respond(rpc, json!({ "outcome": { "outcome": "cancelled" } }));
     notify(Change::Board);
 }
 
@@ -865,6 +887,15 @@ fn current_option(options: &Value, category: &str) -> Option<String> {
     o.get("currentValue")?.as_str().filter(|v| !v.is_empty()).map(String::from)
 }
 
+/// Whether `pid` is a process one of the adapters started: claude-agent-acp runs a `claude` for
+/// each session it holds, which lists itself among the account's sessions (`sessions/<pid>.json`)
+/// and runs the account's hooks, Codealong's permission hook among them. What it asks comes
+/// through its adapter (`on_permission`), so the hook's copy of a request isn't one to hold.
+pub fn runs(pid: u32) -> bool {
+    let adapters: Vec<u32> = state().agents.values().map(|a| a.client.pid()).collect();
+    crate::procs::parent_pid(pid).is_some_and(|p| adapters.contains(&p))
+}
+
 /// Whether Codealong runs this session (or ran it, and can again).
 pub fn hosts(key: &str) -> bool {
     state().sessions.contains_key(key)
@@ -1014,7 +1045,7 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
                 if cut {
                     h.cut_off = began;
                 }
-                h.permission = None;
+                h.permissions.clear();
                 h.text.clear();
                 h.tool = None;
                 h.error = match &r {
@@ -1061,7 +1092,7 @@ fn run_turn(ag: Arc<Agent>, key: String, text: String, turn: Claim) {
     });
 }
 
-/// Stops the running turn. The agent ends it as cancelled; a permission request waiting is
+/// Stops the running turn. The agent ends it as cancelled; the permission requests waiting are
 /// answered as cancelled first, as the protocol asks. A turn whose prompt hasn't been written
 /// yet, its session still being picked up in the process, ends here, and its prompt never goes.
 pub fn cancel(key: &str) -> Result<()> {
@@ -1075,15 +1106,15 @@ pub fn cancel(key: &str) -> Result<()> {
             h.since = now_ms();
             None
         } else {
-            Some((h.account.clone(), h.id.clone(), h.permission.take()))
+            Some((h.account.clone(), h.id.clone(), std::mem::take(&mut h.permissions)))
         }
     };
-    let Some((account, id, permission)) = asked else {
+    let Some((account, id, permissions)) = asked else {
         notify(Change::Board);
         return Ok(());
     };
     let ag = state().agents.get(&account).cloned().ok_or_else(|| anyhow!("That session isn't running."))?;
-    if let Some(p) = permission {
+    for p in permissions {
         ag.client.respond(&p.rpc, json!({ "outcome": { "outcome": "cancelled" } }))?;
     }
     ag.client.notify("session/cancel", json!({ "sessionId": id }))?;
@@ -1136,10 +1167,10 @@ pub fn delete_held(account: &str, harness: Harness, id: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// What a hosted session waits on you to allow.
+/// What a hosted session waits on you to allow: the first it asked of those waiting.
 pub fn pending(key: &str) -> Option<Pending> {
     let st = state();
-    Some(pending_of(st.sessions.get(key)?.permission.as_ref()?))
+    Some(pending_of(st.sessions.get(key)?.permissions.first()?))
 }
 
 fn pending_of(p: &Permission) -> Pending {
@@ -1157,10 +1188,7 @@ pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
         let mut guard = state();
         let st = &mut *guard;
         let h = st.sessions.get_mut(key).ok_or_else(|| anyhow!("Codealong doesn't run that session."))?;
-        let p = match h.permission.as_mut() {
-            Some(p) if p.tool_call == id => p,
-            _ => bail!("It isn't waiting on that any more."),
-        };
+        let Some(p) = h.permissions.iter_mut().find(|p| p.tool_call == id) else { bail!("It isn't waiting on that any more.") };
         if p.answering {
             bail!("It's still answering that.");
         }
@@ -1173,11 +1201,11 @@ pub fn answer(key: &str, id: &str, answer: Answer) -> Result<String> {
     let written = ag.client.respond(&rpc, json!({ "outcome": { "outcome": "selected", "optionId": option } }));
     {
         let mut st = state();
-        // The agent may have asked something else since, which stays.
-        if let Some(h) = st.sessions.get_mut(key).filter(|h| h.permission.as_ref().is_some_and(|p| p.rpc == rpc)) {
+        // What else it asked stays, the next of them shown.
+        if let Some(h) = st.sessions.get_mut(key) {
             match &written {
-                Ok(()) => h.permission = None,
-                Err(_) => h.permission.as_mut().expect("checked").answering = false,
+                Ok(()) => h.permissions.retain(|p| p.rpc != rpc),
+                Err(_) => h.permissions.iter_mut().filter(|p| p.rpc == rpc).for_each(|p| p.answering = false),
             }
         }
     }
@@ -1227,7 +1255,7 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
     if let Some(e) = current_option(&h.options, "thought_level").filter(|e| e != "default") {
         s.effort = Some(e);
     }
-    if let Some(p) = &h.permission {
+    if let Some(p) = h.permissions.first() {
         s.status = Status::Needs;
         s.status_since = Some(p.asked_at);
         s.excerpt = Some(p.label.clone());
@@ -1280,16 +1308,19 @@ mod tests {
     fn a_hosted_session_needs_you_from_when_the_call_was_asked() {
         let key = key_of(Harness::Codex, "test-needs-since", "s1");
         let asked = |at: i64| Permission { rpc: json!(1), tool_call: "t".into(), label: "Run ls".into(), input: None, options: Vec::new(), plan: false, answering: false, asked_at: at };
-        state().sessions.insert(key.clone(), Hosted { account: "test-needs-since".into(), id: "s1".into(), cwd: "/w".into(), running: true, since: 1_000, permission: Some(asked(5_000)), ..Default::default() });
+        state().sessions.insert(key.clone(), Hosted { account: "test-needs-since".into(), id: "s1".into(), cwd: "/w".into(), running: true, since: 1_000, permissions: vec![asked(5_000)], ..Default::default() });
         let mut s = crate::fixtures::session(&key);
         overlay(&mut s, 0);
         assert_eq!((s.status, s.status_since, s.excerpt.as_deref()), (Status::Needs, Some(5_000), Some("Run ls")));
-        // The next call in the same turn.
-        state().sessions.get_mut(&key).unwrap().permission = Some(asked(9_000));
+        // Another call of the same turn, asked before the first is answered, shows once it is.
+        state().sessions.get_mut(&key).unwrap().permissions.push(asked(9_000));
+        overlay(&mut s, 0);
+        assert_eq!(s.status_since, Some(5_000));
+        state().sessions.get_mut(&key).unwrap().permissions.remove(0);
         overlay(&mut s, 0);
         assert_eq!(s.status_since, Some(9_000));
         // Answered, it's working on the turn it was taking.
-        state().sessions.get_mut(&key).unwrap().permission = None;
+        state().sessions.get_mut(&key).unwrap().permissions.clear();
         overlay(&mut s, 0);
         assert_eq!((s.status, s.status_since), (Status::Working, Some(1_000)));
         state().sessions.remove(&key);
@@ -1660,6 +1691,67 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Calls an agent asks about together (Claude Code's parallel reads) each wait for their own
+    /// answer: they show one after another, in the order asked, and one the agent withdraws goes.
+    /// None is left unanswered, or the agent's turn would wait on it for good.
+    #[test]
+    fn calls_asked_together_each_wait_for_their_answer() {
+        let dir = store::test_dir("acp-together");
+        let ok = r#"{"optionId":"ok","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}"#;
+        let script = [
+            r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; case "$line" in"#.to_string(),
+            format!(r#"*'"method":"initialize"'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{}}}}'; {}; {}; {};;"#, asks("p1", ok), asks("p2", ok), asks("p3", ok)),
+            // Its first allowed, it gives up on the third.
+            r#"*'"id":"p1"'*) echo '{"jsonrpc":"2.0","method":"$/cancel_request","params":{"requestId":"p3"}}';; esac; done"#.to_string(),
+        ]
+        .join(" ");
+        let account = "test-adapter-together";
+        let key = key_of(Harness::Claude, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, ..Default::default() });
+        let ag = stand_in(account, &script, &dir);
+        ag.initialize().unwrap();
+        wait_until("all three to be asked", 10, || state().sessions[&key].permissions.len() == 3);
+        let asked: Vec<i64> = state().sessions[&key].permissions.iter().map(|p| p.asked_at).collect();
+        assert!(asked.windows(2).all(|w| w[0] < w[1]), "{asked:?}");
+        assert_eq!(pending(&key).map(|p| p.id), Some("call-p1".into()));
+        assert_eq!(answer(&key, "call-p1", Answer::Allow).unwrap(), "Allowed.");
+        wait_until("the third to be withdrawn", 10, || state().sessions[&key].permissions.len() == 1);
+        assert_eq!(pending(&key).map(|p| p.id), Some("call-p2".into()));
+        assert_eq!(answer(&key, "call-p2", Answer::Deny).unwrap(), "Denied.");
+        assert!(pending(&key).is_none());
+        wait_until("every answer to be read", 10, || heard(&dir).len() == 4);
+        assert_eq!(
+            heard(&dir)[1..],
+            [
+                r#"{"id":"p1","jsonrpc":"2.0","result":{"outcome":{"optionId":"ok","outcome":"selected"}}}"#,
+                r#"{"id":"p3","jsonrpc":"2.0","result":{"outcome":{"outcome":"cancelled"}}}"#,
+                r#"{"id":"p2","jsonrpc":"2.0","result":{"outcome":{"optionId":"no","outcome":"selected"}}}"#,
+            ]
+        );
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A process an adapter started is one of Codealong's own sessions (claude-agent-acp's
+    /// `claude`, which runs the permission hook); any other process isn't.
+    #[test]
+    fn knows_the_processes_its_adapters_started() {
+        let dir = store::test_dir("acp-runs");
+        let child = dir.join("child");
+        let script = format!(r#"sleep 30 & echo $! > '{}'; while IFS= read -r line; do :; done"#, child.display());
+        let account = "test-adapter-runs";
+        let _ag = stand_in(account, &script, &dir);
+        wait_until("its child to start", 10, || std::fs::read_to_string(&child).is_ok_and(|s| s.ends_with('\n')));
+        let pid: u32 = std::fs::read_to_string(&child).unwrap().trim().parse().unwrap();
+        assert!(runs(pid));
+        assert!(!runs(std::process::id()));
+        state().agents.remove(account);
+        let _ = Command::new("kill").arg(pid.to_string()).status();
+        assert!(!runs(pid));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The answers claude-agent-acp 0.81.2 offers for Claude Code's `ExitPlanMode`, as its
     /// `buildExitPlanModePermissionOptions` makes them and sorts them by kind: here for a session
     /// that offers auto and bypass modes and wasn't bypassing permissions before it planned.
@@ -1750,7 +1842,7 @@ mod tests {
         let account = "test-adapter-let-go";
         let key = key_of(Harness::Codex, account, "s1");
         let asked = Permission { rpc: json!("w1"), tool_call: "call-w1".into(), label: "Run ls".into(), input: None, options: vec![Offered { id: "ok".into(), kind: "allow_once".into(), name: "Yes".into() }], plan: false, answering: false, asked_at: 0 };
-        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, permission: Some(asked), queue: vec!["And then?".into()], text: "Working".into(), ..Default::default() });
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), loaded: true, running: true, permissions: vec![asked], queue: vec!["And then?".into()], text: "Working".into(), ..Default::default() });
         let ag = stand_in(account, keeps, &stayed);
         let mut cmd = Command::new("/bin/sh");
         cmd.args(["-c", keeps, "sh"]).arg(let_go.join("heard"));
@@ -1761,7 +1853,7 @@ mod tests {
         stopped(account, &other.client);
         let h = state().sessions[&key].clone();
         assert_eq!((h.loaded, h.running, h.text.as_str(), h.queue.len(), h.error), (true, true, "Working", 1, None));
-        assert_eq!(h.permission.map(|p| p.tool_call).as_deref(), Some("call-w1"));
+        assert_eq!(h.permissions.iter().map(|p| p.tool_call.as_str()).collect::<Vec<_>>(), ["call-w1"]);
         assert!(state().agents.get(account).is_some_and(|a| Arc::ptr_eq(a, &ag)));
         // What it asked is answered as asked of nobody's session, and only to it.
         wait_until("its question to be answered", 10, || !heard(&let_go).is_empty());
@@ -1770,7 +1862,7 @@ mod tests {
 
         stopped(account, &ag.client);
         let h = state().sessions.remove(&key).unwrap();
-        assert_eq!((h.loaded, h.running, h.queue.len(), h.permission.is_none(), h.error.as_deref()), (false, false, 0, true, Some("Its agent stopped.")));
+        assert_eq!((h.loaded, h.running, h.queue.len(), h.permissions.is_empty(), h.error.as_deref()), (false, false, 0, true, Some("Its agent stopped.")));
         assert!(!state().agents.contains_key(account));
         let _ = std::fs::remove_dir_all(&dir);
     }

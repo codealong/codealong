@@ -32,6 +32,17 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   is taken on by its ID with `session/resume`, its conversation and all, and its model set after
   (`acp.rs` `adopt`, `acp_takes_on_a_session`; checked 2026-10-06): the transcript gets a
   `/model` line for the settings' model as it's resumed and another for the one asked for.
+- claude-agent-acp's `claude` is the adapter's child, started with `--permission-mode <mode>`
+  and `--setting-sources=user,project,local`, so it runs the account's hooks, the Codealong
+  plugin's `PermissionRequest` hook among them; its `sessions/<pid>.json` (2.1.280) lets that
+  hook find its process. A call it asks about comes both ways: as the adapter's
+  `session/request_permission` and through the hook. The app holds only the first (server.rs
+  `hold_permission_ask`, `acp::runs`): one held through the hook as well showed the session
+  waiting on a call the panel couldn't answer (2026-10-14). Claude Code reads files in
+  parallel, and each read outside the folder asked at once, three requests waiting together
+  (2026-10-14, Opus 5.5 reading three pasted images in `default` mode): each waits for its own
+  answer (`Hosted::permissions`). The ACP SDK withdraws one whose call was aborted with a
+  `$/cancel_request {requestId}` notification and still waits for its answer (`on_withdrawn`).
 - A plan to approve is a `session/request_permission` whose `toolCall.kind` is `switch_mode`,
   the plan in `rawInput.plan` (`acp.rs` `is_plan`). claude-agent-acp 0.81.2 asks so for
   `ExitPlanMode` (`toolCall.name` too, title "Approve Plan", `_meta.permission.title` "Ready to

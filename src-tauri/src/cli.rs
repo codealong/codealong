@@ -3499,7 +3499,7 @@ fn session_hook(event: &str) {
     // The session's account folder and process, from the environment Claude Code gives its
     // hooks and its registry: the app watches the registry for the prompt going away, and so
     // does the hook while no app has it. The app answers none for a session it has no process
-    // of (one it runs itself asks through its adapter).
+    // of, nor for one it runs itself, which asks through its adapter.
     let home = std::env::var_os("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| crate::util::home().join(".claude"));
     let Some(pid) = crate::claude::asks::session_process(&home, &asked.session) else { return };
     let watch = crate::claude::asks::Watch::new(home.clone(), pid, record);

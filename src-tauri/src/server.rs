@@ -290,8 +290,8 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
 }
 
 /// Holds a hook's permission request until it's answered (claude/asks.rs). No answer comes from here
-/// for a session whose process the hook didn't find (one Codealong runs itself has none: it asks
-/// through its adapter), nor for an account config.toml doesn't list.
+/// for a session whose process the hook didn't find, one Codealong runs itself (it asks through
+/// its adapter), nor for an account config.toml doesn't list.
 fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Option<&str>, at: Option<i64>, from: Option<u64>, out: &mut UnixStream) {
     let Ok(cfg) = crate::config::current() else {
         crate::claude::asks::reply(out, None);
@@ -303,8 +303,9 @@ fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Op
         return;
     };
     // A side conversation's copy has nobody to ask: Claude Code refuses the call as soon as
-    // the hook returns.
-    if crate::side::runs(pid) {
+    // the hook returns. A session Codealong runs asks through its adapter too, and only that
+    // request can be answered: one held here as well showed as waiting where nothing answered it.
+    if crate::side::runs(pid) || crate::acp::runs(pid) {
         crate::claude::asks::reply(out, None);
         return;
     }
