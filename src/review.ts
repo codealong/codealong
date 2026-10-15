@@ -118,15 +118,22 @@ export function reviewItems(pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'la
         );
         return;
       }
-      const work = reviewNow(key, pick.account);
-      (report.busy ? report.busy(`Starting a review of #${pr.number}…`, work) : work)
-        .then(() => {
-          report.info(`Reviewing #${pr.number}: its card says how it goes.`);
-          started?.();
-        })
-        .catch((e: unknown) => report.error(errorText(e)));
+      startReview({ key, number: pr.number }, pick.account, report, started);
     },
   }));
+}
+
+/** Starts a round of Codealong's own reviews of a PR now (autoreview.rs `review_now`), on
+ *  `account`, else on the reviewer Settings names, and says how it went the window's way: Review
+ *  with…'s items, and a notice's Try again for a review that didn't start. */
+export function startReview(pr: { key: string; number: number }, account: string | null, report: Report, started?: () => void): void {
+  const work = reviewNow(pr.key, account);
+  (report.busy ? report.busy(`Starting a review of #${pr.number}…`, work) : work)
+    .then(() => {
+      report.info(`Reviewing #${pr.number}: its card says how it goes.`);
+      started?.();
+    })
+    .catch((e: unknown) => report.error(errorText(e)));
 }
 
 /** The accounts that can answer questions about a PR: those whose harness holds a conversation

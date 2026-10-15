@@ -448,6 +448,20 @@ pub enum Went {
     NotSubmitted(String),
 }
 
+/// What a job that went wrong says as a notice (`Reviewer::told`), and the PR (its key as the
+/// board has it) a review of which didn't start, which the notice offers to start again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Said {
+    pub text: String,
+    pub again: Option<String>,
+}
+
+impl From<String> for Said {
+    fn from(text: String) -> Said {
+        Said { text, again: None }
+    }
+}
+
 /// What's next for a round under way.
 enum Next {
     Job(Job),
@@ -835,8 +849,9 @@ impl Reviewer {
 
     /// How a job went, at `now` (ms): kept, and saved. What should be said as a notice, for a
     /// review that couldn't be started or posted; one that didn't get done for its own reasons is
-    /// said on its PR's card.
-    pub fn told(&mut self, job: &Job, went: Went, now: i64) -> Result<(), String> {
+    /// said on its PR's card. A review that didn't start can be started again from the notice:
+    /// nothing else would review that commit.
+    pub fn told(&mut self, job: &Job, went: Went, now: i64) -> Result<(), Said> {
         let pr = job.pr();
         let key = pr_key(&pr.key);
         self.busy.remove(&key);
@@ -844,7 +859,8 @@ impl Reviewer {
             return Ok(());
         }
         let t = self.store.prs.entry(key.clone()).or_default();
-        let mut said = Ok(());
+        let mut said: Result<(), Said> = Ok(());
+        let again = |text: String| Said { text, again: Some(pr.key.clone()) };
         match (job, went) {
             (Job::Review { head, by_hand, .. }, Went::Started(parts)) => {
                 for p in &parts {
@@ -857,7 +873,7 @@ impl Reviewer {
                 let mut r = Round::new(head, if none { ReviewStage::Failed } else { ReviewStage::Reviewing }, now);
                 if none {
                     r.note = Some(failed.join(" "));
-                    said = Err(format!("Codealong couldn't start a review of {}: {}", pr.key, failed.join("; ")));
+                    said = Err(again(format!("Codealong couldn't start a review of {}: {}", pr.key, failed.join("; "))));
                 }
                 r.parts = parts;
                 r.by_hand = *by_hand;
@@ -867,7 +883,7 @@ impl Reviewer {
                 let mut r = Round::new(head, ReviewStage::Failed, now);
                 r.note = Some(why.clone());
                 t.rounds.push(r);
-                said = Err(format!("Codealong couldn't start a review of {}: {why}", pr.key));
+                said = Err(again(format!("Codealong couldn't start a review of {}: {why}", pr.key)));
             }
             (Job::Review { head, .. }, went @ (Went::Posted(_) | Went::Drafted(_))) => {
                 // Found there already: nothing to do for that commit.
@@ -930,13 +946,13 @@ impl Reviewer {
                 *failures += 1;
                 if *failures < POST_TRIES {
                     self.next_at.insert(key, now + (RETRY_MS << (*failures - 1)));
-                    return Err(format!("Codealong couldn't hand its review of {} to the session that opened it: {why} It tries again in a minute or two.", pr.key));
+                    return Err(Said::from(format!("Codealong couldn't hand its review of {} to the session that opened it: {why} It tries again in a minute or two.", pr.key)));
                 }
                 self.post_failures.remove(&key);
                 if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
                     r.sent = Some(Sent { session: session.clone(), at: now, failed: Some(why.clone()) });
                 }
-                said = Err(format!("Codealong couldn't hand its review of {} to the session that opened it: {why}", pr.key));
+                said = Err(Said::from(format!("Codealong couldn't hand its review of {} to the session that opened it: {why}", pr.key)));
             }
             (Job::Send { .. }, _) => {}
             (Job::Submit { head, verdict, .. }, Went::Submitted) => {
@@ -955,13 +971,13 @@ impl Reviewer {
                 *failures += 1;
                 if *failures < POST_TRIES {
                     self.next_at.insert(key, now + (RETRY_MS << (*failures - 1)));
-                    return Err(format!("Codealong couldn't {} {} for you: {why} It tries again in a minute or two.", verdict.verb(), pr.key));
+                    return Err(Said::from(format!("Codealong couldn't {} {} for you: {why} It tries again in a minute or two.", verdict.verb(), pr.key)));
                 }
                 self.post_failures.remove(&key);
                 if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
                     r.submitted = Some(Submission { at: now, verdict: *verdict, failed: Some(why.clone()) });
                 }
-                said = Err(format!("Codealong couldn't {} {} for you: {why}", verdict.verb(), pr.key));
+                said = Err(Said::from(format!("Codealong couldn't {} {} for you: {why}", verdict.verb(), pr.key)));
             }
             (Job::Submit { .. }, _) => {}
             (Job::Post { .. }, Went::NotYet) => {
@@ -973,13 +989,13 @@ impl Reviewer {
                 *failures += 1;
                 if *failures < POST_TRIES {
                     self.next_at.insert(key, now + (RETRY_MS << (*failures - 1)));
-                    return Err(format!("Codealong couldn't post its review of {}: {why} It tries again in a minute or two.", pr.key));
+                    return Err(Said::from(format!("Codealong couldn't post its review of {}: {why} It tries again in a minute or two.", pr.key)));
                 }
                 self.post_failures.remove(&key);
                 if let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) {
                     end(r, ReviewStage::Failed, Some(format!("It couldn't be posted: {why}")), now);
                 }
-                said = Err(format!("Codealong couldn't post its review of {}: {why}", pr.key));
+                said = Err(Said::from(format!("Codealong couldn't post its review of {}: {why}", pr.key)));
             }
             (Job::Post { .. }, went) => {
                 self.post_failures.remove(&key);
@@ -2356,7 +2372,7 @@ mod tests {
             let at = NOW + 64_000 + i64::from(i) * 10 * RETRY_MS;
             let job = r.due(&b, &own(), at).pop().expect("a send");
             let said = r.told(&job, Went::PostFailed("the terminal is gone".into()), at);
-            assert!(said.unwrap_err().contains("couldn't hand its review of o/r#7"));
+            assert!(said.unwrap_err().text.contains("couldn't hand its review of o/r#7"));
         }
         assert!(r.due(&b, &own(), NOW + 100 * RETRY_MS).is_empty());
         let mut prs = vec![mine(7, HEAD)];
@@ -2660,7 +2676,7 @@ mod tests {
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
         let said = r.told(&jobs[0], Went::Started(vec![Part::failed(AUTO, "codex can't start a session in the background".into(), NOW)]), NOW);
-        assert!(said.unwrap_err().contains("codex can't start"));
+        assert!(said.unwrap_err().text.contains("codex can't start"));
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
@@ -2788,10 +2804,15 @@ mod tests {
         let mut r = Reviewer::default();
         let b = board(vec![pr(7, HEAD)], vec![]);
         let jobs = r.due(&b, &on(), NOW);
-        assert!(r.told(&jobs[0], Went::NotStarted("GitHub: Not Found".into()), NOW).unwrap_err().contains("Not Found"));
+        let said = r.told(&jobs[0], Went::NotStarted("GitHub: Not Found".into()), NOW).unwrap_err();
+        assert!(said.text.contains("Not Found"));
+        // Its notice offers to start it again: nothing else would.
+        assert_eq!(said.again.as_deref(), Some("o/r#7"));
         assert!(r.due(&b, &on(), NOW + 10 * QUIET_MS).is_empty());
         let jobs = r.due(&board(vec![pr(8, HEAD)], vec![]), &on(), NOW);
-        assert!(r.told(&jobs[0], Went::Started(vec![Part::failed(AUTO, "claude can't start a session in the background".into(), NOW)]), NOW).unwrap_err().contains("in the background"));
+        let said = r.told(&jobs[0], Went::Started(vec![Part::failed(AUTO, "claude can't start a session in the background".into(), NOW)]), NOW).unwrap_err();
+        assert!(said.text.contains("in the background"));
+        assert_eq!(said.again.as_deref(), Some("o/r#8"));
         assert_eq!(r.store.prs["o/r#8"].rounds[0].stage, ReviewStage::Failed);
         // Posting is tried a few times, waiting longer each time.
         let mut r = Reviewer::default();
@@ -2812,7 +2833,10 @@ mod tests {
         }
         assert_eq!(waits, [30, 60, 120]);
         let job = r.due(&done, &on(), when).pop().unwrap();
-        assert!(r.told(&job, Went::PostFailed("gh: Not Found".into()), when).unwrap_err().contains("Not Found"));
+        let said = r.told(&job, Went::PostFailed("gh: Not Found".into()), when).unwrap_err();
+        assert!(said.text.contains("Not Found"));
+        // The review was done: a new one isn't what that wants.
+        assert_eq!(said.again, None);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
         assert!(r.due(&done, &on(), when + 10 * QUIET_MS).is_empty());
     }

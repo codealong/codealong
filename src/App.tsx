@@ -19,7 +19,7 @@ import { prRefOf } from './prLinks';
 import { archiveAhead, boardView, lanesAhead, observe, reviewAhead, seenAhead } from './ahead';
 import { reuse } from './reuse';
 import { usePins } from './pins';
-import { reviewItems as reviewItemsFor } from './review';
+import { reviewItems as reviewItemsFor, startReview } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { itemPrimaryHolds, todoAgent, todoInFilter, todoInQuery, todoPrompt, useTodoStore, type TodoItem } from './todos';
 import { repoReviews } from './repoSettings';
@@ -1555,7 +1555,14 @@ export function App() {
             throw e;
           })
         }
-        notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
+        notices={
+          <Notices
+            notices={notices}
+            now={now}
+            onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])}
+            onAction={(a) => ('opens' in a ? openSettings('file') : startReview(a.reviews, null, { error: setToast, info: setToast, busy: track }))}
+          />
+        }
       />
       <div
         className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel', loading && 'is-loading')}

@@ -98,6 +98,10 @@ pub struct Notice {
     /// When what it tells of ends, where that's known: the hour of a rate limit.
     #[serde(default)]
     pub until: Option<i64>,
+    /// The PR (`owner/name#number`) whose review didn't start, which the notice offers to start
+    /// again (autoreview.rs `review_now`).
+    #[serde(default)]
+    pub review_again: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

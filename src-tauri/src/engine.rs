@@ -137,7 +137,7 @@ pub enum Msg {
     Reported(Option<String>),
     /// A job of the automatic reviews went (autoreview.rs), and why it didn't if it didn't:
     /// reviews.json is read again at once.
-    Reviewed(Option<String>),
+    Reviewed(Option<autoreview::Said>),
     /// pr-links.json was changed from a window: read now, without waiting for the watcher.
     PrLinksChanged,
     /// The usage read is over: what it read, or none when it fell over or never started.
@@ -387,7 +387,7 @@ impl Handle {
 
     /// How a job of the automatic reviews went (autoreview.rs): a failure is a notice until a
     /// later job goes through, and the PRs' cards follow reviews.json at once.
-    pub fn reviewed(&self, result: std::result::Result<(), String>) {
+    pub fn reviewed(&self, result: std::result::Result<(), autoreview::Said>) {
         let _ = self.tx.send(Msg::Reviewed(result.err()));
     }
 
@@ -1109,7 +1109,7 @@ struct Engine {
     /// keeps the file.
     reviews: autoreview::Store,
     /// Why an automatic review couldn't be started or posted, until a later one goes.
-    review_warning: Option<String>,
+    review_warning: Option<autoreview::Said>,
     /// Worktrees' preview URLs (`previews.json`) and the servers in their folders.
     previews: board::Previews,
     previews_warning: Option<String>,
@@ -2535,7 +2535,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
         let team_files = self.team_files.notice();
         let ledger = crate::ledger::problem();
-        let said = |key: &str, title: &str, text: Option<&String>| Some(Notice { key: key.into(), title: title.into(), text: text?.clone(), until: None });
+        let review = self.review_warning.as_ref();
+        let said = |key: &str, title: &str, text: Option<&String>| Some(Notice { key: key.into(), title: title.into(), text: text?.clone(), ..Default::default() });
         [
             said("config", "config.toml has a problem", self.config_warning.as_ref()),
             self.github.notice(),
@@ -2552,14 +2553,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             said("terminal-runs", "A session wasn't told what a command printed", self.run_report_warning.as_ref()),
             said("reconnect", "A session wasn't told to carry on", self.continue_warning.as_ref()),
             said("helpers", "A session wasn't told what its helper did", self.report_warning.as_ref()),
-            said("reviews", "A pull request wasn't reviewed", self.review_warning.as_ref()),
+            said("reviews", "A pull request wasn't reviewed", review.map(|s| &s.text)).map(|n| Notice { review_again: review.and_then(|s| s.again.clone()), ..n }),
             said("team-files", "A repo's team settings aren't used", team_files.as_ref()),
             said("ledger", "Usage is missing some sessions", ledger.as_ref()),
 
         ]
         .into_iter()
         .flatten()
-        .chain(self.store_warnings.iter().map(|(file, why)| Notice { key: file.clone(), title: format!("{file} has a problem"), text: why.clone(), until: None }))
+        .chain(self.store_warnings.iter().map(|(file, why)| Notice { key: file.clone(), title: format!("{file} has a problem"), text: why.clone(), ..Default::default() }))
         .collect()
     }
 
@@ -4491,7 +4492,7 @@ mod tests {
         let (mut first, mut later, mut other) = (board(1_000, false), board(2_000, false), board(1_000, true));
         assert_eq!(board_hash(&mut first), board_hash(&mut later));
         assert_ne!(board_hash(&mut first), board_hash(&mut other), "a real difference");
-        later.notices.push(Notice { key: "github".into(), title: "GitHub didn't answer".into(), text: "GitHub: couldn't load PRs".into(), until: None });
+        later.notices.push(Notice { key: "github".into(), title: "GitHub didn't answer".into(), text: "GitHub: couldn't load PRs".into(), ..Default::default() });
         assert_ne!(board_hash(&mut first), board_hash(&mut later));
         // The board goes out with the time it was made, and hashes the same each time.
         assert_eq!((first.generated_at, later.generated_at), (1_000, 2_000));

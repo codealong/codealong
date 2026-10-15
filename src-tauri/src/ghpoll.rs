@@ -352,7 +352,7 @@ impl GhPoll {
                 said.push(text);
             }
         }
-        Some(Notice { key: "github".into(), title: first.title().into(), text: said.join(" "), until })
+        Some(Notice { key: "github".into(), title: first.title().into(), text: said.join(" "), until, ..Default::default() })
     }
 
     /// What `key` asked brought: a failure is kept until it answers again.

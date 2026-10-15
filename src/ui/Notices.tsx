@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { count } from '../format';
-import { noticeAction, noticeId, noticeLabel, untilPhrase } from '../notices';
+import { noticeAction, noticeId, noticeLabel, untilPhrase, type NoticeAction } from '../notices';
 import type { Notice } from '../types';
 import { Button, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
@@ -11,14 +11,14 @@ interface NoticesProps {
   notices: Notice[];
   now: number;
   onDismiss: (n: Notice) => void;
-  /** Opens what a notice offers (`noticeAction`). */
-  onOpen: (opens: 'settings-file') => void;
+  /** Does what a notice offers (`noticeAction`). */
+  onAction: (action: NoticeAction) => void;
 }
 
 /** What isn't working in the background, as one chip: the notice in a few words (how many,
  *  when there are several), a click for the whole of it, and a button that dismisses it. The
  *  same wherever a window shows them. */
-export function Notices({ notices, now, onDismiss, onOpen }: NoticesProps) {
+export function Notices({ notices, now, onDismiss, onAction }: NoticesProps) {
   const chip = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
   const [, place] = useState(0);
@@ -52,9 +52,9 @@ export function Notices({ notices, now, onDismiss, onOpen }: NoticesProps) {
           now={now}
           anchor={chip.current}
           onDismiss={onDismiss}
-          onOpen={(opens) => {
+          onAction={(action) => {
             setOpen(false);
-            onOpen(opens);
+            onAction(action);
           }}
         />
       )}
@@ -62,7 +62,7 @@ export function Notices({ notices, now, onDismiss, onOpen }: NoticesProps) {
   );
 }
 
-function NoticeCard({ notices, now, anchor, onDismiss, onOpen }: { notices: Notice[]; now: number; anchor: HTMLElement; onDismiss: (n: Notice) => void; onOpen: (opens: 'settings-file') => void }) {
+function NoticeCard({ notices, now, anchor, onDismiss, onAction }: { notices: Notice[]; now: number; anchor: HTMLElement; onDismiss: (n: Notice) => void; onAction: (action: NoticeAction) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   // Under the chip, its right edge on the chip's, kept inside the window.
   useLayoutEffect(() => {
@@ -84,7 +84,7 @@ function NoticeCard({ notices, now, anchor, onDismiss, onOpen }: { notices: Noti
             {until && <div className="ca-notice-until">{until}</div>}
             <div className="ca-notice-foot">
               {action && (
-                <Button size="sm" variant="primary" onClick={() => onOpen(action.opens)}>
+                <Button size="sm" variant="primary" onClick={() => onAction(action)}>
                   {action.label}
                 </Button>
               )}

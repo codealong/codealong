@@ -999,7 +999,9 @@ What stops working in the background (config.toml that doesn't read, GitHub sign
 requests, a folder macOS is asking about) is a chip at the end of the accounts bar, in a few words.
 A click shows the whole of it, when it ends where that's known (GitHub's rate limit says until
 when), and what to open to fix it; its button dismisses it until it happens again. Several are one
-chip that says how many.
+chip that says how many. An automatic review that couldn't start (`gh` timing out, say) isn't tried
+again for that commit by itself, so its notice has Try again, which starts it as Review with… does
+on the reviewer Settings names; the notice goes once a review starts.
 
 ### Tips
 

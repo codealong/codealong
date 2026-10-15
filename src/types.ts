@@ -1040,6 +1040,9 @@ export interface Notice {
   text: string;
   /** When what it tells of ends, where that's known: the hour of a rate limit. */
   until?: number | null;
+  /** The PR (`owner/name#number`) whose review didn't start, which the notice offers to start
+   *  again (review.ts `startReview`). */
+  reviewAgain?: string | null;
 }
 
 export interface Board {

@@ -45,9 +45,14 @@ export function untilPhrase(n: Notice, now: number): string | null {
   return n.until && n.until > now ? `Until ${clock(n.until)}, in ${duration(now, n.until)}` : null;
 }
 
-/** What a notice offers to open, by what it's about. */
-export function noticeAction(n: Notice): { label: string; opens: 'settings-file' } | null {
-  return n.key === 'config' ? { label: 'Open config.toml', opens: 'settings-file' } : null;
+/** What a notice offers: a file to open, or a review that didn't start to start again. */
+export type NoticeAction = { label: string; opens: 'settings-file' } | { label: string; reviews: { key: string; number: number } };
+
+/** What a notice offers, by what it's about. */
+export function noticeAction(n: Notice): NoticeAction | null {
+  if (n.key === 'config') return { label: 'Open config.toml', opens: 'settings-file' };
+  if (n.reviewAgain) return { label: 'Try again', reviews: { key: n.reviewAgain, number: Number(n.reviewAgain.split('#')[1]) } };
+  return null;
 }
 
 // ---- Notices a window reports itself ----

@@ -39,4 +39,11 @@ describe('notices', () => {
     expect(noticeAction(config)).toEqual({ label: 'Open config.toml', opens: 'settings-file' });
     expect(noticeAction(limit)).toBeNull();
   });
+
+  it('offers to start a review that did not start again', () => {
+    const review: Notice = { key: 'reviews', title: "A pull request wasn't reviewed", text: "Codealong couldn't start a review of o/r#1238: GitHub: gh timed out after 30s", reviewAgain: 'o/r#1238' };
+    expect(noticeAction(review)).toEqual({ label: 'Try again', reviews: { key: 'o/r#1238', number: 1238 } });
+    // One that can't be started again from here (a review that wasn't posted) offers nothing.
+    expect(noticeAction({ ...review, reviewAgain: null })).toBeNull();
+  });
 });

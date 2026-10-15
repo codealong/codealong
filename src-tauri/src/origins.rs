@@ -414,7 +414,7 @@ pub fn stuck_notices(pending: &[Pending], board: &crate::model::Board, word_of: 
                 terminal = board.apps.terminal,
                 mins = p.minutes(now),
             );
-            crate::model::Notice { key: format!("start:{}", p.at), title: format!("{word} hasn't started in {place}"), text, until: None }
+            crate::model::Notice { key: format!("start:{}", p.at), title: format!("{word} hasn't started in {place}"), text, ..Default::default() }
         })
         .collect()
 }
