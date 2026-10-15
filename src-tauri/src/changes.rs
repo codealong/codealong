@@ -678,8 +678,9 @@ fn working_here(s: &Session, now: i64) -> bool {
 /// The message that began the latest turn in a page of a conversation, who sent it when it wasn't
 /// the session's user, and the reply after it: the last thing its agent said since, whole when
 /// it's short, else its first line and its end, where a status line and a question go. Another
-/// session's message is a note of it where its harness records it as one (Claude Code), else a
-/// prompt led by the byline `session send` gave it; Codealong's own is `codealong`.
+/// session's message is `peer`; a Mac before 2026-10-14 sent it as a note of it where its harness
+/// records it as one (Claude Code), else as a prompt led by the byline `session send` gave it.
+/// Codealong's own is `codealong`.
 pub fn texts(items: &[api::Item]) -> (Option<String>, Option<PromptFrom>, Option<String>) {
     fn said(i: &api::Item) -> Option<(&str, Option<PromptFrom>)> {
         match i.kind.as_str() {
@@ -688,6 +689,7 @@ pub fn texts(items: &[api::Item]) -> (Option<String>, Option<PromptFrom>, Option
                 Some(text) => (text, Some(PromptFrom::Agent)),
                 None => (i.text.as_str(), None),
             }),
+            "peer" => Some((i.text.as_str(), Some(PromptFrom::Agent))),
             "note" if i.text.starts_with(crate::send::FROM_ANOTHER_SESSION) => Some((i.text.as_str(), Some(PromptFrom::Agent))),
             "codealong" => Some((i.text.as_str(), Some(PromptFrom::Codealong))),
             _ => None,
@@ -1149,17 +1151,20 @@ mod tests {
     /// user's prompt of the day before as the turn's (2026-10-14).
     #[test]
     fn a_turn_another_session_began_gives_its_message_marked_as_theirs() {
-        let theirs = format!("{}, “Antigravity review”: Here's my review of #1227.", crate::send::FROM_ANOTHER_SESSION);
-        let page = vec![item("you", "its going now"), item("agent", "Watching it."), item("note", &theirs), item("agent", "Reviewed: two findings.")];
-        assert_eq!(texts(&page), (Some(theirs.clone()), Some(PromptFrom::Agent), Some("Reviewed: two findings.".into())));
-        // Typed in where its harness takes it so, without the byline `session send` led it with.
+        let theirs = "Here's my review of #1227.";
+        let page = vec![item("you", "its going now"), item("agent", "Watching it."), item("peer", theirs), item("agent", "Reviewed: two findings.")];
+        assert_eq!(texts(&page), (Some(theirs.into()), Some(PromptFrom::Agent), Some("Reviewed: two findings.".into())));
+        // As a Mac before 2026-10-14 sends it: a note of it where its harness records one, and
+        // typed in where its harness takes it so, without the byline `session send` led it with.
+        let noted = format!("{}, “Antigravity review”: {theirs}", crate::send::FROM_ANOTHER_SESSION);
+        assert_eq!(texts(&[item("you", "Fix it"), item("note", &noted)]).1, Some(PromptFrom::Agent));
         let typed = "This message is from another agent, “Review” (Codex on codex, session k), sent with `codealong session send`; it isn't from your user.\n\nWhich test fails?";
         assert_eq!(texts(&[item("you", "Fix it"), item("you", typed)]).0.as_deref(), Some("Which test fails?"));
         assert_eq!(texts(&[item("you", typed)]).1, Some(PromptFrom::Agent));
         // Codealong's own, and a later prompt of the user's, which is theirs again.
         assert_eq!(texts(&[item("codealong", "On your PR #7: ken approved it.")]).1, Some(PromptFrom::Codealong));
-        assert_eq!(texts(&[item("note", &theirs), item("you", "Thanks, merge it")]).0.as_deref(), Some("Thanks, merge it"));
-        assert_eq!(texts(&[item("note", &theirs), item("you", "Thanks, merge it")]).1, None);
+        assert_eq!(texts(&[item("peer", theirs), item("you", "Thanks, merge it")]).0.as_deref(), Some("Thanks, merge it"));
+        assert_eq!(texts(&[item("peer", theirs), item("you", "Thanks, merge it")]).1, None);
         // A note of something else begins no turn.
         assert_eq!(texts(&[item("you", "Fix it"), item("note", "The conversation was compacted here")]).0.as_deref(), Some("Fix it"));
         // Serialized as the help says.

@@ -503,11 +503,12 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
 }
 
 /**
- * The messages the thread should still show, and those its items have: a prompt of yours (or the
- * note a message from another session leaves) from about when each was sent, taken in order.
+ * The messages the thread should still show, and those its items have: a prompt of yours (or
+ * another session's message, as a session that took yours as one may record it; a Mac before
+ * 2026-10-14 sends that as a note) from about when each was sent, taken in order.
  */
 export function inRecord(sends: Ahead[], items: TranscriptItem[]): { showing: Ahead[]; found: string[] } {
-  const said = items.filter((it) => it.kind === 'you' || (it.kind === 'note' && it.text.startsWith('From another session')));
+  const said = items.filter((it) => it.kind === 'you' || it.kind === 'peer' || (it.kind === 'note' && it.text.startsWith('From another session')));
   const used = new Set<number>();
   const showing: Ahead[] = [];
   const found: string[] = [];

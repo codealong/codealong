@@ -1114,11 +1114,13 @@ Commands:
               or the part before `--before`. Each item is a prompt (`you`), a reply
               (`agent`), a tool call (`tool`: `text` is the call in a line, with its
               input and output when the record has them there), a call's output
-              (`result`) or a note (a message from another session, compaction). Oldest
-              first; `before` is the cursor for the part before, null at the start;
-              `lastPromptAt` is the session's as it was read, for `session suggest
-              --prompt-at`. Inputs and outputs are cut short unless --full. Any harness,
-              and sessions on your other devices
+              (`result`), another session's message (`peer`, with the sending session's
+              name in `from` where its record says), Codealong's own message
+              (`codealong`) or a note (compaction, a message held for its user to
+              allow). Oldest first; `before` is the cursor for the part before, null at
+              the start; `lastPromptAt` is the session's as it was read, for `session
+              suggest --prompt-at`. Inputs and outputs are cut short unless --full. Any
+              harness, and sessions on your other devices
   wait        Wait for a session's turn to end, and print its reply: for a helper you
               started (`codealong start --helper`), or a session you sent a message. It
               also comes back when the session waits on your user (a call to allow, a
@@ -1424,10 +1426,12 @@ A session's conversation as its own record has it, for reading what another agen
 and where it stands: the newest part (about 60 items), or the part before `--before`.
 Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the
 call in a line, with its input and output when the record has them there), a call's
-output (`result`) or a note (a message from another session, compaction). Oldest first;
-`before` is the cursor for the part before, null at the start; `lastPromptAt` is the
-session's as it was read, for `session suggest --prompt-at`. Inputs and outputs are cut
-short unless --full. Any harness, and sessions on your other devices
+output (`result`), another session's message (`peer`, with the sending session's name in
+`from` where its record says), Codealong's own message (`codealong`) or a note
+(compaction, a message held for its user to allow). Oldest first; `before` is the cursor
+for the part before, null at the start; `lastPromptAt` is the session's as it was read,
+for `session suggest --prompt-at`. Inputs and outputs are cut short unless --full. Any
+harness, and sessions on your other devices
 
 Usage: codealong session transcript [OPTIONS] <KEY>
 

@@ -561,7 +561,7 @@ enum SessionCmd {
         /// The session: `me`, or one this session started (its key, its id, or a unique start of its id).
         key: String,
     },
-    /// A session's conversation as its own record has it, for reading what another agent did and where it stands: the newest part (about 60 items), or the part before `--before`. Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the call in a line, with its input and output when the record has them there), a call's output (`result`) or a note (a message from another session, compaction). Oldest first; `before` is the cursor for the part before, null at the start; `lastPromptAt` is the session's as it was read, for `session suggest --prompt-at`. Inputs and outputs are cut short unless --full. Any harness, and sessions on your other devices.
+    /// A session's conversation as its own record has it, for reading what another agent did and where it stands: the newest part (about 60 items), or the part before `--before`. Each item is a prompt (`you`), a reply (`agent`), a tool call (`tool`: `text` is the call in a line, with its input and output when the record has them there), a call's output (`result`), another session's message (`peer`, with the sending session's name in `from` where its record says), Codealong's own message (`codealong`) or a note (compaction, a message held for its user to allow). Oldest first; `before` is the cursor for the part before, null at the start; `lastPromptAt` is the session's as it was read, for `session suggest --prompt-at`. Inputs and outputs are cut short unless --full. Any harness, and sessions on your other devices.
     Transcript(TranscriptArgs),
     /// Wait for a session's turn to end, and print its reply: for a helper you started (`codealong start --helper`), or a session you sent a message. It also comes back when the session waits on your user (a call to allow, a question, an error: `waitsOnUser`, with what it waits on in `excerpt`), since they answer it in Codealong and you may want to tell them; then wait again with --until-done. `ended` says the turn is over, `reply` is its last reply, and `lastPromptAt` the session's as read, for `--since` next time. Fails once --timeout passes with it still working, or if the session is gone. A Claude Code agent can run it in the background and be told when it's done.
     Wait(SessionWaitArgs),
@@ -2534,6 +2534,7 @@ fn session_transcript(c: &mut Client, a: &TranscriptArgs, json: bool) -> Result<
         match item.kind.as_str() {
             "you" => println!("\n── You · {when}{}\n{}", if item.withdrawn { " (taken back)" } else { "" }, item.text.trim_end()),
             "agent" => println!("\n── Agent · {when}\n{}", item.text.trim_end()),
+            "peer" => println!("\n── From {} · {when}\n{}", item.from.as_deref().map_or_else(|| "another session".to_string(), |f| format!("“{f}”")), item.text.trim_end()),
             "tool" => println!("  {} {}", if item.failed { "✗" } else { "⏺" }, one_line(&item.text, 160)),
             "result" => {}
             _ => println!("  · {}", one_line(&item.text, 160)),

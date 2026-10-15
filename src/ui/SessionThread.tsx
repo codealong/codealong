@@ -4,7 +4,9 @@
 // come in at the bottom as the session goes on, and the view follows them if you're at the end.
 // Who said a message and when heads a run of them, not each one: your prompt, then the agent's
 // reply, whose later messages (between its tool calls) go on under that heading. A heading comes
-// again where the speaker changes, after a note, or after a pause (`headingsOf`). A right-click on
+// again where the speaker changes, after a note, or after a pause (`headingsOf`). Another
+// session's message heads itself with who it's from, and shows whole: a long one by its first
+// lines until Show all, and whole while ⌘F finds something in it (`PeerText`). A right-click on
 // a message copies it as it was written, markdown and all, or what you'd selected in it; in a
 // card the session's own menu follows.
 //
@@ -71,8 +73,9 @@ const LOOK_BACK = 16;
 /** A message this long after the step before it heads itself again, though the same speaker said
  *  the one before: the agent woken by a background job's report long after it went quiet. */
 const PAUSE = 10 * 60_000;
-/** What ⌘F searches: your prompts, the replies, notes, the calls' lines, a call's input and output
- *  once it's open, the commands you ran with what they printed, and the page a call made. */
+/** What ⌘F searches: your prompts, the replies (another session's message among them, which
+ *  reads as one), notes, the calls' lines, a call's input and output once it's open, the commands
+ *  you ran with what they printed, and the page a call made. */
 const FIND_IN = '.ca-thread-you, .ca-thread-agent, .ca-thread-note, .ca-thread-toollabel, .ca-thread-tooldetail, .ca-thread-ran, .ca-thread-madetitle';
 
 type Row =
@@ -113,25 +116,31 @@ export function rowsOf(items: TranscriptItem[]): Row[] {
 
 /** Who spoke last, and when the last step was (0 when its record didn't say). */
 export interface Speaker {
-  kind: 'you' | 'agent' | 'codealong' | null;
+  kind: 'you' | 'agent' | 'codealong' | 'peer' | null;
   at: number;
 }
 
+/** Who another session's message is from, as its heading says. */
+export function peerLabel(it: TranscriptItem): string {
+  return it.from ? `From “${it.from}”` : 'From another session';
+}
+
 /** Whether a message heads itself, after `last`: where the speaker changes, or after a pause. */
-export function heads(last: Speaker, kind: 'you' | 'agent' | 'codealong', at: number): boolean {
+export function heads(last: Speaker, kind: 'you' | 'agent' | 'codealong' | 'peer', at: number): boolean {
   return kind !== last.kind || (at > 0 && last.at > 0 && at - last.at >= PAUSE);
 }
 
 /** The messages that show who said them and when, and who spoke last, for one streaming in after
- *  them. A note between two messages (a message from another session, the conversation
- *  compacted) starts afresh, and a prompt the session took back always heads itself, to say so.
- *  The agent's tool calls are its own, so they don't. */
+ *  them. A note between two messages (a message held for you to allow, the conversation
+ *  compacted) starts afresh, and a prompt the session took back always heads itself, to say so,
+ *  as another session's message does, to say whose: the next may be another's. The agent's tool
+ *  calls are its own, so they don't. */
 export function headingsOf(items: TranscriptItem[]): { headed: Set<string>; last: Speaker } {
   const headed = new Set<string>();
   const last: Speaker = { kind: null, at: 0 };
   for (const it of items) {
-    if (it.kind === 'you' || it.kind === 'agent' || it.kind === 'codealong') {
-      if (heads(last, it.kind, it.at) || it.withdrawn) headed.add(keyOf(it));
+    if (it.kind === 'you' || it.kind === 'agent' || it.kind === 'codealong' || it.kind === 'peer') {
+      if (heads(last, it.kind, it.at) || it.withdrawn || it.kind === 'peer') headed.add(keyOf(it));
       last.kind = it.kind;
     } else if (it.kind === 'note') last.kind = null;
     if (it.at > 0) last.at = it.at;
@@ -312,6 +321,8 @@ function Said({ item, result, now, label, head, onPutBack, onMenu }: { item: Tra
         <div className="ca-thread-codealong">
           <DescriptionView text={item.text} />
         </div>
+      ) : item.kind === 'peer' ? (
+        <PeerText item={item} />
       ) : (
         <Markdown text={item.text} className="ca-thread-agent" />
       )}
@@ -330,6 +341,40 @@ function Said({ item, result, now, label, head, onPutBack, onMenu }: { item: Tra
             </button>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Another session's message, written as an agent's reply is. One longer than the cut shows its
+ *  first lines until Show all, and whole while ⌘F finds something in it; a click says which from
+ *  then on. Whether it's longer is measured while it's cut, as the panel's width lays it out. */
+function PeerText({ item }: { item: TranscriptItem }) {
+  const [opened, setOpened] = useState<boolean | null>(null);
+  const finding = useContext(FindContext);
+  const whole = opened ?? (!!finding && says(finding, shownText(item)));
+  const [long, setLong] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el || whole) return;
+    const measure = () => setLong(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    // Its width, and its text's height as images in it come in.
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    if (el.firstElementChild) watch.observe(el.firstElementChild);
+    return () => watch.disconnect();
+  }, [whole, item.text]);
+  return (
+    <div className="ca-thread-peer">
+      <div ref={box} className={cx('ca-thread-peertext', !whole && 'is-cut', !whole && long && 'is-long')}>
+        <Markdown text={item.text} className="ca-thread-agent" />
+      </div>
+      {long && (
+        <button type="button" className="ca-linkbtn" aria-expanded={whole} onClick={() => setOpened(!whole)}>
+          {whole ? 'Show less' : 'Show all'}
+        </button>
       )}
     </div>
   );
@@ -812,8 +857,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                 );
               }
               const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
-              // What Codealong sent by itself says so, apart from yours and the agent's.
-              const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : s.account;
+              // What Codealong or another session sent says so, apart from yours and the agent's.
+              const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? peerLabel(it) : s.account;
               return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={label} head={headings.headed.has(keyOf(it))} onPutBack={again} onMenu={onMenu} />;
             })}
             {showing.map((a) => (

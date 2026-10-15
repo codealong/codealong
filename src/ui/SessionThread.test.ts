@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../types';
-import { headingsOf, rowsOf } from './SessionThread';
+import { headingsOf, peerLabel, rowsOf } from './SessionThread';
 
 let at = 0;
 const step = (kind: TranscriptItem['kind'], more: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: 0, kind, text: kind, failed: false, cursor: ++at, n: 0, ...more });
@@ -47,6 +47,13 @@ describe('headingsOf', () => {
   it('heads the reply to a prompt once, the calls between its messages being its own', () => {
     const items = [step('you', { at: MIN }), step('agent', { at: 2 * MIN }), call('a'), step('result', { id: 'a', at: 3 * MIN }), step('agent', { at: 4 * MIN }), call('b'), step('agent', { at: 5 * MIN }), step('you', { at: 6 * MIN }), step('agent', { at: 7 * MIN })];
     expect(heads(items)).toEqual(['YOU', 'AGENT', 'agent', 'agent', 'YOU', 'AGENT']);
+  });
+
+  it('heads each message from another session with whose it is, and the reply after it', () => {
+    const items = [step('agent', { at: MIN }), step('peer', { at: 2 * MIN, from: 'Review the parser' }), step('peer', { at: 2 * MIN + 1 }), step('agent', { at: 3 * MIN })];
+    const { headed } = headingsOf(items);
+    expect(items.map((it) => headed.has(`${it.cursor}:${it.n}`))).toEqual([true, true, true, true]);
+    expect(items.slice(1, 3).map(peerLabel)).toEqual(['From “Review the parser”', 'From another session']);
   });
 
   it('heads a message again after a pause, a note, or a prompt taken back', () => {

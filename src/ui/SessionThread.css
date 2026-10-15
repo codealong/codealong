@@ -35,12 +35,33 @@
 .ca-thread-said.is-you {
   margin-top: 6px;
 }
-/* What Codealong sent the session by itself (a PR's news, a review handed back): neither yours
-   nor the agent's, set apart by a rule at its left and quieter text. */
-.ca-thread-said.is-codealong {
+/* What Codealong sent the session by itself (a PR's news, a review handed back), and another
+   session's message: neither yours nor the agent's, set apart by a rule at its left; Codealong's
+   in quieter text. */
+.ca-thread-said.is-codealong,
+.ca-thread-said.is-peer {
   margin-top: 6px;
   padding-left: 10px;
   border-left: 2px solid var(--line-strong);
+}
+/* A long one is cut to its first lines, fading out, until Show all (SessionThread.tsx `PeerText`). */
+.ca-thread-peer {
+  display: grid;
+  gap: var(--space-1);
+}
+.ca-thread-peer > .ca-linkbtn {
+  justify-self: start;
+}
+.ca-thread-peertext {
+  min-width: 0;
+  font: var(--type-reading);
+}
+.ca-thread-peertext.is-cut {
+  max-height: 10lh;
+  overflow: hidden;
+}
+.ca-thread-peertext.is-long {
+  mask-image: linear-gradient(to bottom, var(--ink) calc(100% - 2lh), transparent);
 }
 .ca-thread-codealong {
   color: var(--ink-2);

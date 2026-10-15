@@ -516,10 +516,16 @@ pub struct Stream {
 pub struct Item {
     pub at: i64,
     /// `you`, `agent`, `tool` (a call, with its output when the record has it there), `result`
-    /// (a call's output, by `id`) or `note` (compaction, a message from another session…).
+    /// (a call's output, by `id`), `codealong` (what Codealong sent by itself), `peer` (another
+    /// session's message, whole) or `note` (compaction, a message held for you to allow…). A
+    /// device that doesn't know a kind shows it as a note; Macs before 2026-10-14 sent another
+    /// session's message as a note of its first line.
     pub kind: String,
-    /// Prose for you, agent and note; for a tool, a one-line label such as "Bash · `cargo test`".
+    /// Prose for you, agent, peer and note; for a tool, a one-line label such as "Bash · `cargo test`".
     pub text: String,
+    /// Who sent a `peer` message: the sending session's name, where its record says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     /// A tool's whole input: the command, the file, the arguments.
@@ -974,8 +980,9 @@ mod tests {
     fn a_page_reads_back_what_it_wrote() {
         let page = Page {
             items: vec![
-                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), id: None, input: None, output: None, failed: false, withdrawn: false, questions: Vec::new(), answers: Default::default(), link: None, cursor: 0, n: 0 },
-                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), link: Some(Link { url: "https://claude.ai/artifact/Vuaw".into(), title: "Dashboard".into(), note: None }), cursor: 120, n: 1 },
+                Item { at: 1, kind: "you".into(), text: "Fix the build".into(), from: None, id: None, input: None, output: None, failed: false, withdrawn: false, questions: Vec::new(), answers: Default::default(), link: None, cursor: 0, n: 0 },
+                Item { at: 2, kind: "tool".into(), text: "Bash · `cargo test`".into(), from: None, id: Some("t1".into()), input: Some("cargo test".into()), output: Some("ok".into()), failed: false, withdrawn: false, questions: vec![Question { question: "Which?".into(), header: None, options: vec![Choice { label: "This".into(), description: None }], multi_select: false }], answers: [("Which?".to_string(), vec!["This".to_string()])].into(), link: Some(Link { url: "https://claude.ai/artifact/Vuaw".into(), title: "Dashboard".into(), note: None }), cursor: 120, n: 1 },
+                Item { at: 3, kind: "peer".into(), text: "Which test fails?\n\nThe parser's, I think.".into(), from: Some("Review the parser".into()), id: None, input: None, output: None, failed: false, withdrawn: false, questions: Vec::new(), answers: Default::default(), link: None, cursor: 300, n: 0 },
             ],
             before: Some(0),
             after: 400,
@@ -983,7 +990,7 @@ mod tests {
         let back: Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!(back, page);
         let json = serde_json::to_string(&page).unwrap();
-        assert!(json.contains(r#""before":0"#) && !json.contains("\"input\":null"), "{json}");
+        assert!(json.contains(r#""before":0"#) && !json.contains("\"input\":null") && !json.contains("\"from\":null"), "{json}");
         assert_eq!(serde_json::to_value(Answer::Allow).unwrap(), "allow");
     }
 

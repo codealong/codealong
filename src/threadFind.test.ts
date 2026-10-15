@@ -48,6 +48,7 @@ describe('shownText', () => {
     expect(shownText(item('tool', 'Bash · `npm test`', { input: 'npm test --watch', output: 'all passed' }))).toBe('Bash · npm test');
     expect(shownText(item('note', 'Conversation compacted'))).toBe('Conversation compacted');
     expect(shownText(item('codealong', 'On your PR #7: **ken** approved it.'))).toBe('On your PR #7: ken approved it.');
+    expect(shownText(item('peer', 'Which test fails?\n\n- The **parser**’s'))).toBe('Which test fails?\n\n- The parser’s');
     expect(shownText(item('result', '', { output: 'all passed' }))).toBe('');
   });
 

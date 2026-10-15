@@ -418,7 +418,9 @@ describe('inRecord', () => {
     const second = send('a', { at: NOW + 2_000 });
     const items = [said('you', NOW - 60_000), said('agent', NOW + 100), said('you', NOW + 300)];
     expect(inRecord([first, second], items)).toEqual({ showing: [second], found: [first.id] });
-    // A message from Codealong to a Claude app session is a note in its record.
+    // A message from Codealong to a Claude app session may be another session's in its record,
+    // a note of it from a Mac before 2026-10-14.
+    expect(inRecord([second], [...items, said('peer', NOW + 2_500, 'Also the docs')]).found).toEqual([second.id]);
     expect(inRecord([second], [...items, said('note', NOW + 2_500, 'From another session: Also the docs')]).found).toEqual([second.id]);
   });
 });

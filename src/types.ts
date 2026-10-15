@@ -1900,9 +1900,11 @@ export interface TranscriptItem {
   at: number;
   /** `result` is a Claude Code tool's output, matched to its call by `id`. */
   /** `codealong`: what Codealong sent the session by itself (a PR's news, a review handed back,
-   *  a helper's news), never yours. */
-  kind: 'you' | 'agent' | 'tool' | 'result' | 'note' | 'codealong';
+   *  a helper's news), never yours. `peer`: another session's message, whole. */
+  kind: 'you' | 'agent' | 'tool' | 'result' | 'note' | 'codealong' | 'peer';
   text: string;
+  /** Who sent a `peer` message: the sending session's name, where its record says. */
+  from?: string;
   id?: string;
   input?: string;
   output?: string;

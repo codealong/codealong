@@ -132,17 +132,17 @@ fn byline(board: &Board, from: Option<&str>) -> Byline {
     }
 }
 
-/// How a conversation's note of another session's message begins, where its harness records the
-/// message as one (claude/conversation.rs, `peer_item`); the windows know it by this too
-/// (ahead.ts `said`).
+/// How a Mac before 2026-10-14 began its note of another session's message, which another
+/// device may still send (changes.rs `texts`, and the windows' ahead.ts `inRecord`); a Mac since
+/// sends the message whole, as a `peer` item.
 pub const FROM_ANOTHER_SESSION: &str = "From another session";
 
 /// How an agent's message begins, for each way `byline` words it.
 const AGENT_BYLINES: [&str; 2] = ["This message is from another agent, ", "This message was sent with `codealong session send`"];
 
-/// An agent's message without the byline it starts with, as a note of it shows it
-/// (claude/conversation.rs, `peer_item`): the byline says whose it is, which the note says
-/// already.
+/// An agent's message without the byline it starts with, as the conversation shows it
+/// (claude/conversation.rs `peer_item`, transcript.rs `shown`): the byline says whose it is,
+/// which the conversation says already.
 pub fn without_byline(text: &str) -> &str {
     let t = text.trim();
     match t.split_once("\n\n") {
@@ -156,6 +156,13 @@ pub fn without_byline(text: &str) -> &str {
 pub fn from_an_agent(text: &str) -> Option<&str> {
     let t = text.trim_start();
     AGENT_BYLINES.iter().any(|s| t.starts_with(s)).then(|| without_byline(t))
+}
+
+/// The session an agent's message is from, by the title its byline quotes; None where the byline
+/// names no session the board knew.
+pub fn sender_of(text: &str) -> Option<&str> {
+    let who = text.trim_start().strip_prefix(AGENT_BYLINES[0])?.strip_prefix('“')?;
+    who.split_once('”').map(|(title, _)| title.trim()).filter(|t| !t.is_empty())
 }
 
 /// What goes to the session: the text as it gets it, before its attachments are written out for
@@ -1209,10 +1216,14 @@ mod tests {
         let msg = Message::new(&board, &Config::default(), "  Which test fails?\n", &agent, false);
         assert_eq!(msg.text, format!("{}\n\nWhich test fails?", byline(&board, Some("claude:claude2:me")).intro));
         assert_eq!(msg.byline.map(|b| b.name).as_deref(), Some("Review the parser"));
-        // A note of it in the session's panel leaves the byline out, either kind.
+        // The session's conversation shows it without the byline, either kind, and from the
+        // session the byline names.
         assert_eq!(without_byline(&msg.text), "Which test fails?");
         assert_eq!(without_byline(&format!("{}\n\nAnd the docs?", byline(&board, None).intro)), "And the docs?");
         assert_eq!(without_byline("Plain words\n\nstay whole"), "Plain words\n\nstay whole");
+        assert_eq!(sender_of(&msg.text), Some("Review the parser"));
+        assert_eq!(sender_of(&format!("{}\n\nAnd the docs?", byline(&board, None).intro)), None);
+        assert_eq!(sender_of("“Review the parser” says hi"), None);
         assert_eq!(Message::new(&board, &Config::default(), "hi", &Sender::You, false).text, "hi");
     }
 

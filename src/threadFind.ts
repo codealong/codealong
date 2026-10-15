@@ -36,14 +36,16 @@ export function plainOf(markdown: string): string {
 }
 
 /** What an item shows, as plain text: your prompt (a command you ran with `!` as you typed it), a
- *  reply, a note, a tool call's line. A call's output shows only once it's opened, so it isn't
+ *  reply, another session's message, a note, a tool call's line. A call's output shows only once it's opened, so it isn't
  *  counted, nor is a result, which shows under its call. */
 export function shownText(it: TranscriptItem): string {
   switch (it.kind) {
     case 'you':
       return it.input != null ? `! ${it.input}` : plainOf(it.text);
-    // A reply's Codex directives are drawn (Markdown.tsx); a prompt's and Codealong's aren't.
+    // A reply's Codex directives are drawn (Markdown.tsx), as another session's message's are; a
+    // prompt's and Codealong's aren't.
     case 'agent':
+    case 'peer':
       return plainOf(plainDirectives(it.text));
     case 'codealong':
       return plainOf(it.text);
