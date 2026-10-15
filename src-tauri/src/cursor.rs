@@ -35,6 +35,15 @@ const STORE_DB: &str = "store.db";
 const TAIL_MESSAGES: usize = 60;
 /// How much of a transcript's end is read for what a command line chat is on.
 const TAIL_BYTES: u64 = 256 * 1024;
+/// The folders of a workspace, and of your home, that Cursor reads skills from, its own first.
+/// Claude Code's, Codex's and Grok's are its "third-party" ones, which the app reads unless its
+/// setting is turned off and the command line always does (it has no Grok); a skill two of them
+/// have at the same place is read once, from the first (3.22.7's agent, 2026.08.11's command line).
+const SKILL_FOLDERS: [&str; 5] = [".cursor/skills", ".claude/skills", ".codex/skills", ".grok/skills", ".agents/skills"];
+/// The skills Cursor ships, which it keeps in your home.
+const OWN_SKILLS: &str = ".cursor/skills-cursor";
+/// How many folders down a skills folder Cursor looks for a `SKILL.md`.
+const SKILL_DEPTH: usize = 10;
 
 /// The app's global state database for the account kept in `home`. Only the account in
 /// `~/.cursor` has the app's chats: one in a folder of its own (`CURSOR_CONFIG_DIR`) is the
@@ -1598,6 +1607,31 @@ impl crate::harness::Adapter for Cursor {
         crate::harness::FolderUse { has_data, last_used: files.iter().filter_map(|p| crate::util::mtime_ms(p)).max(), signed_in: dir.join("auth.json").is_file() }
     }
 
+    /// `~/.cursor/skills`, in your home whatever folder the account is kept in: the app and the
+    /// command line read personal skills from there, not from `CURSOR_CONFIG_DIR`.
+    fn skills_dir(&self, _account: &AccountCfg) -> Option<PathBuf> {
+        Some(crate::util::home().join(SKILL_FOLDERS[0]))
+    }
+
+    fn worktree_skills(&self, dir: &Path) -> Vec<crate::skills::Root> {
+        SKILL_FOLDERS.iter().map(|f| crate::skills::Root::skills(dir.join(f), SKILL_DEPTH)).collect()
+    }
+
+    /// The same folders in your home, and the skills Cursor ships.
+    fn account_skills(&self, _account: &AccountCfg) -> Vec<crate::skills::Root> {
+        let home = crate::util::home();
+        std::iter::once(OWN_SKILLS).chain(SKILL_FOLDERS).map(|f| crate::skills::Root::skills(home.join(f), SKILL_DEPTH)).collect()
+    }
+
+    /// The command line runs a skill a prompt names as `/name` (its `findSkillReferences`), as a
+    /// first prompt too, and finds only names of letters, digits, `-` and `_` that way. The app
+    /// makes a skill of a `/name` picked from its box's menu, and nothing reaches its chats but
+    /// what you paste there.
+    fn skill_mention(&self, name: &str) -> Option<String> {
+        let found = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        found.then(|| format!("/{name}"))
+    }
+
     /// The command line starts a chat in a terminal; the app only in its own window.
     fn places(&self, account: &AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
         if account.command.is_some() || cli_installed(home) {
@@ -2236,6 +2270,22 @@ mod tests {
         assert_eq!(Cursor.start_in_terminal(&account, &ask("", None, false)).input, format!("cursor-agent --new-session-id {id}\n"));
         let s = Session::new(Harness::Cursor, "cursor", "abc");
         assert_eq!(Cursor.resume(&account, &s, &ask("", None, false)).unwrap(), ("cursor-agent --resume abc\n".to_string(), Vec::new()));
+    }
+
+    #[test]
+    fn reads_skills_from_its_folders_and_the_ones_it_shares_and_names_them_with_a_slash() {
+        // An account kept elsewhere still reads your home's.
+        let account = AccountCfg { name: "cursor".into(), harness: "cursor".into(), home: "~/elsewhere/cursor".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let home = crate::util::home();
+        let dirs: Vec<PathBuf> = Cursor.account_skills(&account).into_iter().map(|r| r.dir).collect();
+        assert_eq!(dirs, [".cursor/skills-cursor", ".cursor/skills", ".claude/skills", ".codex/skills", ".grok/skills", ".agents/skills"].map(|f| home.join(f)));
+        let dirs: Vec<PathBuf> = Cursor.worktree_skills(Path::new("/r")).into_iter().map(|r| r.dir).collect();
+        assert_eq!(dirs, SKILL_FOLDERS.map(|f| Path::new("/r").join(f)));
+        assert_eq!(Cursor.skills_dir(&account), Some(home.join(".cursor/skills")));
+        assert_eq!(Cursor.skill_mention("pr-review_2").as_deref(), Some("/pr-review_2"));
+        // A name the command line wouldn't find in the prompt.
+        assert_eq!(Cursor.skill_mention("figma:use"), None);
+        assert_eq!(Cursor.skill_mention("v1.2"), None);
     }
 
     /// As `GetUserPrivacyMode` answered on 2026-10-13, and the other modes Cursor 3.22.7 knows.

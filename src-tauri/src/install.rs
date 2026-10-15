@@ -1029,6 +1029,8 @@ mod tests {
         assert!(skill_dir(&account("codex", "~/.codex")).unwrap().ends_with(".codex/skills/codealong"));
         assert!(skill_dir(&account("opencode", "~/.local/share/opencode")).unwrap().ends_with(".config/opencode/skills/codealong"));
         assert!(skill_dir(&account("antigravity", "~/.gemini/antigravity")).unwrap().ends_with(".gemini/config/skills/codealong"));
+        // In your home, wherever the account's own folder is.
+        assert_eq!(skill_dir(&account("cursor", "~/elsewhere/cursor")), Some(home().join(".cursor/skills/codealong")));
         assert!(skill_dir(&account("other", "~/x")).is_none());
     }
 

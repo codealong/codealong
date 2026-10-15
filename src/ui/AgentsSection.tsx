@@ -101,7 +101,7 @@ export function AgentsSection() {
         <h3>Agents</h3>
         <p>
           Agents can use Codealong too. The <code className="ca-ic">codealong</code> command reads the board and changes todos, and the skill tells agents how to use it for todos, sessions and accounts.
-          Claude Code gets both in the Codealong plugin, with hooks that let you answer its permission prompts and questions from Codealong. Codex, OpenCode and Antigravity get the skill.
+          Claude Code gets both in the Codealong plugin, with hooks that let you answer its permission prompts and questions from Codealong. Codex, OpenCode, Antigravity and Cursor get the skill.
         </p>
       </div>
       <div className="ca-settings-cards">

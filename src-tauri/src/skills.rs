@@ -431,7 +431,8 @@ mod tests {
         let dir = scratch("skills-worktree");
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         // Claude Code's own, one both read through a link, one only Codex reads, a command, and
-        // one in a folder above the one asked about.
+        // one in a folder above the one asked about. Cursor reads all those folders but the
+        // commands', and one of its own.
         write(&dir.join(".claude/skills/ship/SKILL.md"), "---\nname: ship\ndescription: Ships\nargument-hint: \"[branch]\"\n---\n");
         write(&dir.join(".claude/skills/conventions/SKILL.md"), "---\nname: conventions\ndescription: House rules\nuser-invocable: false\n---\n");
         write(&dir.join(".claude/commands/git/review.md"), "Review the diff\n");
@@ -439,6 +440,7 @@ mod tests {
         std::fs::create_dir_all(dir.join(".agents")).unwrap();
         std::os::unix::fs::symlink("../.claude/skills", dir.join(".agents/skills")).unwrap();
         write(&dir.join("app/.claude/skills/local/SKILL.md"), "---\ndescription: Only here\n---\n");
+        write(&dir.join(".cursor/skills/tidy/SKILL.md"), "---\nname: tidy\ndescription: Tidies\n---\n");
 
         let cfg = Config::default();
         let app = dir.join("app").to_string_lossy().into_owned();
@@ -450,11 +452,12 @@ mod tests {
             said,
             vec![
                 ("git:review".to_string(), vec![pair("claude", "/git:review")]),
-                ("local".to_string(), vec![pair("claude", "/local")]),
-                ("probe".to_string(), vec![pair("codex", "$probe")]),
-                ("ship".to_string(), vec![pair("claude", "/ship"), pair("codex", "$ship")]),
+                ("local".to_string(), vec![pair("claude", "/local"), pair("cursor", "/local")]),
+                ("probe".to_string(), vec![pair("codex", "$probe"), pair("cursor", "/probe")]),
+                ("ship".to_string(), vec![pair("claude", "/ship"), pair("codex", "$ship"), pair("cursor", "/ship")]),
+                ("tidy".to_string(), vec![pair("cursor", "/tidy")]),
                 // Kept off the menu by its file: last.
-                ("conventions".to_string(), vec![pair("claude", "/conventions"), pair("codex", "$conventions")]),
+                ("conventions".to_string(), vec![pair("claude", "/conventions"), pair("codex", "$conventions"), pair("cursor", "/conventions")]),
             ]
         );
         let ship = listed.folders[0].skills.iter().find(|s| s.name == "ship").unwrap();

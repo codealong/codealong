@@ -12,13 +12,13 @@ paths:
 # Skills
 
 Where each harness reads skills (one folder in the Agent Skills layout, `SKILL.md` with `name`
-and `description`, optional `references/`, read by all four harnesses), how a prompt runs one
+and `description`, optional `references/`, read by all five harnesses), how a prompt runs one
 by name, and how `claude plugin` installs Codealong's plugin, moved from CLAUDE.md's Harness
 facts (from the harnesses' docs, 2026-09-24, and their code and runs on this Mac). Paths are
 under `src-tauri/src/` unless they start with `plugin/`.
 
 - Each harness's personal skills folder: its adapter's `skills_dir` (`claude/mod.rs`,
-  `codex/mod.rs`, `opencode.rs`, `antigravity.rs`). Why the skill is copied rather than linked:
+  `codex/mod.rs`, `opencode.rs`, `antigravity.rs`, `cursor.rs`). Why the skill is copied rather than linked:
   `install.rs` (header).
 - Where Claude Code finds the skills and commands a prompt can run by name (`/name args`, as a
   first prompt too), and how often each ran: `claude/skills.rs` (header, `plugin_roots`,
@@ -49,6 +49,27 @@ under `src-tauri/src/` unless they start with `plugin/`.
   {id}`, never by text, so Codealong offers none there yet.
 - Antigravity reads `.agents/skills` and `~/.gemini/config/skills` and has `/skills` in its TUI;
   nothing found runs one by name.
+- Where Cursor finds skills (the app 3.22.7's `cursor-agent-exec` extension and the command line
+  2026.08.11's bundle) and `/name` in a prompt: `cursor.rs` (`SKILL_FOLDERS`, `OWN_SKILLS`,
+  `skill_mention`). Not there: both read only the workspace's root and your home, not the
+  folders between (the app also finds `.cursor/skills` and the others nested anywhere under the
+  root, ten folders down, skipping hidden ones, `node_modules`, `dist` and `build`), and follow
+  links. A skill is keyed by its path with the `.cursor/`, `.claude/`, `.codex/`, `.grok/` or
+  `.agents/` part taken out, so `~/.cursor/skills/codealong` and `~/.codex/skills/codealong` are
+  one skill, the first folder's. The app's third-party setting is `thirdPartyExtensibilityEnabled`
+  in the ItemTable's `applicationUser` (true when absent); with it off it reads only `.cursor` and
+  `.agents`. It leaves out Codex's own skills (`imagegen`, `openai-docs`, `plugin-creator`,
+  `skill-creator`, `skill-installer`) wherever they are under `.codex/skills`, and loads Claude
+  Code's enabled plugins (`~/.claude/plugins/installed_plugins.json`) with their skills. The
+  command line names a skill by its folder, not its `name` (two folders of one name get `-2` or
+  their path), skips one `user-invocable: false` or whose `metadata.surfaces` doesn't list `cli`,
+  and runs `.claude/commands` and `.cursor/commands` files (top level only) as `/name args` too.
+  Checked with `-p` and with its terminal UI's first prompt in tmux (2026-10-15): a `/name` from
+  `.cursor/skills` and from a repo's `.claude/skills` ran a skill kept from the model
+  (`disable-model-invocation: true`); in the terminal UI the agent found it itself ("Used
+  pineapple-probe") rather than having it attached, likely because its list of skills, read in
+  the background, wasn't in yet as the first prompt went. The app's box makes a skill of a `/name` picked from its menu (a `cursor_skill`
+  mention); a `/name` in pasted text was not tried.
 - A Claude Code plugin's `bin/` on the Bash tool's PATH: `plugin/bin/codealong` (header).
   `${CLAUDE_PLUGIN_ROOT}` resolves in hooks.
 - `claude plugin`, as `install.rs` runs it for an account (`CLAUDE_CONFIG_DIR` choosing it):

@@ -361,7 +361,8 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'plugin:event|listen') return Promise.resolve(window.__calls.length);
     // Settings › Agents: Claude Code accounts with the plugin installed, installed from the repo's
     // marketplace beside an old skill copy, behind, and not installed beside an edited copy; a
-    // Codex account without the skill, and one with no skills folder known.
+    // Codex account without the skill, a Cursor account with it, and one with no skills folder
+    // known.
     if (cmd === 'agents_status' || cmd === 'install_agents') {
       var plugin = function (version, from) { return { version: version, disabled: false, from: from || null }; };
       return Promise.resolve({
@@ -374,6 +375,7 @@ window.__TAURI_INTERNALS__ = {
           { name: 'claude3', harness: 'claude', path: '/Users/you/.claude3/skills/codealong', installed: false, current: false, edited: false, plugin: plugin('0.2.0+0f9e8d7c') },
           { name: 'claude-work', harness: 'claude', path: '/Users/you/.claude-work/skills/codealong', installed: true, current: false, edited: true, plugin: plugin(null) },
           { name: 'codex', harness: 'codex', path: '/Users/you/.codex/skills/codealong', installed: false, current: false, edited: false, plugin: null },
+          { name: 'cursor', harness: 'cursor', path: '/Users/you/.cursor/skills/codealong', installed: true, current: true, edited: false, plugin: null },
           { name: 'antigravity', harness: 'antigravity', path: null, installed: false, current: false, edited: false, plugin: null },
         ],
         errors: cmd === 'install_agents' && (args || {}).accounts && args.accounts.indexOf('codex') >= 0 ? ['codex: /Users/you/.codex/skills/codealong exists and Codealong didn\'t put it there; move it away to install the skill.'] : [],

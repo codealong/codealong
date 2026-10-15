@@ -1353,7 +1353,7 @@ with a picture of the phone's screen, kept on the Mac the session starts on.
 Type `/` and the start of a name at the start of what you write: only a skill that starts it is
 run, as Claude Code runs one, so a `/name` later on ("the /usage endpoint") is words. In the quick
 panel that lists the skills of the project's repos (their `.claude/skills`, `.claude/commands`,
-`.agents/skills` and `.codex/skills`) and your accounts' own, the most run first; ⏎ or ⇥ finishes
+`.agents/skills`, `.codex/skills` and `.cursor/skills`) and your accounts' own, the most run first; ⏎ or ⇥ finishes
 the name. A repo's skill picks where the session starts, its repo, in a worktree chosen as new
 work's is, with the rest of the line as its prompt, and the skill is written for the agent. A skill several
 repos have is a row for each. Only accounts whose agent reads that skill's folder are offered, and
@@ -1361,10 +1361,13 @@ the start row says which are left out. An account's own skill is one row, which 
 that have it; the session starts where the panel is set to, on one of them. In a session's reply box
 the list has Codealong's own commands, then the skills of the session's worktree and of its
 account: ↑ ↓ choose, ⇥ finishes the name, Escape puts the list away. The name goes as the agent
-takes it: `/name` to Claude Code, `$name` to Codex.
+takes it: `/name` to Claude Code and Cursor, `$name` to Codex. Cursor reads its own skills folders
+and Claude Code's, Codex's and the shared `.agents/skills`, so their skills are offered on it too;
+its command line runs only names of letters, digits, `-` and `_` this way. A Cursor app chat gets
+the prompt on the clipboard, to paste into Cursor.
 
-An account's own skills are its personal ones, its plugins' and the ones claude.ai syncs into it,
-and for Claude Code also the skills Claude Code has built in: `/design` and `/slides` where the
+An account's own skills are its personal ones, its plugins' and the ones claude.ai syncs into it
+(for Cursor, the ones it ships too), and for Claude Code also the skills Claude Code has built in: `/design` and `/slides` where the
 account may use them, `/loop`, `/code-review`, `/verify`. Its commands, such as `/compact` and
 `/model`, aren't skills and aren't listed. Codealong asks each account's Claude Code for those as
 it starts, which spends no usage, and again every hour. OpenCode
@@ -2088,7 +2091,8 @@ files (sessions then show without git or PRs). Output is JSON when piped, tables
 Settings › Agents installs the command (a symlink on PATH), the Codealong plugin in every Claude
 Code account (the skill, the command for its Bash tool, and the hooks that let you answer its
 permission prompts and questions from Codealong), and the skill in every other account's skills
-folder (`~/.codex/skills`, `~/.config/opencode/skills`, `~/.gemini/config/skills`), and keeps them
+folder (`~/.codex/skills`, `~/.config/opencode/skills`, `~/.gemini/config/skills`,
+`~/.cursor/skills`), and keeps them
 current; `codealong install` does the same from a terminal. Settings › Agents is where each
 account's plugin or skill shows. `codealong` alone opens the app as the Dock does: macOS opens a
 new copy, which takes over from the one running, with the environment it gives an app rather than

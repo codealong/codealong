@@ -141,6 +141,8 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   `Notification` or `PermissionRequest`), with Cursor's payload; its own are in
   `~/.cursor/hooks.json`, every payload with `conversation_id` (the composer id) and
   `transcript_path`.
+- Skills, which both read from `~/.cursor/skills`, the shared `.agents/skills` and Claude Code's
+  and Codex's folders, and which the command line runs from a prompt's `/name`: `skills.md`.
 - Models the app offers: ItemTable
   `src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser`
   → `availableDefaultModels2` (half a megabyte: read with `json_extract`), each with `name`, its
