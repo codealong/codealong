@@ -137,7 +137,8 @@ const PIXELS_MIN: u64 = 78_400;
 /// (measured on 1.14), so this is about 8,000 tokens; a quick panel's request is near 36,000 of
 /// the 64,000 one may have without them.
 const PIXELS_PER_REQUEST: u64 = 3_000_000;
-/// Images sent with one request at most, the first ones the text has.
+/// Images sent with one request at most, the first ones the text has. The same image twice is
+/// two: each place a key is goes to Jev as another copy.
 const MAX_IMAGES: usize = 4;
 /// The most a body with images may be: curl takes it on one line of its config, which can't be
 /// over 10 MiB (curl 8.7).
@@ -149,16 +150,19 @@ const MAX_BODY: usize = 8 * 1024 * 1024;
 #[derive(Debug, Default)]
 pub struct Images {
     names: Vec<String>,
+    /// The keys written, a name written twice counted twice.
+    keys: usize,
 }
 
 impl Images {
     /// The text with each image in it as its key; one past `MAX_IMAGES` leaves nothing.
     pub fn swap(&mut self, text: &str) -> String {
         crate::attachments::swap_images(text, |name| {
+            if self.keys >= MAX_IMAGES {
+                return String::new();
+            }
+            self.keys += 1;
             if !self.names.iter().any(|n| n == name) {
-                if self.names.len() >= MAX_IMAGES {
-                    return String::new();
-                }
                 self.names.push(name.to_string());
             }
             image_key(name)
@@ -179,7 +183,7 @@ impl Images {
             return;
         }
         let said = body.to_string();
-        let pixels = PIXELS_PER_REQUEST / self.names.len() as u64;
+        let pixels = PIXELS_PER_REQUEST / self.keys as u64;
         let mut assets = Map::new();
         let mut gone = Vec::new();
         for name in &self.names {
@@ -274,37 +278,101 @@ fn ready(path: &Path, pixels: u64) -> Option<Value> {
     Some(asset)
 }
 
-/// An image as an asset Jev takes: PNG or JPEG, sized by `fit`. One that fits already goes as it
-/// is; any other is made so by `sips`, a JPEG staying JPEG and the rest (GIF and WebP, which Jev
-/// doesn't take, too) becoming PNG, padded with white.
+/// An image as an asset Jev takes: PNG or JPEG, upright, sized by `fit`. One that's all of
+/// those already goes as it is; any other is made so by `sips`, a JPEG staying JPEG and the rest
+/// (GIF and WebP, which Jev doesn't take, too) becoming PNG, padded with white.
 fn make_ready(path: &Path, pixels: u64) -> Option<Value> {
-    const SIPS: &str = "/usr/bin/sips";
-    let file = path.to_str()?;
     let ext = path.extension()?.to_str()?;
     let format = if ext == "jpg" { "jpeg" } else { "png" };
-    let size = crate::procs::run(SIPS, &["-g", "pixelWidth", "-g", "pixelHeight", file], None, Duration::from_secs(10)).ok()?;
-    let side = |name: &str| size.lines().find_map(|l| l.trim().strip_prefix(name)?.trim().parse::<u32>().ok());
-    let (w, h) = (side("pixelWidth:")?, side("pixelHeight:")?);
+    let bytes = std::fs::read(path).ok()?;
+    let (w, h) = sips_size(path)?;
+    // Jev doesn't turn a photo the way its EXIF says, as a window shows it: the pixels are turned.
+    let orientation = if ext == "jpg" { exif_orientation(&bytes).unwrap_or(1) } else { 1 };
+    let (w, h) = if orientation >= 5 { (h, w) } else { (w, h) };
     let (picture, image) = fit(w, h, pixels)?;
-    let bytes = if ["png", "jpg"].contains(&ext) && picture == (w, h) && image == (w, h) {
-        std::fs::read(path).ok()?
+    let bytes = if ["png", "jpg"].contains(&ext) && orientation == 1 && picture == (w, h) && image == (w, h) {
+        bytes
     } else {
-        static MADE: AtomicU64 = AtomicU64::new(0);
-        let out = std::env::temp_dir().join(format!("codealong-jev-{}-{}.{format}", std::process::id(), MADE.fetch_add(1, Ordering::Relaxed)));
         let (pw, ph, iw, ih) = (picture.0.to_string(), picture.1.to_string(), image.0.to_string(), image.1.to_string());
-        let mut args = vec!["-s", "format", format];
+        let mut resize = vec!["-s", "format", format];
         if picture != (w, h) {
-            args.extend(["-z", ph.as_str(), pw.as_str()]);
+            resize.extend(["-z", ph.as_str(), pw.as_str()]);
         }
         if image != picture {
-            args.extend(["-p", ih.as_str(), iw.as_str(), "--padColor", "FFFFFF"]);
+            resize.extend(["-p", ih.as_str(), iw.as_str(), "--padColor", "FFFFFF"]);
         }
-        args.extend([file, "--out", out.to_str()?]);
-        let made = crate::procs::run(SIPS, &args, None, Duration::from_secs(20)).ok().and_then(|_| std::fs::read(&out).ok());
-        let _ = std::fs::remove_file(&out);
-        made?
+        // Each step its own run: in one, sips orders a turn and a flip its own way (`-r 90 -f
+        // horizontal` flips first), and a turn and a resize too.
+        let steps: Vec<&[&str]> = upright_steps(orientation).iter().copied().chain([resize.as_slice()]).collect();
+        let mut from = path.to_path_buf();
+        let mut made = Vec::new();
+        for step in steps {
+            let out = scratch(format);
+            let ok = crate::procs::run("/usr/bin/sips", &[step, &[from.to_str()?, "--out", out.to_str()?]].concat(), None, Duration::from_secs(20)).is_ok();
+            made.push(out.clone());
+            if !ok {
+                break;
+            }
+            from = out;
+        }
+        let read = (made.last() == Some(&from)).then(|| std::fs::read(&from).ok()).flatten();
+        for f in made {
+            let _ = std::fs::remove_file(f);
+        }
+        read?
     };
     Some(json!({ "type": "image", "format": if format == "jpeg" { "jpg" } else { "png" }, "data_base64": data_encoding::BASE64.encode(&bytes) }))
+}
+
+/// An image's width and height in pixels, as stored.
+fn sips_size(path: &Path) -> Option<(u32, u32)> {
+    let size = crate::procs::run("/usr/bin/sips", &["-g", "pixelWidth", "-g", "pixelHeight", path.to_str()?], None, Duration::from_secs(10)).ok()?;
+    let side = |name: &str| size.lines().find_map(|l| l.trim().strip_prefix(name)?.trim().parse::<u32>().ok());
+    Some((side("pixelWidth:")?, side("pixelHeight:")?))
+}
+
+/// A file of the engine's own for a step of `make_ready`.
+fn scratch(format: &str) -> std::path::PathBuf {
+    static MADE: AtomicU64 = AtomicU64::new(0);
+    std::env::temp_dir().join(format!("codealong-jev-{}-{}.{format}", std::process::id(), MADE.fetch_add(1, Ordering::Relaxed)))
+}
+
+/// What turns a photo upright by its EXIF orientation, 1 to 8, as `sips` steps: a turn
+/// clockwise, then a flip for the mirrored ones (sips reads no orientation, nor applies one).
+fn upright_steps(orientation: u16) -> &'static [&'static [&'static str]] {
+    match orientation {
+        2 => &[&["-f", "horizontal"]],
+        3 => &[&["-r", "180"]],
+        4 => &[&["-f", "vertical"]],
+        5 => &[&["-r", "90"], &["-f", "horizontal"]],
+        6 => &[&["-r", "90"]],
+        7 => &[&["-r", "270"], &["-f", "horizontal"]],
+        8 => &[&["-r", "270"]],
+        _ => &[],
+    }
+}
+
+/// A JPEG's EXIF orientation (tag 0x0112 of its first image), from its APP1 segment.
+fn exif_orientation(jpeg: &[u8]) -> Option<u16> {
+    if !jpeg.starts_with(&[0xff, 0xd8]) {
+        return None;
+    }
+    let mut at = 2;
+    // Segments up to the image data, each a marker and a length that counts itself.
+    while at + 4 <= jpeg.len() && jpeg[at] == 0xff && jpeg[at + 1] != 0xda {
+        let len = u16::from_be_bytes([jpeg[at + 2], jpeg[at + 3]]) as usize;
+        let segment = jpeg.get(at + 4..at + 2 + len)?;
+        if jpeg[at + 1] == 0xe1 && segment.starts_with(b"Exif\0\0") {
+            let tiff = &segment[6..];
+            let big = tiff.starts_with(b"MM");
+            let u16_at = |i: usize| tiff.get(i..i + 2).map(|b| if big { u16::from_be_bytes([b[0], b[1]]) } else { u16::from_le_bytes([b[0], b[1]]) });
+            let u32_at = |i: usize| tiff.get(i..i + 4).map(|b| if big { u32::from_be_bytes([b[0], b[1], b[2], b[3]]) } else { u32::from_le_bytes([b[0], b[1], b[2], b[3]]) });
+            let ifd = u32_at(4)? as usize;
+            return (0..u16_at(ifd)? as usize).map(|i| ifd + 2 + i * 12).find(|&e| u16_at(e) == Some(0x0112)).and_then(|e| u16_at(e + 8));
+        }
+        at += 2 + len;
+    }
+    None
 }
 
 /* ---- In the background ---- */
@@ -582,11 +650,70 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A JPEG's first bytes with an EXIF orientation, in either byte order, and the rest of `jpeg`.
+    fn oriented(jpeg: &[u8], orientation: u16, big: bool) -> Vec<u8> {
+        let (u16b, u32b) = (|v: u16, big: bool| if big { v.to_be_bytes() } else { v.to_le_bytes() }, |v: u32, big: bool| if big { v.to_be_bytes() } else { v.to_le_bytes() });
+        let mut tiff: Vec<u8> = if big { b"MM".to_vec() } else { b"II".to_vec() };
+        tiff.extend(u16b(42, big));
+        tiff.extend(u32b(8, big));
+        tiff.extend(u16b(2, big));
+        // Another tag first (ImageWidth), then Orientation, a SHORT whose value fills the slot's start.
+        for (tag, value) in [(0x0100u16, 640u16), (0x0112, orientation)] {
+            tiff.extend(u16b(tag, big));
+            tiff.extend(u16b(3, big));
+            tiff.extend(u32b(1, big));
+            tiff.extend(u16b(value, big));
+            tiff.extend([0, 0]);
+        }
+        tiff.extend(u32b(0, big));
+        let payload = [b"Exif\0\0".as_slice(), &tiff].concat();
+        let mut out = vec![0xff, 0xd8, 0xff, 0xe1];
+        out.extend(((payload.len() + 2) as u16).to_be_bytes());
+        out.extend(payload);
+        out.extend(&jpeg[2..]);
+        out
+    }
+
+    #[test]
+    fn reads_a_photos_exif_orientation() {
+        let plain = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46, 0xff, 0xda, 0x00, 0x02];
+        assert_eq!(exif_orientation(&oriented(&plain, 6, true)), Some(6));
+        assert_eq!(exif_orientation(&oriented(&plain, 8, false)), Some(8));
+        assert_eq!(exif_orientation(&plain), None);
+        assert_eq!(exif_orientation(b"\x89PNG"), None);
+        assert_eq!(exif_orientation(&[0xff, 0xd8, 0xff, 0xe1, 0x40, 0x00]), None, "a segment longer than the file");
+    }
+
+    #[test]
+    fn a_photo_on_its_side_is_turned_upright() {
+        let dir = crate::store::test_dir("jev-orientation");
+        let png = dir.join("one.png");
+        std::fs::write(&png, data_encoding::BASE64.decode(b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==").unwrap()).unwrap();
+        // Stored 300 wide and 500 high; orientation 6 shows it 500 wide.
+        let stored = dir.join("0123456789abcdef.jpg");
+        crate::procs::run("/usr/bin/sips", &["-z", "500", "300", "-s", "format", "jpeg", png.to_str().unwrap(), "--out", stored.to_str().unwrap()], None, Duration::from_secs(20)).unwrap();
+        let size_of = |asset: &Value, name: &str| {
+            let at = dir.join(name);
+            std::fs::write(&at, data_encoding::BASE64.decode(asset["data_base64"].as_str().unwrap().as_bytes()).unwrap()).unwrap();
+            (asset["format"].clone(), sips_size(&at))
+        };
+        let upright = make_ready(&stored, PIXELS_PER_REQUEST).unwrap();
+        assert_eq!(size_of(&upright, "plain.jpg"), (json!("jpg"), Some((300, 500))), "one with no orientation goes as it is");
+        std::fs::write(&stored, oriented(&std::fs::read(&stored).unwrap(), 6, true)).unwrap();
+        let turned = make_ready(&stored, PIXELS_PER_REQUEST).unwrap();
+        assert_eq!(size_of(&turned, "turned.jpg"), (json!("jpg"), Some((500, 300))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_request_asked_again_without_images_names_none() {
         let mut images = Images::default();
         let text = (0..6).map(|i| format!("![image](images/{i:016x}.png)")).collect::<Vec<_>>().join(" ");
         assert_eq!(images.swap(&text).split_whitespace().count(), MAX_IMAGES);
+        // Each place an image is goes as a copy, so the same one again counts again.
+        let mut images = Images::default();
+        assert_eq!(images.swap(&["![image](images/0123456789abcdef.png)"; 6].join(" ")).split_whitespace().count(), MAX_IMAGES);
+        assert_eq!((images.names.len(), images.keys), (1, MAX_IMAGES));
         let (_, mut b) = with_image("Fix ![image](images/0123456789abcdef.png) now");
         b["assets"] = json!({ "image-0123456789abcdef": { "type": "image", "format": "png", "data_base64": "AAAA" } });
         let plain = without_images(&b);

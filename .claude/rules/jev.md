@@ -30,7 +30,11 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   ("Images are experimental…" 400 without). An asset no text names, a side under 256 or over 1568
   pixels, or fewer than 78,400 pixels is a 400 ("Invalid image request.", "Invalid image
   dimensions.") for the whole request; 413 for size. PNG or JPEG, no animation, EXIF orientation
-  not applied. An image cost about a token per 370 pixels on 1.14 (1568 × 958: 3,934 tokens;
+  not applied, and `sips` neither reports nor applies it either, so Codealong reads it from the
+  JPEG and turns the pixels (`exif_orientation`, `upright_steps`, each of the eight checked by
+  corner colors). In one run sips orders a turn and a flip against the command line (`-r 90 -f
+  horizontal` flips first) and resamples before it turns, so each turn is a run of its own;
+  `-z` then `-p` in one run scales, then pads around the middle. An image cost about a token per 370 pixels on 1.14 (1568 × 958: 3,934 tokens;
   784 × 479: 1,022; 280 × 280: 214). A quick panel request was about 36,000 tokens before images.
 - curl takes the body on one line of its config (`-K -`), which curl 8.7 caps at 10 MiB
   (10,485,760 bytes: longer fails as "error encountered when reading a file").
