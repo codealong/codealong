@@ -205,7 +205,8 @@ fi
 scripts/catch-up-main.sh
 if [ -z "$took" ]; then
   running_now="nothing"
-  [ -z "$holder" ] || running_now="pid $holder ($(ps -o command= -p "$holder" 2>/dev/null | cut -c1-120))"
+  # It may have gone since; the line is printed all the same.
+  [ -z "$holder" ] || running_now="pid $holder ($(ps -o command= -p "$holder" 2>/dev/null | cut -c1-120 || true))"
   echo "Not relaunched: Codealong Dev from $(git rev-parse --short HEAD) was opened, but after waiting for it $running_now answered as Codealong. lsappinfo list shows what macOS has open."
   exit 1
 fi
