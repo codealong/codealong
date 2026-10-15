@@ -65,7 +65,9 @@ pub struct TranscriptInfo {
     pub last_ts: i64,
     /// The tool call waiting on a result, e.g. "Bash · `yarn test`".
     pub pending_tool: Option<String>,
-    /// The latest tool call as an activity, e.g. "editing `App.tsx`".
+    /// The latest tool call as an activity, e.g. "editing `App.tsx`", since the latest prompt
+    /// you typed: one from before that is the last turn's, long finished. A message sent while
+    /// it worked goes into the turn it's taking, whose calls it leaves.
     pub last_tool: Option<String>,
     /// First line of the latest assistant text.
     pub last_text: Option<String>,
@@ -460,6 +462,12 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 if you_typed(&v) {
                     info.limit = None;
                     info.connection_lost = None;
+                    info.last_tool = None;
+                    // Its `last-prompt` line often comes only after the reply has begun (in 104 of
+                    // 191 prompts here, 2026-10-15), so the prompt itself says what it's on now.
+                    if let Some(p) = typed_text(&v) {
+                        info.last_prompt = Some(one_line(&p, 140));
+                    }
                     if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
                         info.last_prompt_at = Some(ts);
                     }
@@ -1104,6 +1112,24 @@ mod tests {
         // One it only went into stays where it is when the session exits.
         assert_eq!(parse_lines(HEAD, &[made, entered].join("\n")).own_worktree, None);
         assert_eq!(parse_lines(HEAD, "").own_worktree, None);
+    }
+
+    #[test]
+    fn a_prompt_leaves_the_last_turns_calls_behind() {
+        // As 2.1.300 wrote one: the prompt, then the reply, and its `last-prompt` line after.
+        let before = r#"{"type":"last-prompt","lastPrompt":"start the eval"}
+{"type":"assistant","timestamp":"2026-10-15T20:18:36.000Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cat /tmp/tasks/b.output"}}]}}
+{"type":"user","timestamp":"2026-10-15T20:18:36.400Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+"#;
+        let asked = format!("{before}{}\n", r#"{"type":"user","timestamp":"2026-10-15T20:47:20.000Z","origin":{"kind":"human"},"message":{"content":"how is this going?"}}"#);
+        let info = parse_lines(HEAD, &asked);
+        assert_eq!((info.last_tool, info.last_prompt.as_deref()), (None, Some("how is this going?")));
+        let replying = format!("{asked}{}\n", r#"{"type":"assistant","timestamp":"2026-10-15T20:57:05.000Z","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"date -u"}}]}}"#);
+        assert_eq!(parse_lines(HEAD, &replying).last_tool.as_deref(), Some("running `date -u`"));
+        // A message sent while it worked goes into the same turn, which is still on its call.
+        let sent = format!("{before}{}\n", r#"{"type":"attachment","timestamp":"2026-10-15T20:19:00.000Z","attachment":{"type":"queued_command","prompt":"and the score?","origin":{"kind":"human"}}}"#);
+        let info = parse_lines(HEAD, &sent);
+        assert_eq!((info.last_tool.as_deref(), info.last_prompt.as_deref()), (Some("running `cat /tmp/tasks/b.output`"), Some("start the eval")));
     }
 
     #[test]

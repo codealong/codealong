@@ -38,7 +38,10 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
 - Which `user` lines are prompts you typed (`origin: {kind: "human"}`, not `task-notification`,
   `peer` or `isCompactSummary`; older transcripts have no `origin`), and a prompt far behind the
   256 KB tail: `claude/transcript.rs` (`you_typed`, `user_prompt`, `parse_transcript`).
-  `last-prompt` lines repeat the prompt's text but carry no time. A message sent while a session
+  `last-prompt` lines repeat the prompt's text but carry no time. In 150 transcripts here
+  (2026-10-15) they often came only after the reply had begun, named none of 17 messages sent
+  while a session worked, and sometimes went on naming an earlier prompt after a new one (most
+  often after `continue`), so a prompt's own line says what a new turn is on. A message sent while a session
   is busy doesn't change the registry's `statusUpdatedAt`, nor is it a `user` line: it's written
   when the turn takes it in, as a `type: "attachment"` line whose `attachment` is `{type:
   "queued_command", prompt}` (background tasks' notifications come the same way, as

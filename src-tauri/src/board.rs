@@ -325,9 +325,12 @@ pub fn claude_session(
             Some(cmd) => format!("Waiting on {}", code(&truncate(&one_line(cmd, 200), 80))),
             None => "Waiting on a command in the background".to_string(),
         }),
-        Status::Working => tr.and_then(|t| t.last_tool.clone()),
+        // Its latest call, else the prompt it took and hasn't made one for yet: waiting on the
+        // model, which said "running" the last turn's finished command for as long as the API
+        // took to answer (2026-10-15).
+        Status::Working => tr.and_then(|t| t.last_tool.clone().or_else(|| t.last_prompt.clone())),
         // Where it was when it stopped.
-        _ if cut_off.is_some() => tr.and_then(|t| t.last_tool.clone().or_else(|| t.last_text.clone())),
+        _ if cut_off.is_some() => tr.and_then(|t| t.last_tool.clone().or_else(|| t.last_prompt.clone())),
         _ => tr.and_then(|t| t.last_text.clone().or_else(|| t.last_prompt.clone())),
     };
     let attach_command = reg
@@ -3425,6 +3428,10 @@ mod tests {
         assert_eq!(needs.excerpt.as_deref(), Some("Bash · `yarn mikro-orm migration:up`"));
         let working = claude_session(&a, Some(&reg("busy", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         assert_eq!(working.excerpt.as_deref(), Some("running `yarn test`"));
+        // Waiting on the model's answer to a prompt it has made no call for yet: what it's on.
+        let asked = TranscriptInfo { last_tool: None, last_prompt: Some("how is this going?".into()), ..tr() };
+        let waiting = claude_session(&a, Some(&reg("busy", NOW)), Some(&asked), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!(waiting.excerpt.as_deref(), Some("how is this going?"));
     }
 
     #[test]
