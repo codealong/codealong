@@ -1499,15 +1499,18 @@ mod tests {
     #[test]
     fn its_model_is_the_one_picked_else_its_latest_replys_with_that_replys_variant() {
         let models = |db: &Connection| read_sessions_from(db, 0, &HashSet::new()).unwrap().into_iter().map(|r| (r.id, (r.model, r.effort))).collect::<HashMap<_, _>>();
-        let replies = "INSERT INTO session_v2 (id, directory, time_created, time_updated) VALUES ('ses_a', '/r', 1, 1), ('ses_b', '/r', 1, 1), ('ses_c', '/r', 1, 1);\
+        // Three sessions whose latest reply was at a variant, and one at none.
+        let high = r#"'{"model":{"id":"gpt-6","providerID":"openai","variant":"high"}}'"#;
+        let replies = format!(
+            "INSERT INTO session_v2 (id, directory, time_created, time_updated) VALUES ('ses_a', '/r', 1, 1), ('ses_b', '/r', 1, 1), ('ses_c', '/r', 1, 1), ('ses_d', '/r', 1, 1);\
              INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES \
-             ('m1', 'ses_a', 'assistant', 1, 2, 2, '{\"model\":{\"id\":\"gpt-6\",\"providerID\":\"openai\",\"variant\":\"high\"}}'), \
-             ('m2', 'ses_b', 'assistant', 1, 2, 2, '{\"model\":{\"id\":\"gpt-6\",\"providerID\":\"openai\",\"variant\":\"high\"}}'), \
-             ('m3', 'ses_c', 'assistant', 1, 2, 2, '{\"model\":{\"id\":\"big-pickle\",\"providerID\":\"opencode\",\"variant\":\"default\"}}');";
+             ('m1', 'ses_a', 'assistant', 1, 2, 2, {high}), ('m2', 'ses_b', 'assistant', 1, 2, 2, {high}), ('m3', 'ses_c', 'assistant', 1, 2, 2, {high}), \
+             ('m4', 'ses_d', 'assistant', 1, 2, 2, '{{\"model\":{{\"id\":\"big-pickle\",\"providerID\":\"opencode\",\"variant\":\"default\"}}}}');"
+        );
         let pair = |m: &str, e: Option<&str>| (Some(m.to_string()), e.map(str::to_string));
         // A database from before the column goes by the replies; `default` is no variant picked.
-        let got = models(&db_with(replies));
-        assert_eq!((&got["ses_a"], &got["ses_c"]), (&pair("gpt-6", Some("high")), &pair("big-pickle", None)));
+        let got = models(&db_with(&replies));
+        assert_eq!((&got["ses_a"], &got["ses_d"]), (&pair("gpt-6", Some("high")), &pair("big-pickle", None)));
         let picked = |a: &str, b: &str, c: &str| {
             models(&db_with(&format!(
                 "ALTER TABLE session_v2 ADD COLUMN model TEXT; {replies} \
@@ -1521,7 +1524,7 @@ mod tests {
         assert_eq!((&got["ses_a"], &got["ses_b"], &got["ses_c"]), (&pair("gpt-6", Some("high")), &pair("claude-opus-5-5", None), &pair("gpt-6", None)));
         // A variant picked with the model is its effort, `default` none, whatever the reply was at.
         let got = picked(r#"{"id":"gpt-6","providerID":"openai","variant":"default"}"#, r#"{"id":"claude-opus-5-5","providerID":"anthropic","variant":"max"}"#, "not json");
-        assert_eq!((&got["ses_a"], &got["ses_b"], &got["ses_c"]), (&pair("gpt-6", None), &pair("claude-opus-5-5", Some("max")), &pair("big-pickle", None)));
+        assert_eq!((&got["ses_a"], &got["ses_b"], &got["ses_c"]), (&pair("gpt-6", None), &pair("claude-opus-5-5", Some("max")), &pair("gpt-6", Some("high"))));
     }
 
     #[test]
