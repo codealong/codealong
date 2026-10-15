@@ -83,6 +83,17 @@
   background: var(--surface-hover);
   border-color: var(--line-strong);
 }
+/* A chip dragged to another place (UsageBar.tsx `useSort`) follows the pointer over the others,
+   which slide aside to make way for it. */
+.ca-usagebar-accts.is-sorting .ca-uchip {
+  transition: transform var(--dur-base) ease-out, background var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out;
+}
+.ca-usagebar-accts.is-sorting .ca-uchip.is-lifted {
+  position: relative;
+  z-index: var(--z-dragged-chip);
+  box-shadow: var(--shadow-hud);
+  transition: none;
+}
 .ca-uchip:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);

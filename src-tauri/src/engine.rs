@@ -1896,8 +1896,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     /// Everything that depends on config.toml, read again. When nothing but the theme, the
-    /// shortcuts or an account's star changed, a new board is enough: reading everything again also asks for Claude usage, and the usage
-    /// endpoint turns away calls that come often.
+    /// shortcuts or the accounts' order changed, a new board is enough: reading everything again
+    /// also asks for Claude usage, and the usage endpoint turns away calls that come often.
     fn reload(&mut self) {
         let before = self.cfg.clone();
         self.load_config();
@@ -1908,6 +1908,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         rest.appearance = before.appearance.clone();
         rest.shortcuts = before.shortcuts.clone();
         rest.debug = before.debug.clone();
+        // Accounts put in another order (the usage bar's chips, dragged) are the same accounts:
+        // the board lists them in the new order, and nothing needs reading again.
+        if config::same_accounts(&rest.accounts, &before.accounts) {
+            rest.accounts = before.accounts.clone();
+        }
         // The apps are read as the board is composed; nothing to rescan for them either, nor for
         // which PRs nudge by default.
         rest.apps = before.apps.clone();

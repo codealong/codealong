@@ -1337,6 +1337,86 @@ pub fn with_start(text: &str, names: &[String], place: &str) -> Result<String> {
     Ok(doc.to_string())
 }
 
+/// Puts the named `[[accounts]]` tables in config.toml in the order given, each as written: the
+/// usage bar's chips dragged into another order. The usage bar and Settings list the accounts in
+/// that order, and a tie between accounts goes to the one listed first (`start::auto_pick`).
+pub fn save_account_order(names: &[String]) -> Result<()> {
+    update(|text| Ok((with_account_order(text, names)?, ())))
+}
+
+/// The same accounts, set the same way, whatever their order.
+pub fn same_accounts(a: &[AccountCfg], b: &[AccountCfg]) -> bool {
+    a.len() == b.len() && a.iter().all(|x| b.contains(x))
+}
+
+/// `text` with the named `[[accounts]]` tables in the order given, in the places they held among
+/// themselves; the ones not named (an account turned off, which the usage bar leaves out) stay
+/// where they are. Each table keeps what it has as written, and a comment right above it goes with
+/// it; one with a blank line under it, as the one above the first table has, stays in its place.
+pub fn with_account_order(text: &str, names: &[String]) -> Result<String> {
+    use toml_edit::{ArrayOfTables, Item, Table};
+    let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before moving accounts")?;
+    let Some(tables) = doc.get_mut("accounts").and_then(Item::as_array_of_tables_mut) else { return Ok(text.to_string()) };
+    let old: Vec<Table> = tables.iter().cloned().collect();
+    let listed: Vec<Option<&str>> = old.iter().map(|t| t.get("name").and_then(Item::as_str)).collect();
+    let order = moved_order(&listed, names);
+    if order.iter().enumerate().all(|(i, &from)| i == from) {
+        return Ok(text.to_string());
+    }
+    fn prefix(t: &Table) -> &str {
+        t.decor().prefix().and_then(|p| p.as_str()).unwrap_or("")
+    }
+    let mut next = ArrayOfTables::new();
+    for (slot, &from) in order.iter().enumerate() {
+        let mut t = old[from].clone();
+        // The file draws its tables by position, not by their place in the array.
+        if let Some(at) = old[slot].position() {
+            t.set_position(at);
+        }
+        let (lead, _) = split_comment(prefix(&old[slot]));
+        let (_, own) = split_comment(prefix(&old[from]));
+        t.decor_mut().set_prefix(format!("{lead}{own}"));
+        next.push(t);
+    }
+    *tables = next;
+    Ok(doc.to_string())
+}
+
+/// Which table goes in each place: those `names` names take the places they held among
+/// themselves, in its order, and the rest keep theirs. A name twice, or one no table has, is
+/// passed over.
+fn moved_order(listed: &[Option<&str>], names: &[String]) -> Vec<usize> {
+    let mut picked: Vec<usize> = Vec::new();
+    for n in names {
+        if let Some(i) = listed.iter().position(|l| *l == Some(n.as_str())) {
+            if !picked.contains(&i) {
+                picked.push(i);
+            }
+        }
+    }
+    let mut places = picked.clone();
+    places.sort_unstable();
+    let mut order: Vec<usize> = (0..listed.len()).collect();
+    for (place, from) in places.into_iter().zip(picked) {
+        order[place] = from;
+    }
+    order
+}
+
+/// What's above a table split where its last blank line ends: before it, what heads the place in
+/// the file; after it, the comment that belongs to the table.
+fn split_comment(prefix: &str) -> (&str, &str) {
+    let mut at = 0;
+    let mut start = 0;
+    for line in prefix.split_inclusive('\n') {
+        start += line.len();
+        if line.trim().is_empty() {
+            at = start;
+        }
+    }
+    prefix.split_at(at)
+}
+
 /// `text` with its `[[accounts]]` tables replaced. The comment above the first one stays.
 pub fn with_accounts(text: &str, accounts: &[AccountCfg]) -> Result<String> {
     let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before saving accounts")?;
@@ -2488,6 +2568,40 @@ mod tests {
         let starts: Vec<Option<String>> = toml::from_str::<Config>(&out).unwrap().accounts.into_iter().map(|a| a.start).collect();
         assert_eq!(starts, vec![Some("background".into()), Some("background".into()), None]);
         assert!(with_start("scan = [", &["claude".into()], "terminal").is_err());
+    }
+
+    #[test]
+    fn accounts_move_into_the_order_given_as_written() {
+        let text = "scan = [\"~/code\"]\n\n# Harness accounts.\n\n[[accounts]]\nname = \"claude\"\nharness = \"claude\"\nhome = \"~/.claude\"\nstart = \"terminal\" # for now\n\n# The work one.\n[[accounts]]\nname = \"claude2\"\nharness = \"claude\"\nhome = \"~/.claude2\"\nusage_cap = 85\n\n[[accounts]]\nname = \"opencode\"\nharness = \"opencode\"\nhome = \"~/.local/share/opencode\"\ndisabled = true\n\n[[accounts]]\nname = \"codex\"\nharness = \"codex\"\nhome = \"~/.codex\"\npreferred = true\n\n[[projects]]\nname = \"Mine\"\n";
+        // The usage bar leaves out the account that's off: it keeps its place.
+        let out = with_account_order(text, &["codex".into(), "claude".into(), "claude2".into()]).unwrap();
+        let want = "scan = [\"~/code\"]\n\n# Harness accounts.\n\n[[accounts]]\nname = \"codex\"\nharness = \"codex\"\nhome = \"~/.codex\"\npreferred = true\n\n[[accounts]]\nname = \"claude\"\nharness = \"claude\"\nhome = \"~/.claude\"\nstart = \"terminal\" # for now\n\n[[accounts]]\nname = \"opencode\"\nharness = \"opencode\"\nhome = \"~/.local/share/opencode\"\ndisabled = true\n\n# The work one.\n[[accounts]]\nname = \"claude2\"\nharness = \"claude\"\nhome = \"~/.claude2\"\nusage_cap = 85\n\n[[projects]]\nname = \"Mine\"\n";
+        assert_eq!(out, want);
+        let (before, after) = (toml::from_str::<Config>(text).unwrap().accounts, toml::from_str::<Config>(&out).unwrap().accounts);
+        let names: Vec<&str> = after.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["codex", "claude", "opencode", "claude2"]);
+        // So the engine has nothing to read again for it.
+        assert!(same_accounts(&before, &after));
+        assert!(!same_accounts(&before, &after[1..]));
+        // Back again, it's the file it was.
+        assert_eq!(with_account_order(&out, &["claude".into(), "claude2".into(), "codex".into()]).unwrap(), text);
+        // The same order, or names it doesn't have, change nothing.
+        assert_eq!(with_account_order(text, &["claude".into(), "claude2".into(), "codex".into()]).unwrap(), text);
+        assert_eq!(with_account_order(text, &["gone".into(), "claude".into()]).unwrap(), text);
+        assert!(with_account_order("scan = [", &["claude".into()]).is_err());
+    }
+
+    #[test]
+    fn accounts_moved_take_the_places_they_held_among_themselves() {
+        let listed = [Some("a"), Some("b"), Some("c"), Some("d")];
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(moved_order(&listed, &names(&["d", "a", "b", "c"])), [3, 0, 1, 2]);
+        // b is left out: it stays second.
+        assert_eq!(moved_order(&listed, &names(&["c", "a", "d"])), [2, 1, 0, 3]);
+        assert_eq!(moved_order(&listed, &names(&["b", "b", "a", "x"])), [1, 0, 2, 3]);
+        assert_eq!(split_comment("\n# Accounts.\n\n# Mine.\n"), ("\n# Accounts.\n\n", "# Mine.\n"));
+        assert_eq!(split_comment("# Mine.\n"), ("", "# Mine.\n"));
+        assert_eq!(split_comment("\n"), ("\n", ""));
     }
 
     #[test]

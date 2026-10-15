@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, rowItems, runsShownKey, sidesShownKey, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -1549,6 +1549,12 @@ export function App() {
         training={board?.training}
         onStopTraining={turnOffTraining}
         onOpenUrl={(url) => openUrl(url).catch((e: unknown) => setToast(String(e)))}
+        onReorder={(accounts) =>
+          orderAccounts(accounts).catch((e: unknown) => {
+            setToast(String(e));
+            throw e;
+          })
+        }
         notices={<Notices notices={notices} now={now} onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])} onOpen={() => openSettings('file')} />}
       />
       <div

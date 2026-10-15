@@ -1866,6 +1866,12 @@ the total Cursor's Settings shows; and on-demand spend once you've set a limit o
 its chip says so with a crossed-out gauge after the name. Add accounts in Settings › Accounts, and
 turn off one you'd rather not see here.
 
+The chips are in the order config.toml lists the accounts. Drag one sideways to put it in another
+place: the others make way as it goes, Escape puts it back, and letting go moves its
+`[[accounts]]` table in config.toml, as written and with the comment right above it. Settings ›
+Accounts lists them in that order too, and of two accounts equally good for Auto (without a
+routing group), it starts the one listed first.
+
 #### Training on what you send
 
 Each account's provider may be allowed to train its models on what the account sends. Codealong

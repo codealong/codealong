@@ -545,6 +545,13 @@ export async function saveAccounts(accounts: AccountCfg[]): Promise<void> {
   await invoke('save_accounts', { accounts });
 }
 
+/** Puts the accounts in config.toml in this order, the usage bar's: those not named keep their
+ *  places (config.rs `with_account_order`). */
+export async function orderAccounts(accounts: string[]): Promise<void> {
+  if (!inTauri) return;
+  await invoke('order_accounts', { accounts });
+}
+
 /** Accounts on this Mac that config.toml doesn't list. */
 export async function foundAccounts(): Promise<FoundAccount[]> {
   if (inTauri) return invoke<FoundAccount[]>('found_accounts');

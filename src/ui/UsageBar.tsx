@@ -1,8 +1,11 @@
 // The usage bar under the title bar: one chip per account, in config order. Each limit shows
 // how full it is and, after the clock, how long until it resets. Per-model limits, like
 // Fable's weekly limit, are marked with sparkles. Claude numbers are read every 2 minutes;
-// Codex numbers arrive with each Codex turn. The accounts Auto prefers are starred in Settings ›
-// Accounts, not here.
+// Codex numbers arrive with each Codex turn.
+//
+// A chip dragged sideways puts its account in another place: the others make way as it goes, and
+// letting go writes the new order into config.toml (config.rs `with_account_order`), which
+// Settings lists the accounts in too. The chips show it at once, before the board comes back.
 //
 // When the chips don't all fit, each shows only the limit it's closest to running out of, and
 // hovering it shows all of them in a card. When even those don't fit, the row scrolls sideways
@@ -13,10 +16,11 @@
 // Codealong can, and opens the provider's settings page; that card stays up while the pointer is
 // on it.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { agoPhrase, resetsPhrase, untilShort } from '../format';
 import { usageNote } from '../harness';
+import { useLatest } from '../latest';
 import { cardTitle, flagged, readNote, trainingOf } from '../training';
 import type { Meter, Severity, Training, Usage } from '../types';
 import { Button, cx, Icon } from './primitives';
@@ -30,6 +34,8 @@ const WARM_MS = 400;
 /** A collapsed row opens up again only with this much room to spare, so a reset time growing
  *  by a character near the edge doesn't flip it back and forth. */
 const SLACK = 16;
+/** How far the pointer moves with the button down before it drags a chip rather than clicks it. */
+const DRAG_AFTER = 4;
 
 export function meterTitle(m: Meter, now: number): string {
   const reset = m.resetsAt ? `, resets ${resetsPhrase(m.resetsAt, now)}` : '';
@@ -113,6 +119,13 @@ function isStale(u: Usage): boolean {
   return !!u.error && u.meters.length > 0;
 }
 
+/** What a chip in the row gets for being dragged to another place (`useSort`). */
+interface SortProps {
+  onPointerDown: (e: ReactPointerEvent<HTMLElement>) => void;
+  className?: string;
+  style?: CSSProperties;
+}
+
 interface ChipProps {
   usage: Usage;
   now: number;
@@ -128,9 +141,10 @@ interface ChipProps {
   onUnpeek?: () => void;
   /** Its provider may train on it (`flagged`): the chip says so, and its card says why. */
   training?: Training;
+  sort?: SortProps;
 }
 
-function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen, onSignIn, onPeek, onUnpeek, training }: ChipProps) {
+function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen, onSignIn, onPeek, onUnpeek, training, sort }: ChipProps) {
   const plain = u.error?.replace(/`/g, '') ?? '';
   // Signed out, the last reading of whether it's trained on still stands, and its card with it.
   const trainingPeeks = !!training && !measure;
@@ -138,9 +152,11 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
     return (
       <button
         type="button"
-        className={cx('ca-uchip', 'is-attn', training && 'is-training')}
+        className={cx('ca-uchip', 'is-attn', training && 'is-training', sort?.className)}
+        style={sort?.style}
         title={measure ? undefined : `${plain}. Click to sign in`}
         onClick={onSignIn}
+        onPointerDown={sort?.onPointerDown}
         onMouseEnter={trainingPeeks ? (e) => onPeek?.(e.currentTarget) : undefined}
         onMouseLeave={trainingPeeks ? onUnpeek : undefined}
       >
@@ -165,10 +181,12 @@ function AccountChip({ usage: u, now, collapsed = false, measure = false, onOpen
   return (
     <button
       type="button"
-      className={cx('ca-uchip', stale && 'is-stale', training && 'is-training')}
+      className={cx('ca-uchip', stale && 'is-stale', training && 'is-training', sort?.className)}
+      style={sort?.style}
       title={measure || peeks ? undefined : `${about}. Show what it used and cost`}
       aria-label={`${u.account}${u.plan ? `, ${u.plan}` : ''}${summary ? `. ${summary}` : ''}${stale ? `. ${plain}` : ''}${training ? `. ${cardTitle(training)}: ${training.note}` : ''}`}
       onClick={onOpen}
+      onPointerDown={sort?.onPointerDown}
       onMouseEnter={peeks ? (e) => onPeek?.(e.currentTarget) : undefined}
       onMouseLeave={peeks ? onUnpeek : undefined}
       onFocus={peeks ? (e) => e.currentTarget.matches(':focus-visible') && onPeek?.(e.currentTarget) : undefined}
@@ -326,6 +344,158 @@ function usePeek() {
   return { peek, show, hide, keep };
 }
 
+/** A chip's left and right edges along the row. */
+export interface Edges {
+  left: number;
+  right: number;
+}
+
+/** Where a chip dragged from `from` lands with its middle at `middle`: after every other chip
+ *  whose middle it has passed. */
+export function dropPlace(edges: Edges[], from: number, middle: number): number {
+  return edges.filter((e, i) => i !== from && middle > (e.left + e.right) / 2).length;
+}
+
+/** How far the chip at `i` moves aside while the one from `from` would land at `to`: one place,
+ *  `by` (the dragged chip's width and a gap), toward where the dragged one came from. */
+export function shiftOf(i: number, from: number, to: number, by: number): number {
+  if (from < i && i <= to) return -by;
+  if (to <= i && i < from) return by;
+  return 0;
+}
+
+/** `names` with the one at `from` moved to `to`. */
+export function moveName(names: string[], from: number, to: number): string[] {
+  const next = names.filter((_, i) => i !== from);
+  next.splice(to, 0, names[from]);
+  return next;
+}
+
+/** The accounts in `order`; any it doesn't name come after, as they were. */
+export function inOrder(usage: Usage[], order: string[]): Usage[] {
+  const at = (u: Usage) => {
+    const i = order.indexOf(u.account);
+    return i < 0 ? order.length : i;
+  };
+  return [...usage].sort((a, b) => at(a) - at(b));
+}
+
+/** Whether the board lists the accounts `order` names in that order. */
+export function listsInOrder(usage: Usage[], order: string[]): boolean {
+  const listed = usage.map((u) => u.account).filter((a) => order.includes(a));
+  return listed.join('\n') === order.filter((a) => listed.includes(a)).join('\n');
+}
+
+/** A chip being dragged to another place: where it came from and where it would land. */
+interface Sorting {
+  from: number;
+  to: number;
+  /** How far the chips it passes move aside: its width and the gap beside it. */
+  by: number;
+}
+
+/** Dragging the row's chips into another order. A pointer drag, as `useRowDrag` is: clicks are
+ *  left alone until the pointer has moved a few pixels, and Escape puts the chip back. */
+function useSort(row: RefObject<HTMLDivElement | null>, onStart: () => void, onPlace: (names: string[]) => void) {
+  const [sorting, setSorting] = useState<Sorting | null>(null);
+  const stopNow = useRef<(() => void) | null>(null);
+  const on = useLatest({ onStart, onPlace });
+  useEffect(() => () => stopNow.current?.(), []);
+
+  const start = (e: ReactPointerEvent<HTMLElement>, from: number, names: string[]) => {
+    const el = row.current;
+    // ⌘-, ⌃-, ⌥- and ⇧-clicks stay clicks.
+    if (!el || e.button !== 0 || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    stopNow.current?.();
+    const chip = e.currentTarget;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    const scroll0 = el.scrollLeft;
+    let x = x0;
+    // Measured along the row once it's a drag, before anything moves aside.
+    let edges: Edges[] | null = null;
+    let to = from;
+    let by = 0;
+
+    const follow = () => {
+      if (!edges) return;
+      const dx = x - x0 + el.scrollLeft - scroll0;
+      // It's drawn inside the row; where it lands goes by the pointer, so a chip wider than the
+      // last one can still go after it.
+      const lo = edges[0].left - edges[from].left;
+      const hi = edges[edges.length - 1].right - edges[from].right;
+      chip.style.transform = `translateX(${Math.min(hi, Math.max(lo, dx))}px)`;
+      const next = dropPlace(edges, from, (edges[from].left + edges[from].right) / 2 + dx);
+      if (next === to) return;
+      to = next;
+      setSorting({ from, to, by });
+    };
+    const move = (ev: PointerEvent) => {
+      x = ev.clientX;
+      if (!edges) {
+        if (Math.abs(x - x0) + Math.abs(ev.clientY - y0) < DRAG_AFTER) return;
+        edges = Array.from(el.querySelectorAll(':scope > .ca-uchip'), (c) => {
+          const r = c.getBoundingClientRect();
+          return { left: r.left + scroll0, right: r.right + scroll0 };
+        });
+        // One chip has nowhere to go.
+        if (edges.length < 2) return stop();
+        by = from < edges.length - 1 ? edges[from + 1].left - edges[from].left : edges[from].right - edges[from - 1].right;
+        document.documentElement.classList.add('ca-dragging');
+        on.current.onStart();
+        setSorting({ from, to, by });
+      }
+      follow();
+    };
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape' || !edges) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      stop();
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', stop);
+      window.removeEventListener('keydown', key, true);
+      el.removeEventListener('scroll', follow);
+      stopNow.current = null;
+      chip.style.transform = '';
+      document.documentElement.classList.remove('ca-dragging');
+      setSorting(null);
+    };
+    const end = () => {
+      const dragged = !!edges;
+      stop();
+      if (!dragged) return;
+      // The click a drag ends in, over the chip it started on, isn't a click on the chip.
+      const swallow = (c: MouseEvent) => {
+        c.stopPropagation();
+        c.preventDefault();
+      };
+      window.addEventListener('click', swallow, true);
+      window.setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+      if (to !== from) on.current.onPlace(moveName(names, from, to));
+    };
+
+    stopNow.current = stop;
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', stop);
+    window.addEventListener('keydown', key, true);
+    // The mouse wheel scrolls a row too wide for the window while a chip is held.
+    el.addEventListener('scroll', follow, { passive: true });
+  };
+
+  /** What the chip at `i` of `names` gets for being dragged, and for making way. */
+  const sortProps = (i: number, names: string[]): SortProps => ({
+    onPointerDown: (e) => start(e, i, names),
+    className: sorting?.from === i ? 'is-lifted' : undefined,
+    style: sorting && sorting.from !== i ? { transform: `translateX(${shiftOf(i, sorting.from, sorting.to, sorting.by)}px)` } : undefined,
+  });
+  return { sorting: !!sorting, sortProps };
+}
+
 interface UsageBarProps {
   usage: Usage[];
   now: number;
@@ -346,9 +516,18 @@ interface UsageBarProps {
   loading?: boolean;
   /** What isn't working in the background (`ui/Notices.tsx`), at the bar's end. */
   notices?: ReactNode;
+  /** Puts the accounts in this order in config.toml; a failure is the caller's to say, and the
+   *  chips go back. */
+  onReorder?: (accounts: string[]) => Promise<void>;
 }
 
-export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, onOpenUrl, loading, notices }: UsageBarProps) {
+export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, onSignIn, training, onStopTraining, onOpenUrl, loading, notices, onReorder }: UsageBarProps) {
+  // The order a drag left the chips in, until the board lists them so.
+  const [order, setOrder] = useState<string[] | null>(null);
+  const usage = order ? inOrder(board, order) : board;
+  useEffect(() => {
+    if (order && listsInOrder(board, order)) setOrder(null);
+  }, [board, order]);
   const reads = usage.filter((u) => u.harness === 'claude' && u.asOf).map((u) => u.asOf as number);
   const lastRead = reads.length ? Math.max(...reads) : null;
   const row = useRef<HTMLDivElement>(null);
@@ -357,7 +536,17 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn,
   // Which ends have chips scrolled past them, for the fades there.
   const [clipped, setClipped] = useState({ start: false, end: false });
   const { peek, show, hide, keep } = usePeek();
-  const accounts = usage.map((u) => u.account).join('\n');
+  const names = usage.map((u) => u.account);
+  const accounts = names.join('\n');
+  const sort = useSort(
+    row,
+    () => hide(true),
+    (next) => {
+      setOrder(next);
+      // The caller says why it failed.
+      onReorder?.(next).catch(() => setOrder(null));
+    },
+  );
 
   // Every chip is measured with all its limits, in a hidden copy, against the room the row has.
   useLayoutEffect(() => {
@@ -430,9 +619,9 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn,
     <div className="ca-usagebar" role="region" aria-label="Plan usage">
       <div
         ref={row}
-        className={cx('ca-usagebar-accts', clipped.start && 'is-clip-start', clipped.end && 'is-clip-end')}
+        className={cx('ca-usagebar-accts', clipped.start && 'is-clip-start', clipped.end && 'is-clip-end', sort.sorting && 'is-sorting')}
       >
-        {usage.map((u) => {
+        {usage.map((u, i) => {
           const t = trainingOf(training, u.account);
           return (
             <AccountChip
@@ -443,8 +632,11 @@ export function UsageBar({ usage, now, onRefresh, onAccounts, onUsage, onSignIn,
               training={flagged(t) ? t : undefined}
               onOpen={() => onUsage(u.account)}
               onSignIn={() => onSignIn(u.account)}
-              onPeek={(el) => show(u.account, el)}
+              onPeek={(el) => {
+                if (!sort.sorting) show(u.account, el);
+              }}
               onUnpeek={() => hide()}
+              sort={onReorder ? sort.sortProps(i, names) : undefined}
             />
           );
         })}
