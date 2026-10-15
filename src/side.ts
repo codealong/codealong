@@ -3,7 +3,8 @@
 // session answered by a throwaway copy of its conversation, while the session carries on,
 // unaware; it has one at a time, and it lasts until it's closed. Codealong keeps what was asked
 // and answered, so the closed ones can be read again: a session's box shows them (`showSides`),
-// and its header says how many there are (`useKept`), from the one list kept here.
+// from the one list kept here (`useKept`), and its header and its row in Sessions name each, as
+// the board lists them (`Board.sides`), a click showing one (`showSide`).
 //
 // What shows above a session's box is the same in every window (`SideView`, kept in local
 // storage, which they share), and so is whether the box is the side conversation's: a box in
@@ -15,9 +16,9 @@
 // shows above the session's boxes, which are the session's again (`usePopped`).
 
 import { useEffect, useSyncExternalStore } from 'react';
-import { onSide, onSideWindows, sideForget, sideGet, sidePast, sideWindows } from './api';
+import { onSide, onSideWindows, sideForget, sideGet, sidePast, sideWindow, sideWindows } from './api';
 import { readStored, writeStored, type Codec } from './stored';
-import type { Side, SideKept, SideTurn } from './types';
+import type { Side, SideGlance, SideKept, SideTurn } from './types';
 
 const sides = new Map<string, Side>();
 const hearers = new Set<() => void>();
@@ -141,6 +142,16 @@ export function showSides(key: string, view: SideView): void {
   tell();
 }
 
+/** Shows one of a session's side conversations, as its row under the session or its line in the
+ *  session's header asks: the open one above its box, or one kept to read there. Out in a window
+ *  of its own, that window shows it and comes forward. */
+export function showSide(key: string, side: Pick<SideGlance, 'id' | 'open'>): void {
+  showSides(key, side.open ? null : { kind: 'past', id: side.id });
+  // Up already, so it can't fail but for a window that's gone meanwhile, which the next
+  // `side-windows` takes out of `popped`.
+  if (popped.has(key)) void sideWindow(key, true).catch(() => {});
+}
+
 /** A question goes to a session's side conversation: its box stays the side conversation's
  *  while the engine starts the copy, in every window. */
 export function startingSide(key: string): void {
@@ -223,15 +234,6 @@ export function forgetSide(key: string, id: string): void {
   tell();
   const again = () => readKept(key);
   sideForget(id).then(again, again);
-}
-
-/** What a session's header says of its side conversations, and what a click on it shows: the
- *  list, or with only one from before and none open, that one to read. None kept: nothing. */
-export function keptSummary(kept: SideKept[], open: Side | null): { words: string; show: SideView } | null {
-  if (kept.length === 0) return null;
-  const earlier = kept.filter((k) => k.id !== open?.id);
-  const show: SideView = earlier.length === 0 ? null : earlier.length === 1 && !open ? { kind: 'past', id: earlier[0].id } : { kind: 'list' };
-  return { words: kept.length === 1 ? '1 side conversation' : `${kept.length} side conversations`, show };
 }
 
 /** A kept side conversation in a line: its first question. */

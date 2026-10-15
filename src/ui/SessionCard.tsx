@@ -26,7 +26,7 @@ import { zoomKey } from './cardHost';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 
 /** What the card reads from the board: what's around the session, and what's pinned in Sessions. */
-export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos' | 'nudgeAbout' | 'reviews' | 'repos' | 'teamFiles'> & { pinned?: string[] };
+export type CardBoard = Pick<Board, 'prs' | 'lanes' | 'todos' | 'sides' | 'nudgeAbout' | 'reviews' | 'repos' | 'teamFiles'> & { pinned?: string[] };
 
 /** What a window does for a session's actions (menus.ts `SessionCan`), less what the card knows
  *  for every window: the apps, what's on the desktop, the pin and the shortcuts. A window that has

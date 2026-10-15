@@ -7,7 +7,7 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, buildBays, bySession, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, bySession, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sideTitle, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
 import { todoIndex, todoInFilter, todoInQuery, todoItem, todoSections, type TodoItem } from './todos';
@@ -199,6 +199,25 @@ export type RunCount = HelperCount;
 /** Each session's headless runs, by the session's key: the ones not archived. */
 export function runCounts(items: SessionItem[]): Map<string, RunCount> {
   return countsBy(items, (s) => (s.headless ? workingFor(s) : undefined));
+}
+
+/** A session's side conversations (`Board.sides`), for the chip on its row (LaneRow.tsx
+ *  `SidesChip`) and its card, as its helpers are counted: one answering counts as at work. */
+export type SideCount = HelperCount;
+
+/** Each session's side conversations, by its key: the one answering first, then the latest
+ *  started. Each is a helper's glance by its id, titled by what it was first asked. */
+export function sideCounts(sides: Board['sides']): Map<string, SideCount> {
+  const out = new Map<string, SideCount>();
+  for (const [key, list] of Object.entries(sides ?? {})) {
+    if (list.length === 0) continue;
+    const each = [...list]
+      .sort((a, b) => Number(b.running) - Number(a.running))
+      .map((g): HelperGlance => ({ key: g.id, title: sideTitle(g), status: g.running ? 'working' : 'idle', since: g.lastAt, review: null, excerpt: null, account: '', model: null, worktree: null, reports: false }));
+    const working = list.filter((g) => g.running).length;
+    out.set(key, { count: list.length, working, waiting: 0, each });
+  }
+  return out;
 }
 
 /** Whether a helper or a headless run is listed under its session however it stands: you asked
@@ -505,6 +524,10 @@ export function useBoardLists(input: ListsInput) {
   const helpersOf = useCallback((k: string) => helpers.get(k), [helpers]);
   const runs = useMemo(() => runCounts(sessionItems), [sessionItems]);
   const runsOf = useCallback((k: string) => runs.get(k), [runs]);
+  // Each session's side conversations: counted on its chip, and listed under it while one answers.
+  const sides = useMemo(() => sideCounts(board?.sides), [board?.sides]);
+  const sidesOf = useCallback((k: string) => sides.get(k), [sides]);
+  const sideGlancesOf = useCallback((k: string) => board?.sides?.[k], [board?.sides]);
   const shownSessionCount = useMemo(() => recentSessionCount(sessionItems, cutoff, sessionPins.set), [sessionItems, cutoff, sessionPins.set]);
   const pinnedRows = useMemo(() => inPinOrder(shownSessions, sessionPins.keys, (r) => r.session.key), [shownSessions, sessionPins.keys]);
   // A pinned session's helpers go under it among the pinned ones, not among the rest.
@@ -614,6 +637,8 @@ export function useBoardLists(input: ListsInput) {
     todosFor,
     helpersOf,
     runsOf,
+    sidesOf,
+    sideGlancesOf,
     counts,
     totalLanes,
     actions,

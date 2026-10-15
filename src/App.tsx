@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
-import { homeOf, narrowed, rowItems, runsShownKey, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
+import { homeOf, narrowed, rowItems, runsShownKey, sidesShownKey, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
 import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
@@ -23,7 +23,8 @@ import { reviewItems as reviewItemsFor } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { itemPrimaryHolds, todoAgent, todoInFilter, todoInQuery, todoPrompt, useTodoStore, type TodoItem } from './todos';
 import { repoReviews } from './repoSettings';
-import type { DevicesView, Lane, Pr, PrItem, Session, StartOptions, TeamFile, Theme, Todo } from './types';
+import type { DevicesView, Lane, Pr, PrItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
+import { showSide } from './side';
 import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CleanUpDialog } from './ui/CleanUpDialog';
@@ -394,6 +395,8 @@ export function App() {
     todosFor,
     helpersOf,
     runsOf,
+    sidesOf,
+    sideGlancesOf,
     counts,
     totalLanes,
     actions,
@@ -1053,6 +1056,14 @@ export function App() {
   const helperRow = (key: string): SessionItem | null => {
     const home = homes.get(key);
     return home ? sessionItemOf(home) : null;
+  };
+  // A side conversation's row under its session, or a row of its chip's card: the session
+  // selected, and the side conversation above its box, which takes what's typed.
+  const showSideOf = (key: string, side: SideGlance) => {
+    const r = helperRow(key);
+    if (r) picks.sessions.select(r, 'one');
+    showSide(key, side);
+    focusBox();
   };
   const helperActions: HelperActions = {
     show: (key) => {
@@ -1784,6 +1795,10 @@ export function App() {
                 onToggleHelpers={toggleHelpers}
                 runsOf={runsOf}
                 onToggleRuns={(key) => toggleHelpers(runsShownKey(key))}
+                sidesOf={sidesOf}
+                sideGlancesOf={sideGlancesOf}
+                onToggleSides={(key) => toggleHelpers(sidesShownKey(key))}
+                onShowSide={showSideOf}
                 helperActions={helperActions}
                 onShowTodo={showTodo}
               />

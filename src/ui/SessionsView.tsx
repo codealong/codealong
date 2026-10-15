@@ -6,14 +6,19 @@
 // a pinned one down to unpin it, and any out of the window to pin it to the desktop
 // (useRowDrag.tsx). ⌘-click and ⇧-click (or ⇧↑ ⇧↓) pick several, to mark seen, snooze, close,
 // mark done or archive together (picks.ts, SessionPickPanel.tsx).
+//
+// What works for a session goes under its row, set in: its helpers at work, its side conversation
+// while one answers (LaneRow.tsx `SideRow`, which is no session: a click shows it above the
+// session's box), and every one of a kind where its chip's double-click asked, with a row at the
+// end that takes them away again (`FoldRow`).
 
 import { Fragment } from 'react';
-import { bySession, byStatusTime, runsShownKey, startedOf, waitingSince, workingFor } from '../lanes';
+import { bySession, byStatusTime, foldsOf, runsShownKey, sidesListed, sidesShownKey, startedOf, waitingSince, workingFor, type Fold } from '../lanes';
 import type { SelectHow } from '../picks';
-import type { HelperCount, RunCount } from '../boardLists';
-import type { Bay, DesktopPinned, Lane, Session, Status, Todo } from '../types';
+import type { HelperCount, RunCount, SideCount } from '../boardLists';
+import type { Bay, DesktopPinned, Lane, Session, SideGlance, Status, Todo } from '../types';
 import type { HelperActions } from './HelpersCard';
-import { AgentRow } from './LaneRow';
+import { AgentRow, FoldRow, SideRow } from './LaneRow';
 import { PinnedSection } from './PinnedSection';
 import { BAY_WORD, BayHeader, SectionHeader, Seg } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
@@ -194,6 +199,18 @@ function families(rows: SessionItem[]): { top: SessionItem[]; under: Map<string,
   return { top, under };
 }
 
+/** A section's rows a family at a time: each session at the top, with the rows nested under it
+ *  (`sessionSections`), which follow it. */
+export function familiesOf(rows: readonly SessionItem[]): { head: SessionItem; kids: SessionItem[] }[] {
+  const out: { head: SessionItem; kids: SessionItem[] }[] = [];
+  for (const r of rows) {
+    const last = out[out.length - 1];
+    if (r.nested && last) last.kids.push(r);
+    else out.push({ head: r, kids: [] });
+  }
+  return out;
+}
+
 /** The sessions in `sort`'s order, as their headings list them: the order the keyboard goes in. */
 export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number): SessionItem[] {
   return sessionSections(rows, sort, now).flatMap((s) => s.rows);
@@ -262,13 +279,24 @@ interface SessionsViewProps {
    *  (`onToggleRuns`). */
   runsOf?: (sessionKey: string) => RunCount | undefined;
   onToggleRuns?: (sessionKey: string) => void;
+  /** A session's side conversations, counted on its row's chip and listed under it while one
+   *  answers, or all of them while `helpersShown` holds its `sidesShownKey`, which their chip's
+   *  double-click turns on and off (`onToggleSides`). */
+  sidesOf?: (sessionKey: string) => SideCount | undefined;
+  sideGlancesOf?: (sessionKey: string) => SideGlance[] | undefined;
+  onToggleSides?: (sessionKey: string) => void;
+  /** Shows a side conversation: its session selected, and it above the session's box. */
+  onShowSide?: (sessionKey: string, side: SideGlance) => void;
   /** What a helpers chip's card does with a helper (HelpersCard.tsx). */
   helperActions?: HelperActions;
   onShowTodo?: (todo: Todo) => void;
 }
 
+const NO_KEYS: ReadonlySet<string> = new Set();
+
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, helperActions, onShowTodo } = props;
+  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo } = props;
+  const shown = helpersShown ?? NO_KEYS;
   const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? [...(pinnedHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
   const drag = useRowDrag({
@@ -307,6 +335,10 @@ export function SessionsView(props: SessionsViewProps) {
       runs={runsOf?.(r.session.key)}
       runsShown={!!helpersShown?.has(runsShownKey(r.session.key))}
       onToggleRuns={onToggleRuns && (() => onToggleRuns(r.session.key))}
+      sides={sidesOf?.(r.session.key)}
+      sidesShown={!!helpersShown?.has(sidesShownKey(r.session.key))}
+      onToggleSides={onToggleSides && (() => onToggleSides(r.session.key))}
+      sideActions={onShowSide && sideActionsOf(r.session.key)}
       helperActions={helperActions}
       nested={r.nested}
       elsewhere={r.elsewhere}
@@ -314,6 +346,39 @@ export function SessionsView(props: SessionsViewProps) {
       drag={held}
     />
   );
+
+  /** What a side conversations chip's card does with one, by its id: shows it. */
+  const sideActionsOf = (key: string): HelperActions => ({
+    show: (id) => {
+      const g = sideGlancesOf?.(key)?.find((x) => x.id === id);
+      if (g) onShowSide?.(key, g);
+    },
+  });
+  /** A session's side conversations listed under it (lanes.ts `sidesListed`). */
+  const sideRows = (r: SessionItem) =>
+    sidesListed(sideGlancesOf?.(r.session.key), r.session.key, shown).map((g) => <SideRow key={`side:${g.id}`} sessionKey={r.session.key} side={g} now={now} onShow={(key, side) => onShowSide?.(key, side)} />);
+  /** Back to listing only the ones at work, as the kind's chip's double-click does. */
+  const fold = (f: Fold) => (f.kind === 'helpers' ? onToggleHelpers : f.kind === 'runs' ? onToggleRuns : onToggleSides)?.(f.key);
+  /** A session's row, its side conversations, the rows nested under it each with theirs, and the
+   *  way back from what's listed in full under any of them. `held` is how each row is dragged. */
+  const family = (head: SessionItem, kids: SessionItem[], index: number | null, held: (r: SessionItem, index: number | null) => DragProps | undefined) => {
+    const folds = foldsOf([head, ...kids].map((r) => r.session), shown, { helpers: (k) => helpersOf?.(k), runs: (k) => runsOf?.(k), sides: (k) => sidesOf?.(k) });
+    return (
+      <Fragment key={head.key}>
+        {row(head, index, held(head, index))}
+        {sideRows(head)}
+        {kids.map((k) => (
+          <Fragment key={k.key}>
+            {row(k, null, held(k, null))}
+            {sideRows(k)}
+          </Fragment>
+        ))}
+        {folds.map((f) => (
+          <FoldRow key={`fold:${f.kind}:${f.key}`} fold={f} head={f.key === head.session.key} onFold={fold} />
+        ))}
+      </Fragment>
+    );
+  };
 
   return (
     <>
@@ -324,19 +389,14 @@ export function SessionsView(props: SessionsViewProps) {
           {pinned.length > 0 && (
             <PinnedSection
               items={pinned}
-              row={(r, i) => (
-                <Fragment key={r.key}>
-                  {row(r, i, drag.rowProps(r.session.key, i, pinned.length))}
-                  {/* Its helpers under it, not pinned themselves: they move with it. */}
-                  {(pinnedHelpers?.get(r.session.key) ?? []).map((k) => row(k, null, drag.rowProps(k.session.key, null, pinned.length)))}
-                </Fragment>
-              )}
+              // Its helpers under it, not pinned themselves: they move with it.
+              row={(r, i) => family(r, pinnedHelpers?.get(r.session.key) ?? [], i, (x, at) => drag.rowProps(x.session.key, at, pinned.length))}
             />
           )}
           {sections.map((s) => (
             <section key={s.id} className="ca-bayblock">
               {s.bay ? <BayHeader bay={s.bay} count={s.rows.length} /> : <SectionHeader icon={s.icon} label={s.label} count={s.rows.length} />}
-              <div className="ca-bay-lanes">{s.rows.map((r) => row(r, null, drag.rowProps(r.session.key, null, pinned.length)))}</div>
+              <div className="ca-bay-lanes">{familiesOf(s.rows).map(({ head, kids }) => family(head, kids, null, (x) => drag.rowProps(x.session.key, null, pinned.length)))}</div>
             </section>
           ))}
         </div>

@@ -175,37 +175,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ca-sessinsp-todo:hover,
-.ca-sessinsp-sides:hover {
+.ca-sessinsp-todo:hover {
   background: var(--surface-hover);
   color: var(--ink);
 }
-.ca-sessinsp-todo:focus-visible,
-.ca-sessinsp-sides:focus-visible {
+.ca-sessinsp-todo:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--focus);
 }
-/* How many side conversations the session has: it shows them above the box, and stays lit
-   while they show. */
-.ca-sessinsp-sides {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 22px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink-3);
-  font: var(--type-meta);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.ca-sessinsp-sides[aria-pressed='true'] {
-  background: var(--neutral-tint);
-  color: var(--ink);
-}
-
 .ca-sessinsp-title {
   flex: 1 1 0;
   min-width: 110px;

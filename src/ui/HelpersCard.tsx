@@ -6,11 +6,13 @@
 // runs; a right-click has its menu. Its button lists them all under the session, or only the ones
 // at work, as the chip's double-click does. The headless runs chip (`RunsChip`) has the same card
 // for the runs its commands started (`kind`), which aren't listed while at work; an eval leaves
-// hundreds, so the card shows the first `MAX_ROWS`.
+// hundreds, so the card shows the first `MAX_ROWS`. The side conversations chip (`SidesChip`)
+// has it for the questions asked about the session on the side: a click on one shows it above
+// the session's box, and they run nowhere else, so have no arrow and no menu.
 
 import type { HelperCount } from '../boardLists';
-import { absolute } from '../format';
-import { helperName, helperStands } from '../lanes';
+import { absolute, agoPhrase, duration } from '../format';
+import { helperName, helperStands, type HelperGlance } from '../lanes';
 import { HoverCard, type HoverCardState } from './HoverCard';
 import { Button, Icon, Rich, SessionGlyph } from './primitives';
 
@@ -18,9 +20,9 @@ import { Button, Icon, Rich, SessionGlyph } from './primitives';
 export interface HelperActions {
   /** Shows it in Sessions, listed under its session, with its conversation in the panel. */
   show: (key: string) => void;
-  /** Opens it where it runs. */
-  open: (key: string) => void;
-  menu: (key: string) => void;
+  /** Opens it where it runs: none for what runs nowhere but here (a side conversation). */
+  open?: (key: string) => void;
+  menu?: (key: string) => void;
 }
 
 /** How many rows the card shows: the rest are listed under the session from its button. */
@@ -42,7 +44,18 @@ const KINDS = {
     meta: 'Run by its commands with nobody at them (claude -p, codex exec), which read what they say: counted on its row, not listed, unless one waits on you.',
     list: (shown: boolean) => (shown ? 'List none of them under it' : 'List them all under it'),
   },
+  sides: {
+    icon: 'help',
+    label: 'Its side conversations',
+    head: (n: number) => (n === 1 ? 'Its side conversation' : `Its ${n} side conversations`),
+    meta: 'Questions about it that a throwaway copy of its conversation answered: the session never saw them. The one answering is listed under it; a click shows one above its box.',
+    list: (shown: boolean) => (shown ? 'List only the one answering' : 'List them all under it'),
+  },
 } as const;
+
+/** Where one stands, since when, as the card says it of each kind. */
+const stands = (kind: keyof typeof KINDS, g: HelperGlance, now: number): string =>
+  kind !== 'sides' ? helperStands(g, now) : g.status === 'working' ? `answering for ${duration(g.since, now)}` : `answered ${agoPhrase(g.since, now)}`;
 
 /** Words that start a line, as a sentence does. */
 const sentence = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -83,17 +96,20 @@ export function HelpersCard({ card, helpers: h, now, shown, onToggle, actions, k
               key={g.key}
               role="listitem"
               className="ca-helperscard-row"
-              onContextMenu={(e) => {
-                e.preventDefault();
-                act(() => actions.menu(g.key));
-              }}
+              onContextMenu={
+                actions.menu &&
+                ((e) => {
+                  e.preventDefault();
+                  act(() => actions.menu?.(g.key));
+                })
+              }
             >
               <button type="button" className="ca-helperscard-main" title={`${g.title}\nClick to show it here`} onClick={() => act(() => actions.show(g.key))}>
                 <SessionGlyph s={g} size={10} />
                 <span className="ca-helperscard-text">
                   <span className="ca-helperscard-name">{name}</span>
                   <span className="ca-helperscard-stands" title={absolute(g.since)}>
-                    {sentence(helperStands(g, now))}
+                    {sentence(stands(kind, g, now))}
                   </span>
                   {g.excerpt && (
                     <span className="ca-helperscard-says">
@@ -103,9 +119,11 @@ export function HelpersCard({ card, helpers: h, now, shown, onToggle, actions, k
                   {runs && <span className="ca-helperscard-runs">{runs}</span>}
                 </span>
               </button>
-              <button type="button" className="ca-helperscard-open" aria-label="Open where it runs" title="Open it where it runs" onClick={() => act(() => actions.open(g.key))}>
-                <Icon name="arrow-up-right" size={12} />
-              </button>
+              {actions.open && (
+                <button type="button" className="ca-helperscard-open" aria-label="Open where it runs" title="Open it where it runs" onClick={() => act(() => actions.open?.(g.key))}>
+                  <Icon name="arrow-up-right" size={12} />
+                </button>
+              )}
             </div>
           );
         })}

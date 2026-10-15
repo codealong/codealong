@@ -136,7 +136,12 @@
       check('a nested helper has no helper chip of its own', !q('.ca-helperchip', kidRows[1]));
 
       await select(boss);
-      var kids = await until(function () { return all('.ca-sessinsp-kids .ca-sessinsp-kin').length > 0 && all('.ca-sessinsp-kids .ca-sessinsp-kin'); }, 10000, 'its panel’s helpers');
+      await until(function () { return all('.ca-sessinsp-kids .ca-sessinsp-kin').length > 0; }, 10000, 'its panel’s helpers');
+      // The latest of what came of it shows, the rest under "+N more": other sessions it
+      // started may be later than its helpers.
+      var kinMore = q('.ca-sessinsp-kids-more');
+      if (kinMore && kinMore.getAttribute('aria-expanded') !== 'true') kinMore.click();
+      var kids = await until(function () { var k = all('.ca-sessinsp-kids .ca-sessinsp-kin'); return (!kinMore || k.length > 1) && k; }, 5000, 'all of what came of it');
       check('its panel lists its helpers under its title', kids.some(function (k) { return /^Its helper /.test(k.title); }) && !!q('.ca-sessinsp-kids .ca-sessinsp-kin .ca-icon'), kids.map(function (k) { return k.title; }).join(' | '));
 
       await select(kidRows[1]);

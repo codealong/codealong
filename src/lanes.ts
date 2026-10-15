@@ -9,7 +9,7 @@ import { shortOf } from './devices';
 import { agoPhrase, duration, withTimes } from './format';
 import type { InsightLabel } from './insights';
 import { resetsPhrase } from './format';
-import type { Bay, ConnectionLost, Lane, Pr, PrItem, Session, SessionLimit, Status } from './types';
+import type { Bay, ConnectionLost, Lane, Pr, PrItem, Session, SessionLimit, SideGlance, Status } from './types';
 
 export const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
 /** The status filter an agent falls under, for the statuses that have one. */
@@ -71,6 +71,89 @@ export function workingFor(s: Pick<Session, 'helper' | 'headless' | 'origin'>): 
  *  by the hundred, so listing its helpers doesn't list them too. */
 export function runsShownKey(parent: string): string {
   return `runs:${parent}`;
+}
+
+/** What Sessions keeps to list every side conversation of a session under it, answered ones too
+ *  (`sidesListed`), beside its key for its helpers and its `runsShownKey`. */
+export function sidesShownKey(parent: string): string {
+  return `sides:${parent}`;
+}
+
+/** What works for a session that Sessions can list in full under it: its helpers, the headless
+ *  runs its commands started, its side conversations. */
+export type KidKind = 'helpers' | 'runs' | 'sides';
+
+/** What `shown` holds to list every one of `kind` under the session `key`. */
+export function shownKeyOf(kind: KidKind, key: string): string {
+  return kind === 'helpers' ? key : kind === 'runs' ? runsShownKey(key) : sidesShownKey(key);
+}
+
+/** A way back from listing every one of a kind under a session (`shown`), at the end of what's
+ *  listed under it: which kind, whose (`key`, `title`), and how many would leave the list. */
+export interface Fold {
+  kind: KidKind;
+  key: string;
+  title: string;
+  hides: number;
+}
+
+/** How many of a kind work for a session, as its chip counts them (boardLists.ts `HelperCount`):
+ *  all of them, the ones at work, the ones waiting on you. */
+export interface KidCount {
+  count: number;
+  working: number;
+  waiting: number;
+}
+
+/** The folds for the sessions of one family Sessions lists (`members`: the session at its head,
+ *  then the ones under it), each kind listed in full for one of them that has any: its helpers
+ *  but the ones at work or waiting on you go, its runs but the ones waiting on you, its side
+ *  conversations but the one answering. */
+export function foldsOf(members: readonly Pick<Session, 'key' | 'title'>[], shown: ReadonlySet<string>, counts: Record<KidKind, (key: string) => KidCount | undefined>): Fold[] {
+  if (shown.size === 0) return [];
+  const out: Fold[] = [];
+  for (const m of members) {
+    for (const kind of ['helpers', 'runs', 'sides'] as const) {
+      const c = counts[kind](m.key);
+      if (!c || c.count === 0 || !shown.has(shownKeyOf(kind, m.key))) continue;
+      const stay = kind === 'helpers' ? c.working + c.waiting : kind === 'runs' ? c.waiting : c.working;
+      out.push({ kind, key: m.key, title: m.title, hides: c.count - stay });
+    }
+  }
+  return out;
+}
+
+/** The side conversations Sessions lists under a session (`key`): the one answering, as a helper
+ *  at work is, or every one where you asked (`sidesShownKey` in `shown`, its chip's double-click),
+ *  the latest started first. They're questions about the session, not sessions: a row's click
+ *  shows its conversation above the session's box. */
+export function sidesListed(list: readonly SideGlance[] | undefined, key: string, shown: ReadonlySet<string>): readonly SideGlance[] {
+  if (!list || list.length === 0) return NO_SIDES;
+  return shown.has(sidesShownKey(key)) ? list : list.filter((g) => g.running);
+}
+const NO_SIDES: readonly SideGlance[] = [];
+
+/** What a fold says: what leaves the list, and whose when it isn't the family's head. */
+export function foldWords(f: Fold, head: boolean): string {
+  const many = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  const what =
+    f.kind === 'helpers'
+      ? f.hides > 0
+        ? `Hide ${many(f.hides, 'finished helper')}`
+        : 'List only the helpers at work'
+      : f.kind === 'runs'
+        ? f.hides > 0
+          ? `Hide ${many(f.hides, 'headless run')}`
+          : 'List none of the headless runs'
+        : f.hides > 0
+          ? `Hide ${many(f.hides, 'answered side conversation')}`
+          : 'List only the side conversation answering';
+  return head ? what : `${what} of ${f.title}`;
+}
+
+/** What a side conversation is called in a list: what it was first asked. */
+export function sideTitle(g: Pick<SideGlance, 'question'>): string {
+  return g.question || 'A side conversation';
 }
 
 /**

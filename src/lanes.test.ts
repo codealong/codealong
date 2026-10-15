@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, seenable, sessionFlag, sessionHeadline, sessionPrs, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
-import type { Lane, Pr, PrItem, Session } from './types';
+import type { Lane, Pr, PrItem, Session, SideGlance } from './types';
 
 const NOW = 1_790_200_000_000;
 const DAY = 86_400_000;
@@ -532,5 +532,53 @@ describe('waitsInBackground', () => {
     expect(laneWaits(fx.lane({ glyph: 'working', sessions: [waiting] }))).toBe(true);
     expect(laneWaits(fx.lane({ glyph: 'working', sessions: [waiting, busy] }))).toBe(false);
     expect(laneWaits(fx.lane({ glyph: 'needs', sessions: [waiting] }))).toBe(false);
+  });
+});
+
+describe('a session’s side conversations under it', () => {
+  const glance = (id: string, running: boolean): SideGlance => ({ id, question: id, asked: 1, running, open: running, startedAt: NOW, lastAt: NOW });
+  const list = [glance('answering', true), glance('answered', false)];
+
+  it('lists the one answering, as a helper at work is, and every one where you asked', () => {
+    expect(sidesListed(list, 'a', new Set()).map((g) => g.id)).toEqual(['answering']);
+    expect(sidesListed(list, 'a', new Set([sidesShownKey('a')])).map((g) => g.id)).toEqual(['answering', 'answered']);
+    // Asking for another session's, or for this one's helpers, lists no more of them.
+    expect(sidesListed(list, 'a', new Set([sidesShownKey('b'), 'a'])).map((g) => g.id)).toEqual(['answering']);
+    expect(sidesListed(undefined, 'a', new Set([sidesShownKey('a')]))).toEqual([]);
+  });
+});
+
+describe('folding what’s listed in full under a session', () => {
+  const count = (count: number, working = 0, waiting = 0) => ({ count, working, waiting });
+  const counts = {
+    helpers: (k: string) => (k === 'boss' ? count(9, 1, 1) : k === 'helper' ? count(2) : undefined),
+    runs: (k: string) => (k === 'boss' ? count(40, 3, 1) : undefined),
+    sides: (k: string) => (k === 'boss' ? count(6, 1) : undefined),
+  };
+  const members = [
+    { key: 'boss', title: 'The boss' },
+    { key: 'helper', title: 'Review PR 7' },
+  ];
+
+  it('offers a way back from each kind listed in full, saying how many leave the list', () => {
+    const shown = new Set(['boss', runsShownKey('boss'), sidesShownKey('boss'), 'helper']);
+    const folds = foldsOf(members, shown, counts);
+    expect(folds.map((f) => [f.kind, f.key, f.hides])).toEqual([
+      ['helpers', 'boss', 7],
+      ['runs', 'boss', 39],
+      ['sides', 'boss', 5],
+      ['helpers', 'helper', 2],
+    ]);
+    expect(folds.map((f) => foldWords(f, f.key === 'boss'))).toEqual(['Hide 7 finished helpers', 'Hide 39 headless runs', 'Hide 5 answered side conversations', 'Hide 2 finished helpers of Review PR 7']);
+  });
+
+  it('offers none where nothing is listed in full, or there are none of the kind', () => {
+    expect(foldsOf(members, new Set(), counts)).toEqual([]);
+    expect(foldsOf(members, new Set([sidesShownKey('helper'), runsShownKey('helper')]), counts)).toEqual([]);
+  });
+
+  it('says what it does when nothing would leave the list', () => {
+    expect(foldWords({ kind: 'helpers', key: 'boss', title: 'The boss', hides: 0 }, true)).toBe('List only the helpers at work');
+    expect(foldWords({ kind: 'sides', key: 'boss', title: 'The boss', hides: 1 }, true)).toBe('Hide 1 answered side conversation');
   });
 });

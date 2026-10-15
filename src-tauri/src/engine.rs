@@ -182,6 +182,8 @@ pub enum Msg {
     DismissTodoHint(String),
     /// A session Codealong runs changed in a way the board shows (acp.rs).
     Hosted,
+    /// A side conversation was asked, answered, ended, closed or forgotten (side.rs `glances`).
+    Sides,
     /// A read of a folder's files came back after the scan that asked for it went on (held.rs).
     Landed,
     /// The servers listening in worktrees changed (previews.rs).
@@ -344,6 +346,11 @@ impl Handle {
     /// (claude/asks.rs).
     pub fn hosted_changed(&self) {
         let _ = self.tx.send(Msg::Hosted);
+    }
+
+    /// What the board lists of the side conversations may have changed (side.rs `init`).
+    pub fn sides_changed(&self) {
+        let _ = self.tx.send(Msg::Sides);
     }
 
     pub fn refresh_usage(&self) {
@@ -2055,7 +2062,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.load_reviews();
                     self.dirty = true;
                 }
-                Ok(Msg::Hosted) | Ok(Msg::Read) => self.dirty = true,
+                Ok(Msg::Hosted) | Ok(Msg::Read) | Ok(Msg::Sides) => self.dirty = true,
                 Ok(Msg::SetArchived(keys, archived, reply)) => {
                     let now = now_ms();
                     for key in &keys {
@@ -3261,6 +3268,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.notices.extend(stuck);
         board.usage = usage;
         board.training = self.training.list(&self.cfg.accounts);
+        board.sides = crate::side::glances();
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;

@@ -19,6 +19,7 @@ import {
   toggleShown,
   sessionItemOf,
   showingHelper,
+  sideCounts,
   prIn,
   prInDone,
   prInFilter,
@@ -42,8 +43,8 @@ import { bayOf, runsShownKey } from './lanes';
 import { ALL_PROJECTS } from './quick';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
-import type { Lane, Pr, ProjectSummary, Session } from './types';
-import { helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
+import type { Lane, Pr, ProjectSummary, Session, SideGlance } from './types';
+import { familiesOf, helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
 
 const NOW = fx.NOW;
 const DAY = 86_400_000;
@@ -633,6 +634,37 @@ describe('counts', () => {
       [null, 1],
       ['b1', 2],
       ['c2', 0],
+    ]);
+  });
+});
+
+describe('sideCounts', () => {
+  const glance = (id: string, over: Partial<SideGlance> = {}): SideGlance => ({ id, question: `q ${id}`, asked: 1, running: false, open: false, startedAt: NOW - 1000, lastAt: NOW - 500, ...over });
+
+  it('counts each session’s side conversations as its helpers are, the one answering first and at work', () => {
+    const counts = sideCounts({ a: [glance('new'), glance('mid', { running: true, open: true, asked: 3 }), glance('old', { question: '' })], b: [] });
+    const a = counts.get('a')!;
+    expect([a.count, a.working, a.waiting]).toEqual([3, 1, 0]);
+    expect(a.each.map((g) => [g.key, g.title, g.status])).toEqual([
+      ['mid', 'q mid', 'working'],
+      ['new', 'q new', 'idle'],
+      ['old', 'A side conversation', 'idle'],
+    ]);
+    // A session with none has no chip.
+    expect(counts.has('b')).toBe(false);
+    expect(sideCounts(undefined).size).toBe(0);
+  });
+});
+
+describe('familiesOf', () => {
+  it('takes a section’s rows a session at a time, with the rows nested under it', () => {
+    const l = lane('l');
+    const row = (key: string, nested = false): SessionItem => ({ ...item(l, session(key)), nested });
+    const fams = familiesOf([row('a'), row('a1', true), row('a2', true), row('b'), row('c'), row('c1', true)]);
+    expect(fams.map((f) => [f.head.session.key, f.kids.map((k) => k.session.key)])).toEqual([
+      ['a', ['a1', 'a2']],
+      ['b', []],
+      ['c', ['c1']],
     ]);
   });
 });

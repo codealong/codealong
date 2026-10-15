@@ -226,6 +226,9 @@ window.__TAURI_INTERNALS__ = {
         }
         if (all[4]) board = withInsights(board, all[4]);
         if (window.__PREVIEW_EMBLEMS__) board = withEmblems(board);
+        // Once a check keeps side conversations here (`window.__sides`, `window.__past`), the
+        // board lists those, as the engine lists what it keeps (side.rs `glances`).
+        if (window.__sides || window.__past) board.sides = sideGlances();
         if (all[3]) board.jev = Object.assign({ model: 'jev-latest', quick_panel: false, sessions: false, todos: false, pull_requests: false }, board.jev, { quick_panel: true });
         return all[2] ? withUsage(board, all[2]) : board;
       });
@@ -603,11 +606,15 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'side_ask' || cmd === 'pr_side_ask') {
       window.__sides = window.__sides || {};
       window.__sideIds = (window.__sideIds || 0) + 1;
-      var side = window.__sides[args.key] || { id: 'side-' + window.__sideIds, key: args.key, turns: [], running: false, ended: false, account: args.account };
-      side = { id: side.id, key: side.key, turns: side.turns.concat([{ question: args.text, answer: '', done: false, at: Date.now() }]), running: true, ended: false, account: side.account };
+      var side = window.__sides[args.key] || { id: 'side-' + window.__sideIds, key: args.key, turns: [], running: false, ended: false, account: args.account, startedAt: Date.now() };
+      side = { id: side.id, key: side.key, turns: side.turns.concat([{ question: args.text, answer: '', done: false, at: Date.now() }]), running: true, ended: false, account: side.account, startedAt: side.startedAt };
       window.__sides[args.key] = side;
-      // The engine tells every window of the question, the one that asked included.
-      setTimeout(function () { window.__emit('side', side); }, 0);
+      // The engine tells every window of the question, the one that asked included, and makes
+      // the board again, which lists it.
+      setTimeout(function () {
+        window.__emit('side', side);
+        window.__pushSides();
+      }, 0);
       return Promise.resolve(side);
     }
     if (cmd === 'side_get') return Promise.resolve((window.__sides || {})[(args || {}).key] || null);
@@ -618,7 +625,10 @@ window.__TAURI_INTERNALS__ = {
         window.__past.push({ id: open.id, key: open.key, title: '', startedAt: Date.now(), lastAt: Date.now(), turns: open.turns.map(function (t) { return t.done ? t : Object.assign({}, t, { done: true, error: 'Closed before it answered.' }); }) });
         delete window.__sides[open.key];
         // The engine tells every window it's closed, once it's kept.
-        setTimeout(function () { window.__emit('side', { id: open.id, key: open.key, turns: [], running: false, ended: false }); }, 0);
+        setTimeout(function () {
+          window.__emit('side', { id: open.id, key: open.key, turns: [], running: false, ended: false });
+          window.__pushSides();
+        }, 0);
       }
       return Promise.resolve(null);
     }
@@ -627,6 +637,7 @@ window.__TAURI_INTERNALS__ = {
     }
     if (cmd === 'side_forget') {
       window.__past = (window.__past || []).filter(function (k) { return k.id !== (args || {}).id; });
+      setTimeout(window.__pushSides, 0);
       return Promise.resolve(null);
     }
     // A side conversation popped out into a window of its own: no window opens in the preview,
@@ -738,6 +749,32 @@ window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
   unregisterListener: function (event, eventId) {
     unlistened[eventId] = true;
   },
+};
+// The side conversations a check keeps here (`window.__sides`, open, and `window.__past`, kept),
+// as the board lists them (side.rs `glances`): by session, the latest started first, an open one
+// in place of what's kept of it.
+function sideGlances() {
+  var by = {};
+  var open = window.__sides || {};
+  var first = function (turns) { return ((turns[0] || {}).question || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean)[0] || ''; };
+  var add = function (key, g) { (by[key] = by[key] || []).push(g); };
+  (window.__past || []).forEach(function (k) {
+    if (open[k.key] && open[k.key].id === k.id) return;
+    add(k.key, { id: k.id, question: first(k.turns), asked: k.turns.length, running: false, open: false, startedAt: k.startedAt, lastAt: k.lastAt });
+  });
+  Object.keys(open).forEach(function (key) {
+    var s = open[key];
+    if (!s.turns.length) return;
+    var at = s.turns.reduce(function (m, t) { return Math.max(m, t.at || 0); }, 0);
+    add(key, { id: s.id, question: first(s.turns), asked: s.turns.length, running: !!s.running, open: true, startedAt: s.startedAt || at, lastAt: at });
+  });
+  Object.keys(by).forEach(function (key) { by[key].sort(function (a, b) { return b.startedAt - a.startedAt; }); });
+  return by;
+}
+// The board again, as the engine makes it when what it lists of the side conversations changes:
+// a check calls it after telling of an answer (`window.__emit('side', …)`) that ends one.
+window.__pushSides = function () {
+  return window.__TAURI_INTERNALS__.invoke('get_board').then(function (b) { window.__emit('board', b); });
 };
 // Pushes an event to the page's listeners, as the engine's emit would: `window.__emit('board', b)`.
 window.__emit = function (event, payload) {

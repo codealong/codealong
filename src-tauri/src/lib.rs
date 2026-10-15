@@ -1996,12 +1996,16 @@ pub fn run() {
                     }
                 });
             }
-            // A side conversation's answer, as its copy writes it, for the windows showing its session.
+            // A side conversation's answer, as its copy writes it, for the windows showing its
+            // session; the board again when what it lists of them changes.
             {
-                let app = app.handle().clone();
-                side::init(move |s| {
-                    let _ = app.emit("side", s);
-                });
+                let (app, engine) = (app.handle().clone(), engine.clone());
+                side::init(
+                    move |s| {
+                        let _ = app.emit("side", s);
+                    },
+                    move || engine.sides_changed(),
+                );
             }
             app.manage(peers);
             server::serve(engine.clone(), app.state::<peers::Peers>().inner().clone(), app.handle().clone());

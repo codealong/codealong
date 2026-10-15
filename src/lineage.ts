@@ -8,8 +8,8 @@
 // the cards at their sides: the sides that face each other when there's room between them, else
 // both on one side, bowing out past the cards.
 
-import type { Placed } from './lanes';
-import type { Session, SessionOrigin } from './types';
+import { sideTitle, type Placed } from './lanes';
+import type { Board, Session, SessionOrigin, SideGlance } from './types';
 
 export interface Pt {
   x: number;
@@ -111,19 +111,48 @@ export function cameWord(how: KinHow): string {
 /** A session on the board and how it came of another, or that one of it. */
 export type Kin = Placed & { how: KinHow };
 
-/** Where a session came from and what came of it, as far as the board has them. */
+/** Where a session came from and what came of it, as far as the board has them: the sessions
+ *  (`to`), the headless runs its commands started apart from them (`runs`), since they come by the
+ *  hundred, and the side conversations asked about it (`sides`, `Board.sides`), which aren't
+ *  sessions. */
 export interface Lineage {
   from: Kin | null;
   to: Kin[];
+  runs: Kin[];
+  sides: SideGlance[];
 }
 
-/** A session's lineage, looked up among the board's sessions where they live (`sessionHomes`). */
-export function lineageOf(session: Session, homes: Map<string, Placed>): Lineage {
+/** A session's lineage, looked up among the board's sessions where they live (`sessionHomes`),
+ *  and its side conversations among the board's (`sides`). */
+export function lineageOf(session: Session, homes: Map<string, Placed>, sides?: Board['sides']): Lineage {
   const from = session.origin ? homes.get(session.origin.key) : undefined;
   return {
     from: from && session.origin ? { ...from, how: kinHow(session.origin.how, from.session, session) } : null,
     to: cameOf(session.key, homes.values()).map((p) => ({ ...p, how: kinHow(p.session.origin?.how ?? 'started', session, p.session) })),
+    runs: [...homes.values()].filter((p) => p.session.headless && p.session.origin?.key === session.key && p.session.helper?.parent !== session.key).map((p) => ({ ...p, how: 'started' as const })),
+    sides: sides?.[session.key] ?? [],
   };
+}
+
+/** One line under a session's title for what came of it (SessionHeader.tsx): a session, its
+ *  headless runs together (the latest first), or a side conversation, with when it started. */
+export type CameLine = { kind: 'kin'; kin: Kin; at: number } | { kind: 'runs'; runs: Kin[]; at: number } | { kind: 'side'; side: SideGlance; at: number };
+
+/** What came of a session, a line each, the latest started first: it's the one the header shows,
+ *  and the rest open under it in the order they started, so the list holds still as they work. */
+export function cameLines(lineage: Pick<Lineage, 'to' | 'runs' | 'sides'> | null | undefined): CameLine[] {
+  const started = (s: Session) => s.startedAt ?? s.lastPromptAt;
+  const lines: CameLine[] = [...(lineage?.to ?? []).map((kin): CameLine => ({ kind: 'kin', kin, at: started(kin.session) })), ...(lineage?.sides ?? []).map((side): CameLine => ({ kind: 'side', side, at: side.startedAt }))];
+  const runs = [...(lineage?.runs ?? [])].sort((a, b) => started(b.session) - started(a.session));
+  if (runs.length > 0) lines.push({ kind: 'runs', runs, at: started(runs[0].session) });
+  return lines.sort((a, b) => b.at - a.at);
+}
+
+/** A line of what came of a session in words, for the tooltip that lists the ones folded away. */
+export function cameLineWords(line: CameLine): string {
+  if (line.kind === 'kin') return `${cameWord(line.kin.how)} ${line.kin.session.title}`;
+  if (line.kind === 'side') return `On the side: ${sideTitle(line.side)}`;
+  return line.runs.length === 1 ? 'A headless run' : `${line.runs.length} headless runs`;
 }
 
 /** The sessions that came of `key`, among `sessions`: forks of it, ones its agent started, and its

@@ -130,6 +130,11 @@ pub struct Board {
     /// accounts read so far, in config order. This Mac's own: not sent to other devices.
     #[serde(default)]
     pub training: Vec<crate::training::Training>,
+    /// The side conversations asked here (side.rs `glances`), kept and open, by the key of the
+    /// session or PR they're about, the latest started first. This Mac's own: not sent to other
+    /// devices.
+    #[serde(default)]
+    pub sides: std::collections::BTreeMap<String, Vec<crate::side::Glance>>,
     /// Pinned session keys, in order.
     pub pinned: Vec<String>,
     /// Pinned worktrees (lane ids), in order.

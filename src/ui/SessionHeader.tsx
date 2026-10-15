@@ -3,18 +3,20 @@
 // it over the conversation in all three). It keeps to a few lines so the conversation has the room:
 // the title with the ways to open it and act on it (its folder in your terminal and your editors
 // among them), one line of where it stands and where it works, and one of the PRs it worked on
-// (each one's card on hover), the latest page on the web it made (ArtifactBits.tsx), the todo
-// it's on, and how many side conversations it has (SideStrip.tsx), which shows them above the
-// box. The rest is in Details and the ⋯ menu.
+// (each one's card on hover), the latest page on the web it made (ArtifactBits.tsx) and the todo
+// it's on. The rest is in Details and the ⋯ menu.
 //
 // Its account (the harness's name alone didn't say which of its accounts) is under the reply box,
 // beside where you write to it (SessionReply.tsx); where there's no box, as for a session on a
 // device that can't be reached, it ends the line of where it stands, as it does on a row.
 //
 // A session that came of another (a fork, or started by its agent) names it in a line over the
-// title, and the latest session that came of it hangs under the title with its status; a quiet
-// "+N more" beside it lists the rest. A click shows one, a right-click gives its menu. The pages
-// it made go the same way under its links: the latest one's chip, and "+N more" for the rest.
+// title, and the latest of what came of it hangs under the title with its status; a quiet
+// "+N more" beside it lists the rest (lineage.ts `cameLines`). What came of it is the sessions
+// it was forked into and the ones its agent started, its helpers among them; its headless runs,
+// together on one line with how many; and its side conversations (SideStrip.tsx). A click shows
+// a session, a right-click gives its menu; a side conversation shows above the box. The pages it
+// made go the same way under its links: the latest one's chip, and "+N more" for the rest.
 //
 // A session Codealong runs lives in the main window's panel, so there its Open button doesn't
 // offer to show what's already showing: it leads with its folder in your editor. Elsewhere it
@@ -34,13 +36,14 @@ import { below } from '../contextMenu';
 import { folderTargets, opensInEditor, useEditorIcons } from '../editors';
 import { absolute, ago, agoPhrase, duration, middleTruncate, tildePath } from '../format';
 import { sessionName, sessionPlace } from '../harness';
-import { cutOffWords, limitWords, seenable } from '../lanes';
-import { cameWord, originWord, type Kin, type Lineage } from '../lineage';
+import { cutOffWords, limitWords, seenable, sideTitle } from '../lanes';
+import { cameLines, cameLineWords, cameWord, originWord, type CameLine, type Kin, type Lineage } from '../lineage';
 import { CHORDS, chordKeys, type SessionActions } from '../menus';
+import { showSide } from '../side';
 import { untilWords } from '../snooze';
 import { sessionTokens } from '../api';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
-import type { Board, DeviceView, Lane, Pr, Session, SessionSpent, Target, Todo } from '../types';
+import type { Board, DeviceView, Lane, Pr, Session, SessionSpent, SideGlance, Target, Todo } from '../types';
 import { panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { ArtifactChip, ArtifactList } from './ArtifactBits';
 import { DeviceBadge } from './DeviceBadge';
@@ -51,7 +54,6 @@ import { PreviewChip } from './PreviewBits';
 import { PrChipCard } from './PrLink';
 import { AccountLabel, BranchLabel, Button, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
-import { SidesChip } from './SideStrip';
 import { TodoGlyph } from './TodoBits';
 
 /** PRs shown before a "+N": a long session can have made many. */
@@ -191,6 +193,54 @@ function KinRow({ kin, now, parent = false, onShow, onMenu }: { kin: Kin; now: n
   );
 }
 
+/** What keeps a line of what came of a session apart from the others. */
+const cameKey = (line: CameLine) => (line.kind === 'kin' ? line.kin.session.key : line.kind === 'side' ? `side:${line.side.id}` : 'runs');
+
+/** The headless runs a session's commands started, on one line under its title: the glyph of
+ *  the latest, or the working one while any works, how many, and how long since the latest moved.
+ *  A click shows the latest, which lists them all under the session in Sessions. */
+function RunsRow({ runs, now, onShow }: { runs: Kin[]; now: number; onShow?: (lane: Lane, session: Session) => void }) {
+  const latest = runs[0];
+  const working = runs.filter((k) => k.session.status === 'working').length;
+  const t = latest.session;
+  const what = runs.length === 1 ? 'A headless run' : `${runs.length} headless runs`;
+  return (
+    <button
+      type="button"
+      className="ca-sessinsp-kin is-runs"
+      title={`${what} its commands started (claude -p, codex exec)${working > 0 ? `, ${working} at work` : ''}: what ran them reads what they say. Click to show the latest, “${t.title}”, with the rest listed under this session.`}
+      onClick={() => onShow?.(latest.lane, t)}
+    >
+      <span className="ca-sessinsp-elbow" aria-hidden="true" />
+      <SessionGlyph s={working > 0 ? { status: 'working' } : t} size={11} />
+      <span className="ca-sessinsp-kin-title">{runs.length === 1 ? '1 headless run' : `${runs.length} headless runs`}</span>
+      <Icon name="robot" size={11} />
+      <span className="ca-sessinsp-kin-age">{ago(t.lastActivity, now)}</span>
+    </button>
+  );
+}
+
+/** A side conversation asked about the session (`Board.sides`), under its title as what came of
+ *  it: answering or done, what it was first asked, and when it was last asked. A click shows it
+ *  above the box (or brings its window forward, out in one). */
+function SideKinRow({ sessionKey, side: g, now }: { sessionKey: string; side: SideGlance; now: number }) {
+  const asked = g.asked === 1 ? '1 question' : `${g.asked} questions`;
+  return (
+    <button
+      type="button"
+      className="ca-sessinsp-kin is-side"
+      title={`On the side: ${g.question}\n${asked}, ${g.running ? 'answering now' : 'answered'} by a throwaway copy of this conversation, which the session never saw. Click to show it above the box.`}
+      onClick={() => showSide(sessionKey, g)}
+    >
+      <span className="ca-sessinsp-elbow" aria-hidden="true" />
+      <SessionGlyph s={{ status: g.running ? 'working' : 'idle' }} size={11} />
+      <span className="ca-sessinsp-kin-title">{sideTitle(g)}</span>
+      <Icon name="help" size={11} />
+      <span className="ca-sessinsp-kin-age">{ago(g.lastAt, now)}</span>
+    </button>
+  );
+}
+
 /** The PR an automatic review's session reviews (`Session.helper`), over its title where a
  *  helper's session names the one it works for (`KinRow`): a click opens the PR on GitHub. */
 function ReviewOf({ pr, prs, onOpenPr }: { pr: string; prs: Pr[]; onOpenPr?: (pr: Pr) => void }) {
@@ -255,7 +305,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const artifacts = s.artifacts ?? [];
   // The latest started first: it's the one shown, and the rest open under it in the order they
   // started, so the list holds still as they work.
-  const cameOf = useMemo(() => [...(lineage?.to ?? [])].sort((a, b) => (b.session.startedAt ?? b.session.lastPromptAt) - (a.session.startedAt ?? a.session.lastPromptAt)), [lineage]);
+  const came = useMemo(() => cameLines(lineage), [lineage]);
   const listed = useMemo(() => panelTodos(todos ?? []), [todos]);
   // The todo it's on: one in progress, else one still to do. Done ones wait behind "+N".
   const current = listed.find((t) => t.status !== 'done');
@@ -326,27 +376,26 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           {onClose && <Button variant="ghost" size="sm" icon="x" aria-label="Close" title={closeTitle ?? 'Close: it leaves the desktop (⌘W)'} onClick={onClose} />}
         </div>
       </div>
-      {cameOf.length > 0 && (
-        <div className="ca-sessinsp-kids" role="list" aria-label="Sessions that came of this one">
-          {(allKin ? cameOf : cameOf.slice(0, 1)).map((k, i) => (
-            <div key={k.session.key} className="ca-sessinsp-kid" role="listitem">
-              <KinRow kin={k} now={now} onShow={onShowSession} onMenu={onSessionMenu} />
-              {i === 0 && cameOf.length > 1 && (
+      {came.length > 0 && (
+        <div className="ca-sessinsp-kids" role="list" aria-label="What came of this session">
+          {(allKin ? came : came.slice(0, 1)).map((line, i) => (
+            <div key={cameKey(line)} className="ca-sessinsp-kid" role="listitem">
+              {line.kind === 'kin' ? (
+                <KinRow kin={line.kin} now={now} onShow={onShowSession} onMenu={onSessionMenu} />
+              ) : line.kind === 'runs' ? (
+                <RunsRow runs={line.runs} now={now} onShow={onShowSession} />
+              ) : (
+                <SideKinRow sessionKey={s.key} side={line.side} now={now} />
+              )}
+              {i === 0 && came.length > 1 && (
                 <button
                   type="button"
                   className="ca-sessinsp-kids-more"
                   aria-expanded={allKin}
-                  title={
-                    allKin
-                      ? 'Show only the latest'
-                      : cameOf
-                          .slice(1)
-                          .map((x) => `${cameWord(x.how)} ${x.session.title}`)
-                          .join('\n')
-                  }
+                  title={allKin ? 'Show only the latest' : came.slice(1).map(cameLineWords).join('\n')}
                   onClick={() => setAllKin(!allKin)}
                 >
-                  {allKin ? 'fewer' : `+${cameOf.length - 1} more`}
+                  {allKin ? 'fewer' : `+${came.length - 1} more`}
                 </button>
               )}
             </div>
@@ -466,7 +515,6 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             {current ? `+${listed.length - 1}` : `${listed.length} done ${listed.length === 1 ? 'todo' : 'todos'}`}
           </button>
         )}
-        <SidesChip session={s} />
       </div>
       {allArtifacts && artifacts.length > 1 && <ArtifactList artifacts={artifacts.slice(1)} now={now} />}
       {allTodos && (

@@ -141,7 +141,8 @@
 .ca-chip.ca-suggestedchip,
 .ca-chip.ca-helperchip,
 .ca-chip.ca-helperschip,
-.ca-chip.ca-runschip {
+.ca-chip.ca-runschip,
+.ca-chip.ca-sideschip {
   padding: 0 7px 0 6px;
   font: var(--type-caption-heading);
   color: var(--ink-3);
@@ -168,7 +169,8 @@
 }
 /* Asked to list them all under the row: ringed, as a toggle that's on. */
 .ca-chip.ca-helperschip.is-shown,
-.ca-chip.ca-runschip.is-shown {
+.ca-chip.ca-runschip.is-shown,
+.ca-chip.ca-sideschip.is-shown {
   box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
@@ -221,6 +223,35 @@
   height: calc(50% - 0.75px);
   border-bottom: 1.5px solid var(--line-strong);
   border-bottom-left-radius: 5px;
+}
+/* A side conversation under its session (LaneRow.tsx `SideRow`): a helper's row, its icon in the
+   quiet ink, and how far it went quieter after what it was asked, giving way to it last. */
+.ca-lane.is-agent.is-side .ca-agentrow-line1 > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-sideline-meta {
+  flex: 0 1000000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+/* The way back from listing them all (LaneRow.tsx `FoldRow`): the thread's end, a chevron where a
+   glyph would be, and a link. It isn't a row to select, so it doesn't light up under the pointer. */
+.ca-lane.is-agent.is-fold {
+  min-height: 28px;
+}
+.ca-lane.is-agent.is-fold:hover {
+  background: transparent;
+}
+.ca-lane.is-agent.is-fold .ca-seg-glyph {
+  color: var(--ink-3);
+}
+.ca-foldrow-btn {
+  align-self: flex-start;
 }
 .ca-agentrow-line1 {
   display: flex;

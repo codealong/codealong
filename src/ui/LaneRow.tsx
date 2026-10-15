@@ -10,11 +10,11 @@ import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../format';
-import { branchLabel, helperLine, startedOf, worktreeName, type AgentItem, type WorktreeRow } from '../lanes';
+import { branchLabel, foldWords, helperLine, sideTitle, startedOf, worktreeName, type AgentItem, type Fold, type WorktreeRow } from '../lanes';
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
-import type { HelperCount, RunCount } from '../boardLists';
-import type { GitInfo, Lane, Session, Suggestions, Todo } from '../types';
+import type { HelperCount, RunCount, SideCount } from '../boardLists';
+import type { GitInfo, Lane, Session, SideGlance, Suggestions, Todo } from '../types';
 import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, selects, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
@@ -332,6 +332,12 @@ interface SessionLinesProps {
   runs?: RunCount;
   runsShown?: boolean;
   onToggleRuns?: () => void;
+  /** Its side conversations, and whether all of them are listed under it, which `onToggleSides`
+   *  turns on and off; what their chip's card does with one. */
+  sides?: SideCount;
+  sidesShown?: boolean;
+  onToggleSides?: () => void;
+  sideActions?: HelperActions;
 }
 
 /**
@@ -339,7 +345,7 @@ interface SessionLinesProps {
  * waits on you for, and what it's doing or said last), then where and why (`where`, its snooze,
  * quiet, todo and Jev's read, then its account), with `end` at the second line's end.
  */
-function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns }: SessionLinesProps) {
+function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions }: SessionLinesProps) {
   return (
     <>
       <div className="ca-agentrow-line1">
@@ -351,6 +357,7 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, 
           <HelperChip session={s} />
           <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
           <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
+          <SidesChip sides={sides} shown={sidesShown} onToggle={onToggleSides} actions={sideActions} now={now} />
           <SnoozeChip until={s.snoozedUntil} now={now} />
           <QuietChip quiet={s.quiet} />
           <SuggestedChip suggestions={s.suggestions} />
@@ -448,6 +455,13 @@ interface AgentRowProps {
   runs?: RunCount;
   runsShown?: boolean;
   onToggleRuns?: () => void;
+  /** Its side conversations (boardLists.ts `sideCounts`), and whether all of them are listed
+   *  under it, which their chip's double-click turns on and off (`onToggleSides`); what their
+   *  chip's card does with one. */
+  sides?: SideCount;
+  sidesShown?: boolean;
+  onToggleSides?: () => void;
+  sideActions?: HelperActions;
   /** A helper or headless run listed under the session it works for: set in from the left, on
    *  one line. */
   nested?: boolean;
@@ -533,6 +547,33 @@ export function RunsChip({ runs: r, shown = false, onToggle, actions, now }: { r
   );
 }
 
+/** The chip on a session's row for its side conversations (boardLists.ts `sideCounts`): how many,
+ *  with the working glyph while one answers. Resting the pointer on it brings up the helpers' card
+ *  for them (HelpersCard.tsx, `kind` sides), each to show above the session's box; where there's
+ *  no card (`actions`), how many and whether one answers is in its tooltip. A double-click lists
+ *  them all under the row, or only the one answering again (`shown`). */
+export function SidesChip({ sides: c, shown = false, onToggle, actions, now }: { sides: SideCount | undefined; shown?: boolean; onToggle?: () => void; actions?: HelperActions; now: number }) {
+  const card = useHoverCard();
+  if (!c || c.count === 0) return null;
+  const what = c.count === 1 ? 'A side conversation' : `${c.count} side conversations`;
+  const at = c.working > 0 ? ', one answering' : '';
+  const how = onToggle ? `\nDouble-click to list ${shown ? 'only the one answering' : 'them all'} under it.` : '';
+  const chip = (
+    <Chip className={cx('ca-sideschip', shown && 'is-shown')} title={actions ? undefined : `${what}${at}: questions about it that a throwaway copy answered, which the session never saw.${how}`} act={onToggle} inRow>
+      <Icon name="help" size={12} />
+      {c.working > 0 && <SessionGlyph s={{ status: 'working' }} size={10} />}
+      {c.count}
+    </Chip>
+  );
+  if (!actions) return chip;
+  return (
+    <span ref={(el) => void (card.anchor.current = el)} className="ca-helperschip-anchor" onMouseEnter={card.show} onMouseLeave={card.hide}>
+      {chip}
+      {card.open && <HelpersCard card={card} helpers={c} now={now} shown={shown} onToggle={onToggle} actions={actions} kind="sides" />}
+    </span>
+  );
+}
+
 /** How many helpers' glyphs a session's chip draws before it says how many more there are. */
 const HELPER_GLYPHS = 3;
 
@@ -593,7 +634,7 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * line either way, and says only what the session's row doesn't: its worktree only when it works
  * in another, and no PR or diff.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, nested, elsewhere }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere }: AgentRowProps) {
   const started = age === 'started';
   const oneLine = slim || nested;
   const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />;
@@ -622,6 +663,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
               <HelperChip session={s} nested={nested} />
               <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
               <RunsChip runs={runs} shown={runsShown} onToggle={onToggleRuns} actions={helperActions} now={now} />
+              <SidesChip sides={sides} shown={sidesShown} onToggle={onToggleSides} actions={sideActions} now={now} />
               <SnoozeChip until={s.snoozedUntil} now={now} />
               <QuietChip quiet={s.quiet} />
               <SuggestedChip suggestions={s.suggestions} />
@@ -653,6 +695,10 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             runs={runs}
             runsShown={runsShown}
             onToggleRuns={onToggleRuns}
+            sides={sides}
+            sidesShown={sidesShown}
+            onToggleSides={onToggleSides}
+            sideActions={sideActions}
           />
         </div>
       )}
@@ -672,3 +718,64 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
 }
 
 export const AgentRow = memoRow(AgentRowView);
+
+interface SideRowProps {
+  /** The session it's about. */
+  sessionKey: string;
+  side: SideGlance;
+  now: number;
+  /** Shows it: its session selected, and it above the session's box. */
+  onShow: (sessionKey: string, side: SideGlance) => void;
+}
+
+/** A side conversation listed under its session (lanes.ts `sidesListed`), as a helper is: on
+ *  one line, its status (answering, or done), what it was first asked and how many questions it's
+ *  had, and when it was last asked. It's no session of its own, so a press shows it above its
+ *  session's box, its session selected; it has no menu and isn't picked or dragged. */
+function SideRowView({ sessionKey, side: g, now, onShow }: SideRowProps) {
+  const asked = g.asked === 1 ? '1 question' : `${g.asked} questions`;
+  return (
+    <Row
+      label={`On the side: ${sideTitle(g)}`}
+      className={cx('ca-lane', 'is-agent', 'is-slim', 'is-nested', 'is-side', g.running ? 'is-working' : 'is-idle')}
+      onSelect={(e) => {
+        if (!e.metaKey && !e.shiftKey) onShow(sessionKey, g);
+      }}
+    >
+      <div className="ca-seg ca-seg-glyph" title={g.running ? 'Answering' : 'Answered'}>
+        <SessionGlyph s={{ status: g.running ? 'working' : 'idle' }} />
+      </div>
+      <div className="ca-seg ca-seg-main">
+        <div className="ca-agentrow-line1" title={`On the side: ${g.question}\nA throwaway copy of the session's conversation ${g.running ? 'is answering' : 'answered'}; the session never sees it. Click to show it above the session's box.`}>
+          <Icon name="help" size={14} />
+          <span className="ca-agentline-title">{sideTitle(g)}</span>
+          <span className="ca-sideline-meta">{g.running ? `answering · ${asked}` : asked}</span>
+        </div>
+      </div>
+      <div className="ca-seg ca-seg-age" title={`Last asked ${absolute(g.lastAt)}`}>
+        {ago(g.lastAt, now)}
+      </div>
+    </Row>
+  );
+}
+
+export const SideRow = memoRow(SideRowView);
+
+/** The end of what's listed under a session where you asked to see every one of a kind (`Fold`,
+ *  boardLists.ts `foldsOf`): a click lists only the ones at work again, as the kind's chip's
+ *  double-click does, so the way back is in sight. `head` is whether it's for the session at the
+ *  family's head, which needs no name. */
+export function FoldRow({ fold, head, onFold }: { fold: Fold; head: boolean; onFold: (fold: Fold) => void }) {
+  return (
+    <div className="ca-lane is-agent is-slim is-nested is-fold" role="presentation">
+      <div className="ca-seg ca-seg-glyph" aria-hidden="true">
+        <Icon name="chevron-up" size={12} />
+      </div>
+      <div className="ca-seg ca-seg-main">
+        <button type="button" className="ca-linkbtn ca-foldrow-btn" onClick={() => onFold(fold)}>
+          {foldWords(fold, head)}
+        </button>
+      </div>
+    </div>
+  );
+}

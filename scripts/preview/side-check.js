@@ -5,8 +5,9 @@
 // a second question joins the first; while it shows, the box is its, and plain text asks the copy
 // rather than the session; Close ends it, keeps it, and gives the box back to the session; /side
 // alone lists the ones kept, each opens to read, Delete forgets one; Earlier beside an open one
-// lists them too; and the session's header says how many it has, which shows the only one, or the
-// list, and puts it away again. A question that can't be asked is back in the box with why, and
+// lists them too; and the session's header lists each under its title with what came of it, the
+// latest first and the rest under "+N more", a click on one showing it above the box (lineage.ts
+// `cameLines`). A question that can't be asked is back in the box with why, and
 // the box stays the side conversation's; what's typed for the side is a draft of its own, apart
 // from the session's; what another window shows above the box (local storage) makes this box the
 // side conversation's too, so ⏎ there asks the copy; and while a question's copy starts, the box
@@ -26,6 +27,8 @@
   localStorage.removeItem('codealong.draft.' + key);
   localStorage.removeItem('codealong.draft.side:' + key);
   localStorage.removeItem('codealong.sideview.' + key);
+  // None kept to start with: the board lists only the ones this check keeps.
+  window.__past = [];
   var calm = { status: 'idle', live: true, stoppable: false, stalledSince: null, asks: false };
   var failNext = false;
   // The next question waits for `release` before the engine hears it, as one does while its copy
@@ -69,8 +72,11 @@
   (async function () {
     try {
       await until(box, 20000);
-      var chip = function () { return document.querySelector('.ca-sessinsp-head .ca-sessinsp-sides'); };
-      check('no side conversation shows until one is asked', !strip() && !chip());
+      // The header's lines for its side conversations, and its "+N more".
+      var sideLines = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp-head .ca-sessinsp-kin.is-side')); };
+      var sideLine = function (text) { return sideLines().filter(function (b) { return b.textContent.indexOf(text) >= 0; })[0]; };
+      var more = function () { return document.querySelector('.ca-sessinsp-head .ca-sessinsp-kids-more'); };
+      check('no side conversation shows until one is asked', !strip() && sideLines().length === 0);
       type(box(), '/s');
       await wait(50);
       var listed = Array.prototype.map.call(document.querySelectorAll('.ca-slash-row'), function (r) { return r.textContent; });
@@ -135,17 +141,18 @@
       await until(function () { return calls('send_to_session').length > sends; }, 5000);
       check('which plain text goes to again', calls('side_ask').length === 3);
 
-      await until(function () { return chip() && chip().textContent === '1 side conversation'; }, 5000);
-      check('the header says the session has one kept', chip().getAttribute('aria-pressed') === 'false');
-      chip().click();
+      await until(function () { return sideLines().length === 1; }, 5000);
+      check('the header names the one kept under its title', sideLines()[0].textContent.indexOf('why a queue?') >= 0 && !sideLines()[0].querySelector('.ca-glyph--working'), sideLines()[0].textContent);
+      sideLines()[0].click();
       await until(function () { return turns().length === 3; }, 5000);
-      check('which a click shows, to read', turns()[0].indexOf('why a queue?') === 0 && strip().textContent.indexOf('closed') > 0 && chip().getAttribute('aria-pressed') === 'true', strip().textContent.slice(0, 120));
-      chip().click();
+      check('which a click shows, to read', turns()[0].indexOf('why a queue?') === 0 && strip().textContent.indexOf('closed') > 0, strip().textContent.slice(0, 120));
+      headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
-      check('and another puts away', chip().getAttribute('aria-pressed') === 'false' && calls('side_ask').length === 3);
+      check('and its Close puts away', calls('side_ask').length === 3);
 
       // What was closed is kept, with one from before.
       window.__past.push({ id: 'old', key: key, title: 'x', startedAt: Date.now() - 7200000, lastAt: Date.now() - 7200000, turns: [{ question: 'is the queue tested?\nand where?', answer: 'In `send.rs`.', tools: ['Grep · `in_order`'], done: true }] });
+      window.__pushSides();
       var sentBefore = calls('send_to_session').length;
       var askedBefore = calls('side_ask').length;
       type(box(), '/side');
@@ -155,7 +162,9 @@
       var rows = Array.prototype.map.call(strip().querySelectorAll('.ca-sidestrip-kept'), function (r) { return r.textContent; });
       check('/side alone lists the ones kept, the latest first', rows[0].indexOf('why a queue?') === 0 && rows[0].indexOf('3 questions') > 0 && rows[1].indexOf('is the queue tested?') === 0 && rows[1].indexOf('and where') < 0 && rows[1].indexOf('2h ago · 1 question') > 0, rows.join(' / '));
       check('asking and sending nothing', calls('side_ask').length === askedBefore && calls('send_to_session').length === sentBefore && box().value === '', box().value);
-      check('the header counts both, and is lit while they show', chip().textContent === '2 side conversations' && chip().getAttribute('aria-pressed') === 'true', chip().textContent);
+      // The session may have helpers and forks of its own, which come under "+N more" too.
+      await until(function () { return more() && more().title.indexOf('On the side: is the queue tested?') >= 0; }, 5000);
+      check('the header names the latest, and has the other under +N more', sideLines().length === 1 && sideLines()[0].textContent.indexOf('why a queue?') >= 0, more().title);
       check('while the list shows, the box asks on the side too', box().getAttribute('aria-placeholder') === 'Ask on the side');
       strip().querySelectorAll('.ca-sidestrip-kept')[1].click();
       await until(function () { return turns().length === 1; }, 5000);
@@ -166,7 +175,8 @@
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
       check('Close puts the list away', calls('side_close').length === 1);
-      check('the header counts the one that’s left', chip().textContent === '1 side conversation' && chip().getAttribute('aria-pressed') === 'false', chip().textContent);
+      await until(function () { return !more() || more().title.indexOf('is the queue tested?') < 0; }, 5000);
+      check('the header names the one that’s left', sideLines().length === 1 && sideLines()[0].textContent.indexOf('why a queue?') >= 0, sideLines().map(function (b) { return b.textContent; }).join(' / '));
 
       type(box(), '/side once more?');
       await wait(50);
@@ -179,11 +189,16 @@
       headButton('Close').click();
       await until(function () { return turns().length === 1; }, 5000);
       check('and Close goes back to the open one', turns()[0].indexOf('once more?') === 0 && calls('side_close').length === 1);
-      chip().click();
-      await until(function () { return strip().querySelectorAll('.ca-sidestrip-kept').length === 1; }, 5000);
-      check('with one open, the header’s count lists the ones before it', chip().getAttribute('aria-pressed') === 'true');
-      chip().click();
+      await until(function () { return more() && more().title.indexOf('why a queue?') >= 0; }, 5000);
+      check('the header names the open one first, answering', sideLines()[0].textContent.indexOf('once more?') >= 0 && !!sideLines()[0].querySelector('.ca-glyph--working'), sideLines()[0].innerHTML.slice(0, 200));
+      more().click();
+      await until(function () { return sideLines().length === 2; }, 5000);
+      sideLine('why a queue?').click();
+      await until(function () { return turns().length === 3; }, 5000);
+      check('with one open, a click on one before it shows that one to read', turns()[0].indexOf('why a queue?') === 0 && strip().textContent.indexOf('closed') > 0, strip().textContent.slice(0, 120));
+      sideLine('once more?').click();
       await until(function () { return turns().length === 1; }, 5000);
+      check('and one on the open one goes back to it', turns()[0].indexOf('once more?') === 0);
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000);
 
@@ -204,10 +219,10 @@
       check('put away, the box has the session’s draft', box().value === '', box().value);
       type(box(), 'for the session');
       await wait(50);
-      chip().click();
+      sideLines()[0].click();
       await until(aside, 5000);
       check('shown again, it has what was written for the side', box().value === 'where does it run?', box().value);
-      chip().click();
+      headButton('Close').click();
       await until(function () { return !aside(); }, 5000);
       check('and put away, what was written for the session', box().value === 'for the session', box().value);
 

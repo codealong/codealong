@@ -3,7 +3,8 @@
 // meanwhile, and Close, which ends the copy. Codealong keeps what was asked and answered, with
 // what the copy did to answer, so `/side` alone (or Earlier, beside an open one) lists the ones
 // from before, and picking one shows it to read, or to delete. None of it reaches the session.
-// The session's header says how many it has (`SidesChip`), which is the way to them that shows.
+// The session's header names each under its title, with what came of it (SessionHeader.tsx), and
+// a click on one shows it here; its row in Sessions lists the one answering (LaneRow.tsx `SideRow`).
 // What can be done with them is a row of icons at the strip's top right, each saying what it does
 // on hover.
 //
@@ -20,8 +21,8 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { prSideClose, sideClose, sideWindow } from '../api';
 import { agoPhrase } from '../format';
 import { errorText } from '../report';
-import { endSide, forgetSide, keptLine, keptSummary, showSides, takesBox, turnState, useKept, usePopped, useSide, useSideView } from '../side';
-import type { PrItem, Session, SideTurn } from '../types';
+import { endSide, forgetSide, keptLine, showSides, takesBox, turnState, useKept, usePopped, useSide, useSideView } from '../side';
+import type { PrItem, SideTurn } from '../types';
 import { Markdown } from './Markdown';
 import { Button, cx, Icon, Rich } from './primitives';
 
@@ -307,34 +308,5 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
     </Head>,
     <Turns turns={side.turns} current={side.turns.findIndex((t) => !t.done)} />,
     true,
-  );
-}
-
-/** In a session's header: how many side conversations it has, kept or open. A click shows them
- *  above its box (the list, or the only one), and another puts them away; with them out in a
- *  window of their own, it brings that forward. */
-export function SidesChip({ session }: { session: Session }) {
-  const key = session.key;
-  const side = useSide(key);
-  const view = useSideView(key);
-  const popped = usePopped(key);
-  const summary = keptSummary(useKept(key), side);
-  if (!summary) return null;
-  const { words, show } = summary;
-  const showing = popped || (!!view && view.kind !== 'starting' && !!show);
-  // Up already, so it can't fail but for a window that's gone meanwhile, which the next
-  // `side-windows` takes out of `popped`.
-  const raise = () => void sideWindow(key, true).catch(() => {});
-  return (
-    <button
-      type="button"
-      className="ca-sessinsp-sides"
-      aria-pressed={showing}
-      title={popped ? `${words} with this session, in a window of their own. Bring it forward.` : show ? (showing ? 'Put them away' : `${words} with this session, kept by Codealong. Show ${show.kind === 'past' ? 'it' : 'them'} above the box.`) : `${words} with this session: the one that’s open above the box.`}
-      onClick={() => (popped ? raise() : showSides(key, showing ? null : show))}
-    >
-      <Icon name="help" size={12} />
-      <span>{words}</span>
-    </button>
   );
 }

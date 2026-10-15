@@ -251,7 +251,7 @@ export function MainPanel(props: MainPanelProps) {
         onPrMenu={(p) => prChipMenu(lane, p)}
         todos={todoLinks.bySession.get(session.key)}
         onShowTodo={showTodoFromPanel}
-        lineage={lineageOf(session, homes)}
+        lineage={lineageOf(session, homes, board?.sides)}
         onShowSession={showSessionFromPanel}
         onSessionMenu={(l, x) => sessionMenu(l, x, 'session')}
         onMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}

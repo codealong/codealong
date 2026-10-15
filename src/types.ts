@@ -1010,6 +1010,10 @@ export interface Board {
   /** Whether each account's provider may train on what it sends (training.rs), for the accounts
    *  read so far. Absent from engines of older builds. */
   training?: Training[];
+  /** The side conversations asked on this Mac (side.rs `glances`), kept and open, by the key of
+   *  the session or PR they're about, the latest started first. Absent from engines of older
+   *  builds. */
+  sides?: Record<string, SideGlance[]>;
   /** Pinned session keys, in order. */
   pinned: string[];
   /** Pinned worktrees (lane ids), in order. */
@@ -2065,6 +2069,24 @@ export interface Side {
   ended: boolean;
   /** The account whose agent answers, where that was chosen: a PR's conversation's. */
   account?: string;
+}
+
+/** A side conversation as the board lists it (side.rs `Glance`): what it was first asked, how far
+ *  it went and whether its copy is answering, without what was said. */
+export interface SideGlance {
+  /** Its record's id (`Side.id`, `SideKept.id`). */
+  id: string;
+  /** The first line of what it was first asked. */
+  question: string;
+  /** How many questions it's been asked. */
+  asked: number;
+  /** Its copy is answering. */
+  running: boolean;
+  /** The session's open one, which shows above its box until it's closed. */
+  open: boolean;
+  startedAt: number;
+  /** When it was last asked, or what was kept of it was written. */
+  lastAt: number;
 }
 
 /** A side conversation as Codealong keeps it (`sides.json`), to read once its copy is gone: the

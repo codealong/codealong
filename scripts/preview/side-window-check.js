@@ -1,8 +1,8 @@
 // Checks a side conversation popped out into a window of its own (SideStrip.tsx, SessionReply.tsx
 // `SideReply`, Peek.tsx `side`, side.ts `usePopped`). In the bar's peek: the strip's actions are
 // icons, each named on hover; Pop out asks the engine for its window, with the keyboard, and once
-// the engine says it's out the strip leaves the box, which is the session's again; the header's
-// count brings the window forward; `/side` in the session's box still asks the copy and brings
+// the engine says it's out the strip leaves the box, which is the session's again; its line in the
+// header brings the window forward; `/side` in the session's box still asks the copy and brings
 // the window forward without the keyboard, and plain text goes to the session; and once the
 // window closes, it's back above the box, which is the side conversation's again. In the window:
 // it says what session it's about, whose title shows the session in Codealong's main window;
@@ -55,12 +55,14 @@
   };
   var past = function () {
     window.__past = [{ id: 'old', key: key, title: '', startedAt: Date.now() - 7200000, lastAt: Date.now() - 7200000, turns: [{ question: 'is the queue tested?', answer: 'In `send.rs`.', done: true }] }];
+    window.__pushSides();
   };
 
   async function inPeek() {
     past();
     await until(box, 20000);
-    var chip = function () { return q('.ca-sessinsp-head .ca-sessinsp-sides'); };
+    // The header's line for the open one, the latest.
+    var line = function () { return all('.ca-sessinsp-head .ca-sessinsp-kin.is-side').filter(function (b) { return b.textContent.indexOf('why a queue?') >= 0; })[0]; };
     await ask('/side why a queue?');
     check('the strip’s actions are icons, each named on hover', acts().length === 3 && acts().every(function (b) { return !b.textContent.trim() && !!b.querySelector('svg') && !!b.title; }) && labels() === 'Earlier, Pop out, Close', labels());
     var sends = calls('send_to_session').length;
@@ -71,10 +73,9 @@
     check('Pop out asks for its window, with the keyboard', popped.key === key && popped.keys === true, JSON.stringify(popped));
     await until(function () { return !strip(); }, 5000, 'the strip to leave');
     check('once it’s out, the box is the session’s again', !aside() && box().getAttribute('aria-placeholder') !== 'Ask on the side', box().getAttribute('aria-placeholder'));
-    await until(chip, 5000, 'the header’s count');
-    check('the header’s count is lit', chip().getAttribute('aria-pressed') === 'true' && /window of their own/.test(chip().title), chip().title);
-    chip().click();
-    await until(function () { return calls('side_window').length === 2; }, 5000, 'the count’s click');
+    await until(line, 5000, 'the header’s line');
+    line().click();
+    await until(function () { return calls('side_window').length === 2; }, 5000, 'the line’s click');
     check('and brings the window forward', calls('side_window')[1][1].keys === true && !strip());
 
     var asked = calls('side_ask').length;

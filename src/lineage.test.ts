@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrowhead, cameOf, cameWord, connector, lineageOf, originWord, pathOf, pointAt, polyline } from './lineage';
+import { arrowhead, cameLines, cameLineWords, cameOf, cameWord, connector, lineageOf, originWord, pathOf, pointAt, polyline } from './lineage';
 import * as fx from './testing/fixtures';
 
 const card = (x: number, y: number) => ({ x, y, w: 200, h: 50 });
@@ -104,5 +104,25 @@ describe('lineageOf', () => {
     homes.set(review.session.key, review);
     expect(lineageOf(boss.session, homes).to.map((k) => `${cameWord(k.how)} ${k.session.key}`)).toContain('Its helper codex:codex:review');
     expect(lineageOf(review.session, homes).from).toBeNull();
+  });
+});
+
+describe('cameLines', () => {
+  it('lists what came of a session, its runs together and its side conversations among them, the latest started first', () => {
+    const lane = fx.lane();
+    const at = (n: number) => fx.NOW - n * 60_000;
+    const boss = { lane, session: fx.session({ key: 'boss', title: 'Boss' }) };
+    const fork = { lane, session: fx.session({ key: 'fork', title: 'A fork', startedAt: at(30), origin: { key: 'boss', how: 'fork' } }) };
+    const run = (key: string, mins: number) => ({ lane, session: fx.session({ key, startedAt: at(mins), headless: true, origin: { key: 'boss', how: 'started' } }) });
+    const homes = new Map([boss, fork, run('r1', 50), run('r2', 10)].map((p) => [p.session.key, p]));
+    const side = (id: string, mins: number) => ({ id, question: `why ${id}?`, asked: 1, running: false, open: false, startedAt: at(mins), lastAt: at(mins) });
+    const lineage = lineageOf(boss.session, homes, { boss: [side('s1', 5), side('s2', 40)], other: [side('x', 1)] });
+    expect(lineage.to.map((k) => k.session.key)).toEqual(['fork']);
+    expect(lineage.runs.map((k) => k.session.key).sort()).toEqual(['r1', 'r2']);
+    const lines = cameLines(lineage);
+    expect(lines.map(cameLineWords)).toEqual(['On the side: why s1?', '2 headless runs', 'Forked into A fork', 'On the side: why s2?']);
+    // The runs go by the latest of them, which leads their line.
+    expect(lines[1].kind === 'runs' && lines[1].runs[0].session.key).toBe('r2');
+    expect(cameLines(lineageOf(fork.session, homes))).toEqual([]);
   });
 });

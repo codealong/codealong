@@ -254,9 +254,16 @@ not the session (its placeholder says Ask on the side): type a follow-up and pre
 and gives the box back to the session, and a copy left idle for 15 minutes ends by itself. Codealong
 keeps what was asked and answered, with what the copy did to answer (`sides.json`, the latest 300):
 `/side` alone, or Earlier beside an open one, lists a session's side conversations from before, and
-each opens to read, or to delete; while they show, a question in the box starts a new one. A session
-with any says how many in its header, beside its PRs and todo; a click there shows them above the
-box (the only one, or the list), and another puts them away. What can be done with one is a row of
+each opens to read, or to delete; while they show, a question in the box starts a new one. A
+session's header names each under its title, with the sessions that came of it (*Where a session
+came from*), and a click on one shows it above the box. In Sessions, the one answering is listed
+under its session, set in as a helper at work is, and a click on its row selects the session with
+the side conversation above its box. The session's row counts them on a chip of their own (a
+question mark and how many, with the working glyph while one answers); resting the pointer on it
+brings up a card with each, where it stands since when (*Answering for 1m*, *Answered 2h ago*),
+and a click on one there shows it the same way. A double-click on the chip, or the card's button,
+lists them all under the session, answered ones too, until a row at the end of what's listed,
+*Hide 2 answered side conversations*, or another double-click puts them away. What can be done with one is a row of
 icons at the strip's top right (Earlier, Delete, Pop out, Close), each named on hover. Pop out moves
 it into a window of its own beside the one it was in, which floats as a session kept on the desktop
 does: the conversation fills it, its box asks only the side conversation, and the session's boxes go
@@ -1649,9 +1656,12 @@ harnesses record (Claude Code's `/fork`, `/background` and forked background job
 the threads its app makes for an agent; OpenCode's forks) and notes what they don't: a session
 started by an agent's `codealong start`, and a fork into a terminal made from Codealong or a move to
 another account. A session's panel names the session it was forked from, moved from or started by
-over its title, and shows the latest one that came of it under the title, with its status and a "+N
-more" for the rest; a click shows one and a right-click gives its menu, so Pin to desktop there puts
-its card beside the one you're on. The bar's peek and the waiting window have the same header, and
+over its title, and shows the latest of what came of it under the title, with its status and a "+N
+more" for the rest: the sessions forked from it or that its agent started (its helpers among them,
+*Its helper*), its headless runs on one line with how many, and its side conversations, each by what
+it was first asked. A click shows a session and a right-click gives its menu, so Pin to desktop there
+puts its card beside the one you're on; a click on the runs shows the latest and lists them all
+under the session in Sessions, and one on a side conversation shows it above the box. The bar's peek and the waiting window have the same header, and
 its card's popover on the canvas lists them too. On the canvas, hovering or selecting a session
 draws a line from the session it came from and to the ones that came of it, and a session's card on
 the desktop does the same to the cards of those sessions pinned on the same screen.
@@ -1693,7 +1703,8 @@ or last said, and who runs it, on which model, in which worktree when it isn't t
 click on one shows it, listed under the session (a finished one too), with its conversation in the
 panel; its arrow opens it where it runs, and a right-click has its menu. A double-click on the
 chip, or the card's *List them all under it*, lists all its helpers under it, finished ones too,
-until another; Codealong remembers that across launches. Its panel lists them all under its title, as *Its helper*. The helper's own panel
+until another, or until the row at the end of what's listed under it (*Hide 3 finished helpers*)
+takes them away again; Codealong remembers that across launches. Its panel lists them all under its title, as *Its helper*. The helper's own panel
 says *Helper of* that session over its title, and an automatic review's says *Review of* its PR.
 A helper whose session isn't listed (filtered out, or a review of a PR that waits on your review,
 which has no session of yours) is listed on its own only while it waits on you, with a *Helper* or
@@ -1774,15 +1785,15 @@ any is at work. Rest the pointer on it for the helpers' card for them: each run 
 the ones at work first, with where it stands since when, what it's doing or last said and what it
 runs on; a click on one lists it under the session with its conversation in the panel, its arrow
 opens it where it runs, and a right-click has its menu. Double-click the chip, or use the card's
-button, to list them all under the session, and again to put them away; that's kept apart from
-listing its helpers. A run started with `--no-session-persistence` keeps no conversation to read,
+button, to list them all under the session, and again (or the row at the end of the list, *Hide 4
+headless runs*) to put them away; that's kept apart from listing its helpers. A run started with `--no-session-persistence` keeps no conversation to read,
 and leaves the board as it ends. A run no session
 on the board ran (a script in a terminal of yours, or one that ended before Codealong saw it
 running) is listed as a session of its own, with a *Headless* chip; so, for now, is every `codex
 exec` run, whose process Codealong can't yet tell from its thread. A run's session is remembered
 once the run ends, until Codealong quits. A search finds every run, opening one from the quick
-panel lists its session's runs, and a session's panel leaves them out of the sessions that came
-of it.
+panel lists its session's runs, and a session's panel names them on one line under its title,
+with how many.
 
 `codealong sessions` leaves them out unless you ask for them with `--headless`, and `codealong
 changes` counts them by the folder they ran in instead of listing them, and doesn't take several

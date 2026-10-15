@@ -24,8 +24,13 @@
 //! Every side conversation is behind one lock, which the windows take to ask about theirs, so
 //! nothing is written to a copy under it: a copy's lines are put in order for a thread of its own
 //! to write (`Proc::out`), however long the copy takes to read them.
+//!
+//! The board lists each session's side conversations, kept and open, without what was said
+//! (`glances`, `Board::sides`): its row counts them and lists the one answering under it, as it
+//! does its helpers, and its header names each. The board is made again whenever that list would
+//! change (`init`'s `changed`), not as an answer is written.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -117,6 +122,28 @@ pub struct Kept {
     pub turns: Vec<Turn>,
 }
 
+/// A side conversation as the board lists it (`glances`): what it was first asked, how far it
+/// went and whether its copy is answering, without what was said. The windows list it under its
+/// session (src/boardLists.ts `sideRows`) and in its header, and read the rest as they show it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Glance {
+    /// Its record's id (`Side::id`, `Kept::id`).
+    pub id: String,
+    /// The first line of what it was first asked.
+    pub question: String,
+    /// How many questions it's been asked.
+    pub asked: usize,
+    /// Its copy is answering.
+    pub running: bool,
+    /// It's the session's open one, which shows above its box until it's closed: its copy is
+    /// there to ask, or ended and hasn't been closed.
+    pub open: bool,
+    pub started_at: i64,
+    /// When it was last asked, or what was kept of it was written.
+    pub last_at: i64,
+}
+
 /// What a line from a copy's process means.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
@@ -187,17 +214,20 @@ fn state() -> std::sync::MutexGuard<'static, State> {
 
 type Notify = Box<dyn Fn(Side) + Send + Sync>;
 static NOTIFY: OnceLock<Notify> = OnceLock::new();
+static CHANGED: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 
 /// Whether what's asked and answered is kept (`sides.json`): by the app, not by a check from
 /// the command line or a test.
 static KEEPS: AtomicBool = AtomicBool::new(false);
 
-/// Tells `notify` whenever a side conversation changes, keeps them to read later, and ends
-/// copies left idle.
-pub fn init(notify: impl Fn(Side) + Send + Sync + 'static) {
+/// Tells `notify` whenever a side conversation changes, and `changed` whenever what `glances`
+/// lists may have (one asked, answered, ended, closed or forgotten), keeps them to read later,
+/// and ends copies left idle.
+pub fn init(notify: impl Fn(Side) + Send + Sync + 'static, changed: impl Fn() + Send + Sync + 'static) {
     if NOTIFY.set(Box::new(notify)).is_err() {
         return;
     }
+    let _ = CHANGED.set(Box::new(changed));
     KEEPS.store(true, Ordering::Relaxed);
     std::thread::spawn(|| loop {
         std::thread::sleep(Duration::from_secs(60));
@@ -209,6 +239,61 @@ fn notify(side: Side) {
     if let Some(f) = NOTIFY.get() {
         f(side);
     }
+}
+
+/// What `glances` lists may have changed.
+fn changed() {
+    if let Some(f) = CHANGED.get() {
+        f();
+    }
+}
+
+/// Every side conversation, kept or open, as the board lists them (`Glance`): by the session's
+/// or PR's key, the latest started first.
+pub fn glances() -> BTreeMap<String, Vec<Glance>> {
+    let open: Vec<(String, Glance)> = state().open.values().filter(|o| !o.side.turns.is_empty()).map(|o| (o.side.key.clone(), glance_of_open(o))).collect();
+    glances_of(&kept_glances(), open)
+}
+
+/// The kept ones and the open ones by key, an open one in place of what's kept of it, the latest
+/// started first.
+fn glances_of(kept: &[(String, Glance)], open: Vec<(String, Glance)>) -> BTreeMap<String, Vec<Glance>> {
+    let mut by: BTreeMap<String, Vec<Glance>> = BTreeMap::new();
+    let still: Vec<(String, Glance)> = kept.iter().filter(|(_, k)| !open.iter().any(|(_, o)| o.id == k.id)).cloned().collect();
+    for (key, g) in still.into_iter().chain(open) {
+        by.entry(key).or_default().push(g);
+    }
+    for list in by.values_mut() {
+        list.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.id.cmp(&a.id)));
+    }
+    by
+}
+
+fn glance_of_open(o: &Open) -> Glance {
+    let s = &o.side;
+    let last_at = s.turns.iter().map(|t| t.at).max().unwrap_or(o.started_at);
+    Glance { id: s.id.clone(), question: first_line(s.turns.first().map_or("", |t| t.question.as_str())), asked: s.turns.len(), running: s.running, open: true, started_at: o.started_at, last_at }
+}
+
+fn glance_of_kept(k: &Kept) -> Glance {
+    Glance { id: k.id.clone(), question: first_line(k.turns.first().map_or("", |t| t.question.as_str())), asked: k.turns.len(), running: false, open: false, started_at: k.started_at, last_at: k.last_at }
+}
+
+fn first_line(text: &str) -> String {
+    truncate(text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(""), 200)
+}
+
+/// What's kept, as `glances` lists it: sides.json read once, and again after each change made
+/// here (`keep`, `forget`). Read under the lock, so a read that began before a change can't put
+/// back what the change replaced.
+fn kept_glances() -> Vec<(String, Glance)> {
+    let mut cache = kept_cache();
+    cache.get_or_insert_with(|| load(&store_path()).iter().map(|k| (k.key.clone(), glance_of_kept(k))).collect()).clone()
+}
+
+fn kept_cache() -> std::sync::MutexGuard<'static, Option<Vec<(String, Glance)>>> {
+    static CACHE: Mutex<Option<Vec<(String, Glance)>>> = Mutex::new(None);
+    CACHE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The session's side conversation, if it has one.
@@ -289,6 +374,7 @@ fn ask_with(key: &str, text: &str, account: Option<&str>, made: impl FnOnce() ->
         o.side.clone()
     };
     notify(side.clone());
+    changed();
     Ok(side)
 }
 
@@ -301,6 +387,7 @@ pub fn close(key: &str) {
         end(p);
     }
     notify(Side { key: key.to_string(), ..Default::default() });
+    changed();
 }
 
 /// Ends the turns a closing leaves without their answer, saying so.
@@ -321,7 +408,10 @@ pub fn past(key: &str) -> Vec<Kept> {
 
 /// Forgets a kept side conversation.
 pub fn forget(id: &str) -> Result<()> {
-    forget_in(&store_path(), id)
+    let forgot = forget_in(&store_path(), id);
+    *kept_cache() = None;
+    changed();
+    forgot
 }
 
 // ---- keeping ----
@@ -350,6 +440,7 @@ fn keep(kept: Option<Kept>) {
         // Nobody waits on this as a turn ends, so a failure is a notice.
         let path = store_path();
         let _ = store::noted(&path, keep_in(&path, k));
+        *kept_cache() = None;
     }
 }
 
@@ -546,8 +637,12 @@ fn heard(key: &str, id: u64, line: &Value) {
         }
         (o.side.clone(), if ended { kept_of(o) } else { None })
     };
+    let ended = kept.is_some();
     keep(kept);
     notify(side);
+    if ended {
+        changed();
+    }
 }
 
 /// The turn the copy is on: the first without its answer.
@@ -617,6 +712,7 @@ fn stopped(key: &str, id: u64, complaint: &str) {
     };
     keep(kept);
     notify(side);
+    changed();
 }
 
 /// Ends the copies that have sat idle for `idle`: their processes hold a conversation's worth
@@ -636,8 +732,12 @@ fn end_idle(idle: Duration) {
             }
         }
     }
+    let any = !ended.is_empty();
     for side in ended {
         notify(side);
+    }
+    if any {
+        changed();
     }
 }
 
@@ -820,6 +920,21 @@ mod tests {
         assert_eq!(all.len(), KEPT);
         assert_eq!((all[0].id.as_str(), all[KEPT - 1].id.clone()), ("n5", format!("n{}", KEPT + 4)));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_board_lists_each_sessions_side_conversations_the_open_one_in_place_of_what_was_kept() {
+        let turn = |q: &str, at: i64, done: bool| Turn { question: q.into(), done, at, ..Default::default() };
+        let kept = |id: &str, key: &str, started_at: i64| Kept { id: id.into(), key: key.into(), title: "A session".into(), started_at, last_at: started_at + 1, turns: vec![turn("\n  Why is it slow?\nIt was fast.", started_at, true)] };
+        let all: Vec<(String, Glance)> = [kept("a", "claude:c:1", 10), kept("b", "claude:c:1", 50), kept("c", "codex:x:2", 30)].iter().map(|k| (k.key.clone(), glance_of_kept(k))).collect();
+        assert_eq!(all[0].1, Glance { id: "a".into(), question: "Why is it slow?".into(), asked: 1, running: false, open: false, started_at: 10, last_at: 11 });
+        // `a` asked again: its copy answers the second question.
+        let o = Open { side: Side { id: "a".into(), key: "claude:c:1".into(), turns: vec![turn("Why is it slow?", 10, true), turn("And now?", 70, false)], running: true, ..Default::default() }, title: "A session".into(), started_at: 10, queue: VecDeque::new(), proc: None, used: Instant::now() };
+        let by = glances_of(&all, vec![(o.side.key.clone(), glance_of_open(&o))]);
+        let of = |key: &str| by[key].iter().map(|g| (g.id.as_str(), g.asked, g.running, g.open, g.last_at)).collect::<Vec<_>>();
+        assert_eq!(of("claude:c:1"), [("b", 1, false, false, 51), ("a", 2, true, true, 70)]);
+        assert_eq!(of("codex:x:2"), [("c", 1, false, false, 31)]);
+        assert_eq!(by.len(), 2);
     }
 
     /// sides.json holds every conversation kept: one that doesn't read (another build's shape, a
