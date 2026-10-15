@@ -849,50 +849,52 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           onPaste={paste}
           aria-label={aside ? `Question on the side about ${s.title}` : `Message to ${s.title}`}
         />
-        <div className="ca-composer-tools ca-composer-who">
-          {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
-          {s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
-          {/* A side conversation's copy runs on the session's account too, so it stays. */}
-          <AccountLabel session={s} small />
-          {!aside && <ContextMeter session={s} />}
-        </div>
-        <div className="ca-composer-buttons">
-          {resuming && account && !aside && resuming.places.length > 1 && <ResumePlace picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
-          {resuming && account && !aside && resuming.takesAModel && <ResumeModel account={account} picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
-          {saysModel && !aside && (
-            <SessionModel
-              session={s}
-              account={account}
-              switches={switches}
-              switchesEffort={switchesEffort}
-              busy={switching || s.status === 'working' || !!s.stalledSince || !!waiting}
-              onSwitch={(model) => switchTo(switchSessionModel(s.key, model))}
-              onEffort={(effort) => switchTo(switchSessionEffort(s.key, effort))}
-              onDone={() => box.current?.focus()}
-            />
-          )}
-          {/* A command, `/fork` or one led by `!`, runs here rather than going into the turn. */}
-          {canSendNow && !empty && !command && !runs && (
-            <button type="button" className="ca-composer-send is-now" aria-label="Send now" title="Send now (⌃⏎), into the turn it’s taking" onClick={() => send(true)}>
-              <Icon name="bolt" size={14} stroke={2} />
-            </button>
-          )}
-          {stopButton ? (
-            <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title="Stop its turn (esc)" disabled={stopping} onClick={stop}>
-              <Icon name="player-stop" size={12} stroke={2} />
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="ca-composer-send"
-              aria-label={runs ? 'Run in your terminal' : command ? `Run /${command.command.name}` : aside ? 'Ask on the side' : 'Send'}
-              title={runs ? `Run it in a new ${terminal} tab, as you (⏎)` : command ? `Run /${command.command.name} (⏎)` : aside ? 'Ask the side conversation (⏎)' : waiting ? (denies === 'question' ? 'Decline it, and send this instead (⏎)' : denies ? 'Deny it, and send this instead (⏎)' : 'Send this once it isn’t waiting on you') : 'Send (⏎)'}
-              disabled={empty || (waiting && !command && !runs && !aside && !onDenySaying) || ((!!command || aside) && (forking || asking)) || (runs && starting)}
-              onClick={submit}
-            >
-              <Icon name={runs ? 'terminal' : (command?.command.icon ?? (aside ? 'help' : 'arrow-up'))} size={16} stroke={2} />
-            </button>
-          )}
+        <div className="ca-composer-footrow">
+          <div className="ca-composer-tools ca-composer-who">
+            {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
+            {s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
+            {/* A side conversation's copy runs on the session's account too, so it stays. */}
+            <AccountLabel session={s} small />
+            {!aside && <ContextMeter session={s} />}
+          </div>
+          <div className="ca-composer-buttons">
+            {resuming && account && !aside && resuming.places.length > 1 && <ResumePlace picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
+            {resuming && account && !aside && resuming.takesAModel && <ResumeModel account={account} picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
+            {saysModel && !aside && (
+              <SessionModel
+                session={s}
+                account={account}
+                switches={switches}
+                switchesEffort={switchesEffort}
+                busy={switching || s.status === 'working' || !!s.stalledSince || !!waiting}
+                onSwitch={(model) => switchTo(switchSessionModel(s.key, model))}
+                onEffort={(effort) => switchTo(switchSessionEffort(s.key, effort))}
+                onDone={() => box.current?.focus()}
+              />
+            )}
+            {/* A command, `/fork` or one led by `!`, runs here rather than going into the turn. */}
+            {canSendNow && !empty && !command && !runs && (
+              <button type="button" className="ca-composer-send is-now" aria-label="Send now" title="Send now (⌃⏎), into the turn it’s taking" onClick={() => send(true)}>
+                <Icon name="bolt" size={14} stroke={2} />
+              </button>
+            )}
+            {stopButton ? (
+              <button type="button" className="ca-composer-send is-stop" aria-label={stopping ? 'Stopping' : 'Stop'} title="Stop its turn (esc)" disabled={stopping} onClick={stop}>
+                <Icon name="player-stop" size={12} stroke={2} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="ca-composer-send"
+                aria-label={runs ? 'Run in your terminal' : command ? `Run /${command.command.name}` : aside ? 'Ask on the side' : 'Send'}
+                title={runs ? `Run it in a new ${terminal} tab, as you (⏎)` : command ? `Run /${command.command.name} (⏎)` : aside ? 'Ask the side conversation (⏎)' : waiting ? (denies === 'question' ? 'Decline it, and send this instead (⏎)' : denies ? 'Deny it, and send this instead (⏎)' : 'Send this once it isn’t waiting on you') : 'Send (⏎)'}
+                disabled={empty || (waiting && !command && !runs && !aside && !onDenySaying) || ((!!command || aside) && (forking || asking)) || (runs && starting)}
+                onClick={submit}
+              >
+                <Icon name={runs ? 'terminal' : (command?.command.icon ?? (aside ? 'help' : 'arrow-up'))} size={16} stroke={2} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
       {/* With no strip to take it, it's said here while there's something to say, but not the

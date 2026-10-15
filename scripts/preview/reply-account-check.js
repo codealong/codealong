@@ -1,8 +1,10 @@
 // Checks that a session's account is said in its reply box (SessionReply.tsx, primitives.tsx
 // `AccountLabel`), not in its header: at the left of the box's foot, just before how full its
 // context is and at its size and color, as typed, with its harness on hover, the model and Send
-// at the right; and that in a box short of room the account and the meter stay whole and on the
-// line, and a name too long for it is cut rather than push the meter or the buttons out. Every
+// at the right; and that in a box short of room, or beside buttons as wide as a resume's place
+// and model, the buttons go on a line of their own under the account and the meter rather than
+// run over them or cut the account away, and a name too long for a line of its own is cut rather
+// than push the meter out. Every
 // session here says its context is 30% full, so the meter is there to stand beside, in its quiet
 // color.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/reply-account-check.js
@@ -58,24 +60,33 @@
       check('its harness is on hover', /\(.+\)$/.test(label.getAttribute('title') || ''), label.getAttribute('title'));
       check('the header doesn’t name it', !q('.ca-sessinsp-meta .ca-account'), q('.ca-sessinsp-meta').textContent);
 
-      // Short of room: a box as narrow as a card gets.
-      q('.ca-composer').style.width = '300px';
+      // Short of room: a box as narrow as a card gets, beside buttons as wide as a resume's place
+      // and model chips make them.
+      q('.ca-composer').style.width = '360px';
+      var wide = document.createElement('span');
+      wide.style.cssText = 'display:inline-block;width:190px;height:22px';
+      buttons.insertBefore(wide, buttons.firstChild);
       var name = label.querySelector('.ca-account-name');
+      // The meter and the buttons side by side, or the buttons on a line under it; and both in the box.
       var fits = function () {
         var r = field.getBoundingClientRect();
         var m = meter.getBoundingClientRect();
         var b = buttons.getBoundingClientRect();
-        return { r: r, m: m, b: b, ok: m.right <= b.left + 1 && b.right <= r.right + 1 && m.height < 24 };
+        var apart = m.right <= b.left + 1 || m.bottom <= b.top + 1;
+        return { r: r, m: m, b: b, ok: apart && b.right <= r.right + 1 && m.right <= r.right + 1 && m.height < 24 };
       };
+      var where = function (f) { return 'meter ' + Math.round(f.m.left) + '–' + Math.round(f.m.right) + ' at ' + Math.round(f.m.top) + ', buttons ' + Math.round(f.b.left) + '–' + Math.round(f.b.right) + ' at ' + Math.round(f.b.top) + ', box to ' + Math.round(f.r.right); };
       var f = fits();
-      check('squeezed, the meter stays on its line, short of the buttons', f.ok, Math.round(f.m.right) + ' to ' + Math.round(f.b.left) + ', ' + Math.round(f.m.height) + 'px tall');
-      check('squeezed, the buttons stay in the box', f.b.right <= f.r.right + 1, Math.round(f.b.right) + ' past ' + Math.round(f.r.right));
+      check('squeezed, the buttons don’t run over the meter, and both stay in the box', f.ok, where(f));
+      check('squeezed, the account stays whole', whole(name) && name.clientWidth > 0, name.scrollWidth + ' in ' + name.clientWidth);
+      check('and the buttons are still at the right', Math.abs(f.b.right - (f.r.right - 5)) <= 2, where(f));
 
-      // A name longer than the row has room for is cut, and the meter and the buttons stay in.
+      // A name longer than a line has room for is cut, and the meter and the buttons stay in.
       name.textContent = 'an-account-named-at-very-great-length-for-this-box';
       f = fits();
-      check('a name too long for the row is cut', !whole(name), name.scrollWidth + ' in ' + name.clientWidth);
-      check('and the meter and the buttons stay in the box', f.ok, Math.round(f.m.right) + ' to ' + Math.round(f.b.left) + ', ' + Math.round(f.b.right) + ' in ' + Math.round(f.r.right));
+      check('a name too long for the line is cut', !whole(name), name.scrollWidth + ' in ' + name.clientWidth);
+      check('and the meter and the buttons stay in the box, apart', f.ok, where(f));
+      wide.remove();
     })
     .then(done)
     .catch(stopped);

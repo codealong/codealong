@@ -147,16 +147,30 @@
   align-items: center;
   gap: var(--space-2);
 }
-/* At the left of the box's foot, who a message goes to and what it may do about it: the mode the
-   session runs in (ModeLabel.tsx), its account and how full its context is (ContextMeter.tsx), on
-   one line, level with the buttons at the right and lined up with the text above. Short of room
-   the mode's and the account's names are cut, never the meter. */
+/* A session's box's foot, under the text: who a message goes to at the left, the buttons at the
+   right, level with each other. Where the two don't fit side by side whole (a narrow card, with
+   the place and the model a resume goes on beside Send), the buttons go on a line of their own
+   under it, still at the right, rather than cut the account away or run over it. */
+.ca-composer-footrow {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+}
+.ca-composer-footrow > .ca-composer-buttons {
+  margin-left: auto;
+}
+/* Who a message goes to and what it may do about it: the mode the session runs in (ModeLabel.tsx),
+   its account and how full its context is (ContextMeter.tsx), on one line, lined up with the text
+   above. On a line of its own still too short for them, the mode's and the account's names are
+   cut, never the meter. */
 .ca-composer-tools.ca-composer-who {
   flex-wrap: nowrap;
   gap: var(--space-2);
   min-height: 26px;
   margin-bottom: 5px;
-  padding: 0 0 0 10px;
+  padding: 0 var(--space-2) 0 10px;
 }
 .ca-composer-who > .ca-context {
   flex: none;

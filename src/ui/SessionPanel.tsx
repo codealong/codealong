@@ -95,12 +95,21 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
   onThreadMenu?: (items: MenuSpec) => void;
 }
 
-/** What the strip says at its left: what the box said of something done in it or of what's
- *  typed, else how the one before went, else the box's keys. Where it doesn't fit beside the
- *  buttons it goes on a line under them, or is cut short where the strip keeps to one line
- *  (SessionPanel.css), its tooltip having all of it. */
+/** What the strip says at its left: whichever came last of what the window said (how the one
+ *  before went, or how something done to this one went) and what the box said of something done
+ *  in it or of what's typed, so a warning isn't kept under a hint that was there before it; with
+ *  neither, the box's keys. Where it doesn't fit beside the buttons it goes on a line under them,
+ *  or is cut short where the strip keeps to one line (SessionPanel.css), its tooltip having all
+ *  of it. */
 function StripNote({ says, notice }: { says?: BoxSays | null; notice: Notice | null | undefined }) {
-  const shown = says && !says.keys ? says : (notice ?? says);
+  const said = says && !says.keys ? says : null;
+  // Which came last, as each changes: the window's, when both change at once.
+  const [last, setLast] = useState({ notice: notice?.text, said: said?.text, box: false });
+  if (last.notice !== notice?.text || last.said !== said?.text) {
+    const box = notice && notice.text !== last.notice ? false : said && said.text !== last.said ? true : last.box;
+    setLast({ notice: notice?.text, said: said?.text, box });
+  }
+  const shown = (last.box ? (said ?? notice) : (notice ?? said)) ?? says;
   return (
     <span className={cx('ca-reply-queue-note', shown?.error && 'is-error')} role="status" title={shown?.text}>
       {shown?.text}
