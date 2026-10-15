@@ -37,9 +37,10 @@ const STEP_WAITING: i64 = 9;
 /// generating, waiting and queued. A reply is generating from its first words; while the model
 /// thinks before them, no step is under way.
 const STEP_UNDER_WAY: [i64; 5] = [1, 2, 8, STEP_WAITING, 11];
-/// The statuses of a step that was stopped, from the same definitions: canceled, error and
-/// interrupted. A step that ends so ends its turn.
-const STEP_STOPPED: [i64; 3] = [6, 7, 12];
+/// `CORTEX_STEP_STATUS_CANCELED`: a call stopped by Escape or denied in a print run, which
+/// ends its turn. A call that fails (7) doesn't: its error goes back to the model, which goes on
+/// (every one of 19 on this Mac, 2026-10-14).
+const STEP_CANCELED: i64 = 6;
 /// `CORTEX_STEP_STATUS_DONE`.
 const STEP_DONE: i64 = 3;
 /// The step types that end a turn when they're a conversation's latest step and done: the
@@ -194,7 +195,7 @@ pub struct Conversation {
     pub waiting: bool,
     /// A step runs, is being written or waits on you, as its own database says.
     pub step_under_way: bool,
-    /// Its latest step ends a turn (`STEP_ENDS_TURN`, `STEP_STOPPED`), as its own database says.
+    /// Its latest step ends a turn (`STEP_ENDS_TURN`, `STEP_CANCELED`), as its own database says.
     pub turn_ended: bool,
     /// Its summary says idle only because another `agy` started, while the process that has it
     /// goes on with its turn (`idled_by_another`).
@@ -220,7 +221,9 @@ impl Conversation {
 /// wrote before. So an idle row no newer than the one read while the turn was under way, by
 /// the row or by a step that ran, is another's doing, until the row is written again or the
 /// conversation's latest step ends the turn: an older copy can land on the ending's row before
-/// it's read. Escape while the model thinks writes no step, only the ending's row.
+/// it's read. Escape while the model thinks writes no step, only the ending's row, so an older
+/// copy landing on that one in the second or two before it's read keeps the turn under way
+/// until your next prompt writes the row: nothing else on disk says it ended.
 pub fn idled_by_another(before: Option<&Conversation>, now: &Conversation) -> bool {
     !now.running() && !now.turn_ended && before.is_some_and(|b| (b.running() || b.idled_by_another || b.step_under_way) && now.last_modified <= b.last_modified && now.step_count <= b.step_count)
 }
@@ -343,7 +346,7 @@ fn steps_now(dir: &Path, id: &str) -> (bool, bool, bool) {
     let Ok(mut query) = db.prepare(&format!("SELECT DISTINCT status FROM steps WHERE status IN ({under_way})")) else { return (false, false, false) };
     let statuses: Vec<i64> = query.query_map([], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default();
     let latest: Option<(i64, i64)> = db.query_row("SELECT step_type, status FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?))).ok();
-    let ended = latest.is_some_and(|(kind, status)| STEP_STOPPED.contains(&status) || (status == STEP_DONE && STEP_ENDS_TURN.contains(&kind)));
+    let ended = latest.is_some_and(|(kind, status)| status == STEP_CANCELED || (status == STEP_DONE && STEP_ENDS_TURN.contains(&kind)));
     (!statuses.is_empty(), statuses.contains(&STEP_WAITING), ended)
 }
 
@@ -1841,11 +1844,18 @@ mod tests {
         reader.reread(&account, &look);
         assert!(!reader.conversations["antigravity"][0].idled_by_another);
         assert_eq!(status(&reader), crate::model::Status::Unread);
-        // So does one that ends on an error.
-        steps.execute("INSERT INTO steps VALUES (4, 17, 3)", []).unwrap();
+        // A call that fails doesn't end it: the model goes on with the error.
+        steps.execute("INSERT INTO steps VALUES (4, 14, 3), (5, 132, 7)", []).unwrap();
+        summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:12+00:00', step_count = 1, status = 'CASCADE_RUN_STATUS_RUNNING', not_fully_idle = 1", []).unwrap();
+        reader.reread(&account, &look);
+        summaries.execute("UPDATE conversation_summaries SET status = 'CASCADE_RUN_STATUS_IDLE', not_fully_idle = 0", []).unwrap();
+        reader.reread(&account, &look);
+        assert_eq!(status(&reader), crate::model::Status::Working);
+        // One that ends on an error ends with a note.
+        steps.execute("INSERT INTO steps VALUES (6, 17, 3)", []).unwrap();
         reader.reread(&account, &look);
         assert_eq!(status(&reader), crate::model::Status::Unread);
-        summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:50+00:00', step_count = 5", []).unwrap();
+        summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:50+00:00', step_count = 7", []).unwrap();
         reader.reread(&account, &look);
         assert_eq!(status(&reader), crate::model::Status::Unread);
     }

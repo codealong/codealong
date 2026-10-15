@@ -43,7 +43,9 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   after it; it never reaches the transcript), 101 a system message (a background command's
   result, which starts the agent again), 132 a command. A reply that makes calls turns done in
   the same write that adds its first call's step (watched every 4 ms), so a done reply or error
-  note as the latest step is a turn's end (`STEP_ENDS_TURN`, `steps_now`).
+  note as the latest step is a turn's end (`STEP_ENDS_TURN`, `steps_now`). A call that fails
+  (7) hands its error to the model, which goes on (19 of 19 here); a canceled one (6) ended its
+  turn every time (`STEP_CANCELED`). No step was ever interrupted (12).
 - The transcript (`brain/<id>/.system_generated/logs/transcript_full.jsonl`, and
   `transcript.jsonl` with each argument a string of JSON), its fields, the `<USER_REQUEST>`
   wrapping, results as steps of their own in the calls' order, lines out of step order, and a
