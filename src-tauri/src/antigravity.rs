@@ -836,19 +836,19 @@ pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
 
 /// Its log's line as it sends a prompt into the conversation it names: one you typed, the
 /// queue sent at a turn's end, or the one it started with (`-i`). A turn starts.
-const LOG_PROMPTED: &str = "] Forwarding user message to conversation ";
+const LOG_PROMPTED: &str = "Forwarding user message to conversation ";
 /// Escape while a reply is on its way, in the conversation it names: the turn ends, and no
 /// step says so when the model was thinking.
-const LOG_STOPPED: &str = "] Cancelling in-progress response for conversation ";
+const LOG_STOPPED: &str = "Cancelling in-progress response for conversation ";
 /// A message you typed and sent with Return, Codealong's typing too. It goes in at once, a
 /// `LOG_PROMPTED` line within milliseconds of it, or, while a turn runs, waits in the UI's
 /// queue until the turn ends (`Queued Messages` in `/config`, `Queue` by default). Nothing but
 /// this line says it came until then: on 2026-10-14 one waited 31 minutes.
-const LOG_TYPED: &str = "] HandleUserInput called with text: ";
+const LOG_TYPED: &str = "HandleUserInput called with text: ";
 /// The queue is dropped (`Pending inputs cancelled (N regular + M shell dropped)`).
-const LOG_DROPPED: &str = "] Pending inputs cancelled (";
+const LOG_DROPPED: &str = "Pending inputs cancelled (";
 /// The queue sent at a turn's end didn't go, and is held again.
-const LOG_RESTORED: &str = "] Auto-flush SendUserMessage failed, restoring ";
+const LOG_RESTORED: &str = "Auto-flush SendUserMessage failed, restoring ";
 
 /// What a terminal UI's log says of the conversation it has open, as far as it's been read
 /// (`LogRead`). Each `agy` writes its own (`log/cli-<time>.log`, its local time to the second
@@ -870,23 +870,25 @@ pub struct Said {
 impl Said {
     /// Takes in a line of a log begun in `begun` (`log_time`).
     fn on_line(&mut self, line: &str, begun: (i64, i64)) {
-        let at = || log_time(line, begun);
-        if let Some((_, rest)) = line.split_once(LOG_PROMPTED) {
-            let Some(at) = at() else { return };
+        // glog's own lines only, and an event only at the start of the text after the header: a
+        // message typed can quote a line of the log.
+        let Some(at) = log_time(line, begun) else { return };
+        let Some((_, text)) = line.split_once("] ") else { return };
+        if let Some(rest) = text.strip_prefix(LOG_PROMPTED) {
             let id = rest.split_whitespace().next().unwrap_or_default();
             self.prompted = Some((id.to_string(), at));
             self.flushed = std::mem::take(&mut self.queued);
-        } else if let Some((_, text)) = line.split_once(LOG_TYPED) {
+        } else if let Some(typed) = text.strip_prefix(LOG_TYPED) {
             // Text led by `/` may be a command the UI runs itself and never sends in (no log here
             // had one); taken for a message held, it would keep the session working for good.
-            if !text.starts_with("\"/") {
-                self.queued.extend(at());
+            if !typed.starts_with("\"/") {
+                self.queued.push(at);
             }
-        } else if line.contains(LOG_STOPPED) {
-            self.stopped = at().or(self.stopped);
-        } else if line.contains(LOG_DROPPED) {
+        } else if text.starts_with(LOG_STOPPED) {
+            self.stopped = Some(at);
+        } else if text.starts_with(LOG_DROPPED) {
             self.queued.clear();
-        } else if line.contains(LOG_RESTORED) {
+        } else if text.starts_with(LOG_RESTORED) {
             let held = std::mem::take(&mut self.queued);
             self.queued = std::mem::take(&mut self.flushed).into_iter().chain(held).collect();
         }
@@ -2158,6 +2160,12 @@ mod tests {
         assert!(!said.stopped_last());
         read(&mut said, glog("18:53:07.619129", "Cancelling in-progress response for conversation b568"));
         assert!(said.stopped_last() && !said.started("b568"));
+        // A message that quotes the log is a message, whatever line it quotes.
+        read(&mut said, glog("18:53:20.000000", "HandleUserInput called with text: \"Please inspect ] Forwarding user message to conversation b568 (items=1, media=0)\""));
+        read(&mut said, glog("18:53:21.000000", "HandleUserInput called with text: \"and ] Cancelling in-progress response for conversation b568\""));
+        assert_eq!(said.queued, [on_14th("18:53:20.000"), on_14th("18:53:21.000")]);
+        assert_eq!((said.prompted.as_ref().map(|(_, at)| *at), said.stopped), (Some(on_14th("18:16:39.545")), Some(on_14th("18:53:07.619"))));
+        read(&mut said, glog("18:53:22.000000", "Pending inputs cancelled (2 regular + 0 shell dropped)"));
         // A `/` command isn't taken for a message held.
         read(&mut said, glog("18:53:30.000000", "HandleUserInput called with text: \"/usage\""));
         assert!(said.queued.is_empty());
