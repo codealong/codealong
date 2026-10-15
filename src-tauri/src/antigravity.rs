@@ -207,6 +207,9 @@ pub struct Conversation {
     pub step_under_way: bool,
     /// Its latest step ends a turn (`STEP_ENDS_TURN`, `STEP_CANCELED`), as its own database says.
     pub turn_ended: bool,
+    /// When its latest step began, as its own database says: later than the summary's time when
+    /// another `agy` wrote back an older copy of the row (`STEP_BEGAN`).
+    pub latest_step_at: Option<i64>,
     /// Its summary says idle only because another `agy` started, while the process that has it
     /// goes on with its turn (`idled_by_another`).
     pub idled_by_another: bool,
@@ -358,19 +361,28 @@ pub fn uri_path(uri: &str) -> Option<String> {
     Some(decoded.trim_end_matches('/').to_string()).filter(|p| !p.is_empty())
 }
 
-/// Whether a step of the conversation is under way, whether one waits on you, and whether its
-/// latest step ends a turn, from its own database.
-fn steps_now(dir: &Path, id: &str) -> (bool, bool, bool) {
-    let Some(db) = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db"))) else { return (false, false, false) };
+/// Where a step's payload keeps when it began: seconds, then nanoseconds (`created_at` in the
+/// transcript; every step on this Mac, 1.3.5).
+const STEP_BEGAN: [u64; 2] = [5, 1];
+
+/// Whether a step of the conversation is under way, whether one waits on you, whether its
+/// latest step ends a turn, and when that step began, from its own database.
+fn steps_now(dir: &Path, id: &str) -> (bool, bool, bool, Option<i64>) {
+    let Some(db) = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db"))) else { return (false, false, false, None) };
     let under_way = STEP_UNDER_WAY.map(|s| s.to_string()).join(", ");
-    let Ok(mut query) = db.prepare(&format!("SELECT DISTINCT status FROM steps WHERE status IN ({under_way})")) else { return (false, false, false) };
+    let Ok(mut query) = db.prepare(&format!("SELECT DISTINCT status FROM steps WHERE status IN ({under_way})")) else { return (false, false, false, None) };
     let statuses: Vec<i64> = query.query_map([], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default();
     let latest: Option<(i64, i64, i64)> = db.query_row("SELECT idx, step_type, status FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok();
-    let ended = latest.is_some_and(|(idx, kind, status)| {
-        let payload = || db.query_row("SELECT step_payload FROM steps WHERE idx = ?1", [idx], |r| r.get::<_, Option<Vec<u8>>>(0)).ok().flatten();
-        status == STEP_CANCELED || (status == STEP_DONE && STEP_ENDS_TURN.contains(&kind) && (kind != STEP_ERROR || ends_turn(payload().as_deref())))
-    });
-    (!statuses.is_empty(), statuses.contains(&STEP_WAITING), ended)
+    let payload = latest.and_then(|(idx, ..)| db.query_row("SELECT step_payload FROM steps WHERE idx = ?1", [idx], |r| r.get::<_, Option<Vec<u8>>>(0)).ok().flatten());
+    let ended = latest.is_some_and(|(_, kind, status)| status == STEP_CANCELED || (status == STEP_DONE && STEP_ENDS_TURN.contains(&kind) && (kind != STEP_ERROR || ends_turn(payload.as_deref()))));
+    (!statuses.is_empty(), statuses.contains(&STEP_WAITING), ended, payload.as_deref().and_then(step_began))
+}
+
+/// When a step began, from its payload (`STEP_BEGAN`), as epoch milliseconds.
+fn step_began(payload: &[u8]) -> Option<i64> {
+    let ints = |field: u64| proto_ints(payload, &[STEP_BEGAN[0], STEP_BEGAN[1], field]).first().copied();
+    let secs = i64::try_from(ints(1)?).ok()?;
+    Some(secs * 1000 + ints(2).map_or(0, |nanos| (nanos / 1_000_000) as i64))
 }
 
 /// Whether an error note ends its turn, by its payload (`ERROR_FOR_YOU`). One that can't be
@@ -864,8 +876,12 @@ impl Said {
             let id = rest.split_whitespace().next().unwrap_or_default();
             self.prompted = Some((id.to_string(), at));
             self.flushed = std::mem::take(&mut self.queued);
-        } else if line.contains(LOG_TYPED) {
-            self.queued.extend(at());
+        } else if let Some((_, text)) = line.split_once(LOG_TYPED) {
+            // Text led by `/` may be a command the UI runs itself and never sends in (no log here
+            // had one); taken for a message held, it would keep the session working for good.
+            if !text.starts_with("\"/") {
+                self.queued.extend(at());
+            }
         } else if line.contains(LOG_STOPPED) {
             self.stopped = at().or(self.stopped);
         } else if line.contains(LOG_DROPPED) {
@@ -1287,7 +1303,7 @@ impl Reader {
                 }
             }
             if c.running() || held {
-                (c.step_under_way, c.waiting, c.turn_ended) = steps_now(&c.dir, &c.id);
+                (c.step_under_way, c.waiting, c.turn_ended, c.latest_step_at) = steps_now(&c.dir, &c.id);
             }
             // An idle row after Escape is the UI's own, whatever its time and count.
             c.idled_by_another = held && idled_by_another(before.get(&c.id), c) && !c.said.stopped_last();
@@ -1763,6 +1779,20 @@ mod tests {
         out
     }
 
+    /// A varint field.
+    fn proto_number(field: u64, n: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        proto_varint(field << 3, &mut out);
+        proto_varint(n, &mut out);
+        out
+    }
+
+    /// A step's payload that says only when it began (`STEP_BEGAN`), at epoch milliseconds `at`.
+    fn began(at: i64) -> Vec<u8> {
+        let time = [proto_number(1, (at / 1000) as u64), proto_number(2, (at % 1000 * 1_000_000) as u64)].concat();
+        proto_message(&[(5, proto_message(&[(1, time)]))])
+    }
+
     /// An error note's payload: what went wrong, and words for you when there are some
     /// (`ERROR_FOR_YOU`).
     fn error_note(error: &str, for_you: Option<&str>) -> Vec<u8> {
@@ -2128,6 +2158,9 @@ mod tests {
         assert!(!said.stopped_last());
         read(&mut said, glog("18:53:07.619129", "Cancelling in-progress response for conversation b568"));
         assert!(said.stopped_last() && !said.started("b568"));
+        // A `/` command isn't taken for a message held.
+        read(&mut said, glog("18:53:30.000000", "HandleUserInput called with text: \"/usage\""));
+        assert!(said.queued.is_empty());
         // A message typed now goes in at once, and starts the next.
         read(&mut said, glog("18:54:00.000000", "HandleUserInput called with text: \"Go on\""));
         read(&mut said, glog("18:54:00.004000", "Forwarding user message to conversation b568 (items=1, media=0)"));
@@ -2232,18 +2265,20 @@ mod tests {
         let s = session(&reader);
         assert_eq!((s.status, s.queued_at, s.last_prompt_at), (crate::model::Status::Working, None, on_14th("18:16:39.545")));
         // A command runs, and once it's done the model thinks again.
-        steps.execute("INSERT INTO steps VALUES (6, 132, 2, NULL)", []).unwrap();
+        steps.execute("INSERT INTO steps VALUES (6, 132, 2, ?1)", [began(on_14th("18:20:00.000"))]).unwrap();
         reader.reread(&account, &look);
         steps.execute("UPDATE steps SET status = 3 WHERE idx = 6", []).unwrap();
         reader.reread(&account, &look);
         assert!(reader.conversations["antigravity"][0].idled_by_another);
         assert_eq!(session(&reader).status, crate::model::Status::Working);
         // Escape while the model thinks writes no step, and the row stays idle: only the log
-        // says the turn ended.
+        // says the turn ended. What it did since your prompt is yours to read, though the row is
+        // a copy from before it: its latest step says when that was.
         append(glog("18:53:07.619129", "Cancelling in-progress response for conversation c1"));
         reader.reread(&account, &look);
         assert!(!reader.conversations["antigravity"][0].idled_by_another);
-        assert_eq!(session(&reader).status, crate::model::Status::Idle);
+        let s = session(&reader);
+        assert_eq!((s.status, s.last_activity), (crate::model::Status::Unread, on_14th("18:20:00.000")));
         // A process gone takes its log with it.
         reader.processes.clear();
         reader.track_logs();
@@ -2316,12 +2351,7 @@ mod tests {
     #[test]
     fn reads_the_permissions_its_latest_turn_ran_with() {
         let message = proto_message;
-        let number = |field: u64, n: u64| {
-            let mut out = Vec::new();
-            proto_varint(field << 3, &mut out);
-            proto_varint(n, &mut out);
-            out
-        };
+        let number = proto_number;
         let step = |policy: u64, asks: &[&str]| {
             let grants = message(&asks.iter().map(|a| (3, a.as_bytes().to_vec())).collect::<Vec<_>>());
             let tools = message(&[(8, message(&[(3, number(6, policy))])), (42, message(&[(3, grants)]))]);

@@ -122,8 +122,9 @@ export interface Shown {
   asks: boolean;
   snoozedUntil: number | null;
   quiet: boolean;
-  /** When the latest message its harness holds came (`Session.queuedAt`). Unknown to the bar. */
-  queuedAt: number | null;
+  /** When the latest message its harness holds came (`Session.queuedAt`), null when it holds
+   *  none; undefined where the view can't say (the bar's). */
+  queuedAt: number | null | undefined;
 }
 
 /** What a window shows: the time of its board (null with none yet) and its sessions. */
@@ -453,7 +454,7 @@ export function barView(feed: BarFeed): View {
     boardAt: feed.generatedAt ?? null,
     find: (key) => {
       const i = feed.items.find((x) => x.key === key) ?? feed.recent.find((x) => x.key === key) ?? (feed.snoozed ?? []).find((x) => x.key === key);
-      return i && { title: i.title, status: i.status, statusSince: i.since, lastPromptAt: null, archived: false, asks: !!i.asks, snoozedUntil: i.snoozedUntil ?? null, quiet: !!i.quiet, queuedAt: null };
+      return i && { title: i.title, status: i.status, statusSince: i.since, lastPromptAt: null, archived: false, asks: !!i.asks, snoozedUntil: i.snoozedUntil ?? null, quiet: !!i.quiet, queuedAt: undefined };
     },
   };
 }
@@ -497,11 +498,15 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
   if (a.doneAt == null) return a;
   const s = v.find(c.key);
   // Its harness holds it until the turn ends, however long that is: its record has it only then.
+  // That's so whatever else the board says, and even after it seemed taken: a send at the turn's
+  // end that fails puts it back.
   const held = s?.queuedAt != null && s.queuedAt >= a.at - SLACK_MS;
+  if (held) return a.queued ? a : { ...a, queued: true, takenAt: undefined, lapsed: false, unconfirmed: false };
+  // A view that can't see the queue (the bar's) leaves one held as it was.
+  if (a.queued && s?.queuedAt === undefined) return a;
   let next = a;
-  if (next.takenAt == null && s && !held && took(s, a, c)) next = { ...next, takenAt: now, lapsed: false, unconfirmed: false, queued: false };
+  if (next.takenAt == null && s && took(s, a, c)) next = { ...next, takenAt: now, lapsed: false, unconfirmed: false, queued: false };
   if (next.takenAt != null) return now - next.takenAt > TAKEN_MS ? null : next;
-  if (held) return next.queued ? next : { ...next, queued: true, lapsed: false, unconfirmed: false };
   // Out of the queue: sent in as the turn ended, or dropped there.
   if (next.queued) return { ...next, takenAt: now, queued: false };
   if (now - a.at > SEND_LONGEST_MS) return null;

@@ -325,6 +325,22 @@ describe('settled', () => {
     const dropped = settled(queued!, view(NOW, { status: 'idle', statusSince: NOW + 900 }), NOW + 2_000);
     expect(dropped?.takenAt).toBe(NOW + 2_000);
   });
+
+  it('leaves a queued message as it was where the view can’t see the queue', () => {
+    const queued = settled(send('a', { doneAt: NOW + 500 }), view(NOW, { status: 'working', queuedAt: NOW + 300 }), NOW + 1_000)!;
+    // The bar's view has no queue, and doesn't know when the session was last sent a prompt.
+    const bar: View = { boardAt: NOW, find: () => ({ title: 'Title', status: 'idle', statusSince: NOW + 900, lastPromptAt: null, archived: false, asks: false, snoozedUntil: null, quiet: false, queuedAt: undefined }) };
+    expect(settled(queued, bar, NOW + 2_000)).toBe(queued);
+  });
+
+  it('shows a message queued again when the send at the turn’s end fails and puts it back', () => {
+    const queued = settled(send('a', { doneAt: NOW + 500 }), view(NOW, { status: 'working', queuedAt: NOW + 300 }), NOW + 1_000)!;
+    const flushing = settled(queued, view(NOW, { status: 'working', lastPromptAt: NOW + 60_000 }), NOW + 60_000)!;
+    expect([flushing.queued, flushing.takenAt]).toEqual([false, NOW + 60_000]);
+    const back = settled(flushing, view(NOW, { status: 'working', lastPromptAt: NOW + 60_000, queuedAt: NOW + 300 }), NOW + 61_000);
+    expect([back?.queued, back?.takenAt]).toEqual([true, undefined]);
+    expect(settled(back!, view(NOW, { status: 'working', lastPromptAt: NOW + 60_000, queuedAt: NOW + 300 }), NOW + 70_000)).toBe(back);
+  });
 });
 
 describe('barAhead', () => {

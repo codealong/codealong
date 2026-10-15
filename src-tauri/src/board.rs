@@ -549,7 +549,10 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
 /// quiet when nothing has been written for a while. A step whose permission prompt is up needs
 /// you. The summary keeps no word for a failure, so none shows as one.
 pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Option<&Process>, app_running: bool, seen_at: i64, now: i64) -> Session {
-    let fresh = now - c.last_modified < ANTIGRAVITY_STALE_MS;
+    // Its latest step can be later than its summary says: another `agy` writes back older copies
+    // of the row.
+    let active = c.latest_step_at.map_or(c.last_modified, |at| at.max(c.last_modified));
+    let fresh = now - active < ANTIGRAVITY_STALE_MS;
     // While its process has the conversation, its summary is the process's word, unless another
     // `agy` that started since marked it idle; a step that runs or waits says so too, and a
     // terminal UI's log. A print run writes its summary only as it ends, so its record says
@@ -559,14 +562,14 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         (true, None) => false,
         (false, _) => c.running() && app_running,
     };
-    let news = c.last_modified > seen_at;
+    let news = active > seen_at;
     let status = if c.killed {
         Status::Idle
     } else if under_way && c.waiting {
         Status::Needs
     } else if under_way && (c.cli || fresh) {
         Status::Working
-    } else if news && c.last_modified > c.last_input.unwrap_or(0) {
+    } else if news && active > c.last_input.unwrap_or(0) {
         Status::Unread
     } else {
         Status::Idle
@@ -598,9 +601,9 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         reply_head: c.tail.last_text.clone(),
         // The preview is the conversation's opening, as the app lists it.
         first_prompt: c.preview.clone(),
-        status_since: if status == Status::Working { c.last_input } else { Some(c.last_modified) },
-        last_prompt_at: c.last_input.unwrap_or(c.last_modified),
-        last_activity: c.last_modified,
+        status_since: if status == Status::Working { c.last_input } else { Some(active) },
+        last_prompt_at: c.last_input.unwrap_or(active),
+        last_activity: active,
         excerpt,
         resume_command: c.cli.then(|| format!("{} --conversation {}", crate::antigravity::cli_command(account), c.id)),
         mode: c.mode.clone(),
@@ -3633,10 +3636,17 @@ mod tests {
         let s = antigravity_session(&a, &told, Some(&ui), false, 0, NOW);
         assert_eq!((s.status, s.queued_at), (Status::Working, Some(NOW - 4_000)));
         assert_eq!(antigravity_session(&a, &told, None, false, 0, NOW).queued_at, None);
-        // A step ended the turn, or Escape stopped it: what it left is yours to read.
+        // A step ended the turn, or Escape stopped it: what it left is yours to read, even when the
+        // summary is an older copy from before your prompt, by when its latest step began.
         told.said.queued.clear();
-        assert_eq!(antigravity_session(&a, &Conversation { turn_ended: true, ..told.clone() }, Some(&ui), false, 0, NOW).status, Status::Unread);
+        told.last_input = Some(NOW - 9_000);
+        let ended = Conversation { turn_ended: true, latest_step_at: Some(NOW - 3_000), ..told.clone() };
+        let s = antigravity_session(&a, &ended, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.status_since, s.last_activity), (Status::Unread, Some(NOW - 3_000), NOW - 3_000));
+        assert_eq!(antigravity_session(&a, &Conversation { latest_step_at: None, ..ended.clone() }, Some(&ui), false, 0, NOW).status, Status::Idle);
+        assert_eq!(antigravity_session(&a, &ended, Some(&ui), false, NOW - 2_000, NOW).status, Status::Idle);
         told.said.stopped = Some(NOW - 1_000);
+        told.latest_step_at = Some(NOW - 3_000);
         assert_eq!(antigravity_session(&a, &told, Some(&ui), false, 0, NOW).status, Status::Unread);
         // A print run has no terminal to show.
         let print = Process { terminal: false, ..ui.clone() };
