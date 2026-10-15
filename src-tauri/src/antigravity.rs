@@ -670,16 +670,20 @@ fn picks_of(answer: &str, q: &Question) -> Vec<String> {
 fn with_answers(path: &Path, mut page: Page) -> Page {
     let mut record: Option<Vec<Call>> = None;
     for i in 0..page.items.len() {
-        let it = &page.items[i];
-        let Some(output) = it.output.as_deref().filter(|o| it.kind == "result" && o.starts_with("A1: ")) else { continue };
-        let id = it.id.as_deref();
+        let Some(mut numbered) = page.items[i].answers.remove(NUMBERED) else { continue };
+        let id = page.items[i].id.as_deref();
         let on_page = page.items.iter().find(|c| c.kind == "tool" && c.id.as_deref() == id && !c.questions.is_empty()).map(|c| &c.questions);
         let asked = on_page.or_else(|| record.get_or_insert_with(|| asked_in(path)).iter().find(|c| Some(c.result_step.to_string().as_str()) == id).map(|c| &c.questions));
-        let answers = asked.map(|q| answers_of(output, q)).unwrap_or_default();
+        let answers = asked.map(|q| answers_of(&numbered.pop().unwrap_or_default(), q)).unwrap_or_default();
         page.items[i].answers = answers;
     }
     page
 }
+
+/// Where `conversation_items` keeps a result's whole text when it reads as answers (`A1: …`),
+/// for `with_answers` to take apart: what the result shows is clipped, and an answer of your
+/// own can be long.
+const NUMBERED: &str = "A1";
 
 /// Every question call in a record.
 fn asked_in(path: &Path) -> Vec<Call> {
@@ -736,7 +740,8 @@ pub fn conversation_items(v: &Value, _at: i64) -> Vec<Item> {
         (_, "ERROR_MESSAGE") if !s.content.trim().is_empty() => vec![item(s.at, "note", s.content.trim())],
         ("MODEL", kind) if !ASIDES.contains(&kind) => {
             let (output, failed) = result_of(s.content, s.status);
-            vec![Item { id: Some(s.index.to_string()), output: Some(clip_output(&output)), failed, ..item(s.at, "result", "") }]
+            let answers = if output.starts_with("A1: ") { [(NUMBERED.to_string(), vec![output.clone()])].into() } else { Default::default() };
+            vec![Item { id: Some(s.index.to_string()), output: Some(clip_output(&output)), failed, answers, ..item(s.at, "result", "") }]
         }
         _ => Vec::new(),
     }
@@ -1639,15 +1644,17 @@ fn given(answers: &Value, q: &Question) -> Vec<String> {
 /// lines is taken whole), which Return sends, with what's ticked. Escape skips a question, its
 /// answer "User Skipped". On the last, what goes on submits them all, and the turn goes on.
 /// Left goes back a question, so it starts with enough of them to be at the first, wherever its
-/// terminal was left (Left on the first does nothing). Without `answers` they're declined:
-/// nothing there turns them down, so every question is skipped and one more Escape stops the
-/// turn as it goes on ("Interrupted · What should Antigravity CLI do instead?"), as a denied
-/// call's does.
+/// terminal was left (Left on the first does nothing). What was picked or ticked there stays
+/// when you go back, and a digit toggles a tick, so each question but the last is skipped and
+/// gone back to before it's answered, which clears it; the last can't be, as skipping it
+/// submits them all. Without `answers` they're declined: nothing there turns them down, so
+/// every question is skipped and one more Escape stops the turn as it goes on ("Interrupted ·
+/// What should Antigravity CLI do instead?"), as a denied call's does.
 fn question_keys(questions: &[Question], answers: Option<&Value>) -> anyhow::Result<Vec<Press>> {
     let digit = |i: usize| u8::try_from(i + 1).ok().filter(|_| i < KEYED_CHOICES).map(|n| Press::Key(Key::Digit(n)));
     let mut out = vec![Press::Key(Key::Left); questions.len().saturating_sub(1)];
     let mut answered = false;
-    for q in questions {
+    for (k, q) in questions.iter().enumerate() {
         let given = answers.map(|a| given(a, q)).unwrap_or_default();
         let too_many = || anyhow::anyhow!("“{}” has more choices than Codealong picks among with a key; answer it in its terminal.", one_line(&q.question, 80));
         if given.is_empty() {
@@ -1655,6 +1662,9 @@ fn question_keys(questions: &[Question], answers: Option<&Value>) -> anyhow::Res
             continue;
         }
         answered = true;
+        if k + 1 < questions.len() {
+            out.extend([Press::Key(Key::Escape), Press::Key(Key::Left)]);
+        }
         let index = |label: &str| q.options.iter().position(|o| o.label == label);
         let write_in = |words: String, out: &mut Vec<Press>| -> anyhow::Result<()> {
             out.push(digit(q.options.len()).ok_or_else(too_many)?);
@@ -2831,6 +2841,13 @@ mod tests {
         assert_eq!(answers.len(), 2, "a question you skipped has no answer");
         assert_eq!(answers["Which days?"], ["Tue", "Thu too\nand Fri"]);
         assert_eq!(answers["Which size?"], ["Large"]);
+        // Words of your own longer than a result shows still leave every answer whole.
+        let long = "word ".repeat(2_000);
+        let result = serde_json::json!({"step_index": 6, "source": "MODEL", "type": "GENERIC", "status": "DONE", "created_at": "2026-10-15T02:12:36Z", "content": format!("Created At: 2026-10-14T19:12:36-07:00\nA1: {long}\nA2: Mon\nA3: Small")});
+        let items = [conversation_items(&serde_json::from_str(ASKED[0]).unwrap(), 0), conversation_items(&result, 0)].concat();
+        assert!(items[1].output.as_deref().unwrap().starts_with('…'));
+        let answers = &with_answers(Path::new("/nowhere"), Page { items, before: None, after: 0 }).items[1].answers;
+        assert_eq!((answers["Which color?"][0].len(), &answers["Which days?"], &answers["Which size?"]), (long.trim_end().len(), &vec!["Mon".to_string()], &vec!["Small".to_string()]));
         // A label with a comma of its own is found whole, among others or alone.
         let q = Question { question: "Which?".into(), header: None, options: ["Mon, Tue", "Wed"].map(|l| codealong_peer::api::Choice { label: l.into(), description: None }).to_vec(), multi_select: true };
         assert_eq!(picks_of("Mon, Tue, Wed", &q), ["Mon, Tue", "Wed"]);
@@ -2859,17 +2876,19 @@ mod tests {
         use Press::{Key as K, Words};
         let questions = asked();
         let keys = |answers: Value| question_keys(&questions, Some(&answers));
-        // Back to the first question; a choice there goes on; ticks, then Return; a choice on the
-        // last submits them all.
+        // Back to the first question; each but the last cleared of what its terminal had (skipped
+        // and gone back to); a choice there goes on; ticks, then Return; a choice on the last
+        // submits them all.
+        let cleared = [K(Key::Escape), K(Key::Left)];
         assert_eq!(
             keys(serde_json::json!({"Which color?": "Green", "Which days?": ["Wed", "Mon", "Wed"], "Which size?": "Large"})).unwrap(),
-            [K(Key::Left), K(Key::Left), K(Key::Digit(2)), K(Key::Digit(1)), K(Key::Digit(3)), K(Key::Return), K(Key::Digit(2))]
+            [&[K(Key::Left), K(Key::Left)][..], &cleared, &[K(Key::Digit(2))], &cleared, &[K(Key::Digit(1)), K(Key::Digit(3)), K(Key::Return), K(Key::Digit(2))]].concat()
         );
         // Your own words go in Write-in's box, with what's ticked; a question with no answer is
         // skipped.
         assert_eq!(
             keys(serde_json::json!({"Which days?": ["Tue", "Thu too"], "Which size?": "  medium  "})).unwrap(),
-            [K(Key::Left), K(Key::Left), K(Key::Escape), K(Key::Digit(2)), K(Key::Digit(4)), Words("Thu too".into()), K(Key::Digit(3)), Words("medium".into())]
+            [&[K(Key::Left), K(Key::Left), K(Key::Escape)][..], &cleared, &[K(Key::Digit(2)), K(Key::Digit(4)), Words("Thu too".into()), K(Key::Digit(3)), Words("medium".into())]].concat()
         );
         assert_eq!(keys(serde_json::json!({"Which color?": " "})).unwrap_err().to_string(), "Pick an answer first.");
         // Declined, every question is skipped and the turn they go on in stopped.
