@@ -2148,6 +2148,9 @@ export interface Side {
   ended: boolean;
   /** The account whose agent answers, where that was chosen: a PR's conversation's. */
   account?: string;
+  /** It was closed while its copy answered, and the copy answers what it was asked before it ends:
+   *  no longer the open one, it's read where the kept ones are. */
+  closed?: boolean;
 }
 
 /** A side conversation as the board lists it (side.rs `Glance`): what it was first asked, how far

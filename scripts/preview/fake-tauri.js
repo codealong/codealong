@@ -600,7 +600,9 @@ window.__TAURI_INTERNALS__ = {
     // Side conversations: a question is kept and its answer never comes by itself; a check
     // writes it with `window.__emit('side', {id, key, turns, running, ended})`, or sets
     // `window.__sides[key]` for a window that opens on one. Closing one keeps its turns in
-    // `window.__past`, where a check can put the ones from before.
+    // `window.__past`, where a check can put the ones from before. One closed while it answers
+    // goes on answering, closed (`window.__closing`, by id, listed and read as it is): a check
+    // tells of what it says with `closed: true`, and of its end with `running: false` too.
     // A PR's questions (`pr_side_ask`, `pr_side_close`) are kept with them, by the PR's key, with
     // the account that answers.
     if (cmd === 'side_ask' || cmd === 'pr_side_ask') {
@@ -622,22 +624,38 @@ window.__TAURI_INTERNALS__ = {
       var open = (window.__sides || {})[(args || {}).key];
       if (open) {
         window.__past = (window.__past || []).filter(function (k) { return k.id !== open.id; });
-        window.__past.push({ id: open.id, key: open.key, title: '', startedAt: Date.now(), lastAt: Date.now(), turns: open.turns.map(function (t) { return t.done ? t : Object.assign({}, t, { done: true, error: 'Closed before it answered.' }); }) });
+        var closing = open.running && Object.assign({}, open, { closed: true });
+        if (closing) {
+          window.__closing = window.__closing || {};
+          window.__closing[open.id] = closing;
+        }
+        else window.__past.push({ id: open.id, key: open.key, title: '', startedAt: Date.now(), lastAt: Date.now(), turns: open.turns });
         delete window.__sides[open.key];
-        // The engine tells every window it's closed, once it's kept.
+        // The engine tells every window it's closed, once it's kept, and of the one answering.
         setTimeout(function () {
           window.__emit('side', { id: open.id, key: open.key, turns: [], running: false, ended: false });
+          if (closing) window.__emit('side', closing);
           window.__pushSides();
         }, 0);
       }
       return Promise.resolve(null);
     }
     if (cmd === 'side_past') {
-      return Promise.resolve((window.__past || []).filter(function (k) { return k.key === (args || {}).key; }).sort(function (a, b) { return b.lastAt - a.lastAt; }));
+      var live = Object.keys(window.__closing || {}).map(function (id) {
+        var c = window.__closing[id];
+        return { id: c.id, key: c.key, title: '', startedAt: c.startedAt || 0, lastAt: c.turns.reduce(function (m, t) { return Math.max(m, t.at || 0); }, 0), turns: c.turns };
+      });
+      return Promise.resolve((window.__past || []).concat(live).filter(function (k) { return k.key === (args || {}).key; }).sort(function (a, b) { return b.lastAt - a.lastAt; }));
     }
     if (cmd === 'side_forget') {
-      window.__past = (window.__past || []).filter(function (k) { return k.id !== (args || {}).id; });
-      setTimeout(window.__pushSides, 0);
+      var id = (args || {}).id;
+      window.__past = (window.__past || []).filter(function (k) { return k.id !== id; });
+      var stopped = (window.__closing || {})[id];
+      if (stopped) delete window.__closing[id];
+      setTimeout(function () {
+        if (stopped) window.__emit('side', Object.assign({}, stopped, { running: false }));
+        window.__pushSides();
+      }, 0);
       return Promise.resolve(null);
     }
     // A side conversation popped out into a window of its own: no window opens in the preview,
@@ -754,23 +772,24 @@ window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
     unlistened[eventId] = true;
   },
 };
-// The side conversations a check keeps here (`window.__sides`, open, and `window.__past`, kept),
-// as the board lists them (side.rs `glances`): by session, the latest started first, an open one
-// in place of what's kept of it.
+// The side conversations a check keeps here (`window.__sides`, open, `window.__closing`, closed
+// and answering, and `window.__past`, kept), as the board lists them (side.rs `glances`): by
+// session, the latest started first, an open one in place of what's kept of it.
 function sideGlances() {
   var by = {};
   var open = window.__sides || {};
+  var closing = window.__closing || {};
   var first = function (turns) { return ((turns[0] || {}).question || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean)[0] || ''; };
   var add = function (key, g) { (by[key] = by[key] || []).push(g); };
   (window.__past || []).forEach(function (k) {
-    if (open[k.key] && open[k.key].id === k.id) return;
+    if ((open[k.key] && open[k.key].id === k.id) || closing[k.id]) return;
     add(k.key, { id: k.id, question: first(k.turns), asked: k.turns.length, running: false, open: false, startedAt: k.startedAt, lastAt: k.lastAt });
   });
-  Object.keys(open).forEach(function (key) {
-    var s = open[key];
+  var live = Object.keys(open).map(function (key) { return open[key]; }).concat(Object.keys(closing).map(function (id) { return closing[id]; }));
+  live.forEach(function (s) {
     if (!s.turns.length) return;
     var at = s.turns.reduce(function (m, t) { return Math.max(m, t.at || 0); }, 0);
-    add(key, { id: s.id, question: first(s.turns), asked: s.turns.length, running: !!s.running, open: true, startedAt: s.startedAt || at, lastAt: at });
+    add(s.key, { id: s.id, question: first(s.turns), asked: s.turns.length, running: !!s.running, open: !s.closed, startedAt: s.startedAt || at, lastAt: at });
   });
   Object.keys(by).forEach(function (key) { by[key].sort(function (a, b) { return b.startedAt - a.startedAt; }); });
   return by;

@@ -4,7 +4,9 @@
 // unaware; it has one at a time, and it lasts until it's closed. Codealong keeps what was asked
 // and answered, so the closed ones can be read again: a session's box shows them (`showSides`),
 // from the one list kept here (`useKept`), and its header and its row in Sessions name each, as
-// the board lists them (`Board.sides`), a click showing one (`showSide`).
+// the board lists them (`Board.sides`), a click showing one (`showSide`). One closed while its
+// copy answers is among them, the copy answering what it was asked before it ends, and reads as
+// it answers (`useClosing`).
 //
 // What shows above a session's box is the same in every window (`SideView`, kept in local
 // storage, which they share), and so is whether the box is the side conversation's: a box in
@@ -21,6 +23,9 @@ import { readStored, writeStored, type Codec } from './stored';
 import type { Side, SideGlance, SideKept, SideTurn } from './types';
 
 const sides = new Map<string, Side>();
+/** The side conversations closed while their copies answered, by id, as the engine last said, until
+ *  they've answered: a new map whenever one changes, for `useClosing`. */
+let closing: ReadonlyMap<string, Side> = new Map();
 const hearers = new Set<() => void>();
 let listening = false;
 
@@ -75,6 +80,7 @@ const ended = (side: Side | undefined) => (side ? side.turns.filter((t) => t.don
 /** Takes what the engine says of a side conversation: one with no turns has ended. What's kept
  *  of it changed if a turn ended or it closed, so that's read again. */
 export function noteSide(side: Side): void {
+  if (side.closed) return noteClosing(side);
   const before = sides.get(side.key);
   if (side.turns.length > 0) sides.set(side.key, side);
   else sides.delete(side.key);
@@ -82,6 +88,29 @@ export function noteSide(side: Side): void {
   // A question being asked has its copy now, or the copy is gone: the engine says which.
   if (viewOf(side.key)?.kind === 'starting') showSides(side.key, null);
   tell();
+}
+
+/** Takes what the engine says of one closed while its copy answered. Once it has answered, what's
+ *  kept of it is what it said, until that's read again. */
+function noteClosing(side: Side): void {
+  const before = closing.get(side.id);
+  const next = new Map(closing);
+  if (side.running) next.set(side.id, side);
+  else {
+    next.delete(side.id);
+    const list = kept.get(side.key);
+    if (list) kept.set(side.key, list.map((k) => (k.id === side.id ? { ...k, turns: side.turns } : k)));
+  }
+  closing = next;
+  if (!side.running || ended(before) !== ended(side)) readKept(side.key);
+  tell();
+}
+
+/** The side conversations closed while their copies answered, by id, each as far as it's got:
+ *  read as they answer, as the kept ones are. */
+export function useClosing(): ReadonlyMap<string, Side> {
+  useEffect(listen, []);
+  return useSyncExternalStore(subscribe, () => closing);
 }
 
 /** What a session's box shows in place of its open side conversation: the list of the ones
@@ -214,8 +243,9 @@ export function useKept(key: string): SideKept[] {
   return useSyncExternalStore(subscribe, () => kept.get(key) ?? NONE);
 }
 
-/** Ends a side conversation: it's gone from every box at once, and its copy is told to stop
- *  (`close`, a session's or a PR's). What was said is kept. */
+/** Closes a side conversation: it's gone from every box at once, and the engine told (`close`, a
+ *  session's or a PR's), whose copy answers what it was asked before it ends, read meanwhile as
+ *  the kept ones are (`useClosing`). What was said is kept. */
 export function endSide(key: string, close: (key: string) => Promise<void>): void {
   const side = sides.get(key);
   if (!side) return;
@@ -225,12 +255,18 @@ export function endSide(key: string, close: (key: string) => Promise<void>): voi
   void close(key).catch(() => {});
 }
 
-/** Forgets a kept side conversation: it's off the list at once. */
+/** Forgets a kept side conversation, or stops one closed and still answering: it's off the list
+ *  at once. */
 export function forgetSide(key: string, id: string): void {
   kept.set(
     key,
     (kept.get(key) ?? NONE).filter((k) => k.id !== id),
   );
+  if (closing.has(id)) {
+    const next = new Map(closing);
+    next.delete(id);
+    closing = next;
+  }
   tell();
   const again = () => readKept(key);
   sideForget(id).then(again, again);

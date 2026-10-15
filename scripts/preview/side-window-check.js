@@ -7,8 +7,9 @@
 // window closes, it's back above the box, which is the side conversation's again. In the window:
 // it says what session it's about, whose title shows the session in Codealong's main window;
 // with nothing open it says so over a box that asks on the side; a question asks the copy and
-// sends the session nothing; Put back closes the window and leaves the copy be; Close and ⌘W end
-// the copy and close the window; Earlier lists the ones from before, and Back goes back.
+// sends the session nothing; Put back closes the window and leaves the copy be; Close and ⌘W close
+// it and the window; Earlier lists the ones from before, the ones closed while their copies
+// answered still answering, and Back goes back.
 //   scripts/preview.sh peek '' scripts/preview/side-window-check.js
 //   scripts/preview.sh side '' scripts/preview/side-window-check.js
 (function () {
@@ -121,7 +122,7 @@
 
     act('Close').click();
     await until(function () { return calls('kept_close').length === 2; }, 5000, 'Close');
-    check('Close ends the copy and closes the window', calls('side_close').length === 1 && calls('side_close')[0][1].key === key);
+    check('Close closes it and the window', calls('side_close').length === 1 && calls('side_close')[0][1].key === key);
     await until(function () { return q('.ca-sidestrip-doing') && /^Nothing open/.test(q('.ca-sidestrip-doing').textContent); }, 5000, 'nothing open');
 
     await ask('once more?');
@@ -133,8 +134,9 @@
     await ask('and again?');
     await until(function () { return !!act('Earlier'); }, 5000, 'Earlier');
     act('Earlier').click();
-    await until(function () { return all('.ca-sidestrip-kept').length === 1; }, 5000, 'the list');
-    check('Earlier lists the ones from before, in the window', labels() === 'Back, Put back, Close', labels());
+    await until(function () { return all('.ca-sidestrip-kept').length === 3; }, 5000, 'the list');
+    var rows = all('.ca-sidestrip-kept').map(function (r) { return r.textContent; });
+    check('Earlier lists the ones from before, in the window, the two closed while they answered still answering', labels() === 'Back, Put back, Close' && rows.filter(function (t) { return /answering · 1 question/.test(t); }).length === 2 && /^is the queue tested\?/.test(rows[2]), rows.join(' | ') + ' / ' + labels());
     act('Back').click();
     await until(function () { return turns().length === 1; }, 5000, 'Back');
     check('Back goes back to the open one', turns()[0].indexOf('and again?') === 0);

@@ -373,7 +373,7 @@ fn side_ask(_: &Args, rest: &[String]) -> Done {
     let engine = board_now();
     for q in questions {
         if let Err(e) = actions::local(&engine, &From::Device, actions::SIDE_ASK, key, params::Side { text: q.clone() }) {
-            side::close(key);
+            side::close_now(key);
             return Err(Stop::Failed(e));
         }
     }
@@ -388,7 +388,7 @@ fn answered(key: &str) -> Done {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
     let asked = pretty(&side::get(key));
-    side::close(key);
+    side::close_now(key);
     // The copy's process gets a moment to leave by itself.
     std::thread::sleep(std::time::Duration::from_millis(1700));
     Ok(asked)
@@ -404,7 +404,7 @@ fn pr_side(_: &Args, rest: &[String]) -> Done {
     let cfg = config::current().map_err(|e| Stop::Failed(format!("{e:#}")))?;
     for q in questions {
         if let Err(e) = side::ask_pr(&board, &cfg, &key, account, q) {
-            side::close(&key);
+            side::close_now(&key);
             return Err(Stop::Failed(format!("{e:#}")));
         }
     }

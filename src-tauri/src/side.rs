@@ -4,12 +4,14 @@
 //! and shows what it says beside the session. The session never hears of it and carries on. The
 //! copy may do what the session itself may without asking (`Adapter::side`), and is told to look
 //! and answer, changing something only when a question asks for that change in so many words: as
-//! Codex's own `/side` has it. The harness keeps no record of the copy, and closing it, or
-//! quitting Codealong, is the end of it.
+//! Codex's own `/side` has it. The harness keeps no record of the copy. Closing it gives the
+//! session's box back at once, but a copy that's answering answers what it was asked first and
+//! only then ends (`close`, `Side::closed`), so an answer asked for is never lost to a close;
+//! quitting Codealong is the end of it.
 //!
 //! What was asked and answered is Codealong's to keep (`sides.json`), so a side conversation
-//! can be read after it's closed (`past`), with what the copy did to answer. A new question
-//! after that goes to a new copy, which knows none of it.
+//! can be read after it's closed (`past`, a closed one still answering as it answers), with what
+//! the copy did to answer. A new question after that goes to a new copy, which knows none of it.
 //!
 //! A PR's questions are a side conversation too, by the PR's key (`ask_pr`): nobody's copy, but a
 //! conversation of its own on an account you pick (`Adapter::fresh_side`), in a checkout of the
@@ -19,7 +21,8 @@
 //! Each harness says how its copy runs and how to talk to it (`Adapter::side`: a `Recipe`, the
 //! process and a `Dialect` for its lines). This module runs the processes, keeps what was asked
 //! and answered, and tells the windows as an answer is written. A session has one side
-//! conversation at a time; what's asked while the copy answers waits its turn.
+//! conversation open at a time, and any number closed and still answering; what's asked while the
+//! copy answers waits its turn.
 //!
 //! Every side conversation is behind one lock, which the windows take to ask about theirs, so
 //! nothing is written to a copy under it: a copy's lines are put in order for a thread of its own
@@ -103,6 +106,10 @@ pub struct Side {
     /// A session's copy answers on the session's own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// It was closed while its copy answered, and the copy answers what it was asked before it
+    /// ends: no longer the session's open one, it's read where the kept ones are (`past`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
 }
 
 /// A side conversation as Codealong keeps it, to read once its copy is gone: the turns that
@@ -204,7 +211,27 @@ struct Open {
 #[derive(Default)]
 struct State {
     open: HashMap<String, Open>,
+    /// The ones closed while their copies answered, until the copies have answered.
+    closing: Vec<Open>,
     next: u64,
+}
+
+impl State {
+    /// The side conversation copy `id` of `key`'s answers: its open one, or one closed while it
+    /// answered.
+    fn of_copy(&mut self, key: &str, id: u64) -> Option<&mut Open> {
+        let answers = |o: &Open| o.proc.as_ref().is_some_and(|p| p.id == id);
+        match self.open.get_mut(key) {
+            Some(o) if answers(o) => Some(o),
+            _ => self.closing.iter_mut().find(|o| answers(o)),
+        }
+    }
+
+    /// Takes out the one closed while it answered whose record is `id`.
+    fn take_closing(&mut self, id: &str) -> Option<Open> {
+        let at = self.closing.iter().position(|o| o.side.id == id)?;
+        Some(self.closing.remove(at))
+    }
 }
 
 fn state() -> std::sync::MutexGuard<'static, State> {
@@ -248,11 +275,14 @@ fn changed() {
     }
 }
 
-/// Every side conversation, kept or open, as the board lists them (`Glance`): by the session's
-/// or PR's key, the latest started first.
+/// Every side conversation, kept, open or closed and still answering, as the board lists them
+/// (`Glance`): by the session's or PR's key, the latest started first.
 pub fn glances() -> BTreeMap<String, Vec<Glance>> {
-    let open: Vec<(String, Glance)> = state().open.values().filter(|o| !o.side.turns.is_empty()).map(|o| (o.side.key.clone(), glance_of_open(o))).collect();
-    glances_of(&kept_glances(), open)
+    let live: Vec<(String, Glance)> = {
+        let st = state();
+        st.open.values().chain(&st.closing).filter(|o| !o.side.turns.is_empty()).map(|o| (o.side.key.clone(), glance_of_open(o))).collect()
+    };
+    glances_of(&kept_glances(), live)
 }
 
 /// The kept ones and the open ones by key, an open one in place of what's kept of it, the latest
@@ -272,7 +302,7 @@ fn glances_of(kept: &[(String, Glance)], open: Vec<(String, Glance)>) -> BTreeMa
 fn glance_of_open(o: &Open) -> Glance {
     let s = &o.side;
     let last_at = s.turns.iter().map(|t| t.at).max().unwrap_or(o.started_at);
-    Glance { id: s.id.clone(), question: first_line(s.turns.first().map_or("", |t| t.question.as_str())), asked: s.turns.len(), running: s.running, open: true, started_at: o.started_at, last_at }
+    Glance { id: s.id.clone(), question: first_line(s.turns.first().map_or("", |t| t.question.as_str())), asked: s.turns.len(), running: s.running, open: !s.closed, started_at: o.started_at, last_at }
 }
 
 fn glance_of_kept(k: &Kept) -> Glance {
@@ -301,10 +331,12 @@ pub fn get(key: &str) -> Option<Side> {
     state().open.get(key).map(|o| o.side.clone()).filter(|s| !s.turns.is_empty())
 }
 
-/// Whether `pid` is a copy's process. Claude Code lists a copy among an account's live sessions
-/// while it runs, and Codealong's own permission hook hears from it: neither is a session.
+/// Whether `pid` is a copy's process, a closed one's still answering too. Claude Code lists a
+/// copy among an account's live sessions while it runs, and Codealong's own permission hook hears
+/// from it: neither is a session.
 pub fn runs(pid: u32) -> bool {
-    state().open.values().any(|o| o.proc.as_ref().is_some_and(|p| p.pid == pid))
+    let st = state();
+    st.open.values().chain(&st.closing).any(|o| o.proc.as_ref().is_some_and(|p| p.pid == pid))
 }
 
 /// Asks the session's copy `text`, making the copy when there's none, and returns the side
@@ -378,15 +410,45 @@ fn ask_with(key: &str, text: &str, account: Option<&str>, made: impl FnOnce() ->
     Ok(side)
 }
 
-/// Ends the session's side conversation: its copy stops, and what was said is kept to read.
+/// Closes the session's side conversation: it's no longer the open one, and what was said is
+/// kept to read. A copy that's answering answers what it was asked first and then ends (`heard`),
+/// read meanwhile where the kept ones are: you close one to have the box back for the session,
+/// not to lose the answer. One idle ends now.
 pub fn close(key: &str) {
-    let Some(mut o) = state().open.remove(key) else { return };
-    cut_short(&mut o.side);
-    keep(kept_of(&o));
-    if let Some(p) = o.proc {
-        end(p);
+    close_as(key, true);
+}
+
+/// Closes it and ends its copy now, whatever it hadn't answered: for a check from the command
+/// line, which leaves no copy running behind it.
+pub fn close_now(key: &str) {
+    close_as(key, false);
+}
+
+fn close_as(key: &str, finish: bool) {
+    let (ended, closing) = {
+        let mut st = state();
+        let Some(mut o) = st.open.remove(key) else { return };
+        if finish && o.side.running && o.proc.is_some() {
+            o.side.closed = true;
+            let side = o.side.clone();
+            st.closing.push(o);
+            (None, Some(side))
+        } else {
+            (Some(o), None)
+        }
+    };
+    if let Some(mut o) = ended {
+        cut_short(&mut o.side);
+        keep(kept_of(&o));
+        if let Some(p) = o.proc {
+            end(p);
+        }
     }
+    // Gone from above its box, and still answering where it's read, if it is.
     notify(Side { key: key.to_string(), ..Default::default() });
+    if let Some(side) = closing {
+        notify(side);
+    }
     changed();
 }
 
@@ -400,18 +462,43 @@ fn cut_short(side: &mut Side) {
     }
 }
 
-/// The side conversations kept for a session, the latest first: the one that's open too, as
-/// far as it's been answered.
+/// The side conversations kept for a session, the latest first: the one that's open too, as far
+/// as it's been answered, and the ones closed and still answering as they are, unanswered
+/// questions and all.
 pub fn past(key: &str) -> Vec<Kept> {
-    past_in(&store_path(), key)
+    let closing: Vec<Kept> = state().closing.iter().filter(|o| o.side.key == key).map(as_it_is).collect();
+    with_closing(past_in(&store_path(), key), closing)
 }
 
-/// Forgets a kept side conversation.
+/// What's kept for a session with the ones still answering in place of what's kept of them, the
+/// latest first.
+fn with_closing(kept: Vec<Kept>, closing: Vec<Kept>) -> Vec<Kept> {
+    let mut all: Vec<Kept> = kept.into_iter().filter(|k| !closing.iter().any(|c| c.id == k.id)).collect();
+    all.extend(closing);
+    all.sort_by_key(|k| std::cmp::Reverse(k.last_at));
+    all
+}
+
+/// Forgets a kept side conversation, and stops it if it was closed and is still answering.
 pub fn forget(id: &str) -> Result<()> {
+    stop_closing(id);
     let forgot = forget_in(&store_path(), id);
     *kept_cache() = None;
     changed();
     forgot
+}
+
+/// Stops the one closed and still answering whose record is `id`, if there is one: forgotten,
+/// what it would say isn't wanted either.
+fn stop_closing(id: &str) {
+    let stopped = state().take_closing(id);
+    if let Some(mut o) = stopped {
+        if let Some(p) = o.proc.take() {
+            end(p);
+        }
+        o.side.running = false;
+        notify(o.side);
+    }
 }
 
 // ---- keeping ----
@@ -427,6 +514,12 @@ const WHAT: &str = "a list of side conversations";
 /// is turned away (`keep_in`, `forget_in`).
 fn load(path: &Path) -> Vec<Kept> {
     store::read_or_default(path)
+}
+
+/// A side conversation as it's read while it answers: every turn, as far as it's gone.
+fn as_it_is(o: &Open) -> Kept {
+    let last_at = o.side.turns.iter().map(|t| t.at).max().unwrap_or(o.started_at);
+    Kept { id: o.side.id.clone(), key: o.side.key.clone(), title: o.title.clone(), started_at: o.started_at, last_at, turns: o.side.turns.clone() }
 }
 
 /// A side conversation as it's kept: the turns that have ended. None before the first has.
@@ -621,10 +714,10 @@ fn write(p: &mut Proc, lines: &[Value]) {
 
 /// A line from copy `id` of the session's conversation.
 fn heard(key: &str, id: u64, line: &Value) {
-    let (side, kept) = {
+    let (side, kept, answered) = {
         let mut st = state();
-        let Some(o) = st.open.get_mut(key) else { return };
-        let Some(p) = o.proc.as_mut().filter(|p| p.id == id) else { return };
+        let Some(o) = st.of_copy(key, id) else { return };
+        let Some(p) = o.proc.as_mut() else { return };
         let (events, replies) = p.dialect.hear(line);
         write(p, &replies);
         if events.is_empty() {
@@ -635,8 +728,14 @@ fn heard(key: &str, id: u64, line: &Value) {
         for e in events {
             apply(o, e);
         }
-        (o.side.clone(), if ended { kept_of(o) } else { None })
+        let (side, kept) = (o.side.clone(), if ended { kept_of(o) } else { None });
+        // One closed while it answered has answered all it was asked: its copy's done.
+        let answered = if side.closed && !side.running { st.take_closing(&side.id) } else { None };
+        (side, kept, answered)
     };
+    if let Some(p) = answered.and_then(|o| o.proc) {
+        end(p);
+    }
     let ended = kept.is_some();
     keep(kept);
     notify(side);
@@ -693,10 +792,7 @@ fn apply(o: &mut Open, e: Event) {
 fn stopped(key: &str, id: u64, complaint: &str) {
     let (side, kept) = {
         let mut st = state();
-        let Some(o) = st.open.get_mut(key) else { return };
-        if o.proc.as_ref().map(|p| p.id) != Some(id) {
-            return;
-        }
+        let Some(o) = st.of_copy(key, id) else { return };
         // Dropped, which reaps its process.
         o.proc = None;
         let why = if complaint.is_empty() { "The copy stopped before it answered.".to_string() } else { format!("The copy stopped: {}", truncate(complaint, 300)) };
@@ -708,7 +804,11 @@ fn stopped(key: &str, id: u64, complaint: &str) {
         o.queue.clear();
         o.side.running = false;
         o.side.ended = true;
-        (o.side.clone(), kept_of(o))
+        let (side, kept) = (o.side.clone(), kept_of(o));
+        if side.closed {
+            st.take_closing(&side.id);
+        }
+        (side, kept)
     };
     keep(kept);
     notify(side);
@@ -716,10 +816,11 @@ fn stopped(key: &str, id: u64, complaint: &str) {
 }
 
 /// Ends the copies that have sat idle for `idle`: their processes hold a conversation's worth
-/// of memory each. What was said stays to read.
+/// of memory each. What was said stays to read. A closed one that has answered nothing for as
+/// long is stuck, with nobody watching it, and ends too.
 fn end_idle(idle: Duration) {
     let mut ended = Vec::new();
-    {
+    let stuck: Vec<Open> = {
         let mut st = state();
         for o in st.open.values_mut() {
             if o.side.running || o.used.elapsed() < idle {
@@ -731,8 +832,26 @@ fn end_idle(idle: Duration) {
                 ended.push(o.side.clone());
             }
         }
+        let (stuck, still) = std::mem::take(&mut st.closing).into_iter().partition(|o| o.used.elapsed() >= idle);
+        st.closing = still;
+        stuck
+    };
+    let any = !ended.is_empty() || !stuck.is_empty();
+    for mut o in stuck {
+        for t in o.side.turns.iter_mut().filter(|t| !t.done) {
+            t.done = true;
+            t.tool = None;
+            t.answer = t.answer.trim().to_string();
+            t.error = Some(format!("Stopped: once closed, it answered nothing for {} minutes.", idle.as_secs() / 60));
+        }
+        o.side.running = false;
+        o.side.ended = true;
+        keep(kept_of(&o));
+        if let Some(p) = o.proc.take() {
+            end(p);
+        }
+        ended.push(o.side);
     }
-    let any = !ended.is_empty();
     for side in ended {
         notify(side);
     }
@@ -839,8 +958,9 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
         assert_eq!(side.turns[0].answer, "You asked: one");
         assert!(get(stuck).is_some_and(|s| s.running));
-        close(stuck);
+        close_now(stuck);
         close(other);
+        assert!(get(stuck).is_none() && !state().closing.iter().any(|o| o.side.key == stuck));
     }
 
     #[test]
@@ -873,6 +993,96 @@ mod tests {
         assert!(side.ended);
         assert_eq!(side.turns[0].answer, "You asked: one");
         close(key);
+    }
+
+    /// What `notify` told the windows, from the first test that asks: every test's, so each
+    /// looks for its own key.
+    fn told() -> &'static Mutex<Vec<Side>> {
+        static TOLD: Mutex<Vec<Side>> = Mutex::new(Vec::new());
+        let _ = NOTIFY.set(Box::new(|side| TOLD.lock().unwrap_or_else(|e| e.into_inner()).push(side)));
+        &TOLD
+    }
+
+    /// The last the windows were told of `key`'s side conversation closed while it answered, once
+    /// it has stopped answering.
+    fn told_closed(key: &str) -> Side {
+        for _ in 0..200 {
+            let last = told().lock().unwrap_or_else(|e| e.into_inner()).iter().rev().find(|s| s.key == key && s.closed).cloned();
+            if let Some(side) = last.filter(|s| !s.running) {
+                return side;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("the closed side conversation never stopped answering");
+    }
+
+    fn closing_of(key: &str) -> Option<Glance> {
+        state().closing.iter().find(|o| o.side.key == key).map(glance_of_open)
+    }
+
+    #[test]
+    fn a_copy_closed_while_it_answers_answers_what_it_was_asked_and_then_ends() {
+        let key = "test:side:closing";
+        told();
+        // An answer that takes a moment: each line comes back a fifth of a second after it went.
+        open_with(key, "/bin/sh", &["-c", "while read -r l; do sleep 0.2; printf '%s\\n' \"$l\"; done"]);
+        put(key, "one");
+        put(key, "two");
+        let pid = state().open.get(key).unwrap().proc.as_ref().unwrap().pid;
+        close(key);
+        // The session has no side conversation open, and the copy goes on, listed as answering
+        // and read where the kept ones are, both questions in it.
+        assert!(get(key).is_none() && runs(pid));
+        let g = closing_of(key).unwrap();
+        assert_eq!((g.asked, g.running, g.open), (2, true, false));
+        let read = state().closing.iter().find(|o| o.side.key == key).map(as_it_is).unwrap();
+        assert_eq!(read.turns.iter().map(|t| t.question.as_str()).collect::<Vec<_>>(), ["one", "two"]);
+        let side = told_closed(key);
+        assert_eq!(side.turns.iter().map(|t| (t.answer.as_str(), t.done, t.error.as_deref())).collect::<Vec<_>>(), [("You asked: one", true, None), ("You asked: two", true, None)]);
+        // Then it's gone: its copy ended, and what it said is kept.
+        assert!(closing_of(key).is_none() && !runs(pid) && get(key).is_none());
+    }
+
+    #[test]
+    fn a_closed_copy_that_answers_nothing_is_stopped() {
+        let key = "test:side:closed-stuck";
+        told();
+        open_with(key, "/bin/sleep", &["600"]);
+        put(key, "anyone there?");
+        let pid = state().open.get(key).unwrap().proc.as_ref().unwrap().pid;
+        close(key);
+        assert!(runs(pid));
+        // Answering, it isn't idle, however long ago it was asked.
+        end_idle(Duration::from_secs(60));
+        assert!(closing_of(key).is_some());
+        if let Some(o) = state().closing.iter_mut().find(|o| o.side.key == key) {
+            o.used = Instant::now() - Duration::from_secs(3600);
+        }
+        end_idle(Duration::from_secs(60));
+        let side = told_closed(key);
+        assert!(side.turns[0].done && side.turns[0].error.as_deref().is_some_and(|e| e.starts_with("Stopped: once closed, it answered nothing for")), "{:?}", side.turns[0]);
+        assert!(closing_of(key).is_none() && !runs(pid));
+    }
+
+    #[test]
+    fn forgetting_a_closed_copy_still_answering_stops_it() {
+        let key = "test:side:closed-forgotten";
+        told();
+        open_with(key, "/bin/sleep", &["600"]);
+        put(key, "anyone there?");
+        let pid = state().open.get(key).unwrap().proc.as_ref().unwrap().pid;
+        close(key);
+        let id = state().closing.iter().find(|o| o.side.key == key).unwrap().side.id.clone();
+        stop_closing(&id);
+        assert!(closing_of(key).is_none() && !runs(pid));
+        assert!(!told_closed(key).running);
+    }
+
+    #[test]
+    fn whats_read_of_a_session_has_the_ones_still_answering_in_place_of_whats_kept_of_them() {
+        let kept = |id: &str, last_at: i64, done: bool| Kept { id: id.into(), key: "claude:c:1".into(), title: "A session".into(), started_at: 1, last_at, turns: vec![Turn { question: "why?".into(), done, at: last_at, ..Default::default() }] };
+        let all = with_closing(vec![kept("b", 20, true), kept("a", 10, true)], vec![kept("a", 30, false)]);
+        assert_eq!(all.iter().map(|k| (k.id.as_str(), k.last_at, k.turns[0].done)).collect::<Vec<_>>(), [("a", 30, false), ("b", 20, true)]);
     }
 
     #[test]
@@ -1004,7 +1214,7 @@ mod tests {
     }
 
     #[test]
-    fn closing_keeps_what_was_asked_and_says_what_it_cut_short() {
+    fn closing_at_once_keeps_what_was_asked_and_says_what_it_cut_short() {
         let turn = |question: &str, answer: &str, done: bool| Turn { question: question.into(), answer: answer.into(), done, tool: (!done).then(|| "Read · `a.rs`".to_string()), ..Default::default() };
         let mut o = Open { side: Side { id: "s1".into(), key: "claude:c:1".into(), turns: vec![turn("one", "Done.", true), turn("two", "Half of ", false), turn("three", "", false)], running: true, ..Default::default() }, title: "A session".into(), started_at: 5, queue: VecDeque::new(), proc: None, used: Instant::now() };
         cut_short(&mut o.side);

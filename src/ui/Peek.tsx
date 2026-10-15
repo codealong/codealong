@@ -235,7 +235,8 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
     return () => window.removeEventListener('keydown', keyed, true);
   }, [keyed]);
 
-  /** Ends a popped-out side conversation and closes its window, for its × and ⌘W. */
+  /** Closes a popped-out side conversation and its window, for its × and ⌘W: an answer on its way
+   *  still comes, read where the kept ones are. */
   const closeSide = useLatest(() => {
     if (key) endSide(key, sideClose);
     void keptClose();
@@ -243,7 +244,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
 
   // Escape closes it, and ⌘Q, ⌘H and ⌘W close it rather than going to Codealong: the menu bar is
   // the other app's. A kept session stays up for all of them but ⌘W, which takes it off the
-  // desktop, and a side conversation's window for ⌘W, which ends it too. Typing with nothing
+  // desktop, and a side conversation's window for ⌘W, which closes it too. Typing with nothing
   // focused goes to the box.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

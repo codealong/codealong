@@ -253,11 +253,16 @@ question asks for that change in so many words, as Codex's own `/side` is; then 
 session itself can without asking (a Claude Code session that skips permission prompts, a Codex
 thread's sandbox), and what would have to ask you is refused. The harness keeps nothing of the copy:
 no transcript, no session on the board. While it shows, the box under it asks the side conversation,
-not the session (its placeholder says Ask on the side): type a follow-up and press ⏎. Close ends it
-and gives the box back to the session, and a copy left idle for 15 minutes ends by itself. Codealong
-keeps what was asked and answered, with what the copy did to answer (`sides.json`, the latest 300):
-`/side` alone, or Earlier beside an open one, lists a session's side conversations from before, and
-each opens to read, or to delete; while they show, a question in the box starts a new one. A
+not the session (its placeholder says Ask on the side): type a follow-up and press ⏎. Close gives
+the box back to the session at once. A copy that's still answering when you close it answers what it
+was asked before it ends, so closing one to talk to the session loses no answer: it stays listed
+under the session as answering, and a click on it shows it to read as the answer comes (Delete there
+stops it). A new question after a close starts a new copy, which knows none of the closed one. A copy
+left idle for 15 minutes ends by itself, and a closed one that answers nothing for 15 minutes is
+stopped. Codealong keeps what was asked and answered, with what the copy did to answer
+(`sides.json`, the latest 300): `/side` alone, or Earlier beside an open one, lists a session's
+side conversations from before, and each opens to read, or to delete; while they show, a question
+in the box starts a new one. A
 session's header names each under its title, with the sessions that came of it (*Where a session
 came from*), and a click on one shows it above the box. In Sessions, the one answering is listed
 under its session, set in as a helper at work is, and a click on its row selects the session with
@@ -272,8 +277,8 @@ it into a window of its own beside the one it was in, which floats as a session 
 does: the conversation fills it, its box asks only the side conversation, and the session's boxes go
 back to the session, so you can talk to both at once (`/side` in the session's box still asks the
 side conversation, and brings its window forward). Its top line drags it and its edges size it; Put
-back closes the window and shows the conversation above the box again, and its × or ⌘W end it and
-close the window. It comes back at launch where it was left, empty until you ask it something. Other
+back closes the window and shows the conversation above the box again, and its × or ⌘W close it,
+as Close does, and the window. It comes back at launch where it was left, empty until you ask it something. Other
 `/…` commands go to the session as typed.
 
 #### The session panel

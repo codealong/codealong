@@ -1,8 +1,10 @@
 // A session's side conversations (side.ts), above the box that asks them with `/side`. The open
 // one shows each question and its answer as the throwaway copy writes it, the tool it's using
-// meanwhile, and Close, which ends the copy. Codealong keeps what was asked and answered, with
-// what the copy did to answer, so `/side` alone (or Earlier, beside an open one) lists the ones
-// from before, and picking one shows it to read, or to delete. None of it reaches the session.
+// meanwhile, and Close, which gives the box back to the session: a copy that's answering answers
+// what it was asked first and then ends, listed with the ones from before and read as it answers.
+// Codealong keeps what was asked and answered, with what the copy did to answer, so `/side` alone
+// (or Earlier, beside an open one) lists the ones from before, and picking one shows it to read,
+// or to delete. None of it reaches the session.
 // The session's header names each under its title, with what came of it (SessionHeader.tsx), and
 // a click on one shows it here; its row in Sessions lists the one answering (LaneRow.tsx `SideRow`).
 // What can be done with them is a row of icons at the strip's top right, each saying what it does
@@ -11,8 +13,8 @@
 // A session's pops out (`SideWords.window`) into a window of its own (kept.rs `pop_side`, drawn
 // by Peek.tsx), where the strip is the window: the same views, filling it, over a box that only
 // ever asks the side conversation. Meanwhile it's left out above the session's boxes, which go
-// back to the session. Put back closes the window and it shows above the box again; Close ends
-// it there, as here, and closes the window too.
+// back to the session. Put back closes the window and it shows above the box again; Close closes
+// it there, as here, and the window too.
 //
 // A PR's questions (PrCard.tsx, its box's Ask) are the same strip over the same store, by the
 // PR's key: what differs is what it says of them (`SideWords`) and how one is closed.
@@ -21,7 +23,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { prSideClose, sideClose, sideWindow } from '../api';
 import { agoPhrase } from '../format';
 import { errorText } from '../report';
-import { endSide, forgetSide, keptLine, showSides, takesBox, turnState, useKept, usePopped, useSide, useSideView } from '../side';
+import { endSide, forgetSide, keptLine, showSides, takesBox, turnState, useClosing, useKept, usePopped, useSide, useSideView } from '../side';
 import type { PrItem, SideTurn } from '../types';
 import { Markdown } from './Markdown';
 import { Button, cx, Icon, Rich } from './primitives';
@@ -43,6 +45,8 @@ export interface SideWords {
   none: string;
   /** Beside the title of a kept one, after when it was. */
   closed: string;
+  /** Beside the title of one closed and still answering. */
+  answering: string;
   /** Close's tooltip, on an open one. */
   closeTitle: string;
   close: (key: string) => Promise<void>;
@@ -60,7 +64,8 @@ export const SESSION_SIDES: SideWords = {
   listAbout: 'Kept by Codealong. The session never saw them.',
   none: 'None with this session yet. /side, then a question, starts one.',
   closed: 'closed. A new question starts a new copy, which knows none of this.',
-  closeTitle: 'Close: ends its copy. What was said is kept: /side shows the earlier ones.',
+  answering: 'Closed, and still answering. A new question starts a new copy, which knows none of this.',
+  closeTitle: 'Close: the box goes back to the session. An answer on its way still comes, and what was said is kept: /side shows it.',
   close: sideClose,
   window: { pop: (key) => sideWindow(key, true), empty: 'Nothing open on the side. Ask below, and a throwaway copy of the conversation answers. The session never sees it.' },
 };
@@ -76,7 +81,8 @@ export function prSides(pr: Pick<PrItem, 'number'>, account: string | null): Sid
     listAbout: 'Kept by Codealong. GitHub never saw them.',
     none: 'None about this PR yet. Ask, and an agent reads it to answer.',
     closed: 'closed. A new question starts a new conversation, which knows none of this.',
-    closeTitle: 'Close: ends it. What was said is kept: Earlier lists it.',
+    answering: 'Closed, and still answering. A new question starts a new conversation, which knows none of this.',
+    closeTitle: 'Close: an answer on its way still comes, and what was said is kept: Earlier lists it.',
     close: prSideClose,
   };
 }
@@ -90,7 +96,7 @@ export interface SideWindowCan {
   show: () => void;
   /** Closes the window: the side conversation shows above the session's box again. */
   putBack: () => void;
-  /** Closes the window and ends the open side conversation, as Close does above a box. */
+  /** Closes the window and the open side conversation, as Close does above a box. */
   close: () => void;
 }
 
@@ -177,6 +183,9 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
   const past = useKept(key);
   const earlier = past.filter((k) => k.id !== side?.id);
   const reading = view?.kind === 'past' ? past.find((k) => k.id === view.id) : undefined;
+  // One closed while its copy answers reads as it answers.
+  const closing = useClosing();
+  const answering = view?.kind === 'past' ? closing.get(view.id) : undefined;
   const scroller = useRef<HTMLDivElement>(null);
   // The end stays in view as the answer grows, unless you've scrolled back to read.
   const atEnd = useRef(true);
@@ -241,24 +250,27 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
     </section>
   );
 
-  if (reading) {
+  const read = answering
+    ? { id: answering.id, turns: answering.turns, current: answering.turns.findIndex((t) => !t.done), said: words.answering }
+    : reading && { id: reading.id, turns: reading.turns, current: -1, said: `${agoPhrase(reading.lastAt, now)} · ${words.closed}` };
+  if (read) {
     return section(
       'Side conversation',
-      <Head title={words.title} {...about(`${agoPhrase(reading.lastAt, now)} · ${words.closed}`)}>
+      <Head title={words.title} {...about(read.said)}>
         <Act icon="history" label="Earlier" title="The others from before" onClick={() => showSides(key, { kind: 'list' })} />
         <Act
           icon="trash"
           label="Delete"
-          title="Forget this side conversation"
+          title={answering ? 'Stop it answering, and forget this side conversation' : 'Forget this side conversation'}
           onClick={() => {
             // Back to the others, or away with none left.
             showSides(key, earlier.length > 1 ? { kind: 'list' } : null);
-            forgetSide(key, reading.id);
+            forgetSide(key, read.id);
           }}
         />
         {hide}
       </Head>,
-      <Turns turns={reading.turns} current={-1} />,
+      <Turns turns={read.turns} current={read.current} />,
     );
   }
 
@@ -274,7 +286,7 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
           <button key={k.id} type="button" className="ca-sidestrip-kept" onClick={() => showSides(key, { kind: 'past', id: k.id })}>
             <span className="ca-sidestrip-kept-q">{keptLine(k)}</span>
             <span className="ca-sidestrip-kept-when">
-              {agoPhrase(k.lastAt, now)} · {many(k.turns.length, 'question')}
+              {closing.has(k.id) ? 'answering' : agoPhrase(k.lastAt, now)} · {many(k.turns.length, 'question')}
             </span>
           </button>
         ))}
