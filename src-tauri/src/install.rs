@@ -289,24 +289,45 @@ const CARRIED: [&str; 2] = ["CODEALONG_DEVICE_KEY", "CODEALONG_UPDATE_URL"];
 /// the app (2026-10-14). `open` hands its own environment to the app it opens, so it gets the
 /// Dock's, and `-n` opens a new copy: macOS takes a copy that quit while processes it started
 /// still ran (lsappinfo: "exited-with-subordinates") for one still open, and a plain `open` only
-/// brings that forward. relaunch.sh opens
-/// the app this way too. The exit code to leave with once it's handed over; None opens the app
-/// here, as macOS opened it (its parent is launchd), as the copy before it restarted it for an
-/// update (Tauri's restart runs this binary while that copy quits), or as a binary outside a
-/// bundle (cargo run, tauri dev), which has no app to open.
+/// brings that forward. relaunch.sh opens the app this way too. The exit code to leave with once
+/// it's handed over; None opens the app here: as macOS opened it, as the copy before it restarts
+/// it for an update (Tauri's restart runs this binary), as the copy it was handed to, or as a
+/// binary outside a bundle (cargo run, tauri dev), which has no app to open.
 pub fn open_as_the_dock_does() -> Option<i32> {
+    // The copy it's handed to opens here whatever else it finds, so however the rest misreads a
+    // launch, the app is never handed on from copy to copy. Taken out of the environment, so
+    // nothing the app starts inherits it.
+    if std::env::var_os(HANDED_OVER).is_some() {
+        std::env::remove_var(HANDED_OVER);
+        return None;
+    }
     let exe = this_binary().ok()?;
     if !in_a_bundle(&exe) {
         return None;
     }
-    let (parent, me) = crate::procs::parent_and_name(std::process::id())?;
-    let opener = crate::procs::parent_and_name(parent).map(|(_, name)| name);
-    if !opened_by_hand(parent, opener.as_deref(), &me) {
+    let pid = std::process::id();
+    // LaunchServices knows the copy it opened from its first moment, before it has said it's
+    // running, and nothing else: not one a shell started, nor one started in the background whose
+    // starter quit, which launchd adopts with whatever environment it had (checked 2026-10-14).
+    let by_macos = objc2_app_kit::NSRunningApplication::runningApplicationWithProcessIdentifier(pid as libc::pid_t).is_some();
+    let (ppid, me) = crate::procs::parent_and_name(pid)?;
+    let parent = crate::procs::parent_and_name(ppid).map(|(_, name)| (ppid, name));
+    if !opened_by_hand(by_macos, parent.as_ref().map(|(pid, name)| (*pid, name.as_str())), &me) {
         return None;
     }
     let bundle = exe.ancestors().nth(3)?;
     let env = dock_environment(|name| std::env::var(name).ok(), &crate::launch::login_shell(), user_temp_dir().as_deref(), launchd_ssh_agent().as_deref());
-    match std::process::Command::new("/usr/bin/open").arg("-n").arg(bundle).env_clear().envs(env).status() {
+    let open = || std::process::Command::new("/usr/bin/open").arg("-n").arg(bundle).env_clear().envs(env.iter().cloned()).env(HANDED_OVER, "1").status();
+    // macOS turns an open away while the app's last copy is still quitting (error -600), as the
+    // copy an update restarted finds when that copy has only just gone: once more, a moment on.
+    let opened = match open() {
+        Ok(status) if !status.success() => {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            open()
+        }
+        first => first,
+    };
+    match opened {
         Ok(status) => Some(status.code().unwrap_or(1)),
         Err(e) => {
             eprintln!("Couldn't open {}: {e}", bundle.display());
@@ -315,10 +336,15 @@ pub fn open_as_the_dock_does() -> Option<i32> {
     }
 }
 
-/// Whether a copy was opened by hand rather than by macOS or by the copy before it, from its
-/// parent's pid and name (None once it's gone) and its own name.
-fn opened_by_hand(parent: u32, parent_name: Option<&str>, me: &str) -> bool {
-    parent != 1 && parent_name.is_some_and(|name| name != me)
+/// Set for the copy `open_as_the_dock_does` hands the app to.
+const HANDED_OVER: &str = "CODEALONG_HANDED_OVER";
+
+/// Whether a copy was opened by hand: not by macOS (`by_macos`), nor by the copy before it, which
+/// is its parent while it quits after restarting it for an update, from its parent's pid and name
+/// (None once it's gone) and its own name. A copy an update restarted after the one before it
+/// has gone is launchd's, and is handed to macOS as one started in the background is.
+fn opened_by_hand(by_macos: bool, parent: Option<(u32, &str)>, me: &str) -> bool {
+    !by_macos && !parent.is_some_and(|(pid, name)| pid != 1 && name == me)
 }
 
 /// The environment the Dock gives an app, for one opened in its place: the opener's home, user,
@@ -824,11 +850,14 @@ mod tests {
 
     #[test]
     fn an_app_opened_by_hand_is_opened_by_macos_with_the_docks_environment() {
-        assert!(opened_by_hand(4321, Some("zsh"), "codealong"));
-        assert!(opened_by_hand(4321, Some("bash"), "codealong"), "relaunch.sh");
-        assert!(!opened_by_hand(1, Some("launchd"), "codealong"), "macOS opened it");
-        assert!(!opened_by_hand(4321, Some("codealong"), "codealong"), "the copy before it restarted it for an update");
-        assert!(!opened_by_hand(4321, None, "codealong"), "what started it has gone");
+        assert!(opened_by_hand(false, Some((4321, "zsh")), "codealong"));
+        assert!(opened_by_hand(false, Some((4321, "bash")), "codealong"), "relaunch.sh");
+        assert!(!opened_by_hand(true, Some((1, "launchd")), "codealong"), "macOS opened it");
+        assert!(!opened_by_hand(false, Some((4321, "codealong")), "codealong"), "the copy before it restarts it for an update");
+        // Started in the background (`codealong &`, or detached in a session of its own) by a
+        // process that quit before it looked, whatever environment it kept.
+        assert!(opened_by_hand(false, Some((1, "launchd")), "codealong"));
+        assert!(opened_by_hand(false, None, "codealong"));
 
         let shell: std::collections::HashMap<&str, &str> = [
             ("HOME", "/Users/me"),

@@ -97,7 +97,7 @@ else
 fi
 pkill -f "$running" || true
 # macOS won't open an app while its last copy is still quitting (error -600), so wait for it to
-# go, then open, trying once more if the first open is turned away.
+# go before opening (the binary tries once more if the first open is turned away).
 for _ in $(seq 1 50); do
   pgrep -f "$running" >/dev/null || break
   sleep 0.2
@@ -123,10 +123,8 @@ for link in /usr/local/bin/codealong "$HOME/.local/bin/codealong"; do
   esac
 done
 # Opened as typing `codealong` opens it: the binary hands its bundle to macOS, which opens a new
-# copy with the environment the Dock gives an app, not this shell's, and returns `open`'s exit code
-# (install::open_as_the_dock_does).
-open_app() { "$installed/Contents/MacOS/codealong"; }
-open_app || { sleep 2; open_app; }
+# copy with the environment the Dock gives an app, not this shell's (install::open_as_the_dock_does).
+"$installed/Contents/MacOS/codealong"
 # Opened, the new copy asks whichever copy answers on the socket to quit and takes the socket from
 # it (server::take_over): a copy the pkill above didn't match, too, one an earlier build started
 # from a terminal, whose command line is the word `codealong` alone. It's relaunched once the new
