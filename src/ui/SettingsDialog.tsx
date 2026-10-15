@@ -24,12 +24,13 @@ import { Button, cx, Dialog, Icon, NavItem, Seg } from './primitives';
 import { THEMES } from './ThemeSwitch';
 import { errorText } from '../report';
 
-export type SettingsSection = 'general' | 'sounds' | 'accounts' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
+export type SettingsSection = 'general' | 'sounds' | 'accounts' | 'routing' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'settings' },
   { id: 'sounds', label: 'Sounds', icon: 'bell' },
   { id: 'accounts', label: 'Accounts', icon: 'user' },
+  { id: 'routing', label: 'Routing', icon: 'git-fork' },
   { id: 'automation', label: 'Automation', icon: 'bolt' },
   { id: 'agents', label: 'Agents', icon: 'terminal' },
   { id: 'devices', label: 'Devices', icon: 'device-desktop' },
@@ -156,6 +157,8 @@ export function SettingsDialog({ section, onSection, focus, usage, training, app
     pane = <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} now={now} />;
   } else if (section === 'sounds' && cfg) {
     pane = <SoundsPane cfg={cfg} names={view.sounds ?? []} disabled={!!broken} onSave={save} onError={setError} />;
+  } else if (section === 'routing' && cfg) {
+    pane = <RoutingPane cfg={cfg} disabled={!!broken} onSave={save} />;
   } else if (section === 'automation' && cfg) {
     pane = <AutomationPane cfg={cfg} disabled={!!broken} onSave={save} onReload={() => void load()} defaultPrompt={view.reviewPrompt ?? ''} usage={usage} now={now} lanes={lanes} teamFiles={teamFiles} focus={focus} />;
   } else if (section === 'devices' && cfg) {
@@ -163,15 +166,7 @@ export function SettingsDialog({ section, onSection, focus, usage, training, app
   } else if (section === 'projects' && cfg) {
     pane = <ProjectsPane cfg={cfg} chromeProfiles={view.chromeProfiles ?? []} disabled={!!broken} onSave={save} lanes={lanes} adding={focus === NEW_PROJECT} />;
   } else if (section === 'jev' && cfg) {
-    pane = (
-      <JevPane
-        jev={{ ...JEV_OFF, ...cfg.jev }}
-        routingPrompt={cfg.routing?.prompt ?? ''}
-        disabled={!!broken}
-        onChange={(jev) => void save({ ...cfg, jev })}
-        onRoutingPrompt={(prompt) => void save({ ...cfg, routing: { ...cfg.routing, prompt } })}
-      />
-    );
+    pane = <JevPane jev={{ ...JEV_OFF, ...cfg.jev }} disabled={!!broken} onChange={(jev) => void save({ ...cfg, jev })} />;
   } else if (section === 'advanced' && cfg) {
     pane = <AdvancedPane cfg={cfg} view={view} disabled={!!broken} onSave={save} />;
   } else if (section === 'file') {
@@ -509,12 +504,9 @@ function AutomationPane({ cfg, disabled, onSave, onReload, defaultPrompt, usage,
       <ReviewsField reviews={reviews} set={setReviews} setOwn={setOwn} scope={scope} team={team} disabled={disabled} defaultPrompt={defaultPrompt} all={all} lanes={lanes} usage={usage} now={now} groups={routingGroups} autoGroup={autoGroup} />
       <NudgeField prs={prs} set={setPrs} scope={scope} disabled={disabled} />
       {repo ? (
-        <p className="ca-settings-lede">Routing groups, usage limits and lost connections go the same in every repo: pick Everywhere to change them.</p>
+        <p className="ca-settings-lede">Usage limits and lost connections go the same in every repo: pick Everywhere to change them.</p>
       ) : (
-        <>
-          <RoutingField cfg={cfg} all={all} disabled={disabled} onSave={onSave} />
-          <LimitsField cfg={cfg} disabled={disabled} onSave={onSave} />
-        </>
+        <LimitsField cfg={cfg} disabled={disabled} onSave={onSave} />
       )}
     </>
   );
@@ -841,9 +833,17 @@ const ROUTING_STRATEGIES: { id: RoutingStrategy; label: string; says: string }[]
   { id: 'round-robin', label: 'Round robin', says: 'Rotates evenly across every roomy account in the group, least-recently-used first.' },
 ];
 
-/** `[routing]`: routing groups (`[[routing.groups]]`) that Auto, `codealong start`, and automatic
- *  reviews can pick from, and which group `Auto` delegates to when starting new sessions. */
-function RoutingField({ cfg, all, disabled, onSave }: PaneProps & { all: StartAccount[] }) {
+/** Settings › Routing (`[routing]`): routing groups (`[[routing.groups]]`) that Auto,
+ *  `codealong start`, and automatic reviews can pick from, which group `Auto` delegates to
+ *  when starting new sessions, and Jev's routing instructions (`[routing] prompt`). */
+function RoutingPane({ cfg, disabled, onSave }: PaneProps) {
+  const [all, setAll] = useState<StartAccount[]>([]);
+  useEffect(() => {
+    // Without them, accounts fall back to Default model and config.toml's model choices stay intact.
+    startOptions()
+      .then((o) => setAll(withLists(o)))
+      .catch(() => {});
+  }, []);
   const routing: RoutingCfg = cfg.routing ?? {};
   const groups: RoutingGroupCfg[] = routing.groups ?? [];
   const reviews = reviewsEverywhere(cfg.reviews);
@@ -889,227 +889,233 @@ function RoutingField({ cfg, all, disabled, onSave }: PaneProps & { all: StartAc
     setDraft(null);
   };
   return (
-    <fieldset className="ca-settings-fields" disabled={disabled}>
-      <label className="ca-field">
-        <span>Auto routing for new sessions</span>
-        <ProfileSelect value={routing.auto ?? ''} profiles={autoProfiles} onChange={(auto) => saveRouting({ ...routing, auto })} />
-        <small>Which rule Auto uses in the quick panel and in codealong start when no account or group is named (and for reviews left on Auto). To use a different routing group for reviews, pick that group on The reviewer or Reviewer of your pull requests above, or check it on the group below.</small>
-      </label>
-      <div className="ca-field">
-        <span>Routing groups</span>
-        <small>Named pools of accounts and models that can alternate between harnesses, rotate round-robin, or pick by usage room, while passing over accounts at their usage cap.</small>
-        {groups.length > 0 && (
-          <div className="ca-settings-cards">
-            {groups.map((g) => {
-              const strat = ROUTING_STRATEGIES.find((s) => s.id === (g.strategy ?? 'usage')) ?? ROUTING_STRATEGIES[0];
-              const membersWord =
-                (g.members ?? []).length === 0
-                  ? 'All enabled accounts'
-                  : (g.members ?? []).map((m) => (m.model ? `${m.account} (${modelName(m.model, allModels)})` : m.account)).join(', ');
-              return (
-                <div key={g.name} className="ca-ucard">
-                  <div className="ca-ucard-head">
-                    <span className="ca-ucard-name">{g.name}</span>
-                    <span className="ca-ucard-plan">{strat.label} · {membersWord}</span>
-                    {routing.auto === g.name && <span className="ca-tag is-ok">New sessions (Auto)</span>}
-                    {reviews.account === g.name && <span className="ca-tag is-ok">PR reviews</span>}
-                    {reviews.own.account === g.name && <span className="ca-tag is-ok">Your PR reviews</span>}
-                  </div>
-                  <div className="ca-acct-actions">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        setDraft({
-                          original: g.name,
-                          name: g.name,
-                          strategy: g.strategy ?? 'usage',
-                          members: g.members ?? [],
-                          useForAuto: routing.auto === g.name,
-                          useForReviews: reviews.account === g.name,
-                          useForOwnReviews: reviews.own.account === g.name,
-                        })
-                      }
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        const nextGroups = groups.filter((x) => x.name !== g.name);
-                        const nextAuto = routing.auto === g.name ? '' : routing.auto;
-                        const removingReviews = reviews.account === g.name;
-                        const removingOwn = reviews.own.account === g.name;
-                        void onSave({
-                          ...cfg,
-                          routing: { ...routing, auto: nextAuto, groups: nextGroups },
-                          reviews: {
-                            ...reviews,
-                            account: removingReviews ? '' : reviews.account,
-                            model: removingReviews ? '' : reviews.model,
-                            own: {
-                              ...reviews.own,
-                              account: removingOwn ? '' : reviews.own.account,
-                              model: removingOwn ? '' : reviews.own.model,
-                            },
-                          },
-                        });
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {draft ? (
-          <form className="ca-ucard ca-acct-form" onSubmit={submitGroup}>
-            <div className="ca-acct-form-head">
-              <span className="ca-ucard-name">{draft.original ? `Edit ${draft.original}` : 'New routing group'}</span>
-            </div>
-            <label className="ca-field">
-              <span>Name</span>
-              <input value={draft.name} placeholder="reviewers" spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-              <small>Shown in the quick panel’s agent menu and in the reviewer model select.</small>
-            </label>
-            <div className="ca-field">
-              <span>Strategy</span>
-              <Seg label="Strategy" options={ROUTING_STRATEGIES.map((s) => ({ id: s.id, label: s.label }))} value={draft.strategy} onPick={(strategy) => setDraft({ ...draft, strategy })} />
-              <small>{ROUTING_STRATEGIES.find((s) => s.id === draft.strategy)?.says}</small>
-            </div>
-            <div className="ca-field">
-              <span>Accounts in this group</span>
-              <small>Leave all unchecked to include every enabled account.</small>
-              {cfg.accounts.map((a) => {
-                const member = draft.members.find((m) => m.account === a.name);
-                const startAcct = all.find((x) => x.name === a.name);
-                const baseModels = startAcct?.models ?? [];
-                const currentModel = member?.model?.trim() || null;
-                const models = currentModel && !baseModels.some((m) => m.id === currentModel) ? [...baseModels, { id: currentModel, label: currentModel }] : baseModels;
-                const menuAcct: StartAccount = {
-                  ...(startAcct ?? { name: a.name, harness: a.harness, chosen: null, defaultModel: null, places: [], unavailable: null }),
-                  models,
-                  places: startAcct && startAcct.places.length > 0 ? startAcct.places : [{ place: 'terminal', label: 'Terminal' }],
-                };
-                const lines = agentOptions([menuAcct], models, null);
-                const defaultLabel = menuAcct.defaultModel ? modelName(menuAcct.defaultModel, models) : null;
+    <>
+      <div className="ca-settings-intro">
+        <h3>Routing</h3>
+        <p>How Codealong picks an account and model when starting new sessions on Auto, running automatic pull request reviews, or suggesting an agent in the quick panel.</p>
+      </div>
+      <fieldset className="ca-settings-fields" disabled={disabled}>
+        <label className="ca-field">
+          <span>Auto routing for new sessions</span>
+          <ProfileSelect value={routing.auto ?? ''} profiles={autoProfiles} onChange={(auto) => saveRouting({ ...routing, auto })} />
+          <small>Which rule Auto uses in the quick panel and in codealong start when no account or group is named (and for reviews left on Auto). To use a different routing group for reviews, check it on the group below, or pick that group on the reviewer in Automation.</small>
+        </label>
+        <div className="ca-field">
+          <span>Routing groups</span>
+          <small>Named pools of accounts and models that can alternate between harnesses, rotate round-robin, or pick by usage room, while passing over accounts at their usage cap.</small>
+          {groups.length > 0 && (
+            <div className="ca-settings-cards">
+              {groups.map((g) => {
+                const strat = ROUTING_STRATEGIES.find((s) => s.id === (g.strategy ?? 'usage')) ?? ROUTING_STRATEGIES[0];
+                const membersWord =
+                  (g.members ?? []).length === 0
+                    ? 'All enabled accounts'
+                    : (g.members ?? []).map((m) => (m.model ? `${m.account} (${modelName(m.model, allModels)})` : m.account)).join(', ');
                 return (
-                  <div key={a.name} className="ca-routing-member">
-                    <label className="ca-check">
-                      <input
-                        type="checkbox"
-                        checked={!!member}
-                        onChange={(e) => {
-                          const next = e.target.checked ? [...draft.members, { account: a.name, model: '' }] : draft.members.filter((m) => m.account !== a.name);
-                          setDraft({ ...draft, members: next });
+                  <div key={g.name} className="ca-ucard">
+                    <div className="ca-ucard-head">
+                      <span className="ca-ucard-name">{g.name}</span>
+                      <span className="ca-ucard-plan">{strat.label} · {membersWord}</span>
+                      {routing.auto === g.name && <span className="ca-tag is-ok">New sessions (Auto)</span>}
+                      {reviews.account === g.name && <span className="ca-tag is-ok">PR reviews</span>}
+                      {reviews.own.account === g.name && <span className="ca-tag is-ok">Your PR reviews</span>}
+                    </div>
+                    <div className="ca-acct-actions">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setDraft({
+                            original: g.name,
+                            name: g.name,
+                            strategy: g.strategy ?? 'usage',
+                            members: g.members ?? [],
+                            useForAuto: routing.auto === g.name,
+                            useForReviews: reviews.account === g.name,
+                            useForOwnReviews: reviews.own.account === g.name,
+                          })
+                        }
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const nextGroups = groups.filter((x) => x.name !== g.name);
+                          const nextAuto = routing.auto === g.name ? '' : routing.auto;
+                          const removingReviews = reviews.account === g.name;
+                          const removingOwn = reviews.own.account === g.name;
+                          void onSave({
+                            ...cfg,
+                            routing: { ...routing, auto: nextAuto, groups: nextGroups },
+                            reviews: {
+                              ...reviews,
+                              account: removingReviews ? '' : reviews.account,
+                              model: removingReviews ? '' : reviews.model,
+                              own: {
+                                ...reviews.own,
+                                account: removingOwn ? '' : reviews.own.account,
+                                model: removingOwn ? '' : reviews.own.model,
+                              },
+                            },
+                          });
                         }}
-                      />
-                      <span className="ca-check-box" aria-hidden="true">
-                        <Icon name="check" size={11} stroke={2.5} />
-                      </span>
-                      <span>{a.name} ({HARNESS_WORD[a.harness]})</span>
-                    </label>
-                    {member &&
-                      (models.length > 0 ? (
-                        <ModelMenu
-                          account={menuAcct}
-                          lines={lines}
-                          models={models}
-                          value={agentId(a.name, currentModel)}
-                          label={currentModel ? modelName(currentModel, models) : 'Default model'}
-                          detail={!currentModel ? defaultLabel : null}
-                          title={`Model for ${a.name}`}
-                          disabled={disabled}
-                          down
-                          onPick={(id) => {
-                            const { model: picked } = parseAgent(id);
-                            const next = draft.members.map((m) => (m.account === a.name ? { ...m, model: picked ?? '' } : m));
-                            setDraft({ ...draft, members: next });
-                          }}
-                          onDone={() => {}}
-                        />
-                      ) : (
-                        <span className="ca-modelmenu-said" title={`The model is chosen in ${HARNESS_WORD[a.harness]}`}>
-                          Default model
-                        </span>
-                      ))}
+                      >
+                        Remove
+                      </Button>
+                    </div>
                   </div>
                 );
               })}
             </div>
-            <div className="ca-field">
-              <span>Use this group for</span>
-              <label className="ca-check">
-                <input type="checkbox" checked={draft.useForAuto} onChange={(e) => setDraft({ ...draft, useForAuto: e.target.checked })} />
-                <span className="ca-check-box" aria-hidden="true">
-                  <Icon name="check" size={11} stroke={2.5} />
-                </span>
-                <span>New sessions on Auto</span>
+          )}
+          {draft ? (
+            <form className="ca-ucard ca-acct-form" onSubmit={submitGroup}>
+              <div className="ca-acct-form-head">
+                <span className="ca-ucard-name">{draft.original ? `Edit ${draft.original}` : 'New routing group'}</span>
+              </div>
+              <label className="ca-field">
+                <span>Name</span>
+                <input value={draft.name} placeholder="reviewers" spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+                <small>Shown in the quick panel’s agent menu and in the reviewer model select.</small>
               </label>
-              <label className="ca-check">
-                <input type="checkbox" checked={draft.useForReviews} onChange={(e) => setDraft({ ...draft, useForReviews: e.target.checked })} />
-                <span className="ca-check-box" aria-hidden="true">
-                  <Icon name="check" size={11} stroke={2.5} />
-                </span>
-                <span>Reviews of pull requests that wait on your review</span>
-              </label>
-              <label className="ca-check">
-                <input type="checkbox" checked={draft.useForOwnReviews} onChange={(e) => setDraft({ ...draft, useForOwnReviews: e.target.checked })} />
-                <span className="ca-check-box" aria-hidden="true">
-                  <Icon name="check" size={11} stroke={2.5} />
-                </span>
-                <span>Reviews of pull requests your sessions open</span>
-              </label>
-            </div>
-            <div className="ca-acct-actions">
-              <Button variant="primary" size="sm" type="submit" disabled={!draft.name.trim()}>
-                {draft.original ? 'Save group' : 'Add group'}
+              <div className="ca-field">
+                <span>Strategy</span>
+                <Seg label="Strategy" options={ROUTING_STRATEGIES.map((s) => ({ id: s.id, label: s.label }))} value={draft.strategy} onPick={(strategy) => setDraft({ ...draft, strategy })} />
+                <small>{ROUTING_STRATEGIES.find((s) => s.id === draft.strategy)?.says}</small>
+              </div>
+              <div className="ca-field">
+                <span>Accounts in this group</span>
+                <small>Leave all unchecked to include every enabled account.</small>
+                {cfg.accounts.map((a) => {
+                  const member = draft.members.find((m) => m.account === a.name);
+                  const startAcct = all.find((x) => x.name === a.name);
+                  const baseModels = startAcct?.models ?? [];
+                  const currentModel = member?.model?.trim() || null;
+                  const models = currentModel && !baseModels.some((m) => m.id === currentModel) ? [...baseModels, { id: currentModel, label: currentModel }] : baseModels;
+                  const menuAcct: StartAccount = {
+                    ...(startAcct ?? { name: a.name, harness: a.harness, chosen: null, defaultModel: null, places: [], unavailable: null }),
+                    models,
+                    places: startAcct && startAcct.places.length > 0 ? startAcct.places : [{ place: 'terminal', label: 'Terminal' }],
+                  };
+                  const lines = agentOptions([menuAcct], models, null);
+                  const defaultLabel = menuAcct.defaultModel ? modelName(menuAcct.defaultModel, models) : null;
+                  return (
+                    <div key={a.name} className="ca-routing-member">
+                      <label className="ca-check">
+                        <input
+                          type="checkbox"
+                          checked={!!member}
+                          onChange={(e) => {
+                            const next = e.target.checked ? [...draft.members, { account: a.name, model: '' }] : draft.members.filter((m) => m.account !== a.name);
+                            setDraft({ ...draft, members: next });
+                          }}
+                        />
+                        <span className="ca-check-box" aria-hidden="true">
+                          <Icon name="check" size={11} stroke={2.5} />
+                        </span>
+                        <span>{a.name} ({HARNESS_WORD[a.harness]})</span>
+                      </label>
+                      {member &&
+                        (models.length > 0 ? (
+                          <ModelMenu
+                            account={menuAcct}
+                            lines={lines}
+                            models={models}
+                            value={agentId(a.name, currentModel)}
+                            label={currentModel ? modelName(currentModel, models) : 'Default model'}
+                            detail={!currentModel ? defaultLabel : null}
+                            title={`Model for ${a.name}`}
+                            disabled={disabled}
+                            down
+                            onPick={(id) => {
+                              const { model: picked } = parseAgent(id);
+                              const next = draft.members.map((m) => (m.account === a.name ? { ...m, model: picked ?? '' } : m));
+                              setDraft({ ...draft, members: next });
+                            }}
+                            onDone={() => {}}
+                          />
+                        ) : (
+                          <span className="ca-modelmenu-said" title={`The model is chosen in ${HARNESS_WORD[a.harness]}`}>
+                            Default model
+                          </span>
+                        ))}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="ca-field">
+                <span>Use this group for</span>
+                <label className="ca-check">
+                  <input type="checkbox" checked={draft.useForAuto} onChange={(e) => setDraft({ ...draft, useForAuto: e.target.checked })} />
+                  <span className="ca-check-box" aria-hidden="true">
+                    <Icon name="check" size={11} stroke={2.5} />
+                  </span>
+                  <span>New sessions on Auto</span>
+                </label>
+                <label className="ca-check">
+                  <input type="checkbox" checked={draft.useForReviews} onChange={(e) => setDraft({ ...draft, useForReviews: e.target.checked })} />
+                  <span className="ca-check-box" aria-hidden="true">
+                    <Icon name="check" size={11} stroke={2.5} />
+                  </span>
+                  <span>Reviews of pull requests that wait on your review</span>
+                </label>
+                <label className="ca-check">
+                  <input type="checkbox" checked={draft.useForOwnReviews} onChange={(e) => setDraft({ ...draft, useForOwnReviews: e.target.checked })} />
+                  <span className="ca-check-box" aria-hidden="true">
+                    <Icon name="check" size={11} stroke={2.5} />
+                  </span>
+                  <span>Reviews of pull requests your sessions open</span>
+                </label>
+              </div>
+              <div className="ca-acct-actions">
+                <Button variant="primary" size="sm" type="submit" disabled={!draft.name.trim()}>
+                  {draft.original ? 'Save group' : 'Add group'}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setDraft(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div>
+              <Button
+                size="sm"
+                icon="plus"
+                onClick={() =>
+                  setDraft({
+                    original: null,
+                    name: '',
+                    strategy: 'alternate-harness',
+                    members: [],
+                    useForAuto: groups.length === 0 && !routing.auto,
+                    useForReviews: false,
+                    useForOwnReviews: false,
+                  })
+                }
+              >
+                Add routing group
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setDraft(null)}>
-                Cancel
-              </Button>
             </div>
-          </form>
-        ) : (
-          <div>
-            <Button
-              size="sm"
-              icon="plus"
-              onClick={() =>
-                setDraft({
-                  original: null,
-                  name: '',
-                  strategy: 'alternate-harness',
-                  members: [],
-                  useForAuto: groups.length === 0 && !routing.auto,
-                  useForReviews: false,
-                  useForOwnReviews: false,
-                })
-              }
-            >
-              Add routing group
-            </Button>
-          </div>
-        )}
-      </div>
-      <label className="ca-field">
-        <span>Jev routing instructions</span>
-        <textarea
-          rows={3}
-          value={promptDraft}
-          placeholder="Use Claude Opus for architecture and complex refactors; use Codex for quick fixes and tests."
-          disabled={disabled}
-          onChange={(e) => setPromptDraft(e.target.value)}
-          onBlur={() => {
-            if (promptDraft.trim() !== (routing.prompt ?? '').trim()) saveRouting({ ...routing, prompt: promptDraft.trim() });
-          }}
-        />
-        <small>When Quick panel suggestions are on in Jev, Jev suggests which agent, model or routing group to start new work on in the quick panel based on what you type and these instructions.</small>
-      </label>
-    </fieldset>
+          )}
+        </div>
+        <label className="ca-field">
+          <span>Jev routing instructions</span>
+          <textarea
+            rows={3}
+            value={promptDraft}
+            placeholder="Use Claude Opus for architecture and complex refactors; use Codex for quick fixes and tests."
+            disabled={disabled}
+            onChange={(e) => setPromptDraft(e.target.value)}
+            onBlur={() => {
+              if (promptDraft.trim() !== (routing.prompt ?? '').trim()) saveRouting({ ...routing, prompt: promptDraft.trim() });
+            }}
+          />
+          <small>When Quick panel suggestions are on in Jev, Jev suggests which agent, model or routing group to start new work on in the quick panel based on what you type and these instructions.</small>
+        </label>
+      </fieldset>
+    </>
   );
 }
 
@@ -1249,14 +1255,12 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
  * Settings › Jev: the TypeSafe key, which goes to the keychain and never comes back to the page,
  * and a switch per feature that says what it does and what it sends.
  */
-function JevPane({ jev, routingPrompt, disabled, onChange, onRoutingPrompt }: { jev: JevCfg; routingPrompt: string; disabled: boolean; onChange: (j: JevCfg) => void; onRoutingPrompt: (prompt: string) => void }) {
+function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; onChange: (j: JevCfg) => void }) {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [editing, setEditing] = useState(false);
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
-  const [promptDraft, setPromptDraft] = useState(routingPrompt);
-  useEffect(() => setPromptDraft(routingPrompt), [routingPrompt]);
 
   useEffect(() => {
     void jevKey().then(setHasKey);
@@ -1363,22 +1367,6 @@ function JevPane({ jev, routingPrompt, disabled, onChange, onRoutingPrompt }: { 
           </div>
           {noKey && <small>Save a key above to turn these on.</small>}
         </div>
-        {jev.quick_panel && (
-          <label className="ca-field">
-            <span>Model routing instructions</span>
-            <textarea
-              rows={3}
-              value={promptDraft}
-              placeholder="Use Claude Opus for architecture and complex refactors; use Codex for quick fixes and tests."
-              disabled={disabled || noKey}
-              onChange={(e) => setPromptDraft(e.target.value)}
-              onBlur={() => {
-                if (promptDraft.trim() !== routingPrompt.trim()) onRoutingPrompt(promptDraft.trim());
-              }}
-            />
-            <small>When set, Jev suggests which agent, model or routing group to start new work on in the quick panel based on what you type.</small>
-          </label>
-        )}
         <div className="ca-field">
           <span>Model</span>
           <code className="ca-ic ca-jev-model">{jev.model}</code>

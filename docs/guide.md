@@ -1069,7 +1069,7 @@ wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the 
 and a switch per feature, each saying what it sends; Accounts adds, edits, turns off, removes and
 signs in accounts, says how each pays (a plan's price a month, or by the token; see *What sessions
 used and cost*), and under Found on this Mac lists the ones Codealong could read but doesn't, to add
-with a click (with the agent skill, unless you untick it); Automation has what Codealong does by itself:
+with a click (with the agent skill, unless you untick it); Routing has Auto's rule, routing groups and Jev's routing instructions; Automation has what Codealong does by itself:
 the agent that reviews the pull requests that wait on your review (the account and model it runs on
 and what it's told, in a box like a session's, and where its review goes), nudging the session that
 opened a pull request, moving a session that hits its usage limit, and telling one a lost connection
@@ -1144,7 +1144,7 @@ Suggested is there from the moment what you type goes to Jev (a few words, not a
 search), saying it's working until Jev answers. At the next key the last answer's suggestions stay
 where they were, dimmed and without keys, doing nothing until Jev answers again, and the group only
 grows while you type, so the rows under it hold still. With `[routing] prompt` set (Settings ›
-Automation), Jev also suggests an agent, model or routing group for a new session, resolved to an
+Routing), Jev also suggests an agent, model or routing group for a new session, resolved to an
 account with room; without one, a new session starts on the one the start menu shows. The API key stays in
 the login keychain. What you type, repo names and session titles and latest lines go to TypeSafe.
 Images you paste go too, each where it is in the text, so a screenshot can say which app or
@@ -1288,7 +1288,7 @@ out. Among them it takes the one whose weekly limit resets soonest, so no week's
 until that one is within 5% of its cap, that last 5% being left to the sessions already
 running on it; else the one with the most room. It starts on that default model, or the next best
 (Opus, then Sonnet) when the default's own weekly limit is nearly used up. Named **routing groups**
-(`[[routing.groups]]`, Settings › Automation) group `(account, model)` members under a strategy:
+(`[[routing.groups]]`, Settings › Routing) group `(account, model)` members under a strategy:
 `"usage"` (most room / soonest reset), `"alternate-harness"` (rotates across the group's harnesses)
 or `"round-robin"`, skipping accounts at their usage cap. A routing group is offered after Auto in
 the quick panel, in `codealong start --account <group>`, as the reviewer for PRs, or as Auto's own
