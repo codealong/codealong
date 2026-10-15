@@ -371,6 +371,12 @@ read) takes your answer there like any message. A Claude Code turn stopped befor
 its prompt back, so the agent never sees it: the panel shows that prompt faint, marked "Taken back",
 and puts it back in the box, as Claude Code does in its own. The next message Codealong types into
 that terminal clears Claude Code's copy first (not in Terminal, which can't press a single key).
+A message you send shows faint at the end of the conversation, Sending… and then Sent, until the
+session's record has it. One its harness holds until the turn that's running ends says Queued until
+this turn ends for as long as it waits: Antigravity's command line queues what's typed while it works
+(its `Queued Messages` setting, Queue by default), and its record has the message only once the turn
+is over. One the session shows no sign of having taken, once it's been quiet a while, says Not in the
+session yet, with Open to check.
 
 At the left of the box's foot, under where you write, are the mode a running session is in, the
 session's account (its harness on hover) and a small pie for its context window; its model and the

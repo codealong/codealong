@@ -216,7 +216,7 @@ describe('boardAhead', () => {
 describe('settled', () => {
   const view = (boardAt: number | null, s?: Partial<Session> & { status: Session['status'] }): View => ({
     boardAt,
-    find: () => (s ? { title: s.title ?? 'Title', status: s.status, statusSince: s.statusSince ?? null, lastPromptAt: s.lastPromptAt ?? null, archived: s.archived ?? false, asks: false, snoozedUntil: s.snoozedUntil ?? null, quiet: s.quiet ?? false } : undefined),
+    find: () => (s ? { title: s.title ?? 'Title', status: s.status, statusSince: s.statusSince ?? null, lastPromptAt: s.lastPromptAt ?? null, archived: s.archived ?? false, asks: false, snoozedUntil: s.snoozedUntil ?? null, quiet: s.quiet ?? false, queuedAt: s.queuedAt ?? null } : undefined),
   });
 
   it('keeps a seen until a board at least as new as the engine’s arrives', () => {
@@ -305,6 +305,25 @@ describe('settled', () => {
     // One sent while it worked is taken in as it works: nothing to say while it does.
     const working = settled(send('b', { doneAt: NOW + 500 }, true), view(NOW, { status: 'working', statusSince: NOW - 90_000 }), NOW + 500 + CONFIRM_MS);
     expect([working?.lapsed, !!working?.unconfirmed]).toEqual([true, false]);
+  });
+
+  it('keeps a message its harness holds until the turn ends as queued, however long that is', () => {
+    const a = send('a', { doneAt: NOW + 500 });
+    // The board shows it held, though the session looks idle and did something since.
+    const holding = view(NOW, { status: 'idle', statusSince: NOW + 900, queuedAt: NOW + 300 });
+    const queued = settled(a, holding, NOW + 1_000);
+    expect([queued?.queued, queued?.takenAt]).toEqual([true, undefined]);
+    expect(settled(queued!, holding, NOW + 1_000)).toBe(queued);
+    expect(settled(queued!, holding, NOW + 60 * 60_000)).toBe(queued);
+    // One held from before it was sent is another message.
+    expect(settled(a, view(NOW, { status: 'working', queuedAt: NOW - 5_000 }), NOW + 1_000)?.queued).toBeUndefined();
+    // Out of the queue as the turn ends, the record has it soon; then it goes.
+    const sent = settled(queued!, view(NOW, { status: 'working', lastPromptAt: NOW + 30 * 60_000 }), NOW + 30 * 60_000);
+    expect([sent?.queued, sent?.takenAt]).toEqual([false, NOW + 30 * 60_000]);
+    expect(settled(sent!, view(NOW, { status: 'working' }), NOW + 31 * 60_000)).toBeNull();
+    // Dropped there, the same: the record never has it.
+    const dropped = settled(queued!, view(NOW, { status: 'idle', statusSince: NOW + 900 }), NOW + 2_000);
+    expect(dropped?.takenAt).toBe(NOW + 2_000);
   });
 });
 

@@ -221,6 +221,12 @@ pub struct Session {
     /// spinner of a turn that's running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
+    /// When the latest of the messages it holds came, by its harness's word: one typed while it
+    /// takes a turn waits in its harness's queue until the turn ends, and its record has it only
+    /// then (Antigravity's terminal UI). A window shows a message it sent there as queued, not as
+    /// one that may not have reached it. None when it holds none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_at: Option<i64>,
     /// How its turn ended, as Jev read it (insights.rs, when `[jev] sessions` is on) or as an
     /// agent tagged it (`codealong session tag`, tags.rs): `by` names the agent's session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -499,6 +505,7 @@ impl Session {
             origin: None,
             stalled_since: None,
             background: None,
+            queued_at: None,
             insight: None,
             asks: false,
             hosted: false,

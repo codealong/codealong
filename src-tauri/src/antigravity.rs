@@ -3,7 +3,8 @@
 //! `conversation_summaries.db` lists a folder's conversations; `conversations/<id>.db` holds
 //! one's steps; `brain/<id>/.system_generated/logs/transcript_full.jsonl` is the same steps as
 //! JSON lines, which is what a panel reads; and a command line process keeps
-//! `presence/<id>.lock` open while it has a conversation. See .claude/rules/antigravity.md.
+//! `presence/<id>.lock` open while it has a conversation, and its log, where a terminal UI says
+//! what only it knows of a turn (`Said`). See .claude/rules/antigravity.md.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -46,8 +47,17 @@ const STEP_DONE: i64 = 3;
 /// The step types that end a turn when they're a conversation's latest step and done: the
 /// model's reply, and the note a turn that failed ends with ("Agent execution terminated due
 /// to error"; seen on 1.3.5). A reply that makes calls is done in the same write that adds its
-/// first call's step, so it's never the latest while done (watched every 4 ms on 1.3.5).
-const STEP_ENDS_TURN: [i64; 2] = [15, 17];
+/// first call's step, so it's never the latest while done (watched every 4 ms on 1.3.5). Not
+/// every such note ends one (`ends_turn`).
+const STEP_ENDS_TURN: [i64; 2] = [15, STEP_ERROR];
+/// An error's note, `CORTEX_STEP_TYPE_ERROR_MESSAGE` in the transcript.
+const STEP_ERROR: i64 = 17;
+/// Where an error note's payload says what went wrong in words for you. The note a failed turn
+/// ends with has them ("Agent execution terminated due to error."); the notes the agent goes on
+/// after carry only the error: a request it tries again ("API error (attempt 1): request
+/// failed: …", one a try, eight in a row on 2026-10-14) and a stream cut off that it picks up
+/// ("The stream was interrupted. Please continue…"). Every note on this Mac, 1.3.5.
+const ERROR_FOR_YOU: [u64; 3] = [24, 3, 1];
 /// How much of a transcript's end is read for what a conversation is on.
 const TAIL: u64 = 256 * 1024;
 
@@ -202,12 +212,22 @@ pub struct Conversation {
     pub idled_by_another: bool,
     /// The permissions its latest turn ran with (`turn_mode`).
     pub mode: Option<SessionMode>,
+    /// What the log of the terminal UI that has it open says (`Said`).
+    pub said: Said,
 }
 
 impl Conversation {
     /// Its summary says a turn is under way.
     pub fn running(&self) -> bool {
         self.not_fully_idle || ["running", "busy", "canceling"].iter().any(|w| self.status.ends_with(w))
+    }
+
+    /// The log of the terminal UI that has it open says a turn is under way: the UI holds
+    /// messages until the turn ends, or it started a turn it hasn't stopped and that no step of
+    /// the conversation's has ended. Neither the summary, which another `agy` writes back idle,
+    /// nor a step, of which none is under way while the model thinks, says so for certain.
+    pub fn ui_turn_open(&self) -> bool {
+        !self.said.queued.is_empty() || (self.said.started(&self.id) && !self.turn_ended)
     }
 }
 
@@ -221,9 +241,9 @@ impl Conversation {
 /// wrote before. So an idle row no newer than the one read while the turn was under way, by
 /// the row or by a step that ran, is another's doing, until the row is written again or the
 /// conversation's latest step ends the turn: an older copy can land on the ending's row before
-/// it's read. Escape while the model thinks writes no step, only the ending's row, so an older
-/// copy landing on that one in the second or two before it's read keeps the turn under way
-/// until your next prompt writes the row: nothing else on disk says it ended.
+/// it's read. Escape while the model thinks writes no step, only the ending's row, and an older
+/// copy can land on that one too: only the terminal UI's log says it ended (`Said::stopped`),
+/// which the reader asks before it takes an idle row for another's doing.
 pub fn idled_by_another(before: Option<&Conversation>, now: &Conversation) -> bool {
     !now.running() && !now.turn_ended && before.is_some_and(|b| (b.running() || b.idled_by_another || b.step_under_way) && now.last_modified <= b.last_modified && now.step_count <= b.step_count)
 }
@@ -345,9 +365,18 @@ fn steps_now(dir: &Path, id: &str) -> (bool, bool, bool) {
     let under_way = STEP_UNDER_WAY.map(|s| s.to_string()).join(", ");
     let Ok(mut query) = db.prepare(&format!("SELECT DISTINCT status FROM steps WHERE status IN ({under_way})")) else { return (false, false, false) };
     let statuses: Vec<i64> = query.query_map([], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default();
-    let latest: Option<(i64, i64)> = db.query_row("SELECT step_type, status FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?))).ok();
-    let ended = latest.is_some_and(|(kind, status)| status == STEP_CANCELED || (status == STEP_DONE && STEP_ENDS_TURN.contains(&kind)));
+    let latest: Option<(i64, i64, i64)> = db.query_row("SELECT idx, step_type, status FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok();
+    let ended = latest.is_some_and(|(idx, kind, status)| {
+        let payload = || db.query_row("SELECT step_payload FROM steps WHERE idx = ?1", [idx], |r| r.get::<_, Option<Vec<u8>>>(0)).ok().flatten();
+        status == STEP_CANCELED || (status == STEP_DONE && STEP_ENDS_TURN.contains(&kind) && (kind != STEP_ERROR || ends_turn(payload().as_deref())))
+    });
     (!statuses.is_empty(), statuses.contains(&STEP_WAITING), ended)
+}
+
+/// Whether an error note ends its turn, by its payload (`ERROR_FOR_YOU`). One that can't be
+/// read is taken to.
+fn ends_turn(payload: Option<&[u8]>) -> bool {
+    payload.map_or(true, |p| !proto_at(p, &ERROR_FOR_YOU).is_empty())
 }
 
 /// The steps of a conversation whose permission prompt is up (`STEP_WAITING`), by their index:
@@ -717,6 +746,8 @@ pub struct Process {
     pub conversation: Option<String>,
     /// It's the interactive UI in a terminal, rather than a print run.
     pub terminal: bool,
+    /// The logs it has open: its own among them (`own_log`).
+    pub logs: Vec<PathBuf>,
 }
 
 /// For a process's command line that's `agy` running a conversation: whether it's the
@@ -760,19 +791,159 @@ fn held_conversation(open_files: &str) -> Option<String> {
     })
 }
 
-/// The command line's processes, each with the conversation it has open, and whether the hub
-/// app's agent is running. From the list of every process, and an `lsof` for each `agy`.
+/// The command line's logs a process has open (`log/cli-<time>.log`), from the same list.
+fn open_logs(open_files: &str) -> Vec<PathBuf> {
+    let mut logs: Vec<PathBuf> = open_files
+        .lines()
+        .filter_map(|l| l.strip_prefix('n'))
+        .map(PathBuf::from)
+        .filter(|p| p.parent().map(file_name).as_deref() == Some("log") && log_begun(p).is_some())
+        .collect();
+    logs.sort();
+    logs.dedup();
+    logs
+}
+
+/// The command line's processes, each with the conversation and the logs it has open, and
+/// whether the hub app's agent is running. From the list of every process, and an `lsof` for
+/// each `agy`.
 pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
     let mut app = false;
     let mut found = Vec::new();
     for p in listed {
         app |= is_app_agent(&p.command);
         if let Some(interactive) = cli_args(&p.command) {
-            let conversation = procs::run("/usr/sbin/lsof", &["-Fn", "-p", &p.pid.to_string()], None, Duration::from_secs(3)).ok().and_then(|files| held_conversation(&files));
-            found.push(Process { pid: p.pid, conversation, terminal: interactive && !p.tty.starts_with('?') });
+            let files = procs::run("/usr/sbin/lsof", &["-Fn", "-p", &p.pid.to_string()], None, Duration::from_secs(3)).unwrap_or_default();
+            found.push(Process { pid: p.pid, conversation: held_conversation(&files), terminal: interactive && !p.tty.starts_with('?'), logs: open_logs(&files) });
         }
     }
     (found, app)
+}
+
+/* ---- A terminal UI's log ---- */
+
+/// Its log's line as it sends a prompt into the conversation it names: one you typed, the
+/// queue sent at a turn's end, or the one it started with (`-i`). A turn starts.
+const LOG_PROMPTED: &str = "] Forwarding user message to conversation ";
+/// Escape while a reply is on its way, in the conversation it names: the turn ends, and no
+/// step says so when the model was thinking.
+const LOG_STOPPED: &str = "] Cancelling in-progress response for conversation ";
+/// A message you typed and sent with Return, Codealong's typing too. It goes in at once, a
+/// `LOG_PROMPTED` line within milliseconds of it, or, while a turn runs, waits in the UI's
+/// queue until the turn ends (`Queued Messages` in `/config`, `Queue` by default). Nothing but
+/// this line says it came until then: on 2026-10-14 one waited 31 minutes.
+const LOG_TYPED: &str = "] HandleUserInput called with text: ";
+/// The queue is dropped (`Pending inputs cancelled (N regular + M shell dropped)`).
+const LOG_DROPPED: &str = "] Pending inputs cancelled (";
+/// The queue sent at a turn's end didn't go, and is held again.
+const LOG_RESTORED: &str = "] Auto-flush SendUserMessage failed, restoring ";
+
+/// What a terminal UI's log says of the conversation it has open, as far as it's been read
+/// (`LogRead`). Each `agy` writes its own (`log/cli-<time>.log`, its local time to the second
+/// in the name) and keeps it open, its first lines naming the process (`own_log`). Lines are
+/// glog's, `I1014 17:45:37.928030 <thread> <file>:<line>] <text>`, the time this Mac's
+/// without the year. Read on agy 1.3.4 and 1.3.5's logs on this Mac, 2026-10-14.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Said {
+    /// The conversation it last sent a prompt into, and when.
+    pub prompted: Option<(String, i64)>,
+    /// When it last stopped a reply on its way.
+    pub stopped: Option<i64>,
+    /// When each message it holds until its turn ends came, oldest first.
+    pub queued: Vec<i64>,
+    /// What it held when it last sent the queue, should the send fail.
+    flushed: Vec<i64>,
+}
+
+impl Said {
+    /// Takes in a line of a log begun in `begun` (`log_time`).
+    fn on_line(&mut self, line: &str, begun: (i64, i64)) {
+        let at = || log_time(line, begun);
+        if let Some((_, rest)) = line.split_once(LOG_PROMPTED) {
+            let Some(at) = at() else { return };
+            let id = rest.split_whitespace().next().unwrap_or_default();
+            self.prompted = Some((id.to_string(), at));
+            self.flushed = std::mem::take(&mut self.queued);
+        } else if line.contains(LOG_TYPED) {
+            self.queued.extend(at());
+        } else if line.contains(LOG_STOPPED) {
+            self.stopped = at().or(self.stopped);
+        } else if line.contains(LOG_DROPPED) {
+            self.queued.clear();
+        } else if line.contains(LOG_RESTORED) {
+            let held = std::mem::take(&mut self.queued);
+            self.queued = std::mem::take(&mut self.flushed).into_iter().chain(held).collect();
+        }
+    }
+
+    /// It started a turn in conversation `id` and hasn't stopped it.
+    pub fn started(&self, id: &str) -> bool {
+        self.prompted.as_ref().is_some_and(|(to, at)| to == id && self.stopped.map_or(true, |s| s < *at))
+    }
+
+    /// It stopped the reply its latest prompt started.
+    pub fn stopped_last(&self) -> bool {
+        self.stopped.is_some_and(|s| self.prompted.as_ref().map_or(true, |(_, at)| s >= *at))
+    }
+}
+
+/// The year and month a log was begun in, from its name (`cli-20261014_172324.log`).
+fn log_begun(path: &Path) -> Option<(i64, i64)> {
+    let name = file_name(path);
+    let stamp = name.strip_prefix("cli-")?.strip_suffix(".log")?;
+    if stamp.len() != 15 || stamp.as_bytes()[8] != b'_' {
+        return None;
+    }
+    Some((stamp.get(..4)?.parse().ok()?, stamp.get(4..6)?.parse().ok()?))
+}
+
+/// When a glog line was written, from its prefix (`I1014 17:45:37.928030`), in a log begun in
+/// `begun` (year, month): a month before that one is the next year's.
+fn log_time(line: &str, begun: (i64, i64)) -> Option<i64> {
+    let b = line.as_bytes();
+    if b.len() < 21 || !matches!(b[0], b'I' | b'W' | b'E' | b'F') || b[5] != b' ' || b[8] != b':' || b[11] != b':' || b[14] != b'.' {
+        return None;
+    }
+    let num = |from: usize, to: usize| line.get(from..to)?.parse::<i64>().ok();
+    let (month, day) = (num(1, 3)?, num(3, 5)?);
+    let year = if month < begun.1 { begun.0 + 1 } else { begun.0 };
+    crate::util::local_ms(year, month, day, num(6, 8)?, num(9, 11)?, num(12, 14)?, num(15, 18)?)
+}
+
+/// A process's own log among those it has open: the one whose first lines name it
+/// (`Starting language server process with pid N`). A UI was seen holding another `agy`'s
+/// log open beside its own.
+fn own_log(logs: &[PathBuf], pid: u32) -> Option<PathBuf> {
+    let names = format!("Starting language server process with pid {pid}\n");
+    logs.iter().find(|p| crate::util::read_head(p, 8 * 1024).is_some_and(|head| head.contains(&names))).cloned()
+}
+
+/// A terminal UI's log, read as it grows.
+#[derive(Debug)]
+struct LogRead {
+    path: PathBuf,
+    begun: (i64, i64),
+    /// How far it's been read: always the start of a line.
+    read_to: u64,
+    said: Said,
+}
+
+impl LogRead {
+    fn new(path: PathBuf) -> Option<LogRead> {
+        Some(LogRead { begun: log_begun(&path)?, path, read_to: 0, said: Said::default() })
+    }
+
+    /// Reads what was written since the last read, whole lines only. True when what it says
+    /// changed.
+    fn read_on(&mut self) -> bool {
+        let Ok(tail) = crate::util::read_tail(&self.path, self.read_to) else { return false };
+        let before = self.said.clone();
+        for line in tail.text().lines() {
+            self.said.on_line(line, self.begun);
+        }
+        self.read_to = tail.end;
+        self.said != before
+    }
 }
 
 /* ---- Starting a conversation ---- */
@@ -1068,6 +1239,8 @@ pub struct Reader {
     conversations: HashMap<String, Vec<Conversation>>,
     marks: crate::harness::DatabaseMarks,
     processes: Vec<Process>,
+    /// The log of each process that has a conversation open, by its pid, as far as it's read.
+    logs: HashMap<u32, LogRead>,
     app_running: bool,
     looked_at: Option<Instant>,
 }
@@ -1092,7 +1265,16 @@ impl Reader {
         rows.sort_by(|x, y| y.last_modified.cmp(&x.last_modified));
         let mut added = false;
         for c in &mut rows {
-            let held = self.processes.iter().any(|p| p.conversation.as_deref() == Some(c.id.as_str()));
+            let process = self.processes.iter().find(|p| p.conversation.as_deref() == Some(c.id.as_str()));
+            let held = process.is_some();
+            if let Some(log) = process.and_then(|p| self.logs.get_mut(&p.pid)) {
+                log.read_on();
+                c.said = log.said.clone();
+                // The summary's time of your last prompt can be an older copy of the row.
+                if let Some((_, at)) = c.said.prompted.as_ref().filter(|(to, _)| *to == c.id) {
+                    c.last_input = c.last_input.max(Some(*at));
+                }
+            }
             match before.get(&c.id) {
                 Some(old) if !held && old.last_modified == c.last_modified && old.step_count == c.step_count => {
                     c.tail = old.tail.clone();
@@ -1107,20 +1289,37 @@ impl Reader {
             if c.running() || held {
                 (c.step_under_way, c.waiting, c.turn_ended) = steps_now(&c.dir, &c.id);
             }
-            c.idled_by_another = held && idled_by_another(before.get(&c.id), c);
+            // An idle row after Escape is the UI's own, whatever its time and count.
+            c.idled_by_another = held && idled_by_another(before.get(&c.id), c) && !c.said.stopped_last();
         }
         self.conversations.insert(a.name.clone(), rows);
         added
     }
 
-    /// Looks at the processes again. True when they changed.
+    /// Looks at the processes again, and finds the log of each that has a conversation open.
+    /// True when they changed.
     fn look_at_processes(&mut self, look: &Look) -> bool {
         self.looked_at = Some(Instant::now());
         let (processes, app_running) = processes(look.ps.all());
         let changed = processes != self.processes || app_running != self.app_running;
         self.processes = processes;
         self.app_running = app_running;
+        self.track_logs();
         changed
+    }
+
+    /// Keeps the logs of the processes that have a conversation open, finding a new one's own
+    /// among those it has open once.
+    fn track_logs(&mut self) {
+        let holding: Vec<&Process> = self.processes.iter().filter(|p| p.conversation.is_some()).collect();
+        self.logs.retain(|pid, _| holding.iter().any(|p| p.pid == *pid));
+        for p in holding {
+            if !self.logs.contains_key(&p.pid) {
+                if let Some(log) = own_log(&p.logs, p.pid).and_then(LogRead::new) {
+                    self.logs.insert(p.pid, log);
+                }
+            }
+        }
     }
 }
 
@@ -1179,13 +1378,16 @@ impl crate::harness::Reader for Reader {
 
     /// The summary tables, and the databases of the conversations under way or open in a
     /// process, where steps are written, and one starts to wait on you, without the summary
-    /// changing.
+    /// changing; and the logs of the terminal UIs, where a message you type while a turn runs
+    /// is the only sign of it.
     fn glance(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
         let mut out = Applied::default();
+        let told: Vec<PathBuf> = self.logs.values_mut().filter_map(|l| l.read_on().then(|| l.path.clone())).collect();
         for a in accounts {
             let mut changed = false;
             for f in folders(&a.home_path()) {
                 changed |= self.marks.changed(&format!("{}|{}", a.name, f.path.display()), &f.path.join(SUMMARIES));
+                changed |= told.iter().any(|log| log.starts_with(&f.path));
             }
             let held = |c: &&Conversation| self.processes.iter().any(|p| p.conversation.as_deref() == Some(c.id.as_str()));
             let under_way: Vec<PathBuf> = self.conversations.get(&a.name).into_iter().flatten().filter(|c| c.running() || held(c)).map(|c| c.dir.join("conversations").join(format!("{}.db", c.id))).collect();
@@ -1541,6 +1743,45 @@ mod tests {
          nesting_depth INTEGER NOT NULL DEFAULT 0, not_fully_idle NUMERIC NOT NULL DEFAULT false, killed NUMERIC NOT NULL DEFAULT false, \
          last_user_input_time DATETIME NOT NULL, last_user_input_step_index INTEGER NOT NULL DEFAULT -1, app_data_dir TEXT NOT NULL DEFAULT '', raw_summary BLOB, group_id TEXT NOT NULL DEFAULT '');";
 
+    /// A number as protobuf writes it.
+    fn proto_varint(mut n: u64, out: &mut Vec<u8>) {
+        while n >= 0x80 {
+            out.push((n as u8) | 0x80);
+            n >>= 7;
+        }
+        out.push(n as u8);
+    }
+
+    /// A message of `(field, bytes)` parts, each length-delimited.
+    fn proto_message(parts: &[(u64, Vec<u8>)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (field, bytes) in parts {
+            proto_varint(field << 3 | 2, &mut out);
+            proto_varint(bytes.len() as u64, &mut out);
+            out.extend(bytes);
+        }
+        out
+    }
+
+    /// An error note's payload: what went wrong, and words for you when there are some
+    /// (`ERROR_FOR_YOU`).
+    fn error_note(error: &str, for_you: Option<&str>) -> Vec<u8> {
+        let mut details = for_you.map(|w| vec![(1, w.as_bytes().to_vec())]).unwrap_or_default();
+        details.push((2, error.as_bytes().to_vec()));
+        proto_message(&[(24, proto_message(&[(3, proto_message(&details))]))])
+    }
+
+    /// A terminal UI's log line at a time on 2026-10-14, as glog writes it.
+    fn glog(at: &str, text: &str) -> String {
+        format!("I1014 {at}   22584 input_loop.go:106] {text}")
+    }
+
+    /// When a log line at `at` (`17:45:37.928`) on 2026-10-14 was written.
+    fn on_14th(at: &str) -> i64 {
+        let n = |from: usize, to: usize| at[from..to].parse::<i64>().unwrap();
+        crate::util::local_ms(2026, 10, 14, n(0, 2), n(3, 5), n(6, 8), n(9, 12)).unwrap()
+    }
+
     #[test]
     fn reads_the_summary_table() {
         let db = Connection::open_in_memory().unwrap();
@@ -1785,7 +2026,7 @@ mod tests {
 
         // Its terminal UI has it when another `agy` starts and writes its row back idle, the rest
         // as it was: the step still waits on you.
-        reader.processes = vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true }];
+        reader.processes = vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new() }];
         reader.looked_at = Some(Instant::now());
         let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
         summaries.execute("UPDATE conversation_summaries SET status = 'CASCADE_RUN_STATUS_IDLE', not_fully_idle = 0", []).unwrap();
@@ -1826,7 +2067,7 @@ mod tests {
         let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let seen = crate::state::SeenState::default();
         let look = Look { seen: &seen, since: 0, now: parse_rfc3339_ms("2026-10-01T16:56:00Z").unwrap(), ps: Default::default() };
-        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true }], looked_at: Some(Instant::now()), ..Reader::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: Vec::new() }], looked_at: Some(Instant::now()), ..Reader::default() };
         let status = |reader: &Reader| crate::board::antigravity_session(&account, &reader.conversations["antigravity"][0], reader.processes.first(), false, 0, look.now).status;
         reader.reread(&account, &look);
         assert_eq!(status(&reader), crate::model::Status::Working);
@@ -1858,6 +2099,155 @@ mod tests {
         summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:50+00:00', step_count = 7", []).unwrap();
         reader.reread(&account, &look);
         assert_eq!(status(&reader), crate::model::Status::Unread);
+    }
+
+    /// The lines of the log of the session that waited 31 minutes, 2026-10-14, the rest of them
+    /// what Escape and a failed send write.
+    #[test]
+    fn reads_what_a_terminal_uis_log_says() {
+        let mut said = Said::default();
+        let read = |said: &mut Said, line: String| said.on_line(&line, (2026, 10));
+        read(&mut said, glog("17:23:24.339615", "Starting language server process with pid 61216"));
+        read(&mut said, glog("17:23:30.603528", "Forwarding user message to conversation b568 (items=1, media=0)"));
+        assert!(said.started("b568") && !said.started("other") && said.queued.is_empty());
+        // Typed while the turn runs: held.
+        read(&mut said, glog("17:45:37.928030", "HandleUserInput called with text: \"We also want to take into account account limits\""));
+        read(&mut said, "W1014 17:45:38.000000      56 browser.go:256] token refresh failed due to network error".to_string());
+        assert_eq!(said.queued, [on_14th("17:45:37.928")]);
+        // The turn ends on an error, and the UI sends what it held.
+        read(&mut said, glog("18:16:39.544711", "Auto-flush: sending 1 queued input(s) (combinedLength=299, media=0, oneShotModel=\"\")"));
+        read(&mut said, glog("18:16:39.545337", "Forwarding user message to conversation b568 (items=1, media=0)"));
+        assert!(said.queued.is_empty());
+        assert_eq!(said.prompted, Some(("b568".to_string(), on_14th("18:16:39.545"))));
+        // A send that fails holds them again.
+        read(&mut said, glog("18:16:39.600000", "Auto-flush SendUserMessage failed, restoring 1 pending input(s): unavailable"));
+        assert_eq!(said.queued, [on_14th("17:45:37.928")]);
+        read(&mut said, glog("18:17:00.000000", "Pending inputs cancelled (1 regular + 0 shell dropped)"));
+        assert!(said.queued.is_empty());
+        // Escape stops the turn.
+        assert!(!said.stopped_last());
+        read(&mut said, glog("18:53:07.619129", "Cancelling in-progress response for conversation b568"));
+        assert!(said.stopped_last() && !said.started("b568"));
+        // A message typed now goes in at once, and starts the next.
+        read(&mut said, glog("18:54:00.000000", "HandleUserInput called with text: \"Go on\""));
+        read(&mut said, glog("18:54:00.004000", "Forwarding user message to conversation b568 (items=1, media=0)"));
+        assert!(said.started("b568") && !said.stopped_last() && said.queued.is_empty());
+        // Lines that aren't glog's tell nothing.
+        let before = said.clone();
+        said.on_line("2026/10/14 17:45:47 http: TLS handshake error from 127.0.0.1:57439", (2026, 10));
+        said.on_line("CLI ready for user input", (2026, 10));
+        assert_eq!(said, before);
+    }
+
+    #[test]
+    fn reads_a_log_lines_time_on_this_macs_clock() {
+        assert_eq!(log_time("I1014 17:45:37.928030   22584 input_loop.go:106] x", (2026, 10)), Some(on_14th("17:45:37.928")));
+        // A log begun in December goes on into January of the next year.
+        assert_eq!(log_time("E0101 00:00:01.000000 1 a.go:1] x", (2026, 12)), crate::util::local_ms(2027, 1, 1, 0, 0, 1, 0));
+        assert_eq!(log_time("2026/10/14 17:45:47 http: x", (2026, 10)), None);
+        assert_eq!(log_begun(Path::new("/x/log/cli-20261014_172324.log")), Some((2026, 10)));
+        assert_eq!(log_begun(Path::new("/x/log/crash_61216.log")), None);
+    }
+
+    /// A UI holds another `agy`'s log open beside its own: its own is the one that names it.
+    #[test]
+    fn finds_the_log_a_process_writes() {
+        let dir = crate::fixtures::scratch("agy-logs").join("log");
+        std::fs::create_dir_all(&dir).unwrap();
+        let head = |pid: u32| format!("I1014 17:23:24.338830       1 resolver.go:85] Model resolved\nI1014 17:23:24.339615      24 server.go:1633] Starting language server process with pid {pid}\n");
+        std::fs::write(dir.join("cli-20261014_172324.log"), head(61216)).unwrap();
+        std::fs::write(dir.join("cli-20261014_183955.log"), head(11764)).unwrap();
+        let at = |name: &str| dir.join(name).to_string_lossy().into_owned();
+        let files = format!(
+            "p61216\nf3\nn{}\nf4\nn{}\nf5\nn{}\nf6\nn/Users/me/.gemini/antigravity-cli/crashes/crash_61216.log\nf7\nn/Users/me/.gemini/antigravity-cli/presence/b568.lock\n",
+            at("cli-20261014_172324.log"),
+            at("cli-20261014_183955.log"),
+            at("cli-20261014_172324.log")
+        );
+        let logs = open_logs(&files);
+        assert_eq!(logs, [dir.join("cli-20261014_172324.log"), dir.join("cli-20261014_183955.log")]);
+        assert_eq!(own_log(&logs, 61216), Some(dir.join("cli-20261014_172324.log")));
+        assert_eq!(own_log(&logs, 11764), Some(dir.join("cli-20261014_183955.log")));
+        assert_eq!(own_log(&logs, 6121), None);
+    }
+
+    #[test]
+    fn only_the_error_note_with_words_for_you_ends_a_turn() {
+        assert!(ends_turn(Some(&error_note("agent executor error: request failed", Some("Agent execution terminated due to error.")))));
+        assert!(!ends_turn(Some(&error_note("API error (attempt 1): request failed", None))));
+        assert!(!ends_turn(Some(&error_note("The stream was interrupted. Please continue.", None))));
+        assert!(ends_turn(None));
+    }
+
+    /// The session that waited, read from its folder: a turn its UI started goes on, whatever the
+    /// summary says, while the model thinks and while a request is tried again; a message typed
+    /// meanwhile is held; and Escape ends it.
+    #[test]
+    fn a_terminal_uis_log_says_what_its_files_dont() {
+        let root = crate::fixtures::scratch("antigravity-log");
+        let dir = root.join("antigravity-cli");
+        std::fs::create_dir_all(dir.join("conversations")).unwrap();
+        std::fs::create_dir_all(dir.join("log")).unwrap();
+        // Another `agy` wrote the row back idle from its copy of the conversation's start.
+        let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
+        summaries
+            .execute_batch(&format!(
+                "{SCHEMA}\
+                 INSERT INTO conversation_summaries (conversation_id, preview, step_count, last_modified_time, workspace_uris, status, not_fully_idle, last_user_input_time, app_data_dir) VALUES \
+                 ('c1', 'Review automation', 1, '2026-10-15 00:23:30+00:00', '[]', 'CASCADE_RUN_STATUS_IDLE', 0, '2026-10-15 00:23:30+00:00', 'antigravity-cli');"
+            ))
+            .unwrap();
+        let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();
+        steps.execute_batch("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, step_payload BLOB); INSERT INTO steps (idx, step_type, status) VALUES (0, 14, 3), (1, 15, 3), (2, 132, 3);").unwrap();
+        let log = dir.join("log/cli-20261014_172324.log");
+        let lines = |l: &[String]| l.iter().map(|l| format!("{l}\n")).collect::<String>();
+        std::fs::write(&log, lines(&[glog("17:23:24.339615", "Starting language server process with pid 7"), glog("17:23:30.603528", "Forwarding user message to conversation c1 (items=1, media=0)")])).unwrap();
+        let append = |l: String| {
+            use std::io::Write as _;
+            std::fs::OpenOptions::new().append(true).open(&log).unwrap().write_all(format!("{l}\n").as_bytes()).unwrap();
+        };
+
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
+        let seen = crate::state::SeenState::default();
+        let look = Look { seen: &seen, since: 0, now: on_14th("17:50:00.000"), ps: Default::default() };
+        let mut reader = Reader { processes: vec![Process { pid: 7, conversation: Some("c1".into()), terminal: true, logs: vec![log.clone()] }], looked_at: Some(Instant::now()), ..Reader::default() };
+        reader.track_logs();
+        let session = |reader: &Reader| crate::board::antigravity_session(&account, &reader.conversations["antigravity"][0], reader.processes.first(), false, 0, look.now);
+        // First read with the model thinking after a call: no step runs, the row says idle, and
+        // nothing was read before.
+        reader.reread(&account, &look);
+        assert_eq!(session(&reader).status, crate::model::Status::Working);
+        // You type while it works: only the log says so, and a glance hears it.
+        append(glog("17:45:37.928030", "HandleUserInput called with text: \"We also want limits\""));
+        assert!(crate::harness::Reader::glance(&mut reader, std::slice::from_ref(&account), &look).dirty);
+        let s = session(&reader);
+        assert_eq!((s.status, s.queued_at), (crate::model::Status::Working, Some(on_14th("17:45:37.928"))));
+        assert!(!crate::harness::Reader::glance(&mut reader, std::slice::from_ref(&account), &look).dirty);
+        // The turn ends on an error, and the UI sends what it held: a request the agent tries
+        // again leaves a note it goes on after.
+        steps.execute("INSERT INTO steps VALUES (3, 17, 3, ?1)", [error_note("agent executor error", Some("Agent execution terminated due to error."))]).unwrap();
+        append(glog("18:16:39.545337", "Forwarding user message to conversation c1 (items=1, media=0)"));
+        steps.execute("INSERT INTO steps VALUES (4, 14, 3, NULL), (5, 17, 3, ?1)", [error_note("API error (attempt 1): request failed", None)]).unwrap();
+        reader.reread(&account, &look);
+        let s = session(&reader);
+        assert_eq!((s.status, s.queued_at, s.last_prompt_at), (crate::model::Status::Working, None, on_14th("18:16:39.545")));
+        // A command runs, and once it's done the model thinks again.
+        steps.execute("INSERT INTO steps VALUES (6, 132, 2, NULL)", []).unwrap();
+        reader.reread(&account, &look);
+        steps.execute("UPDATE steps SET status = 3 WHERE idx = 6", []).unwrap();
+        reader.reread(&account, &look);
+        assert!(reader.conversations["antigravity"][0].idled_by_another);
+        assert_eq!(session(&reader).status, crate::model::Status::Working);
+        // Escape while the model thinks writes no step, and the row stays idle: only the log
+        // says the turn ended.
+        append(glog("18:53:07.619129", "Cancelling in-progress response for conversation c1"));
+        reader.reread(&account, &look);
+        assert!(!reader.conversations["antigravity"][0].idled_by_another);
+        assert_eq!(session(&reader).status, crate::model::Status::Idle);
+        // A process gone takes its log with it.
+        reader.processes.clear();
+        reader.track_logs();
+        assert!(reader.logs.is_empty());
     }
 
     #[test]
@@ -1925,27 +2315,11 @@ mod tests {
 
     #[test]
     fn reads_the_permissions_its_latest_turn_ran_with() {
-        // A message of `(field, bytes)` parts, each length-delimited, and a varint field.
-        fn varint(mut n: u64, out: &mut Vec<u8>) {
-            while n >= 0x80 {
-                out.push((n as u8) | 0x80);
-                n >>= 7;
-            }
-            out.push(n as u8);
-        }
-        fn message(parts: &[(u64, Vec<u8>)]) -> Vec<u8> {
-            let mut out = Vec::new();
-            for (field, bytes) in parts {
-                varint(field << 3 | 2, &mut out);
-                varint(bytes.len() as u64, &mut out);
-                out.extend(bytes);
-            }
-            out
-        }
+        let message = proto_message;
         let number = |field: u64, n: u64| {
             let mut out = Vec::new();
-            varint(field << 3, &mut out);
-            varint(n, &mut out);
+            proto_varint(field << 3, &mut out);
+            proto_varint(n, &mut out);
             out
         };
         let step = |policy: u64, asks: &[&str]| {
@@ -2038,7 +2412,7 @@ mod tests {
         use crate::send::Route;
         let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let c = Conversation { id: "c1".into(), cli: true, ..Default::default() };
-        let ui = Process { pid: 41, conversation: Some("c1".into()), terminal: true };
+        let ui = Process { pid: 41, conversation: Some("c1".into()), terminal: true, logs: Vec::new() };
         let session = |c: &Conversation, p: Option<&Process>| crate::board::antigravity_session(&a, c, p, true, 0, 0);
         // Typed into its terminal; a new terminal resumes one that isn't running; a print run
         // has it until it ends.

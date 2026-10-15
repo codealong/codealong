@@ -99,6 +99,10 @@ export interface Session {
   origin?: SessionOrigin;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;
+  /** When the latest of the messages its harness holds until its turn ends came: typed while it
+   *  works, one waits there, and its record has it only once the turn ends (Antigravity's
+   *  terminal UI). Missing when it holds none, and from a board an older app sent. */
+  queuedAt?: number;
   /** A Claude session whose turn left a command running in the background: the command, or ""
    *  when it couldn't be read. Working, it waits on it (`waitsInBackground`). Missing from a
    *  board an older app sent. */

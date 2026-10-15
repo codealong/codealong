@@ -551,10 +551,11 @@ pub fn opencode_session(account: &AccountCfg, row: &SessionRow, live: Option<&Li
 pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Option<&Process>, app_running: bool, seen_at: i64, now: i64) -> Session {
     let fresh = now - c.last_modified < ANTIGRAVITY_STALE_MS;
     // While its process has the conversation, its summary is the process's word, unless another
-    // `agy` that started since marked it idle; a step that runs or waits says so too. A print
-    // run writes its summary only as it ends, so its record says whether a turn is under way.
+    // `agy` that started since marked it idle; a step that runs or waits says so too, and a
+    // terminal UI's log. A print run writes its summary only as it ends, so its record says
+    // whether a turn is under way.
     let under_way = match (c.cli, process) {
-        (true, Some(p)) => c.running() || c.idled_by_another || c.step_under_way || (!p.terminal && c.tail.turn_open),
+        (true, Some(p)) => c.running() || c.idled_by_another || c.step_under_way || (!p.terminal && c.tail.turn_open) || c.ui_turn_open(),
         (true, None) => false,
         (false, _) => c.running() && app_running,
     };
@@ -603,6 +604,7 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         excerpt,
         resume_command: c.cli.then(|| format!("{} --conversation {}", crate::antigravity::cli_command(account), c.id)),
         mode: c.mode.clone(),
+        queued_at: process.and_then(|_| c.said.queued.last().copied()),
         ..known
     }
 }
@@ -3607,7 +3609,7 @@ mod tests {
         let a = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "~/.gemini/antigravity".into(), command: None, start: None, preferred: false, acp: None, monthly: None, per_token: false, disabled: false };
         let c = Conversation { id: "c2".into(), cli: true, preview: Some("Fix the build".into()), status: "cascade_run_status_running".into(), not_fully_idle: true, last_modified: NOW - 2 * ANTIGRAVITY_STALE_MS, last_input: Some(NOW - 3 * ANTIGRAVITY_STALE_MS), ..Default::default() };
         // In its terminal UI: it works however long it's been quiet, and its tab is where it opens.
-        let ui = Process { pid: 41, conversation: Some("c2".into()), terminal: true };
+        let ui = Process { pid: 41, conversation: Some("c2".into()), terminal: true, logs: Vec::new() };
         let s = antigravity_session(&a, &c, Some(&ui), false, 0, NOW);
         assert_eq!((s.status, s.live, s.surface, s.pid), (Status::Working, true, Surface::Cli, Some(41)));
         assert_eq!((s.open_target.as_str(), s.resume_command.as_deref()), ("s|antigravity:antigravity:c2|focus", Some("agy --conversation c2")));
@@ -3622,6 +3624,20 @@ mod tests {
         assert_eq!(antigravity_session(&a, &idled, Some(&ui), false, 0, NOW).status, Status::Working);
         idled.step_under_way = false;
         assert_eq!(antigravity_session(&a, &idled, Some(&ui), false, 0, NOW).status, Status::Unread);
+        // Its terminal UI's log says it started a turn that no step has ended: it works while the
+        // model thinks before its next step. A message typed meanwhile waits in the UI's queue.
+        let mut told = idled.clone();
+        told.said.prompted = Some(("c2".into(), NOW - 9_000));
+        assert_eq!(antigravity_session(&a, &told, Some(&ui), false, 0, NOW).status, Status::Working);
+        told.said.queued = vec![NOW - 6_000, NOW - 4_000];
+        let s = antigravity_session(&a, &told, Some(&ui), false, 0, NOW);
+        assert_eq!((s.status, s.queued_at), (Status::Working, Some(NOW - 4_000)));
+        assert_eq!(antigravity_session(&a, &told, None, false, 0, NOW).queued_at, None);
+        // A step ended the turn, or Escape stopped it: what it left is yours to read.
+        told.said.queued.clear();
+        assert_eq!(antigravity_session(&a, &Conversation { turn_ended: true, ..told.clone() }, Some(&ui), false, 0, NOW).status, Status::Unread);
+        told.said.stopped = Some(NOW - 1_000);
+        assert_eq!(antigravity_session(&a, &told, Some(&ui), false, 0, NOW).status, Status::Unread);
         // A print run has no terminal to show.
         let print = Process { terminal: false, ..ui.clone() };
         let s = antigravity_session(&a, &c, Some(&print), false, 0, NOW);

@@ -38,12 +38,17 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   transcript, or keeps a reply cut short as done; Escape while the model thinks writes no step,
   your prompt staying the latest, and only the row says the turn ended. The terminal UI closes
   the database about 30 seconds after its last write, its WAL and `-shm` going with it.
-- Step types seen (1.3.5, 2026-10-14): 14 your prompt, 15 the model's reply, 17 the note a
-  failed turn ends with ("Agent execution terminated due to error", an `agent executor error`
-  after it; it never reaches the transcript), 101 a system message (a background command's
-  result, which starts the agent again), 132 a command. A reply that makes calls turns done in
-  the same write that adds its first call's step (watched every 4 ms), so a done reply or error
-  note as the latest step is a turn's end (`STEP_ENDS_TURN`, `steps_now`). A call that fails
+- Step types seen (1.3.5, 2026-10-14): 14 your prompt, 15 the model's reply, 17 an error's
+  note, 101 a system message (a background command's result, which starts the agent again), 132
+  a command. The note a failed turn ends with ("Agent execution terminated due to error", an
+  `agent executor error` after it) has words for you in its payload (field 24.3.1, and 24.5 is
+  1); the notes the agent goes on after carry only the error (24.3.2): a request it tries again,
+  "API error (attempt N): …", one a try (eight in a row while the network was down), and a
+  stream cut off that it picks up, "The stream was interrupted. Please continue…" (every note on
+  this Mac; `ERROR_FOR_YOU`, `ends_turn`). In the transcript a note is `ERROR_MESSAGE`, its
+  content empty. A reply that makes calls turns done in
+  the same write that adds its first call's step (watched every 4 ms), so a done reply or a
+  turn's error note as the latest step is a turn's end (`STEP_ENDS_TURN`, `steps_now`). A call that fails
   (7) hands its error to the model, which goes on (19 of 19 here); a canceled one (6) ended its
   turn every time (`STEP_CANCELED`). No step was ever interrupted (12).
 - The transcript (`brain/<id>/.system_generated/logs/transcript_full.jsonl`, and
@@ -102,6 +107,25 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   keep out of the table (1.3.4, 2026-10-13).
 - Which `agy` has which conversation, by the `presence/<id>.lock` it holds open: `antigravity.rs`
   (header, `held_conversation`, `processes`). The lock files stay behind after.
+- Each `agy` writes a log, `log/cli-<YYYYMMDD_HHMMSS>.log` by its local start time, keeps it open,
+  and names itself in its third line (`Starting language server process with pid N`); a UI was
+  seen holding another `agy`'s log open beside its own (`open_logs`, `own_log`). Its lines are
+  glog's, `I1014 17:45:37.928030 <thread> <file>:<line>] <text>`, this Mac's time without the
+  year. What a terminal UI writes of its conversation (every log on this Mac, 1.3.4 and 1.3.5,
+  2026-10-14): `HandleUserInput called with text: "<text>"` as Return sends what's typed,
+  Codealong's typing too; `Forwarding user message to conversation <id>` as a prompt goes in,
+  milliseconds after the input when no turn runs, and for `-i`'s prompt with no input line before
+  it; `Cancelling in-progress response for conversation <id>` at Escape while a reply is on its
+  way. A message typed while a turn runs is held until the turn ends (`Queued Messages` in
+  `/config`: Queue by default, or Send Immediately, `"queuedMessages": "send-immediately"` in
+  `settings.json`), and then `Auto-flush: sending N queued input(s)` and one forwarding line send
+  them all as one prompt. From the binary's strings, unseen: `Auto-flush SendUserMessage failed,
+  restoring N pending input(s)` holds them again, and `Pending inputs cancelled (N regular + M
+  shell dropped)` drops them. Nothing else says a held message came: on 2026-10-14 one typed at
+  17:45 waited 31 minutes, behind a request that hung for 18 and failed, and reached the
+  transcript only then. No line marks a model request's start, only its response
+  (`streamGenerateContent … ResponseID`), so a request in flight can't be seen; a turn its UI
+  started and no step has ended can (`Said`, `LogRead`, `Conversation::ui_turn_open`).
 - The terminal UI's first run asks for a color scheme and then shows Terms of Service and a
   data-use choice, ticked by default; print runs go ahead without it
   (`cache/onboarding.json`). A prompt given with `-i` runs behind those screens, in the
@@ -188,8 +212,11 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
 
 ## Unchecked
 
-- How the terminal UI takes a paste, though Codealong types into a command line conversation's
-  terminal (`Antigravity::routes`, `Route::Type`).
+- How the terminal UI takes a paste of several lines, though Codealong types into a command line
+  conversation's terminal (`Antigravity::routes`, `Route::Type`); a message of one line it typed
+  arrived whole, as one input (2026-10-14).
+- What taking queued messages back into the editor (↑) writes to the log, and whether Escape
+  drops the queue or sends it.
 - A plan-mode turn's record, and the `strict`, `proceed-in-sandbox` and `auto` policies on a real
   turn: read from its code only.
 - What the app writes mid-turn.

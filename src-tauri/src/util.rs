@@ -293,6 +293,22 @@ pub(crate) fn today_local() -> i64 {
     days_from_civil(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64)
 }
 
+/// A time on this Mac's clock, in its time zone as it was on that day, as epoch milliseconds.
+pub(crate) fn local_ms(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, millis: i64) -> Option<i64> {
+    // SAFETY: a zeroed tm is a valid one, and mktime only reads and normalizes the one it's given.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    tm.tm_year = (year - 1900) as libc::c_int;
+    tm.tm_mon = (month - 1) as libc::c_int;
+    tm.tm_mday = day as libc::c_int;
+    tm.tm_hour = hour as libc::c_int;
+    tm.tm_min = minute as libc::c_int;
+    tm.tm_sec = second as libc::c_int;
+    // Whether summer time applies is the zone's to say.
+    tm.tm_isdst = -1;
+    let secs = unsafe { libc::mktime(&mut tm) };
+    (secs != -1).then(|| secs as i64 * 1000 + millis)
+}
+
 /// Names as a sentence lists them, the last after `last` ("and", "or"): "a", "a or b", "a, b
 /// or c".
 pub fn listed(names: &[String], last: &str) -> String {
@@ -711,6 +727,18 @@ mod tests {
         assert_eq!(parse_rfc3339_ms("2026-09-23T17:32:03.758417Z"), Some(1_790_184_723_758));
         assert_eq!(parse_rfc3339_ms("2026-09-23T10:32:03-07:00"), Some(1_790_184_723_000));
         assert_eq!(parse_rfc3339_ms("nonsense"), None);
+    }
+
+    /// Whatever the zone the tests run in, the time read back on the clock is the one given.
+    #[test]
+    fn reads_a_time_on_this_macs_clock() {
+        let ms = local_ms(2026, 10, 14, 17, 45, 37, 928).unwrap();
+        assert_eq!(ms % 1000, 928);
+        let secs = (ms / 1000) as libc::time_t;
+        // SAFETY: localtime_r fills the struct it's given; a zeroed tm is a valid one.
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        unsafe { libc::localtime_r(&secs, &mut tm) };
+        assert_eq!((tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec), (2026, 10, 14, 17, 45, 37));
     }
 
     #[test]

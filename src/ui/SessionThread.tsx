@@ -397,11 +397,12 @@ function YourText({ text }: { text: string }) {
   );
 }
 
-/** A message of yours on its way, or one the session shows no sign of having taken. */
+/** A message of yours on its way, one its harness holds until the turn ends, or one the session
+ *  shows no sign of having taken. */
 function Unsaid({ ahead, onOpen }: { ahead: Ahead; onOpen: () => void }) {
   const c = ahead.change;
   if (c.kind !== 'send') return null;
-  const state = ahead.doneAt == null ? 'Sending…' : ahead.unconfirmed ? 'Not in the session yet' : 'Sent';
+  const state = ahead.doneAt == null ? 'Sending…' : ahead.queued ? 'Queued until this turn ends' : ahead.unconfirmed ? 'Not in the session yet' : 'Sent';
   return (
     <div className={cx('ca-thread-said', 'is-you', 'is-ahead', ahead.doneAt == null && 'is-going', ahead.unconfirmed && 'is-unconfirmed')} data-prompt={`ahead:${ahead.id}`}>
       <div className="ca-thread-meta">

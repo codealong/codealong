@@ -25,8 +25,9 @@
 // A message waits for any other on its way to the same session, so they arrive in order. The box
 // clears as you send, the thread shows the message as sending, then sent, until the session's
 // record has it (SessionThread.tsx), and the session shows as working meanwhile. A message that
-// doesn't go is back in the box with why, with any sent after it. One that went but that nothing
-// shows the session took says so in the thread.
+// doesn't go is back in the box with why, with any sent after it. One that its harness holds
+// until the session's turn ends (`Session.queuedAt`) shows as queued for as long as it waits.
+// One that went but that nothing shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
 import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
@@ -53,7 +54,8 @@ const ANSWER_MS = 8_000;
 /** A seen, archive or rename goes after this, whatever the board says. Mark as done waits less
  *  than this for a session's harness to remove its worktree (idle.rs `REMOVAL_WAIT`). */
 const LONGEST_MS = 60_000;
-/** A message goes after this, whatever the board says: its thread has said what it knows. */
+/** A message goes after this, whatever the board says, unless its harness still holds it: its
+ *  thread has said what it knows. */
 const SEND_LONGEST_MS = 10 * 60_000;
 
 export type Change =
@@ -103,6 +105,8 @@ export interface Ahead {
   lapsed?: boolean;
   /** Lapsed, and the session isn't working either. */
   unconfirmed?: boolean;
+  /** The board shows its harness holds it until the session's turn ends. */
+  queued?: boolean;
 }
 
 type SendChange = Extract<Change, { kind: 'send' }>;
@@ -118,6 +122,8 @@ export interface Shown {
   asks: boolean;
   snoozedUntil: number | null;
   quiet: boolean;
+  /** When the latest message its harness holds came (`Session.queuedAt`). Unknown to the bar. */
+  queuedAt: number | null;
 }
 
 /** What a window shows: the time of its board (null with none yet) and its sessions. */
@@ -433,7 +439,7 @@ export function boardView(boardAt: number | null, laneLists: Lane[][]): View {
       for (const lanes of laneLists) {
         for (const l of lanes) {
           const s = l.sessions.find((x) => x.key === key && !x.visitor);
-          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, quiet: !!s.quiet };
+          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, quiet: !!s.quiet, queuedAt: s.queuedAt ?? null };
         }
       }
       return undefined;
@@ -447,7 +453,7 @@ export function barView(feed: BarFeed): View {
     boardAt: feed.generatedAt ?? null,
     find: (key) => {
       const i = feed.items.find((x) => x.key === key) ?? feed.recent.find((x) => x.key === key) ?? (feed.snoozed ?? []).find((x) => x.key === key);
-      return i && { title: i.title, status: i.status, statusSince: i.since, lastPromptAt: null, archived: false, asks: !!i.asks, snoozedUntil: i.snoozedUntil ?? null, quiet: !!i.quiet };
+      return i && { title: i.title, status: i.status, statusSince: i.since, lastPromptAt: null, archived: false, asks: !!i.asks, snoozedUntil: i.snoozedUntil ?? null, quiet: !!i.quiet, queuedAt: null };
     },
   };
 }
@@ -489,11 +495,16 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
     return shows ? null : a;
   }
   if (a.doneAt == null) return a;
-  if (now - a.at > SEND_LONGEST_MS) return null;
   const s = v.find(c.key);
+  // Its harness holds it until the turn ends, however long that is: its record has it only then.
+  const held = s?.queuedAt != null && s.queuedAt >= a.at - SLACK_MS;
   let next = a;
-  if (next.takenAt == null && s && took(s, a, c)) next = { ...next, takenAt: now, lapsed: false, unconfirmed: false };
+  if (next.takenAt == null && s && !held && took(s, a, c)) next = { ...next, takenAt: now, lapsed: false, unconfirmed: false, queued: false };
   if (next.takenAt != null) return now - next.takenAt > TAKEN_MS ? null : next;
+  if (held) return next.queued ? next : { ...next, queued: true, lapsed: false, unconfirmed: false };
+  // Out of the queue: sent in as the turn ended, or dropped there.
+  if (next.queued) return { ...next, takenAt: now, queued: false };
+  if (now - a.at > SEND_LONGEST_MS) return null;
   if (!next.lapsed && now - a.doneAt >= CONFIRM_MS) next = { ...next, lapsed: true };
   if (next.lapsed) {
     const quiet = s !== undefined && s.status !== 'working' && now - Math.max(a.doneAt, s.statusSince ?? 0) >= CONFIRM_MS;
