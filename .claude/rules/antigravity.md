@@ -35,8 +35,15 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   a call a print run couldn't ask about is canceled (6). A reply is generating (8) from its first
   words, so while the model thinks before them no step is under way (`STEP_UNDER_WAY`,
   `steps_now`). Escape in the terminal UI cancels a running call (6), which never reaches the
-  transcript, or keeps a reply cut short as done. The terminal UI closes the database about 30
-  seconds after its last write, its WAL and `-shm` going with it.
+  transcript, or keeps a reply cut short as done; Escape while the model thinks writes no step,
+  your prompt staying the latest, and only the row says the turn ended. The terminal UI closes
+  the database about 30 seconds after its last write, its WAL and `-shm` going with it.
+- Step types seen (1.3.5, 2026-10-14): 14 your prompt, 15 the model's reply, 17 the note a
+  failed turn ends with ("Agent execution terminated due to error", an `agent executor error`
+  after it; it never reaches the transcript), 101 a system message (a background command's
+  result, which starts the agent again), 132 a command. A reply that makes calls turns done in
+  the same write that adds its first call's step (watched every 4 ms), so a done reply or error
+  note as the latest step is a turn's end (`STEP_ENDS_TURN`, `steps_now`).
 - The transcript (`brain/<id>/.system_generated/logs/transcript_full.jsonl`, and
   `transcript.jsonl` with each argument a string of JSON), its fields, the `<USER_REQUEST>`
   wrapping, results as steps of their own in the calls' order, lines out of step order, and a

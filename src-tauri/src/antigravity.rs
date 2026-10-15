@@ -37,6 +37,16 @@ const STEP_WAITING: i64 = 9;
 /// generating, waiting and queued. A reply is generating from its first words; while the model
 /// thinks before them, no step is under way.
 const STEP_UNDER_WAY: [i64; 5] = [1, 2, 8, STEP_WAITING, 11];
+/// The statuses of a step that was stopped, from the same definitions: canceled, error and
+/// interrupted. A step that ends so ends its turn.
+const STEP_STOPPED: [i64; 3] = [6, 7, 12];
+/// `CORTEX_STEP_STATUS_DONE`.
+const STEP_DONE: i64 = 3;
+/// The step types that end a turn when they're a conversation's latest step and done: the
+/// model's reply, and the note a turn that failed ends with ("Agent execution terminated due
+/// to error"; seen on 1.3.5). A reply that makes calls is done in the same write that adds its
+/// first call's step, so it's never the latest while done (watched every 4 ms on 1.3.5).
+const STEP_ENDS_TURN: [i64; 2] = [15, 17];
 /// How much of a transcript's end is read for what a conversation is on.
 const TAIL: u64 = 256 * 1024;
 
@@ -184,6 +194,8 @@ pub struct Conversation {
     pub waiting: bool,
     /// A step runs, is being written or waits on you, as its own database says.
     pub step_under_way: bool,
+    /// Its latest step ends a turn (`STEP_ENDS_TURN`, `STEP_STOPPED`), as its own database says.
+    pub turn_ended: bool,
     /// Its summary says idle only because another `agy` started, while the process that has it
     /// goes on with its turn (`idled_by_another`).
     pub idled_by_another: bool,
@@ -206,9 +218,11 @@ impl Conversation {
 /// its turn, writing the row as a turn starts, a step waits on you, a command starts and a turn
 /// ends, and an ending writes the time and count of the latest step, later than any the turn
 /// wrote before. So an idle row no newer than the one read while the turn was under way, by
-/// the row or by a step that ran, is another's doing, until the row is written again.
+/// the row or by a step that ran, is another's doing, until the row is written again or the
+/// conversation's latest step ends the turn: an older copy can land on the ending's row before
+/// it's read. Escape while the model thinks writes no step, only the ending's row.
 pub fn idled_by_another(before: Option<&Conversation>, now: &Conversation) -> bool {
-    !now.running() && before.is_some_and(|b| (b.running() || b.idled_by_another || b.step_under_way) && now.last_modified <= b.last_modified && now.step_count <= b.step_count)
+    !now.running() && !now.turn_ended && before.is_some_and(|b| (b.running() || b.idled_by_another || b.step_under_way) && now.last_modified <= b.last_modified && now.step_count <= b.step_count)
 }
 
 /// A folder's conversations changed since `since_ms`, plus any in `keep` (pinned ones), newest
@@ -321,14 +335,16 @@ pub fn uri_path(uri: &str) -> Option<String> {
     Some(decoded.trim_end_matches('/').to_string()).filter(|p| !p.is_empty())
 }
 
-/// Whether a step of the conversation is under way, and whether one waits on you, from its own
-/// database.
-fn steps_now(dir: &Path, id: &str) -> (bool, bool) {
-    let Some(db) = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db"))) else { return (false, false) };
+/// Whether a step of the conversation is under way, whether one waits on you, and whether its
+/// latest step ends a turn, from its own database.
+fn steps_now(dir: &Path, id: &str) -> (bool, bool, bool) {
+    let Some(db) = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db"))) else { return (false, false, false) };
     let under_way = STEP_UNDER_WAY.map(|s| s.to_string()).join(", ");
-    let Ok(mut query) = db.prepare(&format!("SELECT DISTINCT status FROM steps WHERE status IN ({under_way})")) else { return (false, false) };
+    let Ok(mut query) = db.prepare(&format!("SELECT DISTINCT status FROM steps WHERE status IN ({under_way})")) else { return (false, false, false) };
     let statuses: Vec<i64> = query.query_map([], |r| r.get(0)).map(|rows| rows.flatten().collect()).unwrap_or_default();
-    (!statuses.is_empty(), statuses.contains(&STEP_WAITING))
+    let latest: Option<(i64, i64)> = db.query_row("SELECT step_type, status FROM steps ORDER BY idx DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?))).ok();
+    let ended = latest.is_some_and(|(kind, status)| STEP_STOPPED.contains(&status) || (status == STEP_DONE && STEP_ENDS_TURN.contains(&kind)));
+    (!statuses.is_empty(), statuses.contains(&STEP_WAITING), ended)
 }
 
 /// The steps of a conversation whose permission prompt is up (`STEP_WAITING`), by their index:
@@ -1086,7 +1102,7 @@ impl Reader {
                 }
             }
             if c.running() || held {
-                (c.step_under_way, c.waiting) = steps_now(&c.dir, &c.id);
+                (c.step_under_way, c.waiting, c.turn_ended) = steps_now(&c.dir, &c.id);
             }
             c.idled_by_another = held && idled_by_another(before.get(&c.id), c);
         }
@@ -1690,6 +1706,8 @@ mod tests {
         let older = Conversation { last_modified: 400, step_count: 2, ..idle.clone() };
         assert!(idled_by_another(Some(&running), &older));
         assert!(idled_by_another(Some(&Conversation { idled_by_another: true, ..idle.clone() }), &older));
+        // Unless its latest step ends the turn: the copy landed on the ending's row.
+        assert!(!idled_by_another(Some(&running), &Conversation { turn_ended: true, ..older.clone() }));
         // First read after the flip, a step that ran said the turn was under way: it still is
         // while the model thinks before its next step.
         assert!(idled_by_another(Some(&Conversation { step_under_way: true, ..idle.clone() }), &idle));
@@ -1817,7 +1835,17 @@ mod tests {
         summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:12+00:00', step_count = 1", []).unwrap();
         reader.reread(&account, &look);
         assert_eq!(status(&reader), crate::model::Status::Working);
-        summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:50+00:00', step_count = 4", []).unwrap();
+        // The turn ends with the model's reply, and the older copy lands on the ending's row
+        // before it's read.
+        steps.execute("INSERT INTO steps VALUES (3, 15, 3)", []).unwrap();
+        reader.reread(&account, &look);
+        assert!(!reader.conversations["antigravity"][0].idled_by_another);
+        assert_eq!(status(&reader), crate::model::Status::Unread);
+        // So does one that ends on an error.
+        steps.execute("INSERT INTO steps VALUES (4, 17, 3)", []).unwrap();
+        reader.reread(&account, &look);
+        assert_eq!(status(&reader), crate::model::Status::Unread);
+        summaries.execute("UPDATE conversation_summaries SET last_modified_time = '2026-10-01 16:55:50+00:00', step_count = 5", []).unwrap();
         reader.reread(&account, &look);
         assert_eq!(status(&reader), crate::model::Status::Unread);
     }
