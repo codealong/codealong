@@ -207,6 +207,12 @@ Moved, it's told to carry on where it stopped. `[limits] when_hit = "move"` (Set
 moves it there by itself, as soon as it stops; a session moved there that stops again is offered a
 move rather than moved back.
 
+A session still stopped at its limit, and still open where it stopped, is told to carry on a few
+minutes after the limit lifts, and its Limit says so. Claude Code may carry on by itself first (its
+own Continue automatically at usage limit, 30 to 90 seconds after); then Codealong leaves it be. A
+session stopped again straight after it was told a few times running is left for you, with a
+notice. `[limits] continue_when_lifted = false` (Settings › Automation) turns that off.
+
 #### Network errors
 
 A Claude Code session, or an Antigravity one in its command line, whose turn ended because it

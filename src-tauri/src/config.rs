@@ -238,10 +238,20 @@ fn yes() -> bool {
 }
 
 /// What Codealong does about a session its account's usage limit stopped (`start::limit_moves`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LimitsCfg {
     #[serde(default)]
     pub when_hit: WhenLimited,
+    /// A session still stopped at its limit when the limit lifts is told to carry on
+    /// (reconnect.rs), unless its agent already did by itself.
+    #[serde(default = "yes")]
+    pub continue_when_lifted: bool,
+}
+
+impl Default for LimitsCfg {
+    fn default() -> Self {
+        LimitsCfg { when_hit: WhenLimited::default(), continue_when_lifted: true }
+    }
 }
 
 /// `suggest`: the session says which account has room and offers to move it there. `move`:
@@ -1466,7 +1476,7 @@ const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feat
 const SEARCH_COMMENT: &str = "# The quick panel and `codealong sessions find` search what was said in sessions active in the\n# last `days` days, not just their titles. 0 turns it off; 14, the board's reach, is the most.\n";
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
-const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n";
+const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), or \"round-robin\".\n";
 const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, resume it out of sight with that message.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that, failing checks and\n# conflicts.\n";
@@ -1862,6 +1872,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             place_after(&mut doc, "limits", after);
         }
         set_value(&mut doc["limits"]["when_hit"], Value::from(cfg.limits.when_hit.as_str()));
+        set_value(&mut doc["limits"]["continue_when_lifted"], Value::from(cfg.limits.continue_when_lifted));
     }
 
     set_routing(&mut doc, &cfg.routing);
@@ -2288,6 +2299,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(LIMITS_COMMENT);
         s.push_str("[limits]\n");
         s.push_str(&format!("when_hit = {}\n", q(cfg.limits.when_hit.as_str())));
+        s.push_str(&format!("continue_when_lifted = {}\n", cfg.limits.continue_when_lifted));
     }
     if cfg.routing != RoutingCfg::default() {
         let mut routing = toml_edit::DocumentMut::new();
@@ -2434,7 +2446,7 @@ mod tests {
             search: SearchCfg { days: 7 },
             devices: DevicesCfg { enabled: true, name: "Studio".into(), tailscale: true, iroh: false, remote_control: true, port: 47000 },
             updates: UpdatesCfg { check: false },
-            limits: LimitsCfg { when_hit: WhenLimited::Move },
+            limits: LimitsCfg { when_hit: WhenLimited::Move, continue_when_lifted: false },
             routing: RoutingCfg {
                 auto: "reviewers".into(),
                 prompt: "Use Haiku for small edits.".into(),
@@ -2780,13 +2792,25 @@ mod tests {
         let old = render(&full());
         assert!(!old.contains("[limits]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[limits]"));
-        let moving = Config { limits: LimitsCfg { when_hit: WhenLimited::Move }, ..full() };
+        let moving = Config { limits: LimitsCfg { when_hit: WhenLimited::Move, ..LimitsCfg::default() }, ..full() };
         let out = with_config(&old, &moving).unwrap();
-        assert!(out.contains("[limits]\nwhen_hit = \"move\"\n"), "{out}");
+        assert!(out.contains("[limits]\nwhen_hit = \"move\"\ncontinue_when_lifted = true\n"), "{out}");
         assert_eq!(parse(&out).unwrap().limits.when_hit, WhenLimited::Move);
         // Back to suggesting keeps the table, the value changed in place.
         assert!(with_config(&out, &full()).unwrap().contains("[limits]\nwhen_hit = \"suggest\""));
         assert!(parse(&"[limits]\nwhen_hit = \"wait\"\n".to_string()).is_err());
+    }
+
+    #[test]
+    fn a_session_carries_on_when_its_limit_lifts_unless_the_file_says_not_to() {
+        assert!(toml::from_str::<Config>("").unwrap().limits.continue_when_lifted);
+        // A file from before the setting reads as on, and keeps the table it had.
+        let older = parse(&"[limits]\nwhen_hit = \"move\"\n".to_string()).unwrap();
+        assert!(older.limits.continue_when_lifted);
+        let off = Config { limits: LimitsCfg { continue_when_lifted: false, ..LimitsCfg::default() }, ..full() };
+        let out = with_config(&render(&full()), &off).unwrap();
+        assert!(out.contains("[limits]\nwhen_hit = \"suggest\"\ncontinue_when_lifted = false\n"), "{out}");
+        assert!(!parse(&out).unwrap().limits.continue_when_lifted);
     }
 
     #[test]

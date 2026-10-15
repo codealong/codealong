@@ -554,8 +554,7 @@ pub(super) fn limit_of(v: &Value) -> Option<SessionLimit> {
         resets_at: field("resetsAt").and_then(Value::as_i64).map(|s| s * 1000),
         spend_capped: field("overageStatus").and_then(Value::as_str) == Some("rejected"),
         at: str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms).unwrap_or(0),
-        move_to: None,
-        model: None,
+        ..SessionLimit::default()
     })
 }
 

@@ -501,6 +501,7 @@ remote_control = false         # let linked devices act on sessions here
 
 [limits]
 when_hit = "suggest"           # a session stopped at its usage limit offers a move; "move" moves it (Settings › Automation)
+continue_when_lifted = true    # tell a session still stopped at its limit to carry on once it lifts (Settings › Automation)
 
 [sessions]
 continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Automation)

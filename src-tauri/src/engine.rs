@@ -373,8 +373,8 @@ impl Handle {
         let _ = self.tx.send(Msg::RunReported(result.err()));
     }
 
-    /// How telling sessions to carry on after a lost connection went (reconnect.rs): a failure
-    /// is a notice until a later one works.
+    /// How telling sessions to carry on after a lost connection or a usage limit went
+    /// (reconnect.rs): a failure is a notice until a later one works.
     pub fn continued(&self, result: std::result::Result<(), String>) {
         let _ = self.tx.send(Msg::Continued(result.err()));
     }
@@ -1679,10 +1679,18 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     /// Sessions a usage limit stopped, each with the account it could move to and go on
-    /// (`start::limit_moves`).
+    /// (`start::limit_moves`), and whether Codealong tells it to carry on once the limit lifts
+    /// (reconnect.rs): when config.toml says to, it runs, and its harness said when it lifts.
     fn with_limits(&self, mut sessions: Vec<Session>, usage: &[Usage], now: i64) -> Vec<Session> {
         if sessions.iter().any(|s| s.limit.is_some()) {
             crate::start::limit_moves(&mut sessions, &self.cfg.accounts, usage, |h| harness::adapter(h).moves_accounts(), now);
+        }
+        let on = self.cfg.limits.continue_when_lifted;
+        for s in &mut sessions {
+            let live = s.live;
+            if let Some(limit) = s.limit.as_mut() {
+                limit.continues = on && live && limit.resets_at.is_some();
+            }
         }
         sessions
     }
@@ -2542,7 +2550,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             said("limits", "A session didn't move", self.limit_move_warning.as_ref()),
             said("nudges", "A session wasn't told its PR was approved", self.nudge_warning.as_ref()),
             said("terminal-runs", "A session wasn't told what a command printed", self.run_report_warning.as_ref()),
-            said("reconnect", "A session didn't carry on after its connection came back", self.continue_warning.as_ref()),
+            said("reconnect", "A session wasn't told to carry on", self.continue_warning.as_ref()),
             said("helpers", "A session wasn't told what its helper did", self.report_warning.as_ref()),
             said("reviews", "A pull request wasn't reviewed", self.review_warning.as_ref()),
             said("team-files", "A repo's team settings aren't used", team_files.as_ref()),
@@ -3654,9 +3662,12 @@ fn board_hash(board: &mut Board) -> u64 {
     }
     // Buffered, so the hasher is handed a few kilobytes at a time, not each comma and quote.
     let mut out = std::io::BufWriter::new(Hashed(std::collections::hash_map::DefaultHasher::new()));
+    // Neither what's read of the repos' team files nor which limits have lifted long enough to be
+    // carried on is sent, but what acts on the board waits on them; the second comes with time
+    // alone, which the heartbeat's board then goes out for.
+    let lifted = crate::reconnect::lifted(board, board.generated_at);
     let at = std::mem::take(&mut board.generated_at);
-    // What's read of the repos' team files isn't sent, but what acts on the board waits on it.
-    let written = serde_json::to_writer(&mut out, board).and_then(|()| serde_json::to_writer(&mut out, &board.repo_settings.readiness()));
+    let written = serde_json::to_writer(&mut out, board).and_then(|()| serde_json::to_writer(&mut out, &(board.repo_settings.readiness(), lifted)));
     board.generated_at = at;
     // A board that can't be written out hashes as nothing at all, as it did.
     match (written, out.into_inner()) {
@@ -4500,6 +4511,20 @@ mod tests {
         assert_ne!(board_hash(&mut before), board_hash(&mut started), "the first read was asked for");
         assert_ne!(board_hash(&mut started), board_hash(&mut read), "a branch was read");
         assert_eq!(board_hash(&mut read), board_hash(&mut read.clone()));
+    }
+
+    /// A limit that has lifted long enough to be carried on changes nothing the windows get, and
+    /// comes with time alone, but a board saying so has to go out for reconnect.rs to hear it.
+    #[test]
+    fn a_limit_lifted_long_enough_to_carry_on_is_a_change_to_publish() {
+        use super::*;
+        let limit = SessionLimit { at: 1_000, resets_at: Some(10_000), continues: true, ..SessionLimit::default() };
+        let session = Session { live: true, status: Status::Error, limit: Some(limit), ..crate::fixtures::session("claude:claude:a") };
+        let board = |at: i64| Board { generated_at: at, lanes: vec![crate::fixtures::lane("/work", vec![session.clone()])], ..Board::default() };
+        let (mut before, mut lifted) = (board(10_001), board(10_001 + 60 * 60_000));
+        let mut later = board(10_002 + 60 * 60_000);
+        assert_ne!(board_hash(&mut before), board_hash(&mut lifted));
+        assert_eq!(board_hash(&mut lifted), board_hash(&mut later), "only once");
     }
 
     #[test]

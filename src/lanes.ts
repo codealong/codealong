@@ -442,12 +442,20 @@ function limitName(meter: string | null): string {
 }
 
 /** What a usage limit that stopped a session comes to, in a sentence or two: which limit, when it
- *  lifts, and where it could go on (left out where a button beside it offers the move, and where
- *  its harness can't move a session to another account: `moves`, `MOVES_ACCOUNTS`). */
+ *  lifts and who carries it on then (`SessionLimit.continues`), and where it could go on (left out
+ *  where a button beside it offers the move, and where its harness can't move a session to another
+ *  account: `moves`, `MOVES_ACCOUNTS`). */
 export function limitWords(account: string, limit: SessionLimit, now: number, offered = false, moves = true): string {
   const lifted = limit.resetsAt != null && limit.resetsAt <= now;
   const spent = limit.spendCapped ? ', with no extra usage to carry it' : '';
-  const when = lifted ? ' It has lifted since: send it something to go on.' : limit.resetsAt != null ? ` It lifts ${resetsPhrase(limit.resetsAt, now)}.` : '';
+  const then = limit.continues ? ', and Codealong tells it to carry on then' : '';
+  const when = lifted
+    ? limit.continues
+      ? ' It has lifted since: Codealong tells it to carry on.'
+      : ' It has lifted since: send it something to go on.'
+    : limit.resetsAt != null
+      ? ` It lifts ${resetsPhrase(limit.resetsAt, now)}${then}.`
+      : '';
   const where = lifted || offered || !moves ? '' : limit.moveTo ? ` ${limit.moveTo} has room: move it there to go on now.` : ' No other account has room.';
   return `It stopped at ${account}’s ${limitName(limit.meter)}${spent}.${when}${where}`;
 }

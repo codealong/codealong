@@ -617,6 +617,10 @@ pub struct SessionLimit {
     pub at: i64,
     /// Another account of its harness with room for it, to move it to (`board::limit_moves`).
     pub move_to: Option<String>,
+    /// Codealong on its Mac tells it to carry on once the limit lifts (config.toml's `[limits]
+    /// continue_when_lifted`). None from Macs before 2026-10-15.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub continues: bool,
     /// The model its last reply came from, which decides which of an account's limits it spends.
     #[serde(skip)]
     pub model: Option<String>,

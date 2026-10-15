@@ -1955,8 +1955,9 @@ pub fn run() {
                         std::thread::spawn(move || nudges::send_now(&engine, &nudger, due));
                     }
                 }
-                // And sessions a lost connection stopped, once their API can be reached: one
-                // thread for the batch, for the same reason, which tries the API first.
+                // And sessions a lost connection stopped, once their API can be reached, or a
+                // usage limit, once it has lifted: one thread for the batch, for the same reason,
+                // which tries the API first.
                 if let Some(engine) = continues_with.get() {
                     let due = continuer.lock().map(|mut c| c.due(board, board.generated_at)).unwrap_or_default();
                     if !due.is_empty() {

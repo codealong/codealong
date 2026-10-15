@@ -364,12 +364,14 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
   );
 }
 
-/** `[limits] when_hit`: what's done about a session its account's usage limit stopped;
- *  `[sessions] continue_after_network_error`, about one a lost connection stopped; and
- *  `[sessions] resume_for_sessions_it_started`, about one that stopped before a session it
- *  started sent it a message. */
+/** `[limits] when_hit` and `continue_when_lifted`: what's done about a session its account's
+ *  usage limit stopped; `[sessions] continue_after_network_error`, about one a lost connection
+ *  stopped; and `[sessions] resume_for_sessions_it_started`, about one that stopped before a
+ *  session it started sent it a message. */
 function LimitsField({ cfg, disabled, onSave }: PaneProps) {
-  const value = cfg.limits?.when_hit ?? 'suggest';
+  const limits = { when_hit: 'suggest' as WhenLimited, continue_when_lifted: true, ...cfg.limits };
+  const value = limits.when_hit;
+  const lifted = limits.continue_when_lifted ?? true;
   const agents = MOVES_ACCOUNTS.map((h) => HARNESS_WORD[h]).join(', ');
   const sessions: SessionsCfg = { continue_after_network_error: true, resume_for_sessions_it_started: true, ...cfg.sessions };
   const continues = sessions.continue_after_network_error;
@@ -379,11 +381,16 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <div className="ca-field">
         <span>When a session hits its usage limit</span>
-        <Seg className="ca-settings-theme" label="When a session hits its usage limit" options={WHEN_LIMITED} value={value} onPick={(id) => id !== value && void onSave({ ...cfg, limits: { when_hit: id } })} />
+        <Seg className="ca-settings-theme" label="When a session hits its usage limit" options={WHEN_LIMITED} value={value} onPick={(id) => id !== value && void onSave({ ...cfg, limits: { ...limits, when_hit: id } })} />
         <small>
           {WHEN_LIMITED.find((w) => w.id === value)?.says} It goes to another account of its agent ({agents}) that has room by its meters and by what its own sessions last heard. The first reply there reads the whole conversation again, since a prompt cache is an account’s own.
         </small>
       </div>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={lifted} onChange={(e) => void onSave({ ...cfg, limits: { ...limits, continue_when_lifted: e.target.checked } })} />
+        <span>Carry on when the limit lifts</span>
+        <small>When a session that stopped at its usage limit is still open where it stopped once the limit lifts, Codealong tells it to carry on. Claude Code may carry on by itself first; then it’s left as it is. Claude Code and Antigravity sessions, which say when their limit lifts.</small>
+      </label>
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={continues} onChange={(e) => saveSessions({ continue_after_network_error: e.target.checked })} />
         <span>Carry on after a network error</span>

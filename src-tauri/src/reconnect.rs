@@ -1,20 +1,23 @@
-//! Telling a session to carry on once a lost connection has ended its turn, unless config.toml
-//! turns it off (`[sessions] continue_after_network_error`). A harness retries a request that
+//! Telling a session to carry on once what stopped its turn is over: a lost connection, unless
+//! config.toml turns it off (`[sessions] continue_after_network_error`), or its account's usage
+//! limit, once the limit lifts (`[limits] continue_when_lifted`). A harness retries a request that
 //! can't connect for only a few minutes of the Mac being awake, and with the lid closed the Mac
 //! wakes for a few seconds every minute or two without DNS: the retries run out there, and the
-//! session waits for a prompt when the lid opens (claude/transcript.rs `connection_lost_at`).
+//! session waits for a prompt when the lid opens (claude/transcript.rs `connection_lost_at`). A
+//! usage limit stops a session until it lifts, hours or days away.
 //!
 //! Every board the engine publishes is looked at for sessions that run here with such a turn
-//! (`Session::connection_lost`, which the engine marks `continues`). Once their API can be
-//! reached from here (the harness's `api_address`, connected to for a moment), each is sent a
-//! message saying to carry on, as a message of yours from a window is (actions.rs
-//! `session-send`), on a thread of its own, since connecting and sending take a moment.
+//! (`Session::connection_lost` and `Session::limit`, which the engine marks `continues`). Once
+//! their API can be reached from here (the harness's `api_address`, connected to for a moment), or
+//! a few minutes after their limit lifted, each is sent a message saying to carry on, as a message
+//! of yours from a window is (actions.rs `session-send`), on a thread of its own, since connecting
+//! and sending take a moment.
 //!
-//! Each lost connection is answered once. A session that loses it again straight after it was
-//! answered is answered again, a few times in a row at most; then it's left for you, and a notice
-//! says so. A connection lost long ago is left as it is, and so is a session waiting on you to
-//! answer a prompt (what's typed would answer it). While the API can't be reached it's tried again
-//! every half minute; a send that fails is tried again a little later, a few times.
+//! Each stop is answered once. A session stopped again straight after it was answered is answered
+//! again, a few times in a row at most; then it's left for you, and a notice says so. A stop long
+//! ago is left as it is, and so is a session waiting on you to answer a prompt (what's typed would
+//! answer it). While the API can't be reached it's tried again every half minute; a send that
+//! fails is tried again a little later, a few times.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -23,14 +26,20 @@ use std::time::Duration;
 use crate::engine::Handle;
 use crate::model::{Board, Session};
 
-/// A connection lost longer ago than this is left as it is: you've seen it, or it ended a turn
-/// that no longer matters. A night with the lid closed is well inside it.
+/// A connection lost, or a limit lifted, longer ago than this is left as it is: you've seen it,
+/// or it ended a turn that no longer matters. A night with the lid closed is well inside it.
 const MAX_AGE_MS: i64 = 24 * 60 * 60_000;
 
-/// A connection lost again within this long of being answered was lost straight after.
+/// How long after a limit lifts a session still stopped there is told to carry on. Claude Code
+/// carries on by itself 30 to 90 seconds after (2.1.300's `autoContinueAtUsageLimit`, on by
+/// default where Anthropic turns it on for the account; nothing in the transcript says whether
+/// it will), and then has a turn under way and no limit, so it isn't told twice.
+const LIFTED_GRACE_MS: i64 = 3 * 60_000;
+
+/// A session stopped again within this long of being answered was stopped straight after.
 const AGAIN_MS: i64 = 10 * 60_000;
 
-/// How many answers in a row may each be lost again straight after before it's left for you.
+/// How many answers in a row may each be stopped again straight after before it's left for you.
 const AGAIN_MAX: u32 = 3;
 
 /// How long after finding the API can't be reached it's tried again.
@@ -44,23 +53,49 @@ const RETRY_MS: i64 = 30_000;
 /// How long a connection to the API is given to open.
 const REACH_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// What Codealong says to a session it tells to carry on.
-pub const MESSAGE: &str = "Your last turn ended because the API couldn't be reached (the Mac slept or lost its connection). It can be reached again, so carry on where you left off.";
+/// What stopped a session's turn.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Why {
+    /// A lost connection (`Session::connection_lost`).
+    Connection,
+    /// Its account's usage limit (`Session::limit`).
+    Limit,
+}
 
-/// Telling one session to carry on from the connection lost at `at`.
+impl Why {
+    /// What Codealong says to a session it tells to carry on.
+    pub fn message(self) -> &'static str {
+        match self {
+            Why::Connection => "Your last turn ended because the API couldn't be reached (the Mac slept or lost its connection). It can be reached again, so carry on where you left off.",
+            Why::Limit => "Your last turn stopped at your account's usage limit, which has lifted now, so carry on where you left off.",
+        }
+    }
+
+    /// What stopped it, after its title.
+    fn stopped(self) -> &'static str {
+        match self {
+            Why::Connection => "lost its connection",
+            Why::Limit => "stopped at its usage limit",
+        }
+    }
+}
+
+/// Telling one session to carry on from what stopped it at `at`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Job {
     pub session: String,
     pub at: i64,
-    /// Where its API is (`Adapter::api_address`), tried first.
-    pub address: &'static str,
+    pub why: Why,
+    /// Where its API is (`Adapter::api_address`), tried first after a lost connection.
+    pub address: Option<&'static str>,
 }
 
-/// What's due on a board: sessions to tell, and the titles of those left for you just now.
+/// What's due on a board: sessions to tell, and the titles of those left for you just now, with
+/// what stopped them.
 #[derive(Debug, Default, PartialEq)]
 pub struct Due {
     pub jobs: Vec<Job>,
-    pub left: Vec<String>,
+    pub left: Vec<(String, Why)>,
 }
 
 impl Due {
@@ -81,7 +116,7 @@ pub enum Went {
 /// Where one session stands.
 #[derive(Debug, Default)]
 struct Run {
-    /// The lost connection last seen (its time).
+    /// The stop last seen (its time).
     at: i64,
     /// It's been answered, or left for you.
     done: bool,
@@ -97,18 +132,40 @@ struct Run {
     again: u32,
 }
 
-/// Where each session that lost its connection stands, so each loss is answered once.
+/// What `s` is owed at `now` (ms), when anything: what stopped it and when, and where its API is
+/// to try first. A lost connection is owed an answer at once, in the day after; a limit once it's
+/// lifted and Claude Code's own carrying on has had time to show (`LIFTED_GRACE_MS`), in the day
+/// after that.
+fn owed(s: &Session, now: i64) -> Option<(Why, i64, Option<&'static str>)> {
+    if let Some(lost) = s.connection_lost.as_ref().filter(|l| l.continues && now - l.at <= MAX_AGE_MS) {
+        let address = crate::harness::adapter(s.harness).api_address()?;
+        return Some((Why::Connection, lost.at, Some(address)));
+    }
+    let limit = s.limit.as_ref().filter(|l| l.continues)?;
+    let lifted = limit.resets_at? + LIFTED_GRACE_MS;
+    (now >= lifted && now - lifted <= MAX_AGE_MS).then_some((Why::Limit, limit.at, None))
+}
+
+/// The sessions on `board` whose limit has lifted long enough at `now` to be carried on
+/// (`owed`). Nothing the windows get says so, and it comes with time alone, so the board's hash
+/// takes it in (engine.rs `board_hash`): the board that's composed then goes out, and `due` runs
+/// on it.
+pub fn lifted(board: &Board, now: i64) -> Vec<String> {
+    board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| matches!(owed(s, now), Some((Why::Limit, ..)))).map(|s| s.key.clone()).collect()
+}
+
+/// Where each session that stopped stands, so each stop is answered once.
 #[derive(Default)]
 pub struct Continuer {
     runs: HashMap<String, Run>,
 }
 
 impl Continuer {
-    /// What's due at `now` (ms): each session that runs here, whose last turn a lost connection
-    /// ended in the last day and that Codealong is to carry on, unless it's been answered, waits on
-    /// you, has a job under way or a wait that isn't over. A session the board no longer lists is
-    /// forgotten; one that stopped running and came back keeps its answers, so no loss is answered
-    /// twice.
+    /// What's due at `now` (ms): each session that runs here, whose last turn a lost connection or
+    /// a limit that has lifted stopped (`owed`) and that Codealong is to carry on, unless it's been
+    /// answered, waits on you, has a job under way or a wait that isn't over. A session the board
+    /// no longer lists is forgotten; one that stopped running and came back keeps its answers, so
+    /// no stop is answered twice.
     pub fn due(&mut self, board: &Board, now: i64) -> Due {
         let here: Vec<&Session> = board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none()).collect();
         let listed: HashSet<&str> = here.iter().map(|s| s.key.as_str()).collect();
@@ -118,23 +175,22 @@ impl Continuer {
             if !s.live || s.archived {
                 continue;
             }
-            let Some(lost) = s.connection_lost.as_ref().filter(|l| l.continues && now - l.at <= MAX_AGE_MS) else { continue };
-            let Some(address) = crate::harness::adapter(s.harness).api_address() else { continue };
+            let Some((why, at, address)) = owed(s, now) else { continue };
             let run = self.runs.entry(s.key.clone()).or_default();
-            if run.at != lost.at {
-                // A loss not seen before: lost again straight after the last answer, or afresh.
-                run.again = if run.sent_at.is_some_and(|t| lost.at - t <= AGAIN_MS) { run.again + 1 } else { 0 };
-                *run = Run { at: lost.at, sending: run.sending, sent_at: run.sent_at, again: run.again, ..Run::default() };
+            if run.at != at {
+                // A stop not seen before: stopped again straight after the last answer, or afresh.
+                run.again = if run.sent_at.is_some_and(|t| at - t <= AGAIN_MS) { run.again + 1 } else { 0 };
+                *run = Run { at, sending: run.sending, sent_at: run.sent_at, again: run.again, ..Run::default() };
                 if run.again >= AGAIN_MAX {
                     run.done = true;
-                    due.left.push(s.title.clone());
+                    due.left.push((s.title.clone(), why));
                 }
             }
             if run.done || run.sending || now < run.next_at || crate::send::waits_on_you(s) {
                 continue;
             }
             run.sending = true;
-            due.jobs.push(Job { session: s.key.clone(), at: lost.at, address });
+            due.jobs.push(Job { session: s.key.clone(), at, why, address });
         }
         due.jobs.sort_by(|a, b| a.session.cmp(&b.session));
         due
@@ -179,25 +235,26 @@ fn reachable(address: &str) -> bool {
     found.into_iter().any(|a| std::net::TcpStream::connect_timeout(&a, REACH_TIMEOUT).is_ok())
 }
 
-/// Says who was left for you, then does each job: tries the API's address (once for the jobs that
-/// share it), and sends the session the message as a window's send does; tells `continuer` how
-/// each went, and the engine, which says so in a notice when something didn't go.
+/// Says who was left for you, then does each job: tries the API's address after a lost
+/// connection (once for the jobs that share it), and sends the session the message as a window's
+/// send does; tells `continuer` how each went, and the engine, which says so in a notice when
+/// something didn't go.
 pub fn send_now(engine: &Handle, continuer: &Mutex<Continuer>, due: Due) {
-    let mut said: Vec<String> = due.left.iter().map(|t| format!("“{t}” lost its connection again each time it was told to carry on, so it's left for you.")).collect();
+    let mut said: Vec<String> = due.left.iter().map(|(t, why)| format!("“{t}” {} again each time it was told to carry on, so it's left for you.", why.stopped())).collect();
     let mut reached: HashMap<&str, bool> = HashMap::new();
     for job in due.jobs {
         let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            if !*reached.entry(job.address).or_insert_with(|| reachable(job.address)) {
+            if job.address.is_some_and(|a| !*reached.entry(a).or_insert_with(|| reachable(a))) {
                 return Ok(Went::Offline);
             }
-            crate::send::tell(engine, &job.session, MESSAGE).map(|_| Went::Sent).map_err(|e| format!("{e:#}"))
+            crate::send::tell(engine, &job.session, job.why.message()).map(|_| Went::Sent).map_err(|e| format!("{e:#}"))
         }))
         .unwrap_or_else(|_| Err("telling it stopped partway".to_string()));
         let again = continuer.lock().unwrap_or_else(|e| e.into_inner()).told(&job, *went.as_ref().unwrap_or(&Went::Failed), crate::util::now_ms());
         if let Err(e) = went {
             let title = engine.read(|b| b.session(&job.session).map(|(_, s)| s.title.clone())).unwrap_or_else(|| job.session.clone());
             let then = if again { " Codealong tries again in a minute or two." } else { "" };
-            said.push(format!("“{title}” lost its connection, and telling it to carry on didn't work: {e}.{then}"));
+            said.push(format!("“{title}” {}, and telling it to carry on didn't work: {e}.{then}", job.why.stopped()));
         }
     }
     engine.continued(if said.is_empty() { Ok(()) } else { Err(said.join(" ")) });
@@ -206,7 +263,7 @@ pub fn send_now(engine: &Handle, continuer: &Mutex<Continuer>, due: Due) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ConnectionLost, Status};
+    use crate::model::{ConnectionLost, SessionLimit, Status};
 
     const NOW: i64 = 1_800_000_000_000;
     const A: &str = "claude:claude:a";
@@ -214,6 +271,12 @@ mod tests {
 
     fn lost(key: &str, at: i64) -> Session {
         Session { live: true, status: Status::Unread, title: key.rsplit(':').next().unwrap().into(), connection_lost: Some(ConnectionLost { at, continues: true }), ..crate::fixtures::session(key) }
+    }
+
+    /// A session stopped at its limit at `at`, which lifts at `lifts`.
+    fn limited(key: &str, at: i64, lifts: i64) -> Session {
+        let limit = SessionLimit { at, resets_at: Some(lifts), continues: true, ..SessionLimit::default() };
+        Session { live: true, status: Status::Error, title: key.rsplit(':').next().unwrap().into(), limit: Some(limit), ..crate::fixtures::session(key) }
     }
 
     fn board(sessions: Vec<Session>) -> Board {
@@ -229,7 +292,7 @@ mod tests {
         let mut c = Continuer::default();
         let b = board(vec![lost(A, NOW - 60_000), Session { live: true, ..crate::fixtures::session(B) }]);
         let due = c.due(&b, NOW);
-        assert_eq!(due.jobs, vec![Job { session: A.into(), at: NOW - 60_000, address: "api.anthropic.com:443" }]);
+        assert_eq!(due.jobs, vec![Job { session: A.into(), at: NOW - 60_000, why: Why::Connection, address: Some("api.anthropic.com:443") }]);
         assert!(c.due(&b, NOW).is_empty(), "under way");
         // Out of reach: nothing sent, tried again in half a minute.
         assert!(c.told(&due.jobs[0], Went::Offline, NOW));
@@ -263,6 +326,53 @@ mod tests {
     }
 
     #[test]
+    fn a_limit_is_answered_once_it_has_lifted_and_its_agent_hasnt_gone_on_by_itself() {
+        let mut c = Continuer::default();
+        let lifts = NOW + 3 * 3_600_000;
+        let b = board(vec![limited(A, NOW - 60_000, lifts)]);
+        assert!(c.due(&b, NOW).is_empty(), "still stopped");
+        // Lifted, but Claude Code may carry on by itself first.
+        assert!(c.due(&b, lifts + 60_000).is_empty());
+        assert!(lifted(&b, lifts + 60_000).is_empty());
+        assert_eq!(lifted(&b, lifts + LIFTED_GRACE_MS), [A]);
+        let due = c.due(&b, lifts + LIFTED_GRACE_MS);
+        assert_eq!(due.jobs, vec![Job { session: A.into(), at: NOW - 60_000, why: Why::Limit, address: None }]);
+        assert!(!c.told(&due.jobs[0], Went::Sent, lifts + LIFTED_GRACE_MS));
+        assert!(c.due(&b, lifts + 2 * LIFTED_GRACE_MS).is_empty(), "answered once");
+        // One that went on by itself works, and its limit is behind it.
+        let mut c = Continuer::default();
+        let went_on = Session { status: Status::Working, limit: None, ..limited(A, NOW - 60_000, lifts) };
+        assert!(c.due(&board(vec![went_on]), lifts + LIFTED_GRACE_MS).is_empty());
+        // Stopped at its limit again straight after a few answers, it's left for you.
+        let mut at = lifts;
+        for _ in 0..AGAIN_MAX {
+            let due = c.due(&board(vec![limited(A, at, at - LIFTED_GRACE_MS)]), at);
+            assert_eq!(keys(&due), [A]);
+            c.told(&due.jobs[0], Went::Sent, at);
+            at += 60_000;
+        }
+        let due = c.due(&board(vec![limited(A, at, at - LIFTED_GRACE_MS)]), at);
+        assert_eq!((due.jobs.len(), due.left), (0, vec![("a".to_string(), Why::Limit)]));
+    }
+
+    #[test]
+    fn only_a_limit_codealong_is_to_carry_on_that_said_when_it_lifts() {
+        let mut c = Continuer::default();
+        let lifted = NOW - LIFTED_GRACE_MS;
+        let off = Session { limit: Some(SessionLimit { continues: false, ..limited(A, NOW - 3_600_000, lifted).limit.unwrap() }), ..limited(A, NOW - 3_600_000, lifted) };
+        let unsaid = Session { limit: Some(SessionLimit { resets_at: None, ..limited(A, NOW - 3_600_000, lifted).limit.unwrap() }), ..limited(A, NOW - 3_600_000, lifted) };
+        let long_ago = limited(A, NOW - 3 * MAX_AGE_MS, NOW - 2 * MAX_AGE_MS);
+        let stopped = Session { live: false, ..limited(A, NOW - 3_600_000, lifted) };
+        let archived = Session { archived: true, ..limited(A, NOW - 3_600_000, lifted) };
+        for s in [off, unsaid, long_ago, stopped, archived] {
+            assert!(c.due(&board(vec![s.clone()]), NOW).is_empty(), "{s:?}");
+        }
+        // Any harness: it needs no address.
+        let agy = Session { harness: crate::model::Harness::Antigravity, ..limited("antigravity:antigravity:g", NOW - 3_600_000, lifted) };
+        assert_eq!(keys(&c.due(&board(vec![agy]), NOW)), ["antigravity:antigravity:g"]);
+    }
+
+    #[test]
     fn lost_again_straight_after_a_few_times_is_left_for_you() {
         let mut c = Continuer::default();
         let mut at = NOW;
@@ -273,7 +383,7 @@ mod tests {
             at += 2 * 60_000;
         }
         let due = c.due(&board(vec![lost(A, at)]), at);
-        assert_eq!((due.jobs.len(), due.left), (0, vec!["a".to_string()]));
+        assert_eq!((due.jobs.len(), due.left), (0, vec![("a".to_string(), Why::Connection)]));
         assert!(c.due(&board(vec![lost(A, at)]), at + 60_000).is_empty(), "said once");
         // Lost long after an answer, it's answered afresh.
         let mut c = Continuer::default();

@@ -61,8 +61,8 @@ pub struct FeedMsg {
 /// all the same, so once it's updated, a resumed feed (`Replica::have`) would leave out every lane
 /// that hasn't changed since, the field missing from them until they do. A copy kept with another
 /// stamp is sent again whole instead. 1: `Session::pin`; 2: `Session::mode`; 3: `Session::effort`;
-/// 4: `Session::queued_at`; 5: `Session::modes` and `SessionMode::id`.
-pub const READS: u32 = 5;
+/// 4: `Session::queued_at`; 5: `Session::modes` and `SessionMode::id`; 6: `SessionLimit::continues`.
+pub const READS: u32 = 6;
 
 /// What this device knows of a linked device's board, kept up to date by its feeds, and kept on disk
 /// so a device that's asleep still shows as it was when last seen.

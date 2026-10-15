@@ -160,6 +160,17 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   line says the limit lifted, and a background task's notification wakes the session into
   another refusal each time. The usage endpoint's meters show no spend limit (2.1.257 to
   2.1.287, 2026-10-02).
+- Claude Code carries on by itself when a limit lifts (2.1.300's code, 2026-10-15): the setting
+  `autoContinueAtUsageLimit` ("Continue automatically at usage limit" in `/config`, true when
+  absent), behind the remote flag `tengu_marble_heron` (`enabled`, `autoArm`, `jitterMinMs`
+  30,000 and `jitterMaxMs` 90,000 by default), arms itself on a refusal whose `resetsAt` is
+  within 24 hours and isn't carried by extra usage, and fires a random 30 to 90 seconds after
+  `resetsAt` ("Usage limit available again · continuing now"). Further out it says it won't
+  ("the usage limit now resets more than 24 hours out"); `/rate-limit-options` ("Wait for limit
+  to reset") arms it by hand; a session that slept through the reset says "press enter to
+  continue". Only an open interactive session does it, and nothing is written to the transcript
+  until its turn goes on. So Codealong tells a session still stopped there a few minutes after
+  the limit lifts (reconnect.rs `LIFTED_GRACE_MS`).
 - How a turn ends in the transcript, and what one cut off partway leaves (a hangup in a foreground
   command, and Escape there, in tmux on 2.1.296, 2026-10-12): `claude/transcript.rs`
   (`turn_step`), `board.rs` (`claude_session`'s `cut_off`). Not said there: only the terminal
@@ -188,7 +199,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   2026-10-07) are there too. `CLAUDE_CODE_MAX_RETRIES` (default 10) is clamped to 15 unless the
   undocumented `CLAUDE_CODE_RETRY_WATCHDOG` is set, which allows 300 and retries 429s and 529s
   for good, so Codealong sets neither and carries such a session on itself (reconnect.rs).
-  Claude Code's own automatic resume is only for a usage limit that lifts.
+  Claude Code's own automatic resume is only for a usage limit that lifts (above).
 - `--resume <id>` run in another folder goes on as the same session, its transcript staying in
   the first folder's project with the new folder on its lines, and `--bg --resume <id>` keeps
   the ID only for a session no background job has had, copying one that has into a new job

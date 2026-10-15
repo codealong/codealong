@@ -39,6 +39,9 @@ export interface SessionLimit {
   at: number;
   /** Another account of its harness with room, to move it to and go on (start.rs `limit_moves`). */
   moveTo: string | null;
+  /** Codealong tells it to carry on once the limit lifts (`[limits] continue_when_lifted`,
+   *  reconnect.rs). Missing from Macs before 2026-10-15. */
+  continues?: boolean;
 }
 
 /** Replies suggested for a session by another session that read it (peer/src/model.rs
@@ -652,8 +655,9 @@ export interface Config {
   devices?: DevicesCfg;
   /** Automatic updates. Older files have none: on. */
   updates?: { check: boolean };
-  /** What's done about a session a usage limit stopped. Older files have none: suggest. */
-  limits?: { when_hit: WhenLimited };
+  /** What's done about a session a usage limit stopped. Older files have none: suggest, and
+   *  carry on once it lifts. */
+  limits?: { when_hit: WhenLimited; continue_when_lifted?: boolean };
   /** Routing groups and default routing rules. Older files have none. */
   routing?: RoutingCfg;
   /** What Codealong does for sessions by itself. Older files have none: carry on after a lost
