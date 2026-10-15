@@ -785,7 +785,7 @@ pub fn adopt(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, model: Option<&
     let key = key_of(harness, &a.name, id);
     let cwd_s = cwd.to_string_lossy().into_owned();
     let mut hosted = Hosted { account: a.name.clone(), id: id.to_string(), cwd: cwd_s.clone(), loaded: false, remembered: true, ..Default::default() };
-    let was = (hosted.since, hosted.error.clone());
+    let was = (hosted.since, hosted.error.clone(), hosted.cut_off);
     // Its turn begins as it's taken on, so a send meanwhile goes after it.
     let turn = (!prompt.trim().is_empty()).then(|| begin(&mut hosted));
     state().sessions.insert(key.clone(), hosted);
@@ -978,7 +978,7 @@ pub fn send(a: &AccountCfg, key: &str, text: &str) -> Result<String> {
             h.queue.push(text.to_string());
             None
         } else {
-            let was = (h.since, h.error.clone());
+            let was = (h.since, h.error.clone(), h.cut_off);
             let turn = begin(h);
             Some((h.id.clone(), h.cwd.clone(), h.loaded && alive, was, turn))
         }
@@ -1049,16 +1049,17 @@ fn begin(h: &mut Hosted) -> Claim {
 }
 
 /// A turn `begin` marked that never ran, because the session couldn't be picked up: the session
-/// is as it was (`was`: when its last turn ended, and how), and what was sent meanwhile goes too,
+/// is as it was (`was`: when its last turn ended, how, and whether it was cut off, so a carry-on
+/// that couldn't pick it up is tried again, reconnect.rs), and what was sent meanwhile goes too,
 /// which its error says. A turn stopped meanwhile has ended already, and is left as Stop left it.
-fn abandon(key: &str, turn: &Claim, was: (i64, Option<String>), e: &anyhow::Error) {
+fn abandon(key: &str, turn: &Claim, was: (i64, Option<String>, Option<i64>), e: &anyhow::Error) {
     if !turn.stop() {
         return;
     }
     set(key, |h| {
         h.running = false;
         h.turn = None;
-        (h.since, h.error) = was;
+        (h.since, h.error, h.cut_off) = was;
         if !h.queue.is_empty() {
             h.queue.clear();
             h.error = Some(format!("{e:#} What was sent while it was being picked up wasn't sent either."));
@@ -1572,6 +1573,30 @@ mod tests {
         begin(state().sessions.get_mut(&key).unwrap());
         assert_eq!(state().sessions[&key].since, later + 1);
         state().sessions.remove(&key);
+    }
+
+    /// A cut-off session sent something that can't be picked up again is as it was, still cut
+    /// off: a carry-on that failed is tried again (reconnect.rs) rather than lost with the mark.
+    #[test]
+    fn a_pickup_that_fails_leaves_the_session_cut_off() {
+        init(|_| {});
+        let dir = store::test_dir("acp-pickup-fails");
+        let account = "test-adapter-pickup-fails";
+        let key = key_of(Harness::Codex, account, "s1");
+        state().sessions.insert(key.clone(), Hosted { account: account.into(), id: "s1".into(), cwd: "/w".into(), since: 500, cut_off: Some(1_000), ..Default::default() });
+        // It offers neither resume nor load, so the session can't be picked up in it.
+        stand_in(account, r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; done"#, &dir);
+        let a: AccountCfg = serde_json::from_value(json!({ "name": account, "harness": "codex", "home": "/h" })).unwrap();
+        assert!(send(&a, &key, "Carry on").is_err());
+        let was = {
+            let st = state();
+            let h = &st.sessions[&key];
+            (h.running, h.since, h.cut_off)
+        };
+        assert_eq!(was, (false, 500, Some(1_000)));
+        state().sessions.remove(&key);
+        state().agents.remove(account);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A process that ends while a turn's prompt is with it cuts the turn off; one whose prompt

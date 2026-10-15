@@ -2641,17 +2641,18 @@ impl Watch {
     /// reply after what's waited on, or once it has held still a minute. The first look can come
     /// before a message just sent reaches the board, and the reply it finds then is the turn
     /// before's. A turn Codealong quitting cut off goes on once Codealong tells it to: it's waited
-    /// through for a few minutes, after which it waits on its user as an error does.
+    /// through for a few minutes, after which it waits on its user, shown as an error or, seen
+    /// already, idle: the turn didn't end.
     fn look(&mut self, s: &Session, now: i64, replied: impl FnOnce() -> bool) -> Seen {
         if self.carries_on && crate::reconnect::cut_off_here(s) {
-            if now - *self.cut.get_or_insert(now) < WAIT_CARRY_ON_MS {
-                self.was_working = true;
-                self.still = None;
-                return Seen::Going;
+            if now - *self.cut.get_or_insert(now) >= WAIT_CARRY_ON_MS {
+                return Seen::OnUser;
             }
-        } else {
-            self.cut = None;
+            self.was_working = true;
+            self.still = None;
+            return Seen::Going;
         }
+        self.cut = None;
         match waited(s) {
             Waited::Working => {
                 self.was_working = true;
@@ -2704,11 +2705,15 @@ fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
         Ok(serde_json::from_value::<api::Page>(got).context("The conversation didn't read")?.items)
     };
     loop {
-        let found = c.board()?.session(&key).map(|(_, s)| s.clone());
-        // The app answered as the wait began and doesn't now: it's restarting (another session's
-        // relaunch, an update), and a board read from the files has nothing of a session it runs
-        // but its record, which ends a cut-off turn as stopped. Nothing is judged until it's back.
-        let restarting = c.app.is_some() && !c.from_app;
+        let (found, loading) = {
+            let board = c.board()?;
+            (board.session(&key).map(|(_, s)| s.clone()), board.loading)
+        };
+        // The app answered as the wait began and doesn't now, or answers with the empty board it
+        // has before its first scan: it's restarting (another session's relaunch, an update). A
+        // board read from the files has nothing of a session it runs but its record, which ends a
+        // cut-off turn as stopped, so nothing is judged until it's back.
+        let restarting = c.app.is_some() && (!c.from_app || loading);
         match found {
             _ if restarting => {}
             None if seen => bail!("{key} is gone from the board."),
@@ -5553,10 +5558,14 @@ mod tests {
             assert_eq!(w.look(&s(Status::Working), 9_000, never), Seen::Going);
             assert_eq!(w.look(&s(Status::Unread), 12_000, never), Seen::Ended);
         }
-        // Not carried on a few minutes later: it waits on its user, as an error does.
-        let mut w = Watch { carries_on: true, ..Watch::default() };
-        assert_eq!(w.look(&cut(Status::Error), 3_000, never), Seen::Going);
-        assert_eq!(w.look(&cut(Status::Error), 3_000 + WAIT_CARRY_ON_MS, never), Seen::OnUser);
+        // Not carried on a few minutes later: it waits on its user, as an error does, and not as a
+        // turn that ended, though it shows idle once seen.
+        for shown in [Status::Error, Status::Idle] {
+            let mut w = Watch { carries_on: true, ..Watch::default() };
+            assert_eq!(w.look(&s(Status::Working), 0, never), Seen::Going);
+            assert_eq!(w.look(&cut(shown), 3_000, never), Seen::Going);
+            assert_eq!(w.look(&cut(shown), 3_000 + WAIT_CARRY_ON_MS, never), Seen::OnUser);
+        }
         // Nor waited through with the setting off, or for one cut off in a terminal.
         assert_eq!(Watch::default().look(&cut(Status::Error), 0, never), Seen::OnUser);
         let terminal = Session { hosted: false, ..cut(Status::Error) };

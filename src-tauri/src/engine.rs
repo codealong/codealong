@@ -1745,6 +1745,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         self.scan_sessions();
         self.load_repos();
+        // Before the first board: it says which sessions are automatic reviews (`with_origins`),
+        // which their rounds carry on after a restart and reconnect.rs mustn't. Read again below,
+        // once the watcher runs.
+        self.load_reviews();
         self.loading = false;
         self.publish();
         self.queue_git_all();
