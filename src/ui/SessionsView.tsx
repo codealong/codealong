@@ -413,7 +413,7 @@ export function SessionsView(props: SessionsViewProps) {
               </button>
             }
           />
-          {showArchived && <div className="ca-bay-lanes">{archived.map((r) => row(r, null))}</div>}
+          {showArchived && <div className="ca-bay-lanes">{archived.map((r) => family(r, [], null, () => undefined))}</div>}
         </section>
       )}
       {drag.ghost}

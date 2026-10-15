@@ -1660,8 +1660,8 @@ over its title, and shows the latest of what came of it under the title, with it
 more" for the rest: the sessions forked from it or that its agent started (its helpers among them,
 *Its helper*), its headless runs on one line with how many, and its side conversations, each by what
 it was first asked. A click shows a session and a right-click gives its menu, so Pin to desktop there
-puts its card beside the one you're on; a click on the runs shows the latest and lists them all
-under the session in Sessions, and one on a side conversation shows it above the box. The bar's peek and the waiting window have the same header, and
+puts its card beside the one you're on; a click on the runs shows the latest, listed under the
+session in Sessions, and one on a side conversation shows it above the box. The bar's peek and the waiting window have the same header, and
 its card's popover on the canvas lists them too. On the canvas, hovering or selecting a session
 draws a line from the session it came from and to the ones that came of it, and a session's card on
 the desktop does the same to the cards of those sessions pinned on the same screen.

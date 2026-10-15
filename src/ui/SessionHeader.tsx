@@ -198,7 +198,8 @@ const cameKey = (line: CameLine) => (line.kind === 'kin' ? line.kin.session.key 
 
 /** The headless runs a session's commands started, on one line under its title: the glyph of
  *  the latest, or the working one while any works, how many, and how long since the latest moved.
- *  A click shows the latest, which lists them all under the session in Sessions. */
+ *  A click shows the latest, listed under the session in Sessions; the session's row counts the
+ *  rest on its chip, whose double-click lists them all. */
 function RunsRow({ runs, now, onShow }: { runs: Kin[]; now: number; onShow?: (lane: Lane, session: Session) => void }) {
   const latest = runs[0];
   const working = runs.filter((k) => k.session.status === 'working').length;
@@ -208,7 +209,7 @@ function RunsRow({ runs, now, onShow }: { runs: Kin[]; now: number; onShow?: (la
     <button
       type="button"
       className="ca-sessinsp-kin is-runs"
-      title={`${what} its commands started (claude -p, codex exec)${working > 0 ? `, ${working} at work` : ''}: what ran them reads what they say. Click to show the latest, “${t.title}”, with the rest listed under this session.`}
+      title={`${what} its commands started (claude -p, codex exec)${working > 0 ? `, ${working} at work` : ''}: what ran them reads what they say. Click to show the latest, “${t.title}”, under this session in Sessions.`}
       onClick={() => onShow?.(latest.lane, t)}
     >
       <span className="ca-sessinsp-elbow" aria-hidden="true" />

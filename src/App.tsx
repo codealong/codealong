@@ -1060,7 +1060,8 @@ export function App() {
   // A side conversation's row under its session, or a row of its chip's card: the session
   // selected, and the side conversation above its box, which takes what's typed.
   const showSideOf = (key: string, side: SideGlance) => {
-    const r = helperRow(key);
+    // An archived session's chip shows its side conversations too.
+    const r = helperRow(key) ?? archivedItems.find((x) => x.session.key === key);
     if (r) picks.sessions.select(r, 'one');
     showSide(key, side);
     focusBox();

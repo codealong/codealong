@@ -97,18 +97,23 @@ export interface Fold {
   hides: number;
 }
 
-/** How many of a kind work for a session, as its chip counts them (boardLists.ts `HelperCount`):
- *  all of them, the ones at work, the ones waiting on you. */
+/** Each one of a kind that works for a session, as its chip counts them (boardLists.ts
+ *  `HelperCount`): where each stands. */
 export interface KidCount {
   count: number;
-  working: number;
-  waiting: number;
+  each: readonly { status: Status }[];
+}
+
+/** Whether one of a kind stays listed under its session without asking for them all: a helper
+ *  at work, waiting on you or with a turn to see (`placeHelpers`), a run waiting on you
+ *  (`unattended`), the side conversation answering (`sidesListed`). */
+function staysListed(kind: KidKind, status: Status): boolean {
+  return kind === 'helpers' ? AGENT_BAY[status] != null : kind === 'runs' ? status === 'needs' || status === 'error' : status === 'working';
 }
 
 /** The folds for the sessions of one family Sessions lists (`members`: the session at its head,
- *  then the ones under it), each kind listed in full for one of them that has any: its helpers
- *  but the ones at work or waiting on you go, its runs but the ones waiting on you, its side
- *  conversations but the one answering. */
+ *  then the ones under it), each kind listed in full for one of them that has any, with how many
+ *  of them would leave the list (`staysListed`). */
 export function foldsOf(members: readonly Pick<Session, 'key' | 'title'>[], shown: ReadonlySet<string>, counts: Record<KidKind, (key: string) => KidCount | undefined>): Fold[] {
   if (shown.size === 0) return [];
   const out: Fold[] = [];
@@ -116,8 +121,7 @@ export function foldsOf(members: readonly Pick<Session, 'key' | 'title'>[], show
     for (const kind of ['helpers', 'runs', 'sides'] as const) {
       const c = counts[kind](m.key);
       if (!c || c.count === 0 || !shown.has(shownKeyOf(kind, m.key))) continue;
-      const stay = kind === 'helpers' ? c.working + c.waiting : kind === 'runs' ? c.waiting : c.working;
-      out.push({ kind, key: m.key, title: m.title, hides: c.count - stay });
+      out.push({ kind, key: m.key, title: m.title, hides: c.each.filter((g) => !staysListed(kind, g.status)).length });
     }
   }
   return out;

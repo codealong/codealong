@@ -549,11 +549,17 @@ describe('a session’s side conversations under it', () => {
 });
 
 describe('folding what’s listed in full under a session', () => {
-  const count = (count: number, working = 0, waiting = 0) => ({ count, working, waiting });
+  // `n` of them idle, then one in each of `more`.
+  const count = (n: number, ...more: Session['status'][]) => {
+    const each = [...Array.from({ length: n }, () => ({ status: 'idle' as const })), ...more.map((status) => ({ status }))];
+    return { count: each.length, each };
+  };
   const counts = {
-    helpers: (k: string) => (k === 'boss' ? count(9, 1, 1) : k === 'helper' ? count(2) : undefined),
-    runs: (k: string) => (k === 'boss' ? count(40, 3, 1) : undefined),
-    sides: (k: string) => (k === 'boss' ? count(6, 1) : undefined),
+    // One at work and one waiting on you stay; so does one with a turn to see.
+    helpers: (k: string) => (k === 'boss' ? count(6, 'working', 'needs', 'unread') : k === 'helper' ? count(2) : undefined),
+    // Only the one waiting on you stays.
+    runs: (k: string) => (k === 'boss' ? count(36, 'working', 'working', 'working', 'error') : undefined),
+    sides: (k: string) => (k === 'boss' ? count(5, 'working') : undefined),
   };
   const members = [
     { key: 'boss', title: 'The boss' },
@@ -564,12 +570,12 @@ describe('folding what’s listed in full under a session', () => {
     const shown = new Set(['boss', runsShownKey('boss'), sidesShownKey('boss'), 'helper']);
     const folds = foldsOf(members, shown, counts);
     expect(folds.map((f) => [f.kind, f.key, f.hides])).toEqual([
-      ['helpers', 'boss', 7],
+      ['helpers', 'boss', 6],
       ['runs', 'boss', 39],
       ['sides', 'boss', 5],
       ['helpers', 'helper', 2],
     ]);
-    expect(folds.map((f) => foldWords(f, f.key === 'boss'))).toEqual(['Hide 7 finished helpers', 'Hide 39 headless runs', 'Hide 5 answered side conversations', 'Hide 2 finished helpers of Review PR 7']);
+    expect(folds.map((f) => foldWords(f, f.key === 'boss'))).toEqual(['Hide 6 finished helpers', 'Hide 39 headless runs', 'Hide 5 answered side conversations', 'Hide 2 finished helpers of Review PR 7']);
   });
 
   it('offers none where nothing is listed in full, or there are none of the kind', () => {
