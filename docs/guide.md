@@ -1802,8 +1802,10 @@ headless runs*) to put them away; that's kept apart from listing its helpers. A 
 and leaves the board as it ends. A run no session
 on the board ran (a script in a terminal of yours, or one that ended before Codealong saw it
 running) is listed as a session of its own, with a *Headless* chip; so, for now, is every `codex
-exec` run, whose process Codealong can't yet tell from its thread. A run's session is remembered
-once the run ends, until Codealong quits. A search finds every run, opening one from the quick
+exec` run, whose process Codealong can't yet tell from its thread. Once a run that keeps its
+conversation has ended, Codealong notes its session with the other sessions' origins
+(`origins.json`), so it stays under that session after Codealong starts again; nothing on disk
+would say so otherwise. A search finds every run, opening one from the quick
 panel lists its session's runs, and a session's panel names them on one line under its title,
 with how many.
 

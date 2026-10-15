@@ -3,10 +3,12 @@
 //! fork made from Codealong. The harnesses write most forks down themselves (claude/registry.rs's
 //! `Forks`, Codex's `forked_from_id`, OpenCode's `fork_session_id`), but nothing records which
 //! session ran the command that started another, nor Claude Code's fork into a
-//! terminal (`--resume --fork-session`), whose transcript doesn't say. Kept in `origins.json`
-//! next to the config; the engine reads it again when it changes (`current`).
+//! terminal (`--resume --fork-session`), whose transcript doesn't say. Nor which session started
+//! a headless run, which the engine finds by the run's process while it runs and notes here once
+//! the run has ended (`ended_runs`). Kept in `origins.json` next to the config; the engine reads
+//! it again when it changes (`current`).
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -167,6 +169,20 @@ impl Store {
         (at != key).then_some(at)
     }
 
+    /// Notes where each headless run came from (`ended_runs`), unless something noted it
+    /// already: a start that said which session it made knows better. Not `known`: the run's
+    /// process said where it came from, not a start.
+    fn note_runs(&mut self, runs: &[(String, String)], now: i64) -> bool {
+        let mut changed = false;
+        for (key, from) in runs {
+            if key != from && !key.is_empty() && !from.is_empty() && !self.sessions.contains_key(key) {
+                self.sessions.insert(key.clone(), Entry { from: from.clone(), how: OriginHow::Started, at: now, helper: false, report: false, known: false });
+                changed = true;
+            }
+        }
+        changed
+    }
+
     fn prune(&mut self, now: i64) {
         self.sessions.retain(|_, e| now - e.at < KEEP_MS);
         self.pending.retain(|p| now - p.at < p.waits());
@@ -314,6 +330,31 @@ fn write_as(key: &str, from: &str, how: OriginHow, helper: bool, report: bool) -
         let entry = Entry { from: from.to_string(), how, at: now, helper, report, known: true };
         s.sessions.insert(key.to_string(), entry).is_none_or(|old| old.from != from || old.how != how || old.helper != helper || old.report != report || !old.known)
     })
+}
+
+/// The headless runs on the board that have outlived their process and aren't noted here yet,
+/// each with the session the engine found had started it while it ran (`found`,
+/// `engine::with_run_origins`). Nothing on disk says where a run came from, so once Codealong
+/// starts again there's no process left to find its session by, and a run still listed has a
+/// record of its own that keeps it on the board. One that keeps none (`claude -p
+/// --no-session-persistence`) leaves the board as it ends, so an eval's thousand judge calls
+/// aren't written down.
+pub fn ended_runs(board: &crate::model::Board, found: &HashMap<String, String>, store: &Store) -> Vec<(String, String)> {
+    board
+        .lanes
+        .iter()
+        .flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none()))
+        .filter(|s| s.headless && !s.live && !store.sessions.contains_key(&s.key))
+        .filter_map(|s| Some((s.key.clone(), found.get(&s.key)?.clone())))
+        .collect()
+}
+
+/// Notes where the runs `ended_runs` gives came from, in one write.
+pub fn record_runs(runs: &[(String, String)]) {
+    let now = crate::util::now_ms();
+    if let Err(e) = change(|s| s.note_runs(runs, now)) {
+        eprintln!("Couldn't note where headless runs came from: {e:#}");
+    }
 }
 
 /// Takes back the note of where `key` came from: a move whose copy didn't start.
@@ -681,6 +722,35 @@ mod tests {
         assert!(resolve(&mut store, &[helper, other], &Repos, AT + 200));
         assert_eq!(store.helper_of("codex:codex:helper"), Some(("claude:claude:boss", true)));
         assert_eq!(store.origin_of("codex:codex:other"), None);
+    }
+
+    #[test]
+    fn a_headless_run_is_noted_once_it_has_outlived_its_process() {
+        let run = |key: &str, live: bool| Session { headless: true, live, ..crate::fixtures::session(key) };
+        let ended = run("claude:claude:ended", false);
+        let visiting = Session { visitor: Some("worked here".into()), ..ended.clone() };
+        let board = Board {
+            lanes: vec![
+                crate::fixtures::lane("/r/app", vec![crate::fixtures::session("claude:claude:boss"), ended, run("claude:claude:running", true), run("claude:claude:noted", false), run("claude:claude:unknown", false)]),
+                crate::fixtures::lane("/r/app-two", vec![visiting]),
+            ],
+            ..Board::default()
+        };
+        let found: HashMap<String, String> = ["ended", "running", "noted"].iter().map(|k| (format!("claude:claude:{k}"), "claude:claude:boss".to_string())).collect();
+        // A start that said which session it made named another.
+        let mut store = Store::default();
+        store.sessions.insert("claude:claude:noted".into(), Entry { from: "claude:claude:other".into(), how: OriginHow::Started, at: 5, helper: true, report: false, known: true });
+        // Not one still running, which a later look finds again, nor one nobody found the
+        // session of, and each once whatever lanes list it.
+        let runs = ended_runs(&board, &found, &store);
+        assert_eq!(runs, vec![("claude:claude:ended".to_string(), "claude:claude:boss".to_string())]);
+        assert!(store.note_runs(&runs, 10));
+        assert_eq!(store.origin_of("claude:claude:ended"), Some(SessionOrigin { key: "claude:claude:boss".into(), how: OriginHow::Started }));
+        assert_eq!((store.helper_of("claude:claude:ended"), store.known_starter_of("claude:claude:ended")), (None, None));
+        assert!(ended_runs(&board, &found, &store).is_empty());
+        // What a start noted stays.
+        assert!(!store.note_runs(&[("claude:claude:noted".to_string(), "claude:claude:boss".to_string())], 10));
+        assert_eq!(store.helper_of("claude:claude:noted"), Some(("claude:claude:other", false)));
     }
 
     #[test]

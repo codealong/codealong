@@ -95,7 +95,7 @@ export interface Session {
    *  next prompt, and then starts its own with a copy of the conversation. */
   continues?: string;
   /** The session it came from, when its harness or Codealong wrote that down; a headless run's,
-   *  the session whose command ran it, when Codealong saw it running (board.rs `started_by`). */
+   *  the session whose command ran it, when Codealong saw it running (board.rs `run_started_by`). */
   origin?: SessionOrigin;
   /** Busy but silent for a long while: stuck mid-turn. When it went quiet. */
   stalledSince: number | null;

@@ -1107,8 +1107,9 @@ struct Engine {
     /// Session key → the Chrome tabs its records show it drove (chrometabs.rs).
     chrome_use: HashMap<String, chrometabs::Use>,
     /// A headless run's key → the session that started it (`with_run_origins`), found while its
-    /// process runs and kept after, while it's on the board. Learned as the board is composed,
-    /// which only reads the engine, so behind a lock.
+    /// process runs and kept after, while it's on the board, and written to origins.json once
+    /// its process has ended (`keep_run_origins`). Learned as the board is composed, which only
+    /// reads the engine, so behind a lock.
     run_origins: Mutex<HashMap<String, String>>,
     /// Chrome's profiles, as of the last lookup of a session's.
     chrome_profiles: Vec<chrome::Profile>,
@@ -1641,7 +1642,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// said where it came from: the nearest of its process's parents that's a running session's
     /// own, else the session its process's environment names (`board::run_started_by`). Looked
     /// up while it runs, a run's ancestry and environment stay the same, and it's kept once the
-    /// run ends and has no process to look at, until it leaves the board or Codealong quits.
+    /// run ends and has no process to look at, while it's on the board; one that's still listed
+    /// once its process has ended is written down for when Codealong starts again
+    /// (`keep_run_origins`).
     fn with_run_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
         let mut known = self.run_origins.lock().unwrap_or_else(|e| e.into_inner());
         if !sessions.iter().any(|s| s.headless) {
@@ -3215,6 +3218,23 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         changed
     }
 
+    /// Writes down where headless runs came from once they've outlived their process
+    /// (`origins::ended_runs`), as `with_run_origins` found it while they ran. The board shows
+    /// those origins already, so it isn't composed again.
+    fn keep_run_origins(&self, board: &Board) {
+        // Let go before the file's written: another thread may be composing a board.
+        let runs = {
+            let found = self.run_origins.lock().unwrap_or_else(|e| e.into_inner());
+            if found.is_empty() {
+                return;
+            }
+            origins::ended_runs(board, &found, &origins::current())
+        };
+        if !runs.is_empty() {
+            origins::record_runs(&runs);
+        }
+    }
+
     /// Notes where sessions came from that starts from other sessions were waiting for.
     fn link_origins(&self, board: &Board) -> bool {
         let store = origins::current();
@@ -3344,6 +3364,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if self.link_origins(&board) {
             board = self.compose();
         }
+        self.keep_run_origins(&board);
         // The board already leaves them out.
         self.forget_stale_suggestions(&board);
         self.forget_stale_tags(&board);

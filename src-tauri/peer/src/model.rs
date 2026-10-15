@@ -208,8 +208,8 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continues: Option<String>,
     /// The session it came from, when its harness or Codealong wrote that down: a fork of it,
-    /// or started by it. A headless run's is the session whose process its own runs under, when
-    /// Codealong saw it running (`board::started_by`).
+    /// or started by it. A headless run's is the session whose command ran it, when Codealong
+    /// saw it running (`board::run_started_by`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<SessionOrigin>,
     /// Set when the session says it's busy but nothing has happened for a long while: it's stuck
