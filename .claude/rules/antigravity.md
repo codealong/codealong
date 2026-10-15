@@ -26,7 +26,9 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
 - `conversation_summaries.db` (SQLite in WAL mode, written by gorm), its columns, statuses and
   times, and each folder's table listing the other's conversations: `antigravity.rs`
   (`read_from`, `Conversation`, `timestamp`). `title` was empty in every row seen, and
-  `raw_summary` is a protobuf. No status says error or waiting.
+  `raw_summary` is a protobuf. No status says error or waiting. `workspace_uris` doesn't keep
+  the order `agy` took its folders in, so its first isn't always the folder it ran in
+  (`work_folder`).
 - Opening a WAL database whose harness has quit: `harness.rs` (`open_database`).
 - `conversations/<id>.db` holds a conversation's steps (`steps`: `idx`, `step_type`, `status`,
   and protobuf blobs). The numbers are in the binary's own definitions: status 1 pending,

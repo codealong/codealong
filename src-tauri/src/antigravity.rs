@@ -183,7 +183,7 @@ pub struct Conversation {
     /// The summary's preview text: the conversation's opening, as the app lists it.
     pub preview: Option<String>,
     pub step_count: i64,
-    /// The first workspace folder, as a path.
+    /// The workspace folder it works in, as a path (`work_folder`).
     pub cwd: Option<String>,
     pub workspaces: Vec<String>,
     /// The summary's status, lowercased: `cascade_run_status_idle`, `_running`, `_busy` or
@@ -314,7 +314,7 @@ fn read_from(db: &Connection, dir: &str, since_ms: i64, keep: &HashSet<String>) 
         }
         let workspaces: Vec<String> = uris.as_deref().and_then(|u| serde_json::from_str::<Vec<String>>(u).ok()).unwrap_or_default().iter().filter_map(|u| uri_path(u)).collect();
         out.push(Conversation {
-            cwd: workspaces.first().cloned(),
+            cwd: work_folder(&workspaces, &[crate::attachments::images_dir(), crate::attachments::files_dir()]),
             workspaces,
             id,
             title: title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()),
@@ -331,6 +331,15 @@ fn read_from(db: &Connection, dir: &str, since_ms: i64, keep: &HashSet<String>) 
     }
     out.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
     Ok(out)
+}
+
+/// The folder a conversation works in, from its row's workspaces. The row doesn't keep the
+/// order `agy` took them in: one started in a repo with Codealong's images folder added
+/// (`--add-dir`, for a prompt's image) lists the images folder first, though its log names the
+/// repo first (`workspaceDirs=[…]`; 1.3.5, 2026-10-14). Codealong's attachments folders are
+/// never where the work is, so they're passed over unless there's nothing else.
+fn work_folder(workspaces: &[String], attachments: &[PathBuf]) -> Option<String> {
+    workspaces.iter().find(|w| !attachments.iter().any(|a| Path::new(w) == a)).or(workspaces.first()).cloned()
 }
 
 /// A gorm `datetime` column: text like `2026-09-24 14:16:07.434615-07:00`, or seconds or
@@ -2235,6 +2244,27 @@ mod tests {
         // A pinned one comes back however old.
         let keep: HashSet<String> = ["c2".to_string()].into();
         assert_eq!(read_from(&db, "antigravity", since, &keep).unwrap().len(), 2);
+    }
+
+    /// A conversation Codealong started with an image works in its repo, though its row lists
+    /// the images folder first.
+    #[test]
+    fn a_conversation_works_in_its_repo_not_in_codealongs_attachments() {
+        let images = PathBuf::from("/Users/me/Library/Application Support/Codealong/images");
+        let files = PathBuf::from("/Users/me/Library/Application Support/Codealong/files");
+        let ws = |w: &[&str]| w.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        let attachments = [images.clone(), files.clone()];
+        let both = ws(&["/Users/me/Library/Application Support/Codealong/images", "/Users/me/app"]);
+        assert_eq!(work_folder(&both, &attachments).as_deref(), Some("/Users/me/app"));
+        let all = ws(&["/Users/me/Library/Application Support/Codealong/files", "/Users/me/Library/Application Support/Codealong/images", "/Users/me/app"]);
+        assert_eq!(work_folder(&all, &attachments).as_deref(), Some("/Users/me/app"));
+        // One started in the images folder itself works there.
+        assert_eq!(work_folder(&ws(&["/Users/me/Library/Application Support/Codealong/images"]), &attachments).as_deref(), Some(images.to_str().unwrap()));
+        assert_eq!(work_folder(&ws(&["/Users/me/app", "/Users/me/lib"]), &attachments).as_deref(), Some("/Users/me/app"));
+        assert_eq!(work_folder(&[], &attachments), None);
+        // As the row has it, a URI with a space.
+        let uri = "file:///Users/me/Library/Application%20Support/Codealong/images";
+        assert_eq!(work_folder(&[uri_path(uri).unwrap(), "/Users/me/app".into()], &attachments).as_deref(), Some("/Users/me/app"));
     }
 
     /// Each folder's table lists the other folders' conversations too (the command line's has
