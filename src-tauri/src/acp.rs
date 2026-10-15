@@ -845,9 +845,13 @@ pub fn switch(a: &AccountCfg, key: &str, to: Switch) -> Result<()> {
 
 /// Switches a session Codealong runs to another of the modes its agent offers
 /// (`send::switch_mode`): its config option in the category `mode`, which claude-agent-acp
-/// passes on to its `claude` at once, mid-turn too, as Shift+Tab does in a terminal.
-pub fn switch_mode(a: &AccountCfg, key: &str, mode: &str) -> Result<()> {
-    set_option(a, key, "mode", mode)
+/// passes on to its `claude` at once, mid-turn too, as Shift+Tab does in a terminal. Returns the
+/// mode it's in now, as its agent says: claude-agent-acp offers Auto to a model that doesn't take
+/// it, and puts the session in Accept edits instead.
+pub fn switch_mode(a: &AccountCfg, key: &str, mode: &str) -> Result<String> {
+    set_option(a, key, "mode", mode)?;
+    let options = state().sessions.get(key).map(|h| h.options.clone()).unwrap_or_default();
+    Ok(current_option(&options, "mode").unwrap_or_else(|| mode.to_string()))
 }
 
 /// Sets a session's config option in `category` to `value`, one its agent offers, picking the
@@ -1436,8 +1440,9 @@ mod tests {
         state().sessions.remove(&key);
     }
 
-    /// A switch sets the agent's `mode` option and shows what it answers; a mode it switches to
-    /// by itself (a plan approved, a model that doesn't take auto) shows as it says so.
+    /// A switch sets the agent's `mode` option and shows what it answers, which says the mode it
+    /// put the session in: not always the one asked for. A mode it switches to by itself (a plan
+    /// approved, a model that doesn't take auto) shows as it says so.
     #[test]
     fn a_mode_switch_and_the_agents_own_reach_the_board() {
         init(|_| {});
@@ -1460,7 +1465,7 @@ mod tests {
             s.mode.map(|m| m.id)
         };
         assert!(switch_mode(&a, &key, "dontAsk").unwrap_err().to_string().contains("doesn't offer dontAsk"));
-        switch_mode(&a, &key, "auto").unwrap();
+        assert_eq!(switch_mode(&a, &key, "auto").unwrap(), "auto");
         assert!(heard(&dir)[0].contains(r#""configId":"mode","sessionId":"s1","value":"auto""#), "{:?}", heard(&dir));
         assert_eq!(mode().as_deref(), Some("auto"));
         let link = state().agents[account].client.link();
@@ -1468,6 +1473,10 @@ mod tests {
         says(json!({ "sessionUpdate": "current_mode_update", "currentModeId": "plan" }));
         assert_eq!(mode().as_deref(), Some("plan"));
         says(json!({ "sessionUpdate": "config_option_update", "configOptions": claude_modes("acceptEdits") }));
+        assert_eq!(mode().as_deref(), Some("acceptEdits"));
+        // Auto for a model that doesn't take it: claude-agent-acp leaves it accepting edits.
+        std::fs::write(dir.join("answer"), serde_json::to_string(&claude_modes("acceptEdits")).unwrap()).unwrap();
+        assert_eq!(switch_mode(&a, &key, "auto").unwrap(), "acceptEdits");
         assert_eq!(mode().as_deref(), Some("acceptEdits"));
         state().sessions.remove(&key);
         state().agents.remove(account);

@@ -71,8 +71,8 @@ pub const SESSION_MODEL: &str = "session-model";
 /// a request they don't know.
 pub const SESSION_EFFORT: &str = "session-effort";
 /// Switches a session its Mac runs itself (`key`) to another of the modes its agent offers
-/// (`mode`, one of `Session::modes` by its id), for that session alone, answering what happened
-/// in a sentence. Macs before 2026-10-14 refuse it as a request they don't know.
+/// (`mode`, one of `Session::modes` by its id), for that session alone, answering `ModeSwitched`.
+/// Macs before 2026-10-14 refuse it as a request they don't know.
 pub const SESSION_MODE: &str = "session-mode";
 /// Done with a session (`key`): it ends as far as its Mac can end it without ending more than it
 /// (its terminal tab closes, its background job stops), and is marked seen and archived,
@@ -687,6 +687,16 @@ pub enum Answer {
     Deny,
     /// Allow this, and calls like it from now on.
     Always,
+}
+
+/// How a `session-mode` went: what happened, in a sentence, and the mode the session is in now,
+/// by its id, which isn't always the one asked for (claude-agent-acp puts a session whose model
+/// doesn't take Auto in Accept edits instead).
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModeSwitched {
+    pub message: String,
+    pub mode: String,
 }
 
 /// How a prompt sent to a session went.

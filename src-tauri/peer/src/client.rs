@@ -389,8 +389,8 @@ impl Client {
     }
 
     /// Switches a session `device` runs itself to another of the modes its agent offers, by its
-    /// id, for it alone. Says what happened.
-    pub fn switch_mode(&self, device: &str, key: &str, mode: &str) -> std::result::Result<String, String> {
+    /// id, for it alone. Says what happened, and the mode it's in now.
+    pub fn switch_mode(&self, device: &str, key: &str, mode: &str) -> std::result::Result<api::ModeSwitched, String> {
         read(self.ask(device, api::SESSION_MODE, of(params::Mode { key: key.into(), mode: mode.into() }), ACT_WAIT)?)
     }
 

@@ -927,7 +927,7 @@ async fn switch_session_effort(engine: State<'_, engine::Handle>, peers: State<'
 }
 
 /// Switches a session Codealong runs to another of the modes its agent offers, for that session
-/// alone (`send::switch_mode`). Says what happened.
+/// alone (`send::switch_mode`). Says what happened, and the mode it's in now.
 #[tauri::command]
 async fn switch_session_mode(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, mode: String) -> Result<serde_json::Value, String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());

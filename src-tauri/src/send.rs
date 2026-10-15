@@ -64,7 +64,7 @@ use crate::start::Place;
 
 /// How a send went, and how one would go; they go back to other devices too, so they're in
 /// codealong-peer.
-pub use codealong_peer::api::{Sent, Way};
+pub use codealong_peer::api::{ModeSwitched, Sent, Way};
 
 /// Who a message is from: how the session is told, and which ways in it may take.
 #[derive(Debug, Clone, PartialEq)]
@@ -802,7 +802,7 @@ pub fn switch_effort(board: &Board, cfg: &Config, key: &str, effort: &str) -> Re
 /// while it waits on you, as Shift+Tab does in Claude Code's terminal: what it asks next goes by
 /// the new mode, and what it asks now still waits for your answer. A session that runs elsewhere
 /// has its mode changed there.
-pub fn switch_mode(board: &Board, cfg: &Config, key: &str, mode: &str) -> Result<String> {
+pub fn switch_mode(board: &Board, cfg: &Config, key: &str, mode: &str) -> Result<ModeSwitched> {
     let (session, account) = crate::harness::find(board, cfg, key)?;
     let title = quoted(&session.title);
     if !session.hosted {
@@ -811,8 +811,10 @@ pub fn switch_mode(board: &Board, cfg: &Config, key: &str, mode: &str) -> Result
     let Some(to) = session.modes.iter().find(|m| m.id == mode.trim()) else {
         bail!("{:?} isn't a mode {title}'s agent offers.", mode.trim());
     };
-    crate::acp::switch_mode(account, key, &to.id)?;
-    Ok(format!("{title} is in {} mode now.", to.label))
+    let now = crate::acp::switch_mode(account, key, &to.id)?;
+    let named = |id: &str| session.modes.iter().find(|m| m.id == id).map_or_else(|| id.to_string(), |m| m.label.clone());
+    let message = if now == to.id { format!("{title} is in {} mode now.", to.label) } else { format!("{title} is in {} mode: its agent didn't take {}.", named(&now), to.label) };
+    Ok(ModeSwitched { message, mode: now })
 }
 
 /// Switches a running session's model or effort level, for that session alone: one Codealong

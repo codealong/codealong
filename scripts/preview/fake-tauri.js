@@ -657,7 +657,7 @@ window.__TAURI_INTERNALS__ = {
     if (cmd === 'resume_session') return Promise.resolve({ message: 'Resumed (in the preview nothing starts anywhere).', opened: false });
     if (cmd === 'switch_session_model') return Promise.resolve('Switched its model (in the preview nothing is typed anywhere).');
     if (cmd === 'switch_session_effort') return Promise.resolve('Switched its effort (in the preview nothing is typed anywhere).');
-    if (cmd === 'switch_session_mode') return Promise.resolve('Switched its mode (in the preview no agent is asked).');
+    if (cmd === 'switch_session_mode') return Promise.resolve({ message: 'Switched its mode (in the preview no agent is asked).', mode: args.mode });
     // A todo change "shows" on a board that never comes, so the page keeps its own copy of it.
     // Close idle sessions: the board's live sessions quiet that long, without the engine's checks
     // for Ghostty, Jev or questions. A terminal's tab closes, a job stops, and an app's session

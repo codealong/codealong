@@ -323,7 +323,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
       .finally(() => setSwitching(false));
   };
   // The mode of one Codealong runs switches here, any time (ModeLabel.tsx). The one picked shows
-  // at once, and stays until the board has it, so a second ⇧⇥ steps on from it.
+  // at once, then the one its agent says it's in, which may be another (Accept edits for Auto, on
+  // a model that doesn't take it), until the board has it, so a second ⇧⇥ steps on from it.
   const modes = s.modes ?? [];
   const switchesMode = here && s.live && !!s.hosted && modes.length > 1;
   const [modePicked, setModePicked] = useState<string | null>(null);
@@ -331,7 +332,11 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const mode = (modePicked ? modes.find((m) => m.id === modePicked) : null) ?? s.mode;
   const switchMode = (id: string) => {
     setModePicked(id);
-    switchTo(switchSessionMode(s.key, id), () => setModePicked(null));
+    const switched = switchSessionMode(s.key, id).then((r) => {
+      setModePicked(r.mode);
+      return r.message;
+    });
+    switchTo(switched, () => setModePicked(null));
   };
 
   const setText = (t: string) => {

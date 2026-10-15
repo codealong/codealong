@@ -1158,6 +1158,13 @@ export interface Route {
   inputTokens: number;
 }
 
+/** What switching a session's mode did (send.rs `switch_mode`): what happened, and the mode it's in
+ *  now by its id, which isn't always the one asked for (its agent may put it in another). */
+export interface ModeSwitched {
+  message: string;
+  mode: string;
+}
+
 /** What sending to a session did (send.rs). */
 export interface Sent {
   message: string;

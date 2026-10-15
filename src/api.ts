@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, SessionSpent, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, SessionSpent, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { TodoOp } from './todos';
 import { pageZoom, type ZoomStep } from './zoom';
 
@@ -879,10 +879,11 @@ export async function switchSessionEffort(key: string, effort: string): Promise<
 }
 
 /** Switches a session Codealong runs to `mode`, one of the modes its agent offers
- *  (`Session.modes`, by id), for that session alone (send.rs `switch_mode`). Says what happened. */
-export async function switchSessionMode(key: string, mode: string): Promise<string> {
-  if (!inTauri) return 'Switched.';
-  return invoke<string>('switch_session_mode', { key, mode });
+ *  (`Session.modes`, by id), for that session alone (send.rs `switch_mode`). Says what happened,
+ *  and the mode it's in now. */
+export async function switchSessionMode(key: string, mode: string): Promise<ModeSwitched> {
+  if (!inTauri) return { message: 'Switched.', mode };
+  return invoke<ModeSwitched>('switch_session_mode', { key, mode });
 }
 
 /** Whether there's a TypeSafe API key in the keychain. */

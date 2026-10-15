@@ -225,7 +225,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_RESUME, here: resume, command: resume_is_its_users, ..ANY },
     Request { name: api::SESSION_MODEL, here: switch_model, ..ANY },
     Request { name: api::SESSION_EFFORT, here: switch_effort, ..ANY },
-    Request { name: api::SESSION_MODE, here: switch_mode, ..ANY },
+    Request { name: api::SESSION_MODE, here: switch_mode, command: mode_is_its_users, ..ANY },
     // A fork into a terminal opens one, and closing one ends it: both need someone at that Mac.
     Request { name: FORK_TERMINAL, only_here: Some("Fork it on the Mac it runs on."), here: fork_terminal, ..ANY },
     // A move opens a terminal too, and closes the session's own. Which account a conversation
@@ -284,6 +284,12 @@ fn deny_only(params: &Value) -> Result<(), String> {
 /// another device.
 fn resume_is_its_users(_: &Value) -> Result<(), String> {
     Err(format!("That session {}", send::NOT_STARTED_AGAIN))
+}
+
+/// The command never switches a session's mode: an agent may have typed it, and how much a
+/// session does without asking is its user's to say, as allowing a call is (`deny_only`).
+fn mode_is_its_users(_: &Value) -> Result<(), String> {
+    Err("A session's mode is its user's to switch, in Codealong or where the session runs.".into())
 }
 
 fn run_is_yours(_: &Value) -> Result<(), String> {
@@ -841,7 +847,7 @@ fn switch_effort(engine: &Handle, c: &Call) -> Result<Value, String> {
 }
 
 /// Switches a session Codealong runs to another of the modes its agent offers, for it alone
-/// (`send::switch_mode`). Says what happened.
+/// (`send::switch_mode`). Says what happened, and the mode it's in now.
 fn switch_mode(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Mode = c.read()?;
     to_value(send::switch_mode(&engine.board(), &cfg()?, c.session()?, &p.mode).map_err(words)?)
@@ -1725,6 +1731,8 @@ mod tests {
         assert!(command_may_ask(api::SESSION_ANSWER, &json!({ "id": "t1", "answer": "deny", "message": " " })).is_ok());
         assert!(command_may_ask(api::SESSION_SEND, &json!({ "text": "hi" })).unwrap_err().contains("arrive as its user's own"));
         assert!(command_may_ask(api::SESSION_RESUME, &json!({ "prompt": "Go on" })).unwrap_err().contains("doesn't start it again"));
+        // Nor switch a session's mode, which would let it bypass its permissions.
+        assert!(command_may_ask(api::SESSION_MODE, &json!({ "mode": "bypassPermissions" })).unwrap_err().contains("its user's to switch"));
         // Another device's session isn't resumed for it, where a window's request goes there (and
         // finds it isn't linked).
         let (peers, _dir) = no_devices();

@@ -1,8 +1,8 @@
 // Checks the mode of a session Codealong runs, at the left of its box's foot (ModeLabel.tsx
 // `ModeMenu`): a chip, said lowercase as the label it stands for, that opens the modes its agent
 // offers above the box at its left edge, the one it's in checked; picking another asks the engine
-// to switch that session and shows the pick at once; ⇧⇥ in the box steps to the next, as in
-// Claude Code's terminal, mid-turn too. A session that runs elsewhere only says its mode, and ⇧⇥
+// to switch that session and shows the pick at once, then the mode its agent says it put it in;
+// ⇧⇥ in the box steps to the next, as in Claude Code's terminal, mid-turn too. A session that runs elsewhere only says its mode, and ⇧⇥
 // asks nothing.
 //   scripts/preview.sh peek '' scripts/preview/session-mode-check.js
 (function () {
@@ -114,8 +114,27 @@
     })
     .then(function () {
       check('⇧⇥ asks nothing of a session that runs elsewhere', calls('switch_session_mode').length === 2, String(calls('switch_session_mode').length));
-      window.__emit('board', hosted('default'));
+      // Its agent puts it in another mode than the one asked for (Accept edits for Auto, on a
+      // model that doesn't take it), and the board doesn't change: the chip says where it is.
+      var real = window.__TAURI_INTERNALS__.invoke;
+      window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+        if (cmd === 'switch_session_mode') return real(cmd, args, options).then(function () { return { message: 'It’s in Accept edits mode: its agent didn’t take Auto.', mode: 'acceptEdits' }; });
+        return real(cmd, args, options);
+      };
+      window.__emit('board', hosted('acceptEdits'));
       return until(function () { return !!chip(); }, 3000, 'no chip again');
+    })
+    .then(function () {
+      chip().click();
+      return until(function () { return !!q('.ca-peek .ca-modemenu .ca-picker'); }, 3000, 'no mode menu');
+    })
+    .then(function () {
+      all('.ca-peek .ca-modemenu .ca-picker-opt').filter(function (o) { return q('.ca-picker-title', o).textContent.trim() === 'Auto'; })[0].click();
+      return until(function () { return calls('switch_session_mode').length === 3 && /didn’t take/.test(note()); }, 3000, 'no answer from the switch');
+    })
+    .then(function () { return wait(100); })
+    .then(function () {
+      check('a mode its agent didn’t take doesn’t stay on the chip', said() === 'accept edits', said());
     })
     .then(done, stopped);
 })();
