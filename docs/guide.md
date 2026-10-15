@@ -2015,7 +2015,9 @@ Code account (the skill, the command for its Bash tool, and the hooks that let y
 permission prompts and questions from Codealong), and the skill in every other account's skills
 folder (`~/.codex/skills`, `~/.config/opencode/skills`, `~/.gemini/config/skills`), and keeps them
 current; `codealong install` does the same from a terminal. Settings › Agents is where each
-account's plugin or skill shows. See *For agents* below.
+account's plugin or skill shows. `codealong` alone opens the app as the Dock does: macOS opens a
+new copy, which takes over from the one running, with the environment it gives an app rather than
+the terminal's, so nothing the app starts carries an agent's session with it. See *For agents* below.
 
 ### An orchestrator
 

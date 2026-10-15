@@ -275,6 +275,84 @@ fn in_a_bundle(exe: &Path) -> bool {
     exe.ends_with("Contents/MacOS/codealong") && exe.ancestors().nth(3).and_then(Path::extension).is_some_and(|e| e == "app")
 }
 
+/// What an app opened by hand keeps of its opener's environment, besides the home and user: the
+/// settings it reads from there (devicekey.rs, updates.rs), for a copy started to try something.
+const CARRIED: [&str; 2] = ["CODEALONG_DEVICE_KEY", "CODEALONG_UPDATE_URL"];
+
+/// Typing `codealong` with nothing after it, in a terminal or an agent's shell, opens the app as
+/// the Dock does: this copy hands its bundle to macOS with the Dock's environment and leaves, and
+/// the copy macOS opens takes over from any that's running (server::take_over). Run as the
+/// shell's child, the app had that shell's environment (an agent's session ID, message socket and
+/// token, its editor's variables, a PATH of its own) and passed it to every process it started,
+/// long after the session had ended; everything it ran had that session above it, which the
+/// command took for the session running it (cli.rs `session_above`); and macOS didn't know it as
+/// the app (2026-10-14). `open` hands its own environment to the app it opens, so it gets the
+/// Dock's, and `-n` opens a new copy: macOS takes a copy that quit while processes it started
+/// still ran (lsappinfo: "exited-with-subordinates") for one still open, and a plain `open` only
+/// brings that forward. relaunch.sh opens
+/// the app this way too. The exit code to leave with once it's handed over; None opens the app
+/// here, as macOS opened it (its parent is launchd), as the copy before it restarted it for an
+/// update (Tauri's restart runs this binary while that copy quits), or as a binary outside a
+/// bundle (cargo run, tauri dev), which has no app to open.
+pub fn open_as_the_dock_does() -> Option<i32> {
+    let exe = this_binary().ok()?;
+    if !in_a_bundle(&exe) {
+        return None;
+    }
+    let (parent, me) = crate::procs::parent_and_name(std::process::id())?;
+    let opener = crate::procs::parent_and_name(parent).map(|(_, name)| name);
+    if !opened_by_hand(parent, opener.as_deref(), &me) {
+        return None;
+    }
+    let bundle = exe.ancestors().nth(3)?;
+    let env = dock_environment(|name| std::env::var(name).ok(), &crate::launch::login_shell(), user_temp_dir().as_deref(), launchd_ssh_agent().as_deref());
+    match std::process::Command::new("/usr/bin/open").arg("-n").arg(bundle).env_clear().envs(env).status() {
+        Ok(status) => Some(status.code().unwrap_or(1)),
+        Err(e) => {
+            eprintln!("Couldn't open {}: {e}", bundle.display());
+            Some(1)
+        }
+    }
+}
+
+/// Whether a copy was opened by hand rather than by macOS or by the copy before it, from its
+/// parent's pid and name (None once it's gone) and its own name.
+fn opened_by_hand(parent: u32, parent_name: Option<&str>, me: &str) -> bool {
+    parent != 1 && parent_name.is_some_and(|name| name != me)
+}
+
+/// The environment the Dock gives an app, for one opened in its place: the opener's home, user,
+/// text encoding and `CARRIED` settings (`caller`), the login shell, the system's PATH (the app
+/// adds the login shell's, procs::user_path), the per-user temporary folder and launchd's SSH
+/// agent, whatever the opener's shell set those to.
+fn dock_environment(caller: impl Fn(&str) -> Option<String>, shell: &str, temp: Option<&str>, ssh_agent: Option<&str>) -> Vec<(String, String)> {
+    let mut env = vec![("SHELL".to_string(), shell.to_string()), ("PATH".to_string(), "/usr/bin:/bin:/usr/sbin:/sbin".to_string())];
+    for name in ["HOME", "USER", "LOGNAME", "__CF_USER_TEXT_ENCODING"].into_iter().chain(CARRIED) {
+        if let Some(value) = caller(name) {
+            env.push((name.to_string(), value));
+        }
+    }
+    env.extend(temp.map(|t| ("TMPDIR".to_string(), t.to_string())));
+    env.extend(ssh_agent.map(|s| ("SSH_AUTH_SOCK".to_string(), s.to_string())));
+    env
+}
+
+/// The per-user temporary folder macOS gives apps (`getconf DARWIN_USER_TEMP_DIR`): a shell's
+/// TMPDIR can be one an agent's sandbox set.
+fn user_temp_dir() -> Option<String> {
+    let mut buf = vec![0u8; 1024];
+    // SAFETY: confstr writes at most `buf.len()` bytes, its NUL included, and returns the length
+    // the whole value needs.
+    let n = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buf.as_mut_ptr().cast(), buf.len()) };
+    (n > 1 && n <= buf.len()).then(|| String::from_utf8_lossy(&buf[..n - 1]).into_owned())
+}
+
+/// The SSH agent launchd gives apps, where a shell may point SSH_AUTH_SOCK at another.
+fn launchd_ssh_agent() -> Option<String> {
+    let out = std::process::Command::new("/bin/launchctl").args(["getenv", "SSH_AUTH_SOCK"]).output().ok()?;
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|s| !s.is_empty())
+}
+
 fn writable(dir: &Path) -> bool {
     let probe = dir.join(format!(".codealong-probe-{}", std::process::id()));
     match std::fs::File::create(&probe) {
@@ -742,6 +820,39 @@ mod tests {
         assert_eq!(std::fs::read_link(bin.join("codealong")).unwrap(), dev);
         assert!(!in_a_bundle(Path::new("/Users/me/codealong-target/release/codealong")));
         assert!(in_a_bundle(Path::new("/Applications/Codealong.app/Contents/MacOS/codealong")));
+    }
+
+    #[test]
+    fn an_app_opened_by_hand_is_opened_by_macos_with_the_docks_environment() {
+        assert!(opened_by_hand(4321, Some("zsh"), "codealong"));
+        assert!(opened_by_hand(4321, Some("bash"), "codealong"), "relaunch.sh");
+        assert!(!opened_by_hand(1, Some("launchd"), "codealong"), "macOS opened it");
+        assert!(!opened_by_hand(4321, Some("codealong"), "codealong"), "the copy before it restarted it for an update");
+        assert!(!opened_by_hand(4321, None, "codealong"), "what started it has gone");
+
+        let shell: std::collections::HashMap<&str, &str> = [
+            ("HOME", "/Users/me"),
+            ("USER", "me"),
+            ("PATH", "/Users/me/.local/bin:/usr/bin"),
+            ("TMPDIR", "/private/tmp/claude-501/"),
+            ("SSH_AUTH_SOCK", "/Users/me/.agent.sock"),
+            ("CLAUDE_CODE_SESSION_ID", "8a983773"),
+            ("CODEALONG_SESSION", "claude:claude:8a983773"),
+            ("CODEALONG_DEVICE_KEY", "ab12"),
+        ]
+        .into();
+        let env: std::collections::HashMap<String, String> =
+            dock_environment(|name| shell.get(name).map(|v| v.to_string()), "/bin/zsh", Some("/var/folders/x/T/"), Some("/private/tmp/launchd/Listeners")).into_iter().collect();
+        assert_eq!(env["HOME"], "/Users/me");
+        assert_eq!(env["USER"], "me");
+        assert_eq!(env["SHELL"], "/bin/zsh");
+        assert_eq!(env["PATH"], "/usr/bin:/bin:/usr/sbin:/sbin");
+        assert_eq!(env["TMPDIR"], "/var/folders/x/T/");
+        assert_eq!(env["SSH_AUTH_SOCK"], "/private/tmp/launchd/Listeners");
+        assert_eq!(env["CODEALONG_DEVICE_KEY"], "ab12");
+        assert!(!env.contains_key("CLAUDE_CODE_SESSION_ID") && !env.contains_key("CODEALONG_SESSION"), "{env:?}");
+        assert!(!env.contains_key("LOGNAME"), "only what the opener has");
+        assert!(user_temp_dir().is_some_and(|t| t.ends_with("/T/")), "{:?}", user_temp_dir());
     }
 
     #[test]

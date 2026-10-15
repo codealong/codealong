@@ -264,7 +264,7 @@ fn fresh_line(line: &str) -> String {
 }
 
 /// The login shell, as the user database has it: what a terminal app starts in a new tab.
-fn login_shell() -> String {
+pub(crate) fn login_shell() -> String {
     // SAFETY: getpwuid_r fills `pw` with pointers into `buf`, which outlives their use here.
     let from_db = unsafe {
         let mut pw: libc::passwd = std::mem::zeroed();

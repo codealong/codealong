@@ -33,7 +33,8 @@ Builds from `relaunch.sh` are Codealong Dev: a light icon and an id of their own
 pass for the Codealong installed in Applications. Each one replaces `Codealong Dev.app` in
 /Applications (~/Applications when that isn't writable), so Spotlight opens the latest build.
 Both use your settings and todos; whichever you open last quits the other, and the `codealong`
-command follows it. A Dock pin from when builds ran from the build folder is pointed at
+command follows it. relaunch.sh opens the new build as `codealong` typed alone does, through macOS
+with the Dock's environment (`install::open_as_the_dock_does`). A Dock pin from when builds ran from the build folder is pointed at
 Applications, so the Dock doesn't show the app as a question mark.
 
 Builds go to `codealong-target` next to the main checkout, one directory shared by every

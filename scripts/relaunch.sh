@@ -122,23 +122,14 @@ for link in /usr/local/bin/codealong "$HOME/.local/bin/codealong"; do
   "$bundles"/*.app/Contents/MacOS/codealong) ln -sfn "$installed/Contents/MacOS/codealong" "$link" 2>/dev/null || true ;;
   esac
 done
-# The app gets the environment the Dock gives it, not this shell's: `open` hands its own
-# environment to the app it starts, and an agent's shell holds its session's ID, message socket
-# and token (CLAUDE_CODE_*), its editor's variables (VSCODE_*, ELECTRON_RUN_AS_NODE) and a PATH of
-# its own, which the app passed on to every process it started, long after that session had ended.
-me="$(id -un)"
-dock=(HOME="$HOME" USER="$me" LOGNAME="$me" SHELL="${SHELL:-/bin/zsh}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)")
-agent="$(launchctl getenv SSH_AUTH_SOCK || true)"
-[ -z "$agent" ] || dock+=(SSH_AUTH_SOCK="$agent")
-[ -z "${__CF_USER_TEXT_ENCODING:-}" ] || dock+=(__CF_USER_TEXT_ENCODING="$__CF_USER_TEXT_ENCODING")
-# A new copy (`-n`) every time: macOS takes a copy that quit while processes it started still run
-# (lsappinfo: "exited-with-subordinates") for one still open, and a plain `open` then only brings
-# it forward, so nothing opened, and the copy that was running stayed (2026-10-14).
-open_app() { env -i "${dock[@]}" /usr/bin/open -n "$installed"; }
+# Opened as typing `codealong` opens it: the binary hands its bundle to macOS, which opens a new
+# copy with the environment the Dock gives an app, not this shell's, and returns `open`'s exit code
+# (install::open_as_the_dock_does).
+open_app() { "$installed/Contents/MacOS/codealong"; }
 open_app || { sleep 2; open_app; }
 # Opened, the new copy asks whichever copy answers on the socket to quit and takes the socket from
-# it (server::take_over): a copy the pkill above didn't match, too, one started by typing
-# `codealong` in a terminal, whose command line is that word alone. It's relaunched once the new
+# it (server::take_over): a copy the pkill above didn't match, too, one an earlier build started
+# from a terminal, whose command line is the word `codealong` alone. It's relaunched once the new
 # copy holds the socket, and not before.
 sock="$HOME/Library/Application Support/Codealong/codealong.sock"
 new_copy="^$(re "$installed")/Contents/MacOS/codeal[o]ng$"

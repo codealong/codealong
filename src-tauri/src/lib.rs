@@ -1829,9 +1829,15 @@ fn watch_main_thread(app: tauri::AppHandle) {
 }
 
 pub fn run() {
-    perf::arm();
     let args: Vec<String> = std::env::args().collect();
-    if let Err(e) = server::take_over(server::opened_plainly(&args)) {
+    let plainly = server::opened_plainly(&args);
+    if plainly {
+        if let Some(code) = install::open_as_the_dock_does() {
+            std::process::exit(code);
+        }
+    }
+    perf::arm();
+    if let Err(e) = server::take_over(plainly) {
         eprintln!("{e}");
         std::process::exit(2);
     }
