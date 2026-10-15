@@ -71,7 +71,7 @@ function settingsReviewer(reviews: ReviewsCfg | null | undefined, mine: boolean)
  * that can start one where Settings says reviews start (`reviewsRunIn`). They need a checkout of
  * the repo (`hasLane`); Codex's own review page, last, doesn't.
  */
-export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: number, hasLane: boolean, reviews?: ReviewsCfg | null, mine = false, groups: RoutingGroup[] = []): ReviewPick[] {
+export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: number, hasLane: boolean, reviews?: ReviewsCfg | null, mine = false, groups: RoutingGroup[] = [], lanes: Lane[] = []): ReviewPick[] {
   const start = reviews?.start ?? 'no-terminal';
   const runsIn = (a: StartAccount) => reviewsRunIn(a, start);
   const can = hasLane ? accounts.filter((a) => runsIn(a)) : [];
@@ -79,9 +79,9 @@ export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: numbe
   const named = settingsReviewer(reviews, mine);
   const set = named.account ? can.find((a) => a.name === named.account) : undefined;
   const group = named.account ? isGroup(named.account, groups) : undefined;
-  const groupPick = group ? pickFromGroup(group, can, usage, now, named.model || null) : null;
+  const groupPick = group ? pickFromGroup(group, can, usage, now, named.model || null, null, lanes) : null;
   const groupAccount = groupPick ? can.find((a) => a.name === groupPick.account) : undefined;
-  const pick = named.account || named.avoids ? null : autoPick(can, usage, now);
+  const pick = named.account || named.avoids ? null : autoPick(can, usage, now, null, null, lanes);
   const picked = pick ? can.find((a) => a.name === pick.account) : undefined;
   const first: ReviewPick | null = set
     ? { kind: 'review', label: `${set.name}${named.model ? `, ${named.model}` : ''} ${runsIn(set)}, as Settings says`, account: null }
@@ -107,7 +107,7 @@ export function reviewPicks(accounts: StartAccount[], usage: Usage[], now: numbe
  */
 export function reviewItems(pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>, lanes: Lane[], accounts: StartAccount[], usage: Usage[], report: Report, started?: () => void, now = Date.now(), reviews?: ReviewsCfg | null, groups: RoutingGroup[] = []): MenuAction[] {
   const key = pr.key;
-  const picks = reviewPicks(accounts, usage, now, !!key && !!reviewLane(pr, lanes), reviews, !!pr.mine, groups);
+  const picks = reviewPicks(accounts, usage, now, !!key && !!reviewLane(pr, lanes), reviews, !!pr.mine, groups, lanes);
   return picks.map((pick) => ({
     label: pick.label,
     run: () => {

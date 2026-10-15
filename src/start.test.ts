@@ -634,11 +634,14 @@ describe('usageCap and routing groups', () => {
     expect(autoPick(capped, [usage('claude', 10, 66, 24), usage('claude2', 10, 40, 100)], NOW)?.account).toBe('claude2');
     // At 64%, claude still has room before its reserve and its earlier reset wins.
     expect(autoPick(capped, [usage('claude', 10, 64, 24), usage('claude2', 10, 40, 100)], NOW)?.account).toBe('claude');
+    // A usageCap above 90% still treats 91% as having room even when the meter is critical.
+    const raised = ACCOUNTS.map((a) => (a.name === 'claude' ? { ...a, usageCap: 98 } : a));
+    expect(autoPick(raised, [usage('claude', 10, 91, 24), usage('claude2', 10, 40, 100)], NOW)?.account).toBe('claude');
   });
 
-  it('picks from a routing group and avoids a harness when asked', () => {
+  it('picks from a routing group across strategies, equal member preference, and multi-model members', () => {
     const accounts = [
-      fx.startAccount({ name: 'claude', places: [ghostty], models: [{ id: 'opus', label: 'Opus' }] }),
+      fx.startAccount({ name: 'claude', places: [ghostty], models: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }] }),
       fx.startAccount({ name: 'claude2', places: [ghostty], models: [{ id: 'sonnet', label: 'Sonnet' }] }),
       fx.startAccount({ name: 'codex', harness: 'codex', places: [ghostty], models: [{ id: 'gpt-5', label: 'GPT-5' }] }),
     ];
@@ -647,11 +650,32 @@ describe('usageCap and routing groups', () => {
       strategy: 'usage',
       members: [
         { account: 'claude', model: 'opus' },
-        { account: 'claude2', model: 'sonnet' },
+        { account: 'codex', model: 'gpt-5' },
       ],
     };
-    expect(pickFromGroup(usageGroup, accounts, [usage('claude', 10, 95), usage('claude2', 10, 20)], NOW)).toMatchObject({
-      account: 'claude2',
+    // Explicit group members across harnesses have equal preference: codex wins when it has more room.
+    expect(pickFromGroup(usageGroup, accounts, [usage('claude', 10, 80), usage('codex', 10, 20)], NOW)).toMatchObject({
+      account: 'codex',
+      model: 'gpt-5',
+    });
+
+    // Multiple members on the same account preserve the winning member's model.
+    const multiModel: RoutingGroup = {
+      name: 'models',
+      strategy: 'usage',
+      members: [
+        { account: 'claude', model: 'opus' },
+        { account: 'claude', model: 'sonnet' },
+      ],
+    };
+    const perModelUsage = [
+      fx.usage({
+        account: 'claude',
+        meters: [fx.meter({ key: 'week', percent: 20 }), fx.meter({ key: 'model:opus', model: 'Opus', percent: 85 })],
+      }),
+    ];
+    expect(pickFromGroup(multiModel, accounts, perModelUsage, NOW)).toMatchObject({
+      account: 'claude',
       model: 'sonnet',
     });
 
@@ -660,16 +684,32 @@ describe('usageCap and routing groups', () => {
       strategy: 'alternate-harness',
       members: [{ account: 'claude', model: '' }, { account: 'codex', model: 'gpt-5' }],
     };
+    const lanes = [fx.lane({ id: '/r', sessions: [fx.session({ key: 's1', account: 'claude', harness: 'claude', startedAt: NOW - 10 })] })];
+    // After a recent Claude session, alternate-harness picks Codex.
+    expect(pickFromGroup(altGroup, accounts, [], NOW, null, null, lanes)).toMatchObject({
+      account: 'codex',
+      model: 'gpt-5',
+    });
     expect(pickFromGroup(altGroup, accounts, [], NOW, null, 'claude')).toMatchObject({
       account: 'codex',
       model: 'gpt-5',
     });
+
+    const rrGroup: RoutingGroup = {
+      name: 'rr',
+      strategy: 'round-robin',
+      members: [{ account: 'claude', model: 'opus' }, { account: 'claude2', model: 'sonnet' }],
+    };
+    expect(pickFromGroup(rrGroup, accounts, [], NOW, null, null, lanes)).toMatchObject({
+      account: 'claude2',
+      model: 'sonnet',
+    });
   });
 
-  it('offers routing groups in the agent menu and resolves them in startChoice', () => {
+  it('offers routing groups in the agent menu and resolves them in startChoice, filtering out app places when a group sets a model', () => {
     const models = [{ id: 'opus', label: 'Opus' }];
     const accounts = [
-      fx.startAccount({ name: 'claude', places: [ghostty], models }),
+      fx.startAccount({ name: 'claude', places: [claudeApp, ghostty], chosen: 'claude-app', models }),
       fx.startAccount({ name: 'codex', harness: 'codex', places: [codexApp] }),
     ];
     const groups: RoutingGroup[] = [
@@ -691,7 +731,7 @@ describe('usageCap and routing groups', () => {
       detail: 'claude · Opus · alternates harnesses',
     });
     const c = startChoice(accounts, models, [], [], pick, opts, 'reviewers', { agent: agentId('reviewers', null, groups), effort: null, place: null, newWorktree: false }, () => undefined, groups, NOW);
-    expect([c.choice, c.account, c.modelNow, c.startsOn, c.modelShown]).toEqual(['reviewers', 'claude', 'opus', 'opus', 'Opus']);
+    expect([c.choice, c.account, c.placeNow, c.modelNow, c.startsOn, c.modelShown]).toEqual(['reviewers', 'claude', 'terminal', 'opus', 'opus', 'Opus']);
   });
 });
 

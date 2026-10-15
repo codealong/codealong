@@ -617,6 +617,7 @@ export function Quick() {
 
   // Another Mac's usage comes with its feed.
   const usage = useMemo(() => (deviceNow ? (deviceInfo?.usage ?? []) : (board?.usage ?? [])), [deviceNow, deviceInfo?.usage, board?.usage]);
+  const allLanes = useMemo(() => (deviceNow ? (devices?.lanes ?? []).filter((l) => shortOf(l.id) === deviceNow) : (board?.lanes ?? [])), [deviceNow, devices?.lanes, board?.lanes]);
   // The account, model, effort and place a new session starts with (useStartChoice.ts).
   const {
     accounts,
@@ -643,7 +644,7 @@ export function Quick() {
     pickAgent: pickAgentLine,
     pickPlace,
     stepEffort,
-  } = useStartChoice(startPicks, optionsForStart, usage, now);
+  } = useStartChoice(startPicks, optionsForStart, usage, now, allLanes);
   // A chat has no repo to make a worktree of.
   const makesWorktree = harnessMakesWorktree && !lane?.startsChats;
   const inNewWorktree = newWorktreePicked && makesWorktree;
@@ -793,8 +794,7 @@ export function Quick() {
   const suggested = useMemo(() => suggestRows(route, board, !!deviceNow), [board, route, deviceNow]);
   const lastSuggested = useMemo(() => suggestRows(lastRoute, board, !!deviceNow), [board, lastRoute, deviceNow]);
 
-  // What Jev said beyond where it goes: a session that may already be on it. Jev picks where
-  // work goes, never the model: that stays with the start menu and Auto.
+  // What Jev said beyond where it goes: a session that may already be on it.
   const duplicate = board ? duplicateOf(route, board) : null;
   const alreadyOn = alreadyOnWords(duplicate);
 
@@ -1031,7 +1031,7 @@ export function Quick() {
         show([...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }, 'separator' as const] : []), ...sessionMenuSpec(sg.lane, sg.session)]);
       } else {
         show([
-          { label: `Start a session in ${sg.lane.callsign}`, run: () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree }) },
+          { label: `Start a session in ${sg.lane.callsign}`, run: () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree, agent: sg.kind === 'start' ? sg.agent : undefined }) },
           { label: `Save as a todo in ${sg.lane.project}`, run: () => saveTodo(sg.lane) },
         ]);
       }
@@ -1102,7 +1102,7 @@ export function Quick() {
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
   const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string }) => {
     const where = over?.lane ?? lane;
-    const sgAgent = over?.agent ? resolveSuggestedAgent(over.agent, accounts, routingGroups, usage, now) : null;
+    const sgAgent = over?.agent ? resolveSuggestedAgent(over.agent, accounts, routingGroups, usage, now, allLanes) : null;
     const targetAccount = sgAgent?.account ?? account;
     const targetModel = sgAgent ? sgAgent.model : modelNow;
     if (!where || !targetAccount || !placeNow) return;
@@ -1434,8 +1434,8 @@ export function Quick() {
   ];
 
   const agentSections: PickerSection[] = useMemo(
-    () => agentMenuSections(agents, accounts, pick, usage, models, now, agentNow, AUTO_STARTS, routingGroups),
-    [agents, accounts, pick, usage, models, now, agentNow, routingGroups],
+    () => agentMenuSections(agents, accounts, pick, usage, models, now, agentNow, AUTO_STARTS, routingGroups, allLanes),
+    [agents, accounts, pick, usage, models, now, agentNow, routingGroups, allLanes],
   );
 
   const pickAgent = (id: string) => {
@@ -1489,7 +1489,7 @@ export function Quick() {
 
   /** A suggestion's row: what ⏎ does, and where. */
   const describe = (sg: Suggestion) => {
-    const sgAgent = sg.kind === 'start' && sg.agent ? resolveSuggestedAgent(sg.agent, accounts, routingGroups, usage, now) : null;
+    const sgAgent = sg.kind === 'start' && sg.agent ? resolveSuggestedAgent(sg.agent, accounts, routingGroups, usage, now, allLanes) : null;
     const sgAccount = sgAgent?.account ?? account;
     const sgOnModel = sgAgent ? onModelWords(sgAgent.model, effortWord, models) : onModel;
     return suggestionWords(sg, { now, text, account: sgAccount, onModel: sgOnModel, place: placeNow, makesWorktree, terminal: terminalName, behind, duplicate });

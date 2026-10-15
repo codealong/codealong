@@ -6,7 +6,7 @@
 import { usageNote } from '../harness';
 import type { AgentOption, AutoPick, ModelOption } from '../start';
 import { accountHeadWords, agentOptionWords, autoOptionWords, effortNote, groupOptionWords, isAuto, pickFromGroup, placeNote } from '../start';
-import type { Harness, Meter, RoutingGroup, StartAccount, StartPlace, Usage } from '../types';
+import type { Harness, Lane, Meter, RoutingGroup, StartAccount, StartPlace, Usage } from '../types';
 import type { PickerOption, PickerSection } from './Picker';
 import { Icon, Kbd, Seg } from './primitives';
 import { UsageMeter } from './UsageBar';
@@ -85,7 +85,7 @@ export function AccountHead({ name, detail, meters, note, now }: { name: string;
  * (`autoTitle` says what Auto means there), then each account under its heading with its usage,
  * each with its own model and its models, `chosen` checked.
  */
-export function agentMenuSections(agents: AgentOption[], accounts: StartAccount[], pick: AutoPick | null, usage: Usage[], models: ModelOption[], now: number, chosen: string | null, autoTitle: string, groups: RoutingGroup[] = []): PickerSection[] {
+export function agentMenuSections(agents: AgentOption[], accounts: StartAccount[], pick: AutoPick | null, usage: Usage[], models: ModelOption[], now: number, chosen: string | null, autoTitle: string, groups: RoutingGroup[] = [], lanes: Lane[] = []): PickerSection[] {
   const out: PickerSection[] = [];
   const autoOptions: PickerOption[] = [];
   const auto = agents.find((o) => isAuto(o.choice));
@@ -95,7 +95,7 @@ export function agentMenuSections(agents: AgentOption[], accounts: StartAccount[
   }
   for (const g of groups) {
     const opt = agents.find((o) => o.choice === g.name);
-    const gp = opt ? pickFromGroup(g, accounts, usage, now) : null;
+    const gp = opt ? pickFromGroup(g, accounts, usage, now, null, null, lanes) : null;
     if (opt && gp) {
       const said = groupOptionWords(g, gp, accounts, usage, models, now);
       autoOptions.push({ id: opt.id, text: said.text, label: g.name, detail: said.detail, lead: <Icon name="sparkles" size={14} />, title: `Routing group (${g.strategy})` });

@@ -73,12 +73,13 @@ export function metersFor(u: Usage, model: string | null): Meter[] {
   return u.meters.filter((x) => x.model === null || named(x.model));
 }
 
-function near(m: Meter, cap = NEAR_LIMIT): boolean {
-  return m.severity === 'critical' || m.percent >= capOf(cap);
+function near(m: Meter, cap?: number | null): boolean {
+  if (cap != null && cap >= 1 && cap <= 100) return m.percent >= cap;
+  return m.severity === 'critical' || m.percent >= NEAR_LIMIT;
 }
 
 /** Whether a model's own limit (Fable's week, say) still has room on an account. */
-export function modelHasRoom(u: Usage | undefined, model: string, cap = NEAR_LIMIT): boolean {
+export function modelHasRoom(u: Usage | undefined, model: string, cap?: number | null): boolean {
   const own = modelMeter(u, model);
   return !own || !near(own, cap);
 }
@@ -105,12 +106,82 @@ function startable(accounts: StartAccount[]): StartAccount[] {
   return accounts.filter((a) => a.places.length > 0);
 }
 
+const REFUSED_FOR = 31 * 24 * 3_600_000;
+
+/** The accounts a usage limit has stopped on this Mac's sessions (start.rs `refused_accounts`). */
+export function refusedAccounts(lanes: Lane[], now: number): Set<string> {
+  const sessions = lanes.filter((l) => !l.device).flatMap((l) => l.sessions);
+  const refused = new Map<string, number>();
+  for (const s of sessions) {
+    const l = s.limit;
+    if (!l || (l.resetsAt != null && l.resetsAt <= now) || now - l.at >= REFUSED_FOR) continue;
+    refused.set(s.account, Math.max(refused.get(s.account) ?? l.at, l.at));
+  }
+  const out = new Set<string>();
+  for (const [acct, at] of refused) {
+    const through = sessions.some((s) => s.account === acct && !s.limit && s.status !== 'working' && s.lastActivity > at);
+    if (!through) out.add(acct);
+  }
+  return out;
+}
+
 /** The accounts Auto prefers among those that can start sessions: those of the first account's
  *  harness, so Auto keeps to one agent until its accounts are out of room. start.rs's
  *  `preferred_names` has the same rule. */
 export function preferredNames(accounts: StartAccount[]): string[] {
   const can = startable(accounts);
   return can.filter((a) => a.harness === can[0]?.harness).map((a) => a.name);
+}
+
+interface UsageCandidate {
+  name: string;
+  preferred: boolean;
+  on: string | null;
+  usageCap?: number | null;
+}
+
+function pickByUsage(candidates: UsageCandidate[], usage: Usage[], now: number): { index: number; pick: AutoPick } | null {
+  const measured: { index: number; name: string; preferred: boolean; full: number; near: boolean; reset: number | null; cap: number }[] = [];
+  const unknown: { index: number; c: UsageCandidate }[] = [];
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    const u = usage.find((x) => x.account === c.name);
+    if (u?.needsSignIn) continue;
+    const meters = u ? metersFor(u, c.on) : [];
+    if (meters.length === 0) {
+      unknown.push({ index: i, c });
+      continue;
+    }
+    const cap = capOf(c.usageCap);
+    const resets = meters.filter((m) => (m.key === 'week' || m.key.startsWith('model:')) && m.resetsAt !== null && m.resetsAt > now).map((m) => m.resetsAt as number);
+    measured.push({
+      index: i,
+      name: c.name,
+      preferred: c.preferred,
+      full: Math.max(...meters.map((m) => m.percent)),
+      near: meters.some((m) => near(m, c.usageCap)),
+      reset: resets.length > 0 ? Math.min(...resets) : null,
+      cap,
+    });
+  }
+  const leastFull = (pool: typeof measured) => {
+    const m = pool.reduce((best, x) => (x.full < best.full ? x : best));
+    return { index: m.index, pick: { account: m.name, reason: 'room' as const, resetsAt: null } };
+  };
+  const best = (pool: typeof measured) => {
+    const soon = pool.filter((m) => m.reset !== null && m.full < m.cap - KEPT_FOR_RUNNING).sort((a, b) => (a.reset as number) - (b.reset as number) || a.full - b.full);
+    return soon.length > 0 ? { index: soon[0].index, pick: { account: soon[0].name, reason: 'reset' as const, resetsAt: soon[0].reset } } : leastFull(pool);
+  };
+  for (const pref of [true, false]) {
+    const roomy = measured.filter((m) => m.preferred === pref && !m.near);
+    if (roomy.length > 0) return best(roomy);
+    const waiting = unknown.find((x) => x.c.preferred === pref);
+    if (waiting) return { index: waiting.index, pick: { account: waiting.c.name, reason: 'first', resetsAt: null } };
+  }
+  if (measured.length > 0) return leastFull(measured);
+  const firstIdx = candidates.findIndex((c) => c.preferred);
+  const idx = firstIdx >= 0 ? firstIdx : 0;
+  return candidates[idx] ? { index: idx, pick: { account: candidates[idx].name, reason: 'first', resetsAt: null } } : null;
 }
 
 /**
@@ -124,39 +195,15 @@ export function preferredNames(accounts: StartAccount[]): string[] {
  * limit is least full. Signed-out accounts are passed over. Null when no account can start a
  * session.
  */
-export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, model: string | null = null, autoGroup?: RoutingGroup | null): AutoPick | null {
-  if (autoGroup) return pickFromGroup(autoGroup, accounts, usage, now, model);
+export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, model: string | null = null, autoGroup?: RoutingGroup | null, lanes: Lane[] = []): AutoPick | null {
+  if (autoGroup) return pickFromGroup(autoGroup, accounts, usage, now, model, null, lanes);
   const preferred = preferredNames(accounts);
-  const candidates = startable(accounts)
-    .filter((a) => model === null || offersModel(a, model))
-    .map((a) => ({ name: a.name, preferred: preferred.includes(a.name), on: model ?? a.defaultModel, cap: capOf(a.usageCap) }));
-  const measured: { name: string; preferred: boolean; full: number; near: boolean; reset: number | null; cap: number }[] = [];
-  const unknown: typeof candidates = [];
-  for (const c of candidates) {
-    const u = usage.find((x) => x.account === c.name);
-    if (u?.needsSignIn) continue;
-    const meters = u ? metersFor(u, c.on) : [];
-    if (meters.length === 0) {
-      unknown.push(c);
-      continue;
-    }
-    const resets = meters.filter((m) => (m.key === 'week' || m.key.startsWith('model:')) && m.resetsAt !== null && m.resetsAt > now).map((m) => m.resetsAt as number);
-    measured.push({ name: c.name, preferred: c.preferred, full: Math.max(...meters.map((m) => m.percent)), near: meters.some((m) => near(m, c.cap)), reset: resets.length > 0 ? Math.min(...resets) : null, cap: c.cap });
-  }
-  const leastFull = (pool: typeof measured): AutoPick => ({ account: pool.reduce((best, m) => (m.full < best.full ? m : best)).name, reason: 'room', resetsAt: null });
-  const best = (pool: typeof measured): AutoPick => {
-    const soon = pool.filter((m) => m.reset !== null && m.full < m.cap - KEPT_FOR_RUNNING).sort((a, b) => (a.reset as number) - (b.reset as number) || a.full - b.full);
-    return soon.length > 0 ? { account: soon[0].name, reason: 'reset', resetsAt: soon[0].reset } : leastFull(pool);
-  };
-  for (const pref of [true, false]) {
-    const roomy = measured.filter((m) => m.preferred === pref && !m.near);
-    if (roomy.length > 0) return best(roomy);
-    const waiting = unknown.find((c) => c.preferred === pref);
-    if (waiting) return { account: waiting.name, reason: 'first', resetsAt: null };
-  }
-  if (measured.length > 0) return leastFull(measured);
-  const first = candidates.find((c) => c.preferred) ?? candidates[0];
-  return first ? { account: first.name, reason: 'first', resetsAt: null } : null;
+  const refused = refusedAccounts(lanes, now);
+  const matching = startable(accounts).filter((a) => model === null || offersModel(a, model));
+  const unrefused = matching.filter((a) => !refused.has(a.name));
+  const pool = unrefused.length > 0 ? unrefused : matching;
+  const candidates = pool.map((a) => ({ name: a.name, preferred: preferred.includes(a.name), on: model ?? a.defaultModel, usageCap: a.usageCap }));
+  return pickByUsage(candidates, usage, now)?.pick ?? null;
 }
 
 /** The account and model a routing group picks now (start.rs `pick_from_group`). */
@@ -167,20 +214,27 @@ export function pickFromGroup(
   now: number,
   model: string | null = null,
   avoid: Harness | null = null,
+  lanes: Lane[] = [],
 ): AutoPick | null {
   const can = startable(accounts);
-  const rawMembers = group.members.length > 0 ? group.members : can.map((a) => ({ account: a.name, model: '' }));
+  const refused = refusedAccounts(lanes, now);
+  const preferred = preferredNames(can);
+  const explicitMembers = group.members.length > 0;
+  const rawMembers = explicitMembers
+    ? group.members.map((m) => ({ account: m.account, model: m.model?.trim() || null, preferred: true }))
+    : can.map((a) => ({ account: a.name, model: null, preferred: preferred.includes(a.name) }));
+  const askedModel = model?.trim() || null;
   const members = rawMembers.flatMap((m) => {
     const a = can.find((x) => x.name === m.account);
     if (!a) return [];
-    const explicit = m.model?.trim() || model || null;
+    if (askedModel && !offersModel(a, askedModel)) return [];
+    const explicit = askedModel ?? m.model;
     if (explicit && !offersModel(a, explicit)) return [];
     const checkModel = explicit ?? a.defaultModel;
-    const cap = capOf(a.usageCap);
     const u = usage.find((x) => x.account === a.name);
-    const usable = !u?.needsSignIn;
-    const roomy = usable && (u ? metersFor(u, checkModel) : []).every((x) => !near(x, cap));
-    return [{ account: a, explicitModel: explicit, checkModel, roomy, usable }];
+    const usable = !u?.needsSignIn && !refused.has(a.name);
+    const roomy = usable && (u ? metersFor(u, checkModel) : []).every((x) => !near(x, a.usageCap));
+    return [{ account: a, preferred: m.preferred, explicitModel: explicit, checkModel, roomy, usable }];
   });
   if (members.length === 0) return null;
   const roomy = members.filter((m) => m.roomy);
@@ -189,11 +243,39 @@ export function pickFromGroup(
   if (avoid && pool.some((m) => m.account.harness !== avoid)) {
     pool = pool.filter((m) => m.account.harness !== avoid);
   }
-  const asAccounts = pool.map((m) => ({ ...m.account, defaultModel: m.checkModel }));
-  const picked = autoPick(asAccounts, usage, now, null);
-  if (!picked) return null;
-  const chosen = pool.find((m) => m.account.name === picked.account) ?? pool[0];
-  return { ...picked, account: chosen.account.name, model: chosen.explicitModel };
+  const byUsage = (slice: typeof pool): AutoPick | null => {
+    const res = pickByUsage(
+      slice.map((m) => ({ name: m.account.name, preferred: m.preferred, on: m.checkModel, usageCap: m.account.usageCap })),
+      usage,
+      now,
+    );
+    if (!res) return null;
+    const chosen = slice[res.index];
+    return { ...res.pick, account: chosen.account.name, model: chosen.explicitModel };
+  };
+  if (group.strategy === 'alternate-harness') {
+    const recent = lanes
+      .filter((l) => !l.device)
+      .flatMap((l) => l.sessions)
+      .filter((s) => !s.visitor && !s.helper);
+    const harnesses: Harness[] = [];
+    for (const m of pool) {
+      if (!harnesses.includes(m.account.harness)) harnesses.push(m.account.harness);
+    }
+    const lastHarness = (h: Harness) => Math.max(0, ...recent.filter((s) => s.harness === h).map((s) => s.startedAt ?? s.lastActivity));
+    const chosenHarness = harnesses.reduce((best, h) => (lastHarness(h) < lastHarness(best) ? h : best));
+    return byUsage(pool.filter((m) => m.account.harness === chosenHarness));
+  }
+  if (group.strategy === 'round-robin') {
+    const recent = lanes
+      .filter((l) => !l.device)
+      .flatMap((l) => l.sessions)
+      .filter((s) => !s.visitor && !s.helper);
+    const lastAccount = (name: string) => Math.max(0, ...recent.filter((s) => s.account === name).map((s) => s.startedAt ?? s.lastActivity));
+    const chosen = pool.reduce((best, m) => (lastAccount(m.account.name) < lastAccount(best.account.name) ? m : best));
+    return { account: chosen.account.name, reason: 'first', resetsAt: null, model: chosen.explicitModel };
+  }
+  return byUsage(pool);
 }
 
 /** The choices the sheet lists: Auto when there's more than one account to choose between,
@@ -207,24 +289,24 @@ function offersAuto(accounts: StartAccount[], pick: AutoPick | null): boolean {
 }
 
 /** Where a choice can open. Auto or a routing group opens where the account it picks can. */
-export function placesFor(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0): StartAccount['places'] {
-  const name = accountFor(choice, pick, groups, accounts, usage, now);
+export function placesFor(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0, lanes: Lane[] = []): StartAccount['places'] {
+  const name = accountFor(choice, pick, groups, accounts, usage, now, lanes);
   return accounts.find((a) => a.name === name)?.places ?? [];
 }
 
 /** The account a choice starts right now. */
-export function accountFor(choice: Choice | null, pick: AutoPick | null, groups: RoutingGroup[] = [], accounts: StartAccount[] = [], usage: Usage[] = [], now = 0): string | null {
+export function accountFor(choice: Choice | null, pick: AutoPick | null, groups: RoutingGroup[] = [], accounts: StartAccount[] = [], usage: Usage[] = [], now = 0, lanes: Lane[] = []): string | null {
   if (!choice) return null;
   if (isAuto(choice)) return pick?.account ?? null;
   const g = isGroup(choice, groups);
-  if (g) return pickFromGroup(g, accounts, usage, now)?.account ?? null;
+  if (g) return pickFromGroup(g, accounts, usage, now, null, null, lanes)?.account ?? null;
   return choice;
 }
 
 /** The choice the panel opens with: `wanted` (what a failed start had) while it's still
  *  offered, else the first on the list that can start a session, which is Auto where there's one. */
-export function initialChoice(accounts: StartAccount[], pick: AutoPick | null, wanted: Choice | undefined, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0): Choice | null {
-  const offered = choices(accounts, pick, groups).filter((c) => placesFor(c, accounts, pick, groups, usage, now).length > 0);
+export function initialChoice(accounts: StartAccount[], pick: AutoPick | null, wanted: Choice | undefined, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0, lanes: Lane[] = []): Choice | null {
+  const offered = choices(accounts, pick, groups).filter((c) => placesFor(c, accounts, pick, groups, usage, now, lanes).length > 0);
   return wanted && offered.includes(wanted) ? wanted : (offered[0] ?? null);
 }
 
@@ -276,10 +358,10 @@ export function takesModel(a: StartAccount | undefined): boolean {
 /** What the agent menu lists: Auto when it's offered, any routing groups that can start here,
  *  then every account, on its own default and, where Codealong can ask for one, on each of its
  *  models (`models` for an account that came without its own list). */
-export function agentOptions(accounts: StartAccount[], models: ModelOption[], pick: AutoPick | null, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0): AgentOption[] {
+export function agentOptions(accounts: StartAccount[], models: ModelOption[], pick: AutoPick | null, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0, lanes: Lane[] = []): AgentOption[] {
   const out: AgentOption[] = offersAuto(accounts, pick) ? [{ id: AUTO, choice: AUTO, model: null }] : [];
   for (const g of groups) {
-    if (pickFromGroup(g, accounts, usage, now)) out.push({ id: g.name, choice: g.name, model: null });
+    if (pickFromGroup(g, accounts, usage, now, null, null, lanes)) out.push({ id: g.name, choice: g.name, model: null });
   }
   for (const a of accounts) {
     out.push({ id: agentId(a.name, null), choice: a.name, model: null });
@@ -326,7 +408,7 @@ const FALLBACK = ['opus', 'sonnet'];
  * other model with room, with the default's context size. `model` is null for the default, and
  * `spent` is the limit that ruled the default out.
  */
-export function autoModel(defaultModel: string | null, u: Usage | undefined, cap = NEAR_LIMIT): { model: string | null; spent: Meter | null } {
+export function autoModel(defaultModel: string | null, u: Usage | undefined, cap?: number | null): { model: string | null; spent: Meter | null } {
   const own = modelMeter(u, defaultModel);
   if (!own || !near(own, cap)) return { model: null, spent: null };
   const long = /\[1m\]$/i.test(defaultModel ?? '');
@@ -340,8 +422,8 @@ export function autoModel(defaultModel: string | null, u: Usage | undefined, cap
 }
 
 /** The place an account's `start` setting names; for Auto or a routing group, the one the account it picks names. */
-export function settledPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0): StartPlace | null {
-  const name = accountFor(choice, pick, groups, accounts, usage, now);
+export function settledPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0, lanes: Lane[] = []): StartPlace | null {
+  const name = accountFor(choice, pick, groups, accounts, usage, now, lanes);
   return accounts.find((a) => a.name === name)?.chosen ?? null;
 }
 
@@ -364,9 +446,9 @@ export function withChosen(o: StartOptions, names: string[], place: StartPlace):
 
 /** Where a choice opens at first: where its account's settings say, else where it last opened,
  *  while that's still offered. */
-export function initialPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, last: StartPlace | undefined, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0): StartPlace | null {
-  const places = placesFor(choice, accounts, pick, groups, usage, now);
-  const want = settledPlace(choice, accounts, pick, groups, usage, now) ?? last;
+export function initialPlace(choice: Choice | null, accounts: StartAccount[], pick: AutoPick | null, last: StartPlace | undefined, groups: RoutingGroup[] = [], usage: Usage[] = [], now = 0, lanes: Lane[] = []): StartPlace | null {
+  const places = placesFor(choice, accounts, pick, groups, usage, now, lanes);
+  const want = settledPlace(choice, accounts, pick, groups, usage, now, lanes) ?? last;
   return places.find((p) => p.place === want)?.place ?? places[0]?.place ?? null;
 }
 
@@ -455,27 +537,27 @@ export function startChoice(
   lastPlace: (choice: Choice) => StartPlace | undefined,
   groups: RoutingGroup[] = [],
   now = 0,
+  lanes: Lane[] = [],
 ): ChosenStart {
   const { agent, effort, place, newWorktree } = picks;
   const agentNow = agent && agents.some((o) => o.id === agent) ? agent : first ? agentId(first, null, groups) : null;
   const { choice, model: chosenModel } = agentNow ? parseAgent(agentNow) : { choice: null, model: null };
   const group = isGroup(choice, groups);
   const autoFor = isAuto(choice) || !!group;
-  const activePick = isAuto(choice) ? pick : group ? pickFromGroup(group, accounts, usage, now) : null;
-  const account = accountFor(choice, pick, groups, accounts, usage, now);
+  const activePick = isAuto(choice) ? pick : group ? pickFromGroup(group, accounts, usage, now, null, null, lanes) : null;
+  const account = activePick ? activePick.account : accountFor(choice, pick, groups, accounts, usage, now, lanes);
   const accountInfo = accounts.find((a) => a.name === account);
   const harness = accountInfo?.harness ?? null;
-  const cap = capOf(accountInfo?.usageCap);
   const autoModelPick = autoFor
     ? activePick?.model
       ? { model: activePick.model, spent: null }
-      : autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account), cap)
+      : autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account), accountInfo?.usageCap)
     : null;
-  const allPlaces = placesFor(choice, accounts, pick, groups, usage, now);
+  const allPlaces = placesFor(choice, accounts, pick, groups, usage, now, lanes);
   const takesEffort = (accountInfo?.efforts?.length ?? 0) > 0;
-  const tuned = !!chosenModel || (!!effort && takesEffort);
+  const tuned = !!chosenModel || (!!activePick?.model && allPlaces.some((p) => placeTakesModel(p.place))) || (!!effort && takesEffort);
   const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place)) : allPlaces;
-  const placeNow = [place, choice ? (settledPlace(choice, accounts, pick, groups, usage, now) ?? lastPlace(choice)) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
+  const placeNow = [place, choice ? (settledPlace(choice, accounts, pick, groups, usage, now, lanes) ?? lastPlace(choice)) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
   // A harness whose command line makes a worktree for a session (Claude Code's `--worktree`).
   const makesWorktree = !!placeNow && onCommandLine(placeNow) && !!accountInfo?.worktree;
   // A harness whose command line takes a model; Codealong hands it to an adapter the same way.
@@ -647,8 +729,7 @@ export function autoWhy(p: AutoPick, spent: Meter | null, fallback: boolean, now
 /** The agent menu's Auto line: what its filter matches, and the account, model and why. */
 export function autoOptionWords(pick: AutoPick, accounts: StartAccount[], usage: Usage[], models: ModelOption[], now: number): { text: string; detail: string } {
   const a = accounts.find((x) => x.name === pick.account);
-  const cap = capOf(a?.usageCap);
-  const m = pick.model ? { model: pick.model, spent: null } : autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === pick.account), cap);
+  const m = pick.model ? { model: pick.model, spent: null } : autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === pick.account), a?.usageCap);
   const model = m.model ?? a?.defaultModel ?? null;
   const why = autoWhy(pick, m.spent, !preferredNames(accounts).includes(pick.account), now);
   return {
@@ -660,8 +741,7 @@ export function autoOptionWords(pick: AutoPick, accounts: StartAccount[], usage:
 /** A routing group's line in the agent menu: what its filter matches, and the account, model and strategy. */
 export function groupOptionWords(group: RoutingGroup, pick: AutoPick, accounts: StartAccount[], usage: Usage[], models: ModelOption[], now: number): { text: string; detail: string } {
   const a = accounts.find((x) => x.name === pick.account);
-  const cap = capOf(a?.usageCap);
-  const m = pick.model ? { model: pick.model, spent: null } : autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === pick.account), cap);
+  const m = pick.model ? { model: pick.model, spent: null } : autoModel(a?.defaultModel ?? null, usage.find((u) => u.account === pick.account), a?.usageCap);
   const model = m.model ?? a?.defaultModel ?? null;
   const strat = group.strategy === 'alternate-harness' ? 'alternates harnesses' : group.strategy === 'round-robin' ? 'round robin' : autoWhy(pick, m.spent, false, now);
   return {

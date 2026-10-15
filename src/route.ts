@@ -18,25 +18,28 @@ export type Suggestion =
   | { kind: 'start'; key: string; lane: Lane; newWorktree: boolean; p: number; agent?: string }
   | { kind: 'todo'; key: string; lane: Lane; p: number };
 
-/** Resolves a Jev `route.agents` id (a routing group name or `<harness>[:<model>]`) to an account and model. */
+/** Resolves a Jev `route.agents` id (a routing group name or `<account-or-harness>[:<model>]`) to an account and model. */
 export function resolveSuggestedAgent(
   agentId: string | undefined,
   accounts: StartAccount[],
   groups: RoutingGroup[],
   usage: Usage[],
   now: number,
+  lanes: Lane[] = [],
 ): { account: string; model: string | null } | null {
   if (!agentId) return null;
   const g = groups.find((x) => x.name === agentId);
   if (g) {
-    const gp = pickFromGroup(g, accounts, usage, now);
+    const gp = pickFromGroup(g, accounts, usage, now, null, null, lanes);
     return gp ? { account: gp.account, model: gp.model ?? null } : null;
   }
   const at = agentId.indexOf(':');
-  const harness = at < 0 ? agentId : agentId.slice(0, at);
+  const target = at < 0 ? agentId : agentId.slice(0, at);
   const model = at < 0 ? null : agentId.slice(at + 1) || null;
+  const byName = accounts.find((a) => a.name === target && a.places.length > 0);
+  const harness = byName ? byName.harness : target;
   const matching = accounts.filter((a) => a.harness === harness && a.places.length > 0);
-  const picked = autoPick(matching, usage, now, model);
+  const picked = autoPick(matching, usage, now, model, null, lanes);
   return picked ? { account: picked.account, model: model ?? picked.model ?? null } : null;
 }
 
@@ -94,7 +97,8 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
     const open = find || (found.session.status === 'needs' && !found.session.asks && found.session.background == null);
     return { kind: open ? 'open' : 'send', key: `${open ? 'open' : 'send'}:${found.session.key}`, ...found, p };
   };
-  const agentPick = route.agents?.[0]?.id;
+  const topAgent = route.agents?.[0];
+  const agentPick = topAgent ? (topAgent.model ? `${topAgent.account}:${topAgent.model}` : topAgent.account) : undefined;
   /** Starting new work from Jev's worktree pick, `actionP` as likely as the action. In the very
    *  worktree Jev picked, it's as likely as that worktree; one chosen for it in the repo, or a new
    *  worktree, as likely as the repo. */

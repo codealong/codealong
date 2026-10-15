@@ -242,7 +242,10 @@ fn cap_pct(cap: Option<u8>) -> f64 {
 
 /// A limit with no room to start or move a session onto.
 fn near(m: &Meter, cap: Option<u8>) -> bool {
-    m.severity == Severity::Critical || m.percent >= cap_pct(cap)
+    match cap {
+        Some(c) => m.percent >= f64::from(c),
+        None => m.severity == Severity::Critical || m.percent >= NEAR_LIMIT,
+    }
 }
 
 /// Whether an account's meters say it's near a limit a session on `model` spends, against `cap`
@@ -335,7 +338,12 @@ pub fn spends(model: Option<&str>, limit_model: Option<&str>, meters: &[Meter]) 
 /// fullest limit is least full. Signed-out accounts are passed over. `src/start.ts`'s `autoPick`
 /// has the same rule.
 pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option<AutoPick> {
+    auto_pick_indexed(candidates, usages, now).map(|(_, p)| p)
+}
+
+fn auto_pick_indexed(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option<(usize, AutoPick)> {
     struct Measured<'a> {
+        idx: usize,
         name: &'a str,
         preferred: bool,
         full: f64,
@@ -344,18 +352,19 @@ pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option
         reset: Option<i64>,
     }
     let mut measured: Vec<Measured> = Vec::new();
-    let mut unknown: Vec<&Candidate> = Vec::new();
-    for c in candidates {
+    let mut unknown: Vec<(usize, &Candidate)> = Vec::new();
+    for (idx, c) in candidates.iter().enumerate() {
         let u = usages.iter().find(|u| u.account == c.name);
         if u.is_some_and(|u| u.needs_sign_in) {
             continue;
         }
         let meters: Vec<&Meter> = u.map(|u| u.meters.iter().filter(|m| spends(c.model, m.model.as_deref(), &u.meters)).collect()).unwrap_or_default();
         if meters.is_empty() {
-            unknown.push(c);
+            unknown.push((idx, c));
             continue;
         }
         measured.push(Measured {
+            idx,
             name: c.name,
             preferred: c.preferred,
             full: meters.iter().map(|m| m.percent).fold(0.0, f64::max),
@@ -364,26 +373,32 @@ pub fn auto_pick(candidates: &[Candidate], usages: &[Usage], now: i64) -> Option
             reset: meters.iter().filter(|m| m.key == "week" || m.key.starts_with("model:")).filter_map(|m| m.resets_at).filter(|&at| at > now).min(),
         });
     }
-    let least_full = |pool: &[&Measured]| pool.iter().min_by(|a, b| a.full.total_cmp(&b.full)).map(|m| AutoPick { account: m.name.to_string(), reason: AutoReason::Room, resets_at: None });
+    let least_full = |pool: &[&Measured]| pool.iter().min_by(|a, b| a.full.total_cmp(&b.full)).map(|m| (m.idx, AutoPick { account: m.name.to_string(), reason: AutoReason::Room, resets_at: None }));
     let best = |pool: Vec<&Measured>| {
         let soonest = pool.iter().filter(|m| m.reset.is_some() && m.full < (m.cap - KEPT_FOR_RUNNING).max(0.0)).min_by(|a, b| a.reset.cmp(&b.reset).then(a.full.total_cmp(&b.full)));
         match soonest {
-            Some(m) => Some(AutoPick { account: m.name.to_string(), reason: AutoReason::Reset, resets_at: m.reset }),
+            Some(m) => Some((m.idx, AutoPick { account: m.name.to_string(), reason: AutoReason::Reset, resets_at: m.reset })),
             None => least_full(&pool),
         }
     };
-    let first = |c: &Candidate| AutoPick { account: c.name.to_string(), reason: AutoReason::First, resets_at: None };
+    let first = |(idx, c): (usize, &Candidate)| (idx, AutoPick { account: c.name.to_string(), reason: AutoReason::Reset.into_first(), resets_at: None });
     for preferred in [true, false] {
         let roomy: Vec<&Measured> = measured.iter().filter(|m| m.preferred == preferred && !m.near).collect();
         if !roomy.is_empty() {
             return best(roomy);
         }
-        if let Some(c) = unknown.iter().find(|c| c.preferred == preferred) {
-            return Some(first(c));
+        if let Some(&u) = unknown.iter().find(|(_, c)| c.preferred == preferred) {
+            return Some(first(u));
         }
     }
     let all: Vec<&Measured> = measured.iter().collect();
-    least_full(&all).or_else(|| candidates.iter().find(|c| c.preferred).or(candidates.first()).map(first))
+    least_full(&all).or_else(|| candidates.iter().enumerate().find(|(_, c)| c.preferred).or_else(|| candidates.first().map(|c| (0, c))).map(first))
+}
+
+impl AutoReason {
+    fn into_first(self) -> Self {
+        AutoReason::First
+    }
 }
 
 /// An account and optional model chosen from a routing group.
@@ -518,8 +533,8 @@ pub fn pick_from_group_in(
             .iter()
             .map(|m| Candidate { name: &m.account.name, preferred: m.preferred, model: m.check_model.as_deref(), usage_cap: m.account.usage_cap })
             .collect();
-        let picked = auto_pick(&cs, usages, now)?;
-        let m = slice.iter().find(|m| m.account.name == picked.account)?;
+        let (idx, _) = auto_pick_indexed(&cs, usages, now)?;
+        let m = slice.get(idx)?;
         Some(GroupPick { account: m.account.name.clone(), model: m.explicit_model.clone() })
     };
     match group.strategy {
@@ -1401,9 +1416,11 @@ mod tests {
         assert_eq!(pick(&cs, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", 95.0, 70.0, Some(6))]).0, "claude");
         // All near: the least full.
         assert_eq!(pick(&cs, &[usage("claude", 92.0, 20.0, Some(100)), usage("claude2", 95.0, 70.0, Some(6))]), ("claude".into(), AutoReason::Room));
-        // An account's own usage_cap passes it over before 90%.
+        // An account's own usage_cap passes it over before 90%, or allows above 90% when raised.
         let capped = [cand("claude", true), Candidate { usage_cap: Some(70), ..cand("claude2", true) }];
         assert_eq!(pick(&capped, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", 30.0, 70.0, Some(6))]).0, "claude");
+        let raised = [cand("claude", true), Candidate { usage_cap: Some(98), ..cand("claude2", true) }];
+        assert_eq!(pick(&raised, &[usage("claude", 10.0, 20.0, Some(100)), usage("claude2", 30.0, 91.0, Some(6))]).0, "claude2");
     }
 
     #[test]
@@ -1517,6 +1534,21 @@ mod tests {
         assert_eq!(
             pick_from_group_in(&rr, &cfg, &usages, &[], &recent_rr, &[], None, None, NOW, home, |_| true),
             Some(GroupPick { account: "codex".into(), model: None })
+        );
+        // Multiple members on the same account keep their own model when the second has more room.
+        let same_acct = RoutingGroupCfg {
+            name: "models".into(),
+            strategy: RoutingStrategy::Usage,
+            members: vec![
+                GroupMemberCfg { account: "claude2".into(), model: "opus".into() },
+                GroupMemberCfg { account: "claude2".into(), model: "sonnet".into() },
+            ],
+        };
+        let mut per_model = usage("claude2", 10.0, 20.0, None);
+        per_model.meters.push(Meter { model: Some("Opus".into()), ..meter("model:Opus", 80.0, None) });
+        assert_eq!(
+            pick_from_group_in(&same_acct, &cfg, &[per_model], &[], &[], &[], None, None, NOW, home, |_| true),
+            Some(GroupPick { account: "claude2".into(), model: Some("sonnet".into()) })
         );
     }
 

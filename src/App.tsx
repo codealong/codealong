@@ -929,7 +929,7 @@ export function App() {
    *  review page in the Codex app (review.ts). */
   const reviewItems = (pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'lanes'> & Partial<Pick<PrItem, 'key' | 'mine'>>): MenuAction[] => {
     loadStartOpts();
-    return reviewItemsFor(pr, lanes, startOpts.current?.accounts ?? [], board?.usage ?? [], { error: setToast, info: setToast, busy: track }, undefined, Date.now(), repoReviews(board, pr.repoSlug));
+    return reviewItemsFor(pr, lanes, startOpts.current?.accounts ?? [], board?.usage ?? [], { error: setToast, info: setToast, busy: track }, undefined, Date.now(), repoReviews(board, pr.repoSlug), startOpts.current?.groups ?? []);
   };
   /** A worktree's PR as Review with… needs it: the board's, or what the worktree knows of one
    *  the board doesn't list (on another Mac, say). */

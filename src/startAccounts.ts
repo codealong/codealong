@@ -6,24 +6,24 @@
 import { useEffect, useState } from 'react';
 import { startOptions } from './api';
 import { withLists } from './start';
-import type { Session, StartAccount } from './types';
+import type { RoutingGroup, Session, StartAccount } from './types';
 
 const FRESH_MS = 60_000;
-let read: { at: number; accounts: StartAccount[] } | null = null;
-let reading: Promise<StartAccount[]> | null = null;
+let read: { at: number; accounts: StartAccount[]; groups: RoutingGroup[] } | null = null;
+let reading: Promise<{ accounts: StartAccount[]; groups: RoutingGroup[] }> | null = null;
 
 /** Reads them again once what's kept is a minute old, and resolves with what's kept. */
-function refresh(): Promise<StartAccount[]> {
-  if (read && Date.now() - read.at < FRESH_MS) return Promise.resolve(read.accounts);
+function refresh(): Promise<{ accounts: StartAccount[]; groups: RoutingGroup[] }> {
+  if (read && Date.now() - read.at < FRESH_MS) return Promise.resolve({ accounts: read.accounts, groups: read.groups });
   reading ??= startOptions()
     .then(
       (o) => {
-        read = { at: Date.now(), accounts: withLists(o) };
-        return read.accounts;
+        read = { at: Date.now(), accounts: withLists(o), groups: o.groups ?? [] };
+        return { accounts: read.accounts, groups: read.groups };
       },
       // The last read stands, and what offers them goes without until a read works: the quick
       // panel and the main window say so when start options can't be read.
-      () => read?.accounts ?? [],
+      () => ({ accounts: read?.accounts ?? [], groups: read?.groups ?? [] }),
     )
     .finally(() => {
       reading = null;
@@ -43,14 +43,30 @@ export function useStartAccounts(wanted = true): StartAccount[] {
   useEffect(() => {
     if (!wanted) return;
     let live = true;
-    void refresh().then((a) => {
-      if (live) setAccounts(a);
+    void refresh().then((r) => {
+      if (live) setAccounts(r.accounts);
     });
     return () => {
       live = false;
     };
   }, [wanted]);
   return accounts;
+}
+
+/** This Mac's routing groups, read alongside its accounts. */
+export function useStartGroups(wanted = true): RoutingGroup[] {
+  const [groups, setGroups] = useState<RoutingGroup[]>(() => read?.groups ?? []);
+  useEffect(() => {
+    if (!wanted) return;
+    let live = true;
+    void refresh().then((r) => {
+      if (live) setGroups(r.groups);
+    });
+    return () => {
+      live = false;
+    };
+  }, [wanted]);
+  return groups;
 }
 
 /** A session's account among them: its name and harness. */

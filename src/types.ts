@@ -1187,10 +1187,17 @@ export interface Route {
   /** A live session that may already be doing this work. */
   duplicate: RoutePick | null;
   /** Agent or model picks Jev weighed when `[routing] prompt` is set, the likeliest first. */
-  agents?: RoutePick[];
+  agents?: AgentPick[];
   model: string;
   ms: number;
   inputTokens: number;
+}
+
+/** An agent, model or routing group Jev weighed when `[routing] prompt` is set (route.rs). */
+export interface AgentPick {
+  account: string;
+  model?: string | null;
+  p: number;
 }
 
 /** What switching a session's mode did (send.rs `switch_mode`): what happened, and the mode it's in

@@ -343,13 +343,20 @@ describe('resolveSuggestedAgent', () => {
       action: 'start',
       actions: [['start', 1]],
       lanes: [{ id: '/api', p: 1 }],
-      agents: [{ id: 'claude:opus', p: 0.8 }],
+      agents: [{ account: 'claude', model: 'opus', p: 0.8 }],
     });
     expect(suggestions(r, b)[0]).toMatchObject({ kind: 'start', agent: 'claude:opus' });
     // claude is near its limit, so resolveSuggestedAgent picks claude2 on opus.
     const u = [fx.usage({ account: 'claude', meters: [fx.meter({ key: 'week', percent: 95, severity: 'critical' })] }), fx.usage({ account: 'claude2', meters: [fx.meter({ key: 'week', percent: 20 })] })];
     expect(resolveSuggestedAgent('claude:opus', accounts, [], u, fx.NOW)).toEqual({ account: 'claude2', model: 'opus' });
-    // A routing group resolves through pickFromGroup.
+    // A routing group without a model resolves through pickFromGroup.
+    const rGroup = route({
+      action: 'start',
+      actions: [['start', 1]],
+      lanes: [{ id: '/api', p: 1 }],
+      agents: [{ account: 'fast', model: null, p: 0.9 }],
+    });
+    expect(suggestions(rGroup, b)[0]).toMatchObject({ kind: 'start', agent: 'fast' });
     const groups = [{ name: 'fast', strategy: 'usage' as const, members: [{ account: 'claude2', model: 'sonnet' }] }];
     expect(resolveSuggestedAgent('fast', accounts, groups, u, fx.NOW)).toEqual({ account: 'claude2', model: 'sonnet' });
   });

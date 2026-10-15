@@ -99,7 +99,7 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
   const open = (url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e)));
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));
 
-  const reviewWith = reviewItems(pr, lanes, box.accounts, usage, report, () => can.left?.('review started'), now, reviews);
+  const reviewWith = reviewItems(pr, lanes, box.accounts, usage, report, () => can.left?.('review started'), now, reviews, box.groups);
   const actions: menus.PrActions = {
     approve: reviewable ? { label: `Approve #${pr.number}`, run: () => review('approve') } : undefined,
     comment: stillOpen ? { label: 'Comment', run: () => review('comment') } : undefined,

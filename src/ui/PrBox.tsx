@@ -36,9 +36,9 @@ import { mayApprove } from '../prStatus';
 import { errorText, type Report } from '../report';
 import { askAccount, askAccounts, reviewLineWords, suggestWords } from '../review';
 import { notAsked, showSides, startingSide, useKept, useSide, useSideView, type SideView } from '../side';
-import { useStartAccounts } from '../startAccounts';
+import { useStartAccounts, useStartGroups } from '../startAccounts';
 import { asText, readStored, writeStored } from '../stored';
-import type { Draft, PrItem, Side, SideKept, StartAccount, Usage, Verdict } from '../types';
+import type { Draft, PrItem, RoutingGroup, Side, SideKept, StartAccount, Usage, Verdict } from '../types';
 import { prIsOpen } from './PrsView';
 import { BoxText, Button, cx, Icon, Seg } from './primitives';
 import { prSides, SideStrip } from './SideStrip';
@@ -97,6 +97,7 @@ export interface PrBox {
   /** The verdict that submits the agent's review in one press (`agentsVerdict`). */
   agents: Verdict | null;
   accounts: StartAccount[];
+  groups: RoutingGroup[];
   switchTo: (to: BoxSide) => void;
   /** Gives a verdict with what's written on Review. */
   review: (verdict: Verdict) => void;
@@ -115,6 +116,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
   const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const accounts = useStartAccounts();
+  const groups = useStartGroups();
   const reviewable = mayApprove(pr);
   const stillOpen = prIsOpen(pr);
   const draft = useYourReview(pr, stillOpen)?.review?.draft ?? null;
@@ -234,7 +236,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     void showContextMenu(items, below(el)).catch((e: unknown) => report.error(errorText(e)));
   };
 
-  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, sending, agents, accounts, switchTo, review, ask, pickAnswerer };
+  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, sending, agents, accounts, groups, switchTo, review, ask, pickAnswerer };
 }
 
 /** Where the PR's review stands, over its box: a click shows its Reviews tab. */
