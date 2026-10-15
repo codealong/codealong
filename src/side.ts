@@ -101,6 +101,8 @@ export function noteSide(side: Side): void {
 function noteClosing(side: Side): void {
   if (stoppedIds.has(side.id)) return;
   closedIds.add(side.id);
+  // Closed in another window, its open copy may have come late, after the word that it's gone.
+  if (sides.get(side.key)?.id === side.id) sides.delete(side.key);
   const before = closing.get(side.id);
   const next = new Map(closing);
   if (side.running) next.set(side.id, side);

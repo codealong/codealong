@@ -126,6 +126,21 @@
       sideLine('what ran last?').click();
       await until(function () { return turns().length === 1 && turns()[0].indexOf('what ran last?') === 0; }, 5000, 'it shown to read');
       check('one closed before the window heard of it reads as still answering, at the tool it runs', /Closed, and still answering/.test(strip().textContent) && turns()[0].indexOf('Read · send.rs') > 0 && turns()[0].indexOf('Next') < 0, strip().textContent.slice(0, 200));
+
+      // Another window closes the open one, and word of it comes here in an order this window
+      // didn't start: an open copy sent before the close arrives after it.
+      var second = window.__sides[key];
+      headButton('Close').click();
+      await until(function () { return turns().length === 1 && turns()[0].indexOf('and without one?') === 0; }, 5000, 'the open one above the box');
+      delete window.__sides[key];
+      window.__emit('side', { id: '', key: key, turns: [], running: false, ended: false });
+      window.__emit('side', second);
+      window.__emit('side', Object.assign({}, second, { closed: true }));
+      await wait(100);
+      check('closed in another window, an open copy of it heard late doesn’t keep it above the box', !strip() && !aside(), strip() && strip().textContent.slice(0, 200));
+      window.__emit('side', Object.assign({}, second, { closed: true, running: false, turns: second.turns.map(function (t) { return Object.assign({}, t, { answer: 'The same.', done: true }); }) }));
+      await wait(100);
+      check('nor once it has answered, and the box is the session’s', !strip() && !aside(), strip() && strip().textContent.slice(0, 200));
     } catch (e) {
       return stopped(e);
     }
