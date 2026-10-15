@@ -286,29 +286,30 @@ fn make_ready(path: &Path, pixels: u64) -> Option<Value> {
     let format = if ext == "jpg" { "jpeg" } else { "png" };
     let bytes = std::fs::read(path).ok()?;
     let (w, h) = sips_size(path)?;
-    // Jev doesn't turn a photo the way its EXIF says, as a window shows it: the pixels are turned.
-    let orientation = if ext == "jpg" { exif_orientation(&bytes).unwrap_or(1) } else { 1 };
+    // Jev doesn't turn an image the way its EXIF says, as a window shows it: the pixels are turned.
+    let orientation = exif_orientation(&bytes).unwrap_or(1);
     let (w, h) = if orientation >= 5 { (h, w) } else { (w, h) };
     let (picture, image) = fit(w, h, pixels)?;
     let bytes = if ["png", "jpg"].contains(&ext) && orientation == 1 && picture == (w, h) && image == (w, h) {
         bytes
     } else {
         let (pw, ph, iw, ih) = (picture.0.to_string(), picture.1.to_string(), image.0.to_string(), image.1.to_string());
-        let mut resize = vec!["-s", "format", format];
+        let mut resize = Vec::new();
         if picture != (w, h) {
             resize.extend(["-z", ph.as_str(), pw.as_str()]);
         }
         if image != picture {
             resize.extend(["-p", ih.as_str(), iw.as_str(), "--padColor", "FFFFFF"]);
         }
-        // Each step its own run: in one, sips orders a turn and a flip its own way (`-r 90 -f
-        // horizontal` flips first), and a turn and a resize too.
+        // Each step its own run, writing the format sent: in one run, sips orders a turn and a
+        // flip its own way (`-r 90 -f horizontal` flips first), and a turn and a resize too.
         let steps: Vec<&[&str]> = upright_steps(orientation).iter().copied().chain([resize.as_slice()]).collect();
         let mut from = path.to_path_buf();
         let mut made = Vec::new();
         for step in steps {
             let out = scratch(format);
-            let ok = crate::procs::run("/usr/bin/sips", &[step, &[from.to_str()?, "--out", out.to_str()?]].concat(), None, Duration::from_secs(20)).is_ok();
+            let args = [&["-s", "format", format][..], step, &[from.to_str()?, "--out", out.to_str()?]].concat();
+            let ok = crate::procs::run("/usr/bin/sips", &args, None, Duration::from_secs(20)).is_ok();
             made.push(out.clone());
             if !ok {
                 break;
@@ -352,25 +353,59 @@ fn upright_steps(orientation: u16) -> &'static [&'static [&'static str]] {
     }
 }
 
-/// A JPEG's EXIF orientation (tag 0x0112 of its first image), from its APP1 segment.
-fn exif_orientation(jpeg: &[u8]) -> Option<u16> {
-    if !jpeg.starts_with(&[0xff, 0xd8]) {
-        return None;
-    }
-    let mut at = 2;
-    // Segments up to the image data, each a marker and a length that counts itself.
-    while at + 4 <= jpeg.len() && jpeg[at] == 0xff && jpeg[at + 1] != 0xda {
-        let len = u16::from_be_bytes([jpeg[at + 2], jpeg[at + 3]]) as usize;
-        let segment = jpeg.get(at + 4..at + 2 + len)?;
-        if jpeg[at + 1] == 0xe1 && segment.starts_with(b"Exif\0\0") {
-            let tiff = &segment[6..];
-            let big = tiff.starts_with(b"MM");
-            let u16_at = |i: usize| tiff.get(i..i + 2).map(|b| if big { u16::from_be_bytes([b[0], b[1]]) } else { u16::from_le_bytes([b[0], b[1]]) });
-            let u32_at = |i: usize| tiff.get(i..i + 4).map(|b| if big { u32::from_be_bytes([b[0], b[1], b[2], b[3]]) } else { u32::from_le_bytes([b[0], b[1], b[2], b[3]]) });
-            let ifd = u32_at(4)? as usize;
-            return (0..u16_at(ifd)? as usize).map(|i| ifd + 2 + i * 12).find(|&e| u16_at(e) == Some(0x0112)).and_then(|e| u16_at(e + 8));
+/// An image's EXIF orientation: tag 0x0112 of the first image in the EXIF it carries.
+fn exif_orientation(image: &[u8]) -> Option<u16> {
+    let tiff = exif_of(image)?;
+    let big = tiff.starts_with(b"MM");
+    let u16_at = |i: usize| tiff.get(i..i + 2).map(|b| if big { u16::from_be_bytes([b[0], b[1]]) } else { u16::from_le_bytes([b[0], b[1]]) });
+    let u32_at = |i: usize| tiff.get(i..i + 4).map(|b| if big { u32::from_be_bytes([b[0], b[1], b[2], b[3]]) } else { u32::from_le_bytes([b[0], b[1], b[2], b[3]]) });
+    let ifd = u32_at(4)? as usize;
+    (0..u16_at(ifd)? as usize).map(|i| ifd + 2 + i * 12).find(|&e| u16_at(e) == Some(0x0112)).and_then(|e| u16_at(e + 8))
+}
+
+/// The EXIF an image carries, as TIFF: a JPEG's APP1 segment, a PNG's eXIf chunk or a WebP's EXIF
+/// chunk (GIF has none).
+fn exif_of(b: &[u8]) -> Option<&[u8]> {
+    let be32 = |i: usize| b.get(i..i + 4).map(|x| u32::from_be_bytes([x[0], x[1], x[2], x[3]]) as usize);
+    let le32 = |i: usize| b.get(i..i + 4).map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]) as usize);
+    if b.starts_with(&[0xff, 0xd8]) {
+        // Segments up to the image data, each a marker and a length that counts itself; a marker
+        // may have fill bytes (0xff) before it.
+        let mut at = 2;
+        while at + 4 <= b.len() && b[at] == 0xff && b[at + 1] != 0xda {
+            if b[at + 1] == 0xff {
+                at += 1;
+                continue;
+            }
+            let len = u16::from_be_bytes([b[at + 2], b[at + 3]]) as usize;
+            let segment = b.get(at + 4..at + 2 + len)?;
+            if b[at + 1] == 0xe1 && segment.starts_with(b"Exif\0\0") {
+                return Some(&segment[6..]);
+            }
+            at += 2 + len;
         }
-        at += 2 + len;
+    } else if b.starts_with(b"\x89PNG\r\n\x1a\n") {
+        // Chunks: a length, a type, the data and a CRC, eXIf anywhere before IEND.
+        let mut at = 8;
+        while let (Some(len), Some(kind)) = (be32(at), b.get(at + 4..at + 8)) {
+            let data = b.get(at + 8..at + 8 + len)?;
+            match kind {
+                b"eXIf" => return Some(data),
+                b"IEND" => break,
+                _ => at += 12 + len,
+            }
+        }
+    } else if b.len() >= 12 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        // Chunks: a type, a length and the data, padded to an even length; EXIF's data may lead
+        // with JPEG's `Exif\0\0`.
+        let mut at = 12;
+        while let (Some(kind), Some(len)) = (b.get(at..at + 4), le32(at + 4)) {
+            let data = b.get(at + 8..at + 8 + len)?;
+            if kind == b"EXIF" {
+                return Some(data.strip_prefix(b"Exif\0\0").unwrap_or(data));
+            }
+            at += 8 + len + (len & 1);
+        }
     }
     None
 }
@@ -620,8 +655,8 @@ mod tests {
     #[test]
     fn an_image_goes_as_an_asset_named_where_it_was() {
         let dir = crate::store::test_dir("jev-images");
-        // A 1 × 1 PNG, which Jev takes only padded out to 280 × 280.
-        let png = data_encoding::BASE64.decode(b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==").unwrap();
+        // Jev takes a 1 × 1 PNG only padded out to 280 × 280.
+        let png = data_encoding::BASE64.decode(ONE_PIXEL).unwrap();
         std::fs::write(dir.join("0123456789abcdef.png"), &png).unwrap();
         let (images, mut b) = with_image("Fix ![image](images/0123456789abcdef.png) and images/0123456789abcdef.png, not ![x](images/fedcba9876543210.png)");
         assert_eq!(b["state"]["message"], "Fix image-0123456789abcdef and image-0123456789abcdef, not image-fedcba9876543210");
@@ -650,58 +685,111 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A JPEG's first bytes with an EXIF orientation, in either byte order, and the rest of `jpeg`.
-    fn oriented(jpeg: &[u8], orientation: u16, big: bool) -> Vec<u8> {
-        let (u16b, u32b) = (|v: u16, big: bool| if big { v.to_be_bytes() } else { v.to_le_bytes() }, |v: u32, big: bool| if big { v.to_be_bytes() } else { v.to_le_bytes() });
+    /// EXIF as TIFF, in either byte order: another tag first (ImageWidth), then the orientation, a
+    /// SHORT whose value fills the start of its slot.
+    fn exif(orientation: u16, big: bool) -> Vec<u8> {
+        let (u16b, u32b) = (|v: u16| if big { v.to_be_bytes() } else { v.to_le_bytes() }, |v: u32| if big { v.to_be_bytes() } else { v.to_le_bytes() });
         let mut tiff: Vec<u8> = if big { b"MM".to_vec() } else { b"II".to_vec() };
-        tiff.extend(u16b(42, big));
-        tiff.extend(u32b(8, big));
-        tiff.extend(u16b(2, big));
-        // Another tag first (ImageWidth), then Orientation, a SHORT whose value fills the slot's start.
+        tiff.extend(u16b(42));
+        tiff.extend(u32b(8));
+        tiff.extend(u16b(2));
         for (tag, value) in [(0x0100u16, 640u16), (0x0112, orientation)] {
-            tiff.extend(u16b(tag, big));
-            tiff.extend(u16b(3, big));
-            tiff.extend(u32b(1, big));
-            tiff.extend(u16b(value, big));
+            tiff.extend(u16b(tag));
+            tiff.extend(u16b(3));
+            tiff.extend(u32b(1));
+            tiff.extend(u16b(value));
             tiff.extend([0, 0]);
         }
-        tiff.extend(u32b(0, big));
-        let payload = [b"Exif\0\0".as_slice(), &tiff].concat();
-        let mut out = vec![0xff, 0xd8, 0xff, 0xe1];
+        tiff.extend(u32b(0));
+        tiff
+    }
+
+    /// A JPEG with an APP1 segment of EXIF first, after `fill` bytes, and the rest of `jpeg`.
+    fn oriented_jpeg(jpeg: &[u8], orientation: u16, big: bool, fill: usize) -> Vec<u8> {
+        let payload = [b"Exif\0\0".as_slice(), &exif(orientation, big)].concat();
+        let mut out = vec![0xff, 0xd8];
+        out.extend(std::iter::repeat_n(0xff, fill));
+        out.extend([0xff, 0xe1]);
         out.extend(((payload.len() + 2) as u16).to_be_bytes());
         out.extend(payload);
         out.extend(&jpeg[2..]);
         out
     }
 
-    #[test]
-    fn reads_a_photos_exif_orientation() {
-        let plain = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46, 0xff, 0xda, 0x00, 0x02];
-        assert_eq!(exif_orientation(&oriented(&plain, 6, true)), Some(6));
-        assert_eq!(exif_orientation(&oriented(&plain, 8, false)), Some(8));
-        assert_eq!(exif_orientation(&plain), None);
-        assert_eq!(exif_orientation(b"\x89PNG"), None);
-        assert_eq!(exif_orientation(&[0xff, 0xd8, 0xff, 0xe1, 0x40, 0x00]), None, "a segment longer than the file");
+    /// A PNG with an eXIf chunk after its IHDR, its CRC right.
+    fn oriented_png(png: &[u8], orientation: u16) -> Vec<u8> {
+        let crc = |bytes: &[u8]| {
+            let mut c = !0u32;
+            for &b in bytes {
+                c ^= b as u32;
+                for _ in 0..8 {
+                    c = if c & 1 == 1 { (c >> 1) ^ 0xedb8_8320 } else { c >> 1 };
+                }
+            }
+            !c
+        };
+        let body = [b"eXIf".as_slice(), &exif(orientation, true)].concat();
+        let ihdr_end = 8 + 12 + 13;
+        let mut out = png[..ihdr_end].to_vec();
+        out.extend(((body.len() - 4) as u32).to_be_bytes());
+        out.extend(&body);
+        out.extend(crc(&body).to_be_bytes());
+        out.extend(&png[ihdr_end..]);
+        out
     }
 
     #[test]
-    fn a_photo_on_its_side_is_turned_upright() {
+    fn reads_an_images_exif_orientation() {
+        let plain = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46, 0xff, 0xda, 0x00, 0x02];
+        assert_eq!(exif_orientation(&oriented_jpeg(&plain, 6, true, 0)), Some(6));
+        assert_eq!(exif_orientation(&oriented_jpeg(&plain, 8, false, 0)), Some(8));
+        assert_eq!(exif_orientation(&oriented_jpeg(&plain, 3, true, 2)), Some(3), "fill bytes before the marker");
+        assert_eq!(exif_orientation(&plain), None);
+        assert_eq!(exif_orientation(&[0xff, 0xd8, 0xff, 0xe1, 0x40, 0x00]), None, "a segment longer than the file");
+        let png = data_encoding::BASE64.decode(ONE_PIXEL).unwrap();
+        assert_eq!((exif_orientation(&oriented_png(&png, 6)), exif_orientation(&png)), (Some(6), None));
+        // A WebP's chunks: VP8X, an odd-sized ICCP and its pad byte, then EXIF, with and without
+        // JPEG's lead.
+        let webp = |lead: &[u8]| {
+            let data = [lead, &exif(5, false)].concat();
+            let mut out = b"RIFF\0\0\0\0WEBP".to_vec();
+            for (kind, data) in [(b"VP8X", vec![0; 10]), (b"ICCP", vec![1; 3]), (b"EXIF", data)] {
+                out.extend(kind);
+                out.extend((data.len() as u32).to_le_bytes());
+                out.extend(&data);
+                if data.len() % 2 == 1 {
+                    out.push(0);
+                }
+            }
+            out
+        };
+        assert_eq!((exif_orientation(&webp(b"")), exif_orientation(&webp(b"Exif\0\0"))), (Some(5), Some(5)));
+    }
+
+    /// A 1 × 1 PNG.
+    const ONE_PIXEL: &[u8] = b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    #[test]
+    fn an_image_on_its_side_is_turned_upright() {
         let dir = crate::store::test_dir("jev-orientation");
-        let png = dir.join("one.png");
-        std::fs::write(&png, data_encoding::BASE64.decode(b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==").unwrap()).unwrap();
-        // Stored 300 wide and 500 high; orientation 6 shows it 500 wide.
-        let stored = dir.join("0123456789abcdef.jpg");
-        crate::procs::run("/usr/bin/sips", &["-z", "500", "300", "-s", "format", "jpeg", png.to_str().unwrap(), "--out", stored.to_str().unwrap()], None, Duration::from_secs(20)).unwrap();
+        let one = dir.join("one.png");
+        std::fs::write(&one, data_encoding::BASE64.decode(ONE_PIXEL).unwrap()).unwrap();
         let size_of = |asset: &Value, name: &str| {
             let at = dir.join(name);
             std::fs::write(&at, data_encoding::BASE64.decode(asset["data_base64"].as_str().unwrap().as_bytes()).unwrap()).unwrap();
             (asset["format"].clone(), sips_size(&at))
         };
-        let upright = make_ready(&stored, PIXELS_PER_REQUEST).unwrap();
-        assert_eq!(size_of(&upright, "plain.jpg"), (json!("jpg"), Some((300, 500))), "one with no orientation goes as it is");
-        std::fs::write(&stored, oriented(&std::fs::read(&stored).unwrap(), 6, true)).unwrap();
-        let turned = make_ready(&stored, PIXELS_PER_REQUEST).unwrap();
-        assert_eq!(size_of(&turned, "turned.jpg"), (json!("jpg"), Some((500, 300))));
+        // Each stored 300 wide and 500 high; orientation 6 shows it 500 wide.
+        for (name, format, sent) in [("0123456789abcdef.jpg", "jpeg", "jpg"), ("fedcba9876543210.png", "png", "png")] {
+            let stored = dir.join(name);
+            crate::procs::run("/usr/bin/sips", &["-z", "500", "300", "-s", "format", format, one.to_str().unwrap(), "--out", stored.to_str().unwrap()], None, Duration::from_secs(20)).unwrap();
+            let upright = make_ready(&stored, PIXELS_PER_REQUEST).unwrap();
+            assert_eq!(size_of(&upright, "plain"), (json!(sent), Some((300, 500))), "{name} with no orientation goes as it is");
+            let bytes = std::fs::read(&stored).unwrap();
+            std::fs::write(&stored, if sent == "jpg" { oriented_jpeg(&bytes, 6, true, 0) } else { oriented_png(&bytes, 6) }).unwrap();
+            let turned = make_ready(&stored, PIXELS_PER_REQUEST).unwrap();
+            assert_eq!(size_of(&turned, "turned"), (json!(sent), Some((500, 300))), "{name}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
