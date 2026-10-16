@@ -211,8 +211,9 @@
     var rows = function () { return all('.ca-board-list .ca-todorow'); };
     return until(function () { return rows().length >= 2; }, 20000)
       .then(function () {
-        var section = rows()[0].parentElement;
-        var inSection = Array.prototype.slice.call(section.querySelectorAll('.ca-todorow'));
+        // The first section with two todos: which section has them goes by this Mac's PRs.
+        var sections = all('.ca-board-list .ca-bay-lanes').map(function (s) { return Array.prototype.slice.call(s.querySelectorAll('.ca-todorow')); });
+        var inSection = sections.filter(function (list) { return list.length >= 2; })[0] || [];
         check('todos can be dragged', rows().every(function (r) { return !!r.querySelector(':scope > .ca-grip'); }));
         if (inSection.length < 2) { check('a section with two todos to reorder', false, 'none in the sample'); return; }
         var first = inSection[0];
