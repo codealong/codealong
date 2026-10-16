@@ -127,13 +127,21 @@ function threadFor(): Element | null {
   return shown.find((el) => at && el.parentElement?.contains(at)) ?? shown[0] ?? null;
 }
 
-/** `asked`: what a search that found the session by what was said in it looks for (threadFind.ts
- *  `findFor`). Each time it changes the bar opens with it and goes to the nearest match, once the
- *  conversation is laid out, leaving the keyboard where it was; closed, it stays closed until it
- *  changes again. */
-export function ThreadFind({ host, asked, children }: { host: FindHost; asked?: string | null; children: ReactNode }) {
+/** What a search that found the session by what was said in it asks the bar to find: `words`
+ *  (threadFind.ts `findFor`), and `n`, which a window changes to ask again for the same words (the
+ *  quick panel showing the session once more). */
+export interface FindAsk {
+  words: string;
+  n: number;
+}
+
+/** `asked`: each time its words or its `n` change, the bar opens with the words and goes to the
+ *  nearest match, once the conversation is laid out, leaving the keyboard where it was; closed, it
+ *  stays closed until it's asked again. */
+export function ThreadFind({ host, asked, children }: { host: FindHost; asked?: FindAsk | null; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const queryNow = useLatest(query);
   // An open that was asked for rather than typed for, which leaves the keyboard where it is.
   const quiet = useRef(false);
   // An ask that came before the conversation was laid out, which goes to its match once it is.
@@ -300,16 +308,19 @@ export function ThreadFind({ host, asked, children }: { host: FindHost; asked?: 
   }, [pattern, refreshNow]);
 
   // Asked to find something: the bar opens with it, and the new query goes to its match as one
-  // typed does, or once the conversation is laid out.
+  // typed does, or once the conversation is laid out; asked again for what it shows already, it
+  // goes back to the nearest match.
+  const askWords = asked?.words;
+  const askN = asked?.n;
   useEffect(() => {
-    if (!asked) return;
-    setQuery(asked);
+    if (!askWords || askN === undefined) return;
+    nearOnReady.current = !hostNow.current.ready;
     if (!openNow.current) {
       quiet.current = true;
       setOpen(true);
-    }
-    nearOnReady.current = !hostNow.current.ready;
-  }, [asked, hostNow, openNow]);
+    } else if (queryNow.current === askWords && !nearOnReady.current) refreshNow.current(true);
+    setQuery(askWords);
+  }, [askWords, askN, hostNow, openNow, queryNow, refreshNow]);
   useEffect(() => {
     if (!host.ready || !nearOnReady.current) return;
     nearOnReady.current = false;

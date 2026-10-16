@@ -73,6 +73,7 @@ import { useMainKeys, VIEW_CHORDS } from './mainKeys';
 import { useListPicks } from './useListPicks';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
+import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
 import { ageListingChain, ageListingPr, chainOf, laneInQuery, prInDone, prInFilter, prInQuery, revealing, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, toggleShown, useBoardLists } from './boardLists';
 import { inProject, queryWords, shortcutLabel } from './quick';
@@ -501,15 +502,22 @@ export function App() {
     if (selectedKey === null && top !== undefined) setSelectedKey((k) => k ?? top);
   }, [selectedKey, selected?.key]);
   const selectedLane = selected?.lane ?? null;
-  // What the find bar in a session's panel opens on: for a session this window's search found by
-  // what was said in it, the words it found there; else the words the quick panel found it by
-  // (`Reveal.find`), until another session is selected.
-  const [revealFind, setRevealFind] = useState<{ key: string; words: string } | null>(null);
+  // What the find bar in a session's panel opens on, wherever the panel shows it: for a session
+  // this window's search found by what was said in it, the words it found there; else the words
+  // the quick panel found it by (`Reveal.find`), until another session is selected. Each reveal is
+  // a new ask, so showing the session again opens a bar that was closed.
+  const [revealFind, setRevealFind] = useState<{ key: string; ask: FindAsk } | null>(null);
   useEffect(() => {
     if (revealFind && selectedSessionKey !== revealFind.key) setRevealFind(null);
   }, [revealFind, selectedSessionKey]);
-  const selectedSaid = selected?.kind === 'agent' ? saidOf(selected.session.key) : undefined;
-  const panelFind = selected?.kind === 'agent' && selectedSaid ? { key: selected.session.key, words: findFor(selectedSaid.text, queryWords(query)) } : revealFind;
+  const findIn = useCallback(
+    (key: string): FindAsk | null => {
+      const said = saidOf(key);
+      if (said) return { words: findFor(said.text, queryWords(query)), n: 0 };
+      return revealFind?.key === key ? revealFind.ask : null;
+    },
+    [saidOf, query, revealFind],
+  );
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
   const {
     duePick,
@@ -608,7 +616,7 @@ export function App() {
   // PR or todo here: in its project, with no search hiding it, nor one of its sessions shown in
   // its panel's place (`drill`), which selecting what's selected already would leave.
   const reveal = useLatest((r: Reveal) => {
-    setRevealFind(r.kind === 'session' && r.find ? { key: r.key, words: r.find } : null);
+    setRevealFind(r.kind === 'session' && r.find ? { key: r.key, ask: { words: r.find, n: Date.now() } } : null);
     // A project's canvas `codealong canvas arrange --show` laid out, with the frames it made in view.
     if (r.kind === 'canvas') {
       if (current !== r.project) pickProject(r.project);
@@ -1879,7 +1887,7 @@ export function App() {
           <MainPanel
             view={view}
             selected={selected}
-            find={panelFind}
+            findIn={findIn}
             selectedLane={selectedLane}
             canvasPicked={canvasPick}
             board={board}

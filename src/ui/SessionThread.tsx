@@ -63,7 +63,7 @@ import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { says, shownText } from '../threadFind';
 import { scaleOf } from '../zoom';
-import { FindContext, ThreadFind } from './ThreadFind';
+import { FindContext, ThreadFind, type FindAsk } from './ThreadFind';
 import { Reading } from './Tip';
 
 /** Loads the page before once you're this close to the top. */
@@ -446,7 +446,7 @@ interface SessionThreadProps {
   onMenu?: (items: MenuSpec) => void;
   /** What the find bar opens on: the words a search found it by in what was said
    *  (ThreadFind.tsx `asked`). */
-  find?: string | null;
+  find?: FindAsk | null;
 }
 
 export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run, onMenu, find }: SessionThreadProps) {

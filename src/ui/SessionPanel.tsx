@@ -37,6 +37,7 @@ import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { Reply, type BoxSays } from './SessionReply';
 import { SessionThread } from './SessionThread';
+import type { FindAsk } from './ThreadFind';
 
 /** Working through what waits on you: the next after this one. */
 export interface Queue {
@@ -95,7 +96,7 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
    *  gives the session's menu. */
   onThreadMenu?: (items: MenuSpec) => void;
   /** What the conversation's find bar opens on: the words a search found it by in what was said. */
-  find?: string | null;
+  find?: FindAsk | null;
 }
 
 /** What the strip says at its left: whichever came last of what the window said (how the one

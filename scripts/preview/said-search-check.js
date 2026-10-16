@@ -4,7 +4,9 @@
 // session; in any order. Selecting it shows its conversation with the find bar open on the words
 // at a match, the keyboard left where it was; the words in another order find the longest of them
 // its line has. Clearing the search takes the line away. A session the quick panel shows (`reveal`
-// with `find`) opens with the bar on those words too, until another session is selected. With
+// with `find`) opens with the bar on those words too, and again after the bar was closed when it's
+// shown once more, until another session is selected. A PR one of whose sessions said the words is
+// found in PRs, and that session shown in the PR's place opens with the bar on them. With
 // PREVIEW_DEVICES, another device's session its own search found is listed as well. In the quick
 // panel: ⏎ on a session found that way asks the main window to show it with the words.
 //   scripts/preview.sh sessions '' scripts/preview/said-search-check.js
@@ -19,6 +21,7 @@
   var A = null;
   var B = null;
   var D = null;
+  var P = null;
   var page = function (texts) {
     return {
       items: texts.map(function (t, i) { return { at: now - (10 - i) * 60e3, kind: i % 2 ? 'agent' : 'you', text: t, failed: false, cursor: i, n: 0 }; }),
@@ -63,6 +66,12 @@
           if (!A) A = { key: s.key, lane: l.id };
           else if (!B && A.key !== s.key) B = { key: s.key, lane: l.id };
         });
+      });
+      // A PR A worked on, with nothing of the words in what describes it.
+      board.prs = (board.prs || []).map(function (pr, i) {
+        if (P ? pr.key !== P.key : i > 0) return pr;
+        P = { key: pr.key };
+        return Object.assign({}, pr, { title: 'Tidy the trip', state: 'open', updatedAt: now, sessions: [{ lane: A.lane, key: A.key }] });
       });
       return board;
     });
@@ -129,11 +138,40 @@
       .then(function () {
         check('a session the quick panel shows opens with the bar on its words', !!field() && field().value === 'lighthouse' && /^lighthouse$/i.test(at() || ''), (field() && field().value) + ' / ' + at());
         check('without the keyboard', document.activeElement !== field());
+        q('.ca-thread-find button[aria-label="Close find"]').click();
+        return until(function () { return !bar(); }, 2000).then(function () {
+          window.__emit('reveal', { kind: 'session', laneId: B.lane, key: B.key, find: 'lighthouse' });
+          return until(function () { return !!field(); }, 3000).catch(function () {});
+        });
+      })
+      .then(function () {
+        check('shown once more, it opens the bar it had closed', !!field() && field().value === 'lighthouse');
         return pick(A, 'Said A');
       })
       .then(function () { return pick(B, 'Said B'); })
       .then(function () {
         check('another session selected, it opens without the bar again', !bar());
+        if (!P) return note('no PR on the board: a PR found by what its sessions said wasn’t checked');
+        key(document.body, { key: 'P', code: 'KeyP', metaKey: true, shiftKey: true });
+        type(filter(), 'quokka bridge');
+        var prRow = function () { return document.getElementById('row-pr:' + P.key); };
+        return until(function () { return !!prRow(); }, 5000, 'the PR in PRs')
+          .then(function () {
+            check('a PR is found by what a session that worked on it said', !!prRow());
+            prRow().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            // Its chip among the PR's places, or its row once the details are open.
+            return until(function () {
+              return all('.ca-prpanel .ca-sesschip, .ca-prpanel .ca-psess-main').filter(function (b) { var t = q('.ca-sesschip-title, .ca-psess-title', b); return !!t && t.textContent === 'Said A'; })[0];
+            }, 5000, 'A in the PR’s panel');
+          })
+          .then(function (b) {
+            b.click();
+            return shown('Said A');
+          })
+          .then(function () { return until(function () { return !!field() && !!at(); }, 5000).catch(function () {}); })
+          .then(function () {
+            check('the session shown in the PR’s place opens with the bar on the words', !!field() && field().value === 'quokka bridge', field() && field().value);
+          });
       });
   };
 
