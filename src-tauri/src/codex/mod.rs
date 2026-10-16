@@ -569,14 +569,22 @@ impl Reader {
         let lens: HashMap<PathBuf, u64> = open.iter().filter_map(|(p, _)| Some((p.to_path_buf(), len_now(p)?))).collect();
         let gone = if open.is_empty() { Some(HashSet::new()) } else { held_rollouts(look.ps.all()).map(|held| let_go(&open, &held, |p| lens.get(p).copied())) };
         self.open_lens = lens;
-        Some((look.now, gone?))
+        // As of the processes' listing, which can be older than the look (the engine lists them
+        // off its thread): a rollout written since may be a process it didn't list (`held`).
+        Some((look.ps.at().unwrap_or(look.now), gone?))
     }
 
     /// Whether a Codex process held a thread's rollout when last looked, None when that isn't
     /// known. One written since the look is taken as held: something is running it.
     fn held(&self, path: &Path, th: &ThreadInfo) -> Option<bool> {
-        let (at, gone) = self.let_go.as_ref()?;
-        Some(th.last_ts > *at || !path.file_name().is_some_and(|n| gone.contains(n)))
+        held_by(self.let_go.as_ref(), path, th.last_ts)
+    }
+
+    /// Whether a new look at the processes says otherwise than the last of any thread
+    /// (`held`): it let go of other rollouts, or it's of another time, and a rollout was
+    /// written between the two.
+    fn let_go_differs(&self, next: &Option<(i64, HashSet<OsString>)>) -> bool {
+        self.rollouts.iter().filter_map(|(path, (_, parsed))| Some((path, parsed.as_ref()?.0.last_ts))).any(|(path, ts)| held_by(self.let_go.as_ref(), path, ts) != held_by(next.as_ref(), path, ts))
     }
 
     /// Loads the threads archived from Codealong from `archived_sessions`, so its Archived list
@@ -709,13 +717,17 @@ impl crate::harness::Reader for Reader {
     }
 
     fn tick(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
-        let mut out = self.poll_rollouts(accounts, look);
+        self.poll_rollouts(accounts, look)
+    }
+
+    fn processes(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
+        let mut out = Applied::default();
         if !accounts.is_empty() {
             let fresh = terminals(look.ps.all());
             out.dirty |= fresh != self.terminals;
             self.terminals = fresh;
             let let_go = self.let_go_now(look);
-            out.dirty |= let_go.as_ref().map(|(_, g)| g) != self.let_go.as_ref().map(|(_, g)| g);
+            out.dirty |= self.let_go_differs(&let_go);
             self.let_go = let_go;
         }
         out
@@ -764,6 +776,13 @@ impl crate::harness::Reader for Reader {
 /// between the read and the look at the processes, and it's read again next. A writer killed
 /// partway through a line leaves a rollout longer than the lines read for good, which the next
 /// look finds the same length.
+/// Whether a thread's rollout, last written then, was held as of a look at the processes
+/// (`Reader::held`).
+fn held_by(let_go: Option<&(i64, HashSet<OsString>)>, path: &Path, last_ts: i64) -> Option<bool> {
+    let (at, gone) = let_go?;
+    Some(last_ts > *at || !path.file_name().is_some_and(|n| gone.contains(n)))
+}
+
 fn let_go(open: &[(&Path, u64)], held: &HashSet<OsString>, len_now: impl Fn(&Path) -> Option<u64>) -> HashSet<OsString> {
     open.iter()
         .filter(|(path, read)| len_now(path) == Some(*read))
@@ -837,6 +856,38 @@ mod tests {
         assert_eq!(let_go(&[(c, 350)], &held, lens), [OsString::from("rollout-c.jsonl")].into());
         // A ps that failed lists nothing, which says nothing about who holds what.
         assert_eq!(held_rollouts(&[]), None);
+    }
+
+    /// The engine lists the processes off its thread, so a look's listing can be older than the
+    /// look. A rollout written after the listing may be a Codex that started since, which the
+    /// listing can't show holding it: its turn isn't let go.
+    #[test]
+    fn a_rollout_written_after_the_processes_were_listed_is_held() {
+        use crate::procs::{Listed, Listing, PsLine};
+        let home = crate::fixtures::scratch("codex-listed-before");
+        let path = home.join("rollout-2026-10-16T12-00-00-a.jsonl");
+        std::fs::write(&path, "{}\n").unwrap();
+        let listed_at = 1_792_000_000_000;
+        let mut reader = Reader::default();
+        let th = ThreadInfo { turn_open: true, last_ts: listed_at + 2_000, ..Default::default() };
+        reader.rollouts.insert(path.clone(), ("codex".into(), Some((th.clone(), 3))));
+        let seen = crate::state::SeenState::default();
+        // Something runs, so the listing worked; no Codex among it.
+        let ps = Listing::of(std::sync::Arc::new(Listed { at: listed_at, lines: vec![PsLine { pid: 1, ppid: 0, tty: "??".into(), cpu: None, command: "launchd".into() }] }));
+        let look = Look { seen: &seen, since: 0, now: listed_at + 5_000, ps };
+        reader.let_go = reader.let_go_now(&look);
+        assert_eq!(reader.held(&path, &th), Some(true));
+        // A later listing still without it lets the same rollout go, now as of a time after its
+        // last write: that changes what the board shows, and says so.
+        let later = Look { seen: &seen, since: 0, now: listed_at + 15_000, ps: Listing::of(std::sync::Arc::new(Listed { at: listed_at + 10_000, lines: vec![PsLine { pid: 1, ppid: 0, tty: "??".into(), cpu: None, command: "launchd".into() }] })) };
+        let next = reader.let_go_now(&later);
+        assert_eq!(next.as_ref().map(|(_, gone)| gone), reader.let_go.as_ref().map(|(_, gone)| gone));
+        assert!(reader.let_go_differs(&next));
+        reader.let_go = next;
+        assert_eq!(reader.held(&path, &th), Some(false));
+        // The same look again changes nothing.
+        let again = reader.let_go_now(&later);
+        assert!(!reader.let_go_differs(&again));
     }
 
     #[test]

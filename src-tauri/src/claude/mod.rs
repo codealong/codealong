@@ -1057,8 +1057,9 @@ impl Reader {
     }
 
     /// Looks at what the commands sessions left running in the background are doing, once a
-    /// minute and only while there are some: one `ps` for all of them.
-    fn watch_background(&mut self, now: i64) {
+    /// minute and only while there are some, in the processes listed after a tick.
+    fn watch_background(&mut self, look: &Look) {
+        let now = look.now;
         if self.background_at.is_some_and(|t| t.elapsed() < BACKGROUND_EVERY) {
             return;
         }
@@ -1068,8 +1069,13 @@ impl Reader {
         if shells.is_empty() {
             return;
         }
+        // No processes at all is a `ps` that failed or ran out of time: nothing is known.
+        let listed = look.ps.all();
+        if listed.is_empty() {
+            return;
+        }
         let pids: Vec<u32> = shells.iter().map(|(p, _)| *p).collect();
-        let mut trees = shells::command_trees(&pids);
+        let mut trees = shells::command_trees(listed, &pids);
         for (pid, since) in shells {
             let Some(tree) = trees.remove(&pid) else { continue };
             match self.background.get_mut(&pid) {
@@ -1181,12 +1187,16 @@ impl crate::harness::Reader for Reader {
         for a in accounts {
             out.dirty |= self.refresh_registry(a, look.now);
         }
-        self.watch_background(look.now);
         if !accounts.is_empty() && self.app_records_at.map_or(true, |t| t.elapsed() >= APP_RECORDS_EVERY) {
             self.app_records_at = Some(Instant::now());
             out.dirty |= self.app_records.refresh(&app::records_dir());
         }
         out
+    }
+
+    fn processes(&mut self, _accounts: &[AccountCfg], look: &Look) -> Applied {
+        self.watch_background(look);
+        Applied::default()
     }
 
     fn sessions(&self, account: &AccountCfg, look: &Look) -> Vec<Session> {

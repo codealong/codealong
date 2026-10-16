@@ -76,10 +76,12 @@ a change to what's sent shows there. What each harness records and accepts is in
    looking inside: `scan` (every account's sessions afresh, at launch and when config.toml
    changes), `watch` (the folders to watch), `owns` and `apply` (taking in the files that
    change), what the watcher never says (`tick` every ten seconds, `glance` every second or two,
-   `poll` for what's asked off the engine's thread), `archives_changed`, and `sessions`, put
-   together with a `board::*_session` constructor for its status rules, with where each came
-   from (`Session::origin`: what it's a fork of, or which session started it) when its records
-   say; `cwds` (the folders sessions ran in, for their lanes) and `logs` (records that are files
+   `processes` once the processes are listed after a tick, `poll` for what's asked off the
+   engine's thread; none of them runs a program, as the engine's thread would wait for it:
+   processes come in `Look::ps`, open files from `procs::open_files`), `archives_changed`, and
+   `sessions`, put together with a `board::*_session` constructor for its status rules, with
+   where each came from (`Session::origin`: what it's a fork of, or which session started it)
+   when its records say; `cwds` (the folders sessions ran in, for their lanes) and `logs` (records that are files
    of lines, searched for a session's worktrees and PRs). Plan usage that comes with the
    sessions is `Reader::usage`. A database is opened with `harness::open_database`, which reads
    a WAL database its writer has closed.

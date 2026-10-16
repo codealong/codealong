@@ -1,7 +1,8 @@
 //! A timing log for finding what makes the app slow. `[debug] perf_log = true` in config.toml
 //! appends one line per event to ~/Library/Logs/Codealong/perf.log: every publish (its size,
 //! what changed, how long composing took), file-watcher batches, git runs, engine and
-//! main-thread lag, and what each window reports through `perf_mark`. Every line carries the
+//! main-thread lag, the engine's other slow work (each reader's `glance` and `tick`, a rescan
+//! of the repos: `took`), and what each window reports through `perf_mark`. Every line carries the
 //! wall-clock time and the one-minute load average, so a slow moment can be matched to what
 //! the Mac was doing. A main thread stuck for a second is sampled while it's stuck
 //! (`sample_stall`), into `stalls/` beside the log. Off, nothing here costs more than an atomic
@@ -81,6 +82,15 @@ pub fn log(line: &str) {
 pub fn lag(what: &str, waited: Duration) {
     if waited >= LAG_FLOOR {
         log(&format!("{what} lag {} ms", waited.as_millis()));
+    }
+}
+
+/// Logs how long a piece of the engine's own work took, when it's long enough to matter: the
+/// engine's lag lines say its thread was held, and these say by what. `what` is only called
+/// for a line that's written.
+pub fn took(what: impl FnOnce() -> String, took: Duration) {
+    if took >= LAG_FLOOR && enabled() {
+        log(&format!("{} {} ms", what(), took.as_millis()));
     }
 }
 

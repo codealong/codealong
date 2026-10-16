@@ -15,8 +15,8 @@ pub(super) fn running_command(pid: u32) -> Option<String> {
 
 /// What the commands several sessions' Bash tools run are made of right now (`procs::CommandTree`),
 /// from one look at the process table: every process under their shells.
-pub(super) fn command_trees(pids: &[u32]) -> HashMap<u32, procs::CommandTree> {
-    procs::command_trees(pids, is_tool_shell)
+pub(super) fn command_trees(listed: &[procs::PsLine], pids: &[u32]) -> HashMap<u32, procs::CommandTree> {
+    procs::command_trees(listed, pids, is_tool_shell)
 }
 
 /// A shell the Bash tool runs a command in, by its command line.
@@ -37,16 +37,17 @@ mod tests {
 
     #[test]
     fn a_command_tree_is_the_shells_under_a_session_and_what_they_run() {
-        let table = "\
-  100     1   0:05.00 claude
-  200   100   0:01.00 node mcp-server.js
-  300   100   0:00.01 /bin/zsh -c source snap.sh && eval 'spruce login --host x | tail -5' < /dev/null && pwd -P
-  301   300   0:00.88 node spruce login --host x
-  302   300   0:00.00 tail -5
-  303   301 1:02:03.45 helper
-  400     1   0:00.10 other
-";
-        let trees = procs::command_trees_in(table, &[100, 999], is_tool_shell);
+        let row = |pid: u32, ppid: u32, cpu: u64, command: &str| procs::PsLine { pid, ppid, tty: "??".into(), cpu: Some(cpu), command: command.into() };
+        let listed = [
+            row(100, 1, 500, "claude"),
+            row(200, 100, 100, "node mcp-server.js"),
+            row(300, 100, 1, "/bin/zsh -c source snap.sh && eval 'spruce login --host x | tail -5' < /dev/null && pwd -P"),
+            row(301, 300, 88, "node spruce login --host x"),
+            row(302, 300, 0, "tail -5"),
+            row(303, 301, 372345, "helper"),
+            row(400, 1, 10, "other"),
+        ];
+        let trees = command_trees(&listed, &[100, 999]);
         assert_eq!(trees[&100].cpu, vec![(300, 1), (301, 88), (302, 0), (303, 372345)]);
         assert!(trees[&999].cpu.is_empty());
     }
@@ -57,9 +58,10 @@ mod tests {
     #[ignore]
     fn command_trees_here() {
         let pids: Vec<u32> = std::env::var("CODEALONG_TEST_PIDS").unwrap_or_default().split(',').filter_map(|p| p.parse().ok()).collect();
-        let before = command_trees(&pids);
+        let look = || command_trees(&procs::list(std::time::Duration::from_secs(30)).lines, &pids);
+        let before = look();
         std::thread::sleep(std::time::Duration::from_secs(60));
-        for (pid, after) in command_trees(&pids) {
+        for (pid, after) in look() {
             println!("{pid}: {:?} → {:?}, active: {}", before[&pid].cpu, after.cpu, after.active_since(&before[&pid]));
         }
     }

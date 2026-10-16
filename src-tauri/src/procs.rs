@@ -5,12 +5,12 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 
-use crate::util::home;
+use crate::util::{home, now_ms};
 
 // The kernel's process table (os/procs).
 use crate::os::procs::listed;
@@ -115,26 +115,10 @@ impl CommandTree {
     }
 }
 
-/// The command trees of several sessions' processes, from one look at the process table.
-pub fn command_trees(pids: &[u32], root: fn(&str) -> bool) -> HashMap<u32, CommandTree> {
-    match run_background("ps", &["-axww", "-o", "pid=,ppid=,time=,command="], None, Duration::from_secs(4)) {
-        Ok(table) => command_trees_in(&table, pids, root),
-        Err(_) => HashMap::new(),
-    }
-}
-
-pub(crate) fn command_trees_in(table: &str, pids: &[u32], root: fn(&str) -> bool) -> HashMap<u32, CommandTree> {
-    let rows: Vec<(u32, u32, u64, &str)> = table
-        .lines()
-        .filter_map(|l| {
-            let mut f = l.split_whitespace();
-            let pid = f.next()?.parse().ok()?;
-            let ppid = f.next()?.parse().ok()?;
-            let cpu = cpu_hundredths(f.next()?)?;
-            let rest = f.next().map(|first| &l[l.find(first).unwrap_or(0)..]).unwrap_or("");
-            Some((pid, ppid, cpu, rest))
-        })
-        .collect();
+/// The command trees of several sessions' processes, from one look at the process table
+/// (`Listing`). A process whose CPU time `ps` didn't give isn't in them.
+pub fn command_trees(listed: &[PsLine], pids: &[u32], root: fn(&str) -> bool) -> HashMap<u32, CommandTree> {
+    let rows: Vec<(u32, u32, u64, &str)> = listed.iter().filter_map(|p| Some((p.pid, p.ppid, p.cpu?, p.command.as_str()))).collect();
     pids.iter()
         .map(|&session| {
             let mut tree: Vec<(u32, u64)> = rows.iter().filter(|r| r.1 == session && root(r.3)).map(|r| (r.0, r.2)).collect();
@@ -161,31 +145,73 @@ fn cpu_hundredths(t: &str) -> Option<u64> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PsLine {
     pub pid: u32,
+    pub ppid: u32,
     /// Its terminal as `ps` names it (`ttys004`), or `??` for none.
     pub tty: String,
+    /// The CPU time it has used, in hundredths of a second, when `ps` gave one that reads.
+    pub cpu: Option<u64>,
     /// Its command line: `ps` joins the arguments with spaces.
     pub command: String,
 }
 
-/// Every process on this Mac, from one `ps` run the first time it's asked for and kept. The
-/// harnesses' readers each look for their own terminals in it, so a tick that asks them all
-/// (`harness::Look`) runs `ps` once.
+/// The processes one `ps` listed, and when.
+#[derive(Debug, Default, PartialEq)]
+pub struct Listed {
+    /// When `ps` began: a process that started since may not be in it, so what's written after
+    /// is no sign that nothing runs it.
+    pub at: i64,
+    /// None when `ps` failed or ran out of time.
+    pub lines: Vec<PsLine>,
+}
+
+/// Every process on this Mac, from one `ps` run, kept. The harnesses' readers each look for
+/// their own processes in it, so a tick that asks them all (`harness::Look`) runs `ps` once.
+/// The engine lists them off its thread (`list`), as `ps` takes seconds at a high load, and
+/// hands every look the latest it has; one made empty runs `ps` the first time it's asked.
 #[derive(Default)]
-pub struct Listing(OnceLock<Vec<PsLine>>);
+pub struct Listing(OnceLock<Arc<Listed>>);
 
 impl Listing {
+    /// A listing made already.
+    pub fn of(listed: Arc<Listed>) -> Listing {
+        Listing(OnceLock::from(listed))
+    }
+
     pub fn all(&self) -> &[PsLine] {
-        self.0.get_or_init(|| run("/bin/ps", &["-axo", "pid=,tty=,command="], None, Duration::from_secs(3)).map(|out| ps_lines(&out)).unwrap_or_default())
+        &self.0.get_or_init(|| Arc::new(list(Duration::from_secs(3)))).lines
+    }
+
+    /// When the processes were listed; none until they are.
+    pub fn at(&self) -> Option<i64> {
+        self.0.get().map(|l| l.at)
+    }
+
+    /// The listing, once it's made.
+    pub fn made(&self) -> Option<Arc<Listed>> {
+        self.0.get().cloned()
     }
 }
 
-/// `ps -o pid=,tty=,command=` as processes.
+/// Every process, from one `ps` run; none when it fails or `timeout` passes. Full command lines
+/// (`-ww`), with each process's parent and CPU time for its command trees.
+pub fn list(timeout: Duration) -> Listed {
+    let at = now_ms();
+    let lines = run("/bin/ps", &["-axww", "-o", "pid=,ppid=,tty=,time=,command="], None, timeout).map(|out| ps_lines(&out)).unwrap_or_default();
+    Listed { at, lines }
+}
+
+/// `ps -o pid=,ppid=,tty=,time=,command=` as processes.
 fn ps_lines(out: &str) -> Vec<PsLine> {
     out.lines()
         .filter_map(|line| {
-            let (pid, rest) = line.trim_start().split_once(char::is_whitespace)?;
-            let (tty, command) = rest.trim_start().split_once(char::is_whitespace)?;
-            Some(PsLine { pid: pid.parse().ok()?, tty: tty.to_string(), command: command.trim().to_string() })
+            let mut rest = line.trim_start();
+            let mut field = || {
+                let (f, r) = rest.split_once(char::is_whitespace)?;
+                rest = r.trim_start();
+                Some(f)
+            };
+            let (pid, ppid, tty, time) = (field()?, field()?, field()?, field()?);
+            Some(PsLine { pid: pid.parse().ok()?, ppid: ppid.parse().ok()?, tty: tty.to_string(), cpu: cpu_hundredths(time), command: rest.trim().to_string() })
         })
         .collect()
 }
@@ -496,12 +522,14 @@ mod tests {
     #[test]
     fn reads_what_ps_lists_as_processes() {
         use super::{ps_lines, PsLine};
-        let out = "  501 ttys004  /opt/homebrew/bin/codex resume 01a0e375 \n88123 ??       /Applications/Antigravity.app/Contents/Resources/bin/language_server --csrf x\nnot a process\n";
+        let out = "  501   400 ttys004    0:01.50 /opt/homebrew/bin/codex resume 01a0e375 \n88123     1 ??       1:02:03.45 /Applications/Antigravity.app/Contents/Resources/bin/language_server --csrf x\n  700     1 ??       12-01:02:03 long  spaced   args\nnot a process\n";
         assert_eq!(
             ps_lines(out),
             vec![
-                PsLine { pid: 501, tty: "ttys004".into(), command: "/opt/homebrew/bin/codex resume 01a0e375".into() },
-                PsLine { pid: 88123, tty: "??".into(), command: "/Applications/Antigravity.app/Contents/Resources/bin/language_server --csrf x".into() },
+                PsLine { pid: 501, ppid: 400, tty: "ttys004".into(), cpu: Some(150), command: "/opt/homebrew/bin/codex resume 01a0e375".into() },
+                PsLine { pid: 88123, ppid: 1, tty: "??".into(), cpu: Some(372345), command: "/Applications/Antigravity.app/Contents/Resources/bin/language_server --csrf x".into() },
+                // A time that doesn't read leaves the process listed, without its CPU.
+                PsLine { pid: 700, ppid: 1, tty: "??".into(), cpu: None, command: "long  spaced   args".into() },
             ]
         );
     }

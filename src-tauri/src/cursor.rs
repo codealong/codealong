@@ -1088,9 +1088,10 @@ fn is_app(command: &str) -> bool {
 }
 
 /// The chat a command line process holds open: its `chats/<hash>/<id>/store.db` among its open
-/// files (`lsof -Fn`'s `n<path>` lines).
-fn held_chat(open_files: &str) -> Option<String> {
-    open_files.lines().filter_map(|l| l.strip_prefix('n')).find_map(|p| {
+/// files.
+fn held_chat(open_files: &[PathBuf]) -> Option<String> {
+    open_files.iter().find_map(|p| {
+        let p = p.to_str()?;
         let p = Path::new(p.strip_suffix("-wal").unwrap_or(p));
         let dir = p.parent()?;
         (file_name(p) == STORE_DB && dir.parent()?.parent().map(file_name).as_deref() == Some("chats")).then(|| file_name(dir))
@@ -1098,15 +1099,16 @@ fn held_chat(open_files: &str) -> Option<String> {
 }
 
 /// The command line's processes, each with the chat it has open, and whether the app is
-/// running. From the list of every process, and an `lsof` for a `cursor-agent` whose arguments
-/// don't name its chat.
+/// running. From the list of every process, and the open files of a `cursor-agent` whose
+/// arguments don't name its chat, as the kernel lists them (no `lsof`, which takes half a second
+/// at a high load, on the engine's thread).
 pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
     let mut app = false;
     let mut found = Vec::new();
     for p in listed {
         app |= is_app(&p.command);
         if let Some((interactive, chat)) = cli_args(&p.command) {
-            let chat = chat.or_else(|| procs::run("/usr/sbin/lsof", &["-Fn", "-p", &p.pid.to_string()], None, Duration::from_secs(3)).ok().and_then(|files| held_chat(&files)));
+            let chat = chat.or_else(|| procs::open_files(p.pid).and_then(|files| held_chat(&files)));
             found.push(Process { pid: p.pid, chat, terminal: interactive && !p.tty.starts_with('?') });
         }
     }
@@ -1140,6 +1142,7 @@ impl Reader {
     fn reread(&mut self, a: &AccountCfg, look: &Look) -> bool {
         self.read_at = Some(Instant::now());
         let home = a.home_path();
+        // In the processes the engine last listed (`Look::ps`: as of its last tick).
         if self.looked_at.map_or(true, |t| t.elapsed() >= Duration::from_secs(2)) {
             self.look_at_processes(look);
         }
@@ -1245,7 +1248,7 @@ impl crate::harness::Reader for Reader {
     /// A process that came may have a chat that wasn't listed, and one that went leaves its chat
     /// as it was; and a chat the app was generating when it quit says so until the app opens it
     /// again, which only the app's processes tell.
-    fn tick(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
+    fn processes(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
         let mut out = Applied::default();
         if !accounts.is_empty() && self.look_at_processes(look) {
             out.dirty = true;
@@ -2230,8 +2233,8 @@ mod tests {
         assert_eq!(cli_args("/opt/homebrew/bin/agent run"), None);
         assert!(is_app("/Applications/Cursor.app/Contents/MacOS/Cursor"));
         assert!(!is_app("/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/Contents/MacOS/Cursor Helper --type=gpu-process"));
-        assert_eq!(held_chat("p42\nn/Users/me/.cursor/chats/9f1c/6ea31b00-0a64/store.db-wal\n"), Some("6ea31b00-0a64".into()));
-        assert_eq!(held_chat("p42\nn/Users/me/.cursor/ai-tracking/ai-code-tracking.db\n"), None);
+        assert_eq!(held_chat(&[PathBuf::from("/Users/me/.cursor/chats/9f1c/6ea31b00-0a64/store.db-wal")]), Some("6ea31b00-0a64".into()));
+        assert_eq!(held_chat(&[PathBuf::from("/Users/me/.cursor/ai-tracking/ai-code-tracking.db")]), None);
     }
 
     /// Every chat on this Mac, however old, as the board would show it, and the newest one's

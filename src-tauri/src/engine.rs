@@ -142,6 +142,9 @@ pub enum Msg {
     PrLinksChanged,
     /// The usage read is over: what it read, or none when it fell over or never started.
     UsageDone(Option<Vec<Usage>>),
+    /// The tick's process table, listed off this thread (`list_processes`), or none when the
+    /// listing fell over or never started.
+    Processes(Option<procs::Listed>),
     /// The read of repos' team files is over (teamfile.rs): what it read, or none when it fell
     /// over or never started.
     TeamFiles(Option<Vec<teamfile::Answer>>),
@@ -1158,6 +1161,11 @@ struct Engine {
     usage_inflight: bool,
     usage_last: Option<Instant>,
     usage_backoff: bool,
+    /// The processes last listed (`list_processes`), for every look the readers take, so none
+    /// of them runs `ps` on this thread. None until the first scan lists them.
+    processes: Option<Arc<procs::Listed>>,
+    /// A tick's process table is being listed.
+    processes_inflight: bool,
     /// Each repo's team settings, `.codealong/config.toml` on its branches (teamfile.rs).
     team_files: teamfile::TeamFiles,
     /// Whether each account's provider may train on it (training.rs).
@@ -1272,6 +1280,8 @@ impl Engine {
             usage_inflight: false,
             usage_last: None,
             usage_backoff: false,
+            processes: None,
+            processes_inflight: false,
             team_files: teamfile::TeamFiles::default(),
             training: training::TrainingPoll::default(),
             dirty: false,
@@ -1772,11 +1782,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.load_reusable();
     }
 
-    /// What a reader goes by as it reads (`harness::Look`). Borrows only what you've seen, so
-    /// the readers can be changed meanwhile.
-    fn look(seen: &SeenState) -> harness::Look<'_> {
+    /// What a reader goes by as it reads (`harness::Look`), with the processes last listed
+    /// (`processes`), or none before the first scan has: never a `ps` of its own. Borrows only
+    /// what you've seen, so the readers can be changed meanwhile.
+    fn look<'a>(seen: &'a SeenState, processes: &Option<Arc<procs::Listed>>) -> harness::Look<'a> {
         let now = now_ms();
-        harness::Look { seen, since: now - WINDOW_MS, now, ps: Default::default() }
+        harness::Look { seen, since: now - WINDOW_MS, now, ps: procs::Listing::of(processes.clone().unwrap_or_default()) }
     }
 
     /// Takes in what a read came to: the board is to be published again, and the lines sessions
@@ -1793,16 +1804,20 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// Has each reader ask what only a running service knows (`Reader::poll`).
     fn poll_readers(&mut self) {
         for r in &mut self.readers {
+            let t = Instant::now();
             r.poll(&harness::accounts_of(&self.cfg, r.harness()));
+            perf::took(|| format!("poll {}", r.harness().config()), t.elapsed());
         }
     }
 
     /// Has each reader look at what the watcher never hears of (`Reader::glance`).
     fn glance_readers(&mut self) {
-        let look = Self::look(&self.seen);
+        let look = Self::look(&self.seen, &self.processes);
         let mut all = harness::Applied::default();
         for r in &mut self.readers {
+            let t = Instant::now();
             all.and(r.glance(&harness::accounts_of(&self.cfg, r.harness()), &look));
+            perf::took(|| format!("glance {}", r.harness().config()), t.elapsed());
         }
         if self.take(all) {
             self.place_sessions();
@@ -2072,7 +2087,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     }
                     self.save_state();
                     // A harness with an archive of its own reads what's in it now.
-                    let look = Self::look(&self.seen);
+                    let look = Self::look(&self.seen, &self.processes);
                     let harnesses: HashSet<_> = keys.iter().filter_map(|k| k.split(':').next().and_then(harness::named)).map(|a| a.harness()).collect();
                     for r in self.readers.iter_mut().filter(|r| harnesses.contains(&r.harness())) {
                         r.archives_changed(&harness::accounts_of(&self.cfg, r.harness()), &look);
@@ -2143,6 +2158,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 }
                 Ok(Msg::TodoStarted { ids, lane, session, pending }) => self.todos_started(ids, lane, session, pending),
                 Ok(Msg::UsageDone(list)) => self.on_usage(list),
+                Ok(Msg::Processes(listed)) => self.on_processes(listed),
                 Ok(Msg::TeamFiles(answers)) => self.dirty |= self.team_files.on_read(answers),
                 Ok(Msg::TrainingRead(list)) => self.dirty |= self.training.on_read(list),
                 Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_stopped(&asked_as, t),
@@ -2254,6 +2270,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             for path in self.git_queue.due(Instant::now()) {
                 self.send_git(path);
             }
+            // What the watcher brought goes out before the readers look about: at a high load
+            // their glance and tick take a while, and a session's new line would wait for them.
+            if throttle::publish_now(self.dirty, self.dirty_git, self.last_publish.map(|t| t.elapsed()), PUBLISH_EVERY) {
+                self.publish();
+            }
             if last_databases.elapsed() >= DATABASES_EVERY {
                 last_databases = Instant::now();
                 self.glance_readers();
@@ -2317,9 +2338,17 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     fn scan_sessions(&mut self) {
-        let look = Self::look(&self.seen);
+        let mut look = Self::look(&self.seen, &self.processes);
+        // At launch nothing has listed the processes yet: the first reader that looks lists them,
+        // here, once, and the looks go on with that until the first tick's.
+        if self.processes.is_none() {
+            look.ps = procs::Listing::default();
+        }
         for r in &mut self.readers {
             r.scan(&harness::accounts_of(&self.cfg, r.harness()), &look);
+        }
+        if self.processes.is_none() {
+            self.processes = look.ps.made();
         }
     }
 
@@ -2572,15 +2601,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     }
 
     fn tick(&mut self) {
-        // What the watcher doesn't say: a file its writer holds open, a process that came or went.
-        let look = Self::look(&self.seen);
-        let mut all = harness::Applied::default();
-        for r in &mut self.readers {
-            all.and(r.tick(&harness::accounts_of(&self.cfg, r.harness()), &look));
-        }
-        if self.take(all) {
-            self.place_sessions();
-        }
+        let t = Instant::now();
+        self.tick_readers();
+        // What processes came or went is looked at once they're listed (`on_processes`).
+        self.list_processes();
         self.poll_readers();
         self.github.tick(&self.seeds, Now::real());
         let every = if self.usage_backoff { USAGE_BACKOFF } else { USAGE_EVERY };
@@ -2596,6 +2620,57 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         // Reads still out after a while are said on the board (held_warning).
         if !self.reads.out_for(HELD_WARN_AFTER).is_empty() {
             self.dirty = true;
+        }
+        perf::took(|| "engine tick".into(), t.elapsed());
+    }
+
+    /// Lists the processes for the readers' tick on a thread of its own: `ps` takes seconds at a
+    /// high load, and the engine's thread would wait for it, and every change behind it. Not
+    /// while a listing is on its way.
+    fn list_processes(&mut self) {
+        if self.processes_inflight {
+            return;
+        }
+        self.processes_inflight = true;
+        let tx = self.tx.clone();
+        // `on_processes` hears that the listing is over however it ends, so the next one can go.
+        let work = || {
+            let t = Instant::now();
+            let listed = procs::list(PS_WAIT);
+            perf::took(|| format!("ps for the tick, off the engine's thread ({} processes),", listed.lines.len()), t.elapsed());
+            listed
+        };
+        throttle::background("codealong-ps", work, move |listed| {
+            let _ = tx.send(Msg::Processes(listed));
+        });
+    }
+
+    /// The processes are listed: the readers look at what came or went (`Reader::processes`).
+    /// One listing that fell over lists none, which says nothing: the readers are left as they
+    /// are, and the looks go on with the last that worked.
+    fn on_processes(&mut self, listed: Option<procs::Listed>) {
+        self.processes_inflight = false;
+        let Some(listed) = listed.filter(|l| !l.lines.is_empty()) else { return };
+        self.processes = Some(Arc::new(listed));
+        self.read_with_readers("processes", |r, accounts, look| r.processes(accounts, look));
+    }
+
+    /// The readers' tick: what the watcher doesn't say of the files (one its writer holds open).
+    fn tick_readers(&mut self) {
+        self.read_with_readers("tick", |r, accounts, look| r.tick(accounts, look));
+    }
+
+    /// Has each reader read something (`what`, for the log), and takes in what it came to.
+    fn read_with_readers(&mut self, what: &str, mut read: impl FnMut(&mut Box<dyn harness::Reader>, &[AccountCfg], &harness::Look) -> harness::Applied) {
+        let look = Self::look(&self.seen, &self.processes);
+        let mut all = harness::Applied::default();
+        for r in &mut self.readers {
+            let t = Instant::now();
+            all.and(read(r, &harness::accounts_of(&self.cfg, r.harness()), &look));
+            perf::took(|| format!("{what} {}", r.harness().config()), t.elapsed());
+        }
+        if self.take(all) {
+            self.place_sessions();
         }
     }
 
@@ -2743,7 +2818,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             self.reload();
             return;
         }
-        let look = Self::look(&self.seen);
+        let look = Self::look(&self.seen, &self.processes);
         let mut all = harness::Applied::default();
         for ((i, j), paths) in owned {
             all.and(self.readers[i].apply(&accounts[i][j], &paths, &look));
@@ -2762,15 +2837,20 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// Reads the repos again: worktrees came or went, a session started where no lane covers,
     /// or reads macOS held landed. Git runs in the worktrees that are new or readable now.
     fn rescan_repos(&mut self) {
+        let t = Instant::now();
         let before: HashSet<PathBuf> = self.git_targets().into_iter().collect();
         self.load_repos();
+        let loaded = t.elapsed();
         let added: Vec<PathBuf> = self.git_targets().into_iter().filter(|p| !before.contains(p)).collect();
         for p in added {
             self.queue_git(p);
         }
+        let w = Instant::now();
         self.watch();
+        let watched = w.elapsed();
         self.refresh_visitors(false);
         self.dirty = true;
+        perf::took(|| format!("rescan repos ({} worktrees, loading {} ms, watching {} ms), in all", self.seeds.len(), loaded.as_millis(), watched.as_millis()), t.elapsed());
     }
 
     /// Worktrees an agent made from somewhere else (temporary folders, Codex worktrees, a
@@ -3030,18 +3110,23 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 paths.push((s.path.clone(), RecursiveMode::Recursive));
             }
         }
+        // Added together and started once: on macOS each `watch` stops the watcher's stream and
+        // starts it again with every path so far, a thread and a stream for each path.
         let mut failed = 0;
+        let mut adding = watcher.paths_mut();
         for (p, mode) in paths {
-            if p.exists() && watcher.watch(&p, mode).is_err() {
+            if p.exists() && adding.add(&p, mode).is_err() {
                 failed += 1;
             }
         }
+        // What a path's watch came to, `add` has said.
+        let _ = adding.commit();
         self.watch_warning = (failed > 0).then(|| format!("Couldn't watch {failed} folders; their lanes update every 10 seconds."));
         self.watcher = Some(watcher);
     }
 
     fn build_sessions(&self, now: i64) -> Vec<Session> {
-        let look = harness::Look { now, ..Self::look(&self.seen) };
+        let look = harness::Look { now, ..Self::look(&self.seen, &self.processes) };
         let mut out = Vec::new();
         // In config.toml's order of accounts, each read by its harness's reader.
         for a in &self.cfg.accounts {
@@ -3686,6 +3771,10 @@ fn board_hash(board: &mut Board) -> u64 {
 
 /// How often the harness databases are looked at for changes (`glance_readers`).
 const DATABASES_EVERY: Duration = Duration::from_millis(1500);
+
+/// How long the tick's `ps` may take. Off the engine's thread, so a slow one only puts off the
+/// readers' look at the processes; seen at 3 to 7 s at a load of 400 to 700.
+const PS_WAIT: Duration = Duration::from_secs(20);
 
 /// Paths that never matter, dropped before they reach the engine: databases and logs that
 /// apps write constantly, dependency folders, git's object store.
@@ -4587,6 +4676,60 @@ mod tests {
         assert_eq!(engine.usage["claude"].meters[0].percent, 50.0);
     }
 
+    /// The tick's process table is listed on a thread of its own, and not again while a listing
+    /// is out: one that fell over has to be over too. Each that worked goes to the readers as it
+    /// lands; between listings they look at the last that worked, and never run `ps`.
+    #[test]
+    fn a_process_listing_that_falls_over_is_over() {
+        use super::*;
+        /// A reader that notes the processes it's given.
+        struct Noting(Arc<Mutex<Vec<Vec<u32>>>>);
+        impl harness::Reader for Noting {
+            fn harness(&self) -> Harness {
+                Harness::Codex
+            }
+            fn scan(&mut self, _: &[AccountCfg], _: &harness::Look) {}
+            fn watch(&self, _: &AccountCfg) -> Vec<(PathBuf, bool)> {
+                vec![]
+            }
+            fn owns(&self, _: &AccountCfg, _: &Path) -> bool {
+                false
+            }
+            fn apply(&mut self, _: &AccountCfg, _: &[PathBuf], _: &harness::Look) -> harness::Applied {
+                harness::Applied::default()
+            }
+            fn processes(&mut self, _: &[AccountCfg], look: &harness::Look) -> harness::Applied {
+                self.0.lock().unwrap().push(look.ps.all().iter().map(|p| p.pid).collect());
+                harness::Applied::default()
+            }
+            fn sessions(&self, _: &AccountCfg, _: &harness::Look) -> Vec<Session> {
+                vec![]
+            }
+            fn cwds(&self) -> Vec<String> {
+                vec![]
+            }
+        }
+        let (tx, rx) = channel();
+        let mut engine = Engine::new(Box::new(|_| {}), tx, Arc::new(RwLock::new(Board::default())));
+        let noted = Arc::new(Mutex::new(Vec::new()));
+        engine.readers = vec![Box::new(Noting(noted.clone()))];
+        // Before anything has listed them, a look has none, and lists none itself.
+        let look = Engine::look(&engine.seen, &engine.processes);
+        assert_eq!((look.ps.at(), look.ps.all().len()), (Some(0), 0));
+        engine.processes_inflight = true;
+        engine.list_processes();
+        assert!(rx.try_recv().is_err(), "one listing at a time");
+        engine.on_processes(None);
+        assert!(!engine.processes_inflight, "the next listing can go");
+        let row = |pid: u32, command: &str| procs::PsLine { pid, ppid: 1, tty: "??".into(), cpu: None, command: command.into() };
+        let listed = procs::Listed { at: 1_792_000_000_000, lines: vec![row(7, "codex")] };
+        engine.on_processes(Some(procs::Listed { at: 1_792_000_000_000, lines: vec![row(7, "codex")] }));
+        engine.on_processes(Some(procs::Listed { at: 1_792_000_010_000, lines: vec![] }));
+        assert_eq!(*noted.lock().unwrap(), [vec![7]], "the readers hear of the one that worked, as it lands");
+        let look = Engine::look(&engine.seen, &engine.processes);
+        assert_eq!((look.ps.at(), look.ps.all()), (Some(listed.at), &listed.lines[..]));
+    }
+
     /// Git isn't run in a worktree while a run there is out, so every run has to answer.
     #[test]
     fn a_git_run_that_falls_over_still_answers() {
@@ -4682,7 +4825,7 @@ mod tests {
     }
 
     /// What the engine's thread spends on this Mac's real data: composing the board, hashing it,
-    /// and a big batch from the file watcher. `CODEALONG_BENCH_FS` names folders whose files go in
+    /// each reader's tick and glance, and a big batch from the file watcher. `CODEALONG_BENCH_FS` names folders whose files go in
     /// that batch (as many as there are, up to 30,000), as a build or an install writes them.
     /// `CODEALONG_BENCH_RUNS` says how many times each is timed (20), more for a profile.
     ///
@@ -4708,6 +4851,35 @@ mod tests {
         }
         let n = runs as f64;
         eprintln!("compose {:.1} ms (of which building sessions {:.1} ms), hash {:.1} ms, over {runs} runs", compose / n, sessions / n, hash / n);
+        // Each reader's part of the tick, its look at the processes (listed once, as the engine
+        // lists them, off its thread), its glance, and its reading every session afresh, as a
+        // glance does for an account whose database changed.
+        let t = Instant::now();
+        let listed = procs::list(PS_WAIT);
+        eprintln!("ps {:.1} ms, {} processes (off the engine's thread)", ms(t), listed.lines.len());
+        e.processes = Some(Arc::new(listed));
+        for r in &mut e.readers {
+            let accounts = harness::accounts_of(&e.cfg, r.harness());
+            let (mut tick, mut processes, mut glance) = (0.0, 0.0, 0.0);
+            for _ in 0..runs {
+                let look = Engine::look(&e.seen, &e.processes);
+                let t = Instant::now();
+                r.tick(&accounts, &look);
+                tick += ms(t);
+                let t = Instant::now();
+                r.processes(&accounts, &look);
+                processes += ms(t);
+                let t = Instant::now();
+                r.glance(&accounts, &look);
+                glance += ms(t);
+            }
+            let t = Instant::now();
+            r.scan(&accounts, &Engine::look(&e.seen, &e.processes));
+            eprintln!("{:<12} tick {:.1} ms, processes {:.1} ms, glance {:.1} ms, reading every session {:.1} ms", r.harness().config(), tick / n, processes / n, glance / n, ms(t));
+        }
+        let t = Instant::now();
+        e.watch();
+        eprintln!("watching every folder {:.1} ms", ms(t));
         let Ok(dirs) = std::env::var("CODEALONG_BENCH_FS") else { return };
         let mut paths = Vec::new();
         for dir in std::env::split_paths(&dirs) {

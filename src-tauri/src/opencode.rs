@@ -962,7 +962,7 @@ impl crate::harness::Reader for Reader {
     }
 
     /// Which sessions are live in a terminal, and where each shows.
-    fn tick(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
+    fn processes(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
         if accounts.is_empty() {
             return Applied::default();
         }

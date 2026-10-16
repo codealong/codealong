@@ -746,7 +746,8 @@ pub struct Look<'a> {
     /// Sessions quiet since before then aren't read, unless they're pinned.
     pub since: i64,
     pub now: i64,
-    /// The processes on this Mac, listed once for every reader that looks (`procs::Listing`).
+    /// The processes on this Mac, listed once for every reader that looks (`procs::Listing`):
+    /// in the engine, as of its last tick, listed off its thread.
     pub ps: crate::procs::Listing,
 }
 
@@ -811,9 +812,14 @@ pub trait Reader: Send {
     /// Takes in an account's files that changed.
     fn apply(&mut self, account: &AccountCfg, paths: &[PathBuf], look: &Look) -> Applied;
 
-    /// Every ten seconds: what the watcher doesn't say (a file a writer holds open, a process
-    /// that came or went).
+    /// Every ten seconds: what the watcher doesn't say of the files (one a writer holds open).
     fn tick(&mut self, _accounts: &[AccountCfg], _look: &Look) -> Applied {
+        Applied::default()
+    }
+
+    /// After each tick, once the processes are listed, off the engine's thread (`look.ps`): which
+    /// processes came or went, and what they run, hold or show in a terminal.
+    fn processes(&mut self, _accounts: &[AccountCfg], _look: &Look) -> Applied {
         Applied::default()
     }
 

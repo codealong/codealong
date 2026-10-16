@@ -121,7 +121,9 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   moves a run to another folder, and another `HOME` loses the sign-in, so a usage read can't
   keep out of the table (1.3.4, 2026-10-13).
 - Which `agy` has which conversation, by the `presence/<id>.lock` it holds open: `antigravity.rs`
-  (header, `held_conversation`, `processes`). The lock files stay behind after.
+  (header, `held_conversation`, `processes`). The lock files stay behind after. The lock and its
+  logs are open descriptors, so the kernel's list of them (`procs::open_files`) has them as
+  `lsof` does, in milliseconds where an `lsof` took half a second at a load of 500 (2026-10-16).
 - Each `agy` writes a log, `log/cli-<YYYYMMDD_HHMMSS>.log` by its local start time, keeps it open,
   and names itself in its third line (`Starting language server process with pid N`); a UI was
   seen holding another `agy`'s log open beside its own (`open_logs`, `own_log`). Its lines are

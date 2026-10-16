@@ -38,6 +38,15 @@ paths:
   optimized, so compare its numbers with each other, not with the log's. The shared build
   directory's test binary is rebuilt by whichever checkout tests next: copy it aside to compare
   before and after.
+- A new line in a session's record reaches the board only when the engine's thread gets to
+  it, so nothing on that thread may wait on another program: at a load of 200 to 700, `ps`
+  took 3 to 7 s and an `lsof` half a second (2026-10-16). The tick's process table is listed on
+  a thread of its own (`Engine::list_processes`), the readers look at it as it lands
+  (`Reader::processes`) and every look after has it, and open files come from the kernel
+  (`procs::open_files`). The log's `engine lag` lines say the thread was held; the lines just
+  before them say by what (`glance <harness>`, `tick <harness>`, `processes <harness>`, `engine
+  tick`, `rescan repos`, each when it took 50 ms or more), and an engine stall with none of them
+  is a sample's job.
 - Git is the engine's biggest cost and starts during load by construction. `throttle.rs` spaces
   runs in one worktree two seconds apart and publishes git-only changes in two-second batches
   (session changes still go out at once); `procs.rs` runs git at nice 10

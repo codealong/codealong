@@ -1035,38 +1035,33 @@ fn is_app_agent(command: &str) -> bool {
     program.ends_with("/language_server") && program.contains("Antigravity")
 }
 
-/// The conversation a command line process has open: the presence lock among its open files
-/// (`lsof -Fn`'s `n<path>` lines).
-fn held_conversation(open_files: &str) -> Option<String> {
-    open_files.lines().filter_map(|l| l.strip_prefix('n')).find_map(|p| {
-        let p = Path::new(p);
+/// The conversation a command line process has open: the presence lock among its open files.
+fn held_conversation(open_files: &[PathBuf]) -> Option<String> {
+    open_files.iter().find_map(|p| {
         (p.parent().map(file_name).as_deref() == Some("presence") && p.extension().and_then(|x| x.to_str()) == Some("lock")).then(|| p.file_stem().map(|s| s.to_string_lossy().into_owned())).flatten()
     })
 }
 
 /// The command line's logs a process has open (`log/cli-<time>.log`), from the same list.
-fn open_logs(open_files: &str) -> Vec<PathBuf> {
-    let mut logs: Vec<PathBuf> = open_files
-        .lines()
-        .filter_map(|l| l.strip_prefix('n'))
-        .map(PathBuf::from)
-        .filter(|p| p.parent().map(file_name).as_deref() == Some("log") && log_begun(p).is_some())
-        .collect();
+fn open_logs(open_files: &[PathBuf]) -> Vec<PathBuf> {
+    let mut logs: Vec<PathBuf> = open_files.iter().filter(|p| p.parent().map(file_name).as_deref() == Some("log") && log_begun(p).is_some()).cloned().collect();
     logs.sort();
     logs.dedup();
     logs
 }
 
 /// The command line's processes, each with the conversation and the logs it has open, and
-/// whether the hub app's agent is running. From the list of every process, and an `lsof` for
-/// each `agy`.
+/// whether the hub app's agent is running. From the list of every process, and each `agy`'s
+/// open files as the kernel lists them: an `lsof` for each took half a second at a high load,
+/// on the engine's thread.
 pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
     let mut app = false;
     let mut found = Vec::new();
     for p in listed {
         app |= is_app_agent(&p.command);
         if let Some(interactive) = cli_args(&p.command) {
-            let files = procs::run("/usr/sbin/lsof", &["-Fn", "-p", &p.pid.to_string()], None, Duration::from_secs(3)).unwrap_or_default();
+            // One gone since the list was made, or not yours, has nothing open that's known.
+            let files = procs::open_files(p.pid).unwrap_or_default();
             found.push(Process { pid: p.pid, conversation: held_conversation(&files), terminal: interactive && !p.tty.starts_with('?'), logs: open_logs(&files) });
         }
     }
@@ -1510,7 +1505,8 @@ impl Reader {
     /// wasn't.
     fn reread(&mut self, a: &AccountCfg, look: &Look) -> bool {
         let dirs = folders(&a.home_path());
-        // A change in the command line's folder is often a process that came or went.
+        // A change in the command line's folder is often a process that came or went, which the
+        // processes the engine last listed may show (`Look::ps`: as of its last tick).
         if dirs.iter().any(|f| f.cli) && self.looked_at.map_or(true, |t| t.elapsed() >= Duration::from_secs(2)) {
             self.look_at_processes(look);
         }
@@ -1629,7 +1625,7 @@ impl crate::harness::Reader for Reader {
     /// Which conversations a command line process has open, and whether the app's agent runs.
     /// A process that came may have a conversation its table doesn't list yet, and one that
     /// went leaves its conversation as it was: either way they're read again.
-    fn tick(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
+    fn processes(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
         let mut out = Applied::default();
         if !accounts.is_empty() && self.look_at_processes(look) {
             out.dirty = true;
@@ -2401,9 +2397,9 @@ mod tests {
 
     #[test]
     fn finds_the_conversation_a_process_has_open() {
-        let files = "p61332\nfcwd\nn/Users/me/app\nf73\nn/Users/me/.gemini/antigravity-cli/conversations/0b86875e-96cc-4f1d-aebd-68814b6c553f.db\nf40\nn/Users/me/.gemini/antigravity-cli/presence\nf79\nn/Users/me/.gemini/antigravity-cli/presence/0b86875e-96cc-4f1d-aebd-68814b6c553f.lock\n";
-        assert_eq!(held_conversation(files).as_deref(), Some("0b86875e-96cc-4f1d-aebd-68814b6c553f"));
-        assert_eq!(held_conversation("p1\nfcwd\nn/Users/me/app\n"), None);
+        let files = ["/Users/me/.gemini/antigravity-cli/conversations/0b86875e-96cc-4f1d-aebd-68814b6c553f.db", "/Users/me/.gemini/antigravity-cli/presence", "/Users/me/.gemini/antigravity-cli/presence/0b86875e-96cc-4f1d-aebd-68814b6c553f.lock"].map(PathBuf::from);
+        assert_eq!(held_conversation(&files).as_deref(), Some("0b86875e-96cc-4f1d-aebd-68814b6c553f"));
+        assert_eq!(held_conversation(&[PathBuf::from("/Users/me/app")]), None);
     }
 
     #[test]
@@ -2633,13 +2629,13 @@ mod tests {
         let head = |pid: u32| format!("I1014 17:23:24.338830       1 resolver.go:85] Model resolved\nI1014 17:23:24.339615      24 server.go:1633] Starting language server process with pid {pid}\n");
         std::fs::write(dir.join("cli-20261014_172324.log"), head(61216)).unwrap();
         std::fs::write(dir.join("cli-20261014_183955.log"), head(11764)).unwrap();
-        let at = |name: &str| dir.join(name).to_string_lossy().into_owned();
-        let files = format!(
-            "p61216\nf3\nn{}\nf4\nn{}\nf5\nn{}\nf6\nn/Users/me/.gemini/antigravity-cli/crashes/crash_61216.log\nf7\nn/Users/me/.gemini/antigravity-cli/presence/b568.lock\n",
-            at("cli-20261014_172324.log"),
-            at("cli-20261014_183955.log"),
-            at("cli-20261014_172324.log")
-        );
+        let files = [
+            dir.join("cli-20261014_172324.log"),
+            dir.join("cli-20261014_183955.log"),
+            dir.join("cli-20261014_172324.log"),
+            PathBuf::from("/Users/me/.gemini/antigravity-cli/crashes/crash_61216.log"),
+            PathBuf::from("/Users/me/.gemini/antigravity-cli/presence/b568.lock"),
+        ];
         let logs = open_logs(&files);
         assert_eq!(logs, [dir.join("cli-20261014_172324.log"), dir.join("cli-20261014_183955.log")]);
         assert_eq!(own_log(&logs, 61216), Some(dir.join("cli-20261014_172324.log")));
@@ -3012,11 +3008,12 @@ mod tests {
             assert!(started.elapsed() < Duration::from_secs(120), "the run never showed as done");
             std::thread::sleep(Duration::from_millis(400));
             let l = look();
-            // The engine glances every second or two, and ticks every ten: here, every two.
+            // The engine glances every second or two, and looks at the processes after each tick,
+            // every ten: here, every two.
             reader.glance(accounts, &l);
             ticks += 1;
             if ticks % 5 == 0 {
-                reader.tick(accounts, &l);
+                reader.processes(accounts, &l);
             }
             let exited = child.try_wait().unwrap().is_some();
             match mine(&reader, &l) {
@@ -3026,7 +3023,7 @@ mod tests {
                 }
                 Some(s) if exited && worked.is_some() => {
                     // Its process is gone: the next look at processes says so.
-                    reader.tick(accounts, &look());
+                    reader.processes(accounts, &look());
                     break mine(&reader, &look()).unwrap_or(s);
                 }
                 _ => {}
