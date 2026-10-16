@@ -310,9 +310,13 @@ impl crate::harness::Adapter for Codex {
         match s.surface {
             crate::model::Surface::Cli => {
                 t.push(o.terminal(s, who.clone(), false));
+                // A terminal UI holds its thread's writer lock (`thread-writer-locks/<id>.lock`)
+                // until it quits, so one that runs moves to the app.
                 if o.first && s.app_account {
-                    let (why, busy) = if s.pid.is_some() { (format!("Open in {term}, finish there first"), true) } else { (who, false) };
-                    t.push(o.way(s, "codex", "app", "Open in Codex".into(), why, false, busy));
+                    t.push(match s.pid {
+                        Some(_) => o.to_app(s, "Codex"),
+                        None => o.way(s, "codex", "app", "Open in Codex".into(), who, false, false),
+                    });
                 }
             }
             crate::model::Surface::App => {
@@ -335,7 +339,7 @@ impl crate::harness::Adapter for Codex {
     }
 
     fn app_bundle(&self, action: &str) -> Option<&'static str> {
-        (action == "codex").then_some(APP_BUNDLE_ID)
+        matches!(action, "codex" | "to-app").then_some(APP_BUNDLE_ID)
     }
 
     fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {

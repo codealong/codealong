@@ -715,6 +715,10 @@ fn open_with(board: &Board, cfg: &config::Config, lane_id: &str, target_id: &str
                     return Ok(None);
                 }
                 "chrome" => chrometabs::show(s.chrome.as_ref().ok_or_else(|| anyhow!("That session hasn't used Chrome."))?)?,
+                // Its terminal closes and its harness's app goes on with it (`Opens::to_app`).
+                "to-app" => {
+                    crate::start::move_to_app(board, cfg, key)?;
+                }
                 // A window shows it in its own panel; nothing opens elsewhere.
                 "hosted" => {}
                 // A way of its harness's own: its app.

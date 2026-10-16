@@ -1010,6 +1010,27 @@ impl Opens<'_> {
         };
         self.way(s, action, "terminal", format!("{verb} {}", self.term), detail, true, disabled)
     }
+
+    /// Moving a session that runs in a terminal to the harness's app (`start::move_to_app`): its
+    /// terminal closes, as a move to another folder closes it. Apart from the ways to open it, so
+    /// ⌘⏎ never closes a terminal. Not mid-turn, which the move would cut off, nor while a command
+    /// its turn left running goes on, which ends with the process, nor while a prompt waits on you
+    /// there, which would go with the terminal (Claude Code writes the message it came with only
+    /// once it's answered).
+    pub fn to_app(&self, s: &Session, app: &str) -> Target {
+        let term = self.term;
+        // Short enough for the Open button's list, which cuts a longer one off.
+        let (detail, disabled) = if turn_running(s) {
+            (format!("Working in {term}, let its turn end first"), true)
+        } else if s.background.is_some() {
+            (format!("Its command still runs in {term}"), true)
+        } else if crate::send::waits_on_you(s) {
+            (format!("Waiting on you in {term}, answer it first"), true)
+        } else {
+            (format!("Closes it in {term}"), false)
+        };
+        crate::board::target(format!("s|{}|to-app", s.key), "app", format!("Move to {app}"), Some(detail), None, disabled, "move")
+    }
 }
 
 /// What a new terminal types to open a session: a new one (`Adapter::start_in_terminal`), or a

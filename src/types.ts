@@ -326,8 +326,9 @@ export interface Target {
   detail: string | null;
   kbd: string[] | null;
   disabled: boolean;
-  /** `browser` is a session's tabs in Chrome: listed apart from the ways to open it. */
-  group: 'session' | 'browser' | 'lane' | 'pr';
+  /** `browser` is a session's tabs in Chrome, and `move` moving a running one to its harness's
+   *  app, which closes its terminal: both listed apart from the ways to open it. */
+  group: 'session' | 'move' | 'browser' | 'lane' | 'pr';
 }
 
 export interface Lane {

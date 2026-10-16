@@ -1242,16 +1242,7 @@ pub fn move_to_folder(board: &Board, cfg: &Config, key: &str, lane_id: &str) -> 
     adapter.before_start(account, &folder);
     let in_background = s.live && s.attach_command.is_some();
     if s.live {
-        crate::idle::close_one(board, cfg, key).map_err(|e| anyhow!("Couldn't close “{}” where it runs, so it stays where it is: {e:#}", s.title))?;
-        if let Some(pid) = s.pid {
-            let since = std::time::Instant::now();
-            while crate::procs::pid_alive(pid) && since.elapsed() < std::time::Duration::from_secs(10) {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            if crate::procs::pid_alive(pid) {
-                bail!("“{}” hasn't closed yet. Move it once it has.", s.title);
-            }
-        }
+        close_to_move(board, cfg, s)?;
     }
     let there = if to.starts_chats { "a chat of its own".to_string() } else { to.callsign.clone() };
     let (goes_on, how) = if in_background {
@@ -1270,6 +1261,53 @@ pub fn move_to_folder(board: &Board, cfg: &Config, key: &str, lane_id: &str) -> 
     let copy_note = if copied { " Claude Code copies a background job's conversation into a new job rather than move it, so the copy takes its place." } else { "" };
     let message = format!("Moved “{}” to {there}: it goes on there {how}.{copy_note}", s.title);
     Ok(Started { key: goes_on, message: Some(message) })
+}
+
+/// Moves a session running in a terminal to its harness's app, where it goes on as itself:
+/// closed where it runs, as a move to another folder closes it, since both harnesses let one
+/// process at a time write a session (Claude Code's `--desktop --resume` refuses a session open
+/// in a terminal, and Codex locks a thread to its writer), and opened in the app once its
+/// process is gone, as a resume there opens it.
+pub fn move_to_app(board: &Board, cfg: &Config, key: &str) -> Result<Resumed> {
+    let (s, account) = crate::harness::find(board, cfg, key)?;
+    account.ensure_on()?;
+    let adapter = crate::harness::adapter(s.harness);
+    let app = match adapter.app_way() {
+        Some(crate::send::Route::Own(app)) if s.app_account => app,
+        _ => bail!("“{}” can't go on in {} from here.", s.title, adapter.app()),
+    };
+    if !s.live || s.pid.is_none() || s.attach_command.is_some() || s.hosted {
+        bail!("“{}” isn't running in a terminal.", s.title);
+    }
+    if crate::harness::turn_running(s) {
+        bail!("“{}” is in the middle of a turn. Stop it or let it finish, then move it.", s.title);
+    }
+    // It belongs to the process, which the close ends.
+    if s.background.is_some() {
+        bail!("“{}” still runs a command its turn left going. Move it once that has ended.", s.title);
+    }
+    if crate::send::waits_on_you(s) {
+        bail!("“{}” is waiting on you in its terminal. Answer it there, then move it.", s.title);
+    }
+    close_to_move(board, cfg, s)?;
+    let sent = crate::send::deliver_yours(app.as_ref(), s, account, "")?;
+    Ok(Resumed { key: Some(key.to_string()), sent })
+}
+
+/// Closes a session where it runs for a move, and waits for its process to end, so what goes on
+/// with it after is the only one writing it.
+fn close_to_move(board: &Board, cfg: &Config, s: &crate::model::Session) -> Result<()> {
+    crate::idle::close_one(board, cfg, &s.key).map_err(|e| anyhow!("Couldn't close “{}” where it runs, so it stays where it is: {e:#}", s.title))?;
+    if let Some(pid) = s.pid {
+        let since = std::time::Instant::now();
+        while crate::procs::pid_alive(pid) && since.elapsed() < std::time::Duration::from_secs(10) {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if crate::procs::pid_alive(pid) {
+            bail!("“{}” hasn't closed yet. Move it once it has.", s.title);
+        }
+    }
+    Ok(())
 }
 
 /// What a session moved to another folder is told as it goes on there: where it is now, what

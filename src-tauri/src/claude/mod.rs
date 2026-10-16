@@ -576,8 +576,10 @@ impl crate::harness::Adapter for ClaudeCode {
             Surface::Cli if s.live => {
                 let verb = if o.respond { "Respond in" } else { "Show in" };
                 t.push(o.way(s, "focus", "terminal", format!("{verb} {term}"), who, true, false));
+                // Only one process may write a session (`--desktop --resume` refuses one open in
+                // a terminal), so it moves there.
                 if o.first && s.app_account {
-                    t.push(o.way(s, "claude-app", "app", "Open in Claude app".into(), format!("Live in {term}, finish there first"), false, true));
+                    t.push(o.to_app(s, "Claude app"));
                 }
             }
             Surface::Cli => {
@@ -607,7 +609,7 @@ impl crate::harness::Adapter for ClaudeCode {
     }
 
     fn app_bundle(&self, action: &str) -> Option<&'static str> {
-        (action == "claude-app").then_some(app::BUNDLE_ID)
+        matches!(action, "claude-app" | "to-app").then_some(app::BUNDLE_ID)
     }
 
     fn search_files(&self, account: &AccountCfg, since: i64) -> Vec<(PathBuf, String, i64)> {

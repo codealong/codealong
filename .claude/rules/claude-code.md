@@ -586,6 +586,13 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   and `claude://resume?session=<uuid>` imports a CLI session and opens it: `claude/app.rs`
   (`claude_app_url`). `continue` also takes `last`. Rejected links are logged as
   `claudeURLHandler: code entry link invalid ?session` in `~/Library/Logs/Claude/main.log`.
+- A session open in a terminal goes to the app only by leaving the terminal (2.1.302's code,
+  2026-10-16): Claude Code's `/desktop` (alias `/app`, "Continue the current session in Claude
+  Desktop", for claude.ai sign-ins) saves the session, opens that `resume` link and exits ("Session
+  transferred to Claude Desktop"), and `claude --desktop --resume <id>` refuses one that's open
+  elsewhere ("is open in another terminal. Run /desktop there instead"). Both want the app at
+  1.1.9669 or later. Codealong closes the terminal instead, which needs no typing and nothing of
+  that version, then opens the link: `start.rs` (`move_to_app`).
 - `claude://code/new?folder=<path>&q=<prompt>` opens the new-session page with the folder and
   prompt filled in, for you to send there, and takes no model or worktree: `claude/mod.rs`
   (`app_link`). `prompt=` works too. `q` is capped at 14,336 characters; `folder` can repeat;

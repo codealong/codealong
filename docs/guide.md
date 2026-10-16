@@ -265,6 +265,17 @@ it is now, and coming from a chat it can still read the chat's folder. Claude Co
 background job that has been one before into a new job rather than move it, and the copy takes its
 place as a move to another account's does.
 
+#### Move to the Claude or Codex app
+
+A Claude Code session running in a terminal on the account the Claude app is signed into, and a
+Codex thread running in a terminal on the Codex app's account, list Move to Claude app or Move to
+Codex under their Open button (and their worktree's), apart from the ways to open them, so ⌘⏎ never
+picks it. Both harnesses let one process at a time write a session, so it's closed where it runs and
+the app opens it once its process has ended, going on there as itself. Not mid-turn, which the close
+would cut off (let the turn finish or stop it first), nor while a command its turn left running in
+the background goes on, or a prompt waits on you there, since either would end with the terminal.
+One that isn't running opens in the app as it is (Continue in Claude app, Open in Codex).
+
 #### Side conversations
 
 `/side <question>` (or `/btw`) asks something about a Claude Code or Codex session on the side: a
