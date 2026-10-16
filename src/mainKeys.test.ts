@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VIEW_CHORDS, viewOfKey } from './mainKeys';
+import { reorderKey, VIEW_CHORDS, viewOfKey } from './mainKeys';
 import { CHORDS, chordKeys } from './menus';
 import { setPlatform } from './platform';
 import { QUEUE_CHORDS } from './queue';
@@ -40,6 +40,35 @@ describe('view chords', () => {
       expect(VIEWS.map((v) => chordKeys(VIEW_CHORDS[v.id]).join('+'))).toEqual(['Ctrl+Shift+S', 'Ctrl+Shift+W', 'Ctrl+Shift+P', 'Ctrl+Shift+T', 'Ctrl+Shift+B']);
       expect(['s', 'w', 'p', 't', 'b'].map((l) => viewOfKey(press(l, { ctrl: true, shift: true }), VIEWS))).toEqual(VIEWS.map((v) => v.id));
       expect(viewOfKey(press('s'), VIEWS)).toBeNull();
+    } finally {
+      setPlatform(null);
+    }
+  });
+});
+
+describe('moving a row', () => {
+  const arrow = (key: string, mods: { ctrl?: boolean; cmd?: boolean; alt?: boolean; shift?: boolean }) =>
+    ({ key, code: key, ctrlKey: !!mods.ctrl, metaKey: !!mods.cmd, altKey: !!mods.alt, shiftKey: !!mods.shift }) as KeyboardEvent;
+
+  it('is ⌃⌘↑ and ⌃⌘↓ on macOS, and nothing else held', () => {
+    setPlatform('mac');
+    try {
+      expect(reorderKey(arrow('ArrowUp', { ctrl: true, cmd: true }))).toBe(-1);
+      expect(reorderKey(arrow('ArrowDown', { ctrl: true, cmd: true }))).toBe(1);
+      expect(reorderKey(arrow('ArrowUp', { ctrl: true, cmd: true, shift: true }))).toBe(0);
+      expect(reorderKey(arrow('ArrowUp', { cmd: true }))).toBe(0);
+    } finally {
+      setPlatform(null);
+    }
+  });
+
+  it('is Ctrl+Shift+PageUp and PageDown on Linux, where Ctrl+Alt and an arrow are the desktop’s', () => {
+    setPlatform('linux');
+    try {
+      expect(reorderKey(arrow('PageUp', { ctrl: true, shift: true }))).toBe(-1);
+      expect(reorderKey(arrow('PageDown', { ctrl: true, shift: true }))).toBe(1);
+      expect(reorderKey(arrow('ArrowUp', { ctrl: true, alt: true }))).toBe(0);
+      expect(reorderKey(arrow('PageUp', { ctrl: true }))).toBe(0);
     } finally {
       setPlatform(null);
     }

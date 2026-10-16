@@ -1814,8 +1814,9 @@ the [development notes](development.md#linux).
 The windows' keys are the Mac's, pressed as Linux has them and said in words: ⌘ is Ctrl, ⌥ and ⌃
 are both Alt, and ⇧ is Shift, so ⌘E is Ctrl+E and ⌃⌘W Ctrl+Alt+W. A few go otherwise where that
 would make two the same or take a key the desktop keeps: a project is Alt and its digit (⌥⌘1 on
-the Mac, where ⌃⌘1 snoozes), the views are Ctrl+Tab and Ctrl+Shift+Tab, a terminal Ctrl+`, and
-send now Ctrl+Shift+Enter. The page never sees Super, so no window key uses it. The shortcuts that
+the Mac, where ⌃⌘1 snoozes), the views are Ctrl+Tab and Ctrl+Shift+Tab, a terminal Ctrl+`,
+send now Ctrl+Shift+Enter, and moving a pinned row or a todo Ctrl+Shift+PageUp and PageDown (Ctrl+Alt
+and an arrow switch workspaces). The page never sees Super, so no window key uses it. The shortcuts that
 work from any app are written in config.toml as the desktop's keys, where `Cmd` is Super, and
 Settings records them with Ctrl and Alt; they're Ctrl+Alt and a key by default.
 

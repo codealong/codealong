@@ -20,7 +20,8 @@ import type { Label, Lane, ProjectSummary, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 import type { UndoToast } from './ui/Toasts';
 import type { ComposerContext } from './ui/TodoView';
-import { chordMod, held } from './platform';
+import { chordMod } from './platform';
+import { reorderKey } from './mainKeys';
 
 /** What the Todo view goes by, as the window has it. */
 export interface TodoViewInput {
@@ -318,14 +319,15 @@ export function useTodoView(input: TodoViewInput) {
   const todoKeys = useLatest((e: KeyboardEvent, key: string): boolean => {
     if (!listsTodos) return false;
     // Reordering moves one todo at a time.
-    if (held(e, 'Ctrl', 'Cmd') && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    const reorder = reorderKey(e);
+    if (reorder) {
       if (selected?.kind !== 'todo') return false;
       e.preventDefault();
       if (pickedRows.length > 0 || selected.todo.status === 'done') return true;
       const run = ordered.find((rows) => rows.some((r) => r.key === selected.key));
       const i = run?.findIndex((r) => r.key === selected.key) ?? -1;
       // Insertion points: one up is the row's own index less one; one down is two past it.
-      if (run && i >= 0) moveTodoAmong(run, selected.todo.id, e.key === 'ArrowUp' ? i - 1 : i + 2);
+      if (run && i >= 0) moveTodoAmong(run, selected.todo.id, reorder < 0 ? i - 1 : i + 2);
       return true;
     }
     if (chordMod(e)) return false;

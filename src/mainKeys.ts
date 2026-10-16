@@ -13,7 +13,7 @@ import { AGENT_BAY, rowItems, seenable, type WorktreeRow } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
 import type { Pins } from './pins';
-import { chordPressed, cmd, ctrl, held, typed } from './platform';
+import { chordPressed, cmd, ctrl, held, platform, typed } from './platform';
 import { queueKey, type QueueAction } from './queue';
 import type { TodoItem } from './todos';
 import type { ListPicksKeys } from './useListPicks';
@@ -27,11 +27,18 @@ import { zoomStep, type ZoomStep } from './zoom';
  *  menu's letter or ↑ ↓, ⇧⌘F and ⌃Tab. A text field has no use of its own for any of them but
  *  ⌥↑ ⌥↓, which jump to a paragraph's start or end. */
 function listChord(e: KeyboardEvent): boolean {
+  if (reorderKey(e)) return true;
   const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
   if (held(e, 'Alt') || held(e, 'Alt', 'Shift')) return vertical;
   if (held(e, 'Ctrl', 'Cmd')) return vertical || menus.chordLetter(e.key);
   if (held(e, 'Shift', 'Cmd')) return e.key.toLowerCase() === 'f';
   return viewTab(e);
+}
+
+/** ⌃⌘↑ (-1) or ⌃⌘↓ (1), which move a row among the pins or the todos, as this platform has them;
+ *  0 for any other key. */
+export function reorderKey(e: KeyboardEvent): -1 | 0 | 1 {
+  return chordPressed('Ctrl+Cmd+Up', e) ? -1 : chordPressed('Ctrl+Cmd+Down', e) ? 1 : 0;
 }
 
 /** ⌃Tab and ⌃⇧Tab, through the views as through tabs. */
@@ -187,9 +194,12 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // as well, as in the quick panel.
   const digit = /^Digit(\d)$/.exec(e.code);
   const projectKey = !!digit && chordPressed(`Alt+Cmd+${digit[1]}`, e);
+  // What gets past a text field with a digit: on macOS ⌥⌘ and it with ⌃ or ⇧ as well, as it always
+  // has, which open a row's places further on.
+  const fieldDigit = platform() === 'mac' ? mod && e.altKey && !!digit : projectKey;
   // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘
   // ones, ⌃-, ⌃`, a view's ⌃ and digit, and Sessions' box for the list's chords.
-  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !findKey && !historyChord(e) && !toTerminal && !toView && !projectKey && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions')))) return;
+  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !findKey && !historyChord(e) && !toTerminal && !toView && !fieldDigit && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions')))) return;
   if (mod && e.key === ',') {
     e.preventDefault();
     openSettings();
@@ -414,10 +424,11 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     return;
   }
   // ⌃⌘↑ ⌃⌘↓ move a pinned session, worktree or PR among the pins (a todo in Todos, above).
-  if (chord && vertical) {
+  const reorder = reorderKey(e);
+  if (reorder) {
     e.preventDefault();
     // Insertion points: one up is the row's own index less one; one down is two past it.
-    const step = (i: number) => (e.key === 'ArrowUp' ? i - 1 : i + 2);
+    const step = (i: number) => (reorder < 0 ? i - 1 : i + 2);
     if (view === 'sessions' && selected?.kind === 'agent' && sessionPins.set.has(selected.session.key)) {
       movePinnedSession(selected.session.key, step(pinnedRows.findIndex((r) => r.key === selected.key)));
     } else if (view === 'worktrees' && selected && selected.kind !== 'pr' && selected.kind !== 'todo' && lanePins.set.has(selected.lane.id)) {

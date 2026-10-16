@@ -42,6 +42,9 @@ describe('on macOS', () => {
     expect(chordSigns('Alt+Shift+Down')).toBe('⌥⇧↓');
     expect(chordSigns('Ctrl+Enter')).toBe('⌃⏎');
     expect(chordKeys('Shift+Cmd+E')).toEqual(['⇧', '⌘', 'E']);
+    // In the order they're written, as they always were.
+    expect(chordKeys('Cmd+Shift+Up')).toEqual(['⌘', '⇧', '↑']);
+    expect(platformChord('Ctrl+Cmd+Up')).toBe('Ctrl+Cmd+Up');
     expect(chordPressed('Cmd+E', press('e', { meta: true }))).toBe(true);
     expect(chordPressed('Cmd+E', press('e', { ctrl: true }))).toBe(false);
     expect(chordPressed('Ctrl+Cmd+W', press('w', { ctrl: true, meta: true }))).toBe(true);
@@ -85,6 +88,13 @@ describe('on Linux', () => {
     expect(platformChord('Ctrl+Shift+Tab')).toBe('Ctrl+Shift+Tab');
     expect(platformChord('Ctrl+`')).toBe('Ctrl+`');
     expect(platformChord('Ctrl+Enter')).toBe('Ctrl+Shift+Enter');
+    // Ctrl+Alt+↑ ↓ are the desktop's workspaces: a row moves by PageUp and PageDown, as a tab does.
+    expect(platformChord('Ctrl+Cmd+Up')).toBe('Ctrl+Shift+PageUp');
+    expect(platformChord('Ctrl+Cmd+Down')).toBe('Ctrl+Shift+PageDown');
+    expect(chordPressed('Ctrl+Cmd+Up', press('PageUp', { ctrl: true, shift: true }))).toBe(true);
+    expect(chordPressed('Ctrl+Cmd+Up', press('ArrowUp', { ctrl: true, alt: true }))).toBe(false);
+    expect(chordSigns('Ctrl+Cmd+Down')).toBe('Ctrl+Shift+PgDn');
+    expect(keysIn('⌃⌘↑ ⌃⌘↓ move it')).toBe('Ctrl+Shift+PgUp Ctrl+Shift+PgDn move it');
   });
 
   it('gives every chord the windows have keys of its own', () => {
@@ -96,7 +106,8 @@ describe('on Linux', () => {
       byKeys.set(keys, c);
     }
     // And none is a key the desktop keeps for itself (GNOME's and most others').
-    for (const desktop of ['Alt+Tab', 'Alt+Shift+Tab', 'Alt+F4', 'Alt+F2', 'Alt+Space', 'Ctrl+Alt+T', 'Ctrl+Alt+Delete', 'Ctrl+Alt+L', 'Ctrl+Alt+Left', 'Ctrl+Alt+Right']) {
+    const workspaces = ['Up', 'Down', 'Left', 'Right'].flatMap((k) => [`Ctrl+Alt+${k}`, `Ctrl+Alt+Shift+${k}`]);
+    for (const desktop of ['Alt+Tab', 'Alt+Shift+Tab', 'Alt+F4', 'Alt+F2', 'Alt+Space', 'Ctrl+Alt+T', 'Ctrl+Alt+Delete', 'Ctrl+Alt+L', ...workspaces]) {
       expect(byKeys.get(desktop), `${byKeys.get(desktop)} is the desktop's ${desktop}`).toBeUndefined();
     }
   });
@@ -137,7 +148,8 @@ describe('on Linux', () => {
     expect(keysSaid('⌘O')).toBe('Ctrl+O');
     expect(keysSaid('Ctrl+Alt+W')).toBe('Ctrl+Alt+W');
     expect(capsSaid(['⌘', 'K'])).toEqual(['Ctrl', 'K']);
-    expect(capsSaid(['⌃⌘↑'])).toEqual(['Ctrl', 'Alt', '↑']);
+    expect(capsSaid(['⌃⌘↑'])).toEqual(['Ctrl', 'Shift', 'PgUp']);
+    expect(capsSaid(['⌥⇧↓'])).toEqual(['Alt', 'Shift', '↓']);
     expect(capsSaid(['⏎'])).toEqual(['Enter']);
     // A global shortcut's keys are in Linux's words already.
     expect(capsSaid(['Ctrl', 'Alt', '/'])).toEqual(['Ctrl', 'Alt', '/']);

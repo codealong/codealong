@@ -66,8 +66,9 @@ export function writeChord(c: Chord): string {
   return [...ORDER.filter((m) => c.mods.includes(m)), c.key].join('+');
 }
 
-/** The chords Linux has otherwise than ⌘ → Ctrl, ⌥ and ⌃ → Alt, ⇧ → Shift would make them. */
-const LINUX: { mods: Mod[]; key: RegExp; to: Mod[] }[] = [
+/** The chords Linux has otherwise than ⌘ → Ctrl, ⌥ and ⌃ → Alt, ⇧ → Shift would make them: other
+ *  modifiers, and for a few another key (`toKey`). */
+const LINUX: { mods: Mod[]; key: RegExp; to: Mod[]; toKey?: (key: string) => string }[] = [
   // ⌥⌘ and a digit picks a project, and ⌃⌘ and a digit snoozes, which the rule would make the
   // same: a project is Alt and the digit, as a tab is in most Linux apps.
   { mods: ['Alt', 'Cmd'], key: /^[0-9]$/, to: ['Alt'] },
@@ -77,6 +78,10 @@ const LINUX: { mods: Mod[]; key: RegExp; to: Mod[] }[] = [
   { mods: ['Ctrl', 'Shift'], key: /^Tab$/, to: ['Ctrl', 'Shift'] },
   // ⌃⏎ sends now: Alt+Enter is ⌥⏎'s.
   { mods: ['Ctrl'], key: /^Enter$/, to: ['Ctrl', 'Shift'] },
+  // ⌃⌘↑ ⌃⌘↓ move a row among the pins or the todos. Ctrl+Alt+↑ ↓ switch workspaces in GNOME and
+  // Xfce, and with Shift move a window to one, so they're Ctrl+Shift+PageUp and PageDown, which
+  // move a tab in Linux's browsers and terminals.
+  { mods: ['Ctrl', 'Cmd'], key: /^(Up|Down)$/, to: ['Ctrl', 'Shift'], toKey: (key) => (key === 'Up' ? 'PageUp' : 'PageDown') },
 ];
 
 /** The keys a chord written for macOS is pressed with on this platform, in their own names: on
@@ -86,7 +91,7 @@ export function platformChord(chord: string): string {
   const c = parseChord(chord);
   const same = (a: Mod[], b: Mod[]) => a.length === b.length && a.every((m) => b.includes(m));
   const special = LINUX.find((l) => same(l.mods, c.mods) && l.key.test(c.key));
-  return writeChord({ mods: special ? special.to : linuxMods(c.mods), key: c.key });
+  return writeChord({ mods: special ? special.to : linuxMods(c.mods), key: special?.toKey?.(c.key) ?? c.key });
 }
 
 function linuxMods(mods: Mod[]): Mod[] {
@@ -172,7 +177,7 @@ export function chordPressed(chord: string, e: Key): boolean {
   // ` goes by what it types or where it is too: layouts that make it a dead key type nothing.
   if (key === '`') return e.key === '`' || e.code === 'Backquote';
   if (key === 'Up' || key === 'Down' || key === 'Left' || key === 'Right') return e.key === `Arrow${key}`;
-  if (key === 'Enter' || key === 'Tab' || key === 'Backspace' || key === 'Escape') return e.key === key;
+  if (key === 'Enter' || key === 'Tab' || key === 'Backspace' || key === 'Escape' || key === 'PageUp' || key === 'PageDown') return e.key === key;
   if (key === 'Esc') return e.key === 'Escape';
   // A digit goes by its key's code: ⌥ changes what it types (⌥1 is ¡), as ⇧ does on Linux.
   if (/^[0-9]$/.test(key)) return e.code === `Digit${key}`;
@@ -182,13 +187,14 @@ export function chordPressed(chord: string, e: Key): boolean {
 /** Each key's sign as macOS draws it. */
 const SIGNS: Record<string, string> = { Ctrl: '⌃', Cmd: '⌘', Alt: '⌥', Shift: '⇧', Up: '↑', Down: '↓', Left: '←', Right: '→', Enter: '⏎', Esc: 'esc', Backspace: '⌫', Tab: '⇥' };
 /** Each key's name as Linux says it: modifiers as words, arrows as arrows. */
-const NAMES: Record<string, string> = { Up: '↑', Down: '↓', Left: '←', Right: '→', Esc: 'Esc' };
+const NAMES: Record<string, string> = { Up: '↑', Down: '↓', Left: '←', Right: '→', Esc: 'Esc', PageUp: 'PgUp', PageDown: 'PgDn' };
 
 /** A chord (written for macOS) as this platform says it, one key at a time: ⌃ ⌘ W, or Ctrl Alt W. */
 export function chordKeys(chord: string): string[] {
+  // macOS says them in the order the chord is written, as it always has (⌘⇧↑).
+  if (platform() === 'mac') return chord.split('+').map((k) => SIGNS[k] ?? k);
   const c = parseChord(platformChord(chord));
-  const said = platform() === 'mac' ? SIGNS : NAMES;
-  return [...c.mods, c.key].map((k) => said[k] ?? k);
+  return [...c.mods, c.key].map((k) => NAMES[k] ?? k);
 }
 
 /** A chord as one label: ⌃⌘W, or Ctrl+Alt+W. */
