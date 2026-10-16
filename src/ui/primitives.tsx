@@ -378,6 +378,8 @@ export function Dialog({ title, lede, busy = false, onClose, onSubmit, foot, asi
 export interface SegOption<T> {
   id: T;
   label: string;
+  /** Said after the label, quieter, as a tab's count is: how long ago, say. */
+  note?: string;
   title?: string;
   /** Drawn before the label, or in its place (`look`). */
   icon?: string;
@@ -431,6 +433,7 @@ export function Seg<T extends string | number | null>({ options, value, onPick, 
           >
             {o.icon && look !== 'text' && <Icon name={o.icon} size={iconSize} />}
             {look !== 'icon' && o.label}
+            {look !== 'icon' && o.note && <span className="ca-segctl-note">{o.note}</span>}
           </button>
         );
       })}

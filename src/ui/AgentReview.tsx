@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { excerptAt, lineLink, type ExcerptLine } from '../agentReview';
 import { dropDraftComment, editDraft, editDraftComment, openUrl, prAgentReviews, sendAgentReview, takeTeamSettings } from '../api';
-import { absolute, ago, middleTruncate } from '../format';
+import { absolute, ago, agoPhrase, middleTruncate } from '../format';
 import { changeDraft, commentsWord, draftShown, readAgain, submittedWord, type Held } from '../prDraft';
 import { splitPath } from '../prFiles';
 import { errorText } from '../report';
@@ -328,7 +328,7 @@ function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrI
     <>
       {reviews.length > 1 && (
         <div className="ca-agentrev-rounds">
-          <Seg label="The review of which commit" look="text" options={rounds.map((w, i) => ({ id: w.head, label: i === 0 ? `${short(w.head)}, the latest` : short(w.head) }))} value={shown.head} onPick={setPicked} />
+          <Seg label="The review of which commit" look="text" options={rounds.map((w, i) => ({ id: w.head, label: short(w.head), note: ago(w.at, now), title: `${i === 0 ? 'The latest, reviewed' : 'Reviewed'} ${agoPhrase(w.at, now)}` }))} value={shown.head} onPick={setPicked} />
           {hidden > 0 && (
             <button type="button" className="ca-agentrev-more" title={hidden === 1 ? 'The review of an earlier commit' : `The reviews of ${hidden} earlier commits`} onClick={() => setAllOf(pr.key)}>
               +{hidden}
@@ -339,7 +339,7 @@ function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrI
       <div className="ca-agentrev-body">
         <div className="ca-agentrev-byline">
           <span>
-            {latest ? `The agent’s review${shown.agent ? ` (${shown.agent})` : ''}` : `Of ${short(shown.head)}, ${ago(shown.at, now)} ago${shown.agent ? `, by ${shown.agent}` : ''}`}
+            {latest ? `The agent’s review${shown.agent ? ` (${shown.agent})` : ''}` : `Of ${short(shown.head)}, ${agoPhrase(shown.at, now)}${shown.agent ? `, by ${shown.agent}` : ''}`}
             {shown.comments.length > 0 ? ` · ${commentsWord(shown.comments.length)} on lines` : ''}
           </span>
           {!latest && <Links link={shown.link} session={shown.session} sessions={sessions} onShowSession={onShowSession} />}
@@ -436,7 +436,7 @@ export function PrReview({ pr, detail, now, yours, sessions, onShowSession, team
           <Icon name="check" size={12} />
           <span>
             You submitted the agent’s review, {submittedWord(read.submitted.state)}
-            {read.submitted.at ? `, ${ago(read.submitted.at, now)} ago` : ''}.
+            {read.submitted.at ? `, ${agoPhrase(read.submitted.at, now)}` : ''}.
           </span>
           {read.submitted.url && (
             <button type="button" className="ca-linkbtn" title="Open your review on GitHub" onClick={() => void openUrl(read.submitted?.url ?? pr.url)}>

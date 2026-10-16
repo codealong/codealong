@@ -16,7 +16,8 @@
 // another; Approve there with your words sends review_pr, the toast says the draft went with its
 // comment, and once GitHub has no draft but your approval of the agent's review, the tab says you
 // submitted it and shows what the agent wrote (pr_agent_reviews, stubbed), the reviews of the
-// latest three commits a click away and a `+` for the rest, an earlier one saying whose and when.
+// latest three commits a click away, each with its age, and a `+` for the rest, which wrap, an
+// earlier one saying whose and when.
 // The file count goes to Changes. The next
 // PR's review didn't finish: it opens on Description, and its Reviews tab says why in red. The
 // third is still being reviewed, so it's held out of what waits on you (prStatus.ts
@@ -280,15 +281,16 @@
       check('Approve sends your words, which go before the draft’s text', sent.verdict === 'approve' && sent.body === 'LGTM once that’s fixed.' && sent.number === draftedNumber, JSON.stringify(sent));
       await until(function () { return /submitting your draft review and its 1 comment/.test(document.body.textContent); }, 3000, 'no toast says the draft went');
       await until(function () { return !!q('.ca-agentrev-submitted'); }, 5000, 'the tab doesn’t say it was submitted');
-      check('then the tab says you submitted it', /^You submitted the agent’s review, approving it/.test(q('.ca-agentrev-submitted').textContent) && q('.ca-prinsp-auto-note').textContent.indexOf('You submitted it, approving it.') === 0, q('.ca-agentrev-submitted').textContent + ' / ' + q('.ca-prinsp-auto-note').textContent);
+      check('then the tab says you submitted it', /^You submitted the agent’s review, approving it, just now\./.test(q('.ca-agentrev-submitted').textContent) && q('.ca-prinsp-auto-note').textContent.indexOf('You submitted it, approving it.') === 0, q('.ca-agentrev-submitted').textContent + ' / ' + q('.ca-prinsp-auto-note').textContent);
       await until(function () { return !!q('.ca-agentrev-body'); }, 5000, 'what the agent wrote never showed');
       check('and what the agent wrote', /The agent’s review \(Claude Code, claude-opus-5-5\) · 2 comments on lines/.test(q('.ca-agentrev-byline').textContent) && /I’d hold this until the first finding is fixed\./.test(q('.ca-agentrev-body > .ca-agentrev-text').textContent), q('.ca-agentrev-byline').textContent);
-      var rounds = function () { return all('.ca-agentrev-rounds [role="radio"]').map(function (b) { return b.textContent; }).join(' | '); };
+      // Each commit with how long ago it was reviewed, quieter.
+      var rounds = function () { return all('.ca-agentrev-rounds [role="radio"]').map(function (b) { var n = b.querySelector('.ca-segctl-note'); return b.firstChild.textContent + (n ? ' (' + n.textContent + ')' : ''); }).join(' | '); };
       var more = function () { return q('.ca-agentrev-more'); };
-      check('the reviews of the latest three commits are a click away, the latest first, and a + the rest', rounds() === '309811a, the latest | 1111111 | 2222222' && !!more() && more().textContent === '+7', rounds() + ' / ' + (more() && more().textContent));
+      check('the reviews of the latest three commits are a click away, the latest first, each with its age, and a + the rest', rounds() === '309811a (5m) | 1111111 (3h) | 2222222 (4h)' && /^The latest, reviewed 5m ago$/.test(q('.ca-agentrev-rounds [role="radio"]').title) && !!more() && more().textContent === '+7', rounds() + ' / ' + (more() && more().textContent));
       press(more());
       await until(function () { return !more(); }, 3000, 'the + showed no more');
-      check('the + shows every commit’s, and takes itself away', rounds() === '309811a, the latest | 1111111 | 2222222 | 3333333 | 4444444 | 5555555 | 6666666 | 7777777 | 8888888 | 9999999', rounds());
+      check('the + shows every commit’s, and takes itself away', rounds() === '309811a (5m) | 1111111 (3h) | 2222222 (4h) | 3333333 (5h) | 4444444 (6h) | 5555555 (7h) | 6666666 (8h) | 7777777 (9h) | 8888888 (10h) | 9999999 (11h)', rounds());
       // Ten don't fit on one row of the panel, so they take more than one, every button inside it.
       var boxes = all('.ca-agentrev-rounds [role="radio"]').map(function (b) { return b.getBoundingClientRect(); });
       var rows = boxes.map(function (r) { return Math.round(r.top); }).filter(function (t, i, ts) { return ts.indexOf(t) === i; }).length;

@@ -172,6 +172,10 @@
   align-items: center;
   gap: 6px;
 }
+.ca-segctl-note {
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
 
 .ca-start-select {
   position: relative;
