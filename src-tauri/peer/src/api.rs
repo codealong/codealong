@@ -512,8 +512,10 @@ pub fn reach(method: &str) -> Option<Reach> {
     REQUESTS.iter().find(|(m, _)| *m == method).map(|(_, r)| *r)
 }
 
-/// The reply a session Codealong runs is writing, as the Mac's acp.rs has it: what it said since
-/// its last tool call, and the tool it's running. Both empty once the turn ends.
+/// The reply a session is writing, ahead of its record: one Codealong runs, as the Mac's acp.rs
+/// has it (what it said since its last tool call, and the tool it's running, both empty once the
+/// turn ends), or a Claude Code session's latest message as its plugin hands it over
+/// (claude/live.rs), with no tool, until the record has it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Stream {

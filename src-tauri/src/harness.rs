@@ -60,6 +60,13 @@ pub trait Adapter: Sync {
         bail!("Codealong can't read {} conversations yet.", self.harness().word())
     }
 
+    /// What the session is writing that its record doesn't have yet, where the harness hands
+    /// Codealong a reply as it's written: the panel shows it at the end of the conversation until
+    /// the record catches up. Asked as a panel opens and as the record grows, so it only looks.
+    fn writing(&self, _session: &Session) -> Option<String> {
+        None
+    }
+
     /// The ways a prompt can reach the session, best first (`send.rs` tries them in order):
     /// typed into its terminal, a new terminal that resumes it, or a way of the harness's own,
     /// a type of its module's that sends by it (`send::Own`). None: Codealong can't send it

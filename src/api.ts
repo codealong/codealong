@@ -1704,7 +1704,8 @@ export async function sessionPending(key: string): Promise<Pending | null> {
   return invoke<Pending | null>('session_pending', { key });
 }
 
-/** The reply a session Codealong runs is writing, when a turn is running. */
+/** The reply a session is writing that its record doesn't have yet: one Codealong runs, or a
+ *  Claude Code session whose plugin hands its replies over (`[sessions] live_replies`). */
 export async function sessionStream(key: string): Promise<HostedStream | null> {
   if (!inTauri) return null;
   return invoke<HostedStream | null>('session_stream', { key });
@@ -1717,7 +1718,8 @@ export async function sessionCancel(key: string): Promise<string> {
   return invoke<string>('session_cancel', { key });
 }
 
-/** The replies sessions Codealong runs write, as they stream. */
+/** Replies as sessions write them, ahead of their records: from sessions Codealong runs, and
+ *  from Claude Code sessions whose plugin hands their replies over. */
 export function onHostedStream(cb: (s: HostedStream) => void): () => void {
   if (!inTauri) return () => {};
   let cancelled = false;

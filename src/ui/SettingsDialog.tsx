@@ -152,7 +152,7 @@ export function SettingsDialog({ section, onSection, focus, usage, training, app
       </>
     );
   } else if (section === 'agents') {
-    pane = <AgentsSection />;
+    pane = <AgentsSection cfg={cfg} disabled={!!broken} onSave={save} />;
   } else if (view === null) {
     pane = error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Reading settings…</p>;
   } else if (section === 'general' && cfg) {

@@ -603,7 +603,8 @@ enum SessionCmd {
     /// For the Codealong plugin's hooks, with the hook's input on stdin. `permission-request`
     /// hands Claude Code's permission request to the app, to be answered from Codealong as well
     /// as the prompt, and prints the answer for Claude Code. It prints nothing, and exits 0,
-    /// when the app isn't running or nobody answers there.
+    /// when the app isn't running or nobody answers there. `message-display` hands the app a
+    /// batch of a reply as Claude Code shows it, and prints nothing.
     #[command(hide = true)]
     Hook { event: String },
 }
@@ -3562,10 +3563,11 @@ fn runs_command(call: &str, args: &[String]) -> bool {
     invoked && words.iter().all(|w| call.contains(w))
 }
 
-/// A hook of the Codealong plugin's (plugin/hooks/hooks.json). Whatever goes wrong it prints
-/// nothing, so Claude Code's own prompt stays the way to answer.
+/// A hook of the Codealong plugin's (plugin/hooks/hooks.json, and the `MessageDisplay` hook
+/// install.rs adds there). Whatever goes wrong it prints nothing, so Claude Code's own prompt
+/// stays the way to answer.
 fn session_hook(event: &str) {
-    if event != "permission-request" {
+    if event != "permission-request" && event != "message-display" {
         return;
     }
     let mut input = String::new();
@@ -3573,13 +3575,19 @@ fn session_hook(event: &str) {
         return;
     }
     let Ok(hook) = serde_json::from_str::<Value>(&input) else { return };
+    // The session's account folder, from the environment Claude Code gives its hooks.
+    let home = std::env::var_os("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| crate::util::home().join(".claude"));
+    // A reply's batch goes to the app as it is: the hook runs without Claude Code waiting on it,
+    // and with no app up there's nobody to show it to (claude/live.rs).
+    if event == "message-display" {
+        let _ = server::ask_within(&server::Request::MessageShown { hook, home: home.to_string_lossy().into_owned() }, std::time::Duration::from_secs(5));
+        return;
+    }
     // Plans are left to the prompt: the app isn't asked about them.
     let Some((asked, record)) = crate::claude::asks::parse(&hook, now_ms()) else { return };
-    // The session's account folder and process, from the environment Claude Code gives its
-    // hooks and its registry: the app watches the registry for the prompt going away, and so
-    // does the hook while no app has it. The app answers none for a session it has no process
-    // of, nor for one it runs itself, which asks through its adapter.
-    let home = std::env::var_os("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| crate::util::home().join(".claude"));
+    // The session's process, from its registry: the app watches the registry for the prompt
+    // going away, and so does the hook while no app has it. The app answers none for a session
+    // it has no process of, nor for one it runs itself, which asks through its adapter.
     let Some(pid) = crate::claude::asks::session_process(&home, &asked.session) else { return };
     let watch = crate::claude::asks::Watch::new(home.clone(), pid, record);
     let ask = || server::ask_permission(&hook, pid, &home, asked.at, watch.from);
@@ -5375,6 +5383,8 @@ mod tests {
         // `hook` fails with a usage error, where an unknown first word would start the app.
         let cli = Cli::try_parse_from(["codealong", "session", "hook", "permission-request"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Hook { ref event } } if event == "permission-request"));
+        let cli = Cli::try_parse_from(["codealong", "session", "hook", "message-display"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Hook { ref event } } if event == "message-display"));
         assert!(is_cli(&["codealong".into(), "session".into(), "hook".into()]));
         let cli = Cli::try_parse_from(["codealong", "todo", "move", "t-1", "--after", "t-2"]).unwrap();
         let Cmd::Todo { cmd: TodoCmd::Move(m) } = cli.cmd else { panic!() };

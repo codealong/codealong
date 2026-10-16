@@ -860,8 +860,8 @@ async fn session_newer(engine: State<'_, engine::Handle>, peers: State<'_, peers
     blocking(move || actions::run(&engine, &peers, api::SESSION_NEWER, &key, actions::params::Newer { after, ..Default::default() })).await?
 }
 
-/// The reply a session Codealong runs is writing, for a panel that opens mid-turn, known by the
-/// key the window has for it.
+/// The reply a session is writing that its record doesn't have yet (actions.rs `stream`), for a
+/// panel that opens mid-turn, known by the key the window has for it.
 #[tauri::command]
 async fn session_stream(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<Option<acp::Stream>, String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());

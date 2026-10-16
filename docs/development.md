@@ -165,7 +165,12 @@ or nothing. It prints nothing and exits 0 when the app isn't running, and an app
 hook fails its unknown subcommand the same quiet way, so Claude Code's own prompt is always
 there to answer. A question (`AskUserQuestion`) is answered with the allow's `updatedInput`,
 its questions with your answers beside them; a plan (`ExitPlanMode`) is left to the prompt,
-since Claude Code drops a plain allow for it.
+since Claude Code drops a plain allow for it. With `[sessions] live_replies` on, the staged copy's
+hooks.json also has an async `MessageDisplay` hook (`install.rs` `LIVE_HOOK`, which the version's
+hash takes in), running the hidden `codealong session hook message-display`: it hands the app
+each batch of a reply as the terminal shows it, which `claude/live.rs` keeps until the record has
+the message. Changing the setting brings the plugin up to date in every account that has
+Codealong's copy (`install::follow_live_replies`).
 
 The command talks to the running app over `codealong.sock` next to the config (JSON lines, one
 request and reply per line, mode 0600), and the app answers with the board its windows have and
@@ -179,7 +184,7 @@ light scan (no git, PRs or visitors).
 | --- | --- |
 | `src-tauri/src/engine.rs`, `throttle.rs` | Caches, file watching (FSEvents), git workers (spaced per worktree, results published in batches), GitHub, publishing the board |
 | `src-tauri/src/board.rs` | The model's rules: status, bays, headlines, open targets (pure, tested) |
-| `src-tauri/src/claude/` | Claude Code and the Claude app's Code sessions, a file a subject: the adapter and reader (`mod.rs`), the registry and the background service's records, transcripts and the conversation one holds, permission modes, the requests the plugin's hook hands the app (`asks.rs`), the app's records, the ways a prompt gets in (the background service's socket, a session's own, the app), starting and forking, names, side conversations, what its Bash tool is running, folder trust, plan usage, and a repo's `WorktreeRemove` hooks and a job's record as a worktree goes (`teardown.rs`) |
+| `src-tauri/src/claude/` | Claude Code and the Claude app's Code sessions, a file a subject: the adapter and reader (`mod.rs`), the registry and the background service's records, transcripts and the conversation one holds, permission modes, the requests the plugin's hook hands the app (`asks.rs`) and the replies its `MessageDisplay` hook does (`live.rs`), the app's records, the ways a prompt gets in (the background service's socket, a session's own, the app), starting and forking, names, side conversations, what its Bash tool is running, folder trust, plan usage, and a repo's `WorktreeRemove` hooks and a job's record as a worktree goes (`teardown.rs`) |
 | `src-tauri/src/codex/` | Codex, in its app and its terminal UI: the adapter and reader (`mod.rs`), rollouts and the thread index, the conversation a rollout holds, its app-server (archiving, renaming, new threads), the socket the app's windows talk on (starting, steering and stopping a turn), its terminal UIs, side conversations and plan usage |
 | `src-tauri/src/opencode.rs`, `antigravity.rs`, `cursor.rs` | Harness adapters: OpenCode's database and background service; Antigravity's app and command line (`agy`), their conversation summaries, transcripts and processes; Cursor's app (its chats in its state database) and command line (`cursor-agent`), their transcripts and processes |
 | `src-tauri/src/acp.rs` | Sessions Codealong runs itself: an Agent Client Protocol adapter process per account, turns, permission requests, the streamed reply |

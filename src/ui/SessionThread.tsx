@@ -515,17 +515,23 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     return p;
   }, []);
 
-  // A session Codealong runs streams its reply before its record has it: shown at the end
-  // until the record catches up at the end of the message.
+  // The reply a session is writing before its record has it, from a session Codealong runs or a
+  // Claude Code session whose plugin hands its replies over (`[sessions] live_replies`,
+  // claude/live.rs): shown at the end until the record catches up. Asked again as the session
+  // goes on (`sessionNewer` below), since the engine drops a message once its record has it, and
+  // a session on another device pushes no batches here. A question waiting on you keeps what
+  // came with it in view.
   const [stream, setStream] = useState<HostedStream | null>(null);
-  useEffect(() => {
-    setStream(null);
-    if (!s.hosted) return;
-    let live = true;
-    sessionStream(s.key)
-      .then((st) => live && setStream(st))
+  const askStream = useCallback((key: string, live: () => boolean) => {
+    sessionStream(key)
+      .then((st) => live() && setStream(st))
       // Only the reply ahead of its record: the record shows it once it's written.
       .catch(() => {});
+  }, []);
+  useEffect(() => {
+    setStream(null);
+    let live = true;
+    askStream(s.key, () => live);
     const off = onHostedStream((st) => {
       if (st.key !== s.key) return;
       if (atEnd.current) anchor.current = { kind: 'end' };
@@ -535,8 +541,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
       live = false;
       off();
     };
-  }, [s.key, s.hosted]);
-  const streaming = s.hosted && s.status === 'working' && stream ? stream : null;
+  }, [s.key, askStream]);
+  const streaming = (s.status === 'working' || s.status === 'needs') && stream ? stream : null;
 
   // Each read from the start: cursors are places in one record, and a job that went on from
   // another session's conversation writes its own at its next prompt, so the view reads from
@@ -624,7 +630,11 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     sessionNewer(s.key, after.current)
       .then((p) => {
         clearNotice(notice);
-        if (!live || read !== reading.current || p.items.length === 0) return;
+        if (!live || read !== reading.current) return;
+        // After the record's read, which may have the message now. A question that waits
+        // changes the status without a line written.
+        askStream(s.key, () => live);
+        if (p.items.length === 0) return;
         after.current = p.after;
         if (atEnd.current) anchor.current = { kind: 'end' };
         const fresh = new Set(p.items.map((it) => it.cursor));
@@ -634,7 +644,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     return () => {
       live = false;
     };
-  }, [s.lastActivity, s.status, s.title, loaded, error, s.key]);
+  }, [s.lastActivity, s.status, s.title, loaded, error, s.key, askStream]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -898,7 +908,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                 <Said
                   item={{ at: now, kind: 'agent', text: streaming.text, failed: false, cursor: 0, n: 0 }}
                   now={now}
-                  label={`${s.account} · writing`}
+                  label={s.status === 'working' ? `${s.account} · writing` : s.account}
                   // Yours on their way are above it.
                   head={showing.length > 0 || heads(headings.last, 'agent', now)}
                   onMenu={onMenu}

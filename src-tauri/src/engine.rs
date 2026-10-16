@@ -2324,6 +2324,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         // so a mistake in it is said, not covered over.
         if !self.passing && !cfg!(test) {
             config::running_on(&self.cfg);
+            crate::install::follow_live_replies(self.cfg.sessions.live_replies);
         }
         self.previews.chrome_profiles = self.cfg.projects.iter().filter_map(|p| Some((p.name.clone(), p.chrome_profile.clone()?))).collect();
         perf::set_enabled(self.cfg.debug.perf_log);

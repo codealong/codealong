@@ -28,8 +28,8 @@ a change to what's sent shows there. What each harness records and accepts is in
    detect.rs finds its accounts), `records`, `targets` (the ways to open a session) and `reader`;
    everything else defaults to saying it can't. What it can answer, by what asks:
    - a session's panel: `conversation` and `conversation_after` (`transcript.rs` pages a file of
-     JSON lines given a line parser), `pending`, `answer`, `deny_saying`, `answer_questions`,
-     `open_calls`;
+     JSON lines given a line parser), `writing` (a reply the harness hands over as it's written,
+     ahead of its record), `pending`, `answer`, `deny_saying`, `answer_questions`, `open_calls`;
    - opening: `targets`, `open` for a way of its own and `app` for its app's name, `app_bundle`
      for the app a way lands in (so it can be brought forward); the engine does `focus`,
      `resume` (`resume_typed`, `Session::resume_command` unless the harness types another) and

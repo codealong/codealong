@@ -584,9 +584,18 @@ fn way(engine: &Handle, c: &Call) -> Result<Value, String> {
     to_value(send::way_in(&engine.board(), &cfg()?, key).map_err(words)?)
 }
 
-/// The reply a session Codealong runs is writing, for a panel that opens mid-turn.
-fn stream(_: &Handle, c: &Call) -> Result<Value, String> {
-    to_value(acp::stream(c.session()?))
+/// The reply a session is writing that its record doesn't have yet: one Codealong runs, or one
+/// whose harness hands it over as it's written (`Adapter::writing`). For a panel that opens
+/// mid-turn, and again as the record grows.
+fn stream(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let key = c.session()?;
+    if let Some(s) = acp::stream(key) {
+        return to_value(Some(s));
+    }
+    // Off the board's lock: a harness may look at the session's record.
+    let Some(s) = engine.read(|b| b.session(key).map(|(_, s)| s.clone())) else { return Ok(Value::Null) };
+    let text = harness::adapter(s.harness).writing(&s);
+    to_value(text.map(|text| api::Stream { key: key.to_string(), text, tool: None }))
 }
 
 /// How long a deny that couldn't carry your words waits for the session to stop waiting on you

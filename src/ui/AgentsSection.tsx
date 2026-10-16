@@ -1,13 +1,15 @@
 // Settings › Agents: puts the `codealong` command on PATH, the Codealong plugin in each Claude
 // Code account and the agent skill in each other account's skills folder, so an agent can read
 // the board and the todo list without anyone opening a terminal. The engine does the work
-// (install.rs); this shows what's in place.
+// (install.rs); this shows what's in place. `[sessions] live_replies` is here too, since it's a
+// hook the plugin carries: the engine brings the plugin up to date as it changes, and the
+// plugin rows are read again while that runs.
 
 import { useEffect, useState } from 'react';
 import { agentsStatus, installAgents } from '../api';
 import { tildePath } from '../format';
 import { HARNESS_WORD } from '../harness';
-import type { AccountSkill, AgentsStatus, PluginState } from '../types';
+import type { AccountSkill, AgentsStatus, Config, PluginState } from '../types';
 import { Button, Icon } from './primitives';
 
 /** The state word for an account's skill row, and whether it needs attention. */
@@ -48,7 +50,11 @@ export function versionText(v: string): string {
   return stamp ? `${base} · ${stamp}` : base;
 }
 
-export function AgentsSection() {
+/** How long after `live_replies` changes the plugin rows are read again: Claude Code takes a few
+ *  seconds an account to update the plugin. */
+const UPDATE_READS_MS = [4000, 12000, 30000];
+
+export function AgentsSection({ cfg, disabled, onSave }: { cfg: Config | null; disabled: boolean; onSave: (next: Config) => Promise<boolean> }) {
   const [status, setStatus] = useState<AgentsStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   // What's being installed right now: 'command', an account's name, or 'all'.
@@ -85,6 +91,12 @@ export function AgentsSection() {
     }
   };
 
+  const setLiveReplies = async (on: boolean) => {
+    if (!cfg) return;
+    if (!(await onSave({ ...cfg, sessions: { continue_after_network_error: true, ...cfg.sessions, live_replies: on } }))) return;
+    for (const ms of UPDATE_READS_MS) setTimeout(() => void load(), ms);
+  };
+
   const cmd = status?.command;
   const shipped = status?.pluginVersion ?? null;
   // Installing for all leaves edited copies, and a plugin installed from elsewhere, alone; each
@@ -104,6 +116,18 @@ export function AgentsSection() {
           Claude Code gets both in the Codealong plugin, with hooks that let you answer its permission prompts and questions from Codealong. Codex, OpenCode, Antigravity and Cursor get the skill.
         </p>
       </div>
+      {cfg && (
+        <fieldset className="ca-settings-fields" disabled={disabled}>
+          <label className="ca-field ca-settings-check">
+            <input type="checkbox" checked={cfg.sessions?.live_replies ?? false} onChange={(e) => void setLiveReplies(e.target.checked)} />
+            <span>Show Claude Code replies as they're written</span>
+            <small>
+              The plugin hands Codealong each paragraph of a reply as the session's terminal shows it, so Codealong has it before Claude Code saves it, and shows what came with a question before you
+              answer it. Terminals then show a reply a paragraph at a time rather than a line at a time. New sessions only.
+            </small>
+          </label>
+        </fieldset>
+      )}
       <div className="ca-settings-cards">
         {status === null && !error && <p className="ca-empty">Checking what's installed…</p>}
         {cmd && (

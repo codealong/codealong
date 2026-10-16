@@ -473,23 +473,34 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   its prompt is up, written only with its result once it's answered, so the keypress path in
   `claude/mod.rs` may not find it there until then; the hook has it.
 - While a turn runs, Claude Code's writer holds back every line from the first assistant line
-  whose `stop_reason` is still null (2.1.291's code). An `AskUserQuestion`'s message stays so
-  until it's answered: its thinking, the text written before the question and the call all
+  whose `stop_reason` is still null (2.1.291's code). An `AskUserQuestion`'s message often stays
+  so until it's answered: its thinking, the text written before the question and the call all
   reach the transcript only with the answer, while the terminal already shows them (seen
-  2026-10-06; a Bash call's prompt didn't hold its line back). So Codealong can't show what the
-  agent wrote with a question that waits: the hook's input and the registry have only the call.
-  The one live copy outside Claude Code is a `MessageDisplay` hook, which gets a message's
-  reply text in batches of finished lines as it streams (at most ten a second), with
-  `session_id`, `transcript_path`, `prompt_id`, `turn_id`, `message_id` (Claude Code's own, not
-  the line's `uuid`), `index`, `final` and `delta`. Hooks are read once when a session starts,
-  and a hook's `if` filters only tool calls, so one can't be turned on for a single running
-  session. Any such hook changes the terminal for every session that has it: Claude Code shows
-  the reply from the hook's batches, so a Markdown paragraph, one line, shows whole once it's
-  finished (checked 2026-10-06 in tmux with an `http` hook from a `--plugin-dir` plugin
-  answering at once: three paragraphs came 1.8 s apart, where without the hook the reply grew a
-  screen line every 0.3 s). So Codealong has no such hook, and the panel only says where to read
-  what's missing (`Pending.unwritten`, set by `asks::written_in`); the comment in `pending`
-  (`claude/mod.rs`) says when to look at the hook again (decided 2026-10-06).
+  2026-10-06; a Bash call's prompt didn't hold its line back). It varies: on 2.1.302 Opus 5.5
+  sessions held it until the answer every time, while a Haiku 5.5 one had the text and the call
+  in its transcript, `stop_reason: "tool_use"`, as its question waited (2026-10-16). The hook's
+  input and the registry have only the call.
+- The one live copy of a reply outside Claude Code is a `MessageDisplay` hook, which gets its
+  text in batches of finished lines as the terminal shows them (at most ten a second), and which
+  Codealong's plugin has with `[sessions] live_replies` on: `claude/live.rs` (module header,
+  `take`, `stream`), `install.rs` (`LIVE_HOOK`). Its input (2.1.302) is `session_id`,
+  `transcript_path`, `cwd`, `scratchpad_dir`, `prompt_id`, `turn_id`, `message_id` (Claude
+  Code's own, not the line's `uuid` nor the API's `msg_…`), `index`, `final` and `delta`; its
+  environment has `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_SESSION_ID`. A message's batches put
+  together are its text block exactly as the transcript writes it, a background subagent's
+  messages fired none, and with each batch's hook a process of its own they arrive out of order
+  (index 1 before 0). Hooks are read once when a session starts, and a hook's `if` filters only
+  tool calls, so one can't be turned on for a single running session. Any such hook changes the
+  terminal for every session that has it: Claude Code shows the reply from the hook's batches,
+  so a Markdown paragraph, one line, shows whole once it's finished, `"async": true` or not
+  (2.1.291 with an `http` hook answering at once, 2026-10-06: three paragraphs 1.8 s apart where
+  the reply otherwise grew a screen line every 0.3 s; 2.1.302 with an async command hook on Opus
+  5.5, 2026-10-16: paragraphs of about 750 characters each appeared whole 1.2 to 1.8 s apart,
+  where the reply otherwise grew a row every 0.15 to 0.5 s). The reply ends at the same time
+  either way, and nothing is slower but a paragraph's start in the terminal; the transcript got
+  the whole reply 4.5 s after the hook had its first paragraph. Hence a setting, off by default
+  (the user chose it on for their accounts, 2026-10-16). Without it the panel only says where to
+  read what a question came with (`Pending.unwritten`, set by `asks::written_in`).
 - An image that came with a prompt is an `image` part (`source: {type: "base64", media_type,
   data}`; PNG, JPEG and WebP seen) in the prompt's own `message.content`, numbered by
   `imagePasteIds` and named `[Image #N]` in the text when pasted into the terminal:

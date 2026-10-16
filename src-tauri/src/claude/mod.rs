@@ -4,7 +4,8 @@
 //! read for the board. Beside it: the live registry and the background service's records
 //! (registry.rs), transcripts (transcript.rs) and the conversation one holds (conversation.rs),
 //! the permission mode a session runs in (mode.rs), the requests the plugin's hook hands the app
-//! (asks.rs), the Claude app's own records (app.rs), the ways a prompt gets in (routes.rs, by
+//! (asks.rs) and the replies its `MessageDisplay` hook hands it as they're written (live.rs), the
+//! Claude app's own records (app.rs), the ways a prompt gets in (routes.rs, by
 //! the background service's socket in daemon.rs, a session's own in peer.rs, or the app), starting,
 //! forking and stopping (start.rs), names (names.rs), side conversations (side.rs), what a
 //! session's Bash tool is running (shells.rs), the folders an account trusts (trust.rs), the skills it
@@ -18,6 +19,7 @@ mod builtin;
 mod conversation;
 pub mod daemon;
 pub mod held;
+pub mod live;
 mod mode;
 mod names;
 pub mod peer;
@@ -236,22 +238,22 @@ impl crate::harness::Adapter for ClaudeCode {
         }
     }
 
+    fn writing(&self, s: &crate::model::Session) -> Option<String> {
+        live::stream(&s.key)
+    }
+
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
         // A request the plugin's hook handed the app is answered through the hook, wherever the
         // session runs (asks.rs).
         if let Some(a) = asks::of_session(&s.id) {
             let mut p = asks::asked_pending(&a);
-            // Claude Code writes the message a question comes in only once it's answered, so what
-            // the agent wrote with it is in its terminal but not yet in the conversation, and the
-            // panel says where to read it. Only questions: another call's line is written while
-            // its prompt is up, maybe a moment after the hook asks. Reading that text live
-            // through a `MessageDisplay` hook was tried and left out (2026-10-06): Claude Code
-            // reads hooks once, as a session starts, so one can't be on only for the sessions
-            // Codealong shows, and any such hook makes every session's terminal show a reply a
-            // paragraph at a time instead of a line at a time (.claude/rules/claude-code.md).
-            // Worth another look if Claude Code writes the message before it asks, or gets a hook
-            // that watches without holding its display.
-            if a.tool == asks::QUESTIONS {
+            // Claude Code often writes the message a question comes in only once it's answered, so
+            // what the agent wrote with it is in its terminal but not yet in the conversation. The
+            // plugin's `MessageDisplay` hook hands it over as it's shown (live.rs), where
+            // `[sessions] live_replies` put the hook in; without it, the panel says where to read
+            // it. Only questions: another call's line is written while its prompt is up, maybe a
+            // moment after the hook asks.
+            if a.tool == asks::QUESTIONS && live::stream(&s.key).is_none() {
                 let page = record(self, ctx, s).ok().and_then(|path| crate::transcript::file_page(&path, conversation_items, None, 40).ok());
                 p.unwritten = page.is_some_and(|page| !asks::written_in(&page.items, &a));
             }

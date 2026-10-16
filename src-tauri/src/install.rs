@@ -15,7 +15,9 @@
 //! is then the one this app answers, needs no network or access to the repo, and updates when
 //! the app does (`claude plugin update` rereads a folder marketplace). A Claude Code account
 //! with the plugin gets no skill copy, and one Codealong made before is taken away: two copies of
-//! the skill would both show.
+//! the skill would both show. With `[sessions] live_replies` on, the staged copy's hooks.json also
+//! has a `MessageDisplay` hook (`LIVE_HOOK`), and turning it on or off brings the plugin up to date
+//! (`follow_live_replies`).
 
 use std::path::{Path, PathBuf};
 
@@ -156,6 +158,9 @@ pub fn copy_state(src: &Path, dst: &Path) -> CopyState {
 /// the plugin carries the skill. Then every skill copy Codealong made is brought up to date,
 /// unless someone edited it. Accounts and folders without either are left as they are.
 pub fn refresh_installed() {
+    // At launch and as `live_replies` changes: one at a time, since each stages the marketplace.
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
     // Run as the app starts, which always has settings; the command with a config.toml that
     // doesn't parse has no accounts to bring up to date.
     let Ok(cfg) = config::current() else { return };
@@ -419,19 +424,43 @@ pub fn marketplace_dir() -> PathBuf {
     config::support_dir().join("plugin-marketplace")
 }
 
+/// The plugin's `MessageDisplay` hook, put in its hooks.json with `[sessions] live_replies` on: it
+/// hands the app each batch of a reply as Claude Code shows it (claude/live.rs). Async, so Claude
+/// Code shows a batch without waiting on the hook; but any such hook has it show a reply a batch,
+/// a paragraph, at a time rather than a line at a time (.claude/rules/claude-code.md), which is
+/// why it's a setting.
+pub const LIVE_HOOK: &str = r#"[{"hooks":[{"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/bin/codealong\" session hook message-display 2>/dev/null || true","async":true,"timeout":15}]}]"#;
+
+fn live_replies() -> bool {
+    config::current().is_ok_and(|c| c.sessions.live_replies)
+}
+
+/// Follows `[sessions] live_replies` as config.toml is read: when it changes, the plugin in each
+/// Claude Code account is brought up to date, its hooks with it (`refresh_installed`). The first
+/// reading only notes it, since the app's launch refreshes the plugin anyway.
+pub fn follow_live_replies(on: bool) {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    static LAST: AtomicU8 = AtomicU8::new(0);
+    let now = if on { 2 } else { 1 };
+    let was = LAST.swap(now, Ordering::Relaxed);
+    if was != 0 && was != now {
+        std::thread::spawn(refresh_installed);
+    }
+}
+
 /// The parts of a marketplace folder that are copied.
 const MARKETPLACE_PARTS: [&str; 2] = [".claude-plugin", "plugin"];
 
 /// The version this build's plugin has once staged: plugin.json's, with a hash of the plugin's
 /// files after a `+`. Claude Code updates a plugin whenever its version string changes (checked
 /// on 2.1.284), so the plugin Codealong installs updates whenever its files do, the skill
-/// included, without anyone bumping the version.
+/// included, without anyone bumping the version, and as `live_replies` adds or takes away its hook.
 pub fn shipped_version() -> Option<String> {
     let src = plugin_source()?;
-    stamped_version(&src, &marketplace_files(&src, skill_source().as_deref()).ok()?)
+    stamped_version(&src, &marketplace_files(&src, skill_source().as_deref()).ok()?, live_replies())
 }
 
-fn stamped_version(src: &Path, files: &[(String, PathBuf)]) -> Option<String> {
+fn stamped_version(src: &Path, files: &[(String, PathBuf)], live: bool) -> Option<String> {
     let base = plugin_version(src)?;
     let mut h = Sha256::new();
     for (rel, from) in files {
@@ -439,6 +468,9 @@ fn stamped_version(src: &Path, files: &[(String, PathBuf)]) -> Option<String> {
         h.update([0]);
         h.update(std::fs::read(from).ok()?);
         h.update([0]);
+    }
+    if live {
+        h.update(LIVE_HOOK.as_bytes());
     }
     let hash = format!("{:x}", h.finalize());
     Some(format!("{}+{}", base.split('+').next().unwrap_or(&base), &hash[..8]))
@@ -448,7 +480,7 @@ fn stamped_version(src: &Path, files: &[(String, PathBuf)]) -> Option<String> {
 /// returns that version.
 fn stage_marketplace() -> Result<String> {
     let src = plugin_source().context("The plugin isn't next to this build of Codealong.")?;
-    stage_marketplace_from(&src, skill_source().as_deref(), &marketplace_dir())
+    stage_marketplace_from(&src, skill_source().as_deref(), &marketplace_dir(), live_replies())
 }
 
 /// The marketplace's files, each by its place in the staged folder and the file it's copied
@@ -485,9 +517,9 @@ fn collect_files(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> Res
     Ok(())
 }
 
-fn stage_marketplace_from(src: &Path, skill: Option<&Path>, dst: &Path) -> Result<String> {
+fn stage_marketplace_from(src: &Path, skill: Option<&Path>, dst: &Path, live: bool) -> Result<String> {
     let files = marketplace_files(src, skill)?;
-    let version = stamped_version(src, &files).context("The plugin has no version in its plugin.json.")?;
+    let version = stamped_version(src, &files, live).context("The plugin has no version in its plugin.json.")?;
     if plugin_version(dst).as_deref() == Some(version.as_str()) {
         return Ok(version);
     }
@@ -514,6 +546,10 @@ fn stage_marketplace_from(src: &Path, skill: Option<&Path>, dst: &Path) -> Resul
             }
         }
     })?;
+    if live {
+        let hook: Value = serde_json::from_str(LIVE_HOOK)?;
+        set(&tmp.join("plugin/hooks/hooks.json"), &|v| v["hooks"]["MessageDisplay"] = hook.clone())?;
+    }
     // The bundle's resources can come without the command's execute bit.
     if let Ok(bins) = std::fs::read_dir(tmp.join("plugin/bin")) {
         use std::os::unix::fs::PermissionsExt;
@@ -949,7 +985,7 @@ mod tests {
         std::fs::write(src.join("skills/codealong/SKILL.md"), "skill").unwrap();
         std::os::unix::fs::symlink("../skills", src.join("plugin/skills")).unwrap();
         let dst = root.join("staged");
-        let v1 = stage_marketplace_from(&src, None, &dst).unwrap();
+        let v1 = stage_marketplace_from(&src, None, &dst, false).unwrap();
         assert!(v1.starts_with("1.0.0+") && v1.len() == "1.0.0+".len() + 8, "{v1}");
         assert_eq!(plugin_version(&dst).as_deref(), Some(v1.as_str()));
         let m: Value = serde_json::from_str(&std::fs::read_to_string(dst.join(".claude-plugin/marketplace.json")).unwrap()).unwrap();
@@ -960,19 +996,45 @@ mod tests {
         assert_eq!(std::fs::metadata(dst.join("plugin/bin/codealong")).unwrap().permissions().mode() & 0o777, 0o755);
         assert!(!dst.join("skills").exists(), "only the marketplace's parts");
         // The same files are the same version; a changed skill is a new one.
-        assert_eq!(stage_marketplace_from(&src, None, &dst).unwrap(), v1);
+        assert_eq!(stage_marketplace_from(&src, None, &dst, false).unwrap(), v1);
         std::fs::write(src.join("skills/codealong/SKILL.md"), "skill, changed").unwrap();
-        let v2 = stage_marketplace_from(&src, None, &dst).unwrap();
+        let v2 = stage_marketplace_from(&src, None, &dst, false).unwrap();
         assert!(v2 != v1 && v2.starts_with("1.0.0+"));
         assert_eq!(plugin_version(&dst).as_deref(), Some(v2.as_str()));
         // The bundle's plugin has no skill of its own: the app's copy goes in.
         std::fs::remove_file(src.join("plugin/skills")).unwrap();
-        let v3 = stage_marketplace_from(&src, Some(&src.join("skills/codealong")), &dst).unwrap();
+        let v3 = stage_marketplace_from(&src, Some(&src.join("skills/codealong")), &dst, false).unwrap();
         assert_eq!(v3, v2, "the same files, whichever way they came");
         std::fs::remove_dir_all(&dst).unwrap();
-        stage_marketplace_from(&src, Some(&src.join("skills/codealong")), &dst).unwrap();
+        stage_marketplace_from(&src, Some(&src.join("skills/codealong")), &dst, false).unwrap();
         assert_eq!(std::fs::read_to_string(dst.join("plugin/skills/codealong/SKILL.md")).unwrap(), "skill, changed");
         assert!(!dst.with_extension("new").exists());
+    }
+
+    #[test]
+    fn live_replies_add_the_message_display_hook_and_a_new_version() {
+        let root = crate::fixtures::scratch("stage-live");
+        let src = root.join("repo");
+        for d in [".claude-plugin", "plugin/.claude-plugin", "plugin/hooks"] {
+            std::fs::create_dir_all(src.join(d)).unwrap();
+        }
+        std::fs::write(src.join(".claude-plugin/marketplace.json"), r#"{"name":"codealong","plugins":[{"name":"codealong","source":"./plugin","version":"1.0.0"}]}"#).unwrap();
+        std::fs::write(src.join("plugin/.claude-plugin/plugin.json"), r#"{"name":"codealong","version":"1.0.0"}"#).unwrap();
+        std::fs::write(src.join("plugin/hooks/hooks.json"), r#"{"hooks":{"PermissionRequest":[{"matcher":"","hooks":[]}]}}"#).unwrap();
+        let dst = root.join("staged");
+        let hooks = || -> Value { serde_json::from_str(&std::fs::read_to_string(dst.join("plugin/hooks/hooks.json")).unwrap()).unwrap() };
+        let off = stage_marketplace_from(&src, None, &dst, false).unwrap();
+        assert!(hooks()["hooks"].get("MessageDisplay").is_none());
+        let on = stage_marketplace_from(&src, None, &dst, true).unwrap();
+        assert_ne!(on, off, "Claude Code updates a plugin only for a new version");
+        let h = hooks();
+        assert!(h["hooks"]["PermissionRequest"].is_array(), "the plugin's own hooks stay");
+        let hook = &h["hooks"]["MessageDisplay"][0]["hooks"][0];
+        assert_eq!(hook["async"], Value::Bool(true));
+        assert!(hook["command"].as_str().unwrap().contains("session hook message-display"));
+        // Off again: the hook goes, and the version is the first one again.
+        assert_eq!(stage_marketplace_from(&src, None, &dst, false).unwrap(), off);
+        assert!(hooks()["hooks"].get("MessageDisplay").is_none());
     }
 
     #[test]

@@ -359,11 +359,18 @@ pub struct SessionsCfg {
     /// Files from before it have none: on.
     #[serde(default = "yes")]
     pub resume_for_any_session: bool,
+    /// Claude Code sessions hand Codealong each batch of a reply as their terminal shows it (the
+    /// plugin's `MessageDisplay` hook, install.rs `LIVE_HOOK`), so the panel shows a reply as it's
+    /// written, and what came with a question before it's answered (claude/live.rs). Their
+    /// terminals then show a reply a paragraph at a time, as the hook is handed it. Only sessions
+    /// started after it's on: Claude Code reads hooks as a session starts. Off until turned on.
+    #[serde(default)]
+    pub live_replies: bool,
 }
 
 impl Default for SessionsCfg {
     fn default() -> Self {
-        SessionsCfg { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true }
+        SessionsCfg { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, live_replies: false }
     }
 }
 
@@ -1503,7 +1510,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), or \"round-robin\".\n";
-const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n";
+const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that, failing checks and\n# conflicts.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own
@@ -1935,6 +1942,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["sessions"]["continue_after_restart"], Value::from(cfg.sessions.continue_after_restart));
         set_value(&mut doc["sessions"]["resume_for_sessions_it_started"], Value::from(cfg.sessions.resume_for_sessions_it_started));
         set_value(&mut doc["sessions"]["resume_for_any_session"], Value::from(cfg.sessions.resume_for_any_session));
+        set_value(&mut doc["sessions"]["live_replies"], Value::from(cfg.sessions.live_replies));
     }
 
     // The same: only a file that has the table or turns reviews on gets it.
@@ -2364,6 +2372,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("continue_after_restart = {}\n", cfg.sessions.continue_after_restart));
         s.push_str(&format!("resume_for_sessions_it_started = {}\n", cfg.sessions.resume_for_sessions_it_started));
         s.push_str(&format!("resume_for_any_session = {}\n", cfg.sessions.resume_for_any_session));
+        s.push_str(&format!("live_replies = {}\n", cfg.sessions.live_replies));
     }
     if cfg.reviews != ReviewsCfg::default() {
         s.push('\n');
@@ -2508,7 +2517,7 @@ mod tests {
                     members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into() }, GroupMemberCfg { account: "codex".into(), model: String::new() }],
                 }],
             },
-            sessions: SessionsCfg { continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false },
+            sessions: SessionsCfg { continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, live_replies: true },
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), other_harness: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
@@ -3015,6 +3024,19 @@ mod tests {
         assert!(out.contains("[sessions]\ncontinue_after_network_error = true\ncontinue_after_restart = true\nresume_for_sessions_it_started = false"), "{out}");
         assert_eq!(parse(&out).unwrap(), off);
         assert_eq!(parse(&render(&off)).unwrap(), off);
+    }
+
+    #[test]
+    fn live_replies_are_off_until_the_file_turns_them_on() {
+        assert!(!toml::from_str::<Config>("").unwrap().sessions.live_replies);
+        let older: Config = toml::from_str("[sessions]\ncontinue_after_restart = false\n").unwrap();
+        assert!(!older.sessions.live_replies);
+        let mut on = full();
+        on.sessions.live_replies = true;
+        let out = with_config(&render(&full()), &on).unwrap();
+        assert!(out.contains("\nlive_replies = true\n"), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        assert_eq!(parse(&render(&on)).unwrap(), on);
     }
 
     #[test]

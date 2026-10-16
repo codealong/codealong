@@ -111,6 +111,10 @@ pub enum Request {
         #[serde(default)]
         from: Option<u64>,
     },
+    /// A batch of a reply as Claude Code shows it, from the plugin's `MessageDisplay` hook, its
+    /// input as the hook got it, with the session's account folder (claude/live.rs). The reply is
+    /// empty: the hook doesn't wait.
+    MessageShown { hook: Value, home: String },
     /// A command an agent asks to run in a terminal of yours: the connection is held until you
     /// answer it, and the reply says how (terminal.rs `reply`). A request whose command goes first
     /// goes from the windows.
@@ -281,6 +285,10 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
             Err(e) => Reply::err(crate::util::words(e)),
         },
         Request::Canvas { project, op } => answered(crate::canvas::ask(app, project, op)),
+        Request::MessageShown { hook, home } => {
+            message_shown(app, &hook, &home);
+            Reply::ok(Value::Null)
+        }
         // Held on their connection instead (`connection`).
         Request::PermissionAsk { .. } | Request::TerminalAsk { .. } => Reply::ok(Value::Null),
         Request::TerminalRuns { id: Some(id), .. } => answered(crate::terminal::status(&id).map_err(crate::util::words)),
@@ -312,6 +320,20 @@ fn hold_permission_ask(engine: &Handle, hook: &Value, pid: Option<u32>, home: Op
     let mut watch = crate::claude::asks::Watch::new(account.home_path(), pid, record);
     watch.from = from.unwrap_or(watch.from);
     crate::claude::asks::hold(out, asked, watch, &|| engine.hosted_changed());
+}
+
+/// Takes a batch of a reply from the plugin's `MessageDisplay` hook for a session of an account
+/// config.toml lists, and tells this Mac's windows what it's writing when that changed
+/// (claude/live.rs); a linked device asks for it as it reads the session.
+fn message_shown(app: &tauri::AppHandle, hook: &Value, home: &str) {
+    use tauri::Emitter;
+    let Ok(cfg) = crate::config::current() else { return };
+    let Some(account) = crate::claude::asks::account_for(&cfg, std::path::Path::new(home)) else { return };
+    let Some(id) = hook.get("session_id").and_then(Value::as_str) else { return };
+    let key = crate::model::Session::key_for(crate::model::Harness::Claude, &account.name, id);
+    crate::claude::live::take(&key, hook, crate::util::now_ms(), &|text| {
+        let _ = app.emit("hosted-stream", crate::acp::Stream { key: key.clone(), text, tool: None });
+    });
 }
 
 /// Holds a command's request to run in your terminal until you answer it (terminal.rs). One that
@@ -542,6 +564,8 @@ mod tests {
         assert!(matches!(stop, Request::Run { ref name, ref params, from: None, .. } if name == "session-cancel" && params.is_null()));
         let show = serde_json::to_string(&Request::Show { reveal: serde_json::json!({"kind": "session", "laneId": "l", "key": "claude:claude:abc"}) }).unwrap();
         assert!(show.contains(r#""method":"show""#) && show.contains(r#""laneId":"l""#), "{show}");
+        let shown = serde_json::to_string(&Request::MessageShown { hook: serde_json::json!({ "index": 0 }), home: "/h/.claude".into() }).unwrap();
+        assert_eq!(shown, r#"{"method":"message-shown","hook":{"index":0},"home":"/h/.claude"}"#);
         let reply: Reply = serde_json::from_str(r#"{"ok":false,"error":"no"}"#).unwrap();
         assert!(!reply.ok && reply.error.as_deref() == Some("no"));
     }

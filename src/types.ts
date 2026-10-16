@@ -23,6 +23,10 @@ export interface SessionsCfg {
   /** The same for any session's message, the one above being part of it while it's on (send.rs
    *  `wakes`). Files from before it have none: on. */
   resume_for_any_session?: boolean;
+  /** Claude Code sessions hand Codealong a reply as their terminal shows it (the plugin's
+   *  `MessageDisplay` hook), so the panel shows it as it's written; their terminals then show a
+   *  reply a paragraph at a time. New sessions only. Files from before it have none: off. */
+  live_replies?: boolean;
 }
 
 /** A turn a lost connection ended (peer/src/model.rs `ConnectionLost`). */
@@ -2238,7 +2242,8 @@ export interface SideKept {
   answering?: boolean;
 }
 
-/** The reply a session Codealong runs is writing (acp.rs). */
+/** The reply a session is writing, ahead of its record: one Codealong runs (acp.rs), or a Claude
+ *  Code session whose plugin hands it over (claude/live.rs), which has no tool. */
 export interface HostedStream {
   key: string;
   /** The reply so far since its last tool call; empty when there's none. */
