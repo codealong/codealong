@@ -170,6 +170,10 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   `read -t`, which macOS's `/bin/sh` has as bash 3.2 but not as dash, which
   `/private/var/select/sh` may name. Run on a code block runs this way too (`runcode.rs`), so a
   block's commands don't land in your shell's history.
+- A napped Ghostty opened a run's tab and ran the command, then didn't answer within the minute
+  (2026-10-15): the run is started once its wrapper has noted itself, whatever the script said,
+  and keeps its folder, which the wrapper needs to note the end and to close the tab: `terminal.rs`
+  (`start`). With the folder removed, that tab waited for Return for good.
 - macOS's `/bin/sh` runs as the shell `/private/var/select/sh` names (`bash` here), and that's the
   name the kernel gives the process (`ps -o ucomm`), not `sh`.
 - An agent's sandbox may keep its command from looking at your processes or signalling them (a

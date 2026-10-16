@@ -9,7 +9,7 @@
 mod ghostty;
 mod iterm;
 #[cfg(test)]
-mod stage;
+pub(crate) mod stage;
 mod terminal_app;
 mod tmux;
 

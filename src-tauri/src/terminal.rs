@@ -397,8 +397,14 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
     let place = crate::launch::Placement { new_terminal: apps.new_terminal, near: &near, behind: false, label: label.as_deref() };
     let env = [(ENV.to_string(), d.to_string_lossy().into_owned())];
     if let Err(e) = crate::launch::terminal_run(&apps.terminal_id, place, cwd, TYPED, &env) {
-        let _ = std::fs::remove_dir_all(&d);
-        return Err(e);
+        // A terminal can open the tab and run the line without answering in time (a napping
+        // Ghostty took over a minute): once the wrapper has noted itself the command runs, and the
+        // wrapper notes its end and closes the tab through this folder. Otherwise the folder goes,
+        // and a tab that opens later has no wrapper to run.
+        if !d.join(PIDS).exists() {
+            let _ = std::fs::remove_dir_all(&d);
+            return Err(e);
+        }
     }
     if reports {
         to_report().push(run.id.clone());
@@ -1310,6 +1316,36 @@ mod tests {
         for id in ["run-linked", "run-missing", "run-../forged", "../forged", "/tmp", "run-", "abc123", "run-a/b"] {
             assert!(run_folder(id).is_err(), "{id}");
         }
+        TEST_RUNS.with(|r| *r.borrow_mut() = None);
+    }
+
+    /// A terminal that opened the tab but didn't answer in time still has the run once its wrapper
+    /// noted itself: the command runs there, and the wrapper needs the folder to note the end and
+    /// close the tab. One whose wrapper hadn't started is a run that didn't start.
+    #[test]
+    fn a_tab_that_opened_without_its_terminal_answering_still_has_its_run() {
+        let scratch = crate::fixtures::scratch("terminal-late-tab");
+        TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
+        let apps = AppNames { terminal_id: "ghostty".into(), new_terminal: crate::config::NewTerminal::Window, ..Default::default() };
+        let begin = |wrapper_started: bool| {
+            let (id, at) = new_id();
+            let asked = Asked { id, ask: Ask { session: "k".into(), command: "true".into(), cwd: scratch.to_path_buf() }, at };
+            let answer = move |sent: &crate::launch::stage::Sent| {
+                let folder = sent.args.iter().find_map(|a| a.strip_prefix(&format!("{ENV}="))).expect("the run's folder");
+                if wrapper_started {
+                    std::fs::write(Path::new(folder).join(PIDS), "200 100\n").unwrap();
+                }
+                Err("osascript timed out".to_string())
+            };
+            let played = crate::launch::stage::play(Default::default(), answer, || start(&asked, &apps, &[], "A test", false));
+            (asked.id, played.got)
+        };
+        let (id, got) = begin(true);
+        assert_eq!(got.unwrap().id, id);
+        assert!(dir(&id).join(RECORD).exists());
+        let (id, got) = begin(false);
+        assert!(got.unwrap_err().to_string().contains("didn't answer within a minute"));
+        assert!(!dir(&id).exists());
         TEST_RUNS.with(|r| *r.borrow_mut() = None);
     }
 
