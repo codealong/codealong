@@ -1335,7 +1335,7 @@ export function Quick() {
       move(e.key === 'ArrowDown' ? 1 : -1);
       return;
     }
-    if (!e.metaKey && (emacsCtrl(e, 'n') || emacsCtrl(e, 'p'))) {
+    if (!cmd(e) && (emacsCtrl(e, 'n') || emacsCtrl(e, 'p'))) {
       e.preventDefault();
       move(e.key === 'n' ? 1 : -1);
     }
