@@ -866,7 +866,7 @@ fn snapshot_engine(with_github: bool, with_usage: bool) -> Engine {
         for answer in github::read_once(&slugs) {
             e.github.take(answer, &e.seeds, Now::real());
         }
-        e.github.took_all();
+        e.github.took_all(slugs);
         lap("github", &t);
     }
     let answers = parallel_map(e.team_file_asks(), |ask| Some(teamfile::read(&ask)));

@@ -1,6 +1,7 @@
 // Checks the PRs view while GitHub's PRs are on their way (boardLists.ts `prsRead`): with none of
 // the project's PRs come yet, it says it's reading them, the mark at work and a tip under it, the
-// board taking the panel's room, rather than that there are none; with GitHub's notice up it says
+// board taking the panel's room and the sidebar giving no count, rather than that there are none;
+// with GitHub's notice up it says
 // why instead, the panel back; and once they come it lists them.
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/prs-reading-check.js
 (function () {
@@ -8,6 +9,12 @@
   var json = function (file) { return fetch(file).then(function (r) { return r.json(); }); };
   var rows = function () { return all('[role="listbox"] [role="option"]').length; };
   var emit = function (board, over) { window.__emit('board', Object.assign({}, board, over)); };
+  // The count beside PRs in the sidebar's views, '' for none.
+  var prCount = function () {
+    var nav = all('.ca-side .ca-nav').filter(function (b) { var label = b.querySelector('.ca-nav-label'); return label && label.textContent === 'PRs'; })[0];
+    var count = nav && nav.querySelector('.ca-nav-count');
+    return count ? count.textContent : '';
+  };
 
   say('prs reading check: waiting for the PRs view');
   json('./board.json')
@@ -35,6 +42,7 @@
             check('not that there are none', !document.querySelector('.ca-board-empty'), text('.ca-board-empty'));
             check('and the panel gives the board its room', !document.querySelector('.ca-insp'));
             check('the header keeps the project', text('.ca-projswitch-name') === project, text('.ca-projswitch-name'));
+            check('and the sidebar counts no PRs, rather than none', prCount() === '', prCount());
             // GitHub can't be asked: waiting won't bring them, so it says why.
             emit(real, Object.assign({}, unread, { notices: others.concat([{ key: 'github', title: 'Signed out of GitHub', text: 'Signed out of GitHub: run gh auth login.' }]) }));
             return until(function () { return !document.querySelector('.ca-board-loading'); }, 5000);
@@ -48,6 +56,7 @@
               if (listed > 0) check('once they come the view lists them', rows() > 0, rows() + ' rows');
               else check('once they come, none, it says so', text('.ca-board-empty') === 'No PRs here right now.', text('.ca-board-empty'));
               check('and the panel is back with them', !!document.querySelector('.ca-insp'));
+              check('and the sidebar counts them', prCount() !== '', prCount());
             });
           });
       });

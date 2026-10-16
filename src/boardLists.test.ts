@@ -48,7 +48,7 @@ import { ALL_PROJECTS } from './quick';
 import { todoItem } from './todos';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
-import type { Lane, Pr, ProjectSummary, Session, SideGlance, TextHit, Todo } from './types';
+import type { Board, Lane, Pr, ProjectSummary, Session, SideGlance, TextHit, Todo } from './types';
 import { familiesOf, helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
 
 const NOW = fx.NOW;
@@ -673,34 +673,40 @@ describe('the PRs view’s lists', () => {
     const own = lane('/r/feature', [], { repoSlug: 'acme/app', branch: 'feature' });
     const searched = lane('/r/web', [], { repoSlug: 'acme/web' });
     const github = { key: 'github', title: 'Signed out of GitHub', text: 'Signed out of GitHub' };
+    const of = (lanes: Lane[], over: Partial<Board>) => fx.board({ lanes, ...over });
 
     it('waits on GitHub’s first poll for a repo only the search for your reviews reads', () => {
-      expect(prsRead(fx.board({ githubPolled: false }), [searched])).toBe('coming');
-      expect(prsRead(fx.board({ githubPolled: true }), [searched])).toBe('read');
+      expect(prsRead(of([searched], { githubPolled: false }), 'Acme')).toBe('coming');
+      expect(prsRead(of([searched], { githubPolled: true }), 'Acme')).toBe('read');
     });
 
     it('waits on a repo read in full until its read comes, whether or not the poll has ended', () => {
-      const asked = fx.board({ githubPolled: true, githubCurrent: { 'acme/app': null } });
-      expect(prsRead(asked, [own])).toBe('coming');
-      expect(prsRead({ ...asked, githubCurrent: { 'acme/app': NOW } }, [own])).toBe('read');
+      expect(prsRead(of([own], { githubPolled: true, githubCurrent: { 'acme/app': null } }), 'Acme')).toBe('coming');
+      expect(prsRead(of([own], { githubPolled: true, githubCurrent: { 'acme/app': NOW } }), 'Acme')).toBe('read');
       // Read before the poll that brings the search has ended: its PRs are in.
-      expect(prsRead(fx.board({ githubPolled: false, githubCurrent: { 'acme/app': NOW } }), [own])).toBe('read');
+      expect(prsRead(of([own], { githubPolled: false, githubCurrent: { 'acme/app': NOW } }), 'Acme')).toBe('read');
       // Any of the project's repos not in yet holds the rest.
-      expect(prsRead({ ...asked, githubCurrent: { 'acme/app': NOW } }, [own, searched])).toBe('read');
-      expect(prsRead({ ...asked, githubPolled: false, githubCurrent: { 'acme/app': NOW } }, [own, searched])).toBe('coming');
+      expect(prsRead(of([own, searched], { githubPolled: true, githubCurrent: { 'acme/app': NOW } }), 'Acme')).toBe('read');
+      expect(prsRead(of([own, searched], { githubPolled: false, githubCurrent: { 'acme/app': NOW } }), 'Acme')).toBe('coming');
+    });
+
+    it('goes by the project shown’s repos, every project’s for all of them', () => {
+      const other = lane('/r/other', [], { project: 'Other', repoSlug: 'acme/other', branch: 'feature' });
+      const board = of([own, other], { githubPolled: true, githubCurrent: { 'acme/app': NOW, 'acme/other': null } });
+      expect(prsRead(board, 'Acme')).toBe('read');
+      expect(prsRead(board, 'Other')).toBe('coming');
+      expect(prsRead(board, ALL_PROJECTS)).toBe('coming');
     });
 
     it('says GitHub is failing rather than waiting while its notice is up', () => {
-      expect(prsRead(fx.board({ githubPolled: false, notices: [github] }), [searched])).toBe('failing');
-      expect(prsRead(fx.board({ githubPolled: true, notices: [github] }), [searched])).toBe('read');
-      expect(prsRead(fx.board({ githubPolled: false, notices: [{ ...github, key: 'config' }] }), [searched])).toBe('coming');
+      expect(prsRead(of([searched], { githubPolled: false, notices: [github] }), 'Acme')).toBe('failing');
+      expect(prsRead(of([searched], { githubPolled: true, notices: [github] }), 'Acme')).toBe('read');
+      expect(prsRead(of([searched], { githubPolled: false, notices: [{ ...github, key: 'config' }] }), 'Acme')).toBe('coming');
     });
 
-    it('waits on nothing for a project with no repo on GitHub, or only another device’s', () => {
-      expect(prsRead(fx.board({ githubPolled: false }), [])).toBe('read');
-      expect(prsRead(fx.board({ githubPolled: false }), [lane('/r/local', [], { repoSlug: null })])).toBe('read');
-      const mini = { name: 'Mini', short: 'abc', color: 'blue' as const, online: true, lastSeen: null };
-      expect(prsRead(fx.board({ githubPolled: false }), [{ ...searched, id: '@abc:/r/web', device: mini }])).toBe('read');
+    it('waits on nothing for a project with no repo on GitHub', () => {
+      expect(prsRead(of([], { githubPolled: false }), 'Acme')).toBe('read');
+      expect(prsRead(of([lane('/r/local', [], { repoSlug: null })], { githubPolled: false }), 'Acme')).toBe('read');
     });
   });
 

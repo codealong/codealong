@@ -1517,7 +1517,7 @@ export function App() {
     label: v.label,
     icon: v.icon,
     kbd: menus.chordKeys(VIEW_CHORDS[v.id]),
-    count: v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : v.id === 'kanban' ? openCardCount : v.id === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openPrCount,
+    count: v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : v.id === 'kanban' ? openCardCount : v.id === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : githubPrs === 'coming' && openPrCount === 0 ? '' : openPrCount,
     badge: v.id === 'prs' && requestedCount > 0 ? requestedCount : undefined,
     badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,
   }));

@@ -462,9 +462,11 @@ impl GhPoll {
         }
     }
 
-    /// The end of the one pass `take` was handed (`--snapshot`), as `Event::PollEnded` ends a
-    /// poll, without asking again: the board then says what GitHub had is all in.
-    pub fn took_all(&mut self) {
+    /// The end of the one pass `take` was handed, which asked about `asked` (`--snapshot`), as
+    /// `Event::PollEnded` ends a poll, without asking again: the board then says what GitHub had
+    /// is all in, and which of the repos it never read (`current`), as a poll's does.
+    pub fn took_all(&mut self, asked: Vec<String>) {
+        self.asked_slugs = asked;
         self.polled |= self.search_answered();
     }
 
@@ -1063,16 +1065,27 @@ mod tests {
 
     #[test]
     fn a_snapshots_one_pass_has_polled_once_its_search_answered() {
-        let seeds = [seed("/r/spark", "sprucehq/spark", "feature")];
-        let pass = |search: Result<Requested, Failure>| {
+        let seeds = [seed("/r/spark", "sprucehq/spark", "feature"), seed("/r/web", "sprucehq/web", "feature")];
+        fn refused<T>() -> Result<T, Failure> {
+            Err(Failure::Other("GitHub didn't answer".into()))
+        }
+        let pass =|search: Result<Requested, Failure>, web: Result<RepoPrs, Failure>| {
             let mut gh = quiet();
             gh.take(github::Answer::Requested(search, None), &seeds, clock());
             gh.take(github::Answer::Repo("sprucehq/spark".into(), Ok(RepoPrs::default()), None), &seeds, clock());
-            gh.took_all();
-            gh.polled()
+            gh.take(github::Answer::Repo("sprucehq/web".into(), web, None), &seeds, clock());
+            gh.took_all(vec!["sprucehq/spark".into(), "sprucehq/web".into()]);
+            gh
         };
-        assert!(pass(Ok(Requested::default())), "everything GitHub had came in the one pass");
-        assert!(!pass(Err(Failure::Other("GitHub didn't answer".into()))), "what waits on you isn't known");
+        let all = pass(Ok(Requested::default()), Ok(RepoPrs::default()));
+        assert!(all.polled(), "everything GitHub had came in the one pass");
+        assert!(all.current().values().all(Option::is_some));
+        assert!(!pass(refused(), Ok(RepoPrs::default())).polled(), "what waits on you isn't known");
+        // A repo whose read failed is one asked about and never read, as after a poll.
+        let failed = pass(Ok(Requested::default()), refused());
+        assert!(failed.polled());
+        assert_eq!(failed.current().get("sprucehq/web"), Some(&None));
+        assert!(failed.current()["sprucehq/spark"].is_some());
     }
 
     #[test]
