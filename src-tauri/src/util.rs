@@ -309,19 +309,6 @@ pub(crate) fn local_ms(year: i64, month: i64, day: i64, hour: i64, minute: i64, 
     (secs != -1).then(|| secs as i64 * 1000 + millis)
 }
 
-/// Fills `buf` with random bytes from the kernel.
-pub fn random_bytes(buf: &mut [u8]) {
-    // SAFETY: each writes at most the length it's given into the buffer.
-    #[cfg(target_os = "macos")]
-    unsafe {
-        libc::arc4random_buf(buf.as_mut_ptr().cast(), buf.len())
-    };
-    #[cfg(not(target_os = "macos"))]
-    unsafe {
-        libc::getrandom(buf.as_mut_ptr().cast(), buf.len(), 0)
-    };
-}
-
 /// Names as a sentence lists them, the last after `last` ("and", "or"): "a", "a or b", "a, b
 /// or c".
 pub fn listed(names: &[String], last: &str) -> String {

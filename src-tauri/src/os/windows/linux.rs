@@ -1,5 +1,5 @@
-//! The panels on Linux: the borderless windows `builder` makes, kept over other apps' windows and
-//! on every workspace, through Tauri and GTK. An X11 window manager keeps one stack for every
+//! The windows on Linux. The panels (panel.rs): the borderless windows `builder` makes, kept over
+//! other apps' windows and on every workspace, through Tauri and GTK. An X11 window manager keeps one stack for every
 //! window that's on top and gives the keyboard to whichever window asks, so here there are no
 //! levels, no panel that takes the keyboard while another app stays active, and no notch.
 //! Rectangles are turned into AppKit's way of counting, from the bottom left of the primary
@@ -12,7 +12,8 @@ use ::gtk::gdk::prelude::*;
 use ::gtk::prelude::*;
 use tauri::{LogicalPosition, LogicalSize, Manager, WebviewWindow};
 
-use super::{Config, Level, Top};
+use super::PageView;
+use crate::panel::{Config, Level, Top};
 use crate::geometry::{Rect, Screen};
 
 /// GTK is the main thread's. Off it the caller does nothing, as on macOS; a debug build stops
@@ -208,6 +209,31 @@ fn flipped((x, y, w, h): (f64, f64, f64, f64), main: (f64, f64, f64, f64)) -> Re
 /// Where GDK puts the top left corner of a rectangle counted as AppKit does.
 fn unflipped(r: Rect, main: (f64, f64, f64, f64)) -> (f64, f64) {
     (r.x + main.0, main.1 + main.3 - r.y - r.h)
+}
+
+// ---- What macOS's AppKit and WebKit are asked of any window, which GTK's aren't ----
+
+/// GTK has no first responder to hand back: the page keeps what focus it has.
+pub fn refocus_page(_w: &WebviewWindow, report: impl FnOnce(Option<String>) + Send + 'static) {
+    report(None);
+}
+
+/// WebKitGTK has no drawing side's scrolling tree to read, so the probe has nothing to compare.
+pub fn read_page(_w: &WebviewWindow, _read: impl FnOnce(PageView) + Send + 'static) {}
+
+/// WebKitGTK's pages aren't asked for pictures: Improve Codealong goes without them.
+pub fn picture(_window: &WebviewWindow, _done: impl FnOnce(Option<Vec<u8>>) + Send + 'static) -> bool {
+    false
+}
+
+/// The window manager draws a board window's title bar.
+pub fn overlay_title_bar<'a, R: tauri::Runtime, M: tauri::Manager<R>>(b: tauri::WebviewWindowBuilder<'a, R, M>, _buttons: Option<(f64, f64)>) -> tauri::WebviewWindowBuilder<'a, R, M> {
+    b
+}
+
+/// Linux has no Dock to reopen the app from.
+pub fn reopened(_event: &tauri::RunEvent) -> bool {
+    false
 }
 
 #[cfg(test)]

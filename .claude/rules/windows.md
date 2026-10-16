@@ -122,7 +122,7 @@ under `src-tauri/src/`.
   sizes natively, and so doesn't go onto another app's full-screen Space. It's made on first open
   and hidden on close; its page reads what the latest open asked for as it comes up, and hears
   later opens as `waiting-open`. The shortcut that puts it away gives the keyboard back to the
-  app that had it, by bundle ID (`front::frontmost_other`; NSRunningApplication's
+  app that had it, by bundle ID (`os::apps::frontmost_other`; NSRunningApplication's
   `processIdentifier` needs objc2-app-kit's `libc` feature, which isn't on): `waiting.rs`. It
   has no title bar (an Overlay one with its title hidden): the card's strip is one
   (`src/ui/SessionPanel.tsx` `Hotkeys.titleBar`).

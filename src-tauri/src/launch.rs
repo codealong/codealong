@@ -7,16 +7,11 @@
 //! shell, waiting for that shell, a process's TTY and which terminal it runs under, marks on a
 //! TTY, and focus requests taking turns.
 
-// The AppleScript terminals are macOS's alone, and only its `TERMINALS` lists them.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod ghostty;
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod iterm;
-#[cfg(not(target_os = "macos"))]
 mod linux;
 #[cfg(test)]
 pub(crate) mod stage;
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod terminal_app;
 mod tmux;
 
@@ -28,6 +23,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Result};
 
 use crate::config::NewTerminal;
+use crate::os::{self, open::App, Os};
 use crate::procs;
 use crate::util::{home, sh_quote};
 
@@ -38,7 +34,7 @@ use crate::util::{home, sh_quote};
 /// asks of a terminal; what one can't do has a default that says so. Nothing outside those
 /// modules branches on which terminal it is: it asks `terminal_app(profile)` for the one
 /// config.toml names, or `terminal_kind(pid)` for the one a session's process runs under. A new
-/// terminal is a module, a variant of `HostKind` and a line in `TERMINALS`.
+/// terminal is a module, a variant of `HostKind` and a line in `terminals()`.
 ///
 /// A tab is addressed by what its terminal finds it again by (`at`): Ghostty's terminal id, the
 /// TTY in iTerm2 and Terminal, a tmux pane.
@@ -159,21 +155,23 @@ fn app_installed(app: &str) -> bool {
     [PathBuf::from("/Applications"), home().join("Applications")].iter().any(|d| d.join(app).is_dir())
 }
 
-/// Every terminal: the profiles first, in the order Settings lists them and a new config.toml
-/// picks the first one installed.
-#[cfg(target_os = "macos")]
-pub static TERMINALS: &[&dyn Terminal] = &[&ghostty::Ghostty, &iterm::ITerm2, &terminal_app::AppleTerminal, &tmux::Tmux];
-/// On Linux, the desktop's emulator through tmux, and tmux sessions run in any terminal.
-#[cfg(not(target_os = "macos"))]
-pub static TERMINALS: &[&dyn Terminal] = &[&linux::LinuxTerminal, &tmux::Tmux];
+/// Every terminal on this OS: the profiles first, in the order Settings lists them and a new
+/// config.toml picks the first one installed. On macOS the apps Codealong scripts; on Linux the
+/// desktop's emulator through tmux. tmux sessions run in any terminal.
+pub fn terminals() -> &'static [&'static dyn Terminal] {
+    match os::current() {
+        Os::MacOs => &[&ghostty::Ghostty, &iterm::ITerm2, &terminal_app::AppleTerminal, &tmux::Tmux],
+        Os::Linux => &[&linux::LinuxTerminal, &tmux::Tmux],
+    }
+}
 
 fn terminal(kind: HostKind) -> &'static dyn Terminal {
-    *TERMINALS.iter().find(|t| t.kind() == kind).expect("every kind has a terminal")
+    *terminals().iter().find(|t| t.kind() == kind).expect("every kind has a terminal")
 }
 
 /// The terminals `[apps] terminal` can name, each with its profile.
 pub fn profiles() -> impl Iterator<Item = (&'static str, &'static dyn Terminal)> {
-    TERMINALS.iter().filter_map(|t| Some((t.profile()?, *t)))
+    terminals().iter().filter_map(|t| Some((t.profile()?, *t)))
 }
 
 /// The terminal a profile names.
@@ -198,7 +196,7 @@ pub fn default_terminal() -> &'static str {
 
 /// The names of the terminals that can do something, as a sentence lists them.
 fn terminals_that(can: impl Fn(&dyn Terminal) -> bool) -> String {
-    crate::util::listed(&TERMINALS.iter().filter(|t| can(**t)).map(|t| t.name().to_string()).collect::<Vec<_>>(), "or")
+    crate::util::listed(&terminals().iter().filter(|t| can(**t)).map(|t| t.name().to_string()).collect::<Vec<_>>(), "or")
 }
 
 /// The profiles `[apps] terminal` takes, as config.toml writes them, for messages.
@@ -521,7 +519,7 @@ pub fn terminal_focus_session(profile: &str, pid: u32, title: &str, cwd: &Path) 
     };
     // Asked before the tab is raised: `follow` is for an app that wasn't the active one then.
     // Which app the tab is in is known only once it's found (a tmux session's is its client's).
-    let behind: Vec<&str> = TERMINALS.iter().filter_map(|t| t.bundle()).filter(|app| !app_active(app)).collect();
+    let behind: Vec<&str> = terminals().iter().filter_map(|t| t.bundle()).filter(|app| !app_active(app)).collect();
     let raised = match terminal_kind(pid) {
         Some(terminal) => terminal.focus_session(profile, pid, &tty, title, cwd)?,
         None => focus_by_title(profile, title, cwd)?,
@@ -593,7 +591,7 @@ fn app_active(app: &str) -> bool {
     if let Some(active) = stage::app_active(app) {
         return active;
     }
-    crate::front::app_active(app)
+    crate::os::apps::is_active(app)
 }
 
 /// Waits for `ready` to say yes. False when `dropped` does first, or `limit` runs out.
@@ -693,7 +691,7 @@ fn not_allowed_why(app: &str) -> String {
 pub fn close_session_terminals(sessions: &[(u32, &Path)]) -> Vec<Result<()>> {
     let mut out: Vec<Option<Result<()>>> = sessions.iter().map(|_| None).collect();
     let kinds: Vec<Option<HostKind>> = sessions.iter().map(|(pid, _)| terminal_kind(*pid).map(|t| t.kind())).collect();
-    for terminal in TERMINALS.iter().filter(|t| t.closes_tabs()) {
+    for terminal in terminals().iter().filter(|t| t.closes_tabs()) {
         let at: Vec<usize> = (0..sessions.len()).filter(|&i| kinds[i] == Some(terminal.kind())).collect();
         if at.is_empty() {
             continue;
@@ -781,7 +779,6 @@ pub enum HostKind {
     ITerm2,
     Terminal,
     Tmux,
-    #[cfg(not(target_os = "macos"))]
     Linux,
 }
 
@@ -817,7 +814,7 @@ fn kind_by(pid: u32, step: impl Fn(u32) -> Option<(u32, String)>) -> Option<Host
     let mut at = pid;
     for _ in 0..16 {
         let (ppid, name) = step(at)?;
-        let kind = TERMINALS.iter().find(|t| t.runs_as(&name)).map(|t| t.kind());
+        let kind = terminals().iter().find(|t| t.runs_as(&name)).map(|t| t.kind());
         if kind.is_some() {
             return kind;
         }
@@ -941,11 +938,11 @@ pub fn pick_by_title(terminals: &[Tab], title: &str, cwd: &Path) -> Option<Strin
 }
 
 pub fn open_url(url: &str) -> Result<()> {
-    procs::open(&[url], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open {url}: {e}"))
+    os::open::url(url, Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open {url}: {e}"))
 }
 
 pub fn reveal(path: &Path) -> Result<()> {
-    procs::open(&["-R", &path.to_string_lossy()], Duration::from_secs(10))
+    os::open::reveal(path, Duration::from_secs(10))
 }
 
 /// Kinds of file that opening runs rather than shows: apps and what installs into macOS, and
@@ -953,37 +950,16 @@ pub fn reveal(path: &Path) -> Result<()> {
 const RUNS_WHEN_OPENED: [&str; 17] = ["app", "command", "tool", "terminal", "sh", "zsh", "bash", "py", "rb", "pl", "jar", "pkg", "mpkg", "prefpane", "saver", "workflow", "action"];
 
 /// What a Linux desktop runs when it opens one: a launcher (`.desktop`) and an AppImage.
-#[cfg(not(target_os = "macos"))]
 const LINUX_RUNS_WHEN_OPENED: [&str; 2] = ["desktop", "appimage"];
 
 /// Whether opening a file would run something: a folder (an app is one), a program, or a kind in
 /// `RUNS_WHEN_OPENED` (and on Linux `LINUX_RUNS_WHEN_OPENED`).
 fn runs_when_opened(path: &Path, folder: bool, mode: u32) -> bool {
     let kind = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
-    #[cfg(not(target_os = "macos"))]
-    if LINUX_RUNS_WHEN_OPENED.contains(&kind.as_str()) {
+    if os::current() == Os::Linux && LINUX_RUNS_WHEN_OPENED.contains(&kind.as_str()) {
         return true;
     }
     folder || mode & 0o111 != 0 || RUNS_WHEN_OPENED.contains(&kind.as_str())
-}
-
-/// Whether a file is a Finder alias, which `open` follows to what it points at as it does a link,
-/// though it's a plain file with any name: the alias flag (`kIsAlias`, 0x8000) in the Finder
-/// flags of its `com.apple.FinderInfo`, bytes 8 and 9 (one to an app is type `fapa`, creator
-/// `MACS`, as Foundation's bookmark files are written on macOS 26).
-#[cfg(target_os = "macos")]
-fn finder_alias(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
-    let mut info = [0u8; 32];
-    let n = unsafe { libc::getxattr(c.as_ptr(), b"com.apple.FinderInfo\0".as_ptr().cast(), info.as_mut_ptr().cast(), info.len(), 0, 0) };
-    n >= 10 && u16::from_be_bytes([info[8], info[9]]) & 0x8000 != 0
-}
-
-/// Linux has no Finder aliases.
-#[cfg(not(target_os = "macos"))]
-fn finder_alias(_path: &Path) -> bool {
-    false
 }
 
 /// Opens a file a conversation names (one an agent sent you, or cites) in the app that opens its
@@ -1004,10 +980,10 @@ pub fn open_file(path: &Path) -> Result<()> {
     let real = std::fs::canonicalize(path).map_err(gone)?;
     let meta = std::fs::metadata(&real).map_err(gone)?;
     let (folder, mode) = (meta.is_dir(), meta.permissions().mode());
-    if runs_when_opened(path, folder, mode) || runs_when_opened(&real, folder, mode) || finder_alias(&real) {
+    if runs_when_opened(path, folder, mode) || runs_when_opened(&real, folder, mode) || os::files::finder_alias(&real) {
         return reveal(path);
     }
-    procs::open(&[&path.to_string_lossy()], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open {name}: {e}"))
+    os::open::url(&path.to_string_lossy(), Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open {name}: {e}"))
 }
 
 /// Opens a `codex://` link in the Codex app that's running. The Codex app ships as
@@ -1017,7 +993,7 @@ pub fn open_codex(url: &str) -> Result<()> {
         let exe = format!("{app}/Contents/MacOS/");
         let running = procs::run("/usr/bin/pgrep", &["-f", &exe], None, Duration::from_secs(3)).is_ok();
         if running {
-            return procs::open(&["-a", app, url], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open Codex: {e}"));
+            return os::open::in_app(App::Named(app), Some(url), Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open Codex: {e}"));
         }
     }
     open_url(url)
@@ -1030,7 +1006,7 @@ pub fn open_antigravity() -> Result<()> {
     if !Path::new(app).is_dir() {
         bail!("Antigravity isn't installed in /Applications.");
     }
-    procs::open(&["-a", app], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open Antigravity: {e}"))
+    os::open::in_app(App::Named(app), None, Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open Antigravity: {e}"))
 }
 
 pub fn codex_thread_url(thread_id: &str) -> String {
@@ -1045,8 +1021,6 @@ pub fn codex_review_url(pr_url: &str) -> String {
 mod tests {
     use super::ghostty::{osascript, terminal_of as ghostty_terminal_of, terminals as ghostty_terminals};
     use super::ghostty::GHOSTTY_FOCUS;
-    #[cfg(target_os = "macos")]
-    use super::ghostty::{GHOSTTY_ACTION, GHOSTTY_CLOSE, GHOSTTY_FIND, GHOSTTY_IN_FRONT, GHOSTTY_KEY, GHOSTTY_LIST, GHOSTTY_NEW, GHOSTTY_TYPE};
     use super::tmux::{client_for as tmux_client_for, pane_for as tmux_pane_for, Client as TmuxClient, Pane as TmuxPane};
     use super::*;
 
@@ -1070,9 +1044,9 @@ mod tests {
         assert!(!runs("/d/report.pdf", 0o644) && !runs("/d/notes", 0o644));
         assert!(runs("/d/build.sh", 0o644) && runs("/d/tool", 0o755) && runs("/d/Setup.PKG", 0o644));
         assert!(runs_when_opened(Path::new("/d/Calculator.app"), true, 0o755));
-        // A Linux desktop's launchers and AppImages run too.
-        assert_eq!(runs("/d/app.desktop", 0o644), cfg!(not(target_os = "macos")));
-        assert_eq!(runs("/d/Tool.AppImage", 0o644), cfg!(not(target_os = "macos")));
+        // A Linux desktop's launchers and AppImages run there.
+        assert!(os::as_if(Os::Linux, || runs("/d/app.desktop", 0o644) && runs("/d/Tool.AppImage", 0o644)));
+        assert!(os::as_if(Os::MacOs, || !runs("/d/app.desktop", 0o644) && !runs("/d/Tool.AppImage", 0o644)));
     }
 
     #[test]
@@ -1084,10 +1058,14 @@ mod tests {
         );
     }
 
+    /// osacompile checks the scripts against each app's dictionary without running them: on a
+    /// Mac with the apps.
     #[test]
-    #[cfg(target_os = "macos")]
     fn terminal_scripts_compile() {
-        // osacompile checks the scripts against each app's dictionary without running them.
+        use super::ghostty::{GHOSTTY_ACTION, GHOSTTY_CLOSE, GHOSTTY_FIND, GHOSTTY_IN_FRONT, GHOSTTY_KEY, GHOSTTY_LIST, GHOSTTY_NEW, GHOSTTY_TYPE};
+        if os::NATIVE != Os::MacOs {
+            return;
+        }
         let ghostty = [GHOSTTY_NEW, GHOSTTY_LIST, GHOSTTY_FOCUS, GHOSTTY_FIND, GHOSTTY_TYPE, GHOSTTY_IN_FRONT, GHOSTTY_CLOSE, GHOSTTY_KEY, GHOSTTY_ACTION].map(String::from).to_vec();
         for (app, scripts) in [("ghostty", ghostty), ("iterm2", iterm::scripts()), ("terminal", terminal_app::scripts())] {
             if !terminal_app(app).unwrap().installed() {
@@ -1563,8 +1541,8 @@ end run
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
     fn knows_which_terminal_a_session_runs_in() {
+        let _mac = os::AsIf::new(Os::MacOs);
         // (pid, parent, name) as the kernel has them, from this Mac.
         let table = [
             (849, 1, "ghostty"),
@@ -1599,8 +1577,8 @@ end run
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
     fn knows_the_terminal_profiles() {
+        let _mac = os::AsIf::new(Os::MacOs);
         assert_eq!(terminal_name("iterm2"), "iTerm2");
         assert_eq!(terminal_name("terminal"), "Terminal");
         assert_eq!(terminal_name("kitty"), "kitty");
@@ -1683,8 +1661,13 @@ end run
             let Some((parent, kernel_name)) = procs::parent_and_name(pid) else { continue };
             // A name cut to 16 characters can end in a space, which `ps` doesn't print.
             assert_eq!((parent, kernel_name.trim_end()), (ppid, name), "pid {pid}");
-            // macOS's `ttys004`, Linux's `pts/3`.
-            let want = (tty.starts_with("tty") || tty.starts_with("pts/")).then(|| Path::new("/dev").join(tty));
+            // macOS names a tab's (`ttys004`) and not its console; Linux every terminal ps names
+            // (`pts/3`, a VM's console `hvc0`), but none (`?`).
+            let named = match crate::os::NATIVE {
+                Os::MacOs => tty.starts_with("tty"),
+                Os::Linux => !tty.starts_with('?'),
+            };
+            let want = named.then(|| Path::new("/dev").join(tty));
             assert_eq!(procs::tty(pid), want, "pid {pid}");
             assert_eq!(runs_under(pid, "ghostty"), runs_under_by(pid, "ghostty", by_ps), "pid {pid}");
             assert_eq!(kind_by(pid, procs::parent_and_name), kind_by(pid, by_ps), "pid {pid}");

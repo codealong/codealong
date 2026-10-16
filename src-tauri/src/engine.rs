@@ -801,7 +801,7 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     std::thread::Builder::new()
         .name("codealong-engine".into())
         .spawn(move || {
-            procs::utility_thread();
+            crate::os::system::utility_thread();
             let back = tx.clone();
             let mut engine = Engine::new(Box::new(emit), tx, board);
             engine.servers = previews::watch(move |servers| back.send(Msg::Servers(servers)).is_ok());
@@ -3825,7 +3825,7 @@ fn spawn_git_workers(back: Sender<Msg>) -> Sender<GitJob> {
         let rx = rx.clone();
         let back = back.clone();
         let _ = std::thread::Builder::new().name(format!("codealong-git-{i}")).spawn(move || {
-            procs::utility_thread();
+            crate::os::system::utility_thread();
             let status = |path: &Path, base: Option<&str>| {
                 let t = Instant::now();
                 let info = git::status(path, base);

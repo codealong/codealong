@@ -1,18 +1,21 @@
-//! The panels on macOS: each a non-activating NSPanel, made from the window Tauri made by swapping
-//! its class, at the level and on the Spaces its `Config` says.
+//! The windows on macOS. The panels (panel.rs): each a non-activating NSPanel, made from the
+//! window Tauri made by swapping its class, at the level and on the Spaces its `Config` says. And
+//! what AppKit and WebKit are asked of any window: a page's focus handed back, what its drawing
+//! side has, a picture of it, the title bar a board window draws under.
 
 use std::cell::OnceCell;
 use std::ffi::CString;
 use std::sync::Mutex;
 
 use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
+use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, NSObjectProtocol, Sel};
 use objc2::{msg_send, sel, ClassType, MainThreadMarker};
-use objc2_app_kit::{NSApplication, NSBackingStoreType, NSColor, NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowLevel, NSWindowOcclusionState, NSWindowStyleMask};
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_app_kit::{NSApplication, NSBackingStoreType, NSColor, NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSView, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowDidBecomeKeyNotification, NSWindowLevel, NSWindowOcclusionState, NSWindowStyleMask};
+use objc2_foundation::{NSNotificationCenter, NSPoint, NSRect, NSSize, NSString};
 use tauri::WebviewWindow;
 
-use super::{Config, Keys, Level, Spaces, Steps, Top};
+use super::PageView;
+use crate::panel::{Config, Keys, Level, Spaces, Steps, Top};
 use crate::geometry::{Rect, Screen};
 
 impl Level {
@@ -448,6 +451,123 @@ pub fn pointer() -> Option<(f64, f64)> {
 /// The mouse's main button is down, whichever app has the click.
 pub fn button_down() -> bool {
     NSEvent::pressedMouseButtons() & 1 != 0
+}
+
+// ---- What AppKit and WebKit are asked of any window ----
+
+fn yes(b: bool) -> &'static str {
+    if b {
+        "yes"
+    } else {
+        "no"
+    }
+}
+
+/// Hands a page its focus again, which makes WebKit ask AppKit afresh whether it's focused and its
+/// window key, once `report` has what AppKit says of the window (caret.rs). On the main thread.
+pub fn refocus_page(w: &WebviewWindow, report: impl FnOnce(Option<String>) + Send + 'static) {
+    with_page(w, move |ns, view| {
+        let Some(mtm) = MainThreadMarker::new() else { return };
+        let first = match ns.firstResponder() {
+            None => "nothing".to_string(),
+            Some(f) if std::ptr::eq(&*f, view) => "the page".to_string(),
+            Some(f) => format!("a {}", f.class().name().to_string_lossy()),
+        };
+        let key = ns.isKeyWindow();
+        report(Some(format!("key window {}, Codealong active {}, first responder {first}", yes(key), yes(NSApplication::sharedApplication(mtm).isActive()))));
+        // Taking the page's focus and handing it back makes WebKit ask whether it's focused.
+        ns.makeFirstResponder(None);
+        ns.makeFirstResponder(Some(view));
+        // And a key window WebKit missed becoming key is said to again, which makes it ask
+        // whether the window is key; AppKit's own state doesn't change.
+        if key {
+            // SAFETY: an AppKit constant, read on the main thread.
+            let name = unsafe { NSWindowDidBecomeKeyNotification };
+            // SAFETY: posting a notification about the window, which is alive and key.
+            unsafe { NSNotificationCenter::defaultCenter().postNotificationName_object(name, Some(ns.as_ref())) };
+        }
+    });
+}
+
+/// What AppKit and WebKit's drawing side say of a page, for the pointer probe (pointer.rs), which
+/// `read` gets on the main thread.
+pub fn read_page(w: &WebviewWindow, read: impl FnOnce(PageView) + Send + 'static) {
+    with_page(w, move |ns, page| {
+        let any: &AnyObject = page;
+        let Some(view) = any.downcast_ref::<NSView>() else { return };
+        // The page's box on the screen, so the pointer can be counted from its top left as the
+        // page counts it.
+        let host = rect(ns.convertRectToScreen(view.convertRect_toView(view.bounds(), None)));
+        let p = NSEvent::mouseLocation();
+        // A testing SPI, so asked for only where WebKit answers to it.
+        let tree: Option<Retained<NSString>> = if page.respondsToSelector(sel!(_scrollingTreeAsText)) {
+            // SAFETY: WKWebView's `_scrollingTreeAsText` takes nothing and returns an NSString;
+            // this is the main thread.
+            unsafe { msg_send![page, _scrollingTreeAsText] }
+        } else {
+            None
+        };
+        let active = MainThreadMarker::new().is_some_and(|mtm| NSApplication::sharedApplication(mtm).isActive());
+        read(PageView { host, pointer: (p.x, p.y), scrolling_tree: tree.map(|t| t.to_string()), window: rect(ns.frame()), active, key: ns.isKeyWindow() });
+    });
+}
+
+/// A picture of a window's page as PNG, at the window's size in points (one pixel a point, so a
+/// prompt's pictures stay small), which `done` gets on the main thread. WebKit draws its own page,
+/// so no screen-recording permission is asked (improve.rs). False when it couldn't be asked.
+pub fn picture(window: &WebviewWindow, done: impl FnOnce(Option<Vec<u8>>) + Send + 'static) -> bool {
+    window.with_webview(move |webview| snapshot(webview.inner() as *const objc2_web_kit::WKWebView, done)).is_ok()
+}
+
+fn snapshot(view: *const objc2_web_kit::WKWebView, done: impl FnOnce(Option<Vec<u8>>) + 'static) {
+    use objc2_foundation::NSNumber;
+    use objc2_web_kit::WKSnapshotConfiguration;
+    // SAFETY: on macOS `inner` is the webview's WKWebView, which lives as long as its window,
+    // and with_webview runs this on the main thread.
+    let (Some(view), Some(mtm)) = (unsafe { view.as_ref() }, MainThreadMarker::new()) else {
+        done(None);
+        return;
+    };
+    let width = view.bounds().size.width;
+    let config = unsafe { WKSnapshotConfiguration::new(mtm) };
+    if width > 0.0 {
+        unsafe { config.setSnapshotWidth(Some(&NSNumber::new_f64(width))) };
+    }
+    // WebKit calls the completion once; the block itself may be called again as far as it knows.
+    let done = std::cell::Cell::new(Some(done));
+    let block = block2::RcBlock::new(move |image: *mut objc2_app_kit::NSImage, _error: *mut objc2_foundation::NSError| {
+        // SAFETY: WebKit hands the completion an NSImage it owns for the call, or null with an error.
+        let png = unsafe { image.as_ref() }.and_then(png_of);
+        if let Some(done) = done.take() {
+            done(png);
+        }
+    });
+    unsafe { view.takeSnapshotWithConfiguration_completionHandler(Some(&config), &block) };
+}
+
+/// An image's bytes as PNG.
+fn png_of(image: &objc2_app_kit::NSImage) -> Option<Vec<u8>> {
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
+    use objc2_foundation::NSDictionary;
+    let tiff = image.TIFFRepresentation()?;
+    let rep = NSBitmapImageRep::imageRepWithData(&tiff)?;
+    let png = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
+    Some(png.to_vec())
+}
+
+/// A board window's title bar: the page draws under it and its buttons over the page, the close
+/// button at `buttons` when given (windows.md).
+pub fn overlay_title_bar<'a, R: tauri::Runtime, M: tauri::Manager<R>>(b: tauri::WebviewWindowBuilder<'a, R, M>, buttons: Option<(f64, f64)>) -> tauri::WebviewWindowBuilder<'a, R, M> {
+    let b = b.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
+    match buttons {
+        Some((x, y)) => b.traffic_light_position(tauri::LogicalPosition::new(x, y)),
+        None => b,
+    }
+}
+
+/// The app was asked to show itself with none of its windows up: its Dock icon clicked.
+pub fn reopened(event: &tauri::RunEvent) -> bool {
+    matches!(event, tauri::RunEvent::Reopen { .. })
 }
 
 #[cfg(test)]

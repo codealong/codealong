@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 use crate::board::{self, LaneSeed};
 use crate::github::{self, Failure, Glance, Points, PrRaw, RepoPrs, Requested, Stamp};
 use crate::model::{Notice, PrState};
-use crate::procs;
 use crate::throttle;
 use crate::util::now_ms;
 
@@ -410,7 +409,7 @@ impl GhPoll {
         let Some(slugs) = self.names.to_ask(seeds.iter().filter_map(|s| s.repo_slug.as_ref()), now) else { return };
         let back = self.back.clone();
         let ask = move || {
-            procs::utility_thread();
+            crate::os::system::utility_thread();
             slugs
                 .into_iter()
                 .map(|slug| {

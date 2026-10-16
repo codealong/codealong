@@ -777,7 +777,7 @@ pub fn as_argument(prompt: &str) -> String {
 /// A random version 4 UUID, the form `--session-id` takes.
 pub fn new_session_id() -> String {
     let mut b = [0u8; 16];
-    crate::util::random_bytes(&mut b);
+    crate::os::system::random_bytes(&mut b);
     uuid_v4(b)
 }
 

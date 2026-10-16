@@ -51,6 +51,7 @@ use serde_json::{json, Value};
 
 use crate::config::support_dir;
 use crate::model::{AppNames, Lane, Session, Status};
+use crate::os::{self, Os};
 use crate::procs;
 use crate::util::{code, now_ms, one_line, sh_quote, tilde, words, DAY_MS};
 
@@ -494,19 +495,15 @@ fi
 }
 
 /// The wrapper's line that runs `$run`, the shell, under `script`, which keeps what it prints, the
-/// shell noting its pid and sourcing the command: macOS's `script` takes the command's words and
-/// exits with its status.
-#[cfg(target_os = "macos")]
+/// shell noting its pid and sourcing the command. macOS's `script` takes the command's words and
+/// exits with its status. util-linux's takes the command as one line, which it gives `$SHELL -c`
+/// (`$run` here, which can read it), and exits with its status only with `-e`; `-f` writes each
+/// output as it comes, as macOS's `-F` does.
 fn under_script() -> String {
-    format!(r#"CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; . "$CODEALONG_RUN_DIR/{COMMAND}"'"#)
-}
-
-/// util-linux's `script` takes the command as one line, which it gives `$SHELL -c` (`$run` here,
-/// which can read it), and exits with its status only with `-e`; `-f` writes each output as it
-/// comes, as macOS's `-F` does.
-#[cfg(not(target_os = "macos"))]
-fn under_script() -> String {
-    format!(r#"CODEALONG_RUN_DIR="$d" SHELL="$run" script -q -f -e -O "$d/{OUTPUT}" -c "exec \"\$SHELL\" -l -i -c 'printf %s \"\$\$\" > \"\$CODEALONG_RUN_DIR/{SHELL}\"; . \"\$CODEALONG_RUN_DIR/{COMMAND}\"'""#)
+    match os::current() {
+        Os::MacOs => format!(r#"CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; . "$CODEALONG_RUN_DIR/{COMMAND}"'"#),
+        Os::Linux => format!(r#"CODEALONG_RUN_DIR="$d" SHELL="$run" script -q -f -e -O "$d/{OUTPUT}" -c "exec \"\$SHELL\" -l -i -c 'printf %s \"\$\$\" > \"\$CODEALONG_RUN_DIR/{SHELL}\"; . \"\$CODEALONG_RUN_DIR/{COMMAND}\"'""#),
+    }
 }
 
 /// How long until a run's tab closes, in words: "a minute", "10 minutes", "an hour".
@@ -1021,10 +1018,12 @@ mod tests {
 
     /// The wrapper's `script` taken out, the shell it would run run straight away (on Linux from
     /// the line its `-c` takes, with `-O <file>` before it).
-    #[cfg(target_os = "macos")]
-    const NO_SCRIPT: (&str, &str) = ("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
-    #[cfg(not(target_os = "macos"))]
-    const NO_SCRIPT: (&str, &str) = ("script -q -f -e", "sh -c 'shift 3; exec \"$SHELL\" -c \"$1\"' script");
+    fn no_script(wrapper: String) -> String {
+        match os::current() {
+            Os::MacOs => wrapper.replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script"),
+            Os::Linux => wrapper.replace("script -q -f -e", "sh -c 'shift 3; exec \"$SHELL\" -c \"$1\"' script"),
+        }
+    }
 
     #[test]
     fn a_progress_line_drawn_over_itself_reads_as_it_ends() {
@@ -1349,7 +1348,6 @@ mod tests {
     /// noted itself: the command runs there, and the wrapper needs the folder to note the end and
     /// close the tab. One whose wrapper hadn't started is a run that didn't start.
     #[test]
-    #[cfg(target_os = "macos")]
     fn a_tab_that_opened_without_its_terminal_answering_still_has_its_run() {
         let scratch = crate::fixtures::scratch("terminal-late-tab");
         TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
@@ -1438,7 +1436,7 @@ mod tests {
         let d = crate::fixtures::scratch("terminal-wrapper");
         std::fs::write(d.join(COMMAND), "printf '%s\\n' \"it's $((40 + 2))\"; shopt -q login_shell && case $- in *i*) echo 'a login shell, interactive';; esac; exit 3\n").unwrap();
         let run = Run { session: "k".into(), session_title: "Fix the 'build'".into(), ..Default::default() };
-        let text = wrapper(&d, &run, Duration::ZERO).replace(NO_SCRIPT.0, NO_SCRIPT.1);
+        let text = no_script(wrapper(&d, &run, Duration::ZERO));
         // sh, in a home of the test's own, so none of your startup files run: a login sh reads
         // ~/.profile, an interactive one $ENV. The test's profile shows it was read.
         let home = d.join("home");
@@ -1467,7 +1465,7 @@ mod tests {
         let d = crate::fixtures::scratch("terminal-wrapper-zsh");
         std::fs::write(d.join(COMMAND), "alias greet='echo hello from an alias'\ngreet\n").unwrap();
         let run = Run { session: "k".into(), session_title: "A test".into(), ..Default::default() };
-        let text = wrapper(&d, &run, Duration::ZERO).replace(NO_SCRIPT.0, NO_SCRIPT.1);
+        let text = no_script(wrapper(&d, &run, Duration::ZERO));
         let home = d.join("home");
         std::fs::create_dir_all(&home).unwrap();
         let out = std::process::Command::new("/bin/sh").arg("-c").arg(&text).env("SHELL", "/bin/zsh").env("HOME", &home).env("ZDOTDIR", &home).output().unwrap();
@@ -1488,7 +1486,7 @@ mod tests {
             let d = crate::fixtures::scratch(name);
             std::fs::write(d.join(COMMAND), "echo ran\n").unwrap();
             let run = Run { session: "k".into(), session_title: "A test".into(), ..Default::default() };
-            let text = wrapper(&d, &run, Duration::from_secs(1)).replace(NO_SCRIPT.0, NO_SCRIPT.1);
+            let text = no_script(wrapper(&d, &run, Duration::from_secs(1)));
             assert!(text.contains("This tab closes in a second, unless you press Return for a shell in it."), "{text}");
             let home = d.join("home");
             std::fs::create_dir_all(&home).unwrap();

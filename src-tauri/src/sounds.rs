@@ -1,9 +1,8 @@
 //! A short sound when something starts to wait on you, to get your attention while you're looking
 //! somewhere else: a session that needs you (it asks you something, waits on a call to allow, or
 //! stopped with an error), a session whose turn ended, or a PR that asks for your review. Each has
-//! its sound in config.toml (`[sounds]`, "" for none): one of macOS's, or one you put in
-//! ~/Library/Sounds, at the volume there. On Linux, one of the freedesktop sound theme's or one
-//! in ~/.local/share/sounds, played through PulseAudio or PipeWire (`paplay`). Notification Center banners are left out on purpose:
+//! its sound in config.toml (`[sounds]`, "" for none): one of the OS's, or one you put in your own
+//! sounds folder, at the volume there (os::sound). Notification Center banners are left out on purpose:
 //! they need a permission, pile up, and say again what the bar's mark and the notch show already
 //! (src/mark.ts). The sound is for when you aren't looking at those.
 //!
@@ -20,11 +19,12 @@
 //!   urgent's.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::barfeed::{BarFeed, Group};
 use crate::config::SoundsCfg;
 use crate::model::Board;
+use crate::os;
 
 /// A session that comes to wait on you this soon after it went back to work is one you're likely
 /// still watching: the turn you just started, or the call you just allowed.
@@ -152,52 +152,9 @@ impl Chimer {
     }
 }
 
-/// The sounds a new config.toml names: a pop and a click, which every Mac has.
-#[cfg(target_os = "macos")]
-pub const DEFAULT_NEEDS_YOU: &str = "Pop";
-#[cfg(target_os = "macos")]
-pub const DEFAULT_YOUR_TURN: &str = "Tink";
-/// On Linux, the freedesktop sound theme's, which desktops install.
-#[cfg(not(target_os = "macos"))]
-pub const DEFAULT_NEEDS_YOU: &str = "message-new-instant";
-#[cfg(not(target_os = "macos"))]
-pub const DEFAULT_YOUR_TURN: &str = "complete";
-
-/// The folders NSSound's `soundNamed:` looks in, in its order: yours, the Mac's, macOS's.
-#[cfg(target_os = "macos")]
-fn folders() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if let Some(home) = dirs::home_dir() {
-        out.push(home.join("Library/Sounds"));
-    }
-    out.extend(["/Library/Sounds", "/Network/Library/Sounds", "/System/Library/Sounds"].map(PathBuf::from));
-    out
-}
-
-/// Yours, then the freedesktop theme's, which is where desktops keep their event sounds.
-#[cfg(not(target_os = "macos"))]
-fn folders() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if let Some(data) = dirs::data_dir() {
-        out.push(data.join("sounds"));
-    }
-    out.extend(["/usr/local/share/sounds", "/usr/share/sounds/freedesktop/stereo"].map(PathBuf::from));
-    out
-}
-
-/// What a sound file can be, by its extension.
-#[cfg(target_os = "macos")]
-const EXTENSIONS: &[&str] = &["aiff", "aif", "aifc", "wav", "caf", "mp3", "m4a", "aac", "au", "snd"];
-#[cfg(not(target_os = "macos"))]
-const EXTENSIONS: &[&str] = &["oga", "ogg", "wav", "flac"];
-
-fn is_sound(p: &Path) -> bool {
-    p.extension().and_then(|x| x.to_str()).is_some_and(|x| EXTENSIONS.contains(&x.to_ascii_lowercase().as_str()))
-}
-
 /// The sounds that can be named in `[sounds]`, by name, sorted, each once.
 pub fn names() -> Vec<String> {
-    names_in(&folders())
+    names_in(&os::sound::folders())
 }
 
 fn names_in(folders: &[PathBuf]) -> Vec<String> {
@@ -207,7 +164,7 @@ fn names_in(folders: &[PathBuf]) -> Vec<String> {
         .flatten()
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| is_sound(p))
+        .filter(|p| os::sound::is_sound(p))
         .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(String::from))
         .collect();
     out.sort_by_key(|n| n.to_lowercase());
@@ -221,56 +178,16 @@ pub fn check(key: &str, name: &str) -> Result<(), String> {
     if name.is_empty() || names().iter().any(|n| n.eq_ignore_ascii_case(name)) {
         return Ok(());
     }
-    // A Linux without the sound theme plays nothing for the defaults rather than refusing every
-    // setting saved.
-    if cfg!(not(target_os = "macos")) && [DEFAULT_NEEDS_YOU, DEFAULT_YOUR_TURN].contains(&name) {
+    // A default the OS may not have (a Linux without the sound theme) plays nothing rather than
+    // refusing every setting saved.
+    let (needs_you, your_turn) = os::sound::defaults();
+    if os::sound::default_may_be_missing() && [needs_you, your_turn].contains(&name) {
         return Ok(());
     }
-    Err(format!("[sounds] {key} is {name:?}, which isn't in {}; use the name of a sound there, or \"\" for none.", folders().iter().map(|p| crate::util::tilde(p)).collect::<Vec<_>>().join(", ")))
+    Err(format!("[sounds] {key} is {name:?}, which isn't in {}; use the name of a sound there, or \"\" for none.", os::sound::folders().iter().map(|p| crate::util::tilde(p)).collect::<Vec<_>>().join(", ")))
 }
 
-/// Plays a sound by its name, at `volume` percent of the Mac's own volume; a sound still playing
-/// starts over. Off the main thread: the first sound after launch waits on macOS's audio to get
-/// going, which took 7 seconds on a busy Mac (load 170, 2026-10-12) and a tenth of one after.
-/// The sound plays on after the thread that started it is gone (checked the same day).
-#[cfg(target_os = "macos")]
-pub fn play(name: &str, volume: u32) -> anyhow::Result<()> {
-    use objc2_app_kit::NSSound;
-    use objc2_foundation::NSString;
-    // A sound by name is one object for the whole app, so two threads don't start it at once.
-    static PLAYING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one = PLAYING.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(sound) = NSSound::soundNamed(&NSString::from_str(name.trim())) else {
-        anyhow::bail!("There's no sound named {:?} in ~/Library/Sounds or macOS's sounds.", name.trim());
-    };
-    sound.stop();
-    sound.setVolume(volume.min(100) as f32 / 100.0);
-    if !sound.play() {
-        anyhow::bail!("macOS didn't play the sound {:?}.", name.trim());
-    }
-    Ok(())
-}
-
-/// Plays the sound's file through PulseAudio or PipeWire, which both answer to `paplay`, at
-/// `volume` percent, and waits for it to end. Off the main thread.
-#[cfg(not(target_os = "macos"))]
-pub fn play(name: &str, volume: u32) -> anyhow::Result<()> {
-    let Some(file) = file_in(&folders(), name.trim()) else {
-        anyhow::bail!("There's no sound named {:?} in ~/.local/share/sounds or the desktop's sounds.", name.trim());
-    };
-    let volume = format!("--volume={}", volume.min(100) * 65536 / 100);
-    crate::procs::run("paplay", &[&volume, &file.to_string_lossy()], None, std::time::Duration::from_secs(10)).map(|_| ())
-}
-
-/// The file of the sound named `name`, the first folder's that has it.
-#[cfg(not(target_os = "macos"))]
-fn file_in(folders: &[PathBuf], name: &str) -> Option<PathBuf> {
-    folders
-        .iter()
-        .filter_map(|d| std::fs::read_dir(d).ok())
-        .flat_map(|entries| entries.filter_map(|e| e.ok()).map(|e| e.path()))
-        .find(|p| is_sound(p) && p.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case(name)))
-}
+pub use crate::os::sound::play;
 
 #[cfg(test)]
 mod tests {
@@ -435,12 +352,13 @@ mod tests {
         for d in [&mine, &macos] {
             std::fs::create_dir_all(d).unwrap();
         }
-        // AIFF on macOS, Ogg on Linux.
-        let e = EXTENSIONS[0];
-        for f in [mine.join("Chirp.wav"), mine.join(format!("glass.{e}")), mine.join("notes.txt"), macos.join(format!("Glass.{e}")), macos.join(format!("Pop.{}", e.to_uppercase()))] {
+        for f in [mine.join("Chirp.wav"), mine.join("glass.aiff"), mine.join("chime.oga"), mine.join("notes.txt"), macos.join("Glass.aiff"), macos.join("Pop.AIFF")] {
             std::fs::write(&f, b"").unwrap();
         }
-        assert_eq!(names_in(&[mine.clone(), macos.clone(), root.join("missing")]), vec!["Chirp", "glass", "Pop"]);
+        let folders = [mine.clone(), macos.clone(), root.join("missing")];
+        // macOS plays AIFF, Linux Ogg; both WAV.
+        assert_eq!(os::as_if(os::Os::MacOs, || names_in(&folders)), vec!["Chirp", "glass", "Pop"]);
+        assert_eq!(os::as_if(os::Os::Linux, || names_in(&folders)), vec!["chime", "Chirp"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 

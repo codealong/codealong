@@ -1076,7 +1076,7 @@ fn send_feeds(st: &mut State, snap: &Snapshot, to: &[String], boards: u64, now: 
 #[allow(clippy::too_many_arguments)]
 fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<PublicKey>, peer_user: Option<String>, addr: Option<IpAddr>, ask_link: Option<Option<String>>, gen: u64) {
     // A person on the other device waits on what comes through here.
-    crate::procs::user_initiated_thread();
+    crate::os::system::user_initiated_thread();
     let Wire { reader, mut writer, set_timeout, close } = wire;
     let close: Arc<dyn Fn() + Send + Sync> = Arc::from(close);
     let Some(me) = inner.me.get() else {
@@ -1271,7 +1271,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Out, running: &Arc<At
             #[cfg(test)]
             inner.requests.fetch_add(1, Ordering::SeqCst);
             let started = std::thread::Builder::new().name("peer-request".into()).spawn(move || {
-                crate::procs::user_initiated_thread();
+                crate::os::system::user_initiated_thread();
                 let reply = match inner.answer(&key, &method, params) {
                     Ok(v) => Msg::Res { id, ok: true, result: Some(v), error: None },
                     Err(e) => Msg::Res { id, ok: false, result: None, error: Some(e) },
@@ -1399,7 +1399,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Out, running: &Arc<At
 
 /// Finds your devices on your tailnet, listens there, and dials the ones not connected.
 fn tailnet_loop(inner: Arc<Inner>, gen: u64) {
-    crate::procs::utility_thread();
+    crate::os::system::utility_thread();
     let mut listener: Option<(IpAddr, u16, std::net::TcpListener)> = None;
     let mut first_seen: HashMap<IpAddr, Instant> = HashMap::new();
     let dialing: Arc<Mutex<HashSet<IpAddr>>> = Arc::new(Mutex::new(HashSet::new()));

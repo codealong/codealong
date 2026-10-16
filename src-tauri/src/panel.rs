@@ -1,28 +1,22 @@
 //! The panels: the one place Codealong talks to the window system about the windows that float
 //! over other apps. The bar, its peek, the quick panel, the sessions kept on the desktop, the
 //! cards pinned there and the lines between them are each a Tauri window made into a panel here:
-//! on macOS a non-activating NSPanel, the only kind macOS puts on another app's full-screen Space
-//! (`appkit`), and on Linux a borderless window kept on top through Tauri and GTK (`gtk`). Here is
+//! on macOS a non-activating NSPanel, the only kind macOS puts on another app's full-screen Space,
+//! and on Linux a borderless window kept on top through Tauri and GTK (os/windows). Here is
 //! how one is made, shown, given the keyboard and has it taken, hidden, and given back its class
 //! before it's destroyed, with the level each floats at (`Level`), which the outline flash.rs
 //! draws goes by too. A window's own module says what kind of panel it is (`Config`) and when
 //! each of these happens; it never reaches AppKit or GTK itself.
 //!
-//! Nearly everything in `appkit` is odd for a reason, found by the plain way failing, and much of
-//! it can only be checked by hand in the running app: `.claude/rules/windows.md` says what was,
-//! when, and what hasn't been yet.
+//! Nearly everything in os/windows/macos.rs is odd for a reason, found by the plain way failing,
+//! and much of it can only be checked by hand in the running app: `.claude/rules/windows.md` says
+//! what was, when, and what hasn't been yet.
 //!
 //! All of it is the main thread's. Off it these functions do nothing and answer nothing, and a
 //! debug build stops to say so (`main_thread`).
 
-#[cfg(target_os = "macos")]
-mod appkit;
-#[cfg(target_os = "macos")]
-pub use appkit::*;
-#[cfg(not(target_os = "macos"))]
-mod gtk;
-#[cfg(not(target_os = "macos"))]
-pub use self::gtk::*;
+// How each is done, on each OS.
+pub use crate::os::windows::*;
 
 use std::time::Duration;
 
@@ -54,7 +48,7 @@ pub enum Level {
     FloatingBar,
     /// The outline round a terminal that came forward on another screen (flash.rs): with the
     /// floating bar. Only macOS draws one.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[allow(dead_code)]
     Outline,
     /// The bar's peek: over the floating bar it opens by.
     Peek,
@@ -121,9 +115,9 @@ pub enum Steps {
 }
 
 /// What kind of panel a window is made into (`make`). GTK's windows take none of it: every one is
-/// on top, and the window manager says which has the keyboard (panel/gtk.rs).
+/// on top, and the window manager says which has the keyboard (os/windows/linux.rs).
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[allow(dead_code)]
 pub struct Config {
     pub keys: Keys,
     /// The level it starts at (`set_level` moves it).

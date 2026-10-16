@@ -62,15 +62,8 @@ pub fn app_db(home: &Path) -> Option<PathBuf> {
     if file_name(home) != ".cursor" {
         return None;
     }
-    Some(home.parent()?.join(APP_DATA).join("User/globalStorage").join(STATE_DB))
+    Some(crate::os::dirs::app_data(home.parent()?, "Cursor", "Cursor").join("User/globalStorage").join(STATE_DB))
 }
-
-/// Where the app keeps its data in your home: macOS's place for an app's files, and on Linux the
-/// config folder, as VS Code does there.
-#[cfg(target_os = "macos")]
-const APP_DATA: &str = "Library/Application Support/Cursor";
-#[cfg(not(target_os = "macos"))]
-const APP_DATA: &str = ".config/Cursor";
 
 /// The command that runs an account's command line: its own, when config.toml gives one.
 pub fn cli_command(account: &AccountCfg) -> &str {
@@ -1543,7 +1536,7 @@ pub fn open_chat(id: &str) -> anyhow::Result<()> {
     let app = crate::detect::app("Cursor.app").ok_or_else(|| anyhow::anyhow!("Cursor isn't installed in Applications."))?;
     let app = app.to_string_lossy().into_owned();
     let link = chat_link(id);
-    procs::open(&["-a", app.as_str(), link.as_str()], Duration::from_secs(10)).map_err(|e| anyhow::anyhow!("Couldn't open Cursor: {e}"))
+    crate::os::open::in_app(crate::os::open::App::Named(&app), Some(&link), Duration::from_secs(10)).map_err(|e| anyhow::anyhow!("Couldn't open Cursor: {e}"))
 }
 
 /// Cursor (`harness::Adapter`): the app's chats, read from its database, and the command line's,
@@ -2034,7 +2027,7 @@ mod tests {
         // The ones it hides are still named.
         assert_eq!(model_names(&db).get("glm-5.2").map(String::as_str), Some("GLM 5.2"));
         let dir = std::env::temp_dir().join(format!("codealong-cursor-models-{}", std::process::id()));
-        let db_path = dir.join(APP_DATA).join("User/globalStorage").join(STATE_DB);
+        let db_path = crate::os::dirs::app_data(&dir, "Cursor", "Cursor").join("User/globalStorage").join(STATE_DB);
         std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
         db.execute("VACUUM INTO ?1", [db_path.to_string_lossy()]).unwrap();
         let listed: Vec<(String, String)> = start_models(&dir.join(".cursor")).into_iter().map(|m| (m.id, m.label)).collect();

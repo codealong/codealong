@@ -207,53 +207,13 @@ fn one_in(capture: &Arc<Mutex<Capture>>, shot: Option<(usize, Attachment)>) {
     settle(capture, false);
 }
 
-/// Asks a window's page for its picture, which `snapshot` reports; false when it couldn't be asked.
-#[cfg(target_os = "macos")]
+/// Asks a window's page for its picture (os::windows), kept as `<name>.png` and reported; false
+/// when it couldn't be asked, as on Linux.
 fn ask_picture(window: &WebviewWindow, i: usize, name: String, capture: Arc<Mutex<Capture>>) -> bool {
-    window.with_webview(move |webview| snapshot(webview.inner() as *const objc2_web_kit::WKWebView, i, name, capture)).is_ok()
-}
-
-/// WebKitGTK's pages aren't asked for pictures, so on Linux the prompt goes without them.
-#[cfg(not(target_os = "macos"))]
-fn ask_picture(_window: &WebviewWindow, _i: usize, _name: String, _capture: Arc<Mutex<Capture>>) -> bool {
-    false
-}
-
-/// Asks the page's view for its picture at the window's size in points (one pixel a point, so a
-/// prompt's pictures stay small), keeps it as `<name>.png`, and reports it.
-#[cfg(target_os = "macos")]
-fn snapshot(view: *const objc2_web_kit::WKWebView, i: usize, name: String, capture: Arc<Mutex<Capture>>) {
-    use objc2::MainThreadMarker;
-    use objc2_foundation::NSNumber;
-    use objc2_web_kit::WKSnapshotConfiguration;
-    // SAFETY: on macOS `inner` is the webview's WKWebView, which lives as long as its window,
-    // and with_webview runs this on the main thread.
-    let (Some(view), Some(mtm)) = (unsafe { view.as_ref() }, MainThreadMarker::new()) else {
-        one_in(&capture, None);
-        return;
-    };
-    let width = view.bounds().size.width;
-    let config = unsafe { WKSnapshotConfiguration::new(mtm) };
-    if width > 0.0 {
-        unsafe { config.setSnapshotWidth(Some(&NSNumber::new_f64(width))) };
-    }
-    let block = block2::RcBlock::new(move |image: *mut objc2_app_kit::NSImage, _error: *mut objc2_foundation::NSError| {
-        // SAFETY: WebKit hands the completion an NSImage it owns for the call, or null with an error.
-        let shot = unsafe { image.as_ref() }.and_then(png_of).and_then(|png| crate::attachments::keep(&png, &format!("{name}.png")).ok()).map(|a| (i, Attachment { name: name.clone(), ..a }));
+    crate::os::windows::picture(window, move |png| {
+        let shot = png.and_then(|png| crate::attachments::keep(&png, &format!("{name}.png")).ok()).map(|a| (i, Attachment { name: name.clone(), ..a }));
         one_in(&capture, shot);
-    });
-    unsafe { view.takeSnapshotWithConfiguration_completionHandler(Some(&config), &block) };
-}
-
-/// An image's bytes as PNG.
-#[cfg(target_os = "macos")]
-fn png_of(image: &objc2_app_kit::NSImage) -> Option<Vec<u8>> {
-    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
-    use objc2_foundation::NSDictionary;
-    let tiff = image.TIFFRepresentation()?;
-    let rep = NSBitmapImageRep::imageRepWithData(&tiff)?;
-    let png = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
-    Some(png.to_vec())
+    })
 }
 
 /// Opens the quick panel for improving Codealong, as the button beside New session and the

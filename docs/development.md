@@ -83,16 +83,24 @@ and `shell`), so sessions in different worktrees can use it at once, and its bui
 home of its own there (`~/run-home`, kept between runs): its own config.toml, sessions and
 socket, and nothing of the Mac's.
 
-Where the two differ, a module keeps both, by `cfg(target_os = "macos")`:
+What Codealong asks of the OS is in `src-tauri/src/os/`. What only one OS can call (AppKit and
+WebKit, GTK, the kernel's own calls) is an area there with a `macos.rs` and a `linux.rs` that give
+the same functions, picked as it's built; that's the only place `cfg(target_os)` decides what's
+compiled, which a test checks. What merely differs, a path or a program to run, goes by
+`os::current()`, so both OSes' ways compile and are tested on either, a test asking as if on the
+other with `os::as_if`:
 
-| macOS | Linux |
-|---|---|
-| `panel/appkit.rs`: non-activating NSPanels at their levels | `panel/gtk.rs`: borderless windows kept on top through Tauri, screens and the pointer from GDK |
-| `procs.rs`: `sysctl` and `proc_pidinfo` | `procs/linux.rs`: `/proc` |
-| Ghostty, iTerm2 and Terminal through AppleScript | `launch/linux.rs`: each new terminal a tmux session, shown in the desktop's terminal emulator |
-| `keychain.rs`: the login keychain | the desktop's Secret Service (`secret-tool`) |
-| `~/Library/Application Support/Codealong`, `Logs`, `Caches` | `~/.config/codealong`, `~/.local/state/codealong`, `~/.cache/codealong` (config.rs) |
-| `sounds.rs`: NSSound | the freedesktop sound theme, through `paplay` |
+| | macOS | Linux |
+|---|---|---|
+| `os/windows/` | non-activating NSPanels at their levels | borderless windows kept on top through Tauri, screens and the pointer from GDK |
+| `os/procs/` | `sysctl` and `proc_pidinfo` | `/proc` |
+| `os/apps/`, `os/outline/` | other apps through NSWorkspace, their icons, the Dock icon, the outline round a window | nothing to do: no app is asked to come forward, and editors are listed by name |
+| `os/system/`, `os/exits/` | Mach's memory figures, QoS classes, App Nap, kqueue | `/proc/meminfo`, nice, pidfds and eventfd |
+| `os/sound/` | NSSound, by name | the freedesktop sound theme, through `paplay` |
+| `os/dirs.rs` | `~/Library/Application Support/Codealong`, `Logs`, `Caches` | `~/.config/codealong`, `~/.local/state/codealong`, `~/.cache/codealong` |
+| `os/open.rs` | `open` | `xdg-open`, and an app's own command started by itself |
+| `os/secrets.rs` | the login keychain (`security`) | the desktop's Secret Service (`secret-tool`) |
+| `launch::terminals()` | Ghostty, iTerm2 and Terminal through AppleScript | `launch/linux.rs`: each new terminal a tmux session, shown in the desktop's terminal emulator |
 
 CI (`.github/workflows/linux.yml`) builds and tests the engine on Linux every four hours, on
 `main`, with warnings as errors; `gh workflow run linux.yml` runs it now (`--ref <branch>` for a
@@ -236,7 +244,8 @@ light scan (no git, PRs or visitors).
 | `src/prLinks.ts`, `src/ui/PrLink.tsx` | Links to PRs in conversations and prompts: the board's PRs by link, and the card a link shows on hover (`pr_card` for a PR the board doesn't list) |
 | `src-tauri/src/chrometabs.rs` | The Chrome tabs a Claude Code session drove through Claude in Chrome, read from its transcript; which profile they're in (the extension's storage, then History); bringing its tab forward by AppleScript, or its last page again in that profile |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
-| `src-tauri/src/panel.rs`, `panel/appkit.rs`, `panel/gtk.rs` | The one AppKit (and on Linux GTK) layer for the windows that float (the bar, its peek, the quick panel, the cards and sessions kept on the desktop, the lines between cards): turning a Tauri window into a non-activating panel and back, what each kind answers about the keyboard, every window's level (`Level`), showing, hiding, taking and handing back the keyboard, frames, screens and the pointer |
+| `src-tauri/src/os/` | Everything asked of macOS or Linux, each area with both OSes' sides (its `mod.rs` header; the Linux table above) |
+| `src-tauri/src/panel.rs`, `os/windows/` | The one AppKit (and on Linux GTK) layer for the windows that float (the bar, its peek, the quick panel, the cards and sessions kept on the desktop, the lines between cards): turning a Tauri window into a non-activating panel and back, what each kind answers about the keyboard, every window's level (`Level`), showing, hiding, taking and handing back the keyboard, frames, screens and the pointer |
 | `src-tauri/src/geometry.rs` | Rectangles on the screen (`Rect`, AppKit's y up) and in a window's page (`PageRect`, y down from its window's top) with the flip between them, the screen a thing is on, and keeping a window on it (pure, tested) |
 | `src-tauri/src/front.rs` | Bringing the main window forward, asking another app to come forward after a panel opened something in it, and whether an app is the active one |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows and has the keyboard only while it shows a session; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |

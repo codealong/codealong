@@ -24,7 +24,7 @@ use tauri::{AppHandle, Emitter, Manager, Window, WindowEvent};
 
 use crate::config::support_dir;
 use crate::geometry::{clamp, screen_at, screen_holding, Rect, Screen};
-use crate::{front, panel};
+use crate::panel;
 
 pub const LABEL: &str = "waiting";
 const MENU_ID: &str = "waiting";
@@ -111,10 +111,8 @@ fn make(app: &AppHandle, state: &Waiting) -> Result<()> {
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
         .visible(false)
         .initialization_script("window.__CODEALONG_WAITING__ = true;");
-    // The card's strip is its title bar on macOS; elsewhere the window manager's stays.
-    #[cfg(target_os = "macos")]
-    let w = w.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
-    let w = w.build()?;
+    // The card's strip is its title bar.
+    let w = crate::os::windows::overlay_title_bar(w, None).build()?;
     let saved = state.frame.lock().ok().and_then(|f| *f);
     let pointer = panel::pointer().and_then(|p| screen_at(p, &panel::screens()));
     if let Some(frame) = panel::frame(&w).and_then(|now| start_frame(saved, now, &panel::screens(), pointer)) {
@@ -156,7 +154,7 @@ pub fn hide(app: &AppHandle, give_back: bool) {
     save(app);
     let before = app.try_state::<Waiting>().and_then(|s| s.before.lock().ok().and_then(|mut b| b.take()));
     if let (true, Some(id)) = (give_back, before) {
-        front::activate(&id);
+        crate::os::apps::activate(&id);
     }
 }
 
@@ -179,7 +177,7 @@ pub fn toggle(app: &AppHandle) {
     }
     if let Some(state) = app.try_state::<Waiting>() {
         if let Ok(mut before) = state.before.lock() {
-            *before = front::frontmost_other();
+            *before = crate::os::apps::frontmost_other();
         }
     }
     open(app, Value::Null);

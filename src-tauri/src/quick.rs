@@ -511,13 +511,17 @@ mod tests {
         let s = parse_shortcut(" cmd+ctrl+k ").unwrap().unwrap();
         assert_eq!((s.mods, s.key), (Modifiers::SUPER | Modifiers::CONTROL, Code::KeyK));
         assert_eq!(parse_shortcut("Alt+`").unwrap().unwrap().key, Code::Backquote);
-        let s = parse_shortcut(crate::config::DEFAULT_QUICK_PANEL).unwrap().unwrap();
+        // Linux's defaults are Ctrl and Alt, since Super is the desktop's.
+        let s = crate::os::as_if(crate::os::Os::Linux, || parse_shortcut(crate::config::default_shortcuts().quick_panel)).unwrap().unwrap();
+        assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::CONTROL, Code::Slash));
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
+        let s = parse_shortcut(crate::config::default_shortcuts().quick_panel).unwrap().unwrap();
         assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Slash));
-        let s = parse_shortcut(crate::config::DEFAULT_WAITING).unwrap().unwrap();
+        let s = parse_shortcut(crate::config::default_shortcuts().waiting).unwrap().unwrap();
         assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Period));
-        let s = parse_shortcut(crate::config::DEFAULT_MAIN_WINDOW).unwrap().unwrap();
+        let s = parse_shortcut(crate::config::default_shortcuts().main_window).unwrap().unwrap();
         assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Semicolon));
-        let s = parse_shortcut(crate::config::DEFAULT_CHAT).unwrap().unwrap();
+        let s = parse_shortcut(crate::config::default_shortcuts().chat).unwrap().unwrap();
         assert_eq!((s.mods, s.key), (Modifiers::ALT | Modifiers::SUPER, Code::Quote));
         assert!(parse_shortcut("").unwrap().is_none());
         assert!(parse_shortcut("  ").unwrap().is_none());
@@ -567,8 +571,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
     fn starts_bring_their_app_forward() {
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
         assert_eq!(start_app(Place::Terminal, "ghostty"), Some("com.mitchellh.ghostty"));
         assert_eq!(start_app(Place::Terminal, "iterm2"), Some("com.googlecode.iterm2"));
         assert_eq!(start_app(Place::Terminal, "kitty"), None);

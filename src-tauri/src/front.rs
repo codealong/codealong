@@ -5,16 +5,12 @@
 //! shortcut brings back the board window you were in last, and hides Codealong from there
 //! (`toggle_board`).
 //!
-//! Apps are known by bundle ID, which only macOS has: on Linux no other app is asked to come
-//! forward or said to be active, and the window manager raises what a click opens.
+//! Apps are known by bundle ID, which only macOS has (os::apps): on Linux no other app is asked
+//! to come forward or said to be active, and the window manager raises what a click opens.
 
 use std::sync::Mutex;
 
 use anyhow::{anyhow, Result};
-#[cfg(target_os = "macos")]
-use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
-#[cfg(target_os = "macos")]
-use objc2_foundation::NSString;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, Window, WindowEvent};
 
 /// The board window that had the keyboard last, by label: the main window or a project's.
@@ -64,7 +60,7 @@ fn on_press(board_in_front: bool, last: Option<String>, open: impl Fn(&str) -> b
 pub fn toggle_board(app: &AppHandle) {
     let last = LAST_BOARD.lock().ok().and_then(|l| l.clone());
     match on_press(crate::front_window(app).is_some(), last, |label| app.get_webview_window(label).is_some()) {
-        Press::Hide => hide_app(app),
+        Press::Hide => hide(app),
         Press::Bring(label) => {
             if let Some(w) = app.get_webview_window(&label) {
                 let _ = bring(&w);
@@ -73,15 +69,11 @@ pub fn toggle_board(app: &AppHandle) {
     }
 }
 
-/// Hides Codealong, as ⌘H does.
-#[cfg(target_os = "macos")]
-fn hide_app(app: &AppHandle) {
-    let _ = app.hide();
-}
-
-/// Hides the board windows: the app has no hiding of its own here.
-#[cfg(not(target_os = "macos"))]
-fn hide_app(app: &AppHandle) {
+/// Hides Codealong, as ⌘H does; where the OS hides no app, its board windows.
+fn hide(app: &AppHandle) {
+    if crate::os::apps::hide(app) {
+        return;
+    }
     for (label, w) in app.webview_windows() {
         if crate::shows_board(&label) {
             let _ = w.hide();
@@ -101,52 +93,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
 /// After a panel opened something, asks macOS to bring that app forward. A click in the bar leaves
 /// Codealong inactive, and macOS may refuse an inactive app; the open itself has already happened.
 pub fn bring_forward(app: &AppHandle, bundle_id: &'static str) {
-    let _ = app.run_on_main_thread(move || activate_app(bundle_id));
-}
-
-/// Whether the app with this bundle ID is the active one, the app whose menus are in the menu bar.
-/// Asked afresh each time, from any thread: a running app's record is as it was when it was
-/// fetched, so each ask fetches it again.
-#[cfg(target_os = "macos")]
-pub fn app_active(bundle_id: &str) -> bool {
-    let apps = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(bundle_id));
-    apps.count() > 0 && apps.objectAtIndex(0).isActive()
-}
-
-/// Asks the running app with this bundle ID to come forward.
-#[cfg(target_os = "macos")]
-fn activate_app(bundle_id: &str) {
-    let apps = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(bundle_id));
-    if apps.count() > 0 {
-        #[allow(deprecated)]
-        let _ = apps.objectAtIndex(0).activateWithOptions(NSApplicationActivationOptions::empty());
-    }
-}
-
-/// The app in front, by its bundle ID, when it isn't Codealong and has one.
-#[cfg(target_os = "macos")]
-pub fn frontmost_other() -> Option<String> {
-    let id = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?.bundleIdentifier()?.to_string();
-    let own = NSRunningApplication::currentApplication().bundleIdentifier().map(|i| i.to_string());
-    (own.as_deref() != Some(id.as_str())).then_some(id)
-}
-
-/// Asks the app with this bundle ID to come forward, if it's still running. On the main thread.
-pub fn activate(bundle_id: &str) {
-    activate_app(bundle_id);
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn app_active(_bundle_id: &str) -> bool {
-    false
-}
-
-#[cfg(not(target_os = "macos"))]
-fn activate_app(_bundle_id: &str) {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn frontmost_other() -> Option<String> {
-    None
+    let _ = app.run_on_main_thread(move || crate::os::apps::activate(bundle_id));
 }
 
 #[cfg(test)]

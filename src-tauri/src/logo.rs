@@ -2,18 +2,7 @@
 
 use crate::model::LogoStatus;
 
-/// Linux has no Dock: a taskbar shows the windows' own icon, which stays as it is.
-#[cfg(not(target_os = "macos"))]
-pub fn update(_app: &tauri::AppHandle, _status: LogoStatus) -> tauri::Result<()> {
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
 pub fn update(app: &tauri::AppHandle, status: LogoStatus) -> tauri::Result<()> {
-    use objc2::{AnyThread, MainThreadMarker};
-    use objc2_app_kit::{NSApplication, NSImage};
-    use objc2_foundation::NSData;
-
     // Codealong Dev (tauri.dev.conf.json, what relaunch.sh builds) keeps its light tile in every
     // state, so it never passes for the app in Applications.
     let png: &'static [u8] = match (crate::is_dev_build(app), status) {
@@ -28,16 +17,5 @@ pub fn update(app: &tauri::AppHandle, status: LogoStatus) -> tauri::Result<()> {
         (true, LogoStatus::Working) => include_bytes!("../icons/dev/status/working.png"),
         (true, LogoStatus::Idle) => include_bytes!("../app-icon-dev.png"),
     };
-    app.run_on_main_thread(move || {
-        let Some(mtm) = MainThreadMarker::new() else { return };
-        let data = NSData::with_bytes(png);
-        if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
-            // SAFETY: AppKit requires the main thread, which the marker says this is, and
-            // the image is one that decoded. The bundled idle icon stays neutral; only the
-            // running application's icon changes.
-            unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)); }
-        } else {
-            eprintln!("Couldn't decode the Codealong status icon: {status:?}");
-        }
-    })
+    crate::os::apps::set_dock_icon(app, png)
 }

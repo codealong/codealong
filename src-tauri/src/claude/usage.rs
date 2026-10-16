@@ -13,19 +13,16 @@ use sha2::{Digest, Sha256};
 
 use crate::config::AccountCfg;
 use crate::model::{Meter, Usage};
-#[cfg(target_os = "macos")]
-use crate::procs;
+use crate::os::{self, Os};
 use crate::usage::{loading, severity, title};
 use crate::util::{code, home, parse_rfc3339_ms};
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 /// A locked keychain can hold `security` at a prompt; don't wait on it forever.
-#[cfg(target_os = "macos")]
 const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The keychain services Claude Code keeps a config folder's sign-in under: plain for the
 /// default `~/.claude`, and suffixed with a hash of the folder when `CLAUDE_CONFIG_DIR` names it.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn keychain_services(config_dir: &Path) -> Vec<String> {
     let dir = config_dir.to_string_lossy();
     let hashed = |p: &str| format!("Claude Code-credentials-{}", &format!("{:x}", Sha256::digest(p.as_bytes()))[..8]);
@@ -39,7 +36,6 @@ pub fn keychain_services(config_dir: &Path) -> Vec<String> {
 }
 
 /// The keychain account Claude Code files sign-ins under.
-#[cfg(target_os = "macos")]
 fn keychain_account() -> String {
     std::env::var("USER")
         .ok()
@@ -47,33 +43,29 @@ fn keychain_account() -> String {
         .unwrap_or_else(|| "claude-code-user".to_string())
 }
 
-/// True when the keychain holds a sign-in for this config folder. Reads no secret.
-#[cfg(target_os = "macos")]
+/// True when Claude Code keeps a sign-in for this config folder: in the keychain on macOS, read
+/// without the secret, and in the folder's `.credentials.json` on Linux.
 pub fn claude_signed_in(config_dir: &Path) -> bool {
-    let account = keychain_account();
-    keychain_services(config_dir)
-        .iter()
-        .any(|svc| procs::run("/usr/bin/security", &["find-generic-password", "-a", &account, "-s", svc], None, KEYCHAIN_TIMEOUT).is_ok())
+    match os::current() {
+        Os::MacOs => {
+            let account = keychain_account();
+            keychain_services(config_dir).iter().any(|svc| os::secrets::keychain_has(svc, &account, KEYCHAIN_TIMEOUT))
+        }
+        Os::Linux => config_dir.join(".credentials.json").is_file(),
+    }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn claude_signed_in(config_dir: &Path) -> bool {
-    config_dir.join(".credentials.json").is_file()
-}
-
-/// The sign-ins kept for this config folder, as the JSON Claude Code keeps: the keychain's items,
-/// the default's first, each read only once the one before it is found wanting, since each can
-/// hold a prompt.
-#[cfg(target_os = "macos")]
-fn kept_sign_ins(config_dir: &Path) -> impl Iterator<Item = String> {
-    let account = keychain_account();
-    // Fails on a missing item (exit 44); stdout, the secret, is never part of an error.
-    keychain_services(config_dir).into_iter().filter_map(move |svc| procs::run("/usr/bin/security", &["find-generic-password", "-a", &account, "-w", "-s", &svc], None, KEYCHAIN_TIMEOUT).ok())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn kept_sign_ins(config_dir: &Path) -> impl Iterator<Item = String> {
-    std::fs::read_to_string(config_dir.join(".credentials.json")).ok().into_iter()
+/// The sign-ins kept for this config folder, as the JSON Claude Code keeps: on macOS the
+/// keychain's items, the default's first, each read only once the one before it is found wanting,
+/// since each can hold a prompt; on Linux the folder's `.credentials.json`.
+fn kept_sign_ins(config_dir: &Path) -> Box<dyn Iterator<Item = String>> {
+    match os::current() {
+        Os::MacOs => {
+            let account = keychain_account();
+            Box::new(keychain_services(config_dir).into_iter().filter_map(move |svc| os::secrets::keychain_read(&svc, &account, KEYCHAIN_TIMEOUT)))
+        }
+        Os::Linux => Box::new(std::fs::read_to_string(config_dir.join(".credentials.json")).ok().into_iter()),
+    }
 }
 
 pub(super) struct SignIn {
@@ -245,17 +237,16 @@ mod tests {
 
     /// The first sign-in with a token is the one: the keychain isn't asked for the others.
     #[test]
-    #[cfg(target_os = "macos")]
     fn reads_the_keychain_only_until_a_sign_in_has_a_token() {
         let asked = std::rc::Rc::new(std::cell::Cell::new(0));
         let counted = asked.clone();
-        procs::stand_in::set(Some(Box::new(move |program, _, _, _| {
+        crate::procs::stand_in::set(Some(Box::new(move |program, _, _, _| {
             assert_eq!(program, "/usr/bin/security");
             counted.set(counted.get() + 1);
             Ok(r#"{"claudeAiOauth":{"accessToken":"t","subscriptionType":"max"}}"#.to_string())
         })));
-        let sign_in = read_sign_in(&home().join(".claude"));
-        procs::stand_in::set(None);
+        let sign_in = os::as_if(Os::MacOs, || read_sign_in(&home().join(".claude")));
+        crate::procs::stand_in::set(None);
         assert_eq!(sign_in.map(|s| s.token).as_deref(), Some("t"));
         assert_eq!(asked.get(), 1, "of {} items", keychain_services(&home().join(".claude")).len());
     }

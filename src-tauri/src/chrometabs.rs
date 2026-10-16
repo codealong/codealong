@@ -395,7 +395,6 @@ fn uuid_in(b: &[u8]) -> Option<String> {
 /// selected there and its window raised. Says the id it found, or nothing. Windows are held by
 /// id (`every window` answers `window id N`), and every window's tab ids are asked for before
 /// anything moves.
-#[cfg(target_os = "macos")]
 const SHOW_TAB: &str = r#"on run argv
 	if application id "com.google.Chrome" is not running then return ""
 	tell application id "com.google.Chrome"
@@ -429,8 +428,7 @@ end run"#;
 /// open any more (closed, or Chrome restarted and gave them new ids), its last page opens again
 /// in its profile. Only macOS's Chrome takes scripts, so on Linux the page opens again always.
 pub fn show(c: &ChromeTabs) -> Result<()> {
-    #[cfg(target_os = "macos")]
-    if !c.tabs.is_empty() {
+    if crate::os::is_macos() && !c.tabs.is_empty() {
         let ids: Vec<String> = c.tabs.iter().map(|t| t.to_string()).collect();
         let args: Vec<&str> = ids.iter().map(String::as_str).collect();
         if !crate::launch::osascript_in("Chrome", SHOW_TAB, &args)?.trim().is_empty() {

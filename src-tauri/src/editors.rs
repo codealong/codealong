@@ -13,8 +13,8 @@ use anyhow::{anyhow, Result};
 use serde::Serialize;
 
 use crate::config::Profile;
+use crate::os::{self, open::App, Os};
 use crate::procs;
-#[cfg(target_os = "macos")]
 use crate::util::home;
 
 /// An editor Codealong knows, by an id of its own.
@@ -22,12 +22,10 @@ struct Known {
     id: &'static str,
     name: &'static str,
     /// Its app's names, the first found wins: some come in editions (Community, beta).
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     apps: &'static [&'static str],
     /// Its command line, inside its app.
     cli: Option<Cli>,
     /// Its commands on Linux, the first found on the PATH wins; none for a Mac-only one.
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
     commands: &'static [&'static str],
 }
 
@@ -36,7 +34,6 @@ struct Known {
 #[derive(Clone, Copy)]
 struct Cli {
     /// A name in VS Code's `Contents/Resources/app/bin`, or a path in the app.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     path: &'static str,
     goto: Goto,
 }
@@ -78,29 +75,25 @@ const KNOWN: &[Known] = &[
     Known { id: "android-studio", name: "Android Studio", apps: &["Android Studio"], cli: None, commands: &["android-studio", "studio"] },
 ];
 
-/// Where Mac apps are installed: by hand or Homebrew, for one user (JetBrains Toolbox puts its
-/// IDEs there, or in a folder of its own there), and by Setapp.
-#[cfg(target_os = "macos")]
+/// Where editors are looked for: on macOS where apps are installed, by hand or Homebrew, for one
+/// user (JetBrains Toolbox puts its IDEs there, or in a folder of its own there), and by Setapp;
+/// on Linux the folders on your PATH.
 fn app_dirs() -> Vec<PathBuf> {
-    let h = home();
-    vec![PathBuf::from("/Applications"), h.join("Applications"), h.join("Applications/JetBrains Toolbox"), PathBuf::from("/Applications/Setapp")]
+    match os::current() {
+        Os::MacOs => {
+            let h = home();
+            vec![PathBuf::from("/Applications"), h.join("Applications"), h.join("Applications/JetBrains Toolbox"), PathBuf::from("/Applications/Setapp")]
+        }
+        Os::Linux => procs::user_path().split(':').filter(|d| !d.is_empty()).map(PathBuf::from).collect(),
+    }
 }
 
-#[cfg(target_os = "macos")]
+/// Where a known editor is: its app on macOS, its command on Linux.
 fn find_in(dirs: &[PathBuf], k: &Known) -> Option<PathBuf> {
-    k.apps.iter().flat_map(|app| dirs.iter().map(move |d| d.join(format!("{app}.app")))).find(|p| p.is_dir())
-}
-
-/// On Linux, the folders on your PATH.
-#[cfg(not(target_os = "macos"))]
-fn app_dirs() -> Vec<PathBuf> {
-    procs::user_path().split(':').filter(|d| !d.is_empty()).map(PathBuf::from).collect()
-}
-
-/// On Linux, where its command is.
-#[cfg(not(target_os = "macos"))]
-fn find_in(dirs: &[PathBuf], k: &Known) -> Option<PathBuf> {
-    k.commands.iter().flat_map(|c| dirs.iter().map(move |d| d.join(c))).find(|p| p.is_file())
+    match os::current() {
+        Os::MacOs => k.apps.iter().flat_map(|app| dirs.iter().map(move |d| d.join(format!("{app}.app")))).find(|p| p.is_dir()),
+        Os::Linux => k.commands.iter().flat_map(|c| dirs.iter().map(move |d| d.join(c))).find(|p| p.is_file()),
+    }
 }
 
 /// The known editors installed, in menu order, with where each one's app is.
@@ -135,9 +128,9 @@ pub fn name(id: &str) -> String {
     }
 }
 
-/// What `open -a` is given for `id`: a known editor's app where it's installed (its first name
-/// when it isn't found, for Launch Services to look for), else `id` itself, an app's name or path.
-#[cfg(target_os = "macos")]
+/// What `open -a` is given for `id` on macOS: a known editor's app where it's installed (its
+/// first name when it isn't found, for Launch Services to look for), else `id` itself, an app's
+/// name or path.
 fn app_for(dirs: &[PathBuf], id: &str) -> String {
     match KNOWN.iter().find(|k| k.id == id) {
         Some(k) => find_in(dirs, k).map_or_else(|| k.apps[0].to_string(), |p| p.to_string_lossy().into_owned()),
@@ -145,44 +138,44 @@ fn app_for(dirs: &[PathBuf], id: &str) -> String {
     }
 }
 
-/// Opens `path`, a folder or a file, in the editor `id` names.
-#[cfg(target_os = "macos")]
-pub fn open(id: &str, path: &Path) -> Result<()> {
-    let app = app_for(&app_dirs(), id);
-    procs::open(&["-a", &app, &path.to_string_lossy()], Duration::from_secs(15))
-        .map_err(|_| anyhow!("Couldn't open {}. Is it installed?", name(id)))
-}
-
-/// On Linux, by its command: a known editor's where it's found, else `id` itself, a command on
-/// the PATH or a path. It's left to run by itself, since some (JetBrains') stay until you quit.
-#[cfg(not(target_os = "macos"))]
-pub fn open(id: &str, path: &Path) -> Result<()> {
-    let dirs = app_dirs();
-    let program = match KNOWN.iter().find(|k| k.id == id) {
-        Some(k) => find_in(&dirs, k),
+/// What runs the editor `id` on Linux: a known editor's command where it's found, else `id`
+/// itself, a command on the PATH or a path.
+fn command_for(dirs: &[PathBuf], id: &str) -> Option<PathBuf> {
+    match KNOWN.iter().find(|k| k.id == id) {
+        Some(k) => find_in(dirs, k),
         None if id.contains('/') => Some(crate::util::expand(id)).filter(|p| p.is_file()),
         None => dirs.iter().map(|d| d.join(id)).find(|p| p.is_file()),
-    };
-    let program = program.ok_or_else(|| anyhow!("Couldn't open {}. Is it installed?", name(id)))?;
-    procs::start_detached(&program.to_string_lossy(), &[&path.to_string_lossy()], Duration::from_secs(15)).map_err(|e| anyhow!("Couldn't open {}: {e}", name(id)))
+    }
+}
+
+/// Opens `path`, a folder or a file, in the editor `id` names: its app on macOS; on Linux its
+/// command, left to run by itself, since some (JetBrains') stay until you quit.
+pub fn open(id: &str, path: &Path) -> Result<()> {
+    let dirs = app_dirs();
+    let path = path.to_string_lossy();
+    match os::current() {
+        Os::MacOs => os::open::in_app(App::Named(&app_for(&dirs, id)), Some(&path), Duration::from_secs(15))
+            .map_err(|_| anyhow!("Couldn't open {}. Is it installed?", name(id))),
+        Os::Linux => {
+            let program = command_for(&dirs, id).ok_or_else(|| anyhow!("Couldn't open {}. Is it installed?", name(id)))?;
+            os::open::start_detached(&program.to_string_lossy(), &[&path], Duration::from_secs(15)).map_err(|e| anyhow!("Couldn't open {}: {e}", name(id)))
+        }
+    }
 }
 
 /// The command line of the editor `id` where it's installed: the program, and how it takes a
-/// line. It's the one inside the app, so nobody has to have put it on their PATH.
-#[cfg(target_os = "macos")]
+/// line. On macOS it's the one inside the app, so nobody has to have put it on their PATH; on
+/// Linux an editor's command is its command line.
 fn cli_in(dirs: &[PathBuf], id: &str) -> Option<(PathBuf, Goto)> {
     let k = KNOWN.iter().find(|k| k.id == id)?;
     let cli = k.cli?;
-    let app = find_in(dirs, k)?;
-    let program = if cli.path.contains('/') { app.join(cli.path) } else { app.join("Contents/Resources/app/bin").join(cli.path) };
+    let found = find_in(dirs, k)?;
+    let program = match os::current() {
+        Os::MacOs if cli.path.contains('/') => found.join(cli.path),
+        Os::MacOs => found.join("Contents/Resources/app/bin").join(cli.path),
+        Os::Linux => found,
+    };
     program.is_file().then_some((program, cli.goto))
-}
-
-/// On Linux an editor's command is its command line.
-#[cfg(not(target_os = "macos"))]
-fn cli_in(dirs: &[PathBuf], id: &str) -> Option<(PathBuf, Goto)> {
-    let k = KNOWN.iter().find(|k| k.id == id)?;
-    Some((find_in(dirs, k)?, k.cli?.goto))
 }
 
 /// The editor a diff opens in: yours (`[apps] editor`) when its command line takes one, else the
@@ -264,7 +257,7 @@ pub fn icons() -> Vec<Icon> {
             let rgba = match drawn.iter().find(|(p, _)| *p == app) {
                 Some((_, rgba)) => rgba.clone(),
                 None => {
-                    let rgba = draw_icon(&app);
+                    let rgba = crate::os::apps::icon(&app, ICON_PX);
                     drawn.push((app, rgba.clone()));
                     rgba
                 }
@@ -274,62 +267,10 @@ pub fn icons() -> Vec<Icon> {
         .collect()
 }
 
-/// Draws the app's icon as the Finder shows it, `ICON_PX` square.
-#[cfg(target_os = "macos")]
-fn draw_icon(app: &Path) -> Option<Vec<u8>> {
-    use objc2::AllocAnyThread;
-    use objc2_app_kit::{NSBitmapImageRep, NSCompositingOperation, NSDeviceRGBColorSpace, NSGraphicsContext, NSImageInterpolation, NSWorkspace};
-    use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
-    let px = ICON_PX as isize;
-    let icon = NSWorkspace::sharedWorkspace().iconForFile(&NSString::from_str(&app.to_string_lossy()));
-    // 8 bits a sample, RGBA, rows packed: the layout `pixels` reads.
-    // SAFETY: with no planes given AppKit allocates the pixels itself and owns them, sized by the
-    // numbers here, which agree with each other (4 samples of 8 bits are the 32 bits of a pixel
-    // and the `px * 4` bytes of a row); the color space's name is AppKit's constant.
-    let rep = unsafe { NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(NSBitmapImageRep::alloc(), std::ptr::null_mut(), px, px, 8, 4, true, false, NSDeviceRGBColorSpace, px * 4, 32) }?;
-    let ctx = NSGraphicsContext::graphicsContextWithBitmapImageRep(&rep)?;
-    NSGraphicsContext::saveGraphicsState_class();
-    NSGraphicsContext::setCurrentContext(Some(&ctx));
-    ctx.setImageInterpolation(NSImageInterpolation::High);
-    let all = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(ICON_PX as f64, ICON_PX as f64));
-    // An empty source rect draws the whole image, from the representation that best fits.
-    icon.drawInRect_fromRect_operation_fraction(all, NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)), NSCompositingOperation::Copy, 1.0);
-    ctx.flushGraphics();
-    NSGraphicsContext::restoreGraphicsState_class();
-    let data = rep.bitmapData();
-    if data.is_null() || rep.bytesPerRow() != px * 4 {
-        return None;
-    }
-    // SAFETY: the pixels aren't null and their rows are `px * 4` bytes, both just checked, and
-    // there are `px` rows, as asked for above: that many bytes are the rep's, which is alive until
-    // this returns and which nothing draws into again; `straight` copies them out.
-    let premultiplied = unsafe { std::slice::from_raw_parts(data, ICON_PX * ICON_PX * 4) };
-    Some(straight(premultiplied))
-}
-
-/// Linux has no one icon for an app: the menus show editors by name alone.
-#[cfg(not(target_os = "macos"))]
-fn draw_icon(_app: &Path) -> Option<Vec<u8>> {
-    None
-}
-
-/// Premultiplied RGBA, as AppKit draws, made straight, as menus and canvases take it.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn straight(rgba: &[u8]) -> Vec<u8> {
-    rgba.chunks_exact(4)
-        .flat_map(|p| {
-            let a = p[3] as u32;
-            let un = |c: u8| if a == 0 { 0 } else { ((c as u32 * 255 + a / 2) / a).min(255) as u8 };
-            [un(p[0]), un(p[1]), un(p[2]), p[3]]
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[cfg(target_os = "macos")]
     fn apps_in(root: &Path, names: &[&str]) -> Vec<PathBuf> {
         let dirs = vec![root.join("Applications"), root.join("home/Applications")];
         for n in names {
@@ -339,8 +280,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
     fn finds_editors_where_apps_are_installed_in_menu_order() {
+        let _mac = os::AsIf::new(Os::MacOs);
         let root = crate::fixtures::scratch("editors");
         let dirs = apps_in(&root, &["Applications/Zed.app", "Applications/Visual Studio Code.app", "home/Applications/PyCharm CE.app", "Applications/Notes.app"]);
         let ids: Vec<String> = installed_in(&dirs).into_iter().map(|p| p.id).collect();
@@ -353,8 +294,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
     fn a_diff_opens_in_yours_when_it_can_else_the_first_that_can() {
+        let _mac = os::AsIf::new(Os::MacOs);
         let root = crate::fixtures::scratch("editors-diff");
         let dirs = apps_in(&root, &["Applications/Zed.app/Contents/MacOS", "Applications/Cursor.app/Contents/Resources/app/bin", "Applications/Sublime Text.app"]);
         std::fs::write(root.join("Applications/Zed.app/Contents/MacOS/cli"), "").unwrap();
@@ -374,8 +315,8 @@ mod tests {
     /// On Linux an editor is its command on the PATH, which takes a line and a diff when the Mac
     /// app's command line does.
     #[test]
-    #[cfg(not(target_os = "macos"))]
     fn finds_linux_editors_by_their_commands_in_menu_order() {
+        let _linux = os::AsIf::new(Os::Linux);
         let root = crate::fixtures::scratch("editors-linux");
         let dirs = vec![root.join("bin"), root.join("local/bin")];
         for (d, c) in [("local/bin", "zeditor"), ("bin", "code"), ("bin", "pycharm-community"), ("bin", "subl"), ("bin", "ls")] {
@@ -390,6 +331,9 @@ mod tests {
         assert_eq!(cli_in(&dirs, "sublime"), None);
         assert_eq!(diff_editor_in(&dirs, "sublime").map(|p| p.id).as_deref(), Some("vscode"));
         assert_eq!(diff_editor_in(&[root.join("nowhere")], "vscode"), None);
+        // Anything else is a command on the PATH, or a path.
+        assert_eq!(command_for(&dirs, "ls"), Some(root.join("bin/ls")));
+        assert_eq!(command_for(&dirs, "nano"), None);
     }
 
     #[test]
@@ -408,11 +352,6 @@ mod tests {
         assert_eq!(name("/Applications/CotEditor.app"), "CotEditor");
     }
 
-    #[test]
-    fn unpremultiplies_what_appkit_draws() {
-        // Opaque stays, clear goes to zero, half-covered comes back to its color.
-        assert_eq!(straight(&[10, 20, 30, 255, 5, 5, 5, 0, 64, 32, 0, 128]), [10, 20, 30, 255, 0, 0, 0, 0, 128, 64, 0, 128]);
-    }
 
     /// Draws the icons of the editors on this Mac and says how much of each is covered, which
     /// is none for an icon that didn't draw. `cargo test editor_icons_draw -- --ignored --nocapture`

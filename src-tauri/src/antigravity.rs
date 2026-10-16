@@ -2219,6 +2219,15 @@ mod tests {
         crate::util::local_ms(2026, 10, 14, n(0, 2), n(3, 5), n(6, 8), n(9, 12)).unwrap()
     }
 
+    /// A time as the summary table writes one, in UTC: a log's local time is one wherever the
+    /// test runs.
+    fn in_utc(ms: i64) -> String {
+        let (secs, days) = (ms.div_euclid(1000), ms.div_euclid(86_400_000));
+        let (y, m, d) = crate::util::civil_from_days(days);
+        let t = secs.rem_euclid(86_400);
+        format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}+00:00", t / 3600, t / 60 % 60, t % 60)
+    }
+
     #[test]
     fn reads_the_summary_table() {
         let db = Connection::open_in_memory().unwrap();
@@ -2720,11 +2729,12 @@ mod tests {
         std::fs::create_dir_all(dir.join("log")).unwrap();
         // Another `agy` wrote the row back idle from its copy of the conversation's start.
         let summaries = Connection::open(dir.join(SUMMARIES)).unwrap();
+        let started = in_utc(on_14th("17:23:30.000"));
         summaries
             .execute_batch(&format!(
                 "{SCHEMA}\
                  INSERT INTO conversation_summaries (conversation_id, preview, step_count, last_modified_time, workspace_uris, status, not_fully_idle, last_user_input_time, app_data_dir) VALUES \
-                 ('c1', 'Review automation', 1, '2026-10-15 00:23:30+00:00', '[]', 'CASCADE_RUN_STATUS_IDLE', 0, '2026-10-15 00:23:30+00:00', 'antigravity-cli');"
+                 ('c1', 'Review automation', 1, '{started}', '[]', 'CASCADE_RUN_STATUS_IDLE', 0, '{started}', 'antigravity-cli');"
             ))
             .unwrap();
         let steps = Connection::open(dir.join("conversations/c1.db")).unwrap();

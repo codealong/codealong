@@ -36,7 +36,7 @@ impl Terminal for AppleTerminal {
     /// Terminal comes with macOS.
     /// Every Mac has it; nothing else does.
     fn installed(&self) -> bool {
-        cfg!(target_os = "macos")
+        crate::os::is_macos()
     }
 
     /// Terminal starts a login shell per tab, as Ghostty does.

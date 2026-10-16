@@ -11,34 +11,18 @@
 // compares that with where macOS has the pointer and where WebKit's drawing side has each list
 // scrolled (its scrolling tree, from WKWebView's testing SPI `_scrollingTreeAsText`), and writes
 // a line to the perf log when they disagree, and one when the first report agrees, to say it runs.
-//
-// Only on macOS: WebKitGTK has no scrolling tree to read, so elsewhere the reports are dropped and
-// only the parts the tests check are built.
-#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+// What's read of the window is os::windows's (`read_page`); WebKitGTK has no scrolling tree to
+// read, so on Linux nothing is compared.
 
-#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(target_os = "macos")]
 use std::sync::Mutex;
-#[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
 
-#[cfg(target_os = "macos")]
-use objc2::rc::Retained;
-#[cfg(target_os = "macos")]
-use objc2::runtime::{AnyObject, NSObjectProtocol};
-#[cfg(target_os = "macos")]
-use objc2::{msg_send, sel, MainThreadMarker};
-#[cfg(target_os = "macos")]
-use objc2_app_kit::{NSApplication, NSEvent, NSView};
-#[cfg(target_os = "macos")]
-use objc2_foundation::NSString;
 use serde::Deserialize;
 use tauri::WebviewWindow;
 
 use crate::geometry::Rect;
-#[cfg(target_os = "macos")]
-use crate::{panel, perf};
+use crate::{os, perf};
 
 /// A list on the page under the pointer: what it is and how far it's scrolled, in CSS pixels.
 #[derive(Debug, Clone, Deserialize)]
@@ -184,51 +168,30 @@ pub fn page_pointer(host: Rect, p: (f64, f64), zoom: f64) -> Option<(f64, f64)> 
 }
 
 /// The first report agreeing is logged, to say the probe runs; a disagreement at most this often.
-#[cfg(target_os = "macos")]
 static SAID_AGREE: AtomicBool = AtomicBool::new(false);
-#[cfg(target_os = "macos")]
 static LAST_OFF: Mutex<Option<Instant>> = Mutex::new(None);
-#[cfg(target_os = "macos")]
 const OFF_EVERY: Duration = Duration::from_secs(2);
 
-/// Compares a page's report with macOS and WebKit's drawing side, on the main thread, and logs
-/// what disagrees.
-#[cfg(target_os = "macos")]
+/// Compares a page's report with the OS and its webview's drawing side, on the main thread, and
+/// logs what disagrees.
 pub fn compare(w: &WebviewWindow, probe: PageProbe) {
     if !perf::enabled() {
         return;
     }
     let label = w.label().to_string();
-    panel::with_page(w, move |ns, page| {
-        let any: &AnyObject = page;
-        let Some(view) = any.downcast_ref::<NSView>() else { return };
-        // The page's box on the screen, so macOS's pointer can be counted from its top left as
-        // the page counts it, in its CSS pixels.
-        let host = panel::rect(ns.convertRectToScreen(view.convertRect_toView(view.bounds(), None)));
-        let p = NSEvent::mouseLocation();
-        let Some(pointer) = page_pointer(host, (p.x, p.y), probe.zoom) else { return };
-        let pointer = Some(pointer);
-        // A testing SPI, so asked for only where WebKit answers to it.
-        let tree: Option<Retained<NSString>> = if page.respondsToSelector(sel!(_scrollingTreeAsText)) {
-            // SAFETY: WKWebView's `_scrollingTreeAsText` takes nothing and returns an NSString;
-            // this is the main thread.
-            unsafe { msg_send![page, _scrollingTreeAsText] }
-        } else {
-            None
-        };
-        let nodes = tree.map(|t| scroll_nodes(&t.to_string())).unwrap_or_default();
-        let window = panel::rect(ns.frame());
+    os::windows::read_page(w, move |page| {
+        let Some(pointer) = page_pointer(page.host, page.pointer, probe.zoom) else { return };
+        let nodes = page.scrolling_tree.as_deref().map(scroll_nodes).unwrap_or_default();
         // A page whose app isn't frontmost has its drawing and timers slowed, which could leave
         // it behind the app's side.
-        let active = MainThreadMarker::new().is_some_and(|mtm| NSApplication::sharedApplication(mtm).isActive());
-        let line = match disagreement(&probe, pointer, &nodes) {
+        let line = match disagreement(&probe, Some(pointer), &nodes) {
             Some(off) => {
                 let mut last = LAST_OFF.lock().unwrap_or_else(|e| e.into_inner());
                 if last.is_some_and(|t| t.elapsed() < OFF_EVERY) {
                     return;
                 }
                 *last = Some(Instant::now());
-                Some(format!("{off}; the page's box {}, the window {}; Codealong active {}, key window {}", shown(host), shown(window), yes(active), yes(ns.isKeyWindow())))
+                Some(format!("{off}; the page's box {}, the window {}; Codealong active {}, key window {}", shown(page.host), shown(page.window), yes(page.active), yes(page.key)))
             }
             None if !SAID_AGREE.swap(true, Ordering::Relaxed) => Some(format!("pointer probe on, and agrees: {}", said(&probe))),
             None => None,
@@ -238,9 +201,6 @@ pub fn compare(w: &WebviewWindow, probe: PageProbe) {
         }
     });
 }
-
-#[cfg(not(target_os = "macos"))]
-pub fn compare(_w: &WebviewWindow, _probe: PageProbe) {}
 
 fn shown(r: Rect) -> String {
     format!("{:.0},{:.0} {:.0}x{:.0}", r.x, r.y, r.w, r.h)

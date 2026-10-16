@@ -406,102 +406,7 @@ fn word(status: &Status) -> String {
     format!("{status:?}").to_lowercase()
 }
 
-// ---- the Mac ----
-
-/// This Mac's load, memory and swap.
-#[derive(Serialize, Clone, Debug, Default, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct System {
-    /// The load averages over 1, 5 and 15 minutes, and how many CPUs share it.
-    pub load: [f64; 3],
-    pub cpus: u32,
-    /// Memory in bytes, and how much of it is free as macOS counts it for memory pressure.
-    pub memory: u64,
-    pub free_percent: Option<u32>,
-    /// What the compressor holds, in bytes.
-    pub compressed: Option<u64>,
-    pub swap_total: u64,
-    pub swap_used: u64,
-}
-
-#[cfg(target_os = "macos")]
-fn sysctl<T: Copy>(name: &str) -> Option<T> {
-    let name = std::ffi::CString::new(name).ok()?;
-    // SAFETY: sysctlbyname writes at most `size` bytes into a zeroed plain-old-data value, and
-    // the size it reports back is checked against the value's.
-    unsafe {
-        let mut value: T = std::mem::zeroed();
-        let mut size = std::mem::size_of::<T>();
-        let ok = libc::sysctlbyname(name.as_ptr(), &mut value as *mut T as *mut libc::c_void, &mut size, std::ptr::null_mut(), 0) == 0;
-        (ok && size == std::mem::size_of::<T>()).then_some(value)
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub fn system() -> System {
-    let mut load = [0f64; 3];
-    // SAFETY: getloadavg fills at most three doubles.
-    unsafe { libc::getloadavg(load.as_mut_ptr(), 3) };
-    let swap: Option<libc::xsw_usage> = sysctl("vm.swapusage");
-    System {
-        load,
-        cpus: sysctl::<i32>("hw.ncpu").unwrap_or(0).max(0) as u32,
-        memory: sysctl::<u64>("hw.memsize").unwrap_or(0),
-        free_percent: sysctl::<i32>("kern.memorystatus_level").map(|l| l.max(0) as u32),
-        compressed: sysctl::<u64>("vm.compressor_bytes_used"),
-        swap_total: swap.map_or(0, |s| s.xsu_total),
-        swap_used: swap.map_or(0, |s| s.xsu_used),
-    }
-}
-
-/// Linux's load, memory and swap: `/proc/meminfo`, where what's free is what the kernel says it
-/// could give a new program without swapping (`MemAvailable`).
-#[cfg(not(target_os = "macos"))]
-pub fn system() -> System {
-    let mut load = [0f64; 3];
-    // SAFETY: getloadavg fills at most three doubles.
-    unsafe { libc::getloadavg(load.as_mut_ptr(), 3) };
-    let info = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
-    let kb = |name: &str| meminfo_kb(&info, name);
-    let memory = kb("MemTotal").unwrap_or(0) * 1024;
-    let available = kb("MemAvailable").map(|a| a * 1024);
-    let (swap_total, swap_free) = (kb("SwapTotal").unwrap_or(0) * 1024, kb("SwapFree").unwrap_or(0) * 1024);
-    System {
-        load,
-        cpus: std::thread::available_parallelism().map_or(0, |n| n.get() as u32),
-        memory,
-        free_percent: available.filter(|_| memory > 0).map(|a| (a * 100 / memory) as u32),
-        compressed: None,
-        swap_total,
-        swap_used: swap_total.saturating_sub(swap_free),
-    }
-}
-
-/// A `Name: <n> kB` line of `/proc/meminfo` or `/proc/<pid>/status`, in kB.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
-fn meminfo_kb(text: &str, name: &str) -> Option<u64> {
-    text.lines().find_map(|l| l.strip_prefix(name)?.strip_prefix(':')?.split_whitespace().next()?.parse().ok())
-}
-
-/// What a process of yours holds of memory, swapped included: what's resident and what's in
-/// swap, from `/proc/<pid>/status`.
-#[cfg(not(target_os = "macos"))]
-pub fn footprint(pid: u32) -> Option<u64> {
-    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
-    Some((meminfo_kb(&status, "VmRSS")? + meminfo_kb(&status, "VmSwap").unwrap_or(0)) * 1024)
-}
-
-/// What a process of yours holds of memory, compressed and swapped included: Activity
-/// Monitor's Memory column. None for one that's gone or another user's.
-#[cfg(target_os = "macos")]
-pub fn footprint(pid: u32) -> Option<u64> {
-    // SAFETY: proc_pid_rusage fills a plain-old-data struct of the flavor asked for.
-    unsafe {
-        let mut info: libc::rusage_info_v4 = std::mem::zeroed();
-        let ok = libc::proc_pid_rusage(pid as libc::c_int, libc::RUSAGE_INFO_V4, &mut info as *mut libc::rusage_info_v4 as *mut libc::rusage_info_t) == 0;
-        ok.then_some(info.ri_phys_footprint)
-    }
-}
+// ---- the Mac (its load and memory are os::system's) ----
 
 /// Every process, from one `ps`; an error when it doesn't answer, so nothing is judged on half a
 /// table. `ps` on a Mac that stalls can take a long while, so it's given one.
@@ -869,16 +774,5 @@ mod tests {
         assert_eq!(procs[0], Proc { pid: 412, ppid: 1, age_ms: ((2 * 24 + 3) * 3600 + 5 * 60 + 15) * 1000, started: NOW - ((2 * 24 + 3) * 3600 + 5 * 60 + 15) * 1000, command: "/usr/bin/claude daemon run".into() });
         assert_eq!(procs[1].command, "claude --resume ab cd");
         assert_eq!(procs[1].age_ms, (15 * 60 + 10) * 1000);
-    }
-
-    #[test]
-    fn linux_memory_reads_from_its_kb_lines() {
-        let info = "MemTotal:       16364112 kB\nMemFree:         9813420 kB\nMemAvailable:   14512340 kB\nSwapTotal:             0 kB\n";
-        assert_eq!(meminfo_kb(info, "MemTotal"), Some(16364112));
-        assert_eq!(meminfo_kb(info, "MemAvailable"), Some(14512340));
-        assert_eq!(meminfo_kb(info, "SwapTotal"), Some(0));
-        // A name is a whole name: MemFree isn't Mem.
-        assert_eq!(meminfo_kb(info, "Mem"), None);
-        assert_eq!(meminfo_kb("Name:\tclaude\nVmRSS:\t  412300 kB\n", "VmRSS"), Some(412300));
     }
 }

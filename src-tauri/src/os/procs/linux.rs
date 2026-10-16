@@ -61,21 +61,47 @@ pub fn parent_pid(pid: u32) -> Option<u32> {
 }
 
 /// As macOS's process table has it, a process without a terminal on NODEV (all ones).
-pub(super) fn listed(pid: u32) -> Option<Listed> {
+pub(crate) fn listed(pid: u32) -> Option<Listed> {
     let s = stat(pid)?;
     Some(Listed { ppid: s.ppid, name: s.name, tdev: if s.tty_nr == 0 { u32::MAX } else { s.tty_nr }, tpgid: s.tpgid })
 }
 
-/// The device a terminal's number names: a pseudo-terminal's `/dev/pts/<n>` (majors 136 to
-/// 143), or a console's `/dev/tty<n>`.
+/// The device a terminal's number names, as `ps` names it: a pseudo-terminal's `/dev/pts/<n>`
+/// (majors 136 to 143), else the one the kernel's table of terminal drivers has for it
+/// (`/proc/tty/drivers`: a console's `/dev/tty<n>`, a serial line's `/dev/ttyS<n>`), checked
+/// against the device itself.
 fn tty_path(tty_nr: u32) -> Option<PathBuf> {
     let major = (tty_nr >> 8) & 0xfff;
     let minor = (tty_nr & 0xff) | ((tty_nr >> 12) & 0xfff00);
-    match major {
-        136..=143 => Some(PathBuf::from(format!("/dev/pts/{}", (major - 136) * 256 + minor))),
-        4 if minor < 64 => Some(PathBuf::from(format!("/dev/tty{minor}"))),
-        _ => None,
+    if (136..=143).contains(&major) {
+        return Some(PathBuf::from(format!("/dev/pts/{}", (major - 136) * 256 + minor)));
     }
+    let drivers = std::fs::read_to_string("/proc/tty/drivers").ok()?;
+    let device = libc::makedev(major, minor);
+    named_by_driver(&drivers, major, minor).into_iter().find(|p| std::fs::metadata(p).is_ok_and(|m| m.rdev() == device))
+}
+
+/// What the drivers table may name a device: a driver of one device by its path, and one of a
+/// range by its prefix and a number, which counts from the range's start for some (serial
+/// lines' `/dev/ttyS 4 64-111`: 4:65 is `/dev/ttyS1`) and is the minor for others (consoles'
+/// `/dev/tty 4 1-63`: 4:2 is `/dev/tty2`).
+fn named_by_driver(drivers: &str, major: u32, minor: u32) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for line in drivers.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let (Some(dev), Some(Ok(maj)), Some(range)) = (f.get(1), f.get(2).map(|m| m.parse::<u32>()), f.get(3)) else { continue };
+        let (first, last) = range.split_once('-').unwrap_or((range, range));
+        let (Ok(first), Ok(last)) = (first.parse::<u32>(), last.parse::<u32>()) else { continue };
+        if maj != major || !(first..=last).contains(&minor) {
+            continue;
+        }
+        if first == last {
+            out.push(PathBuf::from(dev));
+        } else {
+            out.extend([format!("{dev}{minor}"), format!("{dev}{}", minor - first)].map(PathBuf::from));
+        }
+    }
+    out
 }
 
 pub fn tty(pid: u32) -> Option<PathBuf> {
@@ -206,8 +232,13 @@ mod tests {
         // Minors past 255 spill into the high bits, and majors past 136 count on.
         assert_eq!(tty_path((136 << 8) | (1 << 20)), Some(PathBuf::from("/dev/pts/256")));
         assert_eq!(tty_path(137 << 8), Some(PathBuf::from("/dev/pts/256")));
-        assert_eq!(tty_path((4 << 8) | 2), Some(PathBuf::from("/dev/tty2")));
-        assert_eq!(tty_path(5 << 8), None);
+        // The rest by the drivers table, as this one (a GitHub runner's) has them.
+        let drivers = "/dev/tty             /dev/tty        5       0 system:/dev/tty\n/dev/console         /dev/console    5       1 system:console\nserial               /dev/ttyS       4 64-111 serial\npty_slave            /dev/pts      136 0-1048575 pty:slave\nunknown              /dev/tty        4 1-63 console\n";
+        let named = |major, minor| named_by_driver(drivers, major, minor).into_iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>();
+        assert_eq!(named(4, 65), ["/dev/ttyS65", "/dev/ttyS1"]);
+        assert_eq!(named(4, 2), ["/dev/tty2", "/dev/tty1"]);
+        assert_eq!(named(5, 1), ["/dev/console"]);
+        assert!(named(204, 64).is_empty());
     }
 
     #[test]

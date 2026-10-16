@@ -14,7 +14,6 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use crate::perf;
-use crate::procs;
 
 /// Reads of one kind (a scan root's checkouts, a worktree's files), by path.
 pub struct Held<T> {
@@ -110,7 +109,7 @@ impl<T: Send + 'static> Held<T> {
         std::thread::Builder::new()
             .name("codealong-read".into())
             .spawn(move || {
-                procs::utility_thread();
+                crate::os::system::utility_thread();
                 let value = read(&path);
                 let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
                 if state.waiting == Some(scan) {

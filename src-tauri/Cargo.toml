@@ -66,9 +66,9 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKSnapshotConfiguration"] }
 block2 = "0.6"
 
-# The same windows on Linux (panel/gtk.rs): the screens, the pointer and a window's opacity, which
-# Tauri doesn't expose. The version Tauri itself builds on.
-[target.'cfg(not(target_os = "macos"))'.dependencies]
+# The same windows on Linux (os/windows/linux.rs): the screens, the pointer and a window's opacity,
+# which Tauri doesn't expose. The version Tauri itself builds on.
+[target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 
 # updates.rs's end-to-end test runs the updater in Tauri's mock runtime, which opens no window.

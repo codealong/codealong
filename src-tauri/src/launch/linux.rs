@@ -146,7 +146,7 @@ fn show_command(emulator: &Emulator, path: &Path, command: &[&str]) -> Vec<Strin
 fn show_in(emulator: &Emulator, path: &Path, command: &[&str]) -> Result<()> {
     let all = show_command(emulator, path, command);
     let args: Vec<&str> = all[1..].iter().map(String::as_str).collect();
-    procs::start_detached(&all[0], &args, Duration::from_secs(10))
+    crate::os::open::start_detached(&all[0], &args, Duration::from_secs(10))
 }
 
 /// The nearest process above `pid` that's a terminal emulator.
@@ -202,12 +202,13 @@ mod tests {
         let answer = |s: &Sent| Ok(if s.args.first().is_some_and(|a| a == "display-message") { "/dev/pts/7\n".to_string() } else { String::new() });
         let env = [("CODEALONG_PROMPT".to_string(), "Fix it".to_string())];
         let place = |behind| Placement { new_terminal: NewTerminal::Window, near: &[], behind, label: Some("app · fix") };
-        let p = play(Setup::default(), answer, || terminal_run("terminal", place(false), Path::new("/r/my app"), "claude --session-id x\n", &env));
+        let linux = || Setup { os: crate::os::Os::Linux, ..Setup::default() };
+        let p = play(linux(), answer, || terminal_run("terminal", place(false), Path::new("/r/my app"), "claude --session-id x\n", &env));
         p.got.unwrap();
         let session = p.log[0].split('"').nth(7).expect("the session's name").to_string();
         assert!(session.starts_with("codealong-"), "{session}");
         let tmux = "/opt/homebrew/bin/tmux";
-        let detached = procs::START_DETACHED;
+        let detached = crate::os::open::START_DETACHED;
         assert_eq!(
             p.log,
             [
@@ -221,15 +222,15 @@ mod tests {
         );
         assert_eq!(p.launchers, ["rm -f 'LAUNCHER'\ncd '/r/my app' 2>/dev/null\nexport CODEALONG_PROMPT='Fix it'\nexec SHELL -l"]);
         // Behind your windows, it's the session alone; with nothing to type, nothing is waited for.
-        let p = play(Setup::default(), answer, || terminal_run("terminal", place(true), Path::new("/r/app"), "", &[]));
+        let p = play(linux(), answer, || terminal_run("terminal", place(true), Path::new("/r/app"), "", &[]));
         p.got.unwrap();
         assert_eq!(p.log.len(), 1, "{:?}", p.log);
         // Showing a tmux session no window shows is a window attached to it, not a session of its own.
-        let p = play(Setup::default(), answer, || terminal_run("terminal", place(false), Path::new("/r/app"), &format!("{tmux} attach -t '%3'\n"), &[]));
+        let p = play(linux(), answer, || terminal_run("terminal", place(false), Path::new("/r/app"), &format!("{tmux} attach -t '%3'\n"), &[]));
         p.got.unwrap();
         assert_eq!(p.log, [format!(r#"/bin/sh ["-c", {detached:?}, "/usr/bin/ghostty", "-e", "/bin/sh", "-c", "exec {tmux} attach -t '%3'"] (10s)"#)]);
         // Without an emulator or tmux, it isn't installed.
-        let p = play(Setup { installed: false, ..Setup::default() }, answer, || terminal_run("terminal", place(false), Path::new("/r/app"), "ls\n", &[]));
+        let p = play(Setup { installed: false, ..linux() }, answer, || terminal_run("terminal", place(false), Path::new("/r/app"), "ls\n", &[]));
         assert_eq!(p.got.unwrap_err().to_string(), "A terminal emulator isn't installed. Install it, or pick another terminal in Settings.");
     }
 

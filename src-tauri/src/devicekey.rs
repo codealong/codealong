@@ -1,7 +1,7 @@
 //! This device's key: the Ed25519 key your other devices know it by (peers.rs). Over iroh it's the
 //! address they dial; over Tailscale each side proves it holds its key when a connection
 //! opens. It's made the first time `[devices]` is turned on and kept in the login keychain
-//! (service `Codealong device key`, keychain.rs), like Jev's API key, so it never sits in a file
+//! (service `Codealong device key`, os/secrets.rs), like Jev's API key, so it never sits in a file
 //! and a reinstall keeps this device's links.
 
 use anyhow::{anyhow, bail, Result};
@@ -29,11 +29,11 @@ pub fn load_or_create() -> Result<SecretKey> {
 }
 
 fn read() -> Option<SecretKey> {
-    decode(&crate::keychain::read(SERVICE)?).ok()
+    decode(&crate::os::secrets::read(SERVICE)?).ok()
 }
 
 fn save(key: &SecretKey) -> Result<()> {
-    crate::keychain::save(SERVICE, &HEXLOWER.encode(&key.to_bytes())).map_err(|_| anyhow!("The keychain didn't take this device's key."))
+    crate::os::secrets::save(SERVICE, &HEXLOWER.encode(&key.to_bytes())).map_err(|_| anyhow!("The keychain didn't take this device's key."))
 }
 
 fn decode(hex: &str) -> Result<SecretKey> {

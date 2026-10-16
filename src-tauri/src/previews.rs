@@ -11,7 +11,7 @@
 //! (`procs::listeners`, a few milliseconds for every worktree at once), keeps the ones whose
 //! process runs in a worktree's folder, and asks each new one for its front page once, to tell
 //! the app from its API, debugger and metrics ports. Then it waits on the kernel to say when a
-//! server's process exits (`Waiter`), so a stopped server shows at once, and looks again every
+//! server's process exits (`os::exits::Waiter`), so a stopped server shows at once, and looks again every
 //! 10 seconds for servers that started.
 
 use std::collections::{HashMap, HashSet};
@@ -25,6 +25,7 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::config::support_dir;
+use crate::os::exits::{Waiter, Waker};
 use crate::procs;
 use crate::store;
 
@@ -467,7 +468,7 @@ pub fn scan_once(roots: &[PathBuf]) -> Vec<Server> {
 /// in them whenever that changes.
 pub struct Watcher {
     roots: Arc<Mutex<Vec<PathBuf>>>,
-    waker: wait::Waker,
+    waker: Waker,
 }
 
 impl Watcher {
@@ -486,14 +487,14 @@ impl Watcher {
 /// Starts the thread. `send` gets the servers each time they change, and stops the thread by
 /// returning false. None when the kernel won't give it something to wait on.
 pub fn watch(send: impl Fn(Vec<Server>) -> bool + Send + 'static) -> Option<Watcher> {
-    let mut waiter = wait::Waiter::new()?;
+    let mut waiter = Waiter::new()?;
     let waker = waiter.waker();
     let roots = Arc::new(Mutex::new(Vec::new()));
     let shared = roots.clone();
     std::thread::Builder::new()
         .name("codealong-previews".into())
         .spawn(move || {
-            procs::utility_thread();
+            crate::os::system::utility_thread();
             let mut scanner = Scanner::default();
             let mut last: Option<Vec<Server>> = None;
             let mut watched: HashSet<u32> = HashSet::new();
@@ -519,151 +520,6 @@ pub fn watch(send: impl Fn(Vec<Server>) -> bool + Send + 'static) -> Option<Watc
         })
         .ok()?;
     Some(Watcher { roots, waker })
-}
-
-/// What the thread waits on between looks: a wake when the worktrees change, or a server's
-/// process exiting.
-#[cfg(target_os = "macos")]
-mod wait {
-    use std::time::Duration;
-
-    /// A kqueue, with a user event that wakes it.
-    pub struct Waiter(i32);
-
-    /// What wakes it from another thread.
-    pub struct Waker(i32);
-
-    /// The identifier of the event that wakes the thread when the worktrees change.
-    const WAKE: usize = 1;
-
-    fn kevent(ident: usize, filter: i16, flags: u16, fflags: u32) -> libc::kevent {
-        libc::kevent { ident, filter, flags, fflags, data: 0, udata: std::ptr::null_mut() }
-    }
-
-    impl Waiter {
-        pub fn new() -> Option<Waiter> {
-            // SAFETY: kqueue takes no arguments; a negative result is an error.
-            let kq = unsafe { libc::kqueue() };
-            if kq < 0 {
-                return None;
-            }
-            let wake = kevent(WAKE, libc::EVFILT_USER, libc::EV_ADD | libc::EV_CLEAR, 0);
-            // SAFETY: kevent reads one change from a struct we own and returns no events.
-            unsafe { libc::kevent(kq, &wake, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
-            Some(Waiter(kq))
-        }
-
-        pub fn waker(&self) -> Waker {
-            Waker(self.0)
-        }
-
-        pub fn watch_exit(&mut self, pid: u32) {
-            let exit = kevent(pid as usize, libc::EVFILT_PROC, libc::EV_ADD | libc::EV_ONESHOT, libc::NOTE_EXIT);
-            // SAFETY: as above. A process that's already gone is refused, and the next look finds
-            // it gone.
-            unsafe { libc::kevent(self.0, &exit, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
-        }
-
-        /// Waits up to `timeout`, and says which watched processes exited.
-        pub fn wait(&mut self, timeout: Duration) -> Vec<u32> {
-            let mut events: [libc::kevent; 16] = [kevent(0, 0, 0, 0); 16];
-            let timeout = libc::timespec { tv_sec: timeout.as_secs() as libc::time_t, tv_nsec: 0 };
-            // SAFETY: kevent writes at most `events.len()` events into the array.
-            let n = unsafe { libc::kevent(self.0, std::ptr::null(), 0, events.as_mut_ptr(), events.len() as libc::c_int, &timeout) };
-            events.iter().take(n.max(0) as usize).filter(|e| e.filter == libc::EVFILT_PROC).map(|e| e.ident as u32).collect()
-        }
-    }
-
-    impl Drop for Waiter {
-        fn drop(&mut self) {
-            // SAFETY: the descriptor is ours and nothing uses it after this.
-            unsafe { libc::close(self.0) };
-        }
-    }
-
-    impl Waker {
-        pub fn wake(&self) {
-            let wake = kevent(WAKE, libc::EVFILT_USER, 0, libc::NOTE_TRIGGER);
-            // SAFETY: kevent reads one change from a struct we own and returns no events.
-            unsafe { libc::kevent(self.0, &wake, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
-        }
-    }
-}
-
-/// The same on Linux: an eventfd that wakes it, and a pidfd for each process watched, which
-/// `poll` says is readable once the process exits.
-#[cfg(not(target_os = "macos"))]
-mod wait {
-    use std::time::Duration;
-
-    pub struct Waiter {
-        wake: i32,
-        exits: Vec<(u32, i32)>,
-    }
-
-    pub struct Waker(i32);
-
-    impl Waiter {
-        pub fn new() -> Option<Waiter> {
-            // SAFETY: eventfd takes plain values; a negative result is an error.
-            let wake = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
-            (wake >= 0).then_some(Waiter { wake, exits: Vec::new() })
-        }
-
-        pub fn waker(&self) -> Waker {
-            Waker(self.wake)
-        }
-
-        pub fn watch_exit(&mut self, pid: u32) {
-            // SAFETY: pidfd_open takes a pid and flags; a negative result is an error, as for a
-            // process that's already gone, which the next look finds gone.
-            let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) } as i32;
-            if fd >= 0 {
-                self.exits.push((pid, fd));
-            }
-        }
-
-        /// Waits up to `timeout`, and says which watched processes exited.
-        pub fn wait(&mut self, timeout: Duration) -> Vec<u32> {
-            let mut fds: Vec<libc::pollfd> = std::iter::once(self.wake).chain(self.exits.iter().map(|e| e.1)).map(|fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 }).collect();
-            // SAFETY: poll writes only the `revents` of the descriptors it's given.
-            let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout.as_millis() as libc::c_int) };
-            if n <= 0 {
-                return Vec::new();
-            }
-            if fds[0].revents != 0 {
-                let mut count = [0u8; 8];
-                // SAFETY: an eventfd's count is the 8 bytes read into a buffer of that size.
-                unsafe { libc::read(self.wake, count.as_mut_ptr().cast(), count.len()) };
-            }
-            let exited: Vec<usize> = fds[1..].iter().enumerate().filter(|(_, f)| f.revents != 0).map(|(i, _)| i).collect();
-            let mut pids = Vec::new();
-            for i in exited.into_iter().rev() {
-                let (pid, fd) = self.exits.remove(i);
-                // SAFETY: the descriptor is ours and nothing uses it after this.
-                unsafe { libc::close(fd) };
-                pids.push(pid);
-            }
-            pids
-        }
-    }
-
-    impl Drop for Waiter {
-        fn drop(&mut self) {
-            for fd in std::iter::once(self.wake).chain(self.exits.iter().map(|e| e.1)) {
-                // SAFETY: the descriptors are ours and nothing uses them after this.
-                unsafe { libc::close(fd) };
-            }
-        }
-    }
-
-    impl Waker {
-        pub fn wake(&self) {
-            let one = 1u64.to_ne_bytes();
-            // SAFETY: writing 8 bytes adds to an eventfd's count.
-            unsafe { libc::write(self.0, one.as_ptr().cast(), one.len()) };
-        }
-    }
 }
 
 #[cfg(test)]

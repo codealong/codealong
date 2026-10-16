@@ -605,8 +605,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
     fn knows_which_app_a_target_lands_in() {
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
         assert_eq!(target_app("s|claude:claude:1|focus", "ghostty", None, None), Some("com.mitchellh.ghostty"));
         assert_eq!(target_app("s|claude:claude:1|focus", "ghostty", Some("com.googlecode.iterm2"), None), Some("com.googlecode.iterm2"));
         assert_eq!(target_app("s|claude:claude2:1|resume", "ghostty", Some("com.googlecode.iterm2"), None), Some("com.mitchellh.ghostty"));

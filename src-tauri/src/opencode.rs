@@ -999,7 +999,7 @@ impl crate::harness::Reader for Reader {
         self.polled_at = Some(Instant::now());
         let (accounts, polled, wake) = (accounts.to_vec(), self.polled.clone(), self.wake.clone());
         std::thread::spawn(move || {
-            procs::utility_thread();
+            crate::os::system::utility_thread();
             let now = crate::util::now_ms();
             let results: Vec<(String, Option<Live>)> = accounts.into_iter().map(|a| (a.name.clone(), service(&a.home_path()).and_then(|svc| poll(&svc, now)))).collect();
             {

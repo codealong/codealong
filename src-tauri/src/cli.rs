@@ -1312,7 +1312,7 @@ impl Client {
             None => bail!("Codealong isn't running, so there's no window to show it in."),
         };
         if let Some(id) = id {
-            let _ = procs::open(&["-b", &id], std::time::Duration::from_secs(10));
+            let _ = crate::os::open::in_app(crate::os::open::App::Id(&id), None, std::time::Duration::from_secs(10));
         }
         Ok(())
     }
@@ -3872,7 +3872,7 @@ fn parse_todo_status(s: &str) -> Result<TodoStatus> {
 fn new_todo_id() -> String {
     let now = now_ms() as u64;
     let mut b = [0u8; 4];
-    crate::util::random_bytes(&mut b);
+    crate::os::system::random_bytes(&mut b);
     format!("t-{}{}", base36(now), base36(u32::from_le_bytes(b) as u64 % 36u64.pow(4)))
 }
 
@@ -4841,7 +4841,7 @@ fn print_changes(out: &crate::changes::Changes, now: i64) {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HygieneOut {
-    system: crate::hygiene::System,
+    system: crate::os::system::System,
     /// The app's board answered, so processes were judged.
     judged: bool,
     notes: Vec<String>,
@@ -4856,7 +4856,7 @@ struct HygieneOut {
 fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
     use crate::hygiene;
     let after_ms = crate::idle::parse_after(&a.after).ok_or_else(|| anyhow!("--after is like 90m, 24h, 3d or 1w, not {}.", a.after))?;
-    let mut out = HygieneOut { system: hygiene::system(), judged: false, notes: Vec::new(), found: Vec::new(), ended: None, log: None };
+    let mut out = HygieneOut { system: crate::os::system::system(), judged: false, notes: Vec::new(), found: Vec::new(), ended: None, log: None };
     // Without the app's board every session would look old, so nothing is judged on a light one.
     let app_pid = c.app.as_ref().map(|s| s.pid);
     let ready = match app_pid {
@@ -4886,7 +4886,7 @@ fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
         let linked = |dir: &str| Path::new(dir).join(".git").is_file();
         let mut found = hygiene::judge(&hygiene::Scene { board: c.board()?, procs: &procs, now: now_ms(), after_ms, protected: &protected, cwd: &cwd, listening: &listening, linked: &linked });
         for f in &mut found {
-            f.memory = std::iter::once(f.pid).chain(f.children.iter().copied()).filter_map(hygiene::footprint).sum();
+            f.memory = std::iter::once(f.pid).chain(f.children.iter().copied()).filter_map(crate::os::system::footprint).sum();
         }
         found.sort_by_key(|f| std::cmp::Reverse(f.memory));
         out.judged = true;

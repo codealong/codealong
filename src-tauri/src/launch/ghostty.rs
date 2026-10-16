@@ -62,7 +62,7 @@ impl Terminal for Ghostty {
             Err(e) if input.is_none() => {
                 // Without Automation permission a plain window still works.
                 let arg = format!("--working-directory={}", dir.to_string_lossy());
-                procs::open(&["-na", "Ghostty.app", "--args", &arg], Duration::from_secs(10)).map_err(|_| e)
+                crate::os::open::launch(crate::os::open::App::Named("Ghostty.app"), true, &[&arg], Duration::from_secs(10)).map_err(|_| e)
             }
             Err(e) => Err(e),
         }

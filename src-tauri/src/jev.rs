@@ -3,7 +3,7 @@
 //! own switch in `[jev]` (config.rs): where a prompt goes (route.rs), how a session's turn ended
 //! (insights.rs), which todo a session is for (todos), which review comments ask for a change.
 //!
-//! The API key lives in the login keychain (service `Codealong TypeSafe`, keychain.rs), never in
+//! The API key lives in the login keychain (service `Codealong TypeSafe`, os/secrets.rs), never in
 //! config.toml or on a command line: curl gets it and the request on stdin, and saving it hands
 //! it over on stdin too. It's read from the keychain once and
 //! kept in memory, since the engine asks often. `TYPESAFE_API_KEY` works when the keychain has
@@ -598,7 +598,7 @@ fn api_key() -> Option<String> {
             return Some(key);
         }
     }
-    let key = crate::keychain::read(KEYCHAIN_SERVICE)
+    let key = crate::os::secrets::read(KEYCHAIN_SERVICE)
         .or_else(|| std::env::var("TYPESAFE_API_KEY").ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()))?;
     if let Ok(mut k) = KEY.lock() {
         *k = Some((Instant::now(), key.clone()));
@@ -608,7 +608,7 @@ fn api_key() -> Option<String> {
 
 /// Whether there's a key, without reading it.
 pub fn has_key() -> bool {
-    crate::keychain::has(KEYCHAIN_SERVICE) || std::env::var("TYPESAFE_API_KEY").is_ok_and(|k| !k.trim().is_empty())
+    crate::os::secrets::has(KEYCHAIN_SERVICE) || std::env::var("TYPESAFE_API_KEY").is_ok_and(|k| !k.trim().is_empty())
 }
 
 /// Saves the key in the keychain, replacing one that's there. The command goes to `security`
@@ -618,7 +618,7 @@ pub fn save_key(key: &str) -> Result<()> {
     if key.is_empty() || key.chars().any(|c| c.is_control() || c.is_whitespace() || c == '"' || c == '\\') {
         bail!("That doesn't look like an API key.");
     }
-    let saved = crate::keychain::save(KEYCHAIN_SERVICE, key);
+    let saved = crate::os::secrets::save(KEYCHAIN_SERVICE, key);
     forget_key();
     if saved.is_err() || !has_key() {
         bail!("The keychain didn't take the key.");
@@ -627,7 +627,7 @@ pub fn save_key(key: &str) -> Result<()> {
 }
 
 pub fn delete_key() -> Result<()> {
-    crate::keychain::delete(KEYCHAIN_SERVICE);
+    crate::os::secrets::delete(KEYCHAIN_SERVICE);
     forget_key();
     Ok(())
 }

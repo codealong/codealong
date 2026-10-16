@@ -1,8 +1,7 @@
 ---
 paths:
   - "src-tauri/src/**/linux.rs"
-  - "src-tauri/src/panel/gtk.rs"
-  - "src-tauri/src/keychain.rs"
+  - "src-tauri/src/os/**"
   - "scripts/linux-vm.sh"
   - "scripts/linux/**"
 ---
@@ -40,7 +39,7 @@ What Linux, its desktops and the harnesses there turned out to need, found in th
   (`src/main.tsx`, `is-linux`). A transparent window is drawn black without a compositor: the VM
   runs `xcompmgr` (`scripts/linux/run.sh`).
 - GDK's coordinates, the pointer's and a monitor's, are the whole desktop's in application pixels
-  on X11, y growing down from the top left of the desktop; panel/gtk.rs turns them into AppKit's.
+  on X11, y growing down from the top left of the desktop; os/windows/linux.rs turns them into AppKit's.
   Under Wayland a window can't learn where it or the pointer is, and `xdotool` raises nothing.
 - A board window gets a native title bar from the window manager; the overlay title bar and its
   traffic lights are macOS's (`lib.rs` project windows, `waiting.rs`).
@@ -60,11 +59,11 @@ What Linux, its desktops and the harnesses there turned out to need, found in th
 ## Unchecked
 
 - 2026-10-16: Wayland (XWayland apps keep X11's ways; native Wayland gets no window places), a
-  real desktop's Secret Service for `keychain.rs`, the global shortcuts (Tauri maps `Cmd` to Super
+  real desktop's Secret Service for `os/secrets.rs`, the global shortcuts (Tauri maps `Cmd` to Super
   there), a signed-in Claude Code's own sessions and usage, and every emulator but xterm.
 - The waiting window's place (2026-10-16, openbox in the VM): its size is kept when it's put away
   and opened again, its frame read with the title bar and the border taken off as it's put back
-  (panel/gtk.rs `border`), but openbox places it as it's shown, wherever it was put before, and
+  (os/windows/linux.rs `border`), but openbox places it as it's shown, wherever it was put before, and
   after a relaunch it opened where Tauri first put it. Putting the frame back once it's shown
   moved it up by the title bar each time: openbox took the place asked for as the inside's, where
   Tauri reads a window's place as its outside's. Its shortcut works there (⌥⌘. as Alt+Super+.).

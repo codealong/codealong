@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::util::{expand, home};
+use crate::util::expand;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
@@ -860,11 +860,11 @@ impl Default for SoundsCfg {
 }
 
 fn default_needs_you_sound() -> String {
-    crate::sounds::DEFAULT_NEEDS_YOU.into()
+    crate::os::sound::defaults().0.into()
 }
 
 fn default_your_turn_sound() -> String {
-    crate::sounds::DEFAULT_YOUR_TURN.into()
+    crate::os::sound::defaults().1.into()
 }
 
 fn default_sound_volume() -> u32 {
@@ -942,49 +942,51 @@ impl Default for ShortcutsCfg {
     }
 }
 
-/// ⌥⌘;, just above ⌥⌘/, ⌥⌘. and ⌥⌘, with the same keys held, so the four sit together. ⌥⌘ and a
-/// letter is mostly taken (⌥⌘M minimizes every window, ⌥⌘H hides the other apps, the Finder's
-/// and Chrome's menus have most of the rest), and ⌥⌘0 to ⌥⌘9 switch projects in Codealong's own
-/// windows. ⌘; alone checks spelling in text apps. Written as Settings records it.
-pub const DEFAULT_MAIN_WINDOW: &str = "Option+Cmd+;";
+/// The shortcuts a new config.toml has, written as Settings records them on each OS, so its
+/// "Use …" buttons know them.
+#[derive(Clone, Copy, Debug)]
+pub struct DefaultShortcuts {
+    pub quick_panel: &'static str,
+    pub chat: &'static str,
+    pub waiting: &'static str,
+    pub improve: &'static str,
+    pub main_window: &'static str,
+}
+
+/// On macOS ⌥⌘ and the keys right of the letters, which sit together: ⌥⌘/ the quick panel, / for
+/// search as in many apps (the other / keys are taken: ⌘/ comments out lines in editors, ⌘?
+/// searches the Help menu, ⌃/ is undo in shells, which terminals send as ^_, and ⌥/ and ⌥⇧/ type ÷
+/// and ¿); ⌥⌘' beside it, the quick panel set to a chat; ⌥⌘. what waits on you; ⌥⌘, improving
+/// Codealong (⌘, alone is every app's Settings); ⌥⌘; the main window (⌘; alone checks spelling in
+/// text apps). ⌥⌘ and a letter is mostly taken (⌥⌘M minimizes every window, ⌥⌘H hides the other
+/// apps, the Finder's and Chrome's menus have most of the rest), and ⌥⌘0 to ⌥⌘9 switch projects in
+/// Codealong's own windows; no macOS shortcut or common app's uses these. On Linux the same keys
+/// with Ctrl and Alt, which desktops leave to apps; Super and a key is the desktop's own.
+pub fn default_shortcuts() -> DefaultShortcuts {
+    match crate::os::current() {
+        crate::os::Os::MacOs => DefaultShortcuts { quick_panel: "Option+Cmd+/", chat: "Option+Cmd+'", waiting: "Option+Cmd+.", improve: "Option+Cmd+,", main_window: "Option+Cmd+;" },
+        crate::os::Os::Linux => DefaultShortcuts { quick_panel: "Ctrl+Alt+/", chat: "Ctrl+Alt+'", waiting: "Ctrl+Alt+.", improve: "Ctrl+Alt+,", main_window: "Ctrl+Alt+;" },
+    }
+}
 
 fn default_main_window() -> String {
-    DEFAULT_MAIN_WINDOW.to_string()
+    default_shortcuts().main_window.to_string()
 }
-
-/// ⌥⌘', beside ⌥⌘; with the same keys held, so the five sit together; it's the quick panel, set to
-/// a chat. No macOS shortcut or common app's that we know of uses it. Written as Settings records
-/// it.
-pub const DEFAULT_CHAT: &str = "Option+Cmd+'";
 
 fn default_chat() -> String {
-    DEFAULT_CHAT.to_string()
+    default_shortcuts().chat.to_string()
 }
-
-/// ⌥⌘,, beside ⌥⌘. and ⌥⌘/ on the keyboard with the same keys held, so the three sit together;
-/// ⌘, alone is every app's Settings, and with ⌥ no macOS shortcut or common app's. Written as
-/// Settings records it.
-pub const DEFAULT_IMPROVE: &str = "Option+Cmd+,";
 
 fn default_improve() -> String {
-    DEFAULT_IMPROVE.to_string()
+    default_shortcuts().improve.to_string()
 }
-
-/// ⌥⌘/, / for search as in many apps. The other / keys are taken: ⌘/ comments out lines in
-/// editors, ⌘? searches the Help menu, ⌃/ is undo in shells (terminals send it as ^_), and ⌥/
-/// and ⌥⇧/ type ÷ and ¿. Written as Settings records it, so its "Use …" button knows it.
-pub const DEFAULT_QUICK_PANEL: &str = "Option+Cmd+/";
 
 fn default_quick_panel() -> String {
-    DEFAULT_QUICK_PANEL.to_string()
+    default_shortcuts().quick_panel.to_string()
 }
 
-/// ⌥⌘., beside the quick panel's ⌥⌘/ with the same keys held, so the two sit together; no
-/// macOS shortcut or common app's uses it. Written as Settings records it.
-pub const DEFAULT_WAITING: &str = "Option+Cmd+.";
-
 fn default_waiting() -> String {
-    DEFAULT_WAITING.to_string()
+    default_shortcuts().waiting.to_string()
 }
 
 /// Light or dark. `System` follows macOS, and changes when macOS does.
@@ -1142,45 +1144,8 @@ fn default_editor() -> String {
     "cursor".to_string()
 }
 
-/// Codealong's own files: config.toml, the todos, the socket and what the app keeps.
-#[cfg(target_os = "macos")]
-pub fn support_dir() -> PathBuf {
-    home().join("Library/Application Support/Codealong")
-}
-
-/// On Linux, the XDG config folder's, where config.toml is looked for.
-#[cfg(not(target_os = "macos"))]
-pub fn support_dir() -> PathBuf {
-    xdg("XDG_CONFIG_HOME", ".config")
-}
-
-/// Where Codealong's logs go: macOS's place for them, and on Linux the XDG state folder's.
-#[cfg(target_os = "macos")]
-pub fn logs_dir() -> PathBuf {
-    home().join("Library/Logs/Codealong")
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn logs_dir() -> PathBuf {
-    xdg("XDG_STATE_HOME", ".local/state")
-}
-
-/// Caches, which the system may clear; a copy of the app with a home of its own has its own.
-#[cfg(target_os = "macos")]
-pub fn cache_dir() -> PathBuf {
-    home().join("Library/Caches/Codealong")
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn cache_dir() -> PathBuf {
-    xdg("XDG_CACHE_HOME", ".cache")
-}
-
-/// Codealong's folder in an XDG base folder: the one `var` names, else `default` under the home.
-#[cfg(not(target_os = "macos"))]
-fn xdg(var: &str, default: &str) -> PathBuf {
-    std::env::var_os(var).map(PathBuf::from).filter(|p| p.is_absolute()).unwrap_or_else(|| home().join(default)).join("codealong")
-}
+// Codealong's own folders, on each OS.
+pub use crate::os::dirs::{cache_dir, logs_dir, support_dir};
 
 pub fn config_path() -> PathBuf {
     support_dir().join("config.toml")
@@ -1562,15 +1527,24 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # Nothing goes on GitHub.
 ";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
-#[cfg(target_os = "macos")]
-const SOUNDS_COMMENT: &str = "# A sound when something starts to wait on you. needs_you: a session asks you something, waits on a call\n# to allow, or stops with an error. your_turn: a session's turn ended. review_requested: a pull request asks\n# for your review. Each is the name of a sound in /System/Library/Sounds (\"Pop\", \"Tink\", \"Bottle\", \"Purr\"...)\n# or ~/Library/Sounds, or \"\" for none. volume: in percent of the Mac's own.\n";
-#[cfg(not(target_os = "macos"))]
-const SOUNDS_COMMENT: &str = "# A sound when something starts to wait on you. needs_you: a session asks you something, waits on a call\n# to allow, or stops with an error. your_turn: a session's turn ended. review_requested: a pull request asks\n# for your review. Each is the name of a sound in /usr/share/sounds/freedesktop/stereo (\"message-new-instant\",\n# \"complete\", \"bell\"...) or ~/.local/share/sounds, or \"\" for none. volume: in percent of the system's.\n";
-#[cfg(target_os = "macos")]
-const DEBUG_COMMENT: &str ="# Timings for finding what makes the app slow, in ~/Library/Logs/Codealong/perf.log.\n";
-#[cfg(not(target_os = "macos"))]
-const DEBUG_COMMENT: &str ="# Timings for finding what makes the app slow, in ~/.local/state/codealong/perf.log.\n";
-const SHORTCUTS_COMMENT: &str = "# Shortcuts that work in any app, such as \"Option+Cmd+/\" or \"Cmd+Ctrl+K\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# chat opens the quick panel set to start a chat of its own, in no project.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n# improve opens the quick panel to improve Codealong itself, with pictures of its windows.\n# main_window brings Codealong's window forward, or hides Codealong when it's the window you're in.\n";
+/// What config.toml says above `[sounds]`: where the OS keeps the sounds it can name.
+fn sounds_comment() -> String {
+    format!("# A sound when something starts to wait on you. needs_you: a session asks you something, waits on a call\n# to allow, or stops with an error. your_turn: a session's turn ended. review_requested: a pull request asks\n# for your review. {}\n", crate::os::sound::names_said())
+}
+
+/// What config.toml says above `[debug]`: where the timings go.
+fn debug_comment() -> String {
+    format!("# Timings for finding what makes the app slow, in {}.\n", crate::util::tilde(&crate::perf::log_path()))
+}
+
+/// What config.toml says above `[shortcuts]`, with examples in the OS's keys.
+fn shortcuts_comment() -> String {
+    let (a, b) = match crate::os::current() {
+        crate::os::Os::MacOs => ("Option+Cmd+/", "Cmd+Ctrl+K"),
+        crate::os::Os::Linux => ("Ctrl+Alt+/", "Ctrl+Shift+K"),
+    };
+    format!("# Shortcuts that work in any app, such as \"{a}\" or \"{b}\". \"\" turns one off.\n# quick_panel opens the quick panel: find a session, or start one.\n# chat opens the quick panel set to start a chat of its own, in no project.\n# waiting opens the first session that waits on you, to answer one after another: in the notch\n# when the bar is docked there, else in the waiting window.\n# improve opens the quick panel to improve Codealong itself, with pictures of its windows.\n# main_window brings Codealong's window forward, or hides Codealong when it's the window you're in.\n")
+}
 
 /// Sets `[apps] editor` in config.toml and keeps everything else as written: an editor picked
 /// from an Open in menu is the one Open in <editor> uses from then on.
@@ -1649,7 +1623,7 @@ fn set_shortcuts(doc: &mut toml_edit::DocumentMut, shortcuts: &ShortcutsCfg) {
     use toml_edit::{Item, Table, Value};
     if !doc.get("shortcuts").is_some_and(Item::is_table_like) {
         let mut t = Table::new();
-        t.decor_mut().set_prefix(format!("\n{SHORTCUTS_COMMENT}"));
+        t.decor_mut().set_prefix(format!("\n{}", shortcuts_comment()));
         // Like [appearance], it goes with the settings at the top rather than at the end.
         let after = ["appearance", "apps"].into_iter().find_map(|name| Some((name, doc.get(name).and_then(Item::as_table).and_then(|t| t.position())?)));
         if let Some((_, at)) = after {
@@ -2037,7 +2011,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     if cfg.sounds != SoundsCfg::default() || doc.get("sounds").is_some() {
         if !doc.get("sounds").is_some_and(toml_edit::Item::is_table_like) {
             let mut t = Table::new();
-            t.decor_mut().set_prefix(format!("\n{SOUNDS_COMMENT}"));
+            t.decor_mut().set_prefix(format!("\n{}", sounds_comment()));
             doc.insert("sounds", Item::Table(t));
             let after = ["pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "sounds", after);
@@ -2051,7 +2025,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
 
     set_repos(&mut doc, &cfg.repos);
 
-    ensure_table(&mut doc, "debug", DEBUG_COMMENT);
+    ensure_table(&mut doc, "debug", &debug_comment());
     set_value(&mut doc["debug"]["perf_log"], Value::from(cfg.debug.perf_log));
 
     set_accounts(&mut doc, &cfg.accounts);
@@ -2324,7 +2298,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("zoom = {}\n", cfg.appearance.zoom));
     }
     s.push('\n');
-    s.push_str(SHORTCUTS_COMMENT);
+    s.push_str(&shortcuts_comment());
     s.push_str("[shortcuts]\n");
     s.push_str(&format!("quick_panel = {}\n", q(&cfg.shortcuts.quick_panel)));
     s.push_str(&format!("chat = {}\n", q(&cfg.shortcuts.chat)));
@@ -2427,7 +2401,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("nudge_about = {}\n", q(cfg.pull_requests.nudge_about.as_str())));
     }
     s.push('\n');
-    s.push_str(SOUNDS_COMMENT);
+    s.push_str(&sounds_comment());
     s.push_str("[sounds]\n");
     s.push_str(&format!("needs_you = {}\n", q(&cfg.sounds.needs_you)));
     s.push_str(&format!("your_turn = {}\n", q(&cfg.sounds.your_turn)));
@@ -2477,7 +2451,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&repos.to_string());
     }
     s.push('\n');
-    s.push_str(DEBUG_COMMENT);
+    s.push_str(&debug_comment());
     s.push_str("[debug]\n");
     s.push_str(&format!("perf_log = {}\n", cfg.debug.perf_log));
     s
@@ -2951,21 +2925,21 @@ mod tests {
     #[test]
     fn sounds_are_on_for_what_waits_on_you_and_name_sounds_the_mac_has() {
         let d = toml::from_str::<Config>("").unwrap().sounds;
-        let (pop, tink) = (crate::sounds::DEFAULT_NEEDS_YOU, crate::sounds::DEFAULT_YOUR_TURN);
+        let (pop, tink) = crate::os::sound::defaults();
         assert_eq!((d.needs_you.as_str(), d.your_turn.as_str(), d.review_requested.as_str(), d.volume), (pop, tink, "", 60));
         // A new file says so, before the accounts.
         let new = render(&full());
-        assert!(new.contains(&format!("{SOUNDS_COMMENT}[sounds]\nneeds_you = \"{pop}\"\nyour_turn = \"{tink}\"\nreview_requested = \"\"\nvolume = 60\n")), "{new}");
+        assert!(new.contains(&format!("{}[sounds]\nneeds_you = \"{pop}\"\nyour_turn = \"{tink}\"\nreview_requested = \"\"\nvolume = 60\n", sounds_comment())), "{new}");
         assert!(new.find("[sounds]").unwrap() < new.find("[[accounts]]").unwrap(), "{new}");
         // An older file gets the table only once a sound changes.
-        let start = new.find(SOUNDS_COMMENT).unwrap();
+        let start = new.find(&sounds_comment()).unwrap();
         let old = format!("{}{}", &new[..start - 1], &new[new.find("\n# Harness accounts.").unwrap()..]);
         assert!(!with_config(&old, &full()).unwrap().contains("[sounds]"));
         let mut quieter = full();
         quieter.sounds.your_turn = String::new();
         quieter.sounds.volume = 30;
         let out = with_config(&old, &quieter).unwrap();
-        assert!(out.contains(&format!("{SOUNDS_COMMENT}[sounds]\nneeds_you = \"{pop}\"\nyour_turn = \"\"\nreview_requested = \"\"\nvolume = 30\n")), "{out}");
+        assert!(out.contains(&format!("{}[sounds]\nneeds_you = \"{pop}\"\nyour_turn = \"\"\nreview_requested = \"\"\nvolume = 30\n", sounds_comment())), "{out}");
         assert!(out.find("[sounds]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert_eq!(parse(&out).unwrap(), quieter);
         // A sound the Mac doesn't have, and a volume over the Mac's own, are refused.
@@ -3231,7 +3205,7 @@ mod tests {
         let more = RepoCfg { pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None }, ..RepoCfg::default() };
         let out = with_suggestions(&out, "sprucehq/web", &more).unwrap();
         assert_eq!(parse(&out).unwrap().repos[&repo_key("sprucehq/web")], first.with(&more));
-        assert!(out.starts_with(&text[..text.find(DEBUG_COMMENT).unwrap()]), "the rest stays as written");
+        assert!(out.starts_with(&text[..text.find(&debug_comment()).unwrap()]), "the rest stays as written");
     }
 
     #[test]
@@ -3362,7 +3336,7 @@ mod tests {
         next.projects.push(ProjectCfg { name: "Codealong".into(), repos: vec!["github.com/codealong/*".into()], folders: vec![], chrome_profile: None });
         let out = with_config(&text, &next).unwrap();
         assert_eq!(toml::from_str::<Config>(&out).unwrap(), next);
-        for kept in ["# my editor of choice", "# roots", "# Harness accounts.", "# Projects group repos", APPS_COMMENT, DEBUG_COMMENT] {
+        for kept in ["# my editor of choice", "# roots", "# Harness accounts.", "# Projects group repos", APPS_COMMENT, &debug_comment()] {
             assert!(out.contains(kept), "lost {kept:?} in:\n{out}");
         }
         // The file keeps its order: scan, apps, appearance, shortcuts, accounts, projects, debug.
@@ -3378,7 +3352,7 @@ mod tests {
         let out = with_config("scan = [\"~/code\"]\n", &full()).unwrap();
         assert_eq!(toml::from_str::<Config>(&out).unwrap(), full());
         assert!(out.contains(&format!("{APPS_COMMENT}[apps]\n")), "{out}");
-        assert!(out.contains(&format!("{DEBUG_COMMENT}[debug]\nperf_log = true\n")), "{out}");
+        assert!(out.contains(&format!("{}[debug]\nperf_log = true\n", debug_comment())), "{out}");
         assert!(with_config("scan = [", &full()).is_err());
     }
 
@@ -3406,17 +3380,17 @@ mod tests {
     fn a_file_without_shortcuts_gets_them_after_appearance() {
         // A file written before there were shortcuts.
         let text = render(&full());
-        let start = text.find(SHORTCUTS_COMMENT).unwrap();
+        let start = text.find(&shortcuts_comment()).unwrap();
         let end = text.find("\n# Harness accounts.").unwrap();
         let old = format!("{}{}", &text[..start], &text[end + 1..]);
         assert!(!old.contains("[shortcuts]"));
-        assert_eq!(toml::from_str::<Config>(&old).unwrap().shortcuts.quick_panel, DEFAULT_QUICK_PANEL);
+        assert_eq!(toml::from_str::<Config>(&old).unwrap().shortcuts.quick_panel, default_shortcuts().quick_panel);
 
         let mut next = full();
         next.shortcuts.quick_panel = "Ctrl+Alt+Space".into();
         let out = with_config(&old, &next).unwrap();
         assert_eq!(toml::from_str::<Config>(&out).unwrap(), next);
-        assert!(out.contains(&format!("{SHORTCUTS_COMMENT}[shortcuts]\nquick_panel = \"Ctrl+Alt+Space\"\n")), "{out}");
+        assert!(out.contains(&format!("{}[shortcuts]\nquick_panel = \"Ctrl+Alt+Space\"\n", shortcuts_comment())), "{out}");
         assert!(out.find("[appearance]").unwrap() < out.find("[shortcuts]").unwrap());
         assert!(out.find("[shortcuts]").unwrap() < out.find("[[accounts]]").unwrap());
         // Turned off, it stays in the file as an empty string.
@@ -3428,7 +3402,13 @@ mod tests {
 
     #[test]
     fn checks_the_shortcut() {
+        // Linux's defaults are keys of their own too.
+        assert!(crate::os::as_if(crate::os::Os::Linux, || check(&full())).is_ok());
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
         let mut cfg = full();
+        // macOS's sounds aren't on every computer the test runs on.
+        cfg.sounds.needs_you = String::new();
+        cfg.sounds.your_turn = String::new();
         for ok in ["Option+Cmd+/", "Option+Shift+Space", "Cmd+Ctrl+K", "ctrl+alt+space", "F18", ""] {
             cfg.shortcuts.quick_panel = ok.into();
             assert!(check(&cfg).is_ok(), "{ok:?}: {:?}", check(&cfg));
@@ -3438,23 +3418,23 @@ mod tests {
             let err = check(&cfg).unwrap_err();
             assert!(err.starts_with("[shortcuts] quick_panel: "), "{bad:?}: {err}");
         }
-        cfg.shortcuts.quick_panel = DEFAULT_QUICK_PANEL.into();
+        cfg.shortcuts.quick_panel = default_shortcuts().quick_panel.into();
         cfg.shortcuts.waiting = "Cmd+K".into();
         assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] waiting: "));
         // One press can't do both, however it's written; both off is fine.
         cfg.shortcuts.waiting = "cmd+option+/".into();
         assert_eq!(check(&cfg).unwrap_err(), "[shortcuts] waiting is the same keys as quick_panel; one press can only do one of them.");
-        cfg.shortcuts.waiting = DEFAULT_WAITING.into();
+        cfg.shortcuts.waiting = default_shortcuts().waiting.into();
         cfg.shortcuts.improve = "Option+Cmd+.".into();
         assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] improve is the same keys as waiting"));
         cfg.shortcuts.improve = "Cmd+I".into();
         assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] improve: "));
-        cfg.shortcuts.improve = DEFAULT_IMPROVE.into();
+        cfg.shortcuts.improve = default_shortcuts().improve.into();
         cfg.shortcuts.main_window = "Option+Cmd+,".into();
         assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] main_window is the same keys as improve"));
         cfg.shortcuts.main_window = "M".into();
         assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] main_window: "));
-        cfg.shortcuts.main_window = DEFAULT_MAIN_WINDOW.into();
+        cfg.shortcuts.main_window = default_shortcuts().main_window.into();
         cfg.shortcuts.chat = "Option+Cmd+;".into();
         assert!(check(&cfg).unwrap_err().starts_with("[shortcuts] main_window is the same keys as chat"));
         cfg.shortcuts = ShortcutsCfg { quick_panel: String::new(), chat: String::new(), waiting: String::new(), improve: String::new(), main_window: String::new() };
@@ -3463,8 +3443,11 @@ mod tests {
 
     #[test]
     fn a_file_from_before_the_waiting_shortcut_has_its_default() {
+        let linux = crate::os::as_if(crate::os::Os::Linux, || render(&Config::default()));
+        assert!(linux.contains("[shortcuts]\nquick_panel = \"Ctrl+Alt+/\"\nchat = \"Ctrl+Alt+'\"\n"), "{linux}");
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
         let cfg: Config = toml::from_str("[shortcuts]\nquick_panel = \"Cmd+Ctrl+K\"\n").unwrap();
-        assert_eq!(cfg.shortcuts, ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: DEFAULT_CHAT.into(), waiting: DEFAULT_WAITING.into(), improve: DEFAULT_IMPROVE.into(), main_window: DEFAULT_MAIN_WINDOW.into() });
+        assert_eq!(cfg.shortcuts, ShortcutsCfg { quick_panel: "Cmd+Ctrl+K".into(), chat: default_shortcuts().chat.into(), waiting: default_shortcuts().waiting.into(), improve: default_shortcuts().improve.into(), main_window: default_shortcuts().main_window.into() });
         let text = render(&Config::default());
         assert!(text.contains("[shortcuts]\nquick_panel = \"Option+Cmd+/\"\nchat = \"Option+Cmd+'\"\nwaiting = \"Option+Cmd+.\"\nimprove = \"Option+Cmd+,\"\nmain_window = \"Option+Cmd+;\"\n"), "{text}");
     }

@@ -6,56 +6,15 @@
 // hands the page its focus again, which makes WebKit ask AppKit afresh. GTK has no first
 // responder to hand back, so on Linux the report is only written down.
 
-#[cfg(target_os = "macos")]
-use objc2::MainThreadMarker;
-#[cfg(target_os = "macos")]
-use objc2_app_kit::{NSApplication, NSWindowDidBecomeKeyNotification};
-#[cfg(target_os = "macos")]
-use objc2_foundation::NSNotificationCenter;
 use tauri::WebviewWindow;
 
-#[cfg(target_os = "macos")]
-use crate::panel;
-use crate::perf;
-
-#[cfg(target_os = "macos")]
-fn yes(b: bool) -> &'static str {
-    if b {
-        "yes"
-    } else {
-        "no"
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn refocus(w: &WebviewWindow) {
-    perf::log(&format!("ui[{}] typing into a text field WebKit had as unfocused", w.label()));
-}
+use crate::{os, perf};
 
 /// On the main thread.
-#[cfg(target_os = "macos")]
 pub fn refocus(w: &WebviewWindow) {
     let label = w.label().to_string();
-    panel::with_page(w, move |ns, view| {
-        let Some(mtm) = MainThreadMarker::new() else { return };
-        let first = match ns.firstResponder() {
-            None => "nothing".to_string(),
-            Some(f) if std::ptr::eq(&*f, view) => "the page".to_string(),
-            Some(f) => format!("a {}", f.class().name().to_string_lossy()),
-        };
-        let key = ns.isKeyWindow();
-        let state = format!("key window {}, Codealong active {}, first responder {first}", yes(key), yes(NSApplication::sharedApplication(mtm).isActive()));
-        perf::log(&format!("ui[{label}] typing into a text field WebKit had as unfocused: {state}"));
-        // Taking the page's focus and handing it back makes WebKit ask whether it's focused.
-        ns.makeFirstResponder(None);
-        ns.makeFirstResponder(Some(view));
-        // And a key window WebKit missed becoming key is said to again, which makes it ask
-        // whether the window is key; AppKit's own state doesn't change.
-        if key {
-            // SAFETY: an AppKit constant, read on the main thread.
-            let name = unsafe { NSWindowDidBecomeKeyNotification };
-            // SAFETY: posting a notification about the window, which is alive and key.
-            unsafe { NSNotificationCenter::defaultCenter().postNotificationName_object(name, Some(ns.as_ref())) };
-        }
+    os::windows::refocus_page(w, move |state| {
+        let said = state.map(|s| format!(": {s}")).unwrap_or_default();
+        perf::log(&format!("ui[{label}] typing into a text field WebKit had as unfocused{said}"));
     });
 }

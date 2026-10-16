@@ -20,7 +20,6 @@ use std::time::{Duration, Instant};
 use crate::config::AccountCfg;
 use crate::harness;
 use crate::model::Harness;
-use crate::procs;
 use crate::util::{now_ms, DAY_MS};
 
 /// A message longer than this is cut: a paste can be hundreds of kilobytes.
@@ -117,7 +116,7 @@ pub fn spawn_warmer(delay: Duration) {
     let (tx, rx) = channel::<()>();
     *warmer().lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
     std::thread::spawn(move || {
-        procs::utility_thread();
+        crate::os::system::utility_thread();
         std::thread::sleep(delay);
         loop {
             warm();

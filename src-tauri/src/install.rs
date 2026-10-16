@@ -309,18 +309,14 @@ pub fn open_as_the_dock_does() -> Option<i32> {
     // LaunchServices knows the copy it opened from its first moment, before it has said it's
     // running, and nothing else: not one a shell started, nor one started in the background whose
     // starter quit, which launchd adopts with whatever environment it had (checked 2026-10-14).
-    #[cfg(target_os = "macos")]
-    let by_macos = objc2_app_kit::NSRunningApplication::runningApplicationWithProcessIdentifier(pid as libc::pid_t).is_some();
-    // Never reached: no binary is in a bundle off macOS.
-    #[cfg(not(target_os = "macos"))]
-    let by_macos = false;
+    let by_macos = crate::os::apps::opened_by_macos(pid);
     let (ppid, me) = crate::procs::parent_and_name(pid)?;
     let parent = crate::procs::parent_and_name(ppid).map(|(_, name)| (ppid, name));
     if !opened_by_hand(by_macos, parent.as_ref().map(|(pid, name)| (*pid, name.as_str())), &me) {
         return None;
     }
     let bundle = exe.ancestors().nth(3)?;
-    let env = dock_environment(|name| std::env::var(name).ok(), &crate::launch::login_shell(), user_temp_dir().as_deref(), launchd_ssh_agent().as_deref());
+    let env = dock_environment(|name| std::env::var(name).ok(), &crate::launch::login_shell(), crate::os::dirs::user_temp_dir().as_deref(), launchd_ssh_agent().as_deref());
     let open = || std::process::Command::new("/usr/bin/open").arg("-n").arg(bundle).env_clear().envs(env.iter().cloned()).env(HANDED_OVER, "1").status();
     // macOS turns an open away while the app's last copy is still quitting (error -600), as the
     // copy an update restarted finds when that copy has only just gone: once more, a moment on.
@@ -365,22 +361,6 @@ fn dock_environment(caller: impl Fn(&str) -> Option<String>, shell: &str, temp: 
     env.extend(temp.map(|t| ("TMPDIR".to_string(), t.to_string())));
     env.extend(ssh_agent.map(|s| ("SSH_AUTH_SOCK".to_string(), s.to_string())));
     env
-}
-
-/// The per-user temporary folder macOS gives apps (`getconf DARWIN_USER_TEMP_DIR`): a shell's
-/// TMPDIR can be one an agent's sandbox set.
-#[cfg(not(target_os = "macos"))]
-fn user_temp_dir() -> Option<String> {
-    None
-}
-
-#[cfg(target_os = "macos")]
-fn user_temp_dir() -> Option<String> {
-    let mut buf = vec![0u8; 1024];
-    // SAFETY: confstr writes at most `buf.len()` bytes, its NUL included, and returns the length
-    // the whole value needs.
-    let n = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buf.as_mut_ptr().cast(), buf.len()) };
-    (n > 1 && n <= buf.len()).then(|| String::from_utf8_lossy(&buf[..n - 1]).into_owned())
 }
 
 /// The SSH agent launchd gives apps, where a shell may point SSH_AUTH_SOCK at another.
@@ -891,8 +871,10 @@ mod tests {
         assert_eq!(env["CODEALONG_DEVICE_KEY"], "ab12");
         assert!(!env.contains_key("CLAUDE_CODE_SESSION_ID") && !env.contains_key("CODEALONG_SESSION"), "{env:?}");
         assert!(!env.contains_key("LOGNAME"), "only what the opener has");
-        #[cfg(target_os = "macos")]
-        assert!(user_temp_dir().is_some_and(|t| t.ends_with("/T/")), "{:?}", user_temp_dir());
+        if crate::os::NATIVE == crate::os::Os::MacOs {
+            let temp = crate::os::dirs::user_temp_dir();
+            assert!(temp.as_deref().is_some_and(|t| t.ends_with("/T/")), "{temp:?}");
+        }
     }
 
     #[test]

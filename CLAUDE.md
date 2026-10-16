@@ -263,7 +263,7 @@ Each rule names the file whose header has the rest.
   `harness::adapter(session.harness)` or `harness::of(account)`), and nothing outside a
   terminal's module on which terminal it is (`launch::terminal_app`, `launch::terminal_kind`).
   A terminal is a module under `src-tauri/src/launch/`, a variant of `HostKind` and a line in
-  `launch::TERMINALS`; `launch/stage.rs` pins what each is sent. send.rs, usage.rs,
+  `launch::terminals()`; `launch/stage.rs` pins what each is sent. send.rs, usage.rs,
   transcript.rs and search.rs keep what every harness shares and ask the adapter for the rest.
   `.claude/rules/adding-a-harness.md` says how to add a harness.
 - One thing, one component, wherever it shows: a card's face is `src/ui/card/` (`CanvasCard.tsx`
@@ -318,11 +318,14 @@ Each rule names the file whose header has the rest.
   is a new token, not a hand-written `font:` nor a family, size, line height or weight beside one.
   `styles.test.ts` says what else it holds. Icons are Tabler outline paths in `src/ui/icons.ts`.
 - UI copy is sentence case and plain words. Comments explain why, in plain sentences.
-- It builds and runs on Linux too. What differs is `cfg(target_os = "macos")` in the module that
-  has it, both sides there (development.md's Linux table): a new call to AppKit, `osascript`,
-  `security` or a BSD `libc` function gets its Linux side, or a stand-in that says why there's
-  none. `scripts/linux-vm.sh test` checks it builds and passes there; CI checks `main` every
-  four hours (`.github/workflows/linux.yml`, `gh workflow run linux.yml` for now).
+- It builds and runs on Linux too. What it asks of the OS is `src-tauri/src/os/` (its `mod.rs`
+  header), and only there does `cfg(target_os)` pick what's compiled: a call to AppKit, GTK or
+  an OS's own `libc` function goes in an area's `macos.rs` and `linux.rs`. What merely differs
+  (a path, the program that opens a link, which terminals there are) goes by `os::current()`, so
+  both sides compile and are tested on either (`os::as_if`). A side with nothing to do says why;
+  one asked for what only macOS does fails with `os::only_on_macos`. `scripts/linux-vm.sh test`
+  checks it builds and passes there; CI checks `main` every four hours
+  (`.github/workflows/linux.yml`, `gh workflow run linux.yml` for now).
 - `rustfmt` isn't installed here, so Rust formatting is unchecked; match the surrounding code.
 
 ## Where facts live

@@ -214,7 +214,7 @@ pub fn spawn(delay: Duration) {
     *nudger().lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
     FILLING.store(!path().exists(), Ordering::Relaxed);
     std::thread::spawn(move || {
-        crate::procs::utility_thread();
+        crate::os::system::utility_thread();
         std::thread::sleep(delay);
         // A connection of its own: the windows' reports read through the shared one meanwhile,
         // which WAL lets them do while this one writes.
@@ -939,7 +939,7 @@ pub fn note_jev(u: JevUse) {
     let tx = TX.get_or_init(|| {
         let (tx, rx) = channel::<JevUse>();
         std::thread::spawn(move || {
-            crate::procs::utility_thread();
+            crate::os::system::utility_thread();
             let mut db = None;
             for u in rx {
                 let problem = keep_jev(&mut db, &u, || open(&path()));

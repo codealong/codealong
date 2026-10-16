@@ -22,6 +22,7 @@ mod cursor;
 mod codex;
 mod opencode;
 mod origins;
+mod os;
 mod panel;
 mod peek;
 mod config;
@@ -56,7 +57,6 @@ mod emblems;
 use codealong_peer::net as irohnet;
 mod jev;
 mod jsonedit;
-mod keychain;
 mod kept;
 mod launch;
 mod ledger;
@@ -169,11 +169,7 @@ fn open_project_window(app: tauri::AppHandle, window: tauri::WebviewWindow, proj
         .inner_size(1320.0, 860.0)
         .min_inner_size(980.0, 600.0)
         .initialization_script(&script);
-    // On macOS the page draws under the title bar, its buttons over the page (windows.md);
-    // elsewhere the window manager's title bar stays.
-    #[cfg(target_os = "macos")]
-    let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true).traffic_light_position(tauri::LogicalPosition::new(18.0, 20.0));
-    let mut builder = builder;
+    let mut builder = os::windows::overlay_title_bar(builder, Some((18.0, 20.0)));
     // Cascade from the window you asked in so the new one opens on the same screen but doesn't
     // sit exactly on top of it. The main window can be closed, which only hides it.
     if let (Ok(pos), Ok(scale)) = (window.outer_position(), window.scale_factor()) {
@@ -1879,7 +1875,7 @@ pub fn run() {
     }
     tauri::Builder::default()
         .setup(|app| {
-            procs::no_app_nap();
+            crate::os::system::no_app_nap();
             // Set before the page loads, so a window never opens in the wrong theme.
             let theme = config::theme();
             app.set_theme(native_theme(theme));
@@ -2138,8 +2134,7 @@ pub fn run() {
         .run(|app, event| {
             // The Dock icon brings the main window back after it was closed.
             match event {
-                #[cfg(target_os = "macos")]
-                tauri::RunEvent::Reopen { .. } => {
+                ref reopen if os::windows::reopened(reopen) => {
                     let _ = front::show_main(app, None);
                 }
                 // Where the waiting window is, written when it's put away, for one that's up as
@@ -2152,7 +2147,6 @@ pub fn run() {
 
 /// Whether this is Codealong Dev: a build of this repo from relaunch.sh (tauri.dev.conf.json),
 /// which goes by an id and icon of its own beside the Codealong in Applications.
-#[cfg(target_os = "macos")]
 pub(crate) fn is_dev_build(app: &tauri::AppHandle) -> bool {
     app.config().identifier.ends_with(".dev")
 }

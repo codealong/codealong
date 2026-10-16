@@ -24,11 +24,13 @@ pub struct Setup {
     pub stays: &'static [u32],
     /// Whether macOS may nap Ghostty (App Nap).
     pub ghostty_naps: bool,
+    /// The OS it plays as if on: macOS, whose terminals most tests are of.
+    pub os: crate::os::Os,
 }
 
 impl Default for Setup {
     fn default() -> Self {
-        Setup { procs: &[], installed: true, shell_ready: true, stays: &[], ghostty_naps: false }
+        Setup { procs: &[], installed: true, shell_ready: true, stays: &[], ghostty_naps: false, os: crate::os::Os::MacOs }
     }
 }
 
@@ -38,7 +40,6 @@ impl Default for Setup {
 pub struct Sent {
     pub what: String,
     pub args: Vec<String>,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub timeout: Duration,
 }
 
@@ -105,6 +106,7 @@ pub struct Played<T> {
 /// Runs `act` on the stage. `answer` is each program's output, or what it failed with.
 pub fn play<T>(setup: Setup, answer: impl Fn(&Sent) -> Result<String, String> + 'static, act: impl FnOnce() -> T) -> Played<T> {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let _os = crate::os::AsIf::new(setup.os);
     STAGE.with(|s| *s.borrow_mut() = Some(Stage { setup, log: Vec::new(), marks: Vec::new(), launchers: Vec::new() }));
     crate::procs::stand_in::set(Some(Box::new(move |program, args, input, timeout| {
         let sent = if program == "/usr/bin/osascript" {
@@ -202,7 +204,6 @@ pub fn tty(pid: u32) -> Option<Option<PathBuf>> {
 }
 
 /// Every Linux terminal emulator is on the PATH when the apps are installed.
-#[cfg(not(target_os = "macos"))]
 pub fn on_path(command: &str) -> Option<Option<PathBuf>> {
     staged(|s| s.setup.installed.then(|| PathBuf::from("/usr/bin").join(command)))
 }
@@ -244,9 +245,9 @@ pub fn hang_up(pids: &[u32]) -> Option<Vec<bool>> {
     Some(pids.iter().map(|p| !stays.contains(p)).collect())
 }
 
-// What macOS's terminals are sent, by the profiles only its `TERMINALS` has; Linux's terminal is
-// pinned in launch/linux.rs.
-#[cfg(target_os = "macos")]
+// What macOS's terminals are sent, played as if on macOS; Linux's terminal is pinned in
+// launch/linux.rs.
+#[cfg(test)]
 mod tests {
     use std::cell::Cell;
     use std::path::Path;
@@ -382,7 +383,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
     fn ghostty_opens_a_plain_window_another_way_when_its_script_fails() {
         let p = played(|_| Ok("ok\n".into()), || terminal_open("ghostty", window(), Path::new("/r/app"), None));
         p.got.unwrap();
@@ -390,7 +390,7 @@ mod tests {
 
         let p = played(|s| if s.what == "GHOSTTY_NEW" { Err(NOT_ALLOWED.into()) } else { Ok(String::new()) }, || terminal_open("ghostty", window(), Path::new("/r/app"), None));
         p.got.unwrap();
-        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", "", "front", ""]"#, r#"/usr/bin/open ["-na", "Ghostty.app", "--args", "--working-directory=/r/app"] (10s)"#]);
+        assert_eq!(p.log, [r#"GHOSTTY_NEW ["window", "", "/r/app", "", "front", ""]"#, r#"/usr/bin/open ["-n", "-a", "Ghostty.app", "--args", "--working-directory=/r/app"] (10s)"#]);
 
         // That failing too, the script's own failure is the one said.
         let p = played(|s| Err(if s.what == "GHOSTTY_NEW" { "boom" } else { "no such app" }.into()), || terminal_open("ghostty", window(), Path::new("/r/app"), None));
@@ -537,7 +537,7 @@ mod tests {
             ]
         );
         assert!(p.log.is_empty(), "nothing is asked of any app");
-        assert_eq!(presses_keys_in(), "Ghostty, iTerm2 or tmux");
+        assert_eq!(crate::os::as_if(crate::os::Os::MacOs, presses_keys_in), "Ghostty, iTerm2 or tmux");
     }
 
     #[test]
@@ -1175,8 +1175,26 @@ mod tests {
         assert_eq!(p.log, ["GHOSTTY_LIST []"]);
     }
 
+    /// A Finder alias named as a document is a plain file that `open` follows all the same,
+    /// marked as one only in its FinderInfo (as a real alias to Calculator.app was: type `fapa`,
+    /// creator `MACS`, flags 0x8000, mode 0644), so it's shown in the Finder rather than opened.
+    /// Only macOS's files have one.
     #[test]
     #[cfg(target_os = "macos")]
+    fn a_finder_alias_named_as_a_document_is_shown_in_the_finder() {
+        let dir = crate::fixtures::scratch("open-alias");
+        let alias = dir.join("report.pdf");
+        std::fs::write(&alias, b"x").unwrap();
+        let mut info = [0u8; 32];
+        info[..10].copy_from_slice(b"fapaMACS\x80\x00");
+        let c = std::ffi::CString::new(alias.to_string_lossy().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::setxattr(c.as_ptr(), c"com.apple.FinderInfo".as_ptr(), info.as_ptr().cast(), info.len(), 0, 0) }, 0);
+        let p = played(|_| Ok(String::new()), || open_file(&alias).is_ok());
+        assert!(p.got);
+        assert_eq!(p.log, [format!("/usr/bin/open [\"-R\", {:?}] (10s)", alias.to_string_lossy())]);
+    }
+
+    #[test]
     fn things_open_through_macos_open_with_each_ones_arguments_wait_and_words() {
         let ok = |_: &Sent| Ok(String::new());
         let no = |s: &Sent| if s.what == "/usr/bin/open" { Err("/usr/bin/open no such app".to_string()) } else { Ok(String::new()) };
@@ -1200,22 +1218,14 @@ mod tests {
         };
         let (shot, script, program, app) = (file("after shot.png", 0o644), file("fix.command", 0o644), file("build", 0o755), dir.join("Tool.app"));
         std::fs::create_dir_all(&app).unwrap();
-        // A link named as a picture, to a script, is the script's; and a Finder alias named as a
-        // document is a plain file that `open` follows all the same, marked as one only in its
-        // FinderInfo (as a real alias to Calculator.app was: type `fapa`, creator `MACS`, flags
-        // 0x8000, mode 0644).
+        // A link named as a picture, to a script, is the script's.
         let disguised = dir.join("chart.png");
         std::os::unix::fs::symlink(&script, &disguised).unwrap();
-        let alias = file("report.pdf", 0o644);
-        let mut info = [0u8; 32];
-        info[..10].copy_from_slice(b"fapaMACS\x80\x00");
-        let c = std::ffi::CString::new(alias.to_string_lossy().as_bytes()).unwrap();
-        assert_eq!(unsafe { libc::setxattr(c.as_ptr(), b"com.apple.FinderInfo\0".as_ptr().cast(), info.as_ptr().cast(), info.len(), 0, 0) }, 0);
-        let p = played(ok, || [&shot, &script, &program, &app, &disguised, &alias].map(|f| open_file(f).is_ok()));
-        assert_eq!(p.got, [true; 6]);
+        let p = played(ok, || [&shot, &script, &program, &app, &disguised].map(|f| open_file(f).is_ok()));
+        assert_eq!(p.got, [true; 5]);
         let shown = |f: &Path| f.to_string_lossy().into_owned();
         let revealed = |f: &Path| format!("/usr/bin/open [\"-R\", {:?}] (10s)", shown(f));
-        assert_eq!(p.log, [format!("/usr/bin/open [{:?}] (10s)", shown(&shot)), revealed(&script), revealed(&program), revealed(&app), revealed(&disguised), revealed(&alias)]);
+        assert_eq!(p.log, [format!("/usr/bin/open [{:?}] (10s)", shown(&shot)), revealed(&script), revealed(&program), revealed(&app), revealed(&disguised)]);
         let p = played(ok, || (open_file(&dir.join("gone.pdf")), open_file(Path::new("shots/after.png"))));
         assert_eq!(err(p.got.0), "gone.pdf isn't on this Mac any more.");
         assert_eq!(err(p.got.1), "shots/after.png isn't a full path.");
