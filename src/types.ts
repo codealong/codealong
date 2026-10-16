@@ -17,8 +17,8 @@ export interface SessionsCfg {
   /** A session Codealong runs, cut off by Codealong quitting, is told to carry on as it comes back
    *  (reconnect.rs). Files from before it have none: on. */
   continue_after_restart?: boolean;
-  /** A session that isn't running is resumed out of sight when one it started sends it a
-   *  message (send.rs `wakes`). Files from before it have none: on. */
+  /** A session that isn't running is resumed out of sight when one it started, or the one that
+   *  started it, sends it a message (send.rs `wakes`). Files from before it have none: on. */
   resume_for_sessions_it_started?: boolean;
 }
 
@@ -664,7 +664,7 @@ export interface Config {
   /** Routing groups and default routing rules. Older files have none. */
   routing?: RoutingCfg;
   /** What Codealong does for sessions by itself. Older files have none: carry on after a lost
-   *  connection, and resume a session for one it started. */
+   *  connection, and resume a session for one it started or the one that started it. */
   sessions?: SessionsCfg;
   /** Reviewing the PRs that wait on your review without being asked. Older files have none: off. */
   reviews?: ReviewsCfg;

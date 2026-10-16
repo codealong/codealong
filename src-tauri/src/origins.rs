@@ -146,7 +146,8 @@ impl Store {
 
     /// The session whose agent started the session with this key (`codealong start`, a helper or
     /// not), when the start said which session it made (`Entry::known`). A session that isn't
-    /// running is resumed for a message from one it started this way (send.rs `wakes`).
+    /// running is resumed for a message from one it started this way, or from the one that
+    /// started it (send.rs `wakes`).
     pub fn known_starter_of(&self, key: &str) -> Option<&str> {
         self.sessions.get(key).filter(|e| e.how == OriginHow::Started && e.known).map(|e| e.from.as_str())
     }

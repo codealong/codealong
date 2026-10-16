@@ -508,7 +508,7 @@ continue_when_lifted = true    # tell a session still stopped at its limit to ca
 [sessions]
 continue_after_network_error = true  # tell a session a lost connection stopped to carry on once it's back (Settings › Automation)
 continue_after_restart = true  # tell a session Codealong runs to carry on when Codealong quitting cut off its turn (Settings › Automation)
-resume_for_sessions_it_started = true  # resume a session that isn't running, out of sight, when one it started sends it a message (Settings › Automation)
+resume_for_sessions_it_started = true  # resume a session that isn't running, out of sight, when one it started, or the one that started it, sends it a message (Settings › Automation)
 
 [routing]
 auto = ""                      # the routing group Auto uses for new sessions and reviews; "" picks among accounts of the first harness with room

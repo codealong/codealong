@@ -1782,10 +1782,12 @@ the desktop does the same to the cards of those sessions pinned on the same scre
 A session started by another's `codealong start` can tell that one what it found with `codealong
 session send`, even once that one has stopped: Claude Code's background service ends a job left
 idle at its prompt for an hour, so the session that asked often isn't running by the time the work
-is done. Codealong resumes it out of sight (Claude Code's background service, else in Codealong or a
-terminal behind your windows) on the account's own model, with the message, which starts with a line
-saying Codealong sent it by itself and then with the sending agent's, so it's read as neither yours
-nor leave to do what you haven't allowed. Only when the start said which session it made (as for
+is done. It works the other way too: the session that started another can hand it more of its work
+once it has stopped, as one coordinating the sessions it started does, rather than starting a new
+one that knows none of what that one did. Codealong resumes the stopped one out of sight (Claude
+Code's background service, else in Codealong or a terminal behind your windows) on the account's own
+model, with the message, which starts with a line saying Codealong sent it by itself and then with
+the sending agent's, so it's read as neither yours nor leave to do what you haven't allowed. Only when the start said which session it made (as for
 helpers, below), never for one you archived or marked done, one that goes on in the Claude app, or
 one that skips permission prompts when the sender doesn't, which would hold the message for you if
 it were running (plan mode, and a mode its transcript doesn't say, count as skipping them); the

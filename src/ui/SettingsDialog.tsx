@@ -393,7 +393,7 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
  *  usage limit stopped; `[sessions] continue_after_network_error`, about one a lost connection
  *  stopped; `[sessions] continue_after_restart`, about one Codealong runs that its quitting cut
  *  off; and `[sessions] resume_for_sessions_it_started`, about one that stopped before a session
- *  it started sent it a message. */
+ *  it started, or the one that started it, sent it a message. */
 function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const limits = { when_hit: 'suggest' as WhenLimited, continue_when_lifted: true, ...cfg.limits };
   const value = limits.when_hit;
@@ -430,9 +430,9 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
       </label>
       <label className="ca-field ca-settings-check">
         <input type="checkbox" checked={resumes} onChange={(e) => saveSessions({ resume_for_sessions_it_started: e.target.checked })} />
-        <span>Resume a session for one it started</span>
+        <span>Resume a session for one it started, or the one that started it</span>
         <small>
-          When a session’s agent started another with codealong start, and that one sends it a message once the first has stopped (Claude Code ends a background job left idle for an hour), Codealong resumes it out of sight with the message, rather than nothing being sent. Not one you archived or marked done, nor one that skips permission prompts (or may, as far as Codealong can tell) when the sender doesn’t.
+          When a session’s agent started another with codealong start, and either sends the other a message once that one has stopped (Claude Code ends a background job left idle for an hour), Codealong resumes it out of sight with the message, rather than nothing being sent: the session that asked for the work hears of it, and the one doing it can be handed more. Not one you archived or marked done, nor one that skips permission prompts (or may, as far as Codealong can tell) when the sender doesn’t.
         </small>
       </label>
     </fieldset>

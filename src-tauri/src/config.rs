@@ -345,11 +345,12 @@ pub struct SessionsCfg {
     /// once Codealong is back (reconnect.rs): its agent ran as Codealong's child, and ended with it.
     #[serde(default = "yes")]
     pub continue_after_restart: bool,
-    /// A session that isn't running is resumed out of sight when a session it started sends it
-    /// a message (`codealong session send`), with that message, rather than nothing being sent:
-    /// it asked for the work the message reports (send.rs `wakes`). Claude Code's background
-    /// service ends a job left idle at its prompt for an hour, so a session waiting to hear
-    /// back otherwise never does.
+    /// A session that isn't running is resumed out of sight when a session it started, or the one
+    /// that started it, sends it a message (`codealong session send`), with that message, rather
+    /// than nothing being sent: it asked for the work the message reports, or does the work the
+    /// message hands it more of (send.rs `wakes`). Claude Code's background service ends a job
+    /// left idle at its prompt for an hour, so a session waiting to hear back otherwise never
+    /// does.
     #[serde(default = "yes")]
     pub resume_for_sessions_it_started: bool,
 }
@@ -1495,7 +1496,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), or \"round-robin\".\n";
-const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, resume it out of sight with that message.\n";
+const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that, failing checks and\n# conflicts.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own

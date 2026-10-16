@@ -1083,9 +1083,10 @@ Commands:
               service, and sessions Codealong runs get it from Codealong, queued while
               they work. Nothing is sent to one waiting on its user to answer a prompt,
               or an Antigravity one, nor to a session that isn't running, but for the
-              one that started yours (`codealong start`): Codealong resumes that one out
-              of sight with the message, unless its user turned that off (`[sessions]
-              resume_for_sessions_it_started`), and the error says why when it doesn't
+              one that started yours and the ones yours started (`codealong start`):
+              Codealong resumes that one out of sight with the message, unless its user
+              turned that off (`[sessions] resume_for_sessions_it_started`), and the
+              error says why when it doesn't
   pending     What a session waits on its user for, when Codealong can see it
               (`pending`): the tool call it asks to run (`id`, which `session answer`
               names; `label`, the call in a line; `input`, all of it; `cannot`, why
@@ -1261,10 +1262,10 @@ into their terminal or sent to the Codex app, and one taking a turn there reads 
 its next step, as a Claude Code session does. OpenCode sessions get it posted to their
 service, and sessions Codealong runs get it from Codealong, queued while they work.
 Nothing is sent to one waiting on its user to answer a prompt, or an Antigravity one,
-nor to a session that isn't running, but for the one that started yours (`codealong
-start`): Codealong resumes that one out of sight with the message, unless its user
-turned that off (`[sessions] resume_for_sessions_it_started`), and the error says why
-when it doesn't
+nor to a session that isn't running, but for the one that started yours and the ones
+yours started (`codealong start`): Codealong resumes that one out of sight with the
+message, unless its user turned that off (`[sessions] resume_for_sessions_it_started`),
+and the error says why when it doesn't
 
 Usage: codealong session send [OPTIONS] <KEY> [MESSAGE]
 
