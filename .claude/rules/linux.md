@@ -16,9 +16,11 @@ What Linux, its desktops and the harnesses there turned out to need, found in th
   `tmux: client` (macOS keeps `tmux`), so a session under tmux is found by that name
   (`launch/tmux.rs` `runs_as`). A process's name is cut to 15 characters: GNOME Terminal's server
   is `gnome-terminal-` (`launch/linux.rs` `EMULATORS`).
-- Right after `spawn` returns, `/proc/<pid>/environ` can read empty for a moment: the kernel says
-  where the new program's environment is only once it has loaded it, after the close-on-exec pipe
-  that `spawn` waits on has closed (`procs.rs` test `reads_a_running_process_environment…`).
+- Right after `spawn` returns, `/proc/<pid>/environ` can read empty for a moment, and its `stat`
+  name be the starting thread's: the kernel says where the new program's environment is, and
+  names it, only after the close-on-exec pipe that `spawn` waits on has closed (`procs.rs` test
+  `reads_a_running_process_environment…`, `launch.rs` test `reads_a_process_line…`; a GitHub
+  runner, 2026-10-16).
 - util-linux's `script` (2.39) takes the command as one line (`-c`), runs it with `$SHELL -c`,
   writes each output as it comes only with `-f` and exits with the command's status only with
   `-e`; it has no `-F` and takes no command words (`terminal.rs` `under_script`). bash 5 ends a

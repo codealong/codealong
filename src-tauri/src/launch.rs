@@ -1634,7 +1634,15 @@ end run
         assert!(!runs_under(me, "no-such-program"));
         let mut sleeper = std::process::Command::new("/bin/sleep").arg("30").stdin(std::process::Stdio::null()).spawn().unwrap();
         let child = sleeper.id();
-        assert_eq!(procs::parent_and_name(child), Some((me, "sleep".to_string())));
+        // Linux names the new program a moment after `spawn` returns, which until then has the
+        // name of the thread that started it.
+        let started = Instant::now();
+        let mut seen = procs::parent_and_name(child);
+        while seen.as_ref().is_some_and(|(_, n)| n != "sleep") && started.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+            seen = procs::parent_and_name(child);
+        }
+        assert_eq!(seen, Some((me, "sleep".to_string())));
         assert!(runs_under(child, &name));
         // Every process `ps` lists has the parent, name and terminal it says, other users'
         // included, and is under Ghostty when `ps` puts it there: the root `login` in a Ghostty
