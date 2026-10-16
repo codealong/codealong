@@ -1189,14 +1189,22 @@ mod tests {
         };
         let (shot, script, program, app) = (file("after shot.png", 0o644), file("fix.command", 0o644), file("build", 0o755), dir.join("Tool.app"));
         std::fs::create_dir_all(&app).unwrap();
-        // A link named as a picture, to a script, is the script's.
+        // A link named as a picture, to a script, is the script's; and a Finder alias named as a
+        // document is a plain file that `open` follows all the same, marked as one only in its
+        // FinderInfo (as a real alias to Calculator.app was: type `fapa`, creator `MACS`, flags
+        // 0x8000, mode 0644).
         let disguised = dir.join("chart.png");
         std::os::unix::fs::symlink(&script, &disguised).unwrap();
-        let p = played(ok, || [&shot, &script, &program, &app, &disguised].map(|f| open_file(f).is_ok()));
-        assert_eq!(p.got, [true; 5]);
+        let alias = file("report.pdf", 0o644);
+        let mut info = [0u8; 32];
+        info[..10].copy_from_slice(b"fapaMACS\x80\x00");
+        let c = std::ffi::CString::new(alias.to_string_lossy().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::setxattr(c.as_ptr(), b"com.apple.FinderInfo\0".as_ptr().cast(), info.as_ptr().cast(), info.len(), 0, 0) }, 0);
+        let p = played(ok, || [&shot, &script, &program, &app, &disguised, &alias].map(|f| open_file(f).is_ok()));
+        assert_eq!(p.got, [true; 6]);
         let shown = |f: &Path| f.to_string_lossy().into_owned();
         let revealed = |f: &Path| format!("/usr/bin/open [\"-R\", {:?}] (10s)", shown(f));
-        assert_eq!(p.log, [format!("/usr/bin/open [{:?}] (10s)", shown(&shot)), revealed(&script), revealed(&program), revealed(&app), revealed(&disguised)]);
+        assert_eq!(p.log, [format!("/usr/bin/open [{:?}] (10s)", shown(&shot)), revealed(&script), revealed(&program), revealed(&app), revealed(&disguised), revealed(&alias)]);
         let p = played(ok, || (open_file(&dir.join("gone.pdf")), open_file(Path::new("shots/after.png"))));
         assert_eq!(err(p.got.0), "gone.pdf isn't on this Mac any more.");
         assert_eq!(err(p.got.1), "shots/after.png isn't a full path.");

@@ -945,9 +945,22 @@ fn runs_when_opened(path: &Path, folder: bool, mode: u32) -> bool {
     folder || mode & 0o111 != 0 || path.extension().and_then(|e| e.to_str()).is_some_and(|e| RUNS_WHEN_OPENED.contains(&e.to_ascii_lowercase().as_str()))
 }
 
+/// Whether a file is a Finder alias, which `open` follows to what it points at as it does a link,
+/// though it's a plain file with any name: the alias flag (`kIsAlias`, 0x8000) in the Finder
+/// flags of its `com.apple.FinderInfo`, bytes 8 and 9 (one to an app is type `fapa`, creator
+/// `MACS`, as Foundation's bookmark files are written on macOS 26).
+fn finder_alias(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
+    let mut info = [0u8; 32];
+    let n = unsafe { libc::getxattr(c.as_ptr(), b"com.apple.FinderInfo\0".as_ptr().cast(), info.as_mut_ptr().cast(), info.len(), 0, 0) };
+    n >= 10 && u16::from_be_bytes([info[8], info[9]]) & 0x8000 != 0
+}
+
 /// Opens a file a conversation names (one an agent sent you, or cites) in the app that opens its
 /// kind, as a double-click in the Finder would. What opening would run instead (an app, a
-/// script, a program) is shown in the Finder, so a click on a name an agent wrote runs nothing.
+/// script, a program, or a link or a Finder alias, whatever it points at) is shown in the Finder,
+/// so a click on a name an agent wrote runs nothing.
 pub fn open_file(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     if !path.is_absolute() {
@@ -962,7 +975,7 @@ pub fn open_file(path: &Path) -> Result<()> {
     let real = std::fs::canonicalize(path).map_err(gone)?;
     let meta = std::fs::metadata(&real).map_err(gone)?;
     let (folder, mode) = (meta.is_dir(), meta.permissions().mode());
-    if runs_when_opened(path, folder, mode) || runs_when_opened(&real, folder, mode) {
+    if runs_when_opened(path, folder, mode) || runs_when_opened(&real, folder, mode) || finder_alias(&real) {
         return reveal(path);
     }
     procs::open(&[&path.to_string_lossy()], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open {name}: {e}"))
