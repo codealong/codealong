@@ -672,6 +672,8 @@ fn claim_wake(woken: &mut BTreeMap<String, i64>, key: &str, now: i64) -> bool {
 /// It's claimed first (`claim_wake`), so a message sent while another resumes it, or just after,
 /// is told to come again once it runs rather than resuming it twice; the claim is only the file's
 /// lock long, so nothing waits on another session's resume, and what `wakes` found still holds.
+/// Where its harness goes on with a copy, a copy resumed for the session that started it carries
+/// on that start (`origins::carry_start`), so that session can resume the copy in turn.
 fn wake(board: &Board, cfg: &Config, session: &Session, (place, started): (Place, Started), msg: &Message) -> Result<Sent> {
     let (key, now) = (session.key.as_str(), crate::util::now_ms());
     let mut claimed = false;
@@ -689,7 +691,11 @@ fn wake(board: &Board, cfg: &Config, session: &Session, (place, started): (Place
         // only keeps that one waiting out `WAKING_MS`.
         let _ = crate::store::change(&woken_path(), WOKEN, |woken: &mut BTreeMap<String, i64>| woken.get(key) == Some(&now) && woken.remove(key).is_some());
     })?;
-    let copy = resumed.key.as_deref().filter(|k| *k != session.key).map(|k| format!(" It goes on as {k}: send there from now on.")).unwrap_or_default();
+    let copied = resumed.key.as_deref().filter(|k| *k != session.key);
+    if let (Some(copy), Started::ByYours) = (copied, started) {
+        crate::origins::carry_start(copy, key);
+    }
+    let copy = copied.map(|k| format!(" It goes on as {k}: send there from now on.")).unwrap_or_default();
     let why = match started {
         Started::Yours => "it started your session",
         Started::ByYours => "your session started it",

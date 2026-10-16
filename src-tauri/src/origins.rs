@@ -184,6 +184,14 @@ impl Store {
         changed
     }
 
+    /// Notes `copy` as the start `key` was (`known_starter_of`), a helper and told of as `key`
+    /// was, where its harness copied `key` as it went on (`carry_start`). Says whether it changed.
+    fn carry_start(&mut self, copy: &str, key: &str, now: i64) -> bool {
+        let Some(entry) = self.sessions.get(key).filter(|e| e.how == OriginHow::Started && e.known).cloned() else { return false };
+        let entry = Entry { at: now, ..entry };
+        copy != key && copy != entry.from && self.sessions.insert(copy.to_string(), entry.clone()).is_none_or(|old| Entry { at: now, ..old } != entry)
+    }
+
     fn prune(&mut self, now: i64) {
         self.sessions.retain(|_, e| now - e.at < KEEP_MS);
         self.pending.retain(|p| now - p.at < p.waits());
@@ -319,6 +327,17 @@ pub fn record(key: &str, from: &str, how: OriginHow) {
 /// first message, so the move doesn't go ahead without it.
 pub fn write(key: &str, from: &str, how: OriginHow) -> Result<()> {
     write_as(key, from, how, false, false)
+}
+
+/// Notes that `copy`, the copy its harness made of the session `key` as it went on for a message
+/// from the session that started `key` (send.rs `wake`), carries on that start: the copy does the
+/// work `key` was started for, so a later message from that session resumes it in turn, and a
+/// helper's session goes on being told of it. Noted as a fork of `key` alone (start.rs `resume`),
+/// it would be neither. Nothing where `key` wasn't such a start.
+pub fn carry_start(copy: &str, key: &str) {
+    if let Err(e) = change(|s| s.carry_start(copy, key, crate::util::now_ms())) {
+        eprintln!("Couldn't note that {copy} carries on {key}'s start: {e:#}");
+    }
 }
 
 /// `write`, noting whether it's a helper of `from`, and whether `from` is told what it does.
@@ -527,6 +546,28 @@ mod tests {
         assert_eq!(store.moved_to("claude:claude:a", |k| k != "claude:claude:c").as_deref(), Some("claude:claude2:b"));
         assert_eq!(store.moved_to("claude:claude:a", |k| k != "claude:claude2:b"), None);
         assert!(is_move("claude:claude:a", "claude:claude2:b") && !is_move("claude:claude:a", "codex:codex:b") && !is_move("claude:claude:a", "claude:claude:b"));
+    }
+
+    /// A copy its harness made of a session as it went on for the session that started it is
+    /// that session's start, helper and all, where a fork is noted as the resume noted it.
+    #[test]
+    fn a_copy_that_goes_on_for_its_starter_carries_its_start() {
+        let mut store = Store::default();
+        let entry = |from: &str, how, helper, known| Entry { from: from.into(), how, at: 10, helper, report: helper, known };
+        store.sessions.insert("claude:claude2:job".into(), entry("claude:claude:boss", OriginHow::Started, true, true));
+        // The resume noted the copy as a fork first (start.rs `resume`).
+        store.sessions.insert("claude:claude2:copy".into(), entry("claude:claude2:job", OriginHow::Fork, false, true));
+        assert!(store.carry_start("claude:claude2:copy", "claude:claude2:job", 20));
+        assert_eq!(store.known_starter_of("claude:claude2:copy"), Some("claude:claude:boss"));
+        assert_eq!(store.helper_of("claude:claude2:copy"), Some(("claude:claude:boss", true)));
+        assert!(!store.carry_start("claude:claude2:copy", "claude:claude2:job", 30));
+        // Not from a start matched afterwards, a fork, or a session nothing started.
+        store.sessions.insert("claude:claude2:matched".into(), entry("claude:claude:boss", OriginHow::Started, false, false));
+        store.sessions.insert("claude:claude2:fork".into(), entry("claude:claude:boss", OriginHow::Fork, false, true));
+        for key in ["claude:claude2:matched", "claude:claude2:fork", "claude:claude2:alone"] {
+            assert!(!store.carry_start("claude:claude2:other", key, 20), "{key}");
+        }
+        assert_eq!(store.origin_of("claude:claude2:other"), None);
     }
 
     #[test]
