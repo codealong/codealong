@@ -5,12 +5,15 @@
 import { dayKey } from '../../due';
 import type { Entities, RefItem } from '../../canvas/model';
 import type { Label, Lane, PrItem, Session, Todo } from '../../types';
+import type { TodoSectionId } from '../../todos';
 
 /** What a card shows, looked up from the board; null when the board no longer has it. */
 export type CardData =
   | { ref: 'worktree'; lane: Lane }
   | { ref: 'session'; lane: Lane; session: Session }
-  | { ref: 'todo'; todo: Todo; labels: Label[]; sessions: { lane: Lane; session: Session }[]; lane: Lane | null }
+  /** A todo, with where its list puts it when the card's host knows (the Kanban view): its box
+   *  is drawn from that, else from its status and whether it's marked as waiting. */
+  | { ref: 'todo'; todo: Todo; labels: Label[]; sessions: { lane: Lane; session: Session }[]; lane: Lane | null; section?: TodoSectionId }
   | { ref: 'pr'; pr: PrItem };
 
 export function cardData(e: Entities, it: RefItem, labels: Map<string, Label>): CardData | null {

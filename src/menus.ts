@@ -21,7 +21,7 @@ import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
 import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from './snooze';
 import { rememberResumed, resumeAccount, resumedIn } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
-import { STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
+import { reviewChange, STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
 import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Session, StartAccount, StartPlace, Started, Todo } from './types';
 import { mayApprove } from './prStatus';
 import { errorText, type Report } from './report';
@@ -1179,6 +1179,12 @@ function waitingItems(ts: Todo[], edit: TodoEdit, report: Report): MenuSpec {
   return w ? [{ label: w.label, run: () => toggleWaiting(ts, edit, report) }] : [];
 }
 
+/** Ready for review, or Back to in progress (`reviewChange`). */
+function reviewItems(ts: Todo[], edit: TodoEdit): MenuSpec {
+  const r = reviewChange(ts);
+  return r ? [{ label: r.label, run: () => r.ops.forEach((op) => edit.run(op)) }] : [];
+}
+
 /** The Due date submenu: the days `dueChoices` offers, any day in the panel's picker (for one
  *  todo), and taking it off. A day is checked when every todo is due then. */
 function dueItem(ts: Todo[], edit: TodoEdit): MenuGroup {
@@ -1247,7 +1253,7 @@ export interface TodoCan {
 }
 
 /** A todo's menu: starting a session for it, opening its session, showing it; its status,
- *  waiting, due date, labels and project; pinning it; copying it; deleting it. */
+ *  waiting, review, due date, labels and project; pinning it; copying it; deleting it. */
 export function todoMenu(t: Todo, can: TodoCan): MenuSpec {
   const { report, edit } = can;
   const s = can.session;
@@ -1257,20 +1263,20 @@ export function todoMenu(t: Todo, can: TodoCan): MenuSpec {
       ...(s ? [{ label: `Open ${s.session.account}: ${s.session.title.slice(0, 48)}`, run: s.open }] : []),
       ...(can.reveal ? [{ label: 'Show in Codealong', run: can.reveal }] : []),
     ],
-    edit ? [...statusItems([t], edit), ...waitingItems([t], edit, report), 'separator', dueItem([t], edit), ...labelsItems(t, edit), ...projectItems(t, edit)] : [],
+    edit ? [...statusItems([t], edit), ...waitingItems([t], edit, report), ...reviewItems([t], edit), 'separator', dueItem([t], edit), ...labelsItems(t, edit), ...projectItems(t, edit)] : [],
     can.desktop ? [desktopItem('todo', t.id, can.desktop, report)] : [],
     [copyPromptItem([t], report), ...some(copyItem('Copy todo ID', t.id, 'todo ID', report)), ...(can.canvas ?? [])],
     can.remove ? [{ label: 'Delete todo', run: can.remove }] : [],
   );
 }
 
-/** The menu of several todos picked together: one session for them all; their status, waiting
- *  and due date; copying them; deleting them. */
+/** The menu of several todos picked together: one session for them all; their status, waiting,
+ *  review and due date; copying them; deleting them. */
 export function todosMenu(ts: Todo[], can: Pick<TodoCan, 'report' | 'start' | 'edit' | 'remove'>): MenuSpec {
   const { report, edit } = can;
   return sections(
     [{ label: `Start one session for ${ts.length} todos…`, run: can.start }],
-    edit ? [...statusItems(ts, edit), ...waitingItems(ts, edit, report), dueItem(ts, edit)] : [],
+    edit ? [...statusItems(ts, edit), ...waitingItems(ts, edit, report), ...reviewItems(ts, edit), dueItem(ts, edit)] : [],
     [copyPromptItem(ts, report), ...some(copyItem('Copy todo IDs', ts.map((t) => t.id).join(' '), 'todo IDs', report))],
     can.remove ? [{ label: `Delete ${ts.length} todos`, run: can.remove }] : [],
   );

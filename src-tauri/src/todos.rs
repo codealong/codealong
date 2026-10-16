@@ -13,6 +13,11 @@
 //! and on anything else once you mark it as waiting (a person's answer, a release), until you
 //! say it's ready, start a session from it, or finish it.
 //!
+//! A todo under way is In progress, or In review once its work waits on your verdict: marked so
+//! by you or by its agent (`codealong todo review`), until it's done, started again or sent
+//! back; or while a PR of its work is open for review, or merged and the todo not yet done
+//! (`pr_in_review`).
+//!
 //! A todo can have a due date: a day on the calendar, with no time or zone, so it's the same
 //! day wherever you read it. It only says when you mean it done by: the list keeps your order,
 //! and nothing moves or changes status when the day comes.
@@ -72,8 +77,19 @@ pub struct Waiting {
     pub since: i64,
 }
 
-/// A wait as it's written: `{"note": …, "since": …}`, or by hand just the note, or `true`;
-/// `false` is none.
+/// A todo marked as ready for review: the agent's part of its work is done, and it waits on your
+/// verdict (a look, a test, a merge).
+#[derive(Serialize, Clone, PartialEq, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoReview {
+    /// What to look at, in a few words. Can be empty.
+    pub note: String,
+    /// When it was marked; 0 when written by hand without a time.
+    pub since: i64,
+}
+
+/// A wait, or a review, as it's written: `{"note": …, "since": …}`, or by hand just the note, or
+/// `true`; `false` is none.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum WaitingIn {
@@ -107,6 +123,17 @@ fn waiting_field<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Waiting>, D::
 /// the todo as waiting.
 fn waiting_change<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<Waiting>>, D::Error> {
     waiting_field(d).map(Some)
+}
+
+/// A todo's `review`, written as a wait is: none when it's missing, null or false.
+fn review_field<'de, D: Deserializer<'de>>(d: D) -> Result<Option<TodoReview>, D::Error> {
+    Ok(waiting_field(d)?.map(|w| TodoReview { note: w.note, since: w.since }))
+}
+
+/// A change's `review`: missing leaves it as it is, null or false ends it, anything else marks
+/// the todo as ready for review.
+fn review_change<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<TodoReview>>, D::Error> {
+    review_field(d).map(Some)
 }
 
 /// A due date made usable: `2026-10-03` (`2026-10-3` too), or a time on that day
@@ -285,6 +312,10 @@ pub struct Todo {
     /// Marked as waiting, on something outside the list. Left out when it isn't.
     #[serde(default, deserialize_with = "waiting_field", skip_serializing_if = "Option::is_none")]
     pub waiting: Option<Waiting>,
+    /// Marked as ready for review: only an in-progress todo is. Left out when it isn't, so a
+    /// build from before reads the file as it did.
+    #[serde(default, deserialize_with = "review_field", skip_serializing_if = "Option::is_none")]
+    pub review: Option<TodoReview>,
     /// The day it's due, as `2026-10-03`. A done todo keeps it. Left out when it has none.
     #[serde(default, deserialize_with = "due_field", skip_serializing_if = "Option::is_none")]
     pub due: Option<String>,
@@ -332,6 +363,10 @@ pub struct TodoPatch {
     /// time it began if it already was. Left out when it doesn't change, since null means ready.
     #[serde(default, deserialize_with = "waiting_change", skip_serializing_if = "Option::is_none")]
     pub waiting: Option<Option<Waiting>>,
+    /// `Some(None)` (null) sends it back to In progress; `Some(Some(_))` marks it as ready for
+    /// review, keeping the time that began if it already was. Left out when it doesn't change.
+    #[serde(default, deserialize_with = "review_change", skip_serializing_if = "Option::is_none")]
+    pub review: Option<Option<TodoReview>>,
     /// `Some(None)` (null) takes the due date off; `Some(Some(day))` sets it. Left out when it
     /// doesn't change.
     #[serde(default, deserialize_with = "due_change", skip_serializing_if = "Option::is_none")]
@@ -465,8 +500,14 @@ fn repaired(mut s: TodoStore) -> TodoStore {
         if t.status == TodoStatus::Done {
             t.waiting = None;
         }
+        if t.status != TodoStatus::InProgress || t.waiting.is_some() {
+            t.review = None;
+        }
         if let Some(w) = &mut t.waiting {
             w.note = one_line(&w.note, MAX_WAITING_NOTE);
+        }
+        if let Some(r) = &mut t.review {
+            r.note = one_line(&r.note, MAX_WAITING_NOTE);
         }
         for l in &mut t.labels {
             if let Some(new) = renamed.get(l) {
@@ -497,10 +538,14 @@ fn push_unique(list: &mut Vec<String>, item: &str) -> bool {
     true
 }
 
-/// Sets a status, keeping `done_at` in step. A done todo isn't waiting on anything.
+/// Sets a status, keeping `done_at` in step. A done todo isn't waiting on anything, and only one
+/// in progress is in review.
 fn set_status(t: &mut Todo, status: TodoStatus, now: i64) {
     if status == TodoStatus::Done {
         t.waiting = None;
+    }
+    if status != TodoStatus::InProgress {
+        t.review = None;
     }
     if t.status == status {
         return;
@@ -520,6 +565,29 @@ fn set_waiting(t: &mut Todo, waiting: Option<Waiting>, now: i64) {
                 _ => now,
             };
             Some(Waiting { note: one_line(&w.note, MAX_WAITING_NOTE), since })
+        }
+        _ => None,
+    };
+    // Waiting on something says its work isn't with you to review.
+    if t.waiting.is_some() {
+        t.review = None;
+    }
+}
+
+/// Marks a todo as ready for review, or sends it back to In progress. Its work is under way, so a
+/// todo not started yet is in progress from then on, and it waits on nothing outside the list.
+/// The time keeps as a wait's does. A done todo can't be marked.
+fn set_review(t: &mut Todo, review: Option<TodoReview>, now: i64) {
+    t.review = match review {
+        Some(r) if t.status != TodoStatus::Done => {
+            let since = match &t.review {
+                Some(old) if old.since > 0 => old.since,
+                _ if r.since > 0 && r.since <= now => r.since,
+                _ => now,
+            };
+            set_status(t, TodoStatus::InProgress, now);
+            t.waiting = None;
+            Some(TodoReview { note: one_line(&r.note, MAX_WAITING_NOTE), since })
         }
         _ => None,
     };
@@ -660,12 +728,16 @@ impl TodoStore {
                     pending: Vec::new(),
                     depends_on,
                     waiting: None,
+                    review: None,
                     due,
                     primary: None,
                 };
                 set_status(&mut t, todo.status, now);
-                // The engine keeps the clock: a new todo's wait begins now.
+                // The engine keeps the clock: a new todo's wait, or review, begins now.
                 set_waiting(&mut t, todo.waiting.map(|w| Waiting { since: 0, ..w }), now);
+                if todo.review.is_some() {
+                    set_review(&mut t, todo.review.map(|r| TodoReview { since: 0, ..r }), now);
+                }
                 for w in &todo.worktrees {
                     link(&mut t, Some(w), None, lanes, now);
                 }
@@ -704,13 +776,17 @@ impl TodoStore {
                 }
                 if let Some(s) = patch.status {
                     set_status(t, s, now);
-                    // Saying an agent is on it says it's no longer waiting.
+                    // Saying an agent is on it says it's no longer waiting, nor waiting on you.
                     if s == TodoStatus::InProgress {
                         t.waiting = None;
+                        t.review = None;
                     }
                 }
                 if let Some(w) = patch.waiting {
                     set_waiting(t, w, now);
+                }
+                if let Some(r) = patch.review {
+                    set_review(t, r, now);
                 }
                 if let Some(d) = due {
                     t.due = d;
@@ -790,7 +866,7 @@ impl TodoStore {
 
     /// A session started from a todo: links its worktree (unless it runs in a new one), and the
     /// session when Codealong chose its ID, or waits for it to show up. Starting one reopens a
-    /// todo that was done, and ends a wait it was marked with.
+    /// todo that was done, and ends a wait or a review it was marked with: the work goes on.
     pub fn started(&mut self, id: &str, lane: Option<&str>, session: Option<&str>, pending: Option<PendingStart>, lanes: &dyn Lanes, now: i64) -> bool {
         let Some(t) = self.todos.iter_mut().find(|t| t.id == id) else { return false };
         link(t, lane, session, lanes, now);
@@ -799,6 +875,7 @@ impl TodoStore {
         }
         set_status(t, TodoStatus::InProgress, now);
         t.waiting = None;
+        t.review = None;
         t.updated_at = now;
         true
     }
@@ -871,6 +948,35 @@ pub fn is_waiting(t: &Todo, todos: &[Todo]) -> bool {
 /// Whether `t` is under Ready: not started, and waiting on nothing.
 pub fn is_ready(t: &Todo, todos: &[Todo]) -> bool {
     t.status == TodoStatus::Todo && !is_waiting(t, todos)
+}
+
+/// Whether `t` is under In review: in progress, not marked as waiting, and marked as ready for
+/// review or its PR is in review (`pr_in_review`). `itemSection` in src/todos.ts has the same
+/// rule.
+pub fn is_in_review(t: &Todo, lanes: &[Lane]) -> bool {
+    t.status == TodoStatus::InProgress && t.waiting.is_none() && (t.review.is_some() || pr_in_review(t, lanes))
+}
+
+/// Whether the PR of a todo's work is with its reviewers: the PR of its worktrees, then of its
+/// sessions' newest first (an open one before the rest), is open and not a draft, or merged
+/// while the todo isn't done, which waits on you to say it is. `prInReview` in src/todos.ts has
+/// the same rule.
+pub fn pr_in_review(t: &Todo, lanes: &[Lane]) -> bool {
+    use crate::model::PrState;
+    let mut places: Vec<&Lane> = t.worktrees.iter().filter_map(|w| lanes.iter().find(|l| &l.id == w)).collect();
+    let mut sessions: Vec<(&Lane, i64)> = lanes
+        .iter()
+        .flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none() && t.sessions.contains(&s.key)).map(move |s| (l, s.last_activity)))
+        .collect();
+    sessions.sort_by_key(|(_, at)| -at);
+    for (l, _) in sessions {
+        if !places.iter().any(|p| p.id == l.id) {
+            places.push(l);
+        }
+    }
+    let prs: Vec<PrState> = places.iter().filter_map(|l| l.pr.as_ref().map(|p| p.state)).collect();
+    let pr = prs.iter().find(|s| s.is_open()).or(prs.first());
+    matches!(pr, Some(PrState::Open | PrState::Approved | PrState::Changes | PrState::Merged))
 }
 
 /// A session on the board, as pending starts are matched against it.
@@ -984,6 +1090,7 @@ mod tests {
             pending: vec![],
             depends_on: vec![],
             waiting: None,
+            review: None,
             due: None,
             primary: None,
         }
@@ -1055,6 +1162,83 @@ mod tests {
         t.waiting = Some(Waiting { note: "the vendor".into(), since: 1 });
         s.apply(TodoOp::Create { todo: t }, &lanes(), 150).unwrap();
         assert_eq!(s.todos[0].waiting, Some(Waiting { note: "the vendor".into(), since: 150 }));
+    }
+
+    fn review(note: &str) -> TodoPatch {
+        TodoPatch { review: Some(Some(TodoReview { note: note.into(), since: 0 })), ..Default::default() }
+    }
+
+    #[test]
+    fn marked_as_ready_for_review_until_done_started_or_sent_back() {
+        let mut s = store(&["a"]);
+        // Its work is under way once it's in review, and it waits on nothing outside the list.
+        update(&mut s, "a", wait("Graham"), 10);
+        assert!(update(&mut s, "a", review("  the bar\n in dark mode "), 20));
+        assert_eq!(s.todos[0].review, Some(TodoReview { note: "the bar in dark mode".into(), since: 20 }));
+        assert_eq!((s.todos[0].status, s.todos[0].waiting.is_none()), (TodoStatus::InProgress, true));
+        assert!(is_in_review(&s.todos[0], &[]));
+        // A new note keeps the time it began; null sends it back.
+        update(&mut s, "a", review("the bar"), 30);
+        assert_eq!(s.todos[0].review.as_ref().map(|r| r.since), Some(20));
+        assert!(update(&mut s, "a", TodoPatch { review: Some(None), ..Default::default() }, 40));
+        assert!(s.todos[0].review.is_none() && !is_in_review(&s.todos[0], &[]));
+        // Marking it waiting, or saying an agent is on it, ends a review.
+        update(&mut s, "a", review(""), 50);
+        update(&mut s, "a", wait("the release"), 60);
+        assert!(s.todos[0].review.is_none());
+        update(&mut s, "a", review(""), 70);
+        update(&mut s, "a", TodoPatch { status: Some(TodoStatus::InProgress), ..Default::default() }, 80);
+        assert!(s.todos[0].review.is_none());
+        // Starting a session from it ends it: the work goes on.
+        update(&mut s, "a", review(""), 90);
+        s.started("a", Some("/r/app"), Some("claude:claude:s2"), None, &lanes(), 100);
+        assert!(s.todos[0].review.is_none());
+        // Done, or back to the list, ends it, and a done todo can't be marked.
+        update(&mut s, "a", review(""), 110);
+        update(&mut s, "a", TodoPatch { status: Some(TodoStatus::Done), ..Default::default() }, 120);
+        assert!(s.todos[0].review.is_none());
+        assert!(!update(&mut s, "a", review("x"), 130));
+        update(&mut s, "a", TodoPatch { status: Some(TodoStatus::Todo), ..Default::default() }, 140);
+        update(&mut s, "a", review(""), 150);
+        update(&mut s, "a", TodoPatch { status: Some(TodoStatus::Todo), ..Default::default() }, 160);
+        assert!(s.todos[0].review.is_none());
+        // A file says what it likes: only an in-progress todo that isn't waiting keeps one.
+        let hand: TodoStore = serde_json::from_str(
+            r#"{"todos":[{"id":"a","status":"in-progress","review":true},{"id":"b","status":"in-progress","review":"the docs"},{"id":"c","status":"todo","review":true},{"id":"d","status":"in-progress","waiting":true,"review":true},{"id":"e","status":"in-progress","review":false}]}"#,
+        )
+        .unwrap();
+        let s = repaired(hand);
+        let notes: Vec<Option<&str>> = s.todos.iter().map(|t| t.review.as_ref().map(|r| r.note.as_str())).collect();
+        assert_eq!(notes, vec![Some(""), Some("the docs"), None, None, None]);
+        let text = serde_json::to_string(&s).unwrap();
+        assert_eq!(text.matches("\"review\"").count(), 2, "{text}");
+        assert_eq!(serde_json::from_str::<TodoStore>(&text).unwrap(), s);
+        // A change without `review` leaves it.
+        let TodoOp::Update { patch, .. } = serde_json::from_str(r#"{"op":"update","id":"a","patch":{"title":"T"}}"#).unwrap() else { panic!() };
+        assert!(patch.review.is_none());
+    }
+
+    #[test]
+    fn a_todo_is_in_review_while_its_pr_is_with_its_reviewers() {
+        use crate::fixtures::{lane, session};
+        use crate::model::{Pr, PrState};
+        let pr = |state: PrState| Some(Pr { number: 7, title: String::new(), url: String::new(), state, checks: Default::default(), merge: Default::default(), updated_at: 0, merged_at: None, closed_at: None });
+        let mut t = Todo { status: TodoStatus::InProgress, worktrees: vec!["/r/app".into()], ..todo("a") };
+        let with = |state: PrState| [Lane { pr: pr(state), ..lane("/r/app", Vec::new()) }];
+        assert!(is_in_review(&t, &with(PrState::Open)) && is_in_review(&t, &with(PrState::Changes)) && is_in_review(&t, &with(PrState::Approved)));
+        // Merged, it waits on you to say it's done; a draft is still being written.
+        assert!(is_in_review(&t, &with(PrState::Merged)));
+        assert!(!is_in_review(&t, &with(PrState::Draft)) && !is_in_review(&t, &with(PrState::Closed)));
+        // Through a session's worktree too, an open PR before a merged one.
+        let lanes = [
+            Lane { pr: pr(PrState::Closed), ..lane("/r/app", Vec::new()) },
+            Lane { pr: pr(PrState::Draft), ..lane("/r/app3", vec![session("claude:claude:s1")]) },
+        ];
+        t.sessions = vec!["claude:claude:s1".into()];
+        assert!(!is_in_review(&t, &lanes));
+        // Waiting, or not started, it isn't.
+        assert!(!is_in_review(&Todo { waiting: Some(Waiting::default()), ..t.clone() }, &with(PrState::Open)));
+        assert!(!is_in_review(&Todo { status: TodoStatus::Todo, ..t }, &with(PrState::Open)));
     }
 
     #[test]

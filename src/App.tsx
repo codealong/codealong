@@ -49,6 +49,8 @@ import { Resizer, usePanelWidth } from './ui/Resizer';
 import { SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionItem, type SessionRows, type SessionSort } from './ui/SessionsView';
 import { ListBar, ListFind } from './ui/ListBar';
 import { TodoComposer, TodoView } from './ui/TodoView';
+import { KanbanView } from './ui/KanbanView';
+import { applyKanbanDrop, kanbanStep, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
@@ -119,12 +121,13 @@ const DAY = 24 * 60 * 60 * 1000;
  *  minute its card on the desktop waits too (lib.rs `move_session`). */
 const COPY_WAIT_MS = 60_000;
 
-type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'canvas';
+type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'kanban' | 'canvas';
 const VIEWS: { id: View; label: string; icon: string }[] = [
   { id: 'sessions', label: 'Sessions', icon: 'terminal' },
   { id: 'worktrees', label: 'Worktrees', icon: 'folder' },
   { id: 'prs', label: 'PRs', icon: 'pr' },
   { id: 'todo', label: 'Todo', icon: 'list-check' },
+  { id: 'kanban', label: 'Kanban', icon: 'layout-kanban' },
   { id: 'canvas', label: 'Canvas', icon: 'layout-grid' },
 ];
 /** What each view says until the engine has read this Mac's board once. */
@@ -133,6 +136,7 @@ const READING: Record<View, string> = {
   worktrees: 'Reading worktrees…',
   prs: 'Reading repos…',
   todo: 'Reading todos…',
+  kanban: 'Reading todos…',
   canvas: 'Reading sessions…',
 };
 /** What the list's find says it finds in, in each view (ui/ListBar.tsx). */
@@ -141,6 +145,7 @@ const FIND_IN: Record<View, string> = {
   worktrees: 'Find in worktrees',
   prs: 'Find in PRs',
   todo: 'Find in todos',
+  kanban: 'Find in todos and sessions',
   canvas: 'Find on the canvas',
 };
 /** How recently a worktree or session must have been active to show. */
@@ -385,6 +390,8 @@ export function App() {
   const todoStore = useTodoStore(board, setToast);
   const [showDoneTodos, setShowDoneTodos] = useState(false);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  // The Kanban view's Done column, folded to a rail until you open it.
+  const [showDoneCards, setShowDoneCards] = useState(false);
 
   // What was said in sessions, here and on your other devices, for the search to find them by.
   const textSearch = useTextSearch(query, { ready: !!board, devices: deviceLanes.length > 0 });
@@ -430,6 +437,9 @@ export function App() {
     openTodoCount,
     todoLinks,
     todosFor,
+    kanbanCols,
+    kanbanVisible,
+    openCardCount,
     helpersOf,
     runsOf,
     sidesOf,
@@ -462,6 +472,7 @@ export function App() {
     labels: todoStore.labels,
     labelFilter,
     showDoneTodos,
+    showDoneCards,
   });
   // New session opens the quick panel (ui/Quick.tsx) at a worktree, maybe for a todo, in the
   // project this window shows. The panel tells this window how the start goes.
@@ -504,7 +515,7 @@ export function App() {
 
   // Nothing is listed until the board is read, so nothing can be selected: not the other devices'
   // rows that come first.
-  const visible = loading ? NO_ROWS : view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'canvas' ? NO_ROWS : worktreeItems;
+  const visible = loading ? NO_ROWS : view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'kanban' ? kanbanVisible : view === 'canvas' ? NO_ROWS : worktreeItems;
   // A session listed under another worktree now (its commands moved there) stays selected. When
   // the selected agent's line goes (you marked it seen, it stopped), the selection stays
   // on its worktree rather than jumping to the top. A todo that leaves the list (marked done
@@ -517,7 +528,7 @@ export function App() {
   const held = view === 'sessions' && moving && moving.from.session.key === selectedSessionKey ? moving.from : undefined;
   const selected =
     visible.find((r) => r.key === selectedKey) ??
-    (view === 'todo'
+    (view === 'todo' || (view === 'kanban' && selectedKey?.startsWith('todo:'))
       ? todoItems.find((r) => r.key === selectedKey)
       : view === 'prs'
         ? prRows.find((r) => r.key === selectedKey)
@@ -549,6 +560,12 @@ export function App() {
     },
     [saidOf, query, revealFind],
   );
+  // The runs of todos listed in your order, which ⌃⌘↑ ⌃⌘↓ move one within: the Todo view's open
+  // sections, the Kanban view's To do.
+  const todoRuns = useMemo(
+    () => (view === 'kanban' ? [(kanbanCols.find((c) => c.id === 'todo')?.cards ?? []).filter((c): c is TodoItem => c.kind === 'todo')] : todoSecs.filter((s) => s.id !== 'done').map((s) => s.rows)),
+    [view, kanbanCols, todoSecs],
+  );
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
   const {
     duePick,
@@ -573,16 +590,17 @@ export function App() {
     todoLinkMenu,
     labelMenu,
     moveTodo,
+    moveTodoAmong,
     todoMenuItems,
     todoKeys,
   } = useTodoView({
     store: todoStore,
-    view,
     selected,
     setSelectedKey,
     visible,
-    todoVisible,
+    todoVisible: view === 'kanban' ? kanbanVisible : todoVisible,
     todoSecs,
+    ordered: todoRuns,
     current,
     projects,
     lanes,
@@ -600,10 +618,35 @@ export function App() {
     open: (lane, targetId) => open(lane, targetId),
     pickProject,
     setView,
+    listsTodos: view === 'todo' || view === 'kanban',
     setBayFilter,
     setQuery,
     onDesktop,
     canvasItem,
+  });
+  // The box that adds a todo: at the top of the Todo view, and of the Kanban view's To do.
+  const todoComposer = (
+    <TodoComposer
+      ref={composerRef}
+      value={composer.text}
+      onChange={(text) => setComposer((c) => ({ ...c, text }))}
+      context={composer.context}
+      onClearContext={() => setComposer((c) => ({ ...c, context: null }))}
+      onCreate={(title) => createTodo(title, composer.context)}
+      where={current === ALL_PROJECTS ? (composer.context?.worktree ? (laneById.get(composer.context.worktree)?.project ?? null) : 'no project') : null}
+    />
+  );
+  // The Kanban view's arrows: up and down a column, left and right across them (kanban.ts).
+  const kanbanKeys = useLatest((e: KeyboardEvent): boolean => {
+    const dir = ({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const)[e.key as 'ArrowUp'];
+    if (view !== 'kanban' || !dir || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
+    e.preventDefault();
+    const to = kanbanStep(kanbanCols, selected?.key ?? null, dir, showDoneCards);
+    if (to) {
+      clearTodoPick();
+      setSelectedKey(to);
+    }
+    return true;
   });
   // A session shown in a PR's or todo's panel, from its list of sessions, or a PR in a session's,
   // worktree's or todo's panel, from its chip (`showPrOf`), until you go back. It's tied to the
@@ -858,7 +901,7 @@ export function App() {
   // Back and forward through the sessions you looked at (history.ts): the one whose conversation
   // the panel shows, in Sessions, in a PR's or todo's panel, or as the canvas's selected card.
   const shownSession =
-    view === 'sessions'
+    view === 'sessions' || (view === 'kanban' && !drill)
       ? selected?.kind === 'agent'
         ? selected.session.key
         : null
@@ -1038,7 +1081,7 @@ export function App() {
       return;
     }
     const from = row?.key ?? panelFrom;
-    if ((view !== 'sessions' && view !== 'worktrees' && view !== 'todo') || !from) {
+    if ((view !== 'sessions' && view !== 'worktrees' && view !== 'todo' && view !== 'kanban') || !from) {
       reveal.current({ kind: 'pr', key: item.key });
       return;
     }
@@ -1161,6 +1204,19 @@ export function App() {
   // The keys run the same actions, as this render has them.
   const actionsRef = useLatest({ session: (lane: Lane, s: Session, pin: 'session' | 'worktree') => menus.sessionActions(lane, s, sessionCan(lane, s, pin)), lane: (lane: Lane) => menus.laneActions(lane, laneCan(lane)) });
   const laneMenu = (lane: Lane) => void showContextMenu(laneMenuSpec(lane)).catch((e: unknown) => setToast(String(e)));
+  // What a card dropped on the Kanban view does it with (kanban.ts): the todo store, the quick
+  // panel, a session's own Mark as done, and the toast's Undo.
+  const kanbanActs: KanbanActs = {
+    run: todoStore.run,
+    start: startForTodo,
+    markDone: (r) => {
+      const done = actionsRef.current.session(r.lane, r.session, 'session').done;
+      if (done) done.run();
+      else setToast('It’s archived already.');
+    },
+    order: (id, index) => moveTodoAmong(todoRuns[0] ?? [], id, index),
+    said: (message, undo) => setTodoUndo({ message, undo: () => undo.forEach((op) => void todoStore.run(op)) }),
+  };
 
   // A worktree's row dragged on the board: among the pinned ones to pin it there or move it, from
   // them down to the bays to unpin it, out of the window onto the desktop (useRowDrag.tsx).
@@ -1231,7 +1287,7 @@ export function App() {
     visible,
     pickedRows,
     // The Todo view's keys act on its picks themselves (useTodoView.ts): ⌘A and Esc are the lists' own.
-    listPicks: picks.keys ?? (view === 'todo' ? { count: pickedRows.length, step: () => {}, all: pickAllTodos, clear: clearTodoPick, actions: () => null } : null),
+    listPicks: picks.keys ?? (view === 'todo' || view === 'kanban' ? { count: pickedRows.length, step: () => {}, all: pickAllTodos, clear: clearTodoPick, actions: () => null } : null),
     selectedLane,
     startLaneId,
     terminalAt,
@@ -1247,6 +1303,7 @@ export function App() {
     boardRef,
     listRef,
     canvasKeys,
+    kanbanKeys,
     gPending,
     todoKeys,
     travel,
@@ -1429,11 +1486,20 @@ export function App() {
   );
 
   // Which panel is on the right, for its width: the view's own, or on the canvas the selected card's.
-  const panelKind = view === 'canvas' ? (canvasPick?.kind ?? null) : view === 'prs' ? 'pr' : view === 'todo' ? 'todo' : view === 'sessions' && selected?.kind === 'agent' ? 'session' : 'lane';
+  const panelKind =
+    view === 'canvas'
+      ? (canvasPick?.kind ?? null)
+      : view === 'prs'
+        ? 'pr'
+        : view === 'todo' || (view === 'kanban' && selected?.kind !== 'agent')
+          ? 'todo'
+          : (view === 'sessions' || view === 'kanban') && selected?.kind === 'agent'
+            ? 'session'
+            : 'lane';
   const panelWidth = { pr: prPanelWidth, todo: todoPanelWidth, session: sessionPanelWidth, lane: inspectorWidth };
   const setPanelWidth = { pr: setPrPanelWidth, todo: setTodoPanelWidth, session: setSessionPanelWidth, lane: setInspectorWidth };
   // The panel takes the whole window: one session's in Sessions, one PR's in PRs (⇧⌘F).
-  const maxed = (panelKind === 'session' && panelMax && picks.sessions.rows.length === 0) || (view === 'prs' && selected?.kind === 'pr' && prPanelMax && picks.prs.rows.length === 0);
+  const maxed = (panelKind === 'session' && view !== 'kanban' && panelMax && picks.sessions.rows.length === 0) || (view === 'prs' && selected?.kind === 'pr' && prPanelMax && picks.prs.rows.length === 0);
   // The worktree the preview URL sheet is for, as the latest board has it.
   const previewLane = previewFor ? board?.lanes.find((l) => l.id === previewFor) : undefined;
   // The session the rename sheet is for, in its own worktree.
@@ -1446,7 +1512,7 @@ export function App() {
     label: v.label,
     icon: v.icon,
     kbd: menus.chordKeys(VIEW_CHORDS[v.id]),
-    count: v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : v.id === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openPrCount,
+    count: v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : v.id === 'kanban' ? openCardCount : v.id === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openPrCount,
     badge: v.id === 'prs' && requestedCount > 0 ? requestedCount : undefined,
     badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,
   }));
@@ -1458,7 +1524,7 @@ export function App() {
     { id: 'work', label: 'PR needs work', glyph: 'error', count: counts.work, tone: 'alert', title: 'Open PRs with failing checks or changes requested' },
   ];
   const ageApplies = view !== 'todo' && view !== 'canvas';
-  const shownLabel = view === 'todo' && labelFilter ? (labelById.get(labelFilter) ?? null) : null;
+  const shownLabel = (view === 'todo' || view === 'kanban') && labelFilter ? (labelById.get(labelFilter) ?? null) : null;
   const sideFilters = [
     ageApplies && age !== 'all' ? (AGES.find((a) => a.id === age)?.title.replace(/^Active in the /, '') ?? age) : null,
     ...bayFilter.map((f) => sideStatuses.find((x) => x.id === f)?.label ?? f),
@@ -1657,7 +1723,7 @@ export function App() {
         />
         {sideCollapsed ? <span aria-hidden="true" /> : <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />}
         {/* ⌘F from the board opens its find (findKeys.ts), but not while a panel takes the whole window. */}
-        <main ref={boardRef} className={view === 'canvas' ? 'ca-board is-canvas' : 'ca-board'} aria-label={VIEWS.find((v) => v.id === view)?.label} data-find={maxed ? undefined : 'window'}>
+        <main ref={boardRef} className={cx('ca-board', view === 'canvas' && 'is-canvas', view === 'kanban' && 'is-kanban')} aria-label={VIEWS.find((v) => v.id === view)?.label} data-find={maxed ? undefined : 'window'}>
           {/* One strip in every view, so the find keeps the keyboard as the view changes under it. */}
           {!loading && (view === 'sessions' || findShown) && (
             <ListBar>
@@ -1751,7 +1817,7 @@ export function App() {
           {view !== 'canvas' && !loading && (
           <div
             role="listbox"
-            aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : 'Agents and worktrees'}
+            aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : view === 'kanban' ? 'Todos and sessions' : 'Agents and worktrees'}
             aria-activedescendant={selected ? domId(selected) : undefined}
             aria-multiselectable
             tabIndex={0}
@@ -1759,6 +1825,41 @@ export function App() {
             className="ca-board-list"
             data-drag-list
           >
+            {view === 'kanban' && board && (
+              <KanbanView
+                columns={kanbanCols}
+                todos={todoStore.todos}
+                now={now}
+                selectedKey={selected?.key ?? null}
+                picked={pickedKeys}
+                domId={domId}
+                showDone={showDoneCards}
+                onToggleDone={() => setShowDoneCards(!showDoneCards)}
+                onSelect={(c, how) => {
+                  // Only todos are picked together; a session's card is selected alone.
+                  if (c.kind === 'todo') return selectTodoRow(c, how);
+                  clearTodoPick();
+                  setSelectedKey(c.key);
+                }}
+                onOpen={(c) => {
+                  if (c.kind === 'todo') selectTodoRow(c, 'one');
+                  else setSelectedKey(c.key);
+                  openRow(c);
+                }}
+                onContextMenu={(c) => {
+                  // On one of the todos picked, the menu is for all of them.
+                  if (c.kind === 'todo' && pickedKeys.has(c.key)) pickMenu(pickedRows);
+                  else if (c.kind === 'todo') todoMenu(c);
+                  else sessionMenu(c.lane, c.session, 'session');
+                }}
+                onShowPr={(p, c) => showPrOf(p, { key: c.key, select: () => setSelectedKey(c.key) })}
+                onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
+                onDrop={(c, drop) => applyKanbanDrop(c, drop, kanbanActs)}
+                canReorder
+                hints={board.jev?.todos ? board.todoHints : undefined}
+                composer={todoComposer}
+              />
+            )}
             {view === 'todo' && board && (
               <TodoView
                 sections={todoSecs}
@@ -1791,17 +1892,7 @@ export function App() {
                 hints={board.jev?.todos ? board.todoHints : undefined}
                 showDone={showDoneTodos}
                 onToggleDone={() => setShowDoneTodos(!showDoneTodos)}
-                composer={
-                  <TodoComposer
-                    ref={composerRef}
-                    value={composer.text}
-                    onChange={(text) => setComposer((c) => ({ ...c, text }))}
-                    context={composer.context}
-                    onClearContext={() => setComposer((c) => ({ ...c, context: null }))}
-                    onCreate={(title) => createTodo(title, composer.context)}
-                    where={current === ALL_PROJECTS ? (composer.context?.worktree ? (laneById.get(composer.context.worktree)?.project ?? null) : 'no project') : null}
-                  />
-                }
+                composer={todoComposer}
                 empty={
                   projectTodos.length === 0
                     ? 'No todos yet. Add work you mean to hand an agent: a title, labels, screenshots. When it’s time, start a session from it, and the session is linked to it.'

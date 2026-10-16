@@ -334,6 +334,19 @@ export function MainPanel(props: MainPanelProps) {
         <p>{projectTodos.length || loading ? 'Select a todo to see its description, labels and the sessions on it.' : 'Todos are work you mean to hand an agent. Add one on the left.'}</p>
       </aside>
     )
+  ) : view === 'kanban' ? (
+    // A card's own panel: a todo's, or a session's with its conversation.
+    pickedRows.length > 0 ? (
+      todoPickPanel(pickedRows)
+    ) : selected?.kind === 'todo' ? (
+      todoPanel(selected)
+    ) : selected?.kind === 'agent' ? (
+      (drilledPanel(selected.key, middleTruncate(selected.session.title, 40)) ?? sessionPanel(selected.lane, selected.session))
+    ) : (
+      <aside className="ca-insp ca-insp--empty">
+        <p>{loading ? 'Reading todos…' : 'Select a card to see its todo, or a session with its conversation.'}</p>
+      </aside>
+    )
   ) : view === 'prs' ? (
     picks.prs.rows.length > 0 ? (
       <PrPickPanel items={picks.prs.rows} actions={picks.prs.actions()} onShow={(r) => picks.prs.select(r, 'one')} onLeaveOut={(r) => picks.prs.select(r, 'toggle')} onMoreMenu={picks.prs.menu} />

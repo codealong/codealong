@@ -35,7 +35,8 @@ Commands:
              it first
   todo       Todos: work meant for an agent. Each has a title, a description, labels, a
              status (todo, in-progress, done) and the worktrees and sessions that took
-             it on. The app lists open ones under In progress, Ready and Waiting
+             it on. The app lists open ones under In progress, In review, Ready and
+             Waiting
   sessions   Sessions on the board: every agent, live or not, with its status and where
              it works. Lists by default; `find` searches
   session    One session: in full (`show`: status, excerpt, folder, branch, PR, how to
@@ -276,7 +277,7 @@ Options:
 ```
 Todos: work meant for an agent. Each has a title, a description, labels, a status (todo,
 in-progress, done) and the worktrees and sessions that took it on. The app lists open
-ones under In progress, Ready and Waiting
+ones under In progress, In review, Ready and Waiting
 
 Usage: codealong todo [OPTIONS] <COMMAND>
 
@@ -298,6 +299,11 @@ Commands:
           started, or until it's done
   ready   Say a todo marked as waiting is ready. One that waits on todos that aren't
           done stays under Waiting until they are
+  review  Mark a todo as ready for review: your part of its work is done, and it waits
+          on your user's verdict (a look, a test, a merge). The app lists it under In
+          review until it's done or started again, or until --off sends it back to In
+          progress. A todo whose PR is open for review, or merged while the todo isn't
+          done, is listed there already
   move    Move a todo in the list: to the top or bottom, or before or after another. The
           app shows todos in this order within each section
   link    Link a session or a worktree to a todo
@@ -362,6 +368,10 @@ Options:
       --waiting
           Only todos under Waiting: marked as waiting, or not started and waiting on a
           todo that isn't done
+
+      --review
+          Only todos under In review: marked as ready for review, or with a PR open for
+          review or merged
 
       --due-by <WHEN>
           Only todos due by this day, overdue ones included: a date (2026-10-03), today,
@@ -651,6 +661,40 @@ Arguments:
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo review
+
+```
+Mark a todo as ready for review: your part of its work is done, and it waits on your
+user's verdict (a look, a test, a merge). The app lists it under In review until it's
+done or started again, or until --off sends it back to In progress. A todo whose PR is
+open for review, or merged while the todo isn't done, is listed there already
+
+Usage: codealong todo review [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --note <WHAT>
+          What to look at, in a few words. Keeps the note it has when left out
+
+      --off
+          Send it back to In progress: there's more to do on it
 
       --table
           Tables, even when piped

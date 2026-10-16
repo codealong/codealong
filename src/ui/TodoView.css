@@ -25,7 +25,8 @@
 }
 /* What a todo waits on, other todos that aren't done or what it's marked as waiting for:
    muted, so the row still reads as open. */
-.ca-chip.ca-todorow-blocked {
+.ca-chip.ca-todorow-blocked,
+.ca-chip.ca-todorow-review {
   flex: 0 1 auto;
   gap: 3px;
   min-width: 0;

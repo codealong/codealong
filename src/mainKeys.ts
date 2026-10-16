@@ -36,7 +36,7 @@ function listChord(e: KeyboardEvent): boolean {
 /** Each view's chord: ⇧⌘ and the view's first letter, from any view and any field. Canvas has B
  *  (board) because clipboard managers take ⇧⌘C for themselves (Maccy's popup ships on it). The
  *  sidebar shows a view's chord as you point at it. */
-export const VIEW_CHORDS: Record<string, string> = { sessions: 'Shift+Cmd+S', worktrees: 'Shift+Cmd+W', prs: 'Shift+Cmd+P', todo: 'Shift+Cmd+T', canvas: 'Shift+Cmd+B' };
+export const VIEW_CHORDS: Record<string, string> = { sessions: 'Shift+Cmd+S', worktrees: 'Shift+Cmd+W', prs: 'Shift+Cmd+P', todo: 'Shift+Cmd+T', kanban: 'Shift+Cmd+K', canvas: 'Shift+Cmd+B' };
 
 /** The view a key event goes to (`VIEW_CHORDS`), or none. */
 export function viewOfKey<V extends string>(e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, views: readonly { id: V }[]): V | null {
@@ -87,6 +87,8 @@ export interface MainKeys<V extends string> {
   listRef: RefObject<HTMLDivElement | null>;
   /** The canvas's own keys, which say whether they took one. */
   canvasKeys: { readonly current: (e: KeyboardEvent) => boolean };
+  /** The Kanban view's arrows, which say whether they took one. */
+  kanbanKeys: { readonly current: (e: KeyboardEvent) => boolean };
   /** A g pressed a moment ago, for g n, g w, g t and g r. */
   gPending: MutableRefObject<boolean>;
   /** The Todo view's own keys, which say whether they took one. */
@@ -128,7 +130,7 @@ export interface MainKeys<V extends string> {
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, boardRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, boardRef, listRef, canvasKeys, kanbanKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
   const typing = document.activeElement === searchRef.current;
   const mod = e.metaKey;
   const key = e.key.toLowerCase();
@@ -315,8 +317,9 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     listPicks?.clear();
     return;
   }
-  // The canvas's keys, unless the keyboard is in the panel beside it.
+  // The canvas's keys, unless the keyboard is in the panel beside it; the Kanban view's arrows.
   if (view === 'canvas' && !document.activeElement?.closest('.ca-insp') && canvasKeys.current(e)) return;
+  if (kanbanKeys.current(e)) return;
   if (gPending.current) {
     gPending.current = false;
     const bay = ({ n: 'needs', w: 'working', t: 'unread', r: 'review' } as Record<string, Bay | undefined>)[key];

@@ -12,6 +12,7 @@ import {
   helperCounts,
   HELPERS_SHOWN_MAX,
   inPinOrder,
+  kanbanColumns,
   laneInQuery,
   pinnedLaneRowsOf,
   placeHelpers,
@@ -41,12 +42,12 @@ import {
   unarchived,
 } from './boardLists';
 import { needsOn } from './devices';
-import { bayOf, runsShownKey } from './lanes';
+import { bayOf, runsShownKey, sessionHomes } from './lanes';
 import { ALL_PROJECTS } from './quick';
 import { todoItem } from './todos';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
-import type { Lane, Pr, ProjectSummary, Session, SideGlance, TextHit } from './types';
+import type { Lane, Pr, ProjectSummary, Session, SideGlance, TextHit, Todo } from './types';
 import { familiesOf, helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
 
 const NOW = fx.NOW;
@@ -572,6 +573,66 @@ describe('the board’s lists', () => {
     const bays = bayRowsOf([idle, parked], '', new Set(), [], '');
     expect(folded(bays, true).map((b) => b.rows.map((r) => r.key))).toEqual([['/r/idle']]);
     expect(folded(bays, false).map((b) => b.rows.map((r) => r.key).sort())).toEqual([['/r/idle', '/r/parked']]);
+  });
+});
+
+describe('the Kanban view’s columns', () => {
+  const cols = (...args: Parameters<typeof kanbanColumns>) => Object.fromEntries(kanbanColumns(...args).map((c) => [c.id, c.cards.map((r) => r.key)]));
+  const todoOf = (t: Todo, lanes: Lane[] = []) => todoItem(t, new Map(lanes.map((l) => [l.id, l])), sessionHomes(lanes), new Map());
+
+  it('puts todos where the Todo view lists them: Ready then Waiting under To do, In review by its mark or its PR', () => {
+    const open = lane('/r/open', [], { pr: fx.pr({ state: 'open' }) });
+    const draft = lane('/r/draft', [], { pr: fx.pr({ state: 'draft' }) });
+    const merged = lane('/r/merged', [], { pr: fx.pr({ state: 'merged' }) });
+    const lanes = [open, draft, merged];
+    const todos = [
+      fx.todo({ id: 'wait', dependsOn: ['ready'] }),
+      fx.todo({ id: 'ready' }),
+      fx.todo({ id: 'doing', status: 'in-progress' }),
+      fx.todo({ id: 'marked', status: 'in-progress', review: { note: '', since: NOW } }),
+      fx.todo({ id: 'pr', status: 'in-progress', worktrees: ['/r/open'] }),
+      fx.todo({ id: 'drafting', status: 'in-progress', worktrees: ['/r/draft'] }),
+      fx.todo({ id: 'landed', status: 'in-progress', worktrees: ['/r/merged'] }),
+      fx.todo({ id: 'done', status: 'done', doneAt: NOW - DAY }),
+      fx.todo({ id: 'long-done', status: 'done', doneAt: NOW - 30 * DAY }),
+    ];
+    expect(cols(todos.map((t) => todoOf(t, lanes)), todos, [], new Set(), [], NOW - 7 * DAY)).toEqual({
+      todo: ['todo:ready', 'todo:wait'],
+      progress: ['todo:doing', 'todo:drafting'],
+      review: ['todo:marked', 'todo:pr', 'todo:landed'],
+      done: ['todo:done'],
+    });
+  });
+
+  it('gives a session on no todo a card by its PR and how its turn ended', () => {
+    const s = (key: string, over: Partial<Session> = {}) => session(key, over);
+    const reviewing = lane('/r/a', [s('claude:claude:pr')], { pr: fx.pr({ state: 'changes' }) });
+    const mergedIdle = lane('/r/b', [s('claude:claude:merged', { live: true })], { pr: fx.pr({ state: 'merged' }) });
+    const mergedBusy = lane('/r/c', [s('claude:claude:busy', { status: 'working' })], { pr: fx.pr({ state: 'merged' }) });
+    const landed = lane('/r/d', [s('claude:claude:landed', { status: 'unread', insight: { landing: 'landed' } }), s('claude:claude:mine', { live: true }), s('claude:claude:helper', { helper: { parent: 'claude:claude:mine' }, status: 'working' })]);
+    // One that ended and that you've seen has gone on, unless its PR waits on its reviewers.
+    const gone = lane('/r/e', [s('claude:claude:gone'), s('claude:claude:landed-long-ago', { insight: { landing: 'landed' } })]);
+    const items = sessionItemsOf([reviewing, mergedIdle, mergedBusy, landed, gone]);
+    const out = cols([], [], items, new Set(['claude:claude:mine']), [], 0);
+    expect(out.review).toEqual(['/r/a::claude:claude:pr']);
+    expect(out.done.sort()).toEqual(['/r/b::claude:claude:merged', '/r/d::claude:claude:landed']);
+    // On a todo, a session is on its todo's card; a helper at work is its session's.
+    expect(out.progress).toEqual(['/r/c::claude:claude:busy']);
+  });
+
+  it('puts what waits on you first in a column, a todo by its most urgent session, the rest by your last prompt', () => {
+    const waitedLong = session('claude:claude:a', { status: 'needs', statusSince: NOW - 9000 });
+    const waitedLess = session('claude:claude:b', { status: 'needs', statusSince: NOW - 1000 });
+    const yourTurn = session('claude:claude:c', { status: 'unread', statusSince: NOW - 5000 });
+    const working = session('claude:claude:d', { status: 'working', statusSince: NOW - 5000 });
+    const snoozed = session('claude:claude:e', { status: 'needs', statusSince: NOW - 99_000, snoozedUntil: NOW + 60_000, lastPromptAt: NOW - 50_000 });
+    const quiet = session('claude:claude:f', { lastPromptAt: NOW - 100 });
+    const l = lane('/r/app', [waitedLong, waitedLess, yourTurn, working, snoozed, quiet]);
+    const todo = fx.todo({ id: 't', status: 'in-progress', sessions: [quiet.key, waitedLess.key], updatedAt: NOW - 70_000 });
+    const lonely = fx.todo({ id: 'lonely', status: 'in-progress', updatedAt: NOW - 20_000 });
+    const items = sessionItemsOf([l]);
+    const out = cols([todoOf(todo, [l]), todoOf(lonely, [l])], [todo, lonely], items, new Set(todo.sessions), [], 0);
+    expect(out.progress).toEqual(['/r/app::claude:claude:a', 'todo:t', '/r/app::claude:claude:c', '/r/app::claude:claude:d', 'todo:lonely', '/r/app::claude:claude:e']);
   });
 });
 

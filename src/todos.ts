@@ -1,19 +1,19 @@
 // Todos: work you mean to hand an agent. The engine keeps them in todos.json
 // (src-tauri/src/todos.rs) and publishes them with the board. This file has the list's rules:
-// its sections (In progress, Ready, Waiting, Done), search and the status filters, the worktrees and sessions each todo is linked
+// its sections (In progress, In review, Ready, Waiting, Done), search and the status filters, the worktrees and sessions each todo is linked
 // to and which of them is its primary session, the prompt a todo starts a session with, and the
 // copy of each change a window shows until the engine's board has it.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { todoOp } from './api';
 import { liveOrLatest, prNeedsWork, type Placed } from './lanes';
-import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoStatus, TodoSuggested, Waiting } from './types';
+import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoReview, TodoStatus, TodoSuggested, Waiting } from './types';
 import { LABEL_COLORS } from './types';
 import { errorText } from './report';
 
-/** `dependsOn` replaces the whole list. `waiting: null` says it's ready; `due: null` takes the
- *  due date off. */
-export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn' | 'waiting' | 'due'>>;
+/** `dependsOn` replaces the whole list. `waiting: null` says it's ready; `review: null` sends it
+ *  back to In progress; `due: null` takes the due date off. */
+export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn' | 'waiting' | 'review' | 'due'>>;
 
 /** A change, as the engine takes it (`TodoOp` in todos.rs). */
 export type TodoOp =
@@ -66,6 +66,7 @@ export function newTodo(fields: Partial<Todo>, now: number): Todo {
     pending: [],
     dependsOn: [],
     waiting: null,
+    review: null,
     due: null,
     ...fields,
   };
@@ -77,20 +78,36 @@ export function nextColor(labels: Label[]): LabelColor {
   return free ?? LABEL_COLORS[labels.length % LABEL_COLORS.length];
 }
 
-/** A status set the way the engine sets it: a done todo isn't waiting on anything. */
+/** A status set the way the engine sets it: a done todo isn't waiting on anything, and only one
+ *  in progress is in review. */
 function withStatus(t: Todo, status: TodoStatus, now: number): Todo {
   const waiting = status === 'done' ? null : t.waiting;
-  if (t.status === status) return waiting === t.waiting ? t : { ...t, waiting };
-  return { ...t, status, doneAt: status === 'done' ? now : null, waiting };
+  const review = status === 'in-progress' ? t.review : null;
+  if (t.status === status) return waiting === t.waiting && review === t.review ? t : { ...t, waiting, review };
+  return { ...t, status, doneAt: status === 'done' ? now : null, waiting, review };
 }
 
-/** Marks a todo as waiting, or says it's ready, the way the engine does: a new note keeps the
- *  time the wait began, a wait put back by an undo keeps its own, and a done todo can't be
- *  marked. */
+/** A mark's time as the engine keeps it: a new note keeps the time it began, one put back by an
+ *  undo keeps its own. */
+function markSince(old: { since: number } | null | undefined, mark: { since: number }, now: number): number {
+  return old && old.since > 0 ? old.since : mark.since > 0 && mark.since <= now ? mark.since : now;
+}
+
+const markNote = (note: string) => note.replace(/\s+/g, ' ').trim().slice(0, 200);
+
+/** Marks a todo as waiting, or says it's ready, the way the engine does. A done todo can't be
+ *  marked, and one waiting on something isn't with you to review. */
 function withWaiting(t: Todo, w: Waiting | null, now: number): Todo {
   if (!w || t.status === 'done') return t.waiting ? { ...t, waiting: null } : t;
-  const since = t.waiting && t.waiting.since > 0 ? t.waiting.since : w.since > 0 && w.since <= now ? w.since : now;
-  return { ...t, waiting: { note: w.note.replace(/\s+/g, ' ').trim().slice(0, 200), since } };
+  return { ...t, waiting: { note: markNote(w.note), since: markSince(t.waiting, w, now) }, review: null };
+}
+
+/** Marks a todo as ready for review, or sends it back to In progress, the way the engine does:
+ *  its work is under way from then on, and it waits on nothing outside the list. A done todo
+ *  can't be marked. */
+function withReview(t: Todo, r: TodoReview | null, now: number): Todo {
+  if (!r || t.status === 'done') return t.review ? { ...t, review: null } : t;
+  return { ...withStatus(t, 'in-progress', now), waiting: null, review: { note: markNote(r.note), since: markSince(t.review, r, now) } };
 }
 
 function uniq(list: string[]): string[] {
@@ -133,20 +150,27 @@ export function blockedBy(todo: Todo, todos: Todo[]): Todo[] {
 }
 
 /** Where the Todo view lists a todo. */
-export type TodoSectionId = 'in-progress' | 'ready' | 'waiting' | 'done';
+export type TodoSectionId = 'in-progress' | 'review' | 'ready' | 'waiting' | 'done';
 
-export const SECTION_WORD: Record<TodoSectionId, string> = { 'in-progress': 'In progress', ready: 'Ready', waiting: 'Waiting', done: 'Done' };
+export const SECTION_WORD: Record<TodoSectionId, string> = { 'in-progress': 'In progress', review: 'In review', ready: 'Ready', waiting: 'Waiting', done: 'Done' };
 
 /**
  * A todo's section: Waiting when it's marked as waiting, or when it isn't started and waits on
- * a todo that isn't done; else by its status. One an agent is already on stays In progress
- * while the todos it waits on finish. `is_waiting` in todos.rs has the same rule.
+ * a todo that isn't done; In review when it's in progress and marked as ready for review, or
+ * `prReview` says its PR is in review (`prInReview`); else by its status. One an agent is
+ * already on stays In progress while the todos it waits on finish. `is_waiting` and
+ * `is_in_review` in todos.rs have the same rules.
  */
-export function sectionOf(todo: Todo, todos: Todo[]): TodoSectionId {
+export function sectionOf(todo: Todo, todos: Todo[], prReview = false): TodoSectionId {
   if (todo.status === 'done') return 'done';
   if (todo.waiting) return 'waiting';
-  if (todo.status === 'in-progress') return 'in-progress';
+  if (todo.status === 'in-progress') return todo.review || prReview ? 'review' : 'in-progress';
   return blockedBy(todo, todos).length > 0 ? 'waiting' : 'ready';
+}
+
+/** `sectionOf` for a todo's row, which knows its PR. */
+export function itemSection(item: TodoItem, todos: Todo[]): TodoSectionId {
+  return sectionOf(item.todo, todos, prInReview(item));
 }
 
 /** The todos `todo` waits on that still exist, done or not, in its order. */
@@ -203,6 +227,15 @@ export function waitingChange(list: Todo[], todos: Todo[]): WaitingChange | null
   };
 }
 
+/** Ready for review for the open todos of `list` not marked so, or Back to in progress once they
+ *  all are: what a menu or R does to them. */
+export function reviewChange(list: Todo[]): { label: string; ops: TodoOp[] } | null {
+  const ts = list.filter((t) => t.status !== 'done');
+  if (ts.length === 0) return null;
+  if (ts.every((t) => t.review)) return { label: 'Back to in progress', ops: ts.map((t) => ({ op: 'update', id: t.id, patch: { review: null } })) };
+  return { label: 'Ready for review', ops: ts.filter((t) => !t.review).map((t) => ({ op: 'update', id: t.id, patch: { review: { note: '', since: 0 } } })) };
+}
+
 /** The todos that wait on `todo`, in list order. */
 export function dependents(todo: Todo, todos: Todo[]): Todo[] {
   return todos.filter((t) => t.id !== todo.id && depsOf(t).includes(todo.id));
@@ -243,23 +276,25 @@ export function applyOp(store: TodoStore, op: TodoOp, now: number): TodoStore {
   switch (op.op) {
     case 'create': {
       if (store.todos.some((t) => t.id === op.todo.id)) return store;
-      let t: Todo = { ...op.todo, worktrees: uniq(op.todo.worktrees), sessions: uniq(op.todo.sessions), pending: [], dependsOn: cleanDeps(op.todo.id, depsOf(op.todo)), waiting: null };
-      // The engine keeps the clock: a new todo's wait begins now.
+      let t: Todo = { ...op.todo, worktrees: uniq(op.todo.worktrees), sessions: uniq(op.todo.sessions), pending: [], dependsOn: cleanDeps(op.todo.id, depsOf(op.todo)), waiting: null, review: null };
+      // The engine keeps the clock: a new todo's wait, or review, begins now.
       if (op.todo.waiting) t = withWaiting(t, { ...op.todo.waiting, since: 0 }, now);
+      if (op.todo.review) t = withReview(t, { ...op.todo.review, since: 0 }, now);
       if (t.sessions.length > 0 && t.status === 'todo') t = withStatus(t, 'in-progress', now);
       return { ...store, todos: [t, ...store.todos] };
     }
     case 'update':
       return map(op.id, (t) => {
-        const { status, waiting, ...rest } = op.patch;
+        const { status, waiting, review, ...rest } = op.patch;
         let next: Todo = { ...t, ...rest, updatedAt: now };
         if (rest.dependsOn) next.dependsOn = cleanDeps(t.id, rest.dependsOn);
         if (status) {
           next = withStatus(next, status, now);
-          // Saying an agent is on it says it's no longer waiting.
-          if (status === 'in-progress' && next.waiting) next = { ...next, waiting: null };
+          // Saying an agent is on it says it's no longer waiting, nor waiting on you.
+          if (status === 'in-progress' && (next.waiting || next.review)) next = { ...next, waiting: null, review: null };
         }
-        return waiting === undefined ? next : withWaiting(next, waiting, now);
+        if (waiting !== undefined) next = withWaiting(next, waiting, now);
+        return review === undefined ? next : withReview(next, review, now);
       });
     case 'link':
       return map(op.id, (t) => {
@@ -429,22 +464,31 @@ export function todoPr(item: TodoItem): Pr | null {
   return prs.find((p) => p.state !== 'merged' && p.state !== 'closed') ?? prs[0] ?? null;
 }
 
+/** Whether a todo's PR (`todoPr`) is with its reviewers: open and not a draft, or merged while the
+ *  todo isn't done, which waits on you to say it is. `pr_in_review` in todos.rs has the same
+ *  rule. */
+export function prInReview(item: TodoItem): boolean {
+  const state = todoPr(item)?.state;
+  return state === 'open' || state === 'approved' || state === 'changes' || state === 'merged';
+}
+
 export interface TodoSection {
   id: TodoSectionId;
   label: string;
   rows: TodoItem[];
 }
 
-/** In progress, Ready and Waiting in your order, then Done, the latest first. `todos` is every
- *  todo, in any project: what a todo waits on can be anywhere. */
+/** In progress, In review, Ready and Waiting in your order, then Done, the latest first. `todos`
+ *  is every todo, in any project: what a todo waits on can be anywhere. */
 export function todoSections(items: TodoItem[], todos: Todo[]): TodoSection[] {
   const rows = new Map<TodoSectionId, TodoItem[]>([
     ['in-progress', []],
+    ['review', []],
     ['ready', []],
     ['waiting', []],
     ['done', []],
   ]);
-  for (const r of items) rows.get(sectionOf(r.todo, todos))?.push(r);
+  for (const r of items) rows.get(itemSection(r, todos))?.push(r);
   rows.get('done')?.sort((a, b) => (b.todo.doneAt ?? b.todo.updatedAt) - (a.todo.doneAt ?? a.todo.updatedAt));
   return [...rows].filter(([, list]) => list.length > 0).map(([id, list]) => ({ id, label: SECTION_WORD[id], rows: list }));
 }
@@ -512,7 +556,7 @@ export function panelTodos(todos: Todo[]): Todo[] {
 export function todoPrompt(t: Todo, holding?: boolean): string {
   const title = t.title.trim();
   const body = t.description.trim();
-  const footer = `This is Codealong todo ${t.id}. When the work is merged or I say it's done, mark it done with \`codealong todo done ${t.id}\`.`;
+  const footer = `This is Codealong todo ${t.id}. When it's ready for me to review, say so with \`codealong todo review ${t.id}\`. When the work is merged or I say it's done, mark it done with \`codealong todo done ${t.id}\`.`;
   return [title, body, footer, holding === undefined ? null : primaryLine(t, holding)].filter(Boolean).join('\n\n');
 }
 
@@ -534,7 +578,7 @@ export function todosPrompt(ts: Todo[], holding?: (t: Todo) => boolean): string 
   if (ts.length === 1) return todoPrompt(ts[0], holding?.(ts[0]));
   const parts = ts.flatMap((t, i) => [`${i + 1}. ${t.title.trim() || 'Untitled'}`, t.description.trim()].filter(Boolean));
   const ids = ts.map((t, i) => `${t.id} (${i + 1})`);
-  const footer = `These are Codealong todos ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}. When the work on one is merged or I say it's done, mark it done with \`codealong todo done <id>\`.`;
+  const footer = `These are Codealong todos ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}. When one is ready for me to review, say so with \`codealong todo review <id>\`. When the work on one is merged or I say it's done, mark it done with \`codealong todo done <id>\`.`;
   const primaries = holding ? ts.flatMap((t) => primaryLine(t, holding(t)) ?? []) : [];
   return [`Work on these ${ts.length} todos:`, ...parts, footer, ...primaries].join('\n\n');
 }

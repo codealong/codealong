@@ -1,10 +1,32 @@
-/* A card's face (card/CardFace.tsx), one design wherever it is: on the canvas and pinned to the
-   desktop. Its lines, states and what's shown away. */
+/* A card's face (card/CardFace.tsx), one design wherever it is: on the canvas, pinned to the
+   desktop and in the Kanban view's columns. Its lines, states and what's shown away. */
 
 .ca-cv-card.is-desk {
   position: relative;
   padding: 9px 10px;
   pointer-events: auto;
+}
+/* In a Kanban column it's as tall as what it holds, its title on two lines at most in a column's
+   narrow width, and its PR chip takes clicks. */
+.ca-cv-card.is-kanban {
+  position: relative;
+  padding: 8px 10px;
+  pointer-events: auto;
+}
+.ca-cv-card.is-kanban .ca-cv-l1 {
+  height: auto;
+  min-height: 18px;
+  align-items: flex-start;
+  white-space: normal;
+}
+.ca-cv-card.is-kanban .ca-cv-l1 > :not(.ca-cv-title) {
+  margin-top: 2px;
+}
+.ca-cv-card.is-kanban .ca-cv-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 /* Nothing to see through to on the desktop. */
 .ca-cv-card.is-desk.is-gone {

@@ -3,8 +3,10 @@
 // which pins a row that wasn't pinned. A pinned row dropped on the rest of the list is unpinned.
 // A row dragged out of the window is pinned to the desktop: its card follows the pointer from
 // where it leaves (desktop.rs `drag_out`), and a pinned row that goes that way leaves its list's
-// pins. A pointer drag, not HTML drag and drop: it behaves the same in every webview and leaves
-// clicks alone until the pointer has moved a few pixels.
+// pins. A view laid out other than as one list (the Kanban view's columns) says itself where a
+// row can land and what landing there does (`dropAt`). A pointer drag, not HTML drag and drop:
+// it behaves the same in every webview and leaves clicks alone until the pointer has moved a few
+// pixels.
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -54,15 +56,25 @@ export function zoneAt(y: number, ordered: Span[], first: Span | null, source: S
   return index < 0 ? ordered.length : index;
 }
 
-/** Where a drop would land: among the ordered rows, on the rest of the list, elsewhere in the
- *  window (nowhere), or outside the window (the desktop). */
-type Zone = { at: 'order'; index: number } | { at: 'list' } | { at: 'none' } | { at: 'out' };
-
-function sameZone(a: Zone, b: Zone): boolean {
-  return a.at === b.at && (a.at !== 'order' || b.at !== 'order' || a.index === b.index);
+/** Somewhere a view says a row can be dropped (`dropAt`), and what letting go there does, which
+ *  the drag shows beside the row's title; no word for a plain move. Two with one `id` are one. */
+export interface DropTarget {
+  id: string;
+  icon?: string;
+  word?: string;
 }
 
-export interface RowDragOptions {
+/** Where a drop would land: among the ordered rows, on the rest of the list, on a target the view
+ *  names, elsewhere in the window (nowhere), or outside the window (the desktop). */
+type Zone<T> = { at: 'order'; index: number } | { at: 'list' } | { at: 'target'; target: T } | { at: 'none' } | { at: 'out' };
+
+function sameZone<T extends DropTarget>(a: Zone<T>, b: Zone<T>): boolean {
+  if (a.at === 'order' && b.at === 'order') return a.index === b.index;
+  if (a.at === 'target' && b.at === 'target') return a.target.id === b.target.id;
+  return a.at === b.at;
+}
+
+export interface RowDragOptions<T extends DropTarget = DropTarget> {
   /** A row dropped among the ordered rows, at insertion point `index`: one of them moves there,
    *  another joins them there. */
   onPlace?: (key: string, index: number) => void;
@@ -75,10 +87,15 @@ export interface RowDragOptions {
   desktop?: (key: string) => DesktopPinned | null;
   /** What the drag says it holds: the row's title. */
   label?: (key: string) => string;
+  /** Where in the window the row would land with the pointer at `x`, `y`, in place of a list's
+   *  order: the target there, or null where nothing takes it. */
+  dropAt?: (key: string, x: number, y: number) => T | null;
+  /** The row was let go over `target`. */
+  onDrop?: (key: string, target: T) => void;
 }
 
 /** A drag from the button going down until it comes up. */
-interface Live {
+interface Live<T> {
   key: string;
   inOrder: boolean;
   row: HTMLElement;
@@ -95,7 +112,7 @@ interface Live {
   active: boolean;
   /** The engine says the pointer has left the window. */
   away: boolean;
-  zone: Zone;
+  zone: Zone<T>;
   frame: number;
   late: number;
   stop: () => void;
@@ -123,20 +140,25 @@ function inWindow(x: number, y: number): boolean {
  * Drags for the rows of one list: the element marked `data-drag-list` around them, where the
  * ordered rows carry a `data-pin-index`. Spread `rowProps` on each row and render `ghost`.
  */
-export function useRowDrag(options: RowDragOptions) {
+export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOptions<T>) {
   const opts = useRef(options);
   opts.current = options;
-  const live = useRef<Live | null>(null);
+  const live = useRef<Live<T> | null>(null);
   // A row let go outside the window: the engine says whether its card stayed on the desktop.
   const out = useRef<{ key: string; inOrder: boolean; timer: number } | null>(null);
   const ghost = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<{ key: string; inOrder: boolean; zone: Zone } | null>(null);
+  const [drag, setDrag] = useState<{ key: string; inOrder: boolean; zone: Zone<T> } | null>(null);
 
-  const canOrder = (d: Live) => d.inOrder || (!!opts.current.joins && !!opts.current.onPlace);
+  const canOrder = (d: Live<T>) => d.inOrder || (!!opts.current.joins && !!opts.current.onPlace) || !!opts.current.dropAt;
 
   /** Where a drop would land with the pointer where it is. */
-  const locate = (d: Live): Zone => {
+  const locate = (d: Live<T>): Zone<T> => {
     if (d.away || !inWindow(d.x, d.y)) return d.pin ? { at: 'out' } : { at: 'none' };
+    const dropAt = opts.current.dropAt;
+    if (dropAt) {
+      const target = dropAt(d.key, d.x, d.y);
+      return target ? { at: 'target', target } : { at: 'none' };
+    }
     const area = (d.scroller ?? d.list)?.getBoundingClientRect();
     if (!d.list || !area || d.x < area.left || d.x > area.right || d.y < area.top || d.y > area.bottom || !canOrder(d)) return { at: 'none' };
     const ordered = [...d.list.querySelectorAll('[data-pin-index]')].map(spanOf);
@@ -146,7 +168,7 @@ export function useRowDrag(options: RowDragOptions) {
   };
 
   /** Moves what the pointer holds to it, and shows where a drop would land. */
-  const look = (d: Live, first = false) => {
+  const look = (d: Live<T>, first = false) => {
     const zone = locate(d);
     if (ghost.current) ghost.current.style.transform = `translate(${d.x}px, ${d.y}px)`;
     if (!first && sameZone(zone, d.zone)) return;
@@ -179,7 +201,7 @@ export function useRowDrag(options: RowDragOptions) {
     const o = opts.current;
     const inOrder = index != null && !!o.onPlace;
     const pin = o.desktop?.(key) ?? null;
-    if (!inOrder && !(o.joins && o.onPlace) && !pin) return;
+    if (!inOrder && !(o.joins && o.onPlace) && !pin && !o.dropAt) return;
     live.current?.stop();
     const row = e.currentTarget;
     const list = row.closest<HTMLElement>('[data-drag-list]');
@@ -230,6 +252,7 @@ export function useRowDrag(options: RowDragOptions) {
       window.addEventListener('click', swallow, true);
       window.setTimeout(() => window.removeEventListener('click', swallow, true), 0);
       if (zone.at === 'order') opts.current.onPlace?.(d.key, zone.index);
+      else if (zone.at === 'target') opts.current.onDrop?.(d.key, zone.target);
       else if (zone.at === 'list' && d.inOrder) opts.current.onLeave?.(d.key);
       else if (zone.at === 'out') {
         if (out.current) window.clearTimeout(out.current.timer);
@@ -237,7 +260,8 @@ export function useRowDrag(options: RowDragOptions) {
       }
     };
 
-    live.current = { key, inOrder, row, list, scroller: scrollerOf(list ?? row), pin, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, active: false, away: false, zone: { at: 'none' }, frame: 0, late: 0, stop };
+    // Where the view names its own targets, what scrolls is around the row (a Kanban column).
+    live.current = { key, inOrder, row, list, scroller: scrollerOf(o.dropAt || !list ? row : list), pin, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, active: false, away: false, zone: { at: 'none' }, frame: 0, late: 0, stop };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', stop);
@@ -294,7 +318,15 @@ export function useRowDrag(options: RowDragOptions) {
   let held: ReactNode = null;
   if (drag) {
     const d = live.current;
-    const act = drag.zone.at === 'order' && !drag.inOrder ? { icon: 'pin', word: 'Pin' } : drag.zone.at === 'list' && drag.inOrder && options.onLeave ? { icon: 'pin-off', word: 'Unpin' } : null;
+    const target = drag.zone.at === 'target' ? drag.zone.target : null;
+    const act =
+      drag.zone.at === 'order' && !drag.inOrder
+        ? { icon: 'pin', word: 'Pin' }
+        : drag.zone.at === 'list' && drag.inOrder && options.onLeave
+          ? { icon: 'pin-off', word: 'Unpin' }
+          : target?.word
+            ? { icon: target.icon ?? 'chevron-right', word: target.word }
+            : null;
     const title = options.label?.(drag.key);
     held = createPortal(
       <div ref={ghost} className={cx('ca-dragghost', drag.zone.at === 'out' && 'is-out', act && 'is-act')} style={{ transform: `translate(${d?.x ?? 0}px, ${d?.y ?? 0}px)` }} aria-hidden="true">
@@ -316,6 +348,9 @@ export function useRowDrag(options: RowDragOptions) {
     ghost: held,
     /** The insertion point among the ordered rows a drop would land at, if it would land there. */
     dropIndex: drag?.zone.at === 'order' ? drag.zone.index : null,
+    /** The row being dragged, and the target the view named that a drop would land on. */
+    dragging: drag?.key ?? null,
+    dropTarget: drag?.zone.at === 'target' ? drag.zone.target : null,
   };
 }
 

@@ -229,6 +229,18 @@
   overflow: hidden;
   padding-bottom: 0;
 }
+/* The Kanban view's columns fill the board and scroll each on its own (KanbanView.css). */
+.ca-win--app .ca-board.is-kanban {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.ca-win--app .ca-board.is-kanban > .ca-board-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 .ca-win-body.is-canvas ~ .ca-toast {
   bottom: calc(var(--toast-foot, 0px) + 72px);
 }

@@ -113,7 +113,7 @@ build it yourself? See [Building from source](#building-from-source).
   </picture>
 </p>
 
-Five views of your work, each in a window of its own if you like (⌘⇧N):
+Six views of your work, each in a window of its own if you like (⌘⇧N):
 
 | View | What it shows |
 | --- | --- |
@@ -121,6 +121,7 @@ Five views of your work, each in a window of its own if you like (⌘⇧N):
 | **Worktrees** | Each worktree once: its branch, its PR, how far it is from main, and the agents working in it. |
 | **PRs** | Every pull request in your repos, with its review, checks and the sessions that worked on it. Reviews asked of you come first. |
 | **Todo** | Work you mean to hand an agent, with notes, screenshots, labels and what each todo waits on. |
+| **Kanban** | Your todos and sessions as cards in To do, In progress, In review and Done, what needs you first in each. |
 | **Canvas** | Your work laid out in space: a frame per repo, a column per worktree, cards you arrange. |
 
 Select anything to see it in the panel on the right; right-click anything for its menu. The
@@ -398,7 +399,7 @@ In Codealong:
 
 | Keys | What they do |
 | --- | --- |
-| ⇧⌘S · ⇧⌘W · ⇧⌘P · ⇧⌘T · ⇧⌘B | Sessions, Worktrees, PRs, Todo, Canvas |
+| ⇧⌘S · ⇧⌘W · ⇧⌘P · ⇧⌘T · ⇧⌘K · ⇧⌘B | Sessions, Worktrees, PRs, Todo, Kanban, Canvas |
 | ⌘P | Switch project (⌥⌘1 – ⌥⌘9 jump to one, ⌥⌘0 shows them all) |
 | ⌘K | The quick panel, in this window's project |
 | ⌘N / ⌘⇧N | New session / new window |

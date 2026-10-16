@@ -47,6 +47,11 @@ through the list for something to do. What follows is for when they've asked.
   only when your user asks, or that session is stuck. A session started for a todo whose
   primary session runs works alongside it, and its prompt says which session to report to;
   one that took over is told which session had the todo before, whose records show its work.
+- **When it's ready for review:** `codealong todo review <id>` (`--note "<what to look at>"`)
+  once your part is done and it waits on the user's verdict: a look, a test, a merge. The app
+  lists it under In review until it's done or started again; `todo review <id> --off` sends it
+  back to In progress when there's more to do. A todo whose PR is open for review is listed there
+  already, as `section: "review"` in the JSON says.
 - **When the work is done:** `codealong todo done <id>`, once it's merged or the user says
   it's done. It links your session to the todo too, if it wasn't already. Don't mark a todo
   done on your own guess that it is; ask. Closing todos other sessions worked on, because your

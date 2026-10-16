@@ -70,6 +70,7 @@
 @import '../ui/CanvasView.css';
 @import '../ui/card/CardPopover.css';
 @import '../ui/CanvasTidy.css';
+@import '../ui/KanbanView.css';
 @import '../ui/Markdown.css';
 @import '../ui/HoverCard.css';
 @import '../ui/PrLink.css';

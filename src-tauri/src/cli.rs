@@ -29,7 +29,7 @@ use crate::procs;
 use crate::search;
 use crate::server::{self, Request};
 use crate::start::{self, Place, StartSpec};
-use crate::todos::{self, Label, Todo, TodoOp, TodoPatch, TodoStatus, TodoStore, Waiting, LABEL_COLORS};
+use crate::todos::{self, Label, Todo, TodoOp, TodoPatch, TodoReview, TodoStatus, TodoStore, Waiting, LABEL_COLORS};
 use crate::usage;
 use crate::util::{self, expand, now_ms, one_line, tilde, truncate};
 
@@ -84,7 +84,7 @@ enum Cmd {
         #[arg(long)]
         context: bool,
     },
-    /// Todos: work meant for an agent. Each has a title, a description, labels, a status (todo, in-progress, done) and the worktrees and sessions that took it on. The app lists open ones under In progress, Ready and Waiting.
+    /// Todos: work meant for an agent. Each has a title, a description, labels, a status (todo, in-progress, done) and the worktrees and sessions that took it on. The app lists open ones under In progress, In review, Ready and Waiting.
     Todo {
         #[command(subcommand)]
         cmd: TodoCmd,
@@ -302,6 +302,8 @@ enum TodoCmd {
     Wait(WaitArgs),
     /// Say a todo marked as waiting is ready. One that waits on todos that aren't done stays under Waiting until they are.
     Ready { id: String },
+    /// Mark a todo as ready for review: your part of its work is done, and it waits on your user's verdict (a look, a test, a merge). The app lists it under In review until it's done or started again, or until --off sends it back to In progress. A todo whose PR is open for review, or merged while the todo isn't done, is listed there already.
+    Review(ReviewArgs),
     /// Move a todo in the list: to the top or bottom, or before or after another. The app shows todos in this order within each section.
     Move(MoveArgs),
     /// Link a session or a worktree to a todo.
@@ -347,11 +349,14 @@ struct TodoListArgs {
     #[arg(long)]
     mine: bool,
     /// Only todos under Ready: not started, not marked as waiting, and waiting on no todo that isn't done. Pick work from these.
-    #[arg(long, conflicts_with = "waiting")]
+    #[arg(long, conflicts_with_all = ["waiting", "review"])]
     ready: bool,
     /// Only todos under Waiting: marked as waiting, or not started and waiting on a todo that isn't done.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "review")]
     waiting: bool,
+    /// Only todos under In review: marked as ready for review, or with a PR open for review or merged.
+    #[arg(long)]
+    review: bool,
     /// Only todos due by this day, overdue ones included: a date (2026-10-03), today, tomorrow, a weekday, next week, or 3d / 2w from today.
     #[arg(long, value_name = "WHEN")]
     due_by: Option<String>,
@@ -439,6 +444,17 @@ struct WaitArgs {
     /// What it waits for, in a few words. Keeps the note it has when left out.
     #[arg(long = "for", value_name = "WHAT", allow_hyphen_values = true)]
     what: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct ReviewArgs {
+    id: String,
+    /// What to look at, in a few words. Keeps the note it has when left out.
+    #[arg(long, value_name = "WHAT", allow_hyphen_values = true, conflicts_with = "off")]
+    note: Option<String>,
+    /// Send it back to In progress: there's more to do on it.
+    #[arg(long)]
+    off: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1146,6 +1162,15 @@ impl Client {
             self.from_app = from_app;
         }
         Ok(self.board.as_ref().unwrap())
+    }
+
+    /// The board's worktrees, for whether a todo's PR is in review, when the app answers: a
+    /// light board reads no PRs, and isn't worth reading for none.
+    fn pr_lanes(&mut self) -> Vec<Lane> {
+        match self.app.is_some() {
+            true => self.board().map(|b| b.lanes.clone()).unwrap_or_default(),
+            false => Vec::new(),
+        }
     }
 
     /// The board read again, for a decision that mustn't go by one read a while ago.
@@ -2299,7 +2324,7 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
         pr_title: lane.pr.as_ref().map(|p| p.title.clone()),
         pr_state: lane.pr.as_ref().map(|p| lower_debug(&p.state)),
         records: account.map(|a| records_for(a, s)).unwrap_or_default(),
-        linked_todos: board.todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| todo_row(t, &store_of(board), false)).collect(),
+        linked_todos: board.todos.iter().filter(|t| t.sessions.contains(&s.key)).map(|t| todo_row(t, &store_of(board), &board.lanes, false)).collect(),
         prs: board.prs.iter().filter(|p| p.sessions.iter().any(|x| x.key == s.key)).map(|p| p.key.clone()).collect(),
         moved_to: crate::origins::current().moved_to(&s.key, |k| board.session(k).is_some()),
         row,
@@ -3576,7 +3601,7 @@ fn whoami(c: &mut Client, context: bool, json: bool) -> Result<()> {
         session: session.map(|(s, l)| session_row(s, l, &board.todos)),
         worktree: lane.map(|l| lane_row(l, board)),
         others: lane.map(|l| others_in(l, key.as_deref()).map(|s| session_row(s, l, &board.todos)).collect()).unwrap_or_default(),
-        todos: my_todos(board, key.as_deref(), lane).into_iter().map(|t| todo_row(t, &store_of(board), false)).collect(),
+        todos: my_todos(board, key.as_deref(), lane).into_iter().map(|t| todo_row(t, &store_of(board), &board.lanes, false)).collect(),
     };
     // Before JSON: a hook reads the command's output through a pipe.
     if context {
@@ -3657,7 +3682,7 @@ fn context_text(out: &Whoami, key: Option<&str>) -> String {
     }
     for t in &out.todos {
         if key.is_some_and(|k| t.sessions.iter().any(|s| s == k)) {
-            let done = if t.status == "in-progress" { format!(" When the work is merged or the user says it's done, mark it done with `codealong todo done {}`.", t.id) } else { String::new() };
+            let done = if t.status == "in-progress" { format!(" When it's ready for the user to review, say so with `codealong todo review {id}`. When the work is merged or the user says it's done, mark it done with `codealong todo done {id}`.", id = t.id) } else { String::new() };
             lines.push(format!("Todo {} \"{}\" is linked to this session ({}).{done}", t.id, t.title, status_text(t)));
         } else {
             lines.push(format!("Todo {} \"{}\" is linked to this worktree ({}). If you take it on, `codealong todo start {}` links this session to it.", t.id, t.title, status_text(t), t.id));
@@ -3668,10 +3693,13 @@ fn context_text(out: &Whoami, key: Option<&str>) -> String {
 
 /// A todo's status for a line of text, with what it's marked as waiting for and when it's due.
 fn status_text(r: &TodoRow) -> String {
-    let status = match &r.waiting {
-        Some(w) if w.note.is_empty() => format!("{}, marked as waiting", r.status),
-        Some(w) => format!("{}, waiting for {}", r.status, w.note),
-        None => r.status.clone(),
+    let status = match (&r.waiting, &r.review) {
+        (Some(w), _) if w.note.is_empty() => format!("{}, marked as waiting", r.status),
+        (Some(w), _) => format!("{}, waiting for {}", r.status, w.note),
+        (None, Some(v)) if v.note.is_empty() => format!("{}, ready for review", r.status),
+        (None, Some(v)) => format!("{}, ready for review: {}", r.status, v.note),
+        (None, None) if r.section == "review" => format!("{}, its PR in review", r.status),
+        (None, None) => r.status.clone(),
     };
     match &r.due {
         Some(due) => format!("{status}, due {} ({due})", todos::due_phrase(due, util::today_local())),
@@ -3736,7 +3764,9 @@ struct TodoRow {
     blocked_by: Vec<String>,
     /// Marked as waiting: `note` says on what, `since` when. Null when it isn't.
     waiting: Option<Waiting>,
-    /// Where the app lists it: in-progress, ready, waiting or done.
+    /// Marked as ready for review: `note` says what to look at, `since` when. Null when it isn't.
+    review: Option<TodoReview>,
+    /// Where the app lists it: in-progress, review, ready, waiting or done.
     section: &'static str,
     /// The day it's due, as 2026-10-03, and how many days off that is on this Mac's clock:
     /// 0 today, below 0 once it's past. Null when it has none.
@@ -3777,7 +3807,7 @@ fn status_name(s: TodoStatus) -> &'static str {
     }
 }
 
-fn todo_row(t: &Todo, store: &TodoStore, full: bool) -> TodoRow {
+fn todo_row(t: &Todo, store: &TodoStore, lanes: &[Lane], full: bool) -> TodoRow {
     TodoRow {
         id: t.id.clone(),
         title: t.title.clone(),
@@ -3790,7 +3820,8 @@ fn todo_row(t: &Todo, store: &TodoStore, full: bool) -> TodoRow {
         depends_on: t.depends_on.iter().filter(|d| store.todos.iter().any(|x| &x.id == *d)).cloned().collect(),
         blocked_by: store.blocked_by(t).iter().map(|x| x.id.clone()).collect(),
         waiting: t.waiting.clone(),
-        section: section_of(store, t),
+        review: t.review.clone(),
+        section: section_of(store, t, lanes),
         due: t.due.clone(),
         due_in_days: t.due.as_deref().and_then(todos::due_day).map(|d| d - util::today_local()),
         created_at: t.created_at,
@@ -3803,11 +3834,13 @@ fn todo_row(t: &Todo, store: &TodoStore, full: bool) -> TodoRow {
     }
 }
 
-/// The app's section for a todo, as `todo list` filters and `section` in the JSON name it.
-fn section_of(store: &TodoStore, t: &Todo) -> &'static str {
+/// The app's section for a todo, as `todo list` filters and `section` in the JSON name it. A PR
+/// in review puts it under In review only by a board with PRs (`Client::pr_lanes`).
+fn section_of(store: &TodoStore, t: &Todo, lanes: &[Lane]) -> &'static str {
     match t.status {
         TodoStatus::Done => "done",
         _ if store.is_waiting(t) => "waiting",
+        _ if todos::is_in_review(t, lanes) => "review",
         TodoStatus::InProgress => "in-progress",
         TodoStatus::Todo => "ready",
     }
@@ -3918,7 +3951,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             let store = c.todos()?;
             let id = resolve_todo(&store, &id)?;
             let t = store.todos.iter().find(|t| t.id == id).unwrap();
-            let row = todo_row(t, &store, true);
+            let row = todo_row(t, &store, &c.pr_lanes(), true);
             if json {
                 return print_json(&row);
             }
@@ -3937,7 +3970,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             let now = now_ms();
             let waiting = a.wait_for.map(|note| Waiting { note, since: now });
             let due = a.due.as_deref().map(|w| todos::due_from_words(w, util::today_local())).transpose()?;
-            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on, waiting, due, primary: None };
+            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on, waiting, review: None, due, primary: None };
             c.apply(TodoOp::Create { todo })?;
             link(c, &id, worktree.as_deref(), session.as_deref(), true)?;
             show_after(c, &id, json)
@@ -3979,7 +4012,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
                 (None, true) => Some(None),
                 (None, false) => None,
             };
-            let patch = TodoPatch { depends_on, title: a.title, description: read_text(a.description, a.description_file)?, status, labels, project: a.project, waiting: None, due };
+            let patch = TodoPatch { depends_on, title: a.title, description: read_text(a.description, a.description_file)?, status, labels, project: a.project, waiting: None, review: None, due };
             c.apply(TodoOp::Update { id: id.clone(), patch })?;
             if let Some(s) = status.filter(|_| !a.no_link) {
                 link_caller(c, &id, s, json);
@@ -4056,6 +4089,18 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
                     eprintln!("note: {id} still waits on {}, so it stays under Waiting. `todo update {id} --remove-dependency <id>` takes one off.", names.join(", "));
                 }
             }
+            show_after(c, &id, json)
+        }
+        TodoCmd::Review(a) => {
+            let store = c.todos()?;
+            let id = resolve_todo(&store, &a.id)?;
+            let t = store.todos.iter().find(|t| t.id == id).unwrap();
+            let review = match a.off {
+                true => None,
+                false if t.status == TodoStatus::Done => bail!("{id} is done; `codealong todo reopen {id}` first."),
+                false => Some(TodoReview { note: a.note.or_else(|| t.review.as_ref().map(|r| r.note.clone())).unwrap_or_default(), since: 0 }),
+            };
+            c.apply(TodoOp::Update { id: id.clone(), patch: TodoPatch { review: Some(review), ..Default::default() } })?;
             show_after(c, &id, json)
         }
         TodoCmd::Link(a) => {
@@ -4216,7 +4261,7 @@ fn link(c: &mut Client, id: &str, worktree: Option<&str>, session: Option<&str>,
 fn show_after(c: &mut Client, id: &str, json: bool) -> Result<()> {
     let store = c.todos()?;
     let Some(t) = store.todos.iter().find(|t| t.id == id) else { bail!("The todo {id} isn't in the list any more.") };
-    let row = todo_row(t, &store, true);
+    let row = todo_row(t, &store, &c.pr_lanes(), true);
     if json {
         return print_json(&row);
     }
@@ -4275,6 +4320,7 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
         false => (None, None),
     };
     let store = c.todos()?;
+    let lanes = c.pr_lanes();
     let label = a.label.as_deref().map(|n| store.labels.iter().find(|l| l.name.eq_ignore_ascii_case(n)).map(|l| l.id.clone()).ok_or_else(|| anyhow!("There's no label called {n}."))).transpose()?;
     let today = util::today_local();
     let due_by = a.due_by.as_deref().map(|w| todos::due_from_words(w, today)).transpose()?.and_then(|d| todos::due_day(&d));
@@ -4292,8 +4338,9 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
         .filter(|t| !a.mine || me.as_deref().is_some_and(|k| t.sessions.iter().any(|s| s == k)) || here.as_deref().is_some_and(|w| t.worktrees.iter().any(|x| x == w)))
         .filter(|t| !a.ready || store.is_ready(t))
         .filter(|t| !a.waiting || store.is_waiting(t))
+        .filter(|t| !a.review || section_of(&store, t, &lanes) == "review")
         .filter(|t| due_by.map_or(true, |by| t.due.as_deref().and_then(todos::due_day).is_some_and(|d| d <= by)))
-        .map(|t| todo_row(t, &store, false))
+        .map(|t| todo_row(t, &store, &lanes, false))
         .collect();
     if !["all", "open", "todo", "in-progress", "done"].contains(&a.status.as_str()) {
         bail!("--status is todo, in-progress, done, open or all.");
@@ -4334,7 +4381,7 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
 /// is, so the agent can mark it done, and its primary session (`primary_line`). `holding` says
 /// whether that session still has it. `todoPrompt` in `src/todos.ts` writes the same text.
 fn todo_prompt(t: &Todo, holding: bool) -> String {
-    let footer = format!("This is Codealong todo {id}. When the work is merged or I say it's done, mark it done with `codealong todo done {id}`.", id = t.id);
+    let footer = format!("This is Codealong todo {id}. When it's ready for me to review, say so with `codealong todo review {id}`. When the work is merged or I say it's done, mark it done with `codealong todo done {id}`.", id = t.id);
     let primary = primary_line(t, holding).unwrap_or_default();
     [t.title.trim(), t.description.trim(), &footer, &primary].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("\n\n")
 }
@@ -4367,7 +4414,7 @@ fn todos_prompt(ts: &[&Todo], holding: impl Fn(&Todo) -> bool) -> String {
     }
     let ids: Vec<String> = ts.iter().enumerate().map(|(i, t)| format!("{} ({})", t.id, i + 1)).collect();
     let (last, rest) = ids.split_last().map(|(l, r)| (l.clone(), r.join(", "))).unwrap_or_default();
-    parts.push(format!("These are Codealong todos {rest} and {last}. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`."));
+    parts.push(format!("These are Codealong todos {rest} and {last}. When one is ready for me to review, say so with `codealong todo review <id>`. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`."));
     parts.extend(ts.iter().filter_map(|t| primary_line(t, holding(t))));
     parts.join("\n\n")
 }
@@ -5480,7 +5527,7 @@ mod tests {
     fn ids_are_usable_and_prefixes_resolve() {
         let id = new_todo_id();
         assert!(id.starts_with("t-") && id.len() > 8 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
-        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None, primary: None };
+        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None };
         let store = TodoStore { todos: vec![t("t-abc1"), t("t-abd2")], labels: vec![] };
         assert_eq!(resolve_todo(&store, "t-abc").unwrap(), "t-abc1");
         assert!(resolve_todo(&store, "t-ab").unwrap_err().to_string().contains("2 todos"));
@@ -5490,10 +5537,10 @@ mod tests {
 
     #[test]
     fn several_todos_start_on_one_prompt() {
-        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None, primary: None };
+        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None };
         let (a, b, c) = (t("t-a", " Fix the header ", "\nIt wraps.\n"), t("t-b", "Add a logout button", ""), t("t-c", "", "No title."));
         // The same text as `todosPrompt`'s test in src/todos.test.ts.
-        let footer = "When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
+        let footer = "When one is ready for me to review, say so with `codealong todo review <id>`. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
         assert_eq!(todos_prompt(&[&a, &b], |_| false), format!("Work on these 2 todos:\n\n1. Fix the header\n\nIt wraps.\n\n2. Add a logout button\n\nThese are Codealong todos t-a (1) and t-b (2). {footer}"));
         assert!(todos_prompt(&[&a, &b, &c], |_| false).contains("3. Untitled\n\nNo title.\n\nThese are Codealong todos t-a (1), t-b (2) and t-c (3)."));
         assert_eq!(todos_prompt(&[&a], |_| false), todo_prompt(&a, false));
@@ -5611,12 +5658,13 @@ mod tests {
             pending: vec![],
             depends_on: vec![],
             waiting: None,
+            review: None,
             due: None,
             primary: primary.map(|s| todos::Primary { session: s.into(), since: 0 }),
         };
         let (a, b) = (t("t-a", Some("claude:claude:s1")), t("t-b", None));
         // The same text as `todoPrompt`'s test in src/todos.test.ts.
-        let footer = "This is Codealong todo t-a. When the work is merged or I say it's done, mark it done with `codealong todo done t-a`.";
+        let footer = "This is Codealong todo t-a. When it's ready for me to review, say so with `codealong todo review t-a`. When the work is merged or I say it's done, mark it done with `codealong todo done t-a`.";
         // One that runs gets what this one finds; one that stopped left its records.
         assert_eq!(
             todo_prompt(&a, true),
@@ -5684,7 +5732,7 @@ mod tests {
 
     fn todo(id: &str, status: TodoStatus, sessions: &[&str], worktrees: &[&str]) -> Todo {
         let strings = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
-        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, due: None, primary: None }
+        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None }
     }
 
     /// The main checkout, where this session and another live one work, and a worktree of its
@@ -5801,13 +5849,13 @@ mod tests {
     fn a_starting_session_is_told_which_todos_are_its_own() {
         let b = shared_and_own(false);
         let (main, store) = (&b.lanes[0], store_of(&b));
-        let rows = |ids: &[&str]| ids.iter().map(|id| todo_row(b.todos.iter().find(|t| t.id == *id).unwrap(), &store, false)).collect::<Vec<_>>();
+        let rows = |ids: &[&str]| ids.iter().map(|id| todo_row(b.todos.iter().find(|t| t.id == *id).unwrap(), &store, &b.lanes, false)).collect::<Vec<_>>();
         let me = &main.sessions[0];
         let out = Whoami { found: true, how: Some("process".into()), session: Some(session_row(me, main, &b.todos)), worktree: Some(lane_row(main, &b)), others: vec![], todos: rows(&["a", "c"]) };
         assert_eq!(
             context_text(&out, Some("me")),
             "This is Codealong session me (claude on claude), in worktree /r/main.\n\
-             Todo a \"A\" is linked to this session (in-progress). When the work is merged or the user says it's done, mark it done with `codealong todo done a`.\n\
+             Todo a \"A\" is linked to this session (in-progress). When it's ready for the user to review, say so with `codealong todo review a`. When the work is merged or the user says it's done, mark it done with `codealong todo done a`.\n\
              Todo c \"C\" is linked to this worktree (in-progress). If you take it on, `codealong todo start c` links this session to it.\n"
         );
         // A session the app just started isn't on the board yet, but its todo is its own.

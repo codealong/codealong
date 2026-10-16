@@ -1,8 +1,9 @@
 // The Todo view's own state and what's done to todos from the main window: the todos picked
 // together, the box that adds one, the due date a panel opens its picker on, and every change,
 // menu and key, each going through the todo store (todos.ts), which shows a change at once. The
-// filters it shares with the other views (the label, Show done) stay with them in App.tsx, as
-// the lists are made from them (boardLists.ts).
+// Kanban view's todo cards have the same keys and picks. The filters it shares with the other
+// views (the label, Show done) stay with them in App.tsx, as the lists are made from them
+// (boardLists.ts).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ListRow } from './boardLists';
@@ -14,7 +15,7 @@ import { nextAfter, usePicks } from './picks';
 import { reorderPinned, type Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
 import type { Report } from './report';
-import { COLOR_WORD, itemPrimaryHolds, newTodo, todoAgent, todoProjects, todoPrompt, todosPrompt, useTodoStore, type TodoItem, type TodoSection, type TodoSectionId } from './todos';
+import { COLOR_WORD, itemPrimaryHolds, newTodo, reviewChange, todoAgent, todoProjects, todoPrompt, todosPrompt, useTodoStore, type TodoItem, type TodoSection, type TodoSectionId } from './todos';
 import type { Label, Lane, ProjectSummary, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 import type { UndoToast } from './ui/Toasts';
@@ -23,12 +24,15 @@ import type { ComposerContext } from './ui/TodoView';
 /** What the Todo view goes by, as the window has it. */
 export interface TodoViewInput {
   store: ReturnType<typeof useTodoStore>;
-  view: string;
   selected: ListRow | null;
   setSelectedKey: (key: string | null) => void;
   visible: ListRow[];
+  /** The rows the view lists, todos among them: the Todo view's, or the Kanban view's cards. */
   todoVisible: ListRow[];
   todoSecs: TodoSection[];
+  /** The runs of todos the view lists in your order, which ⌃⌘↑ ⌃⌘↓ move a todo within: the Todo
+   *  view's open sections, the Kanban view's To do. */
+  ordered: TodoItem[][];
   current: string;
   projects: ProjectSummary[];
   lanes: Lane[];
@@ -46,6 +50,8 @@ export interface TodoViewInput {
   open: (lane: Lane, targetId: string | null | undefined) => void;
   pickProject: (name: string) => void;
   setView: (view: 'todo') => void;
+  /** The views whose rows are todos, or have them among them. */
+  listsTodos: boolean;
   setBayFilter: (filter: readonly Filter[]) => void;
   setQuery: (query: string) => void;
   onDesktop: ReadonlySet<string>;
@@ -54,7 +60,7 @@ export interface TodoViewInput {
 }
 
 export function useTodoView(input: TodoViewInput) {
-  const { store: todoStore, view, selected, setSelectedKey, visible, todoVisible, todoSecs, current, projects, lanes, laneById, lanePins, selectedLane, labelFilter, setLabelFilter, setShowDoneTodos, report, setToast, setTodoUndo, newSession, open, pickProject, setView, setBayFilter, setQuery, onDesktop, canvasItem } = input;
+  const { store: todoStore, selected, setSelectedKey, visible, todoVisible, todoSecs, ordered, current, projects, lanes, laneById, lanePins, selectedLane, labelFilter, setLabelFilter, setShowDoneTodos, report, setToast, setTodoUndo, newSession, open, pickProject, setView, listsTodos, setBayFilter, setQuery, onDesktop, canvasItem } = input;
   const runTodo = todoStore.run;
   // The todo whose panel should open its due date's picker, for Pick a date… and D.
   const [duePick, setDuePick] = useState<string | null>(null);
@@ -72,7 +78,7 @@ export function useTodoView(input: TodoViewInput) {
 
   // Todos picked together with the selected one (⌘-click, ⇧-click, ⇧↑ ⇧↓), to start in one
   // session (picks.ts).
-  const todoRows = useMemo(() => (view === 'todo' ? todoVisible.filter((r): r is TodoItem => r.kind === 'todo') : null), [view, todoVisible]);
+  const todoRows = useMemo(() => (listsTodos ? todoVisible.filter((r): r is TodoItem => r.kind === 'todo') : null), [listsTodos, todoVisible]);
   const picks = usePicks(todoRows, selected?.key ?? null, setSelectedKey);
   const { picked: pickedRows, keys: pickedKeys, select: selectTodoRow, clear: clearPick } = picks;
 
@@ -170,13 +176,14 @@ export function useTodoView(input: TodoViewInput) {
     });
   };
 
-  /** Moves a todo to insertion point `index` among the rows its section shows. */
-  const moveTodo = (section: TodoSectionId, id: string, index: number) => {
-    const shown = todoSecs.find((s) => s.id === section)?.rows.map((r) => r.todo.id) ?? [];
+  /** Moves a todo to insertion point `index` among the todos `rows` show. */
+  const moveTodoAmong = (rows: TodoItem[], id: string, index: number) => {
     const all = todoStore.todos.map((t) => t.id);
-    const next = reorderPinned(all, shown, id, index);
+    const next = reorderPinned(all, rows.map((r) => r.todo.id), id, index);
     if (next !== all) runTodo({ op: 'order', ids: next });
   };
+  /** Moves a todo to insertion point `index` among the rows its section shows. */
+  const moveTodo = (section: TodoSectionId, id: string, index: number) => moveTodoAmong(todoSecs.find((s) => s.id === section)?.rows ?? [], id, index);
 
   const labelsRef = useLatest(todoStore.labels);
   /** Deletes a label everywhere; the toast can bring it back where it was. */
@@ -303,19 +310,21 @@ export function useTodoView(input: TodoViewInput) {
 
 
   // The Todo view's own keys, bound fresh each render so they see the rows as they are. N adds a
-  // todo, X marks one done (or reopens it), W moves it to Waiting or out, D picks its due date,
-  // Delete deletes it, ⌃⌘↑ ⌃⌘↓ move it. ⇧↑ ⇧↓ pick the rows above or below too; then X, W and Delete act on all of
-  // them, Return starts one session for them, and Escape goes back to one.
+  // todo, X marks one done (or reopens it), W moves it to Waiting or out, R marks it ready for
+  // review or sends it back, D picks its due date, Delete deletes it, ⌃⌘↑ ⌃⌘↓ move it. ⇧↑ ⇧↓ pick
+  // the rows above or below too; then X, W, R and Delete act on all of them, Return starts one
+  // session for them, and Escape goes back to one.
   const todoKeys = useLatest((e: KeyboardEvent, key: string): boolean => {
-    if (view !== 'todo') return false;
+    if (!listsTodos) return false;
     // Reordering moves one todo at a time.
     if (e.ctrlKey && e.metaKey && !e.altKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      if (selected?.kind !== 'todo') return false;
       e.preventDefault();
-      if (selected?.kind !== 'todo' || pickedRows.length > 0 || selected.todo.status === 'done') return true;
-      const section = todoSecs.find((s) => s.rows.some((r) => r.key === selected.key));
-      const i = section?.rows.findIndex((r) => r.key === selected.key) ?? -1;
+      if (pickedRows.length > 0 || selected.todo.status === 'done') return true;
+      const run = ordered.find((rows) => rows.some((r) => r.key === selected.key));
+      const i = run?.findIndex((r) => r.key === selected.key) ?? -1;
       // Insertion points: one up is the row's own index less one; one down is two past it.
-      if (section && i >= 0) moveTodo(section.id, selected.todo.id, e.key === 'ArrowUp' ? i - 1 : i + 2);
+      if (run && i >= 0) moveTodoAmong(run, selected.todo.id, e.key === 'ArrowUp' ? i - 1 : i + 2);
       return true;
     }
     if (e.metaKey || e.ctrlKey) return false;
@@ -351,6 +360,10 @@ export function useTodoView(input: TodoViewInput) {
     }
     if (key === 'w' && !e.altKey) {
       toggleWaiting(ts);
+      return true;
+    }
+    if (key === 'r' && !e.altKey) {
+      reviewChange(ts)?.ops.forEach((op) => void runTodo(op));
       return true;
     }
     if (key === 'd' && !e.altKey && pickedRows.length === 0) {
@@ -391,6 +404,7 @@ export function useTodoView(input: TodoViewInput) {
     todoLinkMenu,
     labelMenu,
     moveTodo,
+    moveTodoAmong,
     todoMenuItems,
     todoKeys,
   };

@@ -8,7 +8,8 @@
   -webkit-user-select: none;
 }
 .ca-lane.is-drag-source,
-.ca-quick-row.is-drag-source {
+.ca-quick-row.is-drag-source,
+.ca-kb-cardrow.is-drag-source {
   opacity: 0.45;
 }
 

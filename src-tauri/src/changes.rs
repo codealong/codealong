@@ -1,7 +1,7 @@
 //! What changed since an earlier look at the board, for an agent that keeps watch over every
 //! session on a loop (`codealong changes`, the orchestrate skill's tick): sessions that started,
 //! took a turn, ended one, wait on their user or stopped; PRs in the user's repos opened,
-//! reviewed, merged or closed; todos added, started, finished or set waiting; and worktrees a
+//! reviewed, merged or closed; todos added, started, finished, set waiting or put in review; and worktrees a
 //! second agent started working in. With it, the sessions that wait on the user now, so a quiet
 //! tick is one command. Headless runs (`Session::headless`: `claude -p`, `codex exec`) are
 //! counted by the worktree they ran in rather than told one by one, since a script or an agent
@@ -108,6 +108,9 @@ pub struct TodoMark {
     pub status: TodoStatus,
     #[serde(default)]
     pub waiting: bool,
+    /// Marked as ready for review. Marks from before have none.
+    #[serde(default)]
+    pub review: bool,
     /// For saying which todo went, once it's gone.
     #[serde(default)]
     pub title: String,
@@ -160,6 +163,10 @@ pub enum TodoChange {
     Waiting,
     /// No longer waiting.
     Ready,
+    /// Marked as ready for review: its agent's part is done.
+    InReview,
+    /// Back in progress from review.
+    SentBack,
     Removed,
 }
 
@@ -463,7 +470,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
                     out.todos.push(todo_row(change, t));
                 }
             }
-            marks.insert(t.id.clone(), TodoMark { status: t.status, waiting: t.waiting.is_some(), title: t.title.clone() });
+            marks.insert(t.id.clone(), TodoMark { status: t.status, waiting: t.waiting.is_some(), review: t.review.is_some(), title: t.title.clone() });
         }
         for (id, m) in todo_part.map(|p| &p.marks).into_iter().flatten() {
             if !marks.contains_key(id) && sight.project.is_none() {
@@ -663,6 +670,7 @@ pub fn todo_change(t: &Todo, mark: Option<&TodoMark>, since: i64) -> Option<Todo
             TodoStatus::Todo => TodoChange::Reopened,
         }),
         Some(m) if m.waiting != t.waiting.is_some() => Some(if t.waiting.is_some() { TodoChange::Waiting } else { TodoChange::Ready }),
+        Some(m) if m.review != t.review.is_some() => Some(if t.review.is_some() { TodoChange::InReview } else { TodoChange::SentBack }),
         Some(_) => None,
         None if t.created_at >= since => Some(TodoChange::Added),
         None if t.done_at.is_some_and(|d| d >= since) => Some(TodoChange::Done),
@@ -1134,7 +1142,7 @@ mod tests {
     #[test]
     fn todos_are_told_by_status_and_waiting() {
         let mut t = todo("t1");
-        let m = TodoMark { status: TodoStatus::Todo, waiting: false, title: "Fix it".into() };
+        let m = TodoMark { status: TodoStatus::Todo, waiting: false, review: false, title: "Fix it".into() };
         assert_eq!(todo_change(&t, Some(&m), NOW - MIN), None);
         t.status = TodoStatus::InProgress;
         assert_eq!(todo_change(&t, Some(&m), NOW - MIN), Some(TodoChange::Started));
@@ -1142,6 +1150,13 @@ mod tests {
         t.waiting = Some(crate::todos::Waiting { note: "Wes".into(), since: NOW });
         assert_eq!(todo_change(&t, Some(&m), NOW - MIN), Some(TodoChange::Waiting));
         assert_eq!(todo_change(&t, None, NOW - MIN), None);
+        // Marked as ready for review, and sent back from it.
+        let m = TodoMark { status: TodoStatus::InProgress, ..m.clone() };
+        let mut r = Todo { status: TodoStatus::InProgress, waiting: None, ..t.clone() };
+        r.review = Some(crate::todos::TodoReview { note: String::new(), since: NOW });
+        assert_eq!(todo_change(&r, Some(&m), NOW - MIN), Some(TodoChange::InReview));
+        r.review = None;
+        assert_eq!(todo_change(&r, Some(&TodoMark { review: true, ..m }), NOW - MIN), Some(TodoChange::SentBack));
         assert_eq!(todo_change(&Todo { created_at: NOW, ..t }, None, NOW - MIN), Some(TodoChange::Added));
     }
 

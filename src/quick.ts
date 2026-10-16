@@ -9,7 +9,7 @@ import { agoPhrase, middleTruncate } from './format';
 import { heldForAgent } from './prStatus';
 import { branchLabel, byStatusTime, sessionHomes, unattended } from './lanes';
 import { inQueueOrder, statusWaits, type Reads } from './queue';
-import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
+import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
 import type { Codec } from './stored';
 import type { Board, DeviceFound, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit, Todo } from './types';
@@ -291,12 +291,12 @@ export interface TodoRow {
   marks: [number, number][];
 }
 
-const SECTION_RANK: Record<TodoSectionId, number> = { 'in-progress': 0, ready: 1, waiting: 2, done: 3 };
+const SECTION_RANK: Record<TodoSectionId, number> = { 'in-progress': 0, review: 1, ready: 2, waiting: 3, done: 4 };
 
 /**
  * Todos with every typed word in their title, description, labels or project, or in the
  * worktrees and sessions linked to them, best first: those whose title has them all, then In
- * progress, Ready, Waiting and Done, then the latest activity. In a project, only its own todos.
+ * progress, In review, Ready, Waiting and Done, then the latest activity. In a project, only its own todos.
  */
 export function findTodos(board: Board, project: string, query: string, limit = FOUND_TODOS): TodoRow[] {
   const words = queryWords(query);
@@ -320,7 +320,7 @@ export function findTodos(board: Board, project: string, query: string, limit = 
         .join('\n')
         .toLowerCase();
       if (!hasWords(hay, words)) return [];
-      const section = sectionOf(t, todos);
+      const section = itemSection(item, todos);
       const title = t.title.toLowerCase();
       const row: TodoRow = { kind: 'todo', key: `todo:${t.id}`, group: 'todos', item, waiting: section === 'waiting', marks: titleMarks(t.title, words) };
       return [{ row, inTitle: hasWords(title, words), rank: SECTION_RANK[section] }];

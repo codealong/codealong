@@ -1284,6 +1284,15 @@ export interface Waiting {
   since: number;
 }
 
+/** A todo marked as ready for review (todos.rs `TodoReview`): its agent's part is done, and it
+ *  waits on your verdict. */
+export interface TodoReview {
+  /** What to look at, in a few words; can be empty. */
+  note: string;
+  /** When it was marked; 0 when written by hand without a time. */
+  since: number;
+}
+
 /** Work you mean to hand an agent. */
 export interface Todo {
   id: string;
@@ -1308,6 +1317,8 @@ export interface Todo {
   dependsOn: string[];
   /** Marked as waiting, on something outside the list. Missing or null when it isn't. */
   waiting?: Waiting | null;
+  /** Marked as ready for review: only an in-progress todo is. Missing or null when it isn't. */
+  review?: TodoReview | null;
   /** The day it's due, as `2026-10-03` (src/due.ts). Missing or null when it has none. */
   due?: string | null;
   /** Its primary session: where the work on it goes on, which other sessions send what they

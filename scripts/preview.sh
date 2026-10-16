@@ -4,7 +4,7 @@
 #
 #   scripts/preview.sh [view] [project] [check.js]
 #
-#   view     worktrees | sessions | prs | todo | canvas, bar for the floating bar, notch for the
+#   view     worktrees | sessions | prs | todo | kanban | canvas, bar for the floating bar, notch for the
 #            bar docked in the notch, peek for the bar's peek, kept for a session kept on the
 #            desktop (the peek's session, in a window of its size), side for the peek's
 #            session's side conversation popped out into a window of its own, quick for the

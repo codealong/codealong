@@ -112,7 +112,7 @@ export function CardFace({ item, data, now, style, className, children, onPrShow
       return (
         <div className={cls('todo', `td-${t.status}`)} style={style} data-id={id}>
           <div className="ca-cv-l1">
-            <TodoGlyph status={t.status} waiting={!!t.waiting} />
+            <TodoGlyph status={t.status} waiting={data.section ? data.section === 'waiting' : !!t.waiting} review={data.section ? data.section === 'review' : !!t.review && t.status === 'in-progress'} />
             <span className="ca-cv-title">{t.title || 'Untitled'}</span>
           </div>
           <div className="ca-cv-l2">

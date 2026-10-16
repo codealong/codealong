@@ -1,5 +1,6 @@
-// The Todo view: work you mean to hand an agent. In progress, Ready and Waiting come in your
-// order (drag, or ⌃⌘↑ ⌃⌘↓, to reorder), then Done under a fold. A todo dragged out of the window
+// The Todo view: work you mean to hand an agent. In progress, In review, Ready and Waiting come
+// in your order (drag, or ⌃⌘↑ ⌃⌘↓, to reorder), then Done under a fold. In review holds the
+// todos marked as ready for review and the ones whose PR is with its reviewers. A todo dragged out of the window
 // is pinned to the desktop (useRowDrag.tsx). Waiting holds the todos marked as
 // waiting and the ones not started that wait on a todo that isn't done. A row shows when the todo
 // is due, its labels, what it waits on, the sessions on it with their status, and the worktree
@@ -124,7 +125,7 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
       onMenu={onContextMenu}
     >
       <div className="ca-seg ca-seg-glyph">
-        <TodoGlyph status={todo.status} waiting={section === 'waiting'} />
+        <TodoGlyph status={todo.status} waiting={section === 'waiting'} review={section === 'review'} />
       </div>
       <div className="ca-seg ca-seg-main">
         <div className="ca-lane-line1">
@@ -148,6 +149,12 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
               <Chip className="ca-todorow-blocked" title={`Waits on ${blocked.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}, not done yet.`}>
                 <Icon name="lock" size={12} />
                 <span className="ca-todorow-blocked-text">{blocked.length === 1 ? `Waiting on ${blocked[0].title || 'Untitled'}` : `Waiting on ${blocked.length} todos`}</span>
+              </Chip>
+            )}
+            {todo.review && todo.status !== 'done' && (
+              <Chip className="ca-todorow-review" title={`Marked as ready for review${todo.review.since > 0 ? ` ${ago(todo.review.since, now)} ago` : ''}${todo.review.note ? `: ${todo.review.note}` : '.'}`}>
+                <Icon name="eye" size={12} />
+                <span className="ca-todorow-blocked-text">{todo.review.note ? `Review ${todo.review.note}` : 'Ready for review'}</span>
               </Chip>
             )}
             {hint && todo.status !== 'done' && (
@@ -221,13 +228,13 @@ interface TodoViewProps {
   hints?: Record<string, TodoHint>;
 }
 
-/** Each section's box: its todos' status, dashed for Waiting. */
-const SECTION_STATUS: Record<TodoSectionId, TodoStatus> = { 'in-progress': 'in-progress', ready: 'todo', waiting: 'todo', done: 'done' };
+/** Each section's box: its todos' status, dashed for Waiting, filled for In review. */
+const SECTION_STATUS: Record<TodoSectionId, TodoStatus> = { 'in-progress': 'in-progress', review: 'in-progress', ready: 'todo', waiting: 'todo', done: 'done' };
 
 function SectionHead({ id, count, hint }: { id: TodoSectionId; count: number; hint?: ReactNode }) {
   return (
     <div className="ca-bay ca-bay--section" role="heading" aria-level={3}>
-      <TodoGlyph status={SECTION_STATUS[id]} waiting={id === 'waiting'} size={11} title="" />
+      <TodoGlyph status={SECTION_STATUS[id]} waiting={id === 'waiting'} review={id === 'review'} size={11} title="" />
       <span>{SECTION_WORD[id]}</span>
       <span className="ca-bay-count">{count}</span>
       {hint && <span className="ca-bay-action ca-bay-hint">{hint}</span>}

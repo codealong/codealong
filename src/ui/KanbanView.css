@@ -1,0 +1,155 @@
+/* The Kanban view (KanbanView.tsx): its columns side by side, each scrolling on its own, the Done
+   rail, and where a dragged card would land. A card's face is card/CardFace.css's. */
+
+.ca-kanban {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* As wide as the board lets them be, beside the panel; past that the board scrolls sideways. */
+.ca-kb-col {
+  flex: 1 1 0;
+  min-width: 190px;
+  max-width: 360px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  transition: box-shadow var(--dur-fast);
+}
+/* A card dragged over a column it would move to. */
+.ca-kb-col.is-drop,
+.ca-kb-rail.is-drop {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+
+.ca-kb-head {
+  flex: none;
+  height: 32px;
+}
+.ca-kb-fold {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.ca-kb-cards {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) var(--space-3);
+  overflow-y: auto;
+}
+/* The box that adds a todo, at the top of To do, as a card's width. */
+.ca-kb-cards > .ca-todonew {
+  margin: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.ca-kb-empty {
+  padding: var(--space-3) var(--space-2);
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+
+/* Where Waiting begins in To do. */
+.ca-kb-divider {
+  padding: var(--space-2) var(--space-1) 0;
+  color: var(--ink-3);
+  font: var(--type-caption-strong);
+}
+
+/* A card's place: the row a press selects and a drag takes. Its face draws the rest. */
+.ca-kb-cardrow {
+  position: relative;
+  flex: none;
+  border-radius: var(--radius-md);
+  outline: none;
+}
+.ca-kb-cardrow > .ca-grip {
+  display: none;
+}
+.ca-kb-cardrow.is-selected > .ca-cv-card {
+  box-shadow: inset 0 0 0 2px var(--focus), var(--shadow-lift);
+}
+/* A session dragged over a todo would join it. */
+.ca-kb-cardrow.is-onto > .ca-cv-card {
+  box-shadow: inset 0 0 0 2px var(--focus), var(--shadow-lift);
+  background: var(--surface-selected);
+}
+/* Where in To do a dragged todo would land. */
+.ca-kb-cardrow.is-drop-before::before,
+.ca-kb-cardrow.is-drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: var(--z-dropline);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--focus);
+}
+.ca-kb-cardrow.is-drop-before::before {
+  top: calc(-1 * var(--space-1) - 1px);
+}
+.ca-kb-cardrow.is-drop-after::after {
+  bottom: calc(-1 * var(--space-1) - 1px);
+}
+
+/* Under a todo's two lines: what it waits on or why it's in review, and its sessions. */
+.ca-kb-note {
+  overflow: hidden;
+  color: var(--ink-3);
+  font: var(--type-caption-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-kb-note.is-done {
+  color: var(--pr-open);
+}
+.ca-kb-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--line);
+}
+.ca-kb-more {
+  color: var(--ink-3);
+  font: var(--type-caption);
+}
+
+/* Done, folded: a narrow rail with its count, which opens it. */
+.ca-kb-rail {
+  flex: none;
+  width: 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-kb-rail:hover {
+  background: var(--surface-hover);
+}
+.ca-kb-rail-label {
+  writing-mode: vertical-rl;
+  font: var(--type-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

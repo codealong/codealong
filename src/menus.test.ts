@@ -656,7 +656,7 @@ describe('the todo menus', () => {
     return { ops, edit };
   };
 
-  it("has a todo's status, waiting, due date, labels and project where the window has them all", () => {
+  it("has a todo's status, waiting, review, due date, labels and project where the window has them all", () => {
     const t = fx.todo({ status: 'in-progress', labels: ['l1'], project: 'Api' });
     const { ops, edit } = editing([t], { pickDate: noop });
     const menu = todoMenu(t, { report, start: noop, edit, desktop: new Set(), remove: noop });
@@ -667,6 +667,7 @@ describe('the todo menus', () => {
       'In progress',
       'Done',
       'Mark as waiting',
+      'Ready for review',
       '-',
       'Due date ›',
       'Labels ›',
@@ -689,6 +690,7 @@ describe('the todo menus', () => {
     pick(menu, 'Labels', 'UI');
     pick(menu, 'Move to project', 'Web');
     pick(menu, 'Mark as waiting');
+    pick(menu, 'Ready for review');
     expect(ops).toEqual([
       { op: 'update', id: 't1', patch: { status: 'done' } },
       { op: 'update', id: 't1', patch: { due: '2026-10-03' } },
@@ -696,14 +698,19 @@ describe('the todo menus', () => {
       { op: 'update', id: 't1', patch: { labels: ['l1', 'l2'] } },
       { op: 'update', id: 't1', patch: { project: 'Web' } },
       { op: 'update', id: 't1', patch: { waiting: { note: '', since: 0 } } },
+      { op: 'update', id: 't1', patch: { review: { note: '', since: 0 } } },
     ]);
+    // Marked, it goes back.
+    const back = todoMenu({ ...t, review: { note: '', since: 1 } }, { report, start: noop, edit });
+    pick(back, 'Back to in progress');
+    expect(ops[ops.length - 1]).toEqual({ op: 'update', id: 't1', patch: { review: null } });
   });
 
   it('leaves out what a window can’t change: a desktop card has its status and due date', () => {
     const t = fx.todo({ due: '2026-10-02' });
     const ops: TodoOp[] = [];
     const menu = todoMenu(t, { report, start: noop, reveal: noop, edit: { run: (op) => ops.push(op) }, desktop: new Set() });
-    expect(labels(menu)).toEqual(['Start session…', 'Show in Codealong', '-', 'Todo', 'In progress', 'Done', '-', 'Due date ›', '-', 'Pin to desktop', '-', 'Copy as prompt', 'Copy todo ID']);
+    expect(labels(menu)).toEqual(['Start session…', 'Show in Codealong', '-', 'Todo', 'In progress', 'Done', 'Ready for review', '-', 'Due date ›', '-', 'Pin to desktop', '-', 'Copy as prompt', 'Copy todo ID']);
     // No picker here, and the day it's due is checked.
     expect(labels(submenu(menu, 'Due date'))).toEqual(['Today', 'Tomorrow', 'Monday', 'Next Friday', '-', 'Remove due date']);
     expect(checked(submenu(menu, 'Due date'))).toEqual(['Today']);

@@ -21,12 +21,12 @@ it is, how to install it and how to get going. The settings file is annotated in
 
 ## The main window
 
-**Five views** of the current project, each in a window of its own if you like (⌘⇧N). The project
+**Six views** of the current project, each in a window of its own if you like (⌘⇧N). The project
 switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them all. Add
 project… at its foot opens Settings › Projects with a new project's form, and Edit projects… the
 list. ⇧⌘S, ⇧⌘W,
-⇧⌘P, ⇧⌘T and ⇧⌘B go straight to Sessions, Worktrees, PRs, Todo and Canvas (B for board: ⇧⌘C is
-often a clipboard manager's), from a text field too, and a view in the sidebar shows its keys while
+⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go straight to Sessions, Worktrees, PRs, Todo, Kanban and Canvas (B for
+board: ⇧⌘C is often a clipboard manager's), from a text field too, and a view in the sidebar shows its keys while
 you point at it (the folded rail says them); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder
 what's pinned. ⌘F finds where you are, as VS Code's does: from a session's panel (the keyboard in
@@ -913,9 +913,15 @@ inside their app: yours (`[apps] editor`) when it's one of them, else the first 
 
 Work you mean to hand an agent. Each todo has a title, a description that can hold screenshots and
 any other files (paste, drop or attach them; files copied in the Finder paste too), colored labels,
-and a status: Todo, In progress (an agent is on it) or Done. The list has In progress, Ready,
-Waiting and Done. Add one in the box at the top (`n`), reorder by dragging or with ⌃⌘↑ ⌃⌘↓, mark one
-done with `x`. A todo can wait on other todos (Waits on, in its panel): until they're done it's
+and a status: Todo, In progress (an agent is on it) or Done. The list has In progress, In review,
+Ready, Waiting and Done. Add one in the box at the top (`n`), reorder by dragging or with ⌃⌘↑ ⌃⌘↓,
+mark one done with `x`. A todo under way is In review once its work waits on your verdict: while
+a PR of its worktrees or sessions is open and not a draft (approved or with changes asked for
+too), or merged and the todo not yet marked done; or once it's marked ready for review, by you
+(`r`, or Ready for review in its menu) or by its agent (`codealong todo review <id>`, which a
+session started from a todo is told to run when it hands the work back). A mark holds until the
+todo is done, a session starts on it, or you send it back (`r` again, Back to in progress);
+marking it waiting ends it too, and a todo not started that's marked goes in progress. A todo can wait on other todos (Waits on, in its panel): until they're done it's
 under Waiting and shows what it's waiting on, and a dependency that would make a loop is refused.
 One an agent is already on stays In progress. Mark a todo as waiting by hand (`w`, the right-click
 menu, or type what it waits for in Waits on) when it waits on something outside the list, like a
@@ -924,8 +930,39 @@ waiting (`w` again) also drops what it waits on that isn't done, so it's Ready a
 can undo it. Start session (⌘N) opens the quick panel with the todo as the prompt, and the session
 it starts is linked to the todo, which moves to In progress; one started in the Claude app is linked
 when it shows up. ⌘-click (or ⇧-click, ⇧↑ ⇧↓) picks several todos: Start one session (⌘N) starts a
-single session on a prompt that numbers each of them, linked to all of them, and `x`, `w` and Delete
-act on all of them.
+single session on a prompt that numbers each of them, linked to all of them, and `x`, `w`, `r` and
+Delete act on all of them.
+
+### Kanban
+
+The project's todos and sessions as cards in four columns, by how far the work has got: To do,
+In progress, In review and Done. A card is a todo, with the sessions on it listed under its two
+lines, the most urgent first, or a session on no todo, while it's running or waits on you, or its
+PR is in review: one that ended and that you've seen leaves the board, as do helpers and
+headless runs that don't need you, which work for another session. Its face is the one cards on
+the canvas and the desktop have. A todo is in the column its Todo section says (Ready and Waiting
+are To do, with a line where Waiting begins); a session is In review while the PR it worked on is
+open and not a draft, Done once that PR merged or its turn ended saying its work landed, unless
+it's working or waits on you, and In progress otherwise. A card moves only when its work does
+(started, a PR opened, merged, done), never with each turn: whose move it is shows in its stripe,
+amber when it needs you, and in its place. To do keeps your order (drag, or ⌃⌘↑ ⌃⌘↓); In
+progress and In review list what needs you first, the longest wait first, then your turns, then
+what's working, then the rest, the one you last sent a prompt first; Done, the latest first, is
+folded to a rail with its count until you open it. Done's todos go back as far as the age filter
+does (two weeks under All), which narrows the sessions too; the search, the statuses and the
+devices narrow it as they do the other views, and a label shows only todos.
+
+Select a card for its panel: a todo's, or a session's with its conversation and its box. The
+arrows go up and down a column and across to the next one that has cards; Return opens a card
+where it lives, and a card has its row's menu, letters and chords (`x`, `w`, `r` and `d` on a
+todo, the session's on a session, ⇧⌘E Mark as done). ⌘-click and ⇧-click pick several todos. `n`
+adds a todo in the box at the top of To do. Dragged to another column, a card does what the
+column stands for, which the drag says as it goes: a todo goes back to To do, starts a session
+(the quick panel, as ⌘N does) from To do to In progress, is marked ready for review, is sent back
+from In review to In progress, or is marked done, and the toast can undo what it did; a session
+dropped on Done is marked done as its menu marks it, and one dropped on a todo's card joins that
+todo. A todo In review because of its PR stays there, and a session's PR keeps it where it is.
+A card dragged out of the window is pinned to the desktop.
 
 #### Linking
 
@@ -1011,7 +1048,7 @@ selection, ⇧0 100%. Zoomed out, cards become blocks in their status color draw
 
 ### Sidebar
 
-Picks the view (Sessions, Worktrees, PRs, Todo, Canvas) and narrows it: to the devices you pick, to
+Picks the view (Sessions, Worktrees, PRs, Todo, Kanban, Canvas) and narrows it: to the devices you pick, to
 what was active in the last 24h, 3d or 7d, and to the statuses you pick (Needs you, Your turn,
 Working, In review, PR needs work; any of them). In Sessions it also sorts, by status or by when
 sessions started. Devices and statuses toggle; none picked shows all, and Clear unpicks them. Save

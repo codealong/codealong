@@ -15,7 +15,7 @@ import { below } from '../contextMenu';
 import { dayKey, dueChoices, dueDate, dueWords } from '../due';
 import { absolute, ago, middleTruncate } from '../format';
 import { branchLabel } from '../lanes';
-import { blockedBy, cantWaitOn, dependents, depsOf, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp } from '../todos';
+import { blockedBy, cantWaitOn, dependents, depsOf, itemSection, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
 import { DetailsButton, PanelPlaces, TODO_PRIMARY, useDetailsOpen } from './PanelSession';
@@ -450,7 +450,7 @@ interface TodoPanelProps {
 
 export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, onStart, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, onLinkMenu, onMoreMenu, onMenu, onLabelMenu, onError, hint, onDismissHint, suggest = false, projects = [], pickDue = false, onPickDue }: TodoPanelProps) {
   const { todo } = item;
-  const section = sectionOf(todo, todos);
+  const section = itemSection(item, todos);
   const [picking, setPicking] = useState(false);
   const [pickingWait, setPickingWait] = useState(false);
   const [pickingDue, setPickingDue] = useState(false);
@@ -476,7 +476,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
     <aside className="ca-insp ca-todoinsp" aria-label="Todo details">
       <header onContextMenu={headerMenu(onMenu)}>
         <div className="ca-insp-title">
-          <TodoGlyph status={todo.status} waiting={section === 'waiting'} size={14} />
+          <TodoGlyph status={todo.status} waiting={section === 'waiting'} review={section === 'review'} size={14} />
           <span className="ca-tag">{SECTION_WORD[section]}</span>
           {todo.project && <span className="ca-tag">{todo.project}</span>}
           {offer?.project && (

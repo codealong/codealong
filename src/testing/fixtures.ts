@@ -195,6 +195,7 @@ export function todo(over: Partial<Todo> = {}): Todo {
     pending: [],
     dependsOn: [],
     waiting: null,
+    review: null,
     due: null,
     ...over,
   };

@@ -21,6 +21,23 @@ describe('applyOp', () => {
     expect(applyOp(s, { op: 'create', todo: todo('b') }, NOW)).toBe(s);
   });
 
+  it('marks a todo ready for review as the engine does, until it’s sent back, waits, starts again or is done', () => {
+    const review = { note: ' the  bar ', since: 0 };
+    let s = applyOp(store(todo('a', { waiting: { note: 'Wes', since: 1 } })), { op: 'update', id: 'a', patch: { review } }, NOW);
+    // Its work is under way, and it no longer waits.
+    expect(s.todos[0]).toMatchObject({ status: 'in-progress', waiting: null, review: { note: 'the bar', since: NOW } });
+    expect(sectionOf(s.todos[0], s.todos)).toBe('review');
+    s = applyOp(s, { op: 'update', id: 'a', patch: { review: { note: 'x', since: 0 } } }, NOW + 5);
+    expect(s.todos[0].review?.since).toBe(NOW);
+    expect(applyOp(s, { op: 'update', id: 'a', patch: { review: null } }, NOW + 6).todos[0].review).toBeNull();
+    expect(applyOp(s, { op: 'update', id: 'a', patch: { waiting: { note: '', since: 0 } } }, NOW + 6).todos[0].review).toBeNull();
+    expect(applyOp(s, { op: 'update', id: 'a', patch: { status: 'in-progress' } }, NOW + 6).todos[0].review).toBeNull();
+    expect(applyOp(s, { op: 'update', id: 'a', patch: { status: 'done' } }, NOW + 6).todos[0].review).toBeNull();
+    // A done one can't be marked.
+    const done = applyOp(store(todo('b', { status: 'done' })), { op: 'update', id: 'b', patch: { review } }, NOW);
+    expect(done.todos[0]).toMatchObject({ status: 'done', review: null });
+  });
+
   it('keeps done time with the status', () => {
     let s = applyOp(store(todo('a')), { op: 'update', id: 'a', patch: { status: 'done' } }, NOW + 5);
     expect(s.todos[0].doneAt).toBe(NOW + 5);
@@ -130,7 +147,7 @@ describe('prompts and images', () => {
   const shot = '0123456789abcdef.png';
 
   it('asks with the title, then the description', () => {
-    const footer = "This is Codealong todo a. When the work is merged or I say it's done, mark it done with `codealong todo done a`.";
+    const footer = "This is Codealong todo a. When it's ready for me to review, say so with `codealong todo review a`. When the work is merged or I say it's done, mark it done with `codealong todo done a`.";
     expect(todoPrompt(todo('a', { title: ' Fix the header ', description: '\nIt wraps.\n' }))).toBe(`Fix the header\n\nIt wraps.\n\n${footer}`);
     expect(todoPrompt(todo('a', { title: 'Fix it' }))).toBe(`Fix it\n\n${footer}`);
   });
@@ -140,7 +157,7 @@ describe('prompts and images', () => {
     const a = todo('t-a', { title: ' Fix the header ', description: '\nIt wraps.\n' });
     const b = todo('t-b', { title: 'Add a logout button', description: '' });
     const c = todo('t-c', { title: '', description: 'No title.' });
-    const footer = "When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
+    const footer = "When one is ready for me to review, say so with `codealong todo review <id>`. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
     expect(todosPrompt([a, b])).toBe(`Work on these 2 todos:\n\n1. Fix the header\n\nIt wraps.\n\n2. Add a logout button\n\nThese are Codealong todos t-a (1) and t-b (2). ${footer}`);
     expect(todosPrompt([a, b, c])).toContain('3. Untitled\n\nNo title.\n\nThese are Codealong todos t-a (1), t-b (2) and t-c (3).');
     expect(todosPrompt([a])).toBe(todoPrompt(a));
@@ -149,7 +166,7 @@ describe('prompts and images', () => {
   it('tells a session started on a todo of its primary session', () => {
     // The same text as `todo_prompt`'s test in cli.rs.
     const a = todo('t-a', { title: 'Fix the header', primary: { session: 'claude:claude:s1', since: 0 } });
-    const footer = "This is Codealong todo t-a. When the work is merged or I say it's done, mark it done with `codealong todo done t-a`.";
+    const footer = "This is Codealong todo t-a. When it's ready for me to review, say so with `codealong todo review t-a`. When the work is merged or I say it's done, mark it done with `codealong todo done t-a`.";
     expect(todoPrompt(a, true)).toBe(`Fix the header\n\n${footer}\n\nt-a's primary session is claude:claude:s1, which is running: send it what you find with \`codealong session send claude:claude:s1 "…"\` rather than do the same work.`);
     expect(todoPrompt(a, false)).toBe(`Fix the header\n\n${footer}\n\nSession claude:claude:s1 had t-a before you: \`codealong session show claude:claude:s1\` has its records.`);
     // Without word of whether it runs, or with no primary session, it says nothing of one.
