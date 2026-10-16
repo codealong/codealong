@@ -940,19 +940,40 @@ pub fn note_jev(u: JevUse) {
         let (tx, rx) = channel::<JevUse>();
         std::thread::spawn(move || {
             crate::procs::utility_thread();
-            let db = match open(&path()) {
-                Ok(db) => db,
-                Err(e) => return eprintln!("The token ledger couldn't open to keep Jev's requests: {e:#}"),
-            };
+            let mut db = None;
             for u in rx {
-                if let Err(e) = put_jev(&db, &u) {
-                    eprintln!("The token ledger couldn't keep a request to Jev: {e:#}");
-                }
+                let problem = keep_jev(&mut db, &u, || open(&path()));
+                *jev_problem_slot().lock().unwrap_or_else(|e| e.into_inner()) = problem;
             }
         });
         Mutex::new(tx)
     });
     let _ = tx.lock().unwrap_or_else(|e| e.into_inner()).send(u);
+}
+
+/// Writes a request to Jev, opening the ledger first when it isn't open: one that couldn't open
+/// (a full disk) is tried again with the next request, so counting starts again once it can. Why
+/// it wasn't kept, when it wasn't.
+fn keep_jev(db: &mut Option<Connection>, u: &JevUse, open: impl FnOnce() -> Result<Connection>) -> Option<String> {
+    let kept = match db.take().map_or_else(open, Ok) {
+        Ok(d) => {
+            let kept = put_jev(&d, u);
+            *db = Some(d);
+            kept
+        }
+        Err(e) => Err(e),
+    };
+    kept.err().map(|e| format!("Codealong couldn't keep a request to Jev in the token ledger, so Settings › Jev leaves it out: {e:#}"))
+}
+
+fn jev_problem_slot() -> &'static Mutex<Option<String>> {
+    static SLOT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// Why the last request to Jev wasn't kept, until one is again: for a notice.
+pub fn jev_problem() -> Option<String> {
+    jev_problem_slot().lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 fn put_jev(db: &Connection, u: &JevUse) -> Result<()> {
@@ -1246,5 +1267,18 @@ mod tests {
         // The request before the report's days isn't in it, but says since when there are any.
         assert_eq!((sum("sessions").requests, sum("sessions").tokens), (1, 2_500));
         assert_eq!(r.since, Some(now - 40 * DAY_MS));
+    }
+
+    #[test]
+    fn a_ledger_that_wouldnt_open_is_tried_again_with_the_next_request_to_jev() {
+        let u = JevUse { at: now_ms(), feature: "sessions".into(), model: "jev-1.14.0".into(), input: 2_500, output: 20 };
+        let mut open = None;
+        let problem = keep_jev(&mut open, &u, || anyhow::bail!("disk full"));
+        assert!(problem.is_some_and(|p| p.contains("disk full")), "says why");
+        assert!(open.is_none());
+        assert_eq!(keep_jev(&mut open, &u, || Ok(db())), None);
+        assert_eq!(keep_jev(&mut open, &u, || panic!("opened again")), None);
+        let kept: i64 = open.unwrap().query_row("SELECT count(*) FROM jev", [], |r| r.get(0)).unwrap();
+        assert_eq!(kept, 2);
     }
 }

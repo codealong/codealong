@@ -2539,6 +2539,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let held = held_warning(&self.reads.out_for(HELD_WARN_AFTER));
         let team_files = self.team_files.notice();
         let ledger = crate::ledger::problem();
+        let jev_usage = crate::ledger::jev_problem();
         let review = self.review_warning.as_ref();
         let said = |key: &str, title: &str, text: Option<&String>| Some(Notice { key: key.into(), title: title.into(), text: text?.clone(), ..Default::default() });
         [
@@ -2560,6 +2561,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             said("reviews", "A pull request wasn't reviewed", review.map(|s| &s.text)).map(|n| Notice { review_again: review.and_then(|s| s.again.clone()), ..n }),
             said("team-files", "A repo's team settings aren't used", team_files.as_ref()),
             said("ledger", "Usage is missing some sessions", ledger.as_ref()),
+            said("jev-usage", "Jev's usage is missing requests", jev_usage.as_ref()),
 
         ]
         .into_iter()

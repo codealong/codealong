@@ -30,18 +30,25 @@ export function JevUsage({ nameOf, stamp, hasKey }: Props) {
 
   useEffect(() => {
     let live = true;
-    jevUsage(DAYS).then(
-      (r) => {
-        if (!live) return;
-        setReport(r);
-        setError(null);
-      },
-      (e: unknown) => {
-        if (live) setError(errorText(e));
-      },
-    );
+    const ask = () =>
+      jevUsage(DAYS).then(
+        (r) => {
+          if (!live) return;
+          setReport(r);
+          setError(null);
+        },
+        (e: unknown) => {
+          if (live) setError(errorText(e));
+        },
+      );
+    void ask();
+    // Jev is asked all the while (each session's turn, the quick panel), so the numbers move; and
+    // a request is written to the ledger just after its answer, so a read right after the Test
+    // button can come before its row does.
+    const t = setInterval(() => void ask(), 30_000);
     return () => {
       live = false;
+      clearInterval(t);
     };
   }, [stamp]);
 
