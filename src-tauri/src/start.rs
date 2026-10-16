@@ -710,15 +710,16 @@ pub fn plan(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, ses
 }
 
 /// What a start asks of an account's harness: only what the harness offers gets through, and
-/// an effort level as the model takes it (`Adapter::effort_for`).
+/// an effort level as the model takes it (`Adapter::effort_for`): the one asked for, else
+/// `runs_on`, the model a resume goes on with where that isn't the account's own.
 #[allow(clippy::too_many_arguments)]
-fn asked<'a>(adapter: &dyn Adapter, account: &AccountCfg, prompt: &'a str, session_id: &'a str, model: Option<&'a str>, effort: Option<&'a str>, worktree: bool, (images_dir, files_dir): (&'a Path, &'a Path)) -> StartAsk<'a> {
+fn asked<'a>(adapter: &dyn Adapter, account: &AccountCfg, prompt: &'a str, session_id: &'a str, model: Option<&'a str>, runs_on: Option<&str>, effort: Option<&'a str>, worktree: bool, (images_dir, files_dir): (&'a Path, &'a Path)) -> StartAsk<'a> {
     let model = model.filter(|m| valid_model(m) && adapter.takes_model());
     StartAsk {
         prompt,
         session_id,
         model,
-        effort: effort.filter(|e| adapter.efforts().iter().any(|(id, _)| id == e)).map(|e| adapter.effort_for(account, model, e)),
+        effort: effort.filter(|e| adapter.efforts().iter().any(|(id, _)| id == e)).map(|e| adapter.effort_for(account, model.or(runs_on), e)),
         worktree: worktree && adapter.makes_worktrees(),
         images_dir,
         files_dir,
@@ -728,7 +729,7 @@ fn asked<'a>(adapter: &dyn Adapter, account: &AccountCfg, prompt: &'a str, sessi
 #[allow(clippy::too_many_arguments)]
 fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, session_id: &str, model: Option<&str>, effort: Option<&str>, worktree: bool, dirs: (&Path, &Path)) -> Plan {
     let adapter = adapter_of(account);
-    let ask = asked(adapter, account, prompt, session_id, model, effort, worktree, dirs);
+    let ask = asked(adapter, account, prompt, session_id, model, None, effort, worktree, dirs);
     let cwd = folder.to_path_buf();
     match place {
         Place::Background if adapter.runs_in_background() => Plan::Background { cwd, command: adapter.background_command(account, &ask) },
@@ -838,7 +839,7 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     }
     let id = new_session_id();
     let dirs = (attachments::images_dir(), attachments::files_dir());
-    let ask = asked(adapter, account, &spec.prompt, &id, model, effort, worktree, (&dirs.0, &dirs.1));
+    let ask = asked(adapter, account, &spec.prompt, &id, model, None, effort, worktree, (&dirs.0, &dirs.1));
     match spec.place {
         Place::Background if adapter.runs_in_background() => adapter.start_in_background(account, folder, &adapter.background_command(account, &ask)),
         // A harness with no background service of its own starts in its terminal, behind your
@@ -942,7 +943,11 @@ pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &s
     let (model, effort) = tuning(adapter, how.place, true, how.model.as_deref(), how.effort.as_deref())?;
     let (prompt, carries_on) = resume_prompt(prompt, s);
     let dirs = (attachments::images_dir(), attachments::files_dir());
-    let ask = asked(adapter, account, prompt, &s.id, model, effort, false, (&dirs.0, &dirs.1));
+    // Without a model asked for, its agent under Codealong goes on with the session's own
+    // (codex-acp's `thread/resume` answers the thread's, 2026-10-16), where a terminal UI goes on
+    // with the account's (Codex's did, 0.162.1).
+    let runs_on = if how.place == Place::Codealong { s.model.as_deref() } else { None };
+    let ask = asked(adapter, account, prompt, &s.id, model, runs_on, effort, false, (&dirs.0, &dirs.1));
     let ctx = crate::harness::Ctx { account };
     let prompted = !prompt.trim().is_empty();
     let on = model.map(|m| format!(" on {}", model_label(adapter, account, m))).unwrap_or_default();
@@ -1848,7 +1853,8 @@ mod tests {
         // model takes it: Luna has no ultra, so max.
         let home = std::env::temp_dir().join(format!("ca-start-codex-{}", std::process::id()));
         std::fs::create_dir_all(&home).unwrap();
-        std::fs::write(home.join("models_cache.json"), r#"{"models":[{"slug":"gpt-6-luna","visibility":"list","supported_reasoning_levels":[{"effort":"high"},{"effort":"max"}]}]}"#).unwrap();
+        std::fs::write(home.join("models_cache.json"), r#"{"models":[{"slug":"gpt-6-luna","visibility":"list","supported_reasoning_levels":[{"effort":"high"},{"effort":"max"}]},{"slug":"gpt-6-sol","visibility":"list","supported_reasoning_levels":[{"effort":"high"},{"effort":"max"},{"effort":"ultra"}]}]}"#).unwrap();
+        std::fs::write(home.join("config.toml"), "model = \"gpt-6-sol\"\n").unwrap();
         let cx = account("codex", "codex", &home.to_string_lossy(), Some("codex"));
         let Plan::Terminal { input, .. } = plan(&cx, Place::Terminal, Path::new("/r/x"), "", id, None, Some("high"), false) else { panic!() };
         assert_eq!(input, "codex -c check_for_update_on_startup=false -c 'model_reasoning_effort=\"high\"'\n");
@@ -1857,8 +1863,15 @@ mod tests {
         let Plan::Hosted { effort, .. } = plan(&cx, Place::Codealong, Path::new("/r/x"), "Fix it", id, Some("gpt-6-luna"), Some("ultra"), false) else { panic!() };
         assert_eq!(effort.as_deref(), Some("max"));
         // A model the list doesn't have is asked for what was picked.
-        let Plan::Terminal { input, .. } = plan(&cx, Place::Terminal, Path::new("/r/x"), "", id, Some("gpt-6-sol"), Some("ultra"), false) else { panic!() };
-        assert_eq!(input, "codex -c check_for_update_on_startup=false -m 'gpt-6-sol' -c 'model_reasoning_effort=\"ultra\"'\n");
+        let Plan::Terminal { input, .. } = plan(&cx, Place::Terminal, Path::new("/r/x"), "", id, Some("gpt-7"), Some("ultra"), false) else { panic!() };
+        assert_eq!(input, "codex -c check_for_update_on_startup=false -m 'gpt-7' -c 'model_reasoning_effort=\"ultra\"'\n");
+        // Without a model, the level is as the model it goes on with takes it: the account's own
+        // (Sol) for a start or a terminal, a Luna session's own under Codealong.
+        let dirs = (Path::new("/i"), Path::new("/f"));
+        let codex = crate::harness::adapter(Harness::Codex);
+        assert_eq!(asked(codex, &cx, "", id, None, None, Some("ultra"), false, dirs).effort, Some("ultra"));
+        assert_eq!(asked(codex, &cx, "", id, None, Some("gpt-6-luna"), Some("ultra"), false, dirs).effort, Some("max"));
+        assert_eq!(asked(codex, &cx, "", id, Some("gpt-6-sol"), Some("gpt-6-luna"), Some("ultra"), false, dirs).effort, Some("ultra"), "a model asked for comes first");
         let _ = std::fs::remove_dir_all(&home);
         let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, None, Some("ultra"), false) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id}\n"), "a level only Codex takes isn't typed for Claude Code");

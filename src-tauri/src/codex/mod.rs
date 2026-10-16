@@ -441,8 +441,17 @@ impl crate::harness::Adapter for Codex {
     /// new-thread page, where the app's own model is picked, as it is for a start with no prompt.
     fn start_in_app(&self, account: &AccountCfg, lane: &str, folder: &Path, ask: &crate::harness::StartAsk, link: &str) -> anyhow::Result<crate::start::Started> {
         use crate::start::Started;
-        // What the app picks for itself, said where something else was asked for.
-        let unasked = || ask.model.map(|m| format!(" Pick {} there: the app chooses the model for a thread it starts.", crate::start::model_label(self, account, m))).unwrap_or_default();
+        // What the app picks for itself, said where something else was asked for: the new-thread
+        // page's link carries neither.
+        let unasked = || {
+            let what = match (ask.model.map(|m| crate::start::model_label(self, account, m)), ask.effort) {
+                (Some(m), Some(e)) => format!("{m} at {e} effort"),
+                (Some(m), None) => m,
+                (None, Some(e)) => format!("{e} effort"),
+                (None, None) => return String::new(),
+            };
+            format!(" Pick {what} there: the app chooses for a thread it starts.")
+        };
         if ask.prompt.trim().is_empty() {
             crate::launch::open_codex(link)?;
             return Ok(Started { key: None, message: Some(format!("A new Codex thread is open in {lane}.{}", unasked())) });

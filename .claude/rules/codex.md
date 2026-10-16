@@ -171,8 +171,13 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `reasoning_effort` (category `thought_level`). The terminal UI takes `-m` and `-c
   model_reasoning_effort="<level>"`, after `resume` too (0.162.1's `codex resume --help`), `-c`'s
   value read as TOML, else as a string. In the app, `thread/start {model}` and the first turn's
-  `model` and `effort` (`codex_start_request`) set them: `codex/mod.rs` (`start_in_app`). Not
-  checked: whether the terminal UI's `/model` takes a name after it.
+  `model` and `effort` (`codex_start_request`) set them: `codex/mod.rs` (`start_in_app`). A
+  terminal UI resuming without `-m` goes on with the account's model, not the thread's (a Luna
+  thread went on with GPT-6-Astra, 0.162.1), while the app-server's `thread/resume` answers the
+  thread's own (`gpt-6-luna`, `low`), which codex-acp goes on with: `start.rs` (`resume`'s
+  `runs_on`). It took `ultra` for Luna, whose list hasn't it, where codex-acp offers only a
+  model's own levels: `codex/models.rs` (`nearest_effort`). Not checked: whether the terminal
+  UI's `/model` takes a name after it.
 - Folder trust and trusting a folder before a start: `codex/trust.rs` (module header,
   `trust_folder`), `Codex::before_start`. The terminal UI's question ("Folder access … Trust this
   folder?", 1 Trust and continue, 2 Quit) shows when the folder has no entry; an entry written
