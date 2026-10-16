@@ -63,7 +63,12 @@
     { head: '1111111aaaa', stage: 'posted', at: Date.now() - 3 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: 'https://github.com/o/r/pull/1#issuecomment-9', summary: 'An earlier review.', comments: [] },
     { head: '2222222aaaa', stage: 'posted', at: Date.now() - 4 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'Another.', comments: [] },
     { head: '3333333aaaa', stage: 'posted', at: Date.now() - 5 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'Another.', comments: [] },
-    { head: '4444444aaaa', stage: 'posted', at: Date.now() - 6 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'The first.', comments: [] },
+    { head: '4444444aaaa', stage: 'posted', at: Date.now() - 6 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'Another.', comments: [] },
+    { head: '5555555aaaa', stage: 'posted', at: Date.now() - 7 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'Another.', comments: [] },
+    { head: '6666666aaaa', stage: 'posted', at: Date.now() - 8 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'Another.', comments: [] },
+    { head: '7777777aaaa', stage: 'posted', at: Date.now() - 9 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'Another.', comments: [] },
+    { head: '8888888aaaa', stage: 'posted', at: Date.now() - 10 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'Another.', comments: [] },
+    { head: '9999999aaaa', stage: 'posted', at: Date.now() - 11 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'The first.', comments: [] },
   ];
   var DEFAULT = 'Look for bugs, security and data risks, missing tests, and anything that doesn’t do what the PR says it does. Read the code around the changes too, and raise where they don’t fit it in a way that will cost whoever works on it next.';
   // Your draft on GitHub, as pr_draft has it, until it's submitted.
@@ -280,12 +285,16 @@
       check('and what the agent wrote', /The agent’s review \(Claude Code, claude-opus-5-5\) · 2 comments on lines/.test(q('.ca-agentrev-byline').textContent) && /I’d hold this until the first finding is fixed\./.test(q('.ca-agentrev-body > .ca-agentrev-text').textContent), q('.ca-agentrev-byline').textContent);
       var rounds = function () { return all('.ca-agentrev-rounds [role="radio"]').map(function (b) { return b.textContent; }).join(' | '); };
       var more = function () { return q('.ca-agentrev-more'); };
-      check('the reviews of the latest three commits are a click away, the latest first, and a + the rest', rounds() === '309811a, the latest | 1111111 | 2222222' && !!more() && more().textContent === '+2', rounds() + ' / ' + (more() && more().textContent));
+      check('the reviews of the latest three commits are a click away, the latest first, and a + the rest', rounds() === '309811a, the latest | 1111111 | 2222222' && !!more() && more().textContent === '+7', rounds() + ' / ' + (more() && more().textContent));
       press(more());
       await until(function () { return !more(); }, 3000, 'the + showed no more');
-      check('the + shows every commit’s, and takes itself away', rounds() === '309811a, the latest | 1111111 | 2222222 | 3333333 | 4444444', rounds());
-      var right = function (s) { return q(s).getBoundingClientRect().right; };
-      check('which wrap rather than widen the panel', right('.ca-agentrev-rounds') <= right('.ca-agentrev'), right('.ca-agentrev-rounds') + ' > ' + right('.ca-agentrev'));
+      check('the + shows every commit’s, and takes itself away', rounds() === '309811a, the latest | 1111111 | 2222222 | 3333333 | 4444444 | 5555555 | 6666666 | 7777777 | 8888888 | 9999999', rounds());
+      // Ten don't fit on one row of the panel, so they take more than one, every button inside it.
+      var boxes = all('.ca-agentrev-rounds [role="radio"]').map(function (b) { return b.getBoundingClientRect(); });
+      var rows = boxes.map(function (r) { return Math.round(r.top); }).filter(function (t, i, ts) { return ts.indexOf(t) === i; }).length;
+      var edge = q('.ca-agentrev').getBoundingClientRect().right;
+      var widest = Math.max.apply(null, boxes.map(function (r) { return r.right; }));
+      check('which wrap rather than widen the panel', rows > 1 && widest <= edge, rows + ' rows, the last button ending at ' + widest + ' of ' + edge);
       press(all('.ca-agentrev-rounds [role="radio"]')[1]);
       await until(function () { return !!q('.ca-agentrev-byline'); }, 3000, 'the earlier review never showed');
       await until(function () { return /^Of 1111111/.test(q('.ca-agentrev-byline').textContent); }, 3000, 'the earlier review never showed');
