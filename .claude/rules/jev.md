@@ -24,7 +24,10 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   answered. 60 days' notice before 1.13 goes, 30 for
   1.14. Both: 64k tokens per request, 32k for the state plus the longest question (262k each
   with `TypeSafe-Danger-Zone-Long-Context: true`, slower and less accurate); $0.042 per million
-  input tokens, output free. The state is billed once however many questions there are.
+  input tokens, output free. The state is billed once however many questions there are. A 200's
+  `usage` is `{input_tokens, output_tokens}` (a one-question noul: 281 and 20 on 1.14,
+  2026-10-16); every answer's goes in the ledger by the feature that asked (`jev::ask`,
+  `ledger::note_jev`), for Settings › Jev's usage.
 - Images: `jev.rs` (`Images`, `fit`, `make_ready`, `MAX_BODY`). A top-level `assets` map, each
   `{type: "image", format: "png"|"jpg", data_base64}` (or a multipart `part`), named by its key
   anywhere in `state`, `instructions` or `criteria`, inside longer strings too; each place a key

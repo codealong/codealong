@@ -484,7 +484,7 @@ pub fn route(board: &Board, cfg: &crate::config::Config, project: &str, text: &s
     let mut req = request_with_routing(board, Some(cfg), project, text, cfg.jev.model.trim(), crate::util::now_ms())?;
     let started = Instant::now();
     req.images.attach(&mut req.body);
-    let response = crate::jev::ask(&req.body)?;
+    let response = crate::jev::ask(crate::jev::Feature::QuickPanel, &req.body)?;
     let route = read(&req, &response, started.elapsed().as_millis() as u64)?;
     let habit = route.repos.first().map(|r| crate::starts::habit(&r.id)).unwrap_or_default();
     Ok(with_habit(route, habit))

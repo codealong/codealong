@@ -338,7 +338,7 @@ pub fn suggest(board: &Board, id: Option<&str>, title: &str, description: &str, 
     let projects: Vec<String> = board.projects.iter().map(|p| p.name.clone()).filter(|p| p != crate::board::ELSEWHERE).collect();
     let mut req = suggest_request(cfg.jev.model.trim(), id, title, description, project, &projects, &board.labels, &board.todos, board).ok_or_else(|| anyhow::anyhow!("Nothing to suggest."))?;
     req.images.attach(&mut req.body);
-    Ok(suggest_read(&req, &jev::ask(&req.body)?))
+    Ok(suggest_read(&req, &jev::ask(jev::Feature::Todos, &req.body)?))
 }
 
 pub fn suggest_request(model: &str, id: Option<&str>, title: &str, description: &str, project: &str, projects: &[String], labels: &[Label], todos: &[Todo], board: &Board) -> Option<SuggestRequest> {

@@ -1148,6 +1148,23 @@ export interface JevCfg {
   emblems: boolean;
 }
 
+/** What Jev's requests for one feature used on a day: input tokens, all TypeSafe charges for. */
+export interface JevUsed {
+  requests: number;
+  tokens: number;
+  /** Dollars. */
+  cost: number;
+}
+
+/** What Codealong's requests to Jev used each day (ledger.rs `JevReport`), for Settings › Jev. */
+export interface JevReport {
+  /** Oldest first, today last; each day's `features` by the switch in `[jev]` that asked, or
+   *  `test` for Settings' Test button. */
+  days: { day: string; features: Record<string, JevUsed> }[];
+  /** When the ledger kept its first request: none before it were counted. */
+  since: number | null;
+}
+
 /** Jev's read of a session (insights.rs). Each part is there only when it was asked. */
 /** How a session's turn ended: Jev's read (insights.rs), or an agent's tag of it over Jev's
  *  (`codealong session tag`, tags.rs), which names the agent's session in `by`. */

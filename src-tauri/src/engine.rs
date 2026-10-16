@@ -1290,16 +1290,16 @@ impl Engine {
         }
     }
 
-    /// Asks Jev in the background. The answer comes back to `on_jev` under the same id; an id
-    /// already waiting for its answer isn't asked again.
-    fn ask_jev(&mut self, id: String, body: serde_json::Value) {
-        self.ask_jev_filled(id, body, None);
+    /// Asks Jev in the background for a feature. The answer comes back to `on_jev` under the
+    /// same id; an id already waiting for its answer isn't asked again.
+    fn ask_jev(&mut self, feature: jev::Feature, id: String, body: serde_json::Value) {
+        self.ask_jev_filled(feature, id, body, None);
     }
 
     /// Asks with a body the worker finishes on its own thread first (`jev::Job::fill`).
-    fn ask_jev_filled(&mut self, id: String, body: serde_json::Value, fill: Option<Box<dyn FnOnce(&mut serde_json::Value) + Send>>) {
+    fn ask_jev_filled(&mut self, feature: jev::Feature, id: String, body: serde_json::Value, fill: Option<Box<dyn FnOnce(&mut serde_json::Value) + Send>>) {
         if self.jev_pending.insert(id.clone()) {
-            let _ = self.jev_jobs.send(jev::Job { id, body, fill });
+            let _ = self.jev_jobs.send(jev::Job { id, feature, body, fill });
         }
     }
 
@@ -1387,7 +1387,7 @@ impl Engine {
         for (key, body, ids) in asks {
             self.jev_todos.asked.insert(key.clone());
             self.jev_link_asking.insert(key.clone(), ids);
-            self.ask_jev(format!("todolink:{key}"), body);
+            self.ask_jev(jev::Feature::Todos, format!("todolink:{key}"), body);
         }
         let done: Vec<(String, todojev::DoneInput)> = self
             .todos
@@ -1399,7 +1399,7 @@ impl Engine {
             .collect();
         for (id, input) in done {
             self.jev_done_asking.insert(id.clone(), (input.sig.clone(), input.why.clone()));
-            self.ask_jev(format!("tododone:{id}"), todojev::done_request(&model, &input));
+            self.ask_jev(jev::Feature::Todos, format!("tododone:{id}"), todojev::done_request(&model, &input));
         }
     }
 
@@ -1434,7 +1434,7 @@ impl Engine {
                 break;
             }
             let Some((_, s)) = board.session(&key).filter(|_| !self.jev_pending.contains(&id)) else { continue };
-            self.ask_jev(id, crate::emblems::request(s, &self.cfg.jev.model));
+            self.ask_jev(jev::Feature::Emblems, id, crate::emblems::request(s, &self.cfg.jev.model));
             asked += 1;
         }
         self.emblems.save(now);
@@ -1495,7 +1495,7 @@ impl Engine {
             }
         }
         for (id, body, fill) in asks {
-            self.ask_jev_filled(id, body, fill);
+            self.ask_jev_filled(jev::Feature::Sessions, id, body, fill);
         }
         self.insights.save(now);
     }

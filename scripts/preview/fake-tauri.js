@@ -132,6 +132,29 @@ function spentOf(key, api, extra) {
   var t = tokensOf(api);
   return Object.assign({ key: key, api: api, paid: 0, tokens: t, calls: Math.round(api * 11), unpriced: 0, lastAt: Date.now() - Math.round(hashOf(key) * 864e5) }, extra || {});
 }
+// Settings › Jev's usage (ledger.rs `JevReport`), made up the same every time: the quick panel's
+// requests few and big, the sessions' many and small, the rest between, and counting started
+// twelve days ago, so the 30 days say since when.
+function sampleJevUsage(days) {
+  var sizes = { quick_panel: [14, 36000], sessions: [160, 2600], todos: [24, 5200], emblems: [9, 900], pull_requests: [3, 4100] };
+  var out = [];
+  var today = new Date();
+  for (var i = days - 1; i >= 0; i--) {
+    var d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+    var day = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    var features = {};
+    if (i < 12) {
+      Object.keys(sizes).forEach(function (f) {
+        var requests = Math.round(sizes[f][0] * (0.4 + hashOf(day + f)));
+        var tokens = Math.round(requests * sizes[f][1] * (0.8 + 0.4 * hashOf(f + day)));
+        if (requests > 0) features[f] = { requests: requests, tokens: tokens, cost: (tokens * 0.042) / 1e6 };
+      });
+    }
+    out.push({ day: day, features: features });
+  }
+  var since = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 11, 15, 12).getTime();
+  return { days: out, since: since };
+}
 function sampleReport(board, days, account) {
   var accounts = (board.usage || []).map(function (u) { return u.account; }).filter(function (a) { return !account || a === account; });
   var weight = {};
@@ -238,6 +261,7 @@ window.__TAURI_INTERNALS__ = {
         return all[1] || sampleReport(all[0], (args || {}).days || 30, (args || {}).account || null);
       });
     }
+    if (cmd === 'jev_usage') return Promise.resolve(sampleJevUsage((args || {}).days || 30));
     if (cmd === 'session_tokens') {
       var key = (args || {}).key || '';
       var api = Math.round(hashOf(key) * 4000) / 100;

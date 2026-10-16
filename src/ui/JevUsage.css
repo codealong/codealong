@@ -1,0 +1,20 @@
+/* Settings › Jev's usage: the period's cost large with its counts beside it, then the Usage
+   window's table (UsageDialog.css), as wide as the feature list below it. */
+.ca-jev-usage-sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+.ca-jev-usage-cost {
+  font: var(--type-title);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.ca-jev-usage-counts {
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+.ca-jev-usage {
+  max-width: 560px;
+}

@@ -17,6 +17,7 @@ import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
 import { DevicesPane } from './DevicesSection';
+import { JevUsage } from './JevUsage';
 import { ModelMenu } from './ModelMenu';
 import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
@@ -1258,9 +1259,15 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
   },
 ];
 
+/** A feature's name in Jev's usage: its switch's label, or the Test button's. */
+function jevFeatureName(feature: string): string {
+  return JEV_FEATURES.find((f) => f.id === feature)?.label ?? (feature === 'test' ? 'Test button' : feature);
+}
+
 /**
  * Settings › Jev: the TypeSafe key, which goes to the keychain and never comes back to the page,
- * and a switch per feature that says what it does and what it sends.
+ * what Jev's requests have used and cost, and a switch per feature that says what it does and
+ * what it sends.
  */
 function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; onChange: (j: JevCfg) => void }) {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
@@ -1268,6 +1275,8 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  // Bumped after each button, so the usage reads again with the Test button's request in it.
+  const [asked, setAsked] = useState(0);
 
   useEffect(() => {
     void jevKey().then(setHasKey);
@@ -1284,6 +1293,7 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
     }
     setHasKey(await jevKey());
     setBusy(false);
+    setAsked((n) => n + 1);
   };
 
   const saveKey = () =>
@@ -1302,7 +1312,7 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
         <h3>Jev</h3>
         <p>
           TypeSafe’s Jev answers narrow questions in a fraction of a second: which session a prompt is for, whether a reply asks you something, which todo a session is for. Each feature is off until you turn it on,
-          and each says what it sends to TypeSafe. It costs $0.042 per million tokens sent; a question is a few thousand tokens, so a hundredth of a cent or less.
+          and each says what it sends to TypeSafe. It costs $0.042 per million tokens sent and nothing for what Jev answers, so a question costs a fraction of a cent; Usage says what yours have cost.
         </p>
       </div>
       <fieldset className="ca-settings-fields" disabled={disabled}>
@@ -1353,6 +1363,7 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
             </button>
           </small>
         </div>
+        <JevUsage nameOf={jevFeatureName} stamp={asked} hasKey={hasKey === true} />
         <div className="ca-field">
           <span>What to use it for</span>
           <div className="ca-jev-features">

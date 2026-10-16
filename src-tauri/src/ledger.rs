@@ -21,6 +21,10 @@
 //! account's plan (`monthly` in config.toml) a day's share at a time, Claude's extra usage as
 //! its usage endpoint reports it (`note_extra`), what a harness recorded a call cost (OpenCode,
 //! from your provider), and an account that pays by the token (`per_token`) at API prices.
+//!
+//! Codealong's own requests to TypeSafe's Jev (jev.rs) are kept here too, a row each in a table
+//! of their own (`note_jev`), by the feature that asked: they belong to no session or account,
+//! and Settings › Jev reports them (`jev_report`), not the Usage window.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -159,6 +163,14 @@ CREATE TABLE IF NOT EXISTS extra (
   currency TEXT NOT NULL,
   PRIMARY KEY (account, at)
 );
+CREATE TABLE IF NOT EXISTS jev (
+  at INTEGER NOT NULL,
+  feature TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input INTEGER NOT NULL DEFAULT 0,
+  output INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS jev_at ON jev(at);
 ";
 
 pub fn open(path: &Path) -> Result<Connection> {
@@ -905,6 +917,99 @@ pub fn session_in(db: &Connection, cfg: &crate::config::Config, key: &str) -> Re
     Ok(SessionSpent { total, models })
 }
 
+// ---- Jev ----
+
+/// One request to Jev: when, what asked it (`jev::Feature::name`), the model that answered and
+/// its tokens.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct JevUse {
+    pub at: i64,
+    pub feature: String,
+    pub model: String,
+    pub input: u64,
+    pub output: u64,
+}
+
+/// Keeps a request to Jev. A thread of its own writes it, on a connection of its own, so an
+/// answer never waits on the ledger: the quick panel's suggestions wait on theirs, and the read
+/// of every account's records holds the ledger's writes a file at a time. A process that ends
+/// right after asking (a snapshot) may end before its row is written.
+pub fn note_jev(u: JevUse) {
+    static TX: OnceLock<Mutex<Sender<JevUse>>> = OnceLock::new();
+    let tx = TX.get_or_init(|| {
+        let (tx, rx) = channel::<JevUse>();
+        std::thread::spawn(move || {
+            crate::procs::utility_thread();
+            let db = match open(&path()) {
+                Ok(db) => db,
+                Err(e) => return eprintln!("The token ledger couldn't open to keep Jev's requests: {e:#}"),
+            };
+            for u in rx {
+                if let Err(e) = put_jev(&db, &u) {
+                    eprintln!("The token ledger couldn't keep a request to Jev: {e:#}");
+                }
+            }
+        });
+        Mutex::new(tx)
+    });
+    let _ = tx.lock().unwrap_or_else(|e| e.into_inner()).send(u);
+}
+
+fn put_jev(db: &Connection, u: &JevUse) -> Result<()> {
+    db.execute("INSERT INTO jev (at, feature, model, input, output) VALUES (?1, ?2, ?3, ?4, ?5)", params![u.at, u.feature, u.model, u.input as i64, u.output as i64])?;
+    Ok(())
+}
+
+/// What Jev's requests for one feature used on a day: their input tokens, which are all
+/// TypeSafe charges for, and what those cost.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JevUsed {
+    pub requests: u64,
+    pub tokens: u64,
+    pub cost: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JevDay {
+    pub day: String,
+    /// By the feature that asked (`jev::Feature::name`); one that asked nothing that day isn't here.
+    pub features: BTreeMap<String, JevUsed>,
+}
+
+/// What Jev's requests used, for Settings › Jev.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JevReport {
+    /// Each of the report's days, oldest first and today last.
+    pub days: Vec<JevDay>,
+    /// When the ledger kept its first request to Jev, if it has: none before it were counted.
+    pub since: Option<i64>,
+}
+
+/// What Jev's requests used each of the last `days` days, today's included.
+pub fn jev_report(days: u32) -> Result<JevReport> {
+    with_db(|db| jev_report_in(db, days, now_ms()))
+}
+
+pub fn jev_report_in(db: &Connection, days: u32, now: i64) -> Result<JevReport> {
+    let dates = day_range(db, days)?;
+    // A day's requests start at its local midnight, at most a day and a bit before its date in UTC.
+    let from = now - (days.max(1) as i64 + 1) * DAY_MS;
+    let mut stmt = db.prepare("SELECT date(at / 1000, 'unixepoch', 'localtime') AS day, feature, count(*), sum(input) FROM jev WHERE at >= ?1 GROUP BY day, feature")?;
+    let rows = stmt.query_map([from], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)? as u64, r.get::<_, i64>(3)? as u64)))?;
+    let mut by_day: BTreeMap<String, BTreeMap<String, JevUsed>> = BTreeMap::new();
+    for row in rows {
+        let (day, feature, requests, tokens) = row?;
+        let cost = tokens as f64 * crate::jev::PRICE / 1_000_000.0;
+        by_day.entry(day).or_default().insert(feature, JevUsed { requests, tokens, cost });
+    }
+    let since = db.query_row("SELECT min(at) FROM jev", [], |r| r.get::<_, Option<i64>>(0))?;
+    let days = dates.into_iter().map(|day| JevDay { features: by_day.remove(&day).unwrap_or_default(), day }).collect();
+    Ok(JevReport { days, since })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1118,5 +1223,28 @@ mod tests {
         assert_eq!(next_day("2026-12-31"), "2027-01-01");
         assert_eq!(next_day("2028-02-28"), "2028-02-29");
         assert_eq!(next_day("2026-02-28"), "2026-03-01");
+    }
+
+    #[test]
+    fn jevs_requests_are_summed_by_day_and_feature_and_priced_by_their_input() {
+        let db = db();
+        let now = now_ms();
+        let jev = |at: i64, feature: &str, input: u64| JevUse { at, feature: feature.into(), model: "jev-1.14.0".into(), input, output: 20 };
+        assert_eq!(jev_report_in(&db, 7, now).unwrap().since, None);
+        put_jev(&db, &jev(now - 40 * DAY_MS, "sessions", 9_999)).unwrap();
+        put_jev(&db, &jev(now - 3 * DAY_MS, "quick_panel", 36_000)).unwrap();
+        put_jev(&db, &jev(now - 3 * DAY_MS, "quick_panel", 34_000)).unwrap();
+        put_jev(&db, &jev(now - 1_000, "sessions", 2_500)).unwrap();
+
+        let r = jev_report_in(&db, 7, now).unwrap();
+        let today: String = db.query_row("SELECT date('now', 'localtime')", [], |r| r.get(0)).unwrap();
+        assert_eq!((r.days.len(), r.days.last().map(|d| d.day.as_str())), (7, Some(today.as_str())));
+        let sum = |feature: &str| r.days.iter().filter_map(|d| d.features.get(feature)).fold(JevUsed::default(), |a, u| JevUsed { requests: a.requests + u.requests, tokens: a.tokens + u.tokens, cost: a.cost + u.cost });
+        let quick = sum("quick_panel");
+        assert_eq!((quick.requests, quick.tokens), (2, 70_000));
+        assert!((quick.cost - 70_000.0 * crate::jev::PRICE / 1e6).abs() < 1e-12);
+        // The request before the report's days isn't in it, but says since when there are any.
+        assert_eq!((sum("sessions").requests, sum("sessions").tokens), (1, 2_500));
+        assert_eq!(r.since, Some(now - 40 * DAY_MS));
     }
 }

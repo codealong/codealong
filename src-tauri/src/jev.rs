@@ -34,28 +34,74 @@ const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(10);
 /// from another place (the `security` command) is picked up.
 const KEY_FOR: Duration = Duration::from_secs(10 * 60);
 
+/// Dollars per million input tokens, on every Jev model; output tokens are free.
+pub const PRICE: f64 = 0.042;
+
+/// What a request was for: the switch in `[jev]` that asked it, or Settings' Test button. Its
+/// tokens are kept under it in the ledger (`ledger::note_jev`), so Settings › Jev can say what
+/// each feature costs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Feature {
+    QuickPanel,
+    Sessions,
+    Todos,
+    PullRequests,
+    Emblems,
+    Test,
+}
+
+impl Feature {
+    /// Its name in the ledger: its switch's name in config.toml.
+    pub fn name(self) -> &'static str {
+        match self {
+            Feature::QuickPanel => "quick_panel",
+            Feature::Sessions => "sessions",
+            Feature::Todos => "todos",
+            Feature::PullRequests => "pull_requests",
+            Feature::Emblems => "emblems",
+            Feature::Test => "test",
+        }
+    }
+}
+
 /// A request's body: the model, the state and the questions.
 pub fn body(model: &str, state: Value, questions: Value) -> Value {
     json!({ "model": model, "state": state, "questions": questions })
 }
 
-/// Asks Jev. The answer is the whole response: `model`, `answers` by question id, `usage`.
-pub fn ask(body: &Value) -> Result<Value> {
+/// Asks Jev for a feature. The answer is the whole response: `model`, `answers` by question
+/// id, `usage`, whose tokens go in the ledger. A request TypeSafe refused says no usage and isn't
+/// kept.
+pub fn ask(feature: Feature, body: &Value) -> Result<Value> {
     let key = api_key().ok_or_else(|| anyhow!("There's no TypeSafe API key yet. Add it in Settings › Jev."))?;
-    let (status, reply) = post(&key, body)?;
+    let (mut status, mut reply) = post(&key, body)?;
     // Images are an experiment of TypeSafe's, and one it won't take fails the whole request
     // (400, or 413 for size): asked again without them, the question is answered from the words.
     if has_images(body) && matches!(status.as_str(), "400" | "413") {
-        let (status, reply) = post(&key, &without_images(body))?;
-        return answer(&status, &reply);
+        (status, reply) = post(&key, &without_images(body))?;
     }
-    answer(&status, &reply)
+    let response = answer(&status, &reply)?;
+    crate::ledger::note_jev(used(feature, &response, body, crate::util::now_ms()));
+    Ok(response)
+}
+
+/// What an answer says its request used, for the ledger. The model is the version that
+/// answered, or the one asked for when the reply doesn't say.
+fn used(feature: Feature, response: &Value, body: &Value, at: i64) -> crate::ledger::JevUse {
+    let usage = &response["usage"];
+    crate::ledger::JevUse {
+        at,
+        feature: feature.name().to_string(),
+        model: response["model"].as_str().or(body["model"].as_str()).unwrap_or_default().to_string(),
+        input: usage["input_tokens"].as_u64().unwrap_or(0),
+        output: usage["output_tokens"].as_u64().unwrap_or(0),
+    }
 }
 
 /// One call with a tiny question, for Settings' Test button: proves the key and says how fast.
 pub fn check(model: &str) -> Result<String> {
     let started = Instant::now();
-    let v = ask(&body(model, json!("Fix the flaky login test"), json!({ "task": { "type": "noul", "instructions": "Does this ask for a change to code?" } })))?;
+    let v = ask(Feature::Test, &body(model, json!("Fix the flaky login test"), json!({ "task": { "type": "noul", "instructions": "Does this ask for a change to code?" } })))?;
     Ok(format!("{} answered in {} ms.", v["model"].as_str().unwrap_or(model), started.elapsed().as_millis()))
 }
 
@@ -417,6 +463,7 @@ fn exif_of(b: &[u8]) -> Option<&[u8]> {
 /// read (a harness's pending call, over HTTP for OpenCode): the engine's thread never waits on it.
 pub struct Job {
     pub id: String,
+    pub feature: Feature,
     pub body: Value,
     pub fill: Option<Box<dyn FnOnce(&mut Value) + Send>>,
 }
@@ -433,7 +480,7 @@ pub fn worker(done: impl Fn(String, std::result::Result<Value, String>) + Send +
                 if let Some(fill) = job.fill.take() {
                     fill(&mut job.body);
                 }
-                let answer = ask(&job.body).map_err(|e| format!("{e:#}"));
+                let answer = ask(job.feature, &job.body).map_err(|e| format!("{e:#}"));
                 // Rate limited or overloaded: wait a moment before the next one.
                 if answer.as_ref().err().is_some_and(|e| e.contains("rate limiting") || e.contains("overloaded")) {
                     std::thread::sleep(Duration::from_secs(5));
@@ -630,6 +677,18 @@ mod tests {
         assert_eq!(choice(&v, "b"), vec![("x".to_string(), 0.7), ("y".to_string(), 0.3)]);
         assert_eq!(score(&v, "c"), Some(1.4));
         assert_eq!(noul(&v, "missing"), None);
+    }
+
+    #[test]
+    fn an_answer_says_what_its_request_used() {
+        // As TypeSafe answered on 2026-10-16.
+        let reply = json!({ "model": "jev-1.14.0", "answers": { "task": { "type": "noul", "noul": 0.92 } }, "usage": { "input_tokens": 281, "output_tokens": 20 } });
+        let asked = body("jev-preview", json!("Fix the flaky login test"), json!({}));
+        let u = used(Feature::QuickPanel, &reply, &asked, 1_000);
+        assert_eq!((u.at, u.feature.as_str(), u.model.as_str(), u.input, u.output), (1_000, "quick_panel", "jev-1.14.0", 281, 20));
+        // A reply that names no model or usage is kept as the model asked for, with no tokens.
+        let u = used(Feature::Test, &json!({ "answers": {} }), &asked, 1_000);
+        assert_eq!((u.feature.as_str(), u.model.as_str(), u.input), ("test", "jev-preview", 0));
     }
 
     #[test]

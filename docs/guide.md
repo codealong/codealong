@@ -1090,8 +1090,9 @@ off.
 
 A form for everything in config.toml. General has the folders searched for repos, the shortcuts
 that work in any app, the terminal and editor, and the theme; Sounds has the sound for each thing that starts to
-wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain)
-and a switch per feature, each saying what it sends; Accounts adds, edits, turns off, removes and
+wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain),
+what Jev's requests used and cost (see *What sessions used and cost*), and a switch per feature,
+each saying what it sends; Accounts adds, edits, turns off, removes and
 signs in accounts, says how each pays (a plan's price a month, or by the token; see *What sessions
 used and cost*), and under Found on this Mac lists the ones Codealong could read but doesn't, to add
 with a click (with the agent skill, unless you untick it); Routing has Auto's rule, routing groups and Jev's routing instructions; Automation has what Codealong does by itself:
@@ -2007,6 +2008,14 @@ cache_write_1h = 6
 
 `codealong tokens [--days N] [--account <name>] [--by account|model|folder|session|day]` prints
 the same from the command line.
+
+Codealong's own questions to TypeSafe's Jev aren't a session's work, so they're in Settings › Jev,
+under Usage: what they cost today or over the last 7 or 30 days, how many there were and their
+tokens, and the same for each feature that asked (the Test button's too), the one that sent the
+most first. TypeSafe charges for what's sent, $0.042 a million tokens, and Jev's answers are free.
+Each answer says what its request used, and the ledger keeps it; a request TypeSafe refused isn't
+counted. Counting began with the version of Codealong that added it, and Usage says since when for
+a period that reaches back past that.
 
 ## Tidying up
 

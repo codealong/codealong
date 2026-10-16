@@ -109,7 +109,7 @@ pub fn asks(model: &str, pr_title: &str, comments: &[CommentIn]) -> Result<HashM
     if todo.is_empty() {
         return Ok(out);
     }
-    let answer = jev::ask(&request(model, pr_title, &todo))?;
+    let answer = jev::ask(jev::Feature::PullRequests, &request(model, pr_title, &todo))?;
     let now = crate::util::now_ms();
     for (i, c) in todo.iter().enumerate() {
         if let Some(p) = jev::noul(&answer, &format!("c{}", i + 1)) {

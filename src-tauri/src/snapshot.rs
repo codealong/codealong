@@ -97,7 +97,18 @@ const MODES: &[Mode] = &[
     Mode { flag: "--checkout", takes: "", run: |_, _| Ok(crate::CHECKOUT.unwrap_or_default().to_string()) },
     Mode { flag: "--improve", takes: "", run: |_, _| Ok(pretty(&board_now().read(|b| b.improve.clone()))) },
     Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
+    Mode { flag: "--jev-usage", takes: "[days]", run: jev_usage },
 ];
+
+/// `codealong --snapshot --jev-usage [days]`: what Settings › Jev says Codealong's requests to Jev
+/// used each of the last `days` days (30 unless given), read from the app's ledger.
+fn jev_usage(_: &Args, rest: &[String]) -> Done {
+    let days: u32 = match rest.first() {
+        Some(d) => d.parse().map_err(|_| Stop::Usage)?,
+        None => 30,
+    };
+    Ok(pretty(&crate::ledger::jev_report(days).map_err(failed)?))
+}
 
 /// `codealong --snapshot --training-off <account>`: turns training off for the account at its
 /// provider, as the usage bar's flag does, and prints where it stands after. Real.
@@ -165,6 +176,8 @@ fn tokens(args: &Args, rest: &[String]) -> Done {
 /// comments, and an agent's review of yours you submitted, as its Review tab gets them.
 /// `codealong --snapshot --route <text> [--project <name>]`: where the quick panel would suggest
 /// sending it (asks TypeSafe; needs the key, and `[jev] quick_panel` on).
+/// `codealong --snapshot --jev-usage [days]`: what Codealong's requests to Jev used, by day and
+/// feature, as Settings › Jev gets it.
 /// `codealong --snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
 /// conversation, as its panel gets it.
 /// `codealong --snapshot --pending <session key>`: what a session waits on you to allow, as its
