@@ -217,7 +217,9 @@ describe('Codex directives', () => {
   it('draws a follow-up and a cited file in a line as theirs', () => {
     const props = (nodes: ReactNode[]) => nodes.filter((n) => isValidElement(n)).map((n) => n.props as Record<string, unknown>);
     expect(props(inline('- :codex-followup[Fix image downloads]{prompt="Implement the \\"download\\" fix. Do not push."}'))).toEqual([{ label: 'Fix image downloads', prompt: 'Implement the "download" fix. Do not push.' }]);
-    expect(props(inline(':codex-file-citation{path="/Users/me/Bldg 742/Architectural.pdf" purpose="source"}'))).toEqual([{ path: '/Users/me/Bldg 742/Architectural.pdf' }]);
+    // A cited file opens on a click, but not inside a link's text, where the link takes it.
+    expect(props(inline(':codex-file-citation{path="/Users/me/Bldg 742/Architectural.pdf" purpose="source"}'))).toEqual([{ path: '/Users/me/Bldg 742/Architectural.pdf', opens: true }]);
+    expect(props(inline(':codex-file-citation{path="/a/b.pdf"}', false))).toEqual([{ path: '/a/b.pdf', opens: false }]);
     // In code it's code, and in a word or a URL it's the word's.
     expect(props(inline('`:codex-followup[a]{prompt="b"}`')).map((p) => p.children)).toEqual([':codex-followup[a]{prompt="b"}']);
     expect(props(inline('x:codex-file-citation{path="/a"}'))).toEqual([]);

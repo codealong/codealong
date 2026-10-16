@@ -10,7 +10,7 @@ use super::ClaudeCode;
 use super::asks::REFUSED_SAYING;
 use super::peer::{FROM_CODEALONG, FROM_YOU};
 use super::registry::session_entry;
-use super::transcript::{prompt_words, tool_request, typed_text, you_typed};
+use super::transcript::{prompt_words, tool_request, typed_text, you_typed, SEND_FILE};
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item};
 use crate::util::{one_line, parse_rfc3339_ms, read_range};
 
@@ -100,6 +100,7 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
                             id: p.get("id").and_then(Value::as_str).map(String::from),
                             input: Some(clip_input(&whole)),
                             questions: if name == super::asks::QUESTIONS { questions_of(&input) } else { Vec::new() },
+                            sent: if name == SEND_FILE { sent_of(&input, v.get("cwd").and_then(Value::as_str).unwrap_or("")) } else { None },
                             shell,
                             // The line's folder is the shell's, where the command ran.
                             cwd: shell.then(|| v.get("cwd").and_then(Value::as_str).map(String::from)).flatten(),
@@ -391,6 +392,25 @@ pub(super) fn questions_of(input: &Value) -> Vec<crate::harness::Question> {
         .unwrap_or_default()
 }
 
+/// The files a `SendUserFile` call hands you, each a full path: one it names from the folder it
+/// works in is taken from the line's `cwd`, as Claude Code takes it. Its result says which files
+/// reached the Claude app and your phone (`toolUseResult.attachments`, each a `file_uuid` or an
+/// `upload_error`), which the call's output says too; the files open from where they are on
+/// this Mac, so the panel goes by the call.
+fn sent_of(input: &Value, cwd: &str) -> Option<crate::harness::SentFiles> {
+    let files: Vec<String> = input
+        .get("files")?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .map(|f| if f.starts_with('/') || cwd.is_empty() { f.to_string() } else { crate::util::resolve(cwd, f) })
+        .collect();
+    let caption = input.get("caption").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()).map(String::from);
+    (!files.is_empty()).then_some(crate::harness::SentFiles { files, caption })
+}
+
 /// Your answers as Claude Code records them on the result (`toolUseResult.answers`): each
 /// question's text to a label or words of your own, or a list where it took several. Older
 /// versions joined several into one string with commas, which is kept as it is.
@@ -610,6 +630,23 @@ mod tests {
         assert_eq!(result(serde_json::json!({ "read": { "url": "https://claude.ai/artifact/8ZBq", "title": "Class C" }, "artifactRead": { "slug": "3d2e" } })), None);
         assert_eq!(result(serde_json::json!({ "bytes": 10, "code": 200, "url": "https://example.com", "result": "" })), None);
         assert_eq!(result(Value::String("Error: artifact not found".into())), None);
+    }
+
+    /// The files a call sends you are on the call, as full paths, with what it said of them: the
+    /// panel lists them for you to open. A relative path is from the folder the line ran in.
+    #[test]
+    fn files_sent_to_you_are_on_their_call() {
+        let call = serde_json::json!({ "type": "assistant", "cwd": "/Users/me/app", "message": { "content": [
+            { "type": "tool_use", "id": "t1", "name": "SendUserFile", "input": { "files": ["/private/tmp/scratchpad/teaser.mp4", "shots/after.png", " "], "caption": " Before and after ", "status": "normal", "display": "render" } },
+            { "type": "tool_use", "id": "t2", "name": "SendUserFile", "input": { "files": [] } },
+            { "type": "tool_use", "id": "t3", "name": "Read", "input": { "file_path": "/Users/me/app/shots/after.png" } },
+        ] } });
+        let items = conversation_items(&call, 0);
+        let sent = items[0].sent.as_ref().unwrap();
+        assert_eq!(sent.files, ["/private/tmp/scratchpad/teaser.mp4", "/Users/me/app/shots/after.png"]);
+        assert_eq!(sent.caption.as_deref(), Some("Before and after"));
+        assert_eq!(items[0].text, "SendUserFile · `teaser.mp4` and 1 more");
+        assert_eq!((items[1].sent.is_none(), items[2].sent.is_none()), (true, true));
     }
 
     /// What Codealong sends a terminal session is pasted, and a long one comes back wrapped in

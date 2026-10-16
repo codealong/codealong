@@ -102,6 +102,10 @@ pub struct Item {
     /// published), on the call's result: its line in the panel links to it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<crate::harness::Link>,
+    /// The files a call handed you to look at (Claude Code's `SendUserFile`), on the call: its
+    /// line in the panel lists them, and a click opens one on the session's Mac.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sent: Option<crate::harness::SentFiles>,
     /// The images a prompt of yours came with, as its record has them, until `shown` keeps them
     /// and puts them in its text.
     #[serde(skip)]
@@ -327,7 +331,7 @@ fn items_of(line: &[u8], parse: Parse, cursor: u64) -> Vec<Item> {
 }
 
 pub fn item(at: i64, kind: &'static str, text: impl Into<String>) -> Item {
-    Item { at, kind, text: text.into(), from: None, id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, images: Vec::new(), cursor: 0, n: 0 }
+    Item { at, kind, text: text.into(), from: None, id: None, input: None, output: None, failed: false, shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, images: Vec::new(), cursor: 0, n: 0 }
 }
 
 /// The tool calls among `items` that have no result yet, oldest first, for records that keep a
@@ -410,7 +414,7 @@ mod tests {
     /// A page goes to other devices as it is; the phone app reads it with codealong-peer's `Page`.
     #[test]
     fn pages_read_back_on_other_devices() {
-        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), from: None, id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, images: Vec::new(), cursor: 40, n: 2 };
+        let item = |kind: &'static str, id: Option<&str>, output: Option<&str>| Item { at: 7, kind, text: format!("{kind} text"), from: None, id: id.map(String::from), input: output.map(|_| "cargo test".to_string()), output: output.map(String::from), failed: kind == "result", shell: false, cwd: None, withdrawn: false, questions: Vec::new(), answers: BTreeMap::new(), link: None, sent: None, images: Vec::new(), cursor: 40, n: 2 };
         let page = Page { items: vec![Item { withdrawn: true, ..item("you", None, None) }, item("agent", None, None), item("tool", Some("t1"), None), item("result", Some("t1"), Some("ok")), item("note", None, None), Item { from: Some("Review the parser".into()), ..item("peer", None, None) }], before: Some(12), after: 900 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!((theirs.before, theirs.after, theirs.items.len()), (Some(12), 900, 6));
@@ -427,6 +431,12 @@ mod tests {
         let page = Page { items: vec![made], before: None, after: 0 };
         let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
         assert_eq!(theirs.items[0].link.as_ref().map(|l| l.title.as_str()), Some("Security dashboard"));
+        assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap());
+        // So are the files a call sent, though they open only on the session's Mac.
+        let sent = Item { sent: Some(crate::harness::SentFiles { files: vec!["/Users/me/app/shot.png".into()], caption: Some("Before and after".into()) }), ..item("tool", Some("t4"), None) };
+        let page = Page { items: vec![sent], before: None, after: 0 };
+        let theirs: codealong_peer::api::Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
+        assert_eq!(theirs.items[0].sent.as_ref().map(|s| s.files.clone()), Some(vec!["/Users/me/app/shot.png".to_string()]));
         assert_eq!(serde_json::to_value(&theirs).unwrap(), serde_json::to_value(&page).unwrap());
     }
 

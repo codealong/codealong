@@ -16,7 +16,8 @@
 // as questions with their choices rather than the call's input, marked with your picks once
 // they're answered. A call that made a page on the web (an artifact Claude Code published) says
 // so under its line, as a link to it, and stays out of a fold; web links in a tool's output open
-// too.
+// too. A call that sent you files (Claude Code's SendUserFile) lists them under its line with what
+// it said of them, each opening on a click (Markdown.tsx `FileLink`), and stays out of a fold too.
 //
 // A prompt of yours shows its images in place, whichever way they went: sent from Codealong,
 // pasted into the session's terminal, or attached in its harness's app. The engine keeps the
@@ -55,7 +56,7 @@ import type { HostedStream, Question, Session, Status, TranscriptItem, Transcrip
 import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
-import { FollowUpContext, Link, linked, Markdown } from './Markdown';
+import { FileLink, FollowUpContext, Link, linked, Markdown } from './Markdown';
 import { cx, Icon, Rich, StatusGlyph } from './primitives';
 import { QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
@@ -77,8 +78,9 @@ const LOOK_BACK = 16;
 const PAUSE = 10 * 60_000;
 /** What ⌘F searches: your prompts, the replies (another session's message among them, which
  *  reads as one), notes, the calls' lines, a call's input and output once it's open, the commands
- *  you ran with what they printed, and the page a call made. */
-const FIND_IN = '.ca-thread-you, .ca-thread-agent, .ca-thread-note, .ca-thread-toollabel, .ca-thread-tooldetail, .ca-thread-ran, .ca-thread-madetitle';
+ *  you ran with what they printed, the page a call made, and the files a call sent you, by what
+ *  it said of them and their names. */
+const FIND_IN = '.ca-thread-you, .ca-thread-agent, .ca-thread-note, .ca-thread-toollabel, .ca-thread-tooldetail, .ca-thread-ran, .ca-thread-madetitle, .ca-thread-sentcaption, .ca-thread-sent .ca-md-file-name';
 
 type Row =
   | { kind: 'item'; item: TranscriptItem; result?: TranscriptItem }
@@ -102,8 +104,9 @@ export function rowsOf(items: TranscriptItem[]): Row[] {
     if (it.kind === 'result') continue;
     if (it.kind === 'tool') {
       const call = { item: it, result: it.id ? results.get(it.id) : undefined };
-      // A call that made a page is one to open: the calls around it fold, and it stays in view.
-      if (it.link || call.result?.link) {
+      // A call that made a page, or sent you files, is one to open: the calls around it fold, and
+      // it stays in view.
+      if (it.link || call.result?.link || it.sent) {
         flush();
         rows.push({ kind: 'item', ...call });
       } else run.push(call);
@@ -187,7 +190,7 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
   return (
     <div className={cx('ca-thread-tool', failed && 'is-failed', state === 'asks' && 'is-asks')}>
       <button type="button" className="ca-thread-toolhead" aria-expanded={open} disabled={!detail} onClick={() => setOpen(!open)}>
-        <Icon name={questions ? 'help' : toolIcon(item.text)} size={13} />
+        <Icon name={questions ? 'help' : item.sent ? 'paperclip' : toolIcon(item.text)} size={13} />
         <span className="ca-thread-toollabel">
           <Rich text={questions ? questionsLine(questions) : item.text} now={0} />
         </span>
@@ -209,6 +212,18 @@ function ToolLine({ item, result, state, onOpen }: { item: TranscriptItem; resul
             <Icon name="arrow-up-right" size={12} />
           </Link>
           {link.note && <span className="ca-meta">{link.note}</span>}
+        </div>
+      )}
+      {item.sent && (
+        <div className="ca-thread-sent">
+          {item.sent.caption && <p className="ca-thread-sentcaption">{item.sent.caption}</p>}
+          <ul aria-label="Files it sent you">
+            {item.sent.files.map((f) => (
+              <li key={f}>
+                <FileLink path={f} />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       {state === 'asks' && onOpen && (

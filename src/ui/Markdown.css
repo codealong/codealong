@@ -213,3 +213,34 @@
   color: var(--ink-3);
   overflow-wrap: anywhere;
 }
+/* One that opens: a button that reads as the file, its name underlined as a link is. */
+button.ca-md-file {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+button.ca-md-file .ca-md-file-name {
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}
+button.ca-md-file:hover .ca-md-file-name {
+  text-decoration-color: currentColor;
+}
+button.ca-md-file:hover .ca-icon {
+  color: var(--ink);
+}
+button.ca-md-file:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.ca-md-file-why {
+  margin-left: var(--space-2);
+  color: var(--ink-3);
+  font: var(--type-meta);
+}

@@ -955,6 +955,13 @@ export async function openAttachment(path: string): Promise<void> {
   await invoke('open_attachment', { path });
 }
 
+/** Opens a file a conversation names, on this Mac, in the app that opens its kind; one opening
+ *  would run is shown in the Finder instead (launch.rs `open_file`). */
+export async function openFile(path: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('open_file', { path });
+}
+
 /** A browser preview of the UI (scripts/preview.sh), where Tauri's IPC is a stand-in. */
 export const inPreview = typeof window !== 'undefined' && '__CODEALONG_PREVIEW__' in window;
 

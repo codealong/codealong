@@ -50,6 +50,8 @@ describe('shownText', () => {
     expect(shownText(item('codealong', 'On your PR #7: **ken** approved it.'))).toBe('On your PR #7: ken approved it.');
     expect(shownText(item('peer', 'Which test fails?\n\n- The **parser**’s'))).toBe('Which test fails?\n\n- The parser’s');
     expect(shownText(item('result', '', { output: 'all passed' }))).toBe('');
+    const sent = { files: ['/tmp/shots/before.png', '/tmp/shots/after.png'], caption: 'Before and after' };
+    expect(shownText(item('tool', 'SendUserFile · `before.png` and 1 more', { sent }))).toBe('SendUserFile · before.png and 1 more\nBefore and after\nbefore.png\nafter.png');
   });
 
   it('reads a reply’s Codex directives as they’re drawn, and a prompt’s as written', () => {

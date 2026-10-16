@@ -295,6 +295,31 @@
   flex: none;
   white-space: nowrap;
 }
+/* The files a call sent you, under its line as a page it made is: what it said of them, then
+   each file on a line of its own. */
+.ca-thread-sent {
+  min-width: 0;
+  margin: 0 6px 3px 25px;
+  font: var(--type-meta);
+}
+.ca-thread-sentcaption {
+  margin: 0 0 2px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.ca-thread-sent ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ca-thread-sent li {
+  padding: 1px 0;
+}
+/* Why one didn't open, on a line of its own under its name: a scratch folder's path is long. */
+.ca-thread-sent .ca-md-file-why {
+  display: block;
+  margin: 1px 0 0 18px;
+}
 .ca-thread-tool.is-asks {
   padding: 6px;
   border-radius: var(--radius-md);

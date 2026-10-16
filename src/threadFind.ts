@@ -64,8 +64,9 @@ export function shownText(it: TranscriptItem): string {
       return plainOf(plainDirectives(it.text));
     case 'codealong':
       return plainOf(it.text);
+    // Files a call sent you show under its line, by what it said of them and their names.
     case 'tool':
-      return it.text.replace(/`/g, '');
+      return [it.text.replace(/`/g, ''), it.sent?.caption, ...(it.sent?.files ?? []).map((f) => f.slice(f.lastIndexOf('/') + 1) || f)].filter(Boolean).join('\n');
     case 'note':
       return it.text;
     default:

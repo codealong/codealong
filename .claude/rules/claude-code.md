@@ -515,6 +515,22 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   older versions write no `seq`, and `updated` is false on the first publish. One made from a
   type has no `artifact_id`; a read keeps `url` and `title` under `read` (beside
   `artifactRead`), and a list has `artifacts` (2026-10-02).
+- A `SendUserFile` call and the files the conversation lists under it: `claude/conversation.rs`
+  (`sent_of`), `claude/transcript.rs` (`SEND_FILE`). Its input is `files` (paths, absolute or
+  from the folder it works in), `caption`, `status` (`normal`, or `proactive` to reach your
+  phone) and `display` (`render` or `attach`, absent before about 2.1.280). Its result's
+  `toolUseResult` is `{caption, display, rendered_locally, attachments: [{path, size, isImage,
+  media_type, pathValidated, file_uuid}]}`, an attachment that didn't upload having
+  `upload_error` in place of `file_uuid`; one failing among several doesn't make the result an
+  error. Across this Mac's 71 calls (2.1.219 to 2.1.296, terminal and Claude app sessions, none
+  in a subagent's log, 2026-10-16): 100 files, 82% images, then PDFs, Markdown, HTML and an MP4,
+  and 61 of them already gone from disk, sent from scratchpads and background jobs' `tmp`
+  folders. Claude Code uploads each to `POST /api/oauth/file_upload`; `GET
+  https://api.anthropic.com/api/oauth/files/<file_uuid>/content` with the sending account's
+  bearer token (and `anthropic-beta: oauth-2025-04-20`) gave the bytes back exactly, as
+  `application/octet-stream`, for a file sent that day and one sent 22 days before whose copy on
+  disk was gone (one `~/.claude` account's terminal sessions). Codealong doesn't fetch them: a
+  click opens the file where it is (`launch::open_file`).
 - Sign-in in the login keychain (its services, the account, reading it without a prompt) and
   never refreshing, logging or passing the token in arguments: `claude/usage.rs` (module header,
   `keychain_services`, `read_sign_in`, `fetch`).

@@ -32,7 +32,7 @@ use crate::transcript::Page;
 
 /// What a session waits on you for, and your answer: they go between devices too, so they're in
 /// codealong-peer.
-pub use codealong_peer::api::{Answer, Link, Pending, Question};
+pub use codealong_peer::api::{Answer, Link, Pending, Question, SentFiles};
 use codealong_peer::api::{ModelOption, Started};
 
 /// What an adapter gets to work with besides the session: the account it's on.

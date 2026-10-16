@@ -8,17 +8,19 @@
 // A tool's output isn't Markdown, but the web links in it open the same way (`linked`).
 // The directives Codex's app draws (directives.ts) are drawn as it draws them, near enough: a
 // writing block as a card with Copy, a code comment as a card, a follow-up it offers as a button
-// that puts its prompt in the session's box, a file it cites as the file. Another `:::name` block
+// that puts its prompt in the session's box, a file it cites as the file, which a click opens
+// (`FileLink`). Another `:::name` block
 // is a card of the same kind; other directives stay as they're written.
 
 import { createContext, Fragment, memo, useContext, useState, type ReactNode } from 'react';
-import { openUrl } from '../api';
+import { openFile, openUrl } from '../api';
 import { ATTRS, attrsOf, cardAt, cardFields, cardKind, COMMENT, opensCard, tonesOf, toneLabel, type Card } from '../directives';
 import { tildePath } from '../format';
 import { prLabel, prRefOf } from '../prLinks';
 import { isKeptFile, keptImageOf } from '../todos';
 import { CodeBlock, CopyButton } from './CopyButton';
-import { FileChip, KeptImage } from './DescriptionEditor';
+import { errorText } from '../report';
+import { FileChip, ImagesFrom, KeptImage } from './DescriptionEditor';
 import { PrLink } from './PrLink';
 import { cx, Icon, Seg } from './primitives';
 
@@ -290,7 +292,7 @@ export function inline(text: string, links = true): ReactNode[] {
       );
     else if (m[6] != null) out.push(links ? <Link key={n++} url={m[6]} /> : m[6]);
     else if (m[7] != null) out.push(<FollowUp key={n++} label={m[7]} prompt={attrsOf(m[8]).prompt ?? ''} />);
-    else if (m[9] != null) out.push(<CitedFile key={n++} path={attrsOf(m[9]).path ?? ''} />);
+    else if (m[9] != null) out.push(<FileLink key={n++} path={attrsOf(m[9]).path ?? ''} opens={links} />);
     else if (m[10] != null) out.push(<em key={n++}>{inline(m[10], links)}</em>);
     else {
       // Any other image reads as it did before images were drawn: its `!`, then its link.
@@ -334,17 +336,52 @@ function FollowUp({ label, prompt }: { label: string; prompt: string }) {
   );
 }
 
-/** A file Codex cites, as its app shows one: the file's name, then its folder. */
-function CitedFile({ path }: { path: string }) {
+/** A file on the session's Mac, as Codex's app shows one it cites: the file's name, then its
+ *  folder. A file Codex cites and one a call sent you (SessionThread.tsx) both show this way. A
+ *  click opens it in the app that opens its kind (launch.rs `open_file`), and says why in place
+ *  when it can't: a file in a scratch folder is often gone by the time you look. A session on
+ *  another device has its files there, so they don't open here, nor does a path that isn't a
+ *  full one; inside a link's text (`opens` false) it's only the name. */
+export function FileLink({ path, opens = true }: { path: string; opens?: boolean }) {
+  const away = useContext(ImagesFrom);
+  const [why, setWhy] = useState<string | null>(null);
   const cut = path.lastIndexOf('/');
   const name = path.slice(cut + 1) || path;
   const folder = cut > 0 ? tildePath(path.slice(0, cut)) : '';
-  return (
-    <span className="ca-md-file" title={path}>
+  const shown = (
+    <>
       <Icon name="file" size={12} />
       <span className="ca-md-file-name">{name}</span>
       {folder && <span className="ca-md-file-dir">{folder}</span>}
-    </span>
+    </>
+  );
+  if (!opens || away || !path.startsWith('/')) {
+    return (
+      <span className="ca-md-file" title={away ? `${path}, on the session’s Mac` : path}>
+        {shown}
+      </span>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        className="ca-md-file is-open"
+        title={`Open ${path}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setWhy(null);
+          openFile(path).catch((err: unknown) => setWhy(errorText(err)));
+        }}
+      >
+        {shown}
+      </button>
+      {why && (
+        <span className="ca-md-file-why" role="status">
+          {why}
+        </span>
+      )}
+    </>
   );
 }
 

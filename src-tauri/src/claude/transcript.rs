@@ -832,6 +832,20 @@ fn work_path(name: &str, input: &Value, cwd: &str) -> Option<String> {
 /// How plan mode's approval (`ExitPlanMode`) reads: its call is the plan, waiting for your yes.
 pub const PLAN: &str = "Plan";
 
+/// The tool that hands you files to look at: `files` (paths, absolute or from the folder it works
+/// in), with a `caption`, `status` and `display` that say how the Claude app shows them.
+pub const SEND_FILE: &str = "SendUserFile";
+
+/// The first file a `SendUserFile` call names, by its name, and how many more.
+fn sent_files(input: &Value) -> Option<String> {
+    let files: Vec<&str> = input.get("files")?.as_array()?.iter().filter_map(Value::as_str).map(str::trim).filter(|f| !f.is_empty()).collect();
+    let first = code(&short_path(files.first()?));
+    Some(match files.len() {
+        1 => first,
+        n => format!("{first} and {} more", n - 1),
+    })
+}
+
 /// What a pending tool call asks for, e.g. "Bash · `yarn mikro-orm migration:up`".
 pub fn tool_request(name: &str, input: &Value) -> String {
     if name == "ExitPlanMode" {
@@ -843,6 +857,7 @@ pub fn tool_request(name: &str, input: &Value) -> String {
         "WebFetch" => input_str(input, "url").map(|u| code(&one_line(&u, 60))),
         "WebSearch" => input_str(input, "query").map(|q| one_line(&q, 60)),
         "Task" | "Agent" => input_str(input, "description").map(|d| one_line(&d, 60)),
+        SEND_FILE => sent_files(input),
         // A publish names its file, or the title of what it makes from a type; anything else
         // (read, list, open…) says which.
         "Artifact" => match input_str(input, "action").as_deref() {
@@ -867,6 +882,7 @@ pub fn tool_activity(name: &str, input: &Value) -> String {
         "Grep" | "Glob" => input_str(input, "pattern").map(|p| format!("searching {}", code(&one_line(&p, 40)))),
         "WebFetch" | "WebSearch" => Some("browsing the web".to_string()),
         "Task" | "Agent" => Some("running a subagent".to_string()),
+        SEND_FILE => sent_files(input).map(|f| format!("sending you {f}")),
         _ => None,
     }
     .unwrap_or_else(|| format!("using {}", code(name)))
@@ -1524,6 +1540,13 @@ mod tests {
         let input = serde_json::json!({"command": "cd /Users/me/projects/app-fix && yarn test"});
         assert_eq!(tool_request("Bash", &input), "Bash · `yarn test`");
         assert_eq!(tool_activity("Bash", &input), "running `yarn test`");
+        // Files it sends you go by their names.
+        let one = serde_json::json!({"files": ["/Users/me/app/tmp/teaser.mp4"], "caption": "24 s, no audio", "status": "normal"});
+        assert_eq!(tool_request(SEND_FILE, &one), "SendUserFile · `teaser.mp4`");
+        assert_eq!(tool_activity(SEND_FILE, &one), "sending you `teaser.mp4`");
+        let three = serde_json::json!({"files": ["shots/before.png", "shots/after.png", "report.pdf"]});
+        assert_eq!(tool_request(SEND_FILE, &three), "SendUserFile · `before.png` and 2 more");
+        assert_eq!(tool_request(SEND_FILE, &serde_json::json!({"files": []})), "SendUserFile");
     }
 
     #[test]

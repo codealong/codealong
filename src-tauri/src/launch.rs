@@ -935,6 +935,39 @@ pub fn reveal(path: &Path) -> Result<()> {
     procs::open(&["-R", &path.to_string_lossy()], Duration::from_secs(10))
 }
 
+/// Kinds of file that opening runs rather than shows: apps and what installs into macOS, and
+/// scripts, which Terminal or a launcher runs.
+const RUNS_WHEN_OPENED: [&str; 17] = ["app", "command", "tool", "terminal", "sh", "zsh", "bash", "py", "rb", "pl", "jar", "pkg", "mpkg", "prefpane", "saver", "workflow", "action"];
+
+/// Whether opening a file would run something: a folder (an app is one), a program, or a kind in
+/// `RUNS_WHEN_OPENED`.
+fn runs_when_opened(path: &Path, folder: bool, mode: u32) -> bool {
+    folder || mode & 0o111 != 0 || path.extension().and_then(|e| e.to_str()).is_some_and(|e| RUNS_WHEN_OPENED.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// Opens a file a conversation names (one an agent sent you, or cites) in the app that opens its
+/// kind, as a double-click in the Finder would. What opening would run instead (an app, a
+/// script, a program) is shown in the Finder, so a click on a name an agent wrote runs nothing.
+pub fn open_file(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    if !path.is_absolute() {
+        bail!("{} isn't a full path.", path.display());
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+    let gone = |e: std::io::Error| match e.kind() {
+        std::io::ErrorKind::NotFound => anyhow!("{name} isn't on this Mac any more."),
+        _ => anyhow!("Couldn't open {name}: {e}"),
+    };
+    // A link opens what it links to, so that's what's judged, by its own name too.
+    let real = std::fs::canonicalize(path).map_err(gone)?;
+    let meta = std::fs::metadata(&real).map_err(gone)?;
+    let (folder, mode) = (meta.is_dir(), meta.permissions().mode());
+    if runs_when_opened(path, folder, mode) || runs_when_opened(&real, folder, mode) {
+        return reveal(path);
+    }
+    procs::open(&[&path.to_string_lossy()], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open {name}: {e}"))
+}
+
 /// Opens a `codex://` link in the Codex app that's running. The Codex app ships as
 /// ChatGPT.app now, and an older Codex.app may still be installed with the same scheme.
 pub fn open_codex(url: &str) -> Result<()> {

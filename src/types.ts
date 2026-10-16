@@ -2034,6 +2034,9 @@ export interface TranscriptItem {
   /** A page on the web the call made or opened (an artifact Claude Code published), on its
    *  result: its title, and what the call did with it ("Updated · version 9"). */
   link?: { url: string; title: string; note?: string };
+  /** The files the call handed you to look at (Claude Code's `SendUserFile`), on the call: each a
+   *  full path on the session's Mac, with what the agent said of them. */
+  sent?: { files: string[]; caption?: string };
   /** Where its line starts (or its message number in OpenCode); with `n`, unique in the session. */
   cursor: number;
   n: number;

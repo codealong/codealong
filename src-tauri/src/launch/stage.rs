@@ -1177,6 +1177,33 @@ mod tests {
         assert_eq!(err(p.got.0), "Couldn't open https://example.com: /usr/bin/open no such app");
         assert_eq!(err(p.got.1), "/usr/bin/open no such app");
 
+        // A file a conversation names opens in its app; one that opening would run is shown in
+        // the Finder instead, and one that's gone opens nothing.
+        let dir = crate::fixtures::scratch("open-file");
+        let file = |name: &str, mode: u32| {
+            use std::os::unix::fs::PermissionsExt;
+            let p = dir.join(name);
+            std::fs::write(&p, b"x").unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).unwrap();
+            p
+        };
+        let (shot, script, program, app) = (file("after shot.png", 0o644), file("fix.command", 0o644), file("build", 0o755), dir.join("Tool.app"));
+        std::fs::create_dir_all(&app).unwrap();
+        // A link named as a picture, to a script, is the script's.
+        let disguised = dir.join("chart.png");
+        std::os::unix::fs::symlink(&script, &disguised).unwrap();
+        let p = played(ok, || [&shot, &script, &program, &app, &disguised].map(|f| open_file(f).is_ok()));
+        assert_eq!(p.got, [true; 5]);
+        let shown = |f: &Path| f.to_string_lossy().into_owned();
+        let revealed = |f: &Path| format!("/usr/bin/open [\"-R\", {:?}] (10s)", shown(f));
+        assert_eq!(p.log, [format!("/usr/bin/open [{:?}] (10s)", shown(&shot)), revealed(&script), revealed(&program), revealed(&app), revealed(&disguised)]);
+        let p = played(ok, || (open_file(&dir.join("gone.pdf")), open_file(Path::new("shots/after.png"))));
+        assert_eq!(err(p.got.0), "gone.pdf isn't on this Mac any more.");
+        assert_eq!(err(p.got.1), "shots/after.png isn't a full path.");
+        assert!(p.log.is_empty());
+        let p = played(no, || open_file(&shot));
+        assert_eq!(err(p.got), "Couldn't open after shot.png: /usr/bin/open no such app");
+
         // A Codex link goes to the Codex app that's running, by either name, else to whatever
         // takes the link.
         let running = |app: &'static str| move |s: &Sent| if s.what == "/usr/bin/pgrep" && !s.args[1].contains(app) { Err("no process".to_string()) } else { Ok(String::new()) };

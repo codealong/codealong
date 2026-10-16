@@ -1,7 +1,8 @@
 // Checks how a reply shows the directives Codex's app draws (Markdown.tsx, directives.ts): a
 // writing block is a card named for its variant, with Copy, which copies the writing without its
 // fences; an email's recipient and subject show over it, and its versions are picked between; a
-// code comment is a card with where it is; a cited file shows its name and folder; and a
+// code comment is a card with where it is; a cited file shows its name and folder, and a click
+// opens it; and a
 // follow-up puts its prompt in the session's box. The conversation is a stand-in, on the first
 // session:
 //   scripts/preview.sh sessions '' scripts/preview/codex-directives-check.js
@@ -66,9 +67,12 @@
       var where = text(cards[2].querySelector('.ca-md-card-where'));
       check('a code comment says where it is', where === '~/projects/app/src/transfer.ts:42–44', where);
       var file = panel('.ca-md-file')[0];
-      check('a cited file shows its name and folder', text(file.querySelector('.ca-md-file-name')) === 'review-v3.pdf' && text(file.querySelector('.ca-md-file-dir')) === '~/projects/app/.local' && file.title === '/Users/me/projects/app/.local/review-v3.pdf', text(file));
+      check('a cited file shows its name and folder', text(file.querySelector('.ca-md-file-name')) === 'review-v3.pdf' && text(file.querySelector('.ca-md-file-dir')) === '~/projects/app/.local' && file.title === 'Open /Users/me/projects/app/.local/review-v3.pdf', text(file));
+      file.click();
       return until(function () { return /Start Monday/.test(text(panel('.ca-md-card')[1].querySelector('.ca-md-card-body'))); }, 3000)
         .then(function () {
+          var opens = window.__calls.filter(function (c) { return c[0] === 'open_file'; });
+          check('and a click opens it', opens.length === 1 && opens[0][1].path === '/Users/me/projects/app/.local/review-v3.pdf', JSON.stringify(opens));
           check('picking a version shows it', true);
           panel('.ca-md-card')[0].querySelector('.ca-copybtn').click();
           panel('.ca-md-card')[1].querySelector('.ca-copybtn').click();

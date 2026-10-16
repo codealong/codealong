@@ -27,6 +27,12 @@ describe('rowsOf', () => {
     expect(shape(items.filter((it) => it.kind !== 'result'))).toEqual([8]);
   });
 
+  it('keeps a call that sent you files out of a fold, before its result comes in too', () => {
+    const sent = { files: ['/Users/me/app/tmp/teaser.mp4'], caption: '24 s, no audio' };
+    const items = [call('a'), call('b'), call('c'), step('tool', { id: 'send', text: 'SendUserFile · `teaser.mp4`', sent }), call('d'), call('e'), call('f')];
+    expect(shape(items)).toEqual([3, 'send', 3]);
+  });
+
   it('joins what a command you ran with ! printed to it, between the calls around it', () => {
     const ran = step('you', { id: 'b1', text: '! ls', input: 'ls', shell: true });
     const items = [call('a'), call('b'), call('c'), ran, step('result', { id: 'b1', output: 'a.txt' }), step('agent')];

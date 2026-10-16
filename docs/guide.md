@@ -329,7 +329,13 @@ place. A long one shows its first ten lines, fading out, until Show all (Show le
 and shows whole while ⌘F finds something in it. A device whose build is from before gets the note
 it showed, the message's first line under who it's from; so does the phone, as a note. An artifact Claude Code published shows under its call as its title, a link that opens it,
 with what the call did (Published · version 3), and stays out of a fold; web links in a tool's
-output open too. A prompt shows the images you sent with it in place, whether you sent them from
+output open too. Files Claude Code sent you (its SendUserFile tool, which the Claude app and your
+phone show as cards) are listed under their call, each by its name and folder, with what the agent
+said of them, and the call stays out of a fold. Click one to open it in the app that opens its
+kind, as a double-click in the Finder would; an app, a script or a program is shown in the Finder
+instead, so a click never runs anything. A file sent from a scratch folder is often cleared by the
+time you look, and says so where you clicked. A session on another Mac has its files there, so
+they're listed but don't open. A prompt shows the images you sent with it in place, whether you sent them from
 Codealong, pasted them into the session's terminal or attached them in the Claude or Codex app;
 click one to open it. It opens at the newest and loads older pages as you scroll up, and follows the
 session as it goes. A link to a GitHub PR, in a reply or a prompt, reads `name#123` with the PR's
@@ -342,7 +348,7 @@ of writing such as an email, a message to paste elsewhere or a document, is a ca
 kind, with Copy, which copies the writing without the lines around it. An email shows its recipients
 and subject over it, and when Codex offers versions (Friendly, Direct) you pick one at the top. A
 code comment is a card with the file and lines it's about. A file Codex cites shows its name and
-folder. A follow-up it offers is a button that puts its prompt in the session's box, after what's
+folder, and opens on a click as a file sent you does. A follow-up it offers is a button that puts its prompt in the session's box, after what's
 there, to send or change.
 A card the pointer brings up (a PR's, a session's helpers) goes away on a key, which still does
 what it does, but not on ⌘, ⇧, ⌥ or ⌃ alone, nor on ⌘C, which copies what you selected on it.

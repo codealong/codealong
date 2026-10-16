@@ -1,7 +1,9 @@
 // Checks the links in a session's conversation that aren't in a reply: a call that made a page on
 // the web (an artifact Claude Code published) says so under its line, as a link that opens it,
-// and stays in view while the calls around it fold; and web links in a tool's output open too,
-// with the output's text as it was. The conversation is a stand-in, on the first session:
+// and stays in view while the calls around it fold; web links in a tool's output open too, with
+// the output's text as it was; and a call that sent you files lists them under its line with its
+// caption, each opening on a click, and one that's gone says so in place. The conversation is a
+// stand-in, on the first session:
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/thread-links-check.js
 // As PREVIEW_INIT (with PREVIEW_NAME=thread-links) it leaves the panel open on it, the publish's
 // output showing, for a screenshot.
@@ -10,6 +12,8 @@
   var URL = 'https://claude.ai/artifact/VuawMfgy2qCBAFhpc6dC3H';
   var FILE = '/private/tmp/claude-501/-Users-me-projects-osprey/20898bb3/scratchpad/security-dashboard.html';
   var PUBLISHED = 'Published ' + FILE + ' at ' + URL + ' (Version 9, version id 1790960406-8f4f)\n\nLive subscription: already connected from earlier in this session.\n\nTo update: publish the same file path here (keeps this URL).';
+  var SENT = ['/Users/me/projects/osprey/tmp/dashboard.png', '/private/tmp/claude-501/-Users-me-projects-osprey/20898bb3/scratchpad/gone/before.png'];
+  var CAPTION = 'The refreshed dashboard, and the one it replaces';
   var picked = null;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
@@ -29,8 +33,15 @@
         item('result', '', 9, { id: 't4', output: PUBLISHED, link: { url: URL, title: 'Osprey security dashboard', note: 'Updated · version 9' } }),
         item('tool', 'Bash · `git status --short`', 10, { id: 't5', input: 'git status --short' }),
         item('result', '', 11, { id: 't5', output: '' }),
-        item('agent', 'Everything checks out, and the dashboard is published.', 12),
+        item('tool', 'SendUserFile · `dashboard.png` and 1 more', 12, { id: 't6', input: JSON.stringify({ files: SENT, caption: CAPTION, status: 'normal', display: 'render' }, null, 2), sent: { files: SENT, caption: CAPTION } }),
+        item('result', '', 13, { id: 't6', output: '2 files delivered to user.' }),
+        item('agent', 'Everything checks out, and the dashboard is published.', 14),
       ] });
+    }
+    // A sent file in a scratch folder that's been cleared since.
+    if (cmd === 'open_file' && /gone/.test((args || {}).path)) {
+      window.__calls.push([cmd, args, options]);
+      return Promise.reject('before.png isn’t on this Mac any more.');
     }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
@@ -63,7 +74,7 @@
       check('under its own call’s line', /^Artifact · security-dashboard\.html/.test(tool.querySelector('.ca-thread-toollabel').textContent));
       // Three calls ahead of it fold into a line and the latest of them; it and the one after show.
       var heads = panel('.ca-thread-toollabel').map(function (h) { return h.textContent.split(' · ')[0]; });
-      check('the calls before it fold and it stays in view', panel('.ca-thread-runhead').length === 1 && /^2 tool calls/.test(panel('.ca-thread-runhead')[0].textContent.trim()) && heads.join(',') === 'Bash,Artifact,Bash', heads.join(','));
+      check('the calls before it fold and it stays in view', panel('.ca-thread-runhead').length === 1 && /^2 tool calls/.test(panel('.ca-thread-runhead')[0].textContent.trim()) && heads.join(',') === 'Bash,Artifact,Bash,SendUserFile', heads.join(','));
       made[0].querySelector('a').click();
       return until(function () { return opened().length === 1; }, 3000).then(function () {
         check('a click on it opens the page', opened()[0][1].url === URL, JSON.stringify(opened()[0][1]));
@@ -82,9 +93,28 @@
       });
     })
     .then(function () {
+      // Files a call sent you: listed under its line with what it said of them, each opening.
+      var sent = panel('.ca-thread-sent');
+      check('a call that sent files lists them under its line', sent.length === 1 && /^SendUserFile · dashboard\.png and 1 more/.test(sent[0].closest('.ca-thread-tool').querySelector('.ca-thread-toollabel').textContent), sent.length + '');
+      check('with what it said of them', sent[0].querySelector('.ca-thread-sentcaption').textContent === CAPTION);
+      var files = Array.prototype.slice.call(sent[0].querySelectorAll('button.ca-md-file'));
+      var names = files.map(function (f) { return f.querySelector('.ca-md-file-name').textContent + ' in ' + f.querySelector('.ca-md-file-dir').textContent; });
+      check('each by its name and folder', names.join('|') === 'dashboard.png in ~/projects/osprey/tmp|before.png in /private/tmp/claude-501/-Users-me-projects-osprey/20898bb3/scratchpad/gone', names.join('|'));
+      var opens = function () { return window.__calls.filter(function (c) { return c[0] === 'open_file'; }); };
+      files[0].click();
+      return until(function () { return opens().length === 1; }, 3000).then(function () {
+        check('a click opens the file', opens()[0][1].path === SENT[0], JSON.stringify(opens()[0][1]));
+        check('and leaves its call closed', !sent[0].closest('.ca-thread-tool').querySelector('.ca-thread-tooldetail'));
+        files[1].click();
+        return until(function () { return sent[0].querySelector('.ca-md-file-why'); }, 3000);
+      }).then(function () {
+        check('one that’s gone says so in place', sent[0].querySelector('.ca-md-file-why').textContent === 'before.png isn’t on this Mac any more.', sent[0].querySelector('.ca-md-file-why').textContent);
+      });
+    })
+    .then(function () {
       // The folded calls, opened: a link in JSON ends where its string does.
       panel('.ca-thread-runhead')[0].click();
-      return until(function () { return panel('.ca-thread-toollabel').length === 5; }, 3000).then(function () {
+      return until(function () { return panel('.ca-thread-toollabel').length === 6; }, 3000).then(function () {
         var read = panel('.ca-thread-toolhead').filter(function (h) { return /^Read/.test(h.textContent.trim()); })[0];
         read.click();
         return until(function () { return read.parentElement.querySelector('.ca-thread-out'); }, 3000).then(function () {
