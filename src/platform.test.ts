@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CHORDS, PR_CHORDS, SUGGESTION_CHORDS } from './menus';
 import { VIEW_CHORDS } from './mainKeys';
-import { capsSaid, chordKeys, chordPressed, chordSigns, cmd, contextPress, emacsCtrl, held, keysIn, keysSaid, parseChord, platform, platformChord, setPlatform, writeChord } from './platform';
+import { capsSaid, chordKeys, chordPressed, chordSigns, cmd, contextPress, ctrl, emacsCtrl, held, keysIn, keysSaid, parseChord, platform, platformChord, setPlatform, writeChord } from './platform';
 import { AWAY_CHORD, QUEUE_CHORDS } from './queue';
 import { SNOOZE_CHORDS } from './snooze';
 
@@ -51,6 +51,10 @@ describe('on macOS', () => {
     expect(cmd(press('k', { ctrl: true }))).toBe(false);
     expect(emacsCtrl(press('n', { ctrl: true }), 'n')).toBe(true);
     expect(contextPress({ button: 0, ctrlKey: true })).toBe(true);
+    // ⌃ with whatever else is held, as ⌃⇧⌘S and a picker's ⌃⌘N have always gone.
+    expect(ctrl(press('s', { ctrl: true, meta: true, shift: true }))).toBe(true);
+    expect(ctrl(press('s', { alt: true, meta: true }))).toBe(false);
+    expect(emacsCtrl(press('n', { ctrl: true, meta: true }), 'n')).toBe(true);
   });
 
   it('leaves text and keycaps as they are', () => {
@@ -113,6 +117,9 @@ describe('on Linux', () => {
     expect(held(press('k', { ctrl: true, alt: true }), 'Ctrl', 'Cmd')).toBe(true);
     expect(cmd(press('k', { ctrl: true }))).toBe(true);
     expect(cmd(press('k', { meta: true }))).toBe(false);
+    // ⌃ is Alt there.
+    expect(ctrl(press('s', { ctrl: true, alt: true }))).toBe(true);
+    expect(ctrl(press('s', { ctrl: true }))).toBe(false);
     // ⌃N and ⌃P aren't Linux's, and nor is ⌃-click: Ctrl there is ⌘'s.
     expect(emacsCtrl(press('n', { ctrl: true }), 'n')).toBe(false);
     expect(contextPress({ button: 0, ctrlKey: true })).toBe(false);

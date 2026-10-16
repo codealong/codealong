@@ -1,6 +1,6 @@
 // Checks Send now in a session's reply box (SessionReply.tsx), in the floating bar's peek: while
 // its turn runs and the engine says it can take a message at once (`steerable`), the bolt beside
-// Send and ⌃⏎ send with `now`, ⏎ sends as usual, and the bolt's tooltip says the key, which the
+// Send and ⌃⏎ (and ⌃⌥⏎, as it always has) send with `now`, ⏎ sends as usual, and the bolt's tooltip says the key, which the
 // peek, with no strip to say keys on, doesn't say under the box; with nothing typed there's no
 // bolt. sessions-says-check.js checks the strip saying it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/send-now-check.js
@@ -46,7 +46,7 @@
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text);
     el.dispatchEvent(new Event('input', { bubbles: true }));
   };
-  var enter = function (el, ctrl) { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: !!ctrl, bubbles: true, cancelable: true })); };
+  var enter = function (el, ctrl, alt) { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: !!ctrl, altKey: !!alt, bubbles: true, cancelable: true })); };
   var sends = function () { return window.__calls.filter(function (c) { return c[0] === 'send_to_session'; }); };
   var last = function () { var s = sends(); return s[s.length - 1][1]; };
   var opens = 1;
@@ -86,9 +86,18 @@
       return hide().then(show);
     })
     .then(function () {
+      type(box(), 'Then the build');
+      enter(box(), true, true);
+      return until(function () { return sends().length === 3; }, 5000);
+    })
+    .then(function () {
+      check('⌃⌥⏎ sends it now too', last().text === 'Then the build' && last().now === true, JSON.stringify(last()));
+      return hide().then(show);
+    })
+    .then(function () {
       type(box(), 'When you’re done');
       enter(box());
-      return until(function () { return sends().length === 3; }, 5000);
+      return until(function () { return sends().length === 4; }, 5000);
     })
     .then(function () {
       check('⏎ sends it as usual', last().text === 'When you’re done' && last().now === false, JSON.stringify(last()));

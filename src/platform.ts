@@ -110,6 +110,11 @@ export function cmd(e: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey'>): boolean {
   return platform() === 'mac' ? e.metaKey : e.ctrlKey;
 }
 
+/** Whether ⌃ is held, with whatever else, as this platform has it: Alt on Linux. */
+export function ctrl(e: Pick<KeyboardEvent, 'ctrlKey' | 'altKey'>): boolean {
+  return platform() === 'mac' ? e.ctrlKey : e.altKey;
+}
+
 /** Whether ⌘ or ⌃ is held: a press that's some chord rather than typing or a plain click, which ⌥
  *  alone may still be (it types letters on macOS). On Linux that's Ctrl alone, as ⌃ is Alt there. */
 export function chordMod(e: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey'>): boolean {
@@ -126,10 +131,10 @@ export function bare(e: KeyMods): boolean {
   return typed(e) && !e.shiftKey;
 }
 
-/** ⌃ and a letter as macOS's text fields take it (⌃N and ⌃P go down and up a list). Linux has
- *  no such keys: Ctrl there is ⌘'s. */
-export function emacsCtrl(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey'>, key: string): boolean {
-  return platform() === 'mac' && e.ctrlKey && !e.metaKey && e.key === key;
+/** ⌃ and a letter as macOS's text fields take it (⌃N and ⌃P go down and up a list), whatever
+ *  else is held. Linux has no such keys: Ctrl there is ⌘'s. */
+export function emacsCtrl(e: Pick<KeyboardEvent, 'key' | 'ctrlKey'>, key: string): boolean {
+  return platform() === 'mac' && e.ctrlKey && e.key === key;
 }
 
 /** A press macOS takes for a right-click: the primary button with ⌃. Linux has none. */

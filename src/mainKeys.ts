@@ -13,7 +13,7 @@ import { AGENT_BAY, rowItems, seenable, type WorktreeRow } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
 import type { Pins } from './pins';
-import { chordPressed, cmd, held, typed } from './platform';
+import { chordPressed, cmd, ctrl, held, typed } from './platform';
 import { queueKey, type QueueAction } from './queue';
 import type { TodoItem } from './todos';
 import type { ListPicksKeys } from './useListPicks';
@@ -274,12 +274,12 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     newSession({ laneId: startLaneId });
     return;
   }
-  if (held(e, 'Cmd') && key === 'p') {
+  if (mod && !ctrl(e) && key === 'p') {
     e.preventDefault();
     openSwitcher();
     return;
   }
-  if (chord && key === 's') {
+  if (mod && ctrl(e) && key === 's') {
     e.preventDefault();
     toggleSidebar();
     return;

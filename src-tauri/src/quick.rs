@@ -426,7 +426,9 @@ pub fn parse_shortcut(text: &str) -> std::result::Result<Option<Shortcut>, Strin
     if text.is_empty() {
         return Ok(None);
     }
-    let shortcut = Shortcut::from_str(text).map_err(|_| format!("\"{text}\" isn't a shortcut Codealong can read. Write it like \"Option+Cmd+/\" or \"Cmd+Ctrl+K\"."))?;
+    let macos = crate::os::is_macos();
+    let like = if macos { "\"Option+Cmd+/\" or \"Cmd+Ctrl+K\"" } else { "\"Ctrl+Alt+/\" or \"Ctrl+Shift+K\"" };
+    let shortcut = Shortcut::from_str(text).map_err(|_| format!("\"{text}\" isn't a shortcut Codealong can read. Write it like {like}."))?;
     let function_key = matches!(
         shortcut.key,
         Code::F1 | Code::F2 | Code::F3 | Code::F4 | Code::F5 | Code::F6 | Code::F7 | Code::F8 | Code::F9 | Code::F10 | Code::F11 | Code::F12
@@ -434,13 +436,18 @@ pub fn parse_shortcut(text: &str) -> std::result::Result<Option<Shortcut>, Strin
     );
     let mods = shortcut.mods;
     if !function_key && !mods.intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER) {
-        return Err(format!("\"{text}\" needs Control, Option or Command, or it would take a key you type."));
+        let held = if macos { "Control, Option or Command" } else { "Ctrl, Alt or Super" };
+        return Err(format!("\"{text}\" needs {held}, or it would take a key you type."));
     }
-    if mods.difference(Modifiers::SHIFT) == Modifiers::SUPER && shortcut.key == Code::Tab {
-        return Err("macOS keeps Cmd+Tab for switching apps.".into());
+    // What switches apps, and the key apps' own shortcuts are made with: ⌘ on macOS, and on Linux
+    // Ctrl, as Settings records them there (src/quick.ts `shortcutFromKey`).
+    let (switcher, menus) = if macos { (Modifiers::SUPER, Modifiers::SUPER) } else { (Modifiers::ALT, Modifiers::CONTROL) };
+    if mods.difference(Modifiers::SHIFT) == switcher && shortcut.key == Code::Tab {
+        return Err(if macos { "macOS keeps Cmd+Tab for switching apps." } else { "The desktop keeps Alt+Tab for switching windows." }.into());
     }
-    if mods == Modifiers::SUPER && !matches!(shortcut.key, Code::Space) && !function_key {
-        return Err(format!("\"{text}\" is a menu shortcut in most apps. Add Control or Option."));
+    if mods == menus && !matches!(shortcut.key, Code::Space) && !function_key {
+        let add = if macos { "Control or Option" } else { "Alt" };
+        return Err(format!("\"{text}\" is a menu shortcut in most apps. Add {add}."));
     }
     Ok(Some(shortcut))
 }
@@ -532,6 +539,20 @@ mod tests {
 
     #[test]
     fn turns_away_shortcuts_that_would_take_typing_or_menus() {
+        // Linux's switcher is Alt+Tab and its apps' shortcuts are Ctrl's; Super is the desktop's
+        // own to give, so config.toml may name it.
+        crate::os::as_if(crate::os::Os::Linux, || {
+            for bad in ["K", "Shift+K", "Alt+Tab", "Alt+Shift+Tab", "Ctrl+K"] {
+                assert!(parse_shortcut(bad).is_err(), "{bad}");
+            }
+            assert_eq!(parse_shortcut("Alt+Tab").unwrap_err(), "The desktop keeps Alt+Tab for switching windows.");
+            assert!(parse_shortcut("Ctrl+K").unwrap_err().ends_with("Add Alt."));
+            assert!(parse_shortcut("Shift+K").unwrap_err().contains("Ctrl, Alt or Super"));
+            for ok in ["Ctrl+Alt+/", "Ctrl+Shift+K", "Ctrl+Space", "Super+K", "Cmd+K", "F18"] {
+                assert!(parse_shortcut(ok).is_ok(), "{ok}");
+            }
+        });
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
         for bad in ["Space", "K", "Shift+K", "Shift+Space", "Cmd+K", "Cmd+Tab", "Cmd+Shift+Tab", "Option+Shift", "Option+Shift+Spacebar", "Option++Space"] {
             let err = parse_shortcut(bad).unwrap_err();
             assert!(!err.is_empty(), "{bad}");

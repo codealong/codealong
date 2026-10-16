@@ -1,7 +1,7 @@
 // Checks the sidebar (Sidebar.tsx, App.tsx): it never scrolls sideways; statuses and devices
 // toggle, several at once, and Clear unpicks them; the view saves under a name and comes back
 // when picked; ⌃⌘S folds the sidebar to a rail whose filter button counts the filters on and
-// opens it again; and a saved view's menu deletes it.
+// opens it again, and ⌃⇧⌘S folds and opens it too; and a saved view's menu deletes it.
 //   PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/sidebar-check.js
 (function () {
   var nav = function (label) {
@@ -103,6 +103,16 @@
     })
     .then(function () {
       check('its filter button opens the sidebar', !!document.querySelector('.ca-side') && localStorage.getItem('codealong.sidebarCollapsed') === '0');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'S', code: 'KeyS', metaKey: true, ctrlKey: true, shiftKey: true, bubbles: true }));
+      return wait(50);
+    })
+    .then(function () {
+      check('⌃⇧⌘S folds it too', !!document.querySelector('.ca-rail') && !document.querySelector('.ca-side'));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'S', code: 'KeyS', metaKey: true, ctrlKey: true, shiftKey: true, bubbles: true }));
+      return wait(50);
+    })
+    .then(function () {
+      check('and opens it again', !!document.querySelector('.ca-side'));
       chip('Your turn').click();
       return wait(50);
     })

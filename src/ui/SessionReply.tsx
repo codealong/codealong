@@ -107,7 +107,7 @@ import { SlashList, type SlashOption } from './SlashList';
 import { chordedReply, SuggestedReplies, SuggestionHead, type Denies, type PickHow } from './SuggestedReplies';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
-import { bare, chordPressed, cmd, held, keysIn, typed } from '../platform';
+import { bare, chordPressed, cmd, held, keysIn, platform, typed } from '../platform';
 
 /** Nothing picked for a resume: it goes on where it went on last, on the account's own model. */
 const NO_PICKS: ResumePicks = { agent: null, effort: null, place: null };
@@ -869,7 +869,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               return;
             }
             // ⌃⏎ is Ctrl+Shift+Enter on Linux (platform.ts), so ⇧ stops only the rest.
-            const sendNow = chordPressed('Ctrl+Enter', e);
+            // macOS takes ⌃⌥⏎ for it too, as it always has.
+            const sendNow = chordPressed('Ctrl+Enter', e) || (platform() === 'mac' && held(e, 'Ctrl', 'Alt'));
             if (e.key !== 'Enter' || (e.shiftKey && !sendNow) || e.nativeEvent.isComposing) return;
             // To the side conversation, or a command run here (`/fork`, one led by `!`), whatever
             // the keys: none of the session's own (send now, send and go on to the next, allow)
