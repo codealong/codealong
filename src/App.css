@@ -255,8 +255,9 @@
   --panel-w: min(520px, 42vw);
 }
 
-/* Until the engine has read this Mac's board once, the panel has nothing to show either: the
-   board takes its room, and says what it's reading in the middle of it (Tip.tsx Reading). */
+/* Until the engine has read this Mac's board once, or the PRs view has any of its PRs from
+   GitHub, the panel has nothing to show either: the board takes its room, and says what it's
+   reading in the middle of it (Tip.tsx Reading). */
 .ca-win--app .ca-win-body.is-loading {
   grid-template-columns:
     max(var(--side-min), min(var(--sidebar-w), 100% - var(--board-min)))

@@ -453,6 +453,25 @@ export function prRowsOf(prs: PrItem[], cutoff: number, pinned: Set<string>, que
     .filter((r) => prInQuery(r, query, said) && prInFilter(r, filter));
 }
 
+/** How far the PRs of `lanes` (the project shown) have come from GitHub, for the PRs view to say
+ *  it's reading them rather than that there are none. A repo whose worktree is on a branch of its
+ *  own is read in full, and `githubCurrent` says whether it has been yet (null: asked, not
+ *  read); any other repo's are only the PRs that wait on your review, from a search that's in
+ *  once GitHub's first poll has ended (`githubPolled`), as is a repo no poll has asked about yet.
+ *  `coming` while one of them isn't in; `failing` while that's so but GitHub's notice says why,
+ *  which waiting won't put right; else `read`, as for a project with no repo on GitHub, which
+ *  nothing is asked about. Only this Mac's worktrees count: another device's repos are read there. */
+export function prsRead(board: Board, lanes: readonly Lane[]): 'coming' | 'failing' | 'read' {
+  const current = board.githubCurrent ?? {};
+  const unread = lanes.some((l) => {
+    if (l.device || !l.repoSlug) return false;
+    const at = current[l.repoSlug];
+    return at === undefined ? !board.githubPolled : at === null;
+  });
+  if (!unread) return 'read';
+  return board.notices.some((n) => n.key === 'github') ? 'failing' : 'coming';
+}
+
 /** Whether a PR is listed under Merged & closed, which the PRs view keeps folded until it's
  *  opened: one that's merged or closed and not pinned, since pinned PRs lead the view whatever
  *  their state. A window asked to show such a PR opens that section, or the panel would show the
@@ -738,6 +757,8 @@ export function useBoardLists(input: ListsInput) {
   const prVisible = useMemo<ListRow[]>(() => [...pinnedPrRows, ...prSecs.flatMap((s) => (s.id === 'done' && !showDonePrs ? [] : s.rows))], [pinnedPrRows, prSecs, showDonePrs]);
   const openPrCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.updatedAt >= cutoff).length, [projectPrs, cutoff]);
   const requestedCount = useMemo(() => projectPrs.filter(waitsOnReview).length, [projectPrs]);
+  // Whether the project's PRs are in from GitHub, for the view to say it's reading them.
+  const githubPrs = board ? prsRead(board, projectLanes) : 'read';
 
   // The Todo view: the project's todos, with the worktrees and sessions they're linked to.
   const homes = useMemo<Map<string, Placed>>(() => sessionHomes(lanes), [lanes]);
@@ -800,6 +821,7 @@ export function useBoardLists(input: ListsInput) {
     prVisible,
     openPrCount,
     requestedCount,
+    githubPrs,
     homes,
     labelById,
     projectTodos,

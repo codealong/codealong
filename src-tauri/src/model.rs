@@ -121,7 +121,8 @@ pub struct Board {
     /// When PRs were last loaded from GitHub.
     pub github_at: Option<i64>,
     /// GitHub's first poll has ended: until then, the PRs here, and the reviews asked of you
-    /// among them, are only what's come so far (`GhPoll::polled`, sounds.rs).
+    /// among them, are only what's come so far (`GhPoll::polled`, sounds.rs, and the PRs
+    /// view's boardLists.ts `prsRead`).
     #[serde(default)]
     pub github_polled: bool,
     /// When each repo's PRs here were last as GitHub had them, by slug (`GhPoll::current`): a

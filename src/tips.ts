@@ -1,9 +1,10 @@
 // Tips on using Codealong, shown where a window has nothing to show yet but that it's reading
 // (ui/Tip.tsx): the main window's board before the engine's first scan, a conversation being
 // read, the waiting window and the quick panel before the board comes, a PR's description on its
-// way from GitHub. This is the one list of them. A window asks for the tips of its place, and they
-// come round in this order, the ones never shown first, then the one shown longest ago, wherever
-// it showed: so the list's order is what someone new sees first.
+// way from GitHub, the PRs view before its PRs come. This is the one list of them. A window asks
+// for the tips of its place, and they come round in this order, the ones never shown first, then
+// the one shown longest ago, wherever it showed: so the list's order is what someone new sees
+// first.
 //
 // A tip says its keys through the tables the windows run on (menus.ts `CHORDS`, queue.ts
 // `QUEUE_CHORDS`, snooze.ts `SNOOZE_CHORDS`, menus.ts `PR_CHORDS`), so it follows them, and a
@@ -19,7 +20,7 @@ import { shortcutLabel } from './quick';
 import { SNOOZE_CHORDS } from './snooze';
 
 /** Where a tip can show: the main window's board, a session's conversation, the waiting window,
- *  the quick panel, a PR's panel. */
+ *  the quick panel, a PR's panel and the PRs view. */
 export type TipPlace = 'board' | 'session' | 'waiting' | 'quick' | 'pr';
 
 /** The shortcuts that work in every app, which config.toml sets (`[shortcuts]`), as config.toml

@@ -212,6 +212,7 @@ export function board(over: Partial<Board> = {}): Board {
     notices: [],
     loading: false,
     githubAt: null,
+    githubPolled: false,
     usage: [],
     pinned: [],
     pinnedWorktrees: [],

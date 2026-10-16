@@ -1066,6 +1066,11 @@ export interface Board {
   notices: Notice[];
   loading: boolean;
   githubAt: number | null;
+  /** GitHub's first poll has ended: until then the PRs are what's come so far. */
+  githubPolled: boolean;
+  /** When each polled repo's PRs were last as GitHub had them, by slug; null for one asked about
+   *  but never read. Absent when there's none. */
+  githubCurrent?: Record<string, number | null>;
   usage: Usage[];
   /** Whether each account's provider may train on what it sends (training.rs), for the accounts
    *  read so far. Absent from engines of older builds. */

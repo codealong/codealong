@@ -29,6 +29,7 @@ import {
   projectsOf,
   prRowOf,
   prRowsOf,
+  prsRead,
   recentSessionCount,
   runCounts,
   sessionIn,
@@ -666,6 +667,41 @@ describe('the PRs view’s lists', () => {
     expect(prRowsOf([fresh, stale], cutoff, new Set([stale.key]), '', [], laneById, index).map((r) => r.pr.number)).toEqual([1, 2]);
     expect(prRowsOf([fresh, stale], 0, new Set(), 'stale', [], laneById, index).map((r) => r.pr.number)).toEqual([2]);
     expect(prRowsOf([fresh, stale], 0, new Set(), '', ['review'], laneById, index).map((r) => r.pr.number)).toEqual([1]);
+  });
+
+  describe('how far they’ve come from GitHub', () => {
+    const own = lane('/r/feature', [], { repoSlug: 'acme/app', branch: 'feature' });
+    const searched = lane('/r/web', [], { repoSlug: 'acme/web' });
+    const github = { key: 'github', title: 'Signed out of GitHub', text: 'Signed out of GitHub' };
+
+    it('waits on GitHub’s first poll for a repo only the search for your reviews reads', () => {
+      expect(prsRead(fx.board({ githubPolled: false }), [searched])).toBe('coming');
+      expect(prsRead(fx.board({ githubPolled: true }), [searched])).toBe('read');
+    });
+
+    it('waits on a repo read in full until its read comes, whether or not the poll has ended', () => {
+      const asked = fx.board({ githubPolled: true, githubCurrent: { 'acme/app': null } });
+      expect(prsRead(asked, [own])).toBe('coming');
+      expect(prsRead({ ...asked, githubCurrent: { 'acme/app': NOW } }, [own])).toBe('read');
+      // Read before the poll that brings the search has ended: its PRs are in.
+      expect(prsRead(fx.board({ githubPolled: false, githubCurrent: { 'acme/app': NOW } }), [own])).toBe('read');
+      // Any of the project's repos not in yet holds the rest.
+      expect(prsRead({ ...asked, githubCurrent: { 'acme/app': NOW } }, [own, searched])).toBe('read');
+      expect(prsRead({ ...asked, githubPolled: false, githubCurrent: { 'acme/app': NOW } }, [own, searched])).toBe('coming');
+    });
+
+    it('says GitHub is failing rather than waiting while its notice is up', () => {
+      expect(prsRead(fx.board({ githubPolled: false, notices: [github] }), [searched])).toBe('failing');
+      expect(prsRead(fx.board({ githubPolled: true, notices: [github] }), [searched])).toBe('read');
+      expect(prsRead(fx.board({ githubPolled: false, notices: [{ ...github, key: 'config' }] }), [searched])).toBe('coming');
+    });
+
+    it('waits on nothing for a project with no repo on GitHub, or only another device’s', () => {
+      expect(prsRead(fx.board({ githubPolled: false }), [])).toBe('read');
+      expect(prsRead(fx.board({ githubPolled: false }), [lane('/r/local', [], { repoSlug: null })])).toBe('read');
+      const mini = { name: 'Mini', short: 'abc', color: 'blue' as const, online: true, lastSeen: null };
+      expect(prsRead(fx.board({ githubPolled: false }), [{ ...searched, id: '@abc:/r/web', device: mini }])).toBe('read');
+    });
   });
 
   it('lists merged and closed PRs under Merged & closed, which is folded, unless they’re pinned', () => {

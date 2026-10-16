@@ -600,6 +600,11 @@ and in its panel, whose tooltip says why it's the one:
 Pushes are read from Claude Code's records (`gitOperation.push`), which name the branch but not
 the repo, so only sessions in the PR's repo count.
 
+Until the project's PRs have come from GitHub (each repo's first read, and the search for the PRs
+that wait on your review), a view with none of them yet says it's reading them, with a tip, rather
+than that there are none. When GitHub can't be asked (`gh` missing or signed out, a rate limit), it
+says why instead.
+
 #### Nudging a PR's primary session
 
 A PR's primary session can be nudged with what happens on it. It's off for a PR until turned on
@@ -1094,14 +1099,14 @@ on the reviewer Settings names; the notice goes once a review starts.
 ### Tips
 
 While a window waits on what it reads, a tip on using Codealong shows under what it's reading: the
-main window before its first read of your sessions, the waiting window and the quick panel at
-launch, a conversation or a PR's description that takes a moment to come. Where the whole window
-or pane is waiting (the main window, the waiting window, a conversation), the Codealong mark and
-what's being read sit in the middle of it with the tip under them; the main window gives the
-board the panel's room too until it has read your sessions, since the panel has nothing to show
-before then. In the quick panel and a PR's description the tip is a short note under the line
-that says what's loading. Each place has tips of
-its own (the waiting window's are about its keys, the quick panel's about its own), with the keys
+main window before its first read of your sessions, the PRs view until its PRs come from GitHub,
+the waiting window and the quick panel at launch, a conversation or a PR's description that takes
+a moment to come. Where the whole window or pane is waiting (the main window, the waiting window,
+a conversation), the Codealong mark and what's being read sit in the middle of it with the tip
+under them; the main window gives the board the panel's room too until it has read your sessions,
+and the PRs view until it has its PRs, since the panel has nothing to show before then. In the
+quick panel and a PR's description the tip is a short note under the line that says what's
+loading. Each place has tips of its own (the waiting window's are about its keys, the quick panel's about its own), with the keys
 as they are now and the shortcuts as Settings has them; a tip about a shortcut that's off doesn't
 show. At launch the tip comes with the line over it; a conversation or a description gets one only
 once it has taken a moment, since they often come at once. Another comes every 12 seconds while the

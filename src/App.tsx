@@ -428,6 +428,7 @@ export function App() {
     prVisible,
     openPrCount,
     requestedCount,
+    githubPrs,
     homes,
     labelById,
     projectTodos,
@@ -516,6 +517,10 @@ export function App() {
   // Nothing is listed until the board is read, so nothing can be selected: not the other devices'
   // rows that come first.
   const visible = loading ? NO_ROWS : view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'kanban' ? kanbanVisible : view === 'canvas' ? NO_ROWS : worktreeItems;
+  // The PRs view with none of its PRs yet, while GitHub's are on their way: it says it's reading
+  // them, as the board does before its first read, rather than that there are none.
+  const prsComing = boardRead && view === 'prs' && prRows.length === 0 && githubPrs === 'coming';
+  const reading = loading || prsComing;
   // A session listed under another worktree now (its commands moved there) stays selected. When
   // the selected agent's line goes (you marked it seen, it stopped), the selection stays
   // on its worktree rather than jumping to the top. A todo that leaves the list (marked done
@@ -1676,7 +1681,7 @@ export function App() {
         }
       />
       <div
-        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel', loading && 'is-loading')}
+        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel', reading && 'is-loading')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <Sidebar
@@ -1757,13 +1762,18 @@ export function App() {
               </Button>
             </div>
           ))}
-          {board && !board.loading && view === 'prs' && prRows.length === 0 && (
+          {board && !board.loading && view === 'prs' && prRows.length === 0 && !prsComing && (
             <div className="ca-board-empty">
-              {query ? `No PRs in ${current} match “${query}”.` : board.githubAt ? 'No PRs here right now.' : 'Loading PRs from GitHub…'}
+              {query
+                ? `No PRs in ${current} match “${query}”.`
+                : githubPrs === 'failing'
+                  ? `PRs can't be read: ${board.notices.find((n) => n.key === 'github')?.title ?? "GitHub didn't answer"}.`
+                  : 'No PRs here right now.'}
             </div>
           )}
           {loadError && <div className="ca-board-empty">{loadError}</div>}
-          {loading && <Reading what={READING[view]} place="board" className="ca-board-loading" />}
+          {/* One reading from launch until the PRs view has its PRs, so its tip carries on through. */}
+          {reading && <Reading what={loading ? READING[view] : 'Reading PRs from GitHub…'} place={view === 'prs' ? 'pr' : 'board'} className="ca-board-loading" />}
           {board && !board.loading && view === 'sessions' && sessionRows.length === 0 && (
             <div className="ca-board-empty">
               {query
@@ -2010,9 +2020,9 @@ export function App() {
           </div>
           )}
         </main>
-        {/* Until the board is read the panel has nothing to show either: the board takes its room. */}
-        {panelKind && !loading && <Resizer panel="after" cssVar="--panel-w" onResize={setPanelWidth[panelKind]} />}
-        {!loading && (
+        {/* Until the board is read, or the PRs view's PRs, the panel has nothing to show either: the board takes its room. */}
+        {panelKind && !reading && <Resizer panel="after" cssVar="--panel-w" onResize={setPanelWidth[panelKind]} />}
+        {!reading && (
           <MainPanel
             view={view}
             selected={selected}

@@ -443,7 +443,7 @@ impl GhPoll {
             }
             Event::PollEnded => {
                 // The board says so at once (sounds.rs counts reviews from then).
-                let ready = self.searched && !self.polled && !self.failures.contains_key(github::REQUESTED);
+                let ready = !self.polled && self.search_answered();
                 self.polled |= ready;
                 // A glance was answered, and what it didn't have read stands: nothing is wrong
                 // with that now, and a repo that's no longer polled isn't either.
@@ -460,6 +460,18 @@ impl GhPoll {
             }
             Event::RepoNames(names) => self.names.answered(names),
         }
+    }
+
+    /// The end of the one pass `take` was handed (`--snapshot`), as `Event::PollEnded` ends a
+    /// poll, without asking again: the board then says what GitHub had is all in.
+    pub fn took_all(&mut self) {
+        self.polled |= self.search_answered();
+    }
+
+    /// The search for the PRs that wait on your review has answered, and its last answer
+    /// didn't fail.
+    fn search_answered(&self) -> bool {
+        self.searched && !self.failures.contains_key(github::REQUESTED)
     }
 
     /// One answer of `github::read_once`, for an engine that makes one pass and starts with
@@ -1047,6 +1059,20 @@ mod tests {
         assert!(!gh.polled(), "not before its poll ends");
         gh.on_event(Event::PollEnded, &seeds, after(clock(), 60));
         assert!(gh.polled());
+    }
+
+    #[test]
+    fn a_snapshots_one_pass_has_polled_once_its_search_answered() {
+        let seeds = [seed("/r/spark", "sprucehq/spark", "feature")];
+        let pass = |search: Result<Requested, Failure>| {
+            let mut gh = quiet();
+            gh.take(github::Answer::Requested(search, None), &seeds, clock());
+            gh.take(github::Answer::Repo("sprucehq/spark".into(), Ok(RepoPrs::default()), None), &seeds, clock());
+            gh.took_all();
+            gh.polled()
+        };
+        assert!(pass(Ok(Requested::default())), "everything GitHub had came in the one pass");
+        assert!(!pass(Err(Failure::Other("GitHub didn't answer".into()))), "what waits on you isn't known");
     }
 
     #[test]
