@@ -1,0 +1,46 @@
+# Builds and tests the engine on Linux, which no Mac can (GTK's system libraries are Linux's):
+# cargo test with warnings as errors, after the UI build that Tauri's build embeds. It runs every
+# four hours rather than on every push: agents push to main dozens of times a day, and the
+# organization's plan has 2,000 Linux minutes a month. `gh workflow run linux.yml` runs it now,
+# on main or, with `--ref`, a pushed branch; a failed run emails whoever last changed this file.
+name: Linux
+
+on:
+  schedule:
+    - cron: "23 */4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # Outside the checkout, as every checkout's builds are on a Mac (.cargo/config.toml).
+      CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+      RUSTFLAGS: -D warnings
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+      - name: What Tauri builds on, and what the tests run
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev pkg-config tmux zsh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: The UI
+        run: npm run build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> ../../target"
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test

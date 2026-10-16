@@ -40,8 +40,8 @@ provision:
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
     fi
     grep -q CARGO_TARGET_DIR "$HOME/.profile" || cat >> "$HOME/.profile" <<'EOF'
-    # Where cargo builds the VM's copy of the checkout (.cargo/config.toml's target-dir, seen from
-    # ~/codealong), for the scripts that run what it built.
+    # Where cargo builds every copy of a checkout linux-vm.sh makes, one folder for all of them as
+    # on the Mac, named for the scripts that run what it built.
     export CARGO_TARGET_DIR="$HOME/codealong-target"
     EOF
 

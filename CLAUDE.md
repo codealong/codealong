@@ -321,7 +321,8 @@ Each rule names the file whose header has the rest.
 - It builds and runs on Linux too. What differs is `cfg(target_os = "macos")` in the module that
   has it, both sides there (development.md's Linux table): a new call to AppKit, `osascript`,
   `security` or a BSD `libc` function gets its Linux side, or a stand-in that says why there's
-  none. `scripts/linux-vm.sh test` checks it builds and passes there.
+  none. `scripts/linux-vm.sh test` checks it builds and passes there; CI checks `main` every
+  four hours (`.github/workflows/linux.yml`, `gh workflow run linux.yml` for now).
 - `rustfmt` isn't installed here, so Rust formatting is unchecked; match the surrounding code.
 
 ## Where facts live

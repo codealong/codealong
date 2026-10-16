@@ -76,9 +76,10 @@ scripts/linux-vm.sh run [secs]     # the app on the VM's own headless display; .
 scripts/linux-vm.sh shell [cmd…]   # a shell in the VM's copy of the checkout
 ```
 
-The VM mounts nothing of the Mac's: it works on its own copy of the checkout the script runs
-from (`~/codealong`, brought up to date over ssh by every command but `start` and `shell`), so
-any worktree can use it, and its builds and `node_modules` never mix with the Mac's. A run has a
+The VM mounts nothing of the Mac's: it works on a copy of the checkout the script runs from, one
+for each checkout (under `~/checkouts`, brought up to date over ssh by every command but `start`
+and `shell`), so sessions in different worktrees can use it at once, and its builds and
+`node_modules` never mix with the Mac's. A run has a
 home of its own there (`~/run-home`, kept between runs): its own config.toml, sessions and
 socket, and nothing of the Mac's.
 
@@ -92,6 +93,11 @@ Where the two differ, a module keeps both, by `cfg(target_os = "macos")`:
 | `keychain.rs`: the login keychain | the desktop's Secret Service (`secret-tool`) |
 | `~/Library/Application Support/Codealong`, `Logs`, `Caches` | `~/.config/codealong`, `~/.local/state/codealong`, `~/.cache/codealong` (config.rs) |
 | `sounds.rs`: NSSound | the freedesktop sound theme, through `paplay` |
+
+CI (`.github/workflows/linux.yml`) builds and tests the engine on Linux every four hours, on
+`main`, with warnings as errors; `gh workflow run linux.yml` runs it now (`--ref <branch>` for a
+pushed branch), and `gh run list --workflow linux.yml` says how the last ones went. It isn't run
+on every push, which would spend the organization's plan's Actions minutes within days.
 
 What Linux goes without: the notch, the focus outline round a terminal on another screen
 (flash.rs), app icons in the editor menus, pictures of the windows for Improve Codealong, the

@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # A Linux VM to build, test and run Codealong in: Ubuntu 24.04 under Lima (`brew install lima`),
 # set up by scripts/linux/lima.yaml. The VM mounts nothing of the Mac's: it works on a copy of the
-# checkout this runs from, whichever that is, in its own home (~/codealong), which every command
-# but start and shell first brings up to date, so its builds and node_modules never mix with the
-# Mac's.
+# checkout this runs from, one for each checkout (~/checkouts/<folder>-<hash of its path>), which
+# every command but start and shell first brings up to date, so sessions working in different
+# checkouts don't overwrite each other's, and its builds and node_modules never mix with the
+# Mac's. Every copy builds into one folder (~/codealong-target), where cargo's lock queues them;
+# `run` runs whichever built last, on one display, so two runs at once take turns badly.
 #
 #   scripts/linux-vm.sh                 creates the VM the first time (about ten minutes) and starts it
 #   scripts/linux-vm.sh test [args…]    cargo test in it (args go to cargo test)
@@ -20,6 +22,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 here="$PWD"
 vm="${CODEALONG_VM:-codealong-linux}"
+# Its folder's name, made safe to use unquoted in the commands sent to the VM.
+copy="checkouts/$(basename "$here" | tr -c 'A-Za-z0-9._\n-' '_')-$(printf %s "$here" | shasum | cut -c1-8)"
 
 command -v limactl >/dev/null || { echo "Lima isn't installed: brew install lima" >&2; exit 1; }
 
@@ -34,7 +38,7 @@ start() {
 }
 
 # A command in the VM, in a login shell (rustup's PATH, CARGO_TARGET_DIR), from its copy.
-in_vm() { limactl shell --workdir / "$vm" bash -lc "cd ~/codealong && $1"; }
+in_vm() { limactl shell --workdir / "$vm" bash -lc "cd ~/$copy && $1"; }
 
 # The VM's copy of the checkout: what's in this one, committed or not, without what it built,
 # sent over the VM's own ssh.
@@ -42,10 +46,11 @@ sync() {
   start
   local ssh_config
   ssh_config="$(limactl list --format '{{.Dir}}' "$vm")/ssh.config"
+  limactl shell --workdir / "$vm" bash -c "mkdir -p ~/$copy"
   rsync -a --delete -e "ssh -F '$ssh_config'" \
     --exclude /.git --exclude /node_modules --exclude /dist --exclude /.preview \
     --exclude /src-tauri/target --exclude /src-tauri/gen \
-    "$here/" "lima-$vm:codealong/"
+    "$here/" "lima-$vm:$copy/"
 }
 
 frontend() {
@@ -58,7 +63,7 @@ case "${1:-start}" in
   shell)
     shift
     start
-    if [ $# -eq 0 ]; then limactl shell --workdir / "$vm" bash -lc 'cd ~/codealong 2>/dev/null; exec bash -l'
+    if [ $# -eq 0 ]; then limactl shell --workdir / "$vm" bash -lc "cd ~/$copy 2>/dev/null; exec bash -l"
     else sync; in_vm "$*"; fi
     ;;
   test)
