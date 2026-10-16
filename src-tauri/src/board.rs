@@ -827,7 +827,9 @@ pub fn waiting_since(s: &Session) -> Option<i64> {
 
 /// Most urgent first; those that need you by how long they've waited, the rest by the one you
 /// last sent a prompt. Activity would reorder working sessions with every tool call; your
-/// prompts only move one when you do something.
+/// prompts only move one when you do something. The key settles a tie: the readers hand their
+/// sessions over in their maps' order, which differs every time, and a lane whose order moved
+/// would make every board a new one to publish.
 fn sort_sessions(sessions: &mut [Session]) {
     sessions.sort_by(|a, b| {
         urgency(a.status)
@@ -835,6 +837,7 @@ fn sort_sessions(sessions: &mut [Session]) {
             .then(waiting_since(a).cmp(&waiting_since(b)))
             .then(b.last_prompt_at.cmp(&a.last_prompt_at))
             .then(b.last_activity.cmp(&a.last_activity))
+            .then(a.key.cmp(&b.key))
     });
 }
 
@@ -1952,8 +1955,9 @@ pub fn compose(inp: Inputs) -> Board {
         // Archived sessions stay in the lane's list, last, and out of its status. In a reusable
         // worktree so do the ones from before its latest work, ahead of the archived ones; and
         // helpers and headless runs that don't need you, ahead of those (`Session::unattended`).
-        let (mut sessions, archived): (Vec<Session>, Vec<Session>) = sessions.into_iter().partition(|s| !s.archived);
+        let (mut sessions, mut archived): (Vec<Session>, Vec<Session>) = sessions.into_iter().partition(|s| !s.archived);
         sort_sessions(&mut sessions);
+        sort_sessions(&mut archived);
         let reset = g.as_ref().and_then(|g| g.reset_at).filter(|_| reuse_on);
         for s in &mut sessions {
             s.earlier = earlier(s, reset);
@@ -4700,6 +4704,38 @@ mod tests {
         assert!(lane.sessions.iter().any(|s| s.key == oldest));
         assert!(lane.sessions.iter().any(|s| s.key == running));
         assert_eq!(board.pinned, pinned);
+    }
+
+    /// The readers hand sessions over in their maps' order, which differs every time. A lane's
+    /// list mustn't follow it, archived sessions and ties included, or every board composed is a
+    /// new one to publish when nothing changed (it did, 7 to 11 lanes a time, 2026-10-16).
+    #[test]
+    fn a_lanes_sessions_come_in_one_order_whatever_order_they_were_read_in() {
+        let apps = AppNames::default();
+        let seeds = vec![seed("/r/spark-portal", "portal")];
+        let a = acct("claude2");
+        let sessions: Vec<Session> = (0..8)
+            .map(|i| {
+                let mut s = claude_session(&a, None, Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+                s.key = Session::key_for(Harness::Claude, "claude2", &format!("s{i}"));
+                // Two of each time, so the times alone leave ties; half of them archived.
+                s.last_prompt_at = NOW - (i / 2) as i64 * 60_000;
+                s.last_activity = s.last_prompt_at;
+                s.archived = i % 4 >= 2;
+                s
+            })
+            .collect();
+        let (git, prs, visitors) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let order = vec!["Spruce".to_string()];
+        let keys = |sessions: Vec<Session>| {
+            let board = compose(Inputs { now: NOW, apps: &apps, seeds: &seeds, sessions, visitors: &visitors, git: &git, prs: &prs, requested: &HashMap::new(), project_order: &order, notices: vec![], loading: false, github_at: None, pinned: &[], github_login: None, pr_links: &PrLinks::default(), previews: &Previews::default(), reusable: &HashMap::new(), review_snoozes: &[], auto_reviews: (&Default::default(), &Default::default(), &Default::default()) });
+            board.lanes[0].sessions.iter().map(|s| s.key.clone()).collect::<Vec<_>>()
+        };
+        let read = keys(sessions.clone());
+        assert_eq!(read, keys(sessions.into_iter().rev().collect()));
+        // Archived ones last, the latest first, as the others are.
+        let archived: Vec<String> = [2, 3, 6, 7].iter().map(|i| format!("claude:claude2:s{i}")).collect();
+        assert_eq!(read[4..], archived[..]);
     }
 
     #[test]

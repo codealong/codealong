@@ -147,6 +147,10 @@ describe('buildBays', () => {
     const b = { ...lane([session('y', 'working', NOW - 120_000, NOW - 1_800_000)], null), id: '/r/b', lastActivity: NOW - 120_000 };
     expect(buildBays([a, b])[0].rows.map((r) => r.key)).toEqual(['/r/b', '/r/a']);
     expect([old, recent, done].sort(bySession).map((s) => s.key)).toEqual(['recent', 'old', 'done']);
+    // A tie is settled by the key, as the engine settles it, whatever order they came in.
+    const twins = [session('b', 'idle', NOW, NOW), session('a', 'idle', NOW, NOW)];
+    expect([...twins].sort(bySession).map((s) => s.key)).toEqual(['a', 'b']);
+    expect([...twins].reverse().sort(bySession).map((s) => s.key)).toEqual(['a', 'b']);
   });
 
   it('lists Needs you as a queue, the longest wait first, as the engine does', () => {

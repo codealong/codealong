@@ -174,10 +174,11 @@ export function byStatusTime(a: Session, b: Session): number {
 /**
  * Most urgent first, as the engine sorts a lane's sessions; those that need you by how long
  * they've waited, the rest by the one you last sent a prompt. Activity would reorder working
- * agents with every tool call; your prompts only move one when you do something.
+ * agents with every tool call; your prompts only move one when you do something. The key
+ * settles a tie, as it does there.
  */
 export function bySession(a: Session, b: Session): number {
-  return URGENCY[a.status] - URGENCY[b.status] || (waitingSince(a) ?? 0) - (waitingSince(b) ?? 0) || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity;
+  return URGENCY[a.status] - URGENCY[b.status] || (waitingSince(a) ?? 0) - (waitingSince(b) ?? 0) || b.lastPromptAt - a.lastPromptAt || b.lastActivity - a.lastActivity || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 }
 
 /** When a session started, or when you last prompted it where its record doesn't say. */
