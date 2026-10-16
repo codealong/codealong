@@ -1,6 +1,6 @@
-// Checks the views' keys (mainKeys.ts `VIEW_CHORDS`): ⇧⌘S, ⇧⌘W, ⇧⌘P, ⇧⌘T and ⇧⌘B go to Sessions,
-// Worktrees, PRs, Todo and Canvas from the list, the search field and a session's box, and ⇧⌘C,
-// which clipboard managers take, goes nowhere; ⌥⌘C copies the selected worktree's path. The
+// Checks the views' keys (mainKeys.ts `VIEW_CHORDS`): ⇧⌘S, ⇧⌘W, ⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go to
+// Sessions, Worktrees, PRs, Todo, Kanban and Canvas from the list, the search field and a
+// session's box, and ⇧⌘C, which clipboard managers take, goes nowhere; ⌥⌘C copies the selected worktree's path. The
 // sidebar shows each view's keys in its count's place while the pointer is on it, and the rail it
 // folds to says them.
 //   scripts/preview.sh sessions '' scripts/preview/view-keys-check.js
@@ -12,8 +12,8 @@
   var copied = [];
   navigator.clipboard.writeText = function (text) { copied.push(text); return Promise.resolve(); };
 
-  var VIEWS = ['Sessions', 'Worktrees', 'PRs', 'Todo', 'Canvas'];
-  var LETTERS = ['S', 'W', 'P', 'T', 'B'];
+  var VIEWS = ['Sessions', 'Worktrees', 'PRs', 'Todo', 'Kanban', 'Canvas'];
+  var LETTERS = ['S', 'W', 'P', 'T', 'K', 'B'];
   var shown = function () { var m = document.querySelector('main.ca-board'); return m ? m.getAttribute('aria-label') : null; };
   var navs = function () { return all('.ca-side .ca-nav.has-kbd'); };
   var key = function (el, init) { (el || document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
@@ -102,6 +102,11 @@
     })
     .then(function () {
       check('⇧⌘T goes to Todo', shown() === 'Todo', shown());
+      go(document.body, 'K');
+      return on('Kanban');
+    })
+    .then(function () {
+      check('⇧⌘K goes to Kanban', shown() === 'Kanban', shown());
       go(document.body, 'B');
       return on('Canvas');
     })

@@ -952,8 +952,8 @@ amber when it needs you, and in its place. To do keeps your order (drag, or âŒƒâ
 progress and In review list what needs you first, the longest wait first, then your turns, then
 what's working, then the rest, the one you last sent a prompt first; Done, the latest first, is
 folded to a rail with its count until you open it. Done's todos go back as far as the age filter
-does (two weeks under All), which narrows the sessions too; the search, the statuses and the
-devices narrow it as they do the other views, and a label shows only todos.
+does (two weeks under All), which narrows the sessions too; the list's find, the statuses and
+the devices narrow it as they do the other views, and a label shows only todos.
 
 Select a card for its panel: a todo's, or a session's with its conversation and its box. The
 arrows go up and down a column and across to the next one that has cards; Return opens a card
