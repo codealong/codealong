@@ -1,10 +1,11 @@
 //! Jev's read of each session (`[jev] sessions`): one request per session per turn, asking only
 //! what that moment can answer, all at once (docs.typesafe.ai, speculative fan-out).
 //!
-//! - A turn that ended: does the reply end by asking you something, how far did the work get
-//!   (landed, pushed, committed…), and is what you asked for done. The work's landing isn't asked
-//!   when the reply's first line says it in the words CLAUDE.md's *Landing work* asks agents for
-//!   (`landing_said`): that's exact, and free.
+//! - A turn that ended: how the reply leaves things with you (`ENDINGS`: it asks you something or
+//!   is blocked on you, or it offers more, hands you next steps or just reports), how far did the
+//!   work get (landed, pushed, committed…), and is what you asked for done. The work's landing
+//!   isn't asked when the reply's first line says it in the words CLAUDE.md's *Landing work* asks
+//!   agents for (`landing_said`): that's exact, and free.
 //! - A busy Claude session gone quiet on a command: is the command waiting for typing, or is it
 //!   long work.
 //! - A Claude session whose turn left a command running in the background: is it polling for
@@ -116,7 +117,7 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
             return None;
         }
         // The same reply to another prompt is another moment: finished is asked about the prompt.
-        (Kind::Turn, vec![s.reply_tail.as_deref().filter(|t| !t.trim().is_empty())?, s.last_prompt.as_deref().unwrap_or("")])
+        (Kind::Turn, vec![s.reply_tail.as_deref().filter(|t| !t.trim().is_empty())?, s.last_prompt.as_deref().unwrap_or(""), TURN_QUESTIONS])
     } else {
         return None;
     };
@@ -139,6 +140,28 @@ pub const LANDING: [(&str, &str); 6] = [
     ("blocked", "The agent couldn't finish: something failed, or it's waiting on something else."),
     ("none", "No code change: an answer, research, a review, or a question."),
 ];
+
+/// How a reply can leave things with the user, by name, with what each means. Jev tells a
+/// question apart from an offer of more work much better as a choice among these than asked
+/// yes or no whether the reply asks something: on 363 replies on one Mac (2026-10-16), at the
+/// board's `ASKS_YOU`, the yes or no question read 10 to 12 replies that only offered more,
+/// handed over next steps or reported as asking; this choice read 3, and both caught all 19 that
+/// asked.
+pub const ENDINGS: [(&str, &str); 5] = [
+    ("question", "It asks the user a question or for a decision, or says it still waits for their answer to one it asked before, and won't go on without it: 'Should I merge it?', 'Which of these do you want?', 'I'm still waiting on your answer about X.'"),
+    ("blocked", "It can't go on until the user does something only they can do, such as signing in, connecting an account or granting access, and says to tell it when that's done."),
+    ("offer", "Its work is done, and it offers more if the user wants it: 'Say if you want X', 'I can also do Y', 'If you want, I can…'."),
+    ("handoff", "Its work is done, and it leaves next steps for the user to take themselves, needing no answer: merging, deploying, sending, reviewing, or telling it when something happened."),
+    ("report", "It reports what was done or found, and asks nothing."),
+];
+
+/// The endings that wait on the user's answer: the chance a reply asks you something is theirs
+/// together.
+const ASKING: [&str; 2] = ["question", "blocked"];
+
+/// What a turn is asked, by name, in its signature: a change to the questions makes each recent
+/// turn a moment to ask about again, so what the board shows follows the new questions.
+const TURN_QUESTIONS: &str = "endings";
 
 /// What a command left running in the background can be doing, by name, with what each means.
 pub const BACKGROUND: [(&str, &str); 4] = [
@@ -198,12 +221,9 @@ pub fn request(s: &Session, kind: Kind, model: &str, waiting: Option<&str>) -> V
             let asked_for = if latest.is_some() { "`latest prompt` asked for" } else { "the user asked for" };
             let mut q = json!({
                 "asks_you": {
-                    "type": "noul",
-                    "instructions": "Does the end of the agent's last reply ask the user a question, or for a decision, that the user must answer before the agent can go on?",
-                    "criteria": {
-                        "true": "It asks the user something and waits: a question, a choice between options, or a request for approval or information.",
-                        "false": "It reports what was done or found. Offers such as 'let me know if you want more' don't count.",
-                    },
+                    "type": "choice",
+                    "instructions": "How does the end of the agent's last reply leave things with the user?",
+                    "criteria": Value::Object(ENDINGS.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()),
                 },
                 "finished": {
                     "type": "noul",
@@ -259,7 +279,8 @@ pub fn read(kind: Kind, response: &Value) -> SessionInsight {
     let mut out = SessionInsight::default();
     let asked: &[&str] = match kind {
         Kind::Turn => {
-            out.asks_you = jev::noul(response, "asks_you");
+            let endings = jev::choice(response, "asks_you");
+            out.asks_you = (!endings.is_empty()).then(|| endings.iter().filter(|(k, _)| ASKING.contains(&k.as_str())).map(|(_, p)| p).sum());
             out.landing = jev::choice(response, "landing").first().map(|(k, _)| k.clone());
             out.finished = jev::noul(response, "finished");
             &["asks_you", "landing", "finished"]
@@ -511,7 +532,8 @@ mod tests {
         assert_eq!(turn["state"]["end of the agent's last reply"], "…tests pass. Should I also migrate the old table?");
         assert_eq!(turn["state"]["first prompt"], "Fix the login bug");
         assert!(turn["state"].get("latest prompt").is_none(), "none without one, and not the first again");
-        assert_eq!(turn["questions"]["asks_you"]["type"], "noul");
+        assert_eq!(turn["questions"]["asks_you"]["type"], "choice");
+        assert_eq!(turn["questions"]["asks_you"]["criteria"].as_object().unwrap().len(), 5);
         assert_eq!(turn["questions"]["landing"]["criteria"].as_object().unwrap().len(), 6);
         assert_eq!(turn["questions"]["finished"]["instructions"], "Is the task the user asked for complete, with nothing left for the agent to do?");
         let approval = request(&session(Status::Needs), Kind::Approval, "m", None);
@@ -575,13 +597,16 @@ mod tests {
     #[test]
     fn reads_answers_back() {
         let v = json!({ "answers": {
-            "asks_you": { "type": "noul", "noul": 0.92, "confidence": 0.9 },
+            "asks_you": { "type": "choice", "probabilities": { "question": 0.5, "blocked": 0.25, "offer": 0.125, "handoff": 0.125, "report": 0.0 }, "confidence": 0.9 },
             "landing": { "type": "choice", "probabilities": { "pushed": 0.7, "committed": 0.2, "none": 0.1 }, "confidence": 0.6 },
             "finished": { "type": "noul", "noul": 0.3 },
         }});
         let i = read(Kind::Turn, &v);
-        assert_eq!((i.asks_you, i.landing.as_deref(), i.finished), (Some(0.92), Some("pushed"), Some(0.3)));
+        assert_eq!((i.asks_you, i.landing.as_deref(), i.finished), (Some(0.75), Some("pushed"), Some(0.3)), "a question or being blocked on you is asking");
         assert_eq!(i.confidence, Some(0.6), "the least sure answer");
+        let offer = read(Kind::Turn, &json!({ "answers": { "asks_you": { "probabilities": { "offer": 0.75, "question": 0.125, "report": 0.125 } } } }));
+        assert_eq!(offer.asks_you, Some(0.125), "offering more isn't asking");
+        assert_eq!(read(Kind::Turn, &json!({ "answers": {} })).asks_you, None, "no answer, no read");
         let bg = read(Kind::Background, &json!({ "answers": { "background": { "probabilities": { "polling": 0.8, "job": 0.15, "stalled": 0.05 } } } }));
         assert_eq!((bg.background.as_deref(), bg.background_p, bg.confidence), (Some("polling"), Some(0.8), None));
         assert_eq!(read(Kind::Approval, &json!({ "answers": { "risk": { "score": 2.6 } } })).risk, Some(2.6));

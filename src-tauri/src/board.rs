@@ -1199,11 +1199,37 @@ pub const FINISHED: f64 = 0.8;
 
 /// The last sentence of a reply, for a row: where its question is.
 pub fn last_sentence(text: &str) -> String {
+    truncate(sentences(text).last().copied().unwrap_or(""), 140)
+}
+
+/// Where a reply's question is, for a row that says it asks you: its last sentence that ends in
+/// a question mark, else its last sentence. A reply often goes on after its question, with what
+/// it tested or the sources it read, and the last of that isn't what it asks.
+pub fn question_in(text: &str) -> String {
+    let asked = sentences(text).into_iter().filter(|s| s.trim_end_matches(CLOSERS).ends_with('?')).last();
+    asked.map_or_else(|| last_sentence(text), |q| truncate(q, 140))
+}
+
+/// What can close a sentence after its stop: Markdown's emphasis, quotes, a bracket.
+const CLOSERS: [char; 7] = ['*', '_', '"', '\'', '”', '’', ')'];
+
+/// A reply's sentences, in order.
+fn sentences(text: &str) -> Vec<&str> {
     let t = text.trim().trim_start_matches('…').trim();
-    // A sentence ends at a stop followed by a space, so `App.tsx` and `e.g.` don't split one.
+    // A sentence ends at a stop, and what closes it, followed by a space, so `App.tsx`, `e.g.`
+    // and a link's `?q=` don't split one, and `?**` does.
     let chars: Vec<(usize, char)> = t.char_indices().collect();
-    let cut = chars.windows(2).filter(|w| matches!(w[0].1, '.' | '!' | '?') && w[1].1.is_whitespace()).map(|w| w[1].0).last().unwrap_or(0);
-    truncate(t[cut..].trim(), 140)
+    let mut starts = vec![0];
+    for (i, &(_, c)) in chars.iter().enumerate() {
+        if matches!(c, '.' | '!' | '?') {
+            let after = chars[i + 1..].iter().find(|(_, c)| !CLOSERS.contains(c));
+            if let Some(&(at, _)) = after.filter(|(_, c)| c.is_whitespace()) {
+                starts.push(at);
+            }
+        }
+    }
+    let ends = starts.iter().skip(1).copied().chain([t.len()]);
+    starts.iter().zip(ends).map(|(&a, b)| t[a..b].trim()).collect()
 }
 
 /// The sessions a pin asked for from another device takes (`session-pin`): for a pin, only ones
@@ -1405,7 +1431,7 @@ pub fn apply_insight(s: &mut Session, i: &SessionInsight) {
     if s.status == Status::Unread && i.asks_you.unwrap_or(0.0) >= ASKS_YOU {
         s.status = Status::Needs;
         s.asks = true;
-        let question = s.reply_tail.as_deref().map(last_sentence).filter(|q| !q.is_empty());
+        let question = s.reply_tail.as_deref().map(question_in).filter(|q| !q.is_empty());
         s.excerpt = Some(match question {
             Some(q) => format!("Asks you · {q}"),
             None => "Asks you something".to_string(),
@@ -3107,6 +3133,17 @@ mod tests {
         assert_eq!(last_sentence("…tests pass in App.tsx. Should I also migrate the old table?"), "Should I also migrate the old table?");
         assert_eq!(last_sentence("One line only"), "One line only");
         assert_eq!(last_sentence("Done! Next up: the docs."), "Next up: the docs.");
+        assert_eq!(last_sentence(""), "");
+    }
+
+    /// A reply that asks often goes on after its question; the row shows the question.
+    #[test]
+    fn finds_the_question_a_reply_asks() {
+        assert_eq!(question_in("…would go against that choice. Do you want me to make that change? To test, I trusted a folder. I removed it after."), "Do you want me to make that change?");
+        assert_eq!(question_in("**Do you want these as main addresses, or is forwarding enough?** Sources: - [Google](https://support.google.com/mail/answer/22370?hl=en)"), "**Do you want these as main addresses, or is forwarding enough?**");
+        assert_eq!(question_in("Should I merge it? Or should I wait for Wes?"), "Or should I wait for Wes?", "the last of several");
+        assert_eq!(question_in("I'm still waiting on your `aws sso login` to rerun the plan."), "I'm still waiting on your `aws sso login` to rerun the plan.", "no question mark: the last sentence");
+        assert_eq!(question_in("See claude.ai/settings/usage?from=cli for more. Then tell me."), "Then tell me.", "a question mark inside a link isn't a question");
     }
 
     #[test]

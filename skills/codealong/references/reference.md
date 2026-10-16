@@ -1605,9 +1605,12 @@ Arguments:
 
 Options:
       --asks-you <YES|NO>
-          Whether its last reply ends by asking the user something they must answer
-          before it can go on: a question, a choice, a request for approval or
-          information. Yes turns Your turn into Needs you, with the question
+          Whether its last reply ends by asking the user something it waits on before it
+          can go on: a question, a choice, a go-ahead, information, or something only
+          they can do, such as signing in. Not an offer of more work ("say if you want
+          X", "I can also do Y"), next steps the user takes on their own (merging a
+          ready PR, sending a draft), or a report: those are no, however much the user
+          has to decide. Yes turns Your turn into Needs you, with the question
 
       --json
           JSON output. The default when stdout isn't a terminal

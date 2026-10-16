@@ -100,6 +100,12 @@ Go over each session in `waiting` that `changed` this tick or has neither `sugge
   Use the `lastPromptAt` that came with what you read, never a fresher one.
 - Tag it with what you read: `codealong session tag <key> --asks-you yes|no --landing <…>
   --finished yes|no --prompt-at <lastPromptAt> --note "<the one fact that decides it>"`.
+- `--asks-you yes` only when its reply asks your user something it waits on before it can go
+  on: a question, a choice, a go-ahead, or something only they can do (signing in). It puts the
+  session in Needs you with what it asks, so it's for the session that's stuck without them. An
+  offer of more work ("say if you want X", "I can also do Y"), next steps for your user to take
+  ("merge it when you're ready"), and a report are `--asks-you no`, even when you suggest a reply
+  for them: a suggestion is for what your user might decide, a tag for what the session waits on.
 - A row with `helper` works for another agent or a PR (`start --helper`, an automatic review),
   not for your user. It waits on them for a call to allow, a question it put to them or an
   error: read and suggest for that as for any session. Its reply is for that agent or PR to

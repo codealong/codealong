@@ -1730,7 +1730,9 @@ remembers.
 
 Once per turn, Jev reads the end of the last reply, with the latest prompt it answers and the
 first prompt the session was started on, and the command a session runs or waits on. A reply that
-asks you something turns *Your turn* into *Needs you*, with the question; a busy session quiet on a
+asks you something it waits on (a question, a choice, a go-ahead, or a sign-in only you can do)
+turns *Your turn* into *Needs you*, with the question; one that offers more work ("say if you
+want…") or leaves you next steps to take yourself stays *Your turn*. A busy session quiet on a
 long build stays *Working* instead of *stuck*; a command left running in the background says
 whether it polls for something, runs a job, is a server or watcher left running (no longer
 *Working*), or waits on you (a sign-in, a password), which still takes what you send it, since its

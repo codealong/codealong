@@ -241,7 +241,9 @@ status, over Jev's for the same moment.
 3. `codealong session tag <key> --landing <landed|pushed|committed|uncommitted|blocked|none>
    --finished <yes|no> --asks-you <yes|no> --prompt-at <lastPromptAt> --note "<why, in a
    sentence>"`, saying only what you read: a field left out stays Jev's. `--asks-you yes` turns
-   its Your turn into Needs you, with its question; `--risk 0-3` for a call it waits on the user
+   its Your turn into Needs you, with its question, so it's only for a reply that asks something
+   it waits on (a question, a choice, a go-ahead, a sign-in), never for an offer of more work or
+   next steps the user takes on their own; `--risk 0-3` for a call it waits on the user
    to allow (0 reads only, 3 destructive); `--background polling|job|server|stalled` for a
    command its turn left running. Give the `lastPromptAt` from step 2: a tag is turned down if
    the user replied since you read it, or while the session takes a turn. Read it again and tag

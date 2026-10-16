@@ -665,7 +665,7 @@ struct SuggestArgs {
 struct TagArgs {
     /// The session: its key, its id, or a unique start of its id.
     key: String,
-    /// Whether its last reply ends by asking the user something they must answer before it can go on: a question, a choice, a request for approval or information. Yes turns Your turn into Needs you, with the question.
+    /// Whether its last reply ends by asking the user something it waits on before it can go on: a question, a choice, a go-ahead, information, or something only they can do, such as signing in. Not an offer of more work ("say if you want X", "I can also do Y"), next steps the user takes on their own (merging a ready PR, sending a draft), or a report: those are no, however much the user has to decide. Yes turns Your turn into Needs you, with the question.
     #[arg(long, value_name = "YES|NO", value_parser = yes_no)]
     asks_you: Option<bool>,
     /// How far its code change got, going by what you read: landed (merged, or on the main branch), pushed (on a branch or PR not merged), committed (not pushed), uncommitted (changed files, nothing committed), blocked (it couldn't finish) or none (no code change: an answer, research, a review).
