@@ -2062,8 +2062,9 @@ sessions first, in that Mac's order, and pins or unpins one there, remote contro
 ## For agents
 
 The `codealong` command and a skill that tells an agent when to use it. `codealong whoami` says
-which session runs it (found by its processes, or for the Codex app and OpenCode by the session's
-own record of the command), the other agents running in its worktree, and its open todos (the
+which session runs it (found by its processes, for a session Codealong runs by the ID its harness
+gives the commands it runs, and for the Codex app and OpenCode by the session's own record of the
+command), the other agents running in its worktree, and its open todos (the
 worktree's too, when no other agent runs there); a worktree's agents are the sessions running in it,
 not every session that ever worked there, nor an app's unrelated chats in its chats folder or a
 headless run; `codealong todo

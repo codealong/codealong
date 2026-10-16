@@ -24,7 +24,7 @@ use crate::canvas;
 use crate::config::{self, AccountCfg, Config};
 use crate::engine;
 use crate::insights;
-use crate::model::{Board, Lane, Origin, PreviewServer, Reuse, Session, Status};
+use crate::model::{Board, Harness, Lane, Origin, PreviewServer, Reuse, Session, Status};
 use crate::procs;
 use crate::search;
 use crate::server::{self, Request};
@@ -3408,9 +3408,9 @@ fn reuse_set(c: &mut Client, worktree: &str, on: bool, json: bool) -> Result<()>
 #[serde(rename_all = "camelCase")]
 struct Whoami {
     found: bool,
-    /// `process` (a parent process is a session the board knows), `record` (a session's
-    /// unanswered tool call runs this command) or `environment` (CODEALONG_SESSION was set by
-    /// the app's start).
+    /// `process` (a parent process is a session the board knows, or was given the ID of a
+    /// session Codealong runs), `record` (a session's unanswered tool call runs this command) or
+    /// `environment` (CODEALONG_SESSION was set by the app's start).
     how: Option<String>,
     session: Option<SessionRow>,
     worktree: Option<LaneRow>,
@@ -3422,8 +3422,9 @@ struct Whoami {
     todos: Vec<TodoRow>,
 }
 
-/// The session running this command: the parent process that's a live session on the board,
-/// else the session whose unanswered tool call runs this command (`running_this`), else
+/// The session running this command: the parent process that's a live session on the board, or
+/// a session Codealong runs whose ID a process under the app was given (`hosted_above`), else
+/// the session whose unanswered tool call runs this command (`running_this`), else
 /// `CODEALONG_SESSION` from a start the app made, for a session the board hasn't shown yet.
 /// The variable comes last and only for such a session: a terminal keeps it after its session
 /// ends, and long-lived processes started from one (Claude Code's background service,
@@ -3434,7 +3435,7 @@ fn find_me(c: &mut Client) -> Result<(Option<String>, Option<&'static str>)> {
     }
     let live: Vec<&Session> = all_sessions(c.board()?).into_iter().map(|(s, _)| s).filter(|s| s.live).collect();
     let chain: Vec<(u32, String)> = procs::ancestors(std::process::id()).into_iter().filter_map(|p| procs::parent_and_name(p).map(|(_, name)| (p, name))).collect();
-    let by_process = session_above(&chain, &live);
+    let by_process = session_above(&chain, &live).or_else(|| hosted_above(&chain, &live, |p| crate::harness::started_under(&procs::environment(p)?)));
     let me = match by_process {
         Some(key) => (Some(key), Some("process")),
         None => match running_this(c)? {
@@ -3458,6 +3459,27 @@ fn find_me(c: &mut Client) -> Result<(Option<String>, Option<&'static str>)> {
 fn session_above(chain: &[(u32, String)], live: &[&Session]) -> Option<String> {
     let (_, me) = chain.first()?;
     chain.iter().skip(1).take_while(|(_, name)| name != me).find_map(|(p, _)| live.iter().find(|s| s.pid == Some(*p))).map(|s| s.key.clone())
+}
+
+/// The session Codealong runs itself (`Session::hosted`) that this command runs under, which
+/// `session_above` can't find: the board gives such a session no process (acp.rs `overlay`). Its
+/// harness gives what it runs the session's ID in their environment (`Adapter::session_var`, read
+/// from a process's by `under`), so it's the nearest process of the chain below Codealong's app
+/// whose environment names a live hosted session. A command not under the app isn't one's, and
+/// the ID the app itself started with is passed on to everything the app runs. Before this, such
+/// a session was found only by its record of the command, which a Claude Code session Codealong
+/// ran had often not written yet when a command run at once read it, so `start --helper`
+/// and `session done` refused the session as none (2026-10-16).
+fn hosted_above(chain: &[(u32, String)], live: &[&Session], under: impl Fn(u32) -> Option<(Harness, String)>) -> Option<String> {
+    let (_, me) = chain.first()?;
+    let app = 1 + chain.iter().skip(1).position(|(_, name)| name == me)?;
+    let inherited = under(chain[app].0);
+    chain[..app]
+        .iter()
+        .filter_map(|(p, _)| under(*p))
+        .filter(|named| inherited.as_ref() != Some(named))
+        .find_map(|(harness, id)| live.iter().find(|s| s.hosted && s.harness == harness && s.id == id))
+        .map(|s| s.key.clone())
 }
 
 /// How recently a session that isn't in a turn by the board's last look was active, for it to
@@ -5627,6 +5649,36 @@ mod tests {
         // A session's own shell finds it, a `claude -p` started from another's the nearer one.
         assert_eq!(session_above(&chain(&[(50, "codealong"), (51, "zsh"), (300, "claude"), (60, "codealong")]), &live).as_deref(), Some("claude:claude:agent"));
         assert_eq!(session_above(&chain(&[(50, "codealong"), (51, "zsh"), (300, "claude"), (52, "zsh"), (100, "claude")]), &live).as_deref(), Some("claude:claude:agent"));
+    }
+
+    /// A Claude Code session Codealong ran over ACP was found only by its record of the command,
+    /// which it hadn't written yet when `start --helper` read it, so the helper was refused as
+    /// started from no session (2026-10-16). The board gives it no process; its shells carry its ID.
+    #[test]
+    fn a_session_codealong_runs_is_found_by_the_id_its_shell_was_given_under_the_app() {
+        let with_id = |key: &str| Session { id: key.rsplit(':').next().unwrap().to_string(), ..session(key, true, None) };
+        let hosted = |key: &str| Session { hosted: true, pid: None, ..with_id(key) };
+        let (mine, other) = (hosted("claude:claude:mine"), hosted("claude:claude:other"));
+        let terminal = Session { pid: Some(400), ..with_id("claude:claude:term") };
+        let live = [&mine, &other, &terminal];
+        let chain = |links: &[(u32, &str)]| links.iter().map(|(p, n)| (*p, n.to_string())).collect::<Vec<_>>();
+        // This command, the shell its session's claude started, that claude, the ACP adapter, the app.
+        let under_app = chain(&[(50, "codealong"), (51, "zsh"), (52, "claude"), (53, "node"), (60, "codealong")]);
+        let named = |env: &'static [(u32, &'static str)]| move |p: u32| env.iter().find(|(q, _)| *q == p).map(|(_, id)| (Harness::Claude, id.to_string()));
+        // Apple's zsh shows no environment; the command's own names the session.
+        assert_eq!(hosted_above(&under_app, &live, named(&[(50, "mine")])).as_deref(), Some("claude:claude:mine"));
+        // A `claude -p` run from its shell (54) names its own ID to what it runs, which isn't on
+        // the board, and was started with the session's.
+        let nested = chain(&[(50, "codealong"), (51, "zsh"), (54, "claude"), (55, "zsh"), (52, "claude"), (53, "node"), (60, "codealong")]);
+        assert_eq!(hosted_above(&nested, &live, named(&[(50, "-p run"), (54, "mine")])).as_deref(), Some("claude:claude:mine"));
+        // The app opened from a session's shell passes that ID to everything it runs, a Codex
+        // helper's commands included.
+        assert_eq!(hosted_above(&under_app, &live, named(&[(50, "other"), (53, "other"), (60, "other")])), None);
+        // Not under the app, it isn't a hosted session's, and only a hosted one is found so.
+        assert_eq!(hosted_above(&chain(&[(50, "codealong"), (51, "zsh"), (52, "claude")]), &live, named(&[(50, "mine")])), None);
+        assert_eq!(hosted_above(&under_app, &live, named(&[(50, "term")])), None);
+        // One that's gone from the board, or no longer live, isn't found.
+        assert_eq!(hosted_above(&under_app, &[&other], named(&[(50, "mine")])), None);
     }
 
 

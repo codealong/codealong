@@ -234,7 +234,8 @@ pub trait Adapter: Sync {
     /// The whole input of each tool call the session made that has no result yet: the command
     /// it's running now, or the call waiting on you. The `codealong` command finds the session
     /// that runs it from these when no process above it is a session (cli.rs). The harness
-    /// must have written the call before running it.
+    /// must have written the call before running it, which Claude Code doesn't always do
+    /// (`.claude/rules/claude-code.md`).
     fn open_calls(&self, _ctx: &Ctx, _session: &Session) -> Vec<String> {
         Vec::new()
     }

@@ -113,10 +113,18 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   own under the service, and a job runs in the spare it claimed (the session's pid is that
   `claude bg-spare` process); with the service gone they're launchd's, and nothing claims them
   again: `claude/mod.rs` (`leftover`), which `codealong hygiene` ends.
-- A Bash call is in the transcript before its command runs, and its shell, a background one too,
-  is a child of the session's process, which is how the `codealong` command finds its session; a
-  terminal keeps `CODEALONG_SESSION` after its session ends: `claude/mod.rs` (`open_calls`,
-  `runs_its_commands`), `cli.rs` (`find_me`).
+- A Bash call's shell, a background one too, is a child of the session's process, which is how
+  the `codealong` command finds its session; a terminal keeps `CODEALONG_SESSION` after its
+  session ends: `claude/mod.rs` (`runs_its_commands`), `cli.rs` (`find_me`). The call is
+  usually in the transcript before its command runs (`open_calls`), but not always: in a long
+  session Codealong ran over ACP (2.1.280, a 20 MB transcript), commands that ran within about
+  130 ms of their call's stamp read the transcript before the call was there, while one that
+  ran `sleep 5` first found it. Fresh 2.1.280 runs on Haiku, Sonnet and Opus always had it
+  written by the time their command started, 44 ms after the stamp (2026-10-16). Lines go
+  through a write queue drained every 100 ms (`FLUSH_INTERVAL_MS`), and while a reply streams
+  its lines are held back until its `stop_reason` is known. Such a session gets no process on
+  the board, so the command finds it by `CLAUDE_CODE_SESSION_ID` in its shells instead
+  (`cli.rs` `hosted_above`).
 - A PR a session made or changed, from `toolUseResult.gitOperation.pr` or a `pr-link` line:
   `claude/transcript.rs` (`pr_made`); `prlinks.rs` links the session to it, subagents' logs
   included (`engine.rs`). `gitOperation` also has `push`, `commit` and `branch`; `push.branch`,

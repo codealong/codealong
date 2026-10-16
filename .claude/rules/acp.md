@@ -35,8 +35,12 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
 - claude-agent-acp's `claude` is the adapter's child, started with `--permission-mode <mode>`
   and `--setting-sources=user,project,local`, so it runs the account's hooks, the Codealong
   plugin's `PermissionRequest` hook among them; its `sessions/<pid>.json` (2.1.280) lets that
-  hook find its process. A call it asks about comes both ways: as the adapter's
-  `session/request_permission` and through the hook. The app holds only the first (server.rs
+  hook find its process. The board gives a hosted session no pid (`acp.rs` `overlay`); the
+  `claude` itself isn't started with `CLAUDE_CODE_SESSION_ID`, but the shells it runs commands
+  in are given the session's ID, which is how the `codealong` command run there finds its
+  session (`cli.rs` `hosted_above`; the app's own environment had none, 2026-10-16). A call
+  it asks about comes both ways: as the adapter's `session/request_permission` and through the
+  hook. The app holds only the first (server.rs
   `hold_permission_ask`, `acp::runs`): one held through the hook as well showed the session
   waiting on a call the panel couldn't answer (2026-10-14). Claude Code reads files in
   parallel, and each read outside the folder asked at once, three requests waiting together

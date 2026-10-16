@@ -1294,7 +1294,8 @@ pub fn overlay(s: &mut Session, seen_at: i64) {
     let alive = h.loaded && alive(&st, &h.account);
     // Live, but with no pid of its own: the adapter's process serves all the account's hosted
     // sessions, and a session's pid is taken for its own (closing idle terminals, finding the
-    // session a command runs in).
+    // session a command runs in, which goes by the ID its harness gave the command instead:
+    // cli.rs `hosted_above`).
     if alive {
         s.live = true;
         s.pid = None;
