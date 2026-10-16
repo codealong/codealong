@@ -32,14 +32,17 @@
   color: var(--ink);
 }
 .ca-dialog-lede {
-  margin: 4px var(--space-5) var(--space-4);
+  /* Less the body's top padding, so a dialog with a lede keeps its spacing. */
+  margin: 4px var(--space-5) calc(var(--space-4) - var(--space-1));
   font: var(--type-body);
   color: var(--ink-2);
 }
 .ca-dialog-body {
   display: grid;
   gap: var(--space-3);
-  padding: 0 var(--space-5) var(--space-5);
+  /* Room above its first row for a control's focus ring (--shadow-focus), which the scroll
+     would cut: the Usage window's opens on its span and account. */
+  padding: var(--space-1) var(--space-5) var(--space-5);
   overflow: auto;
 }
 .ca-dialog-foot {
