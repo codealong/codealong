@@ -1,32 +1,34 @@
-//! The panels: the one place Codealong talks to AppKit about the windows that float over other
-//! apps. The bar, its peek, the quick panel, the sessions kept on the desktop, the cards pinned
-//! there and the lines between them are each a Tauri window turned into a non-activating NSPanel,
-//! the only kind macOS puts on another app's full-screen Space, and here is how one is made,
-//! shown, given the keyboard and has it taken, hidden, and given back its class before it's
-//! destroyed, with the level each floats at (`Level`), which the outline flash.rs draws goes by
-//! too. A window's own module says what kind of panel it is (`Config`) and when each of these
-//! happens; it never reaches AppKit itself.
+//! The panels: the one place Codealong talks to the window system about the windows that float
+//! over other apps. The bar, its peek, the quick panel, the sessions kept on the desktop, the
+//! cards pinned there and the lines between them are each a Tauri window made into a panel here:
+//! on macOS a non-activating NSPanel, the only kind macOS puts on another app's full-screen Space
+//! (`appkit`), and on Linux a borderless window kept on top through Tauri and GTK (`gtk`). Here is
+//! how one is made, shown, given the keyboard and has it taken, hidden, and given back its class
+//! before it's destroyed, with the level each floats at (`Level`), which the outline flash.rs
+//! draws goes by too. A window's own module says what kind of panel it is (`Config`) and when
+//! each of these happens; it never reaches AppKit or GTK itself.
 //!
-//! Nearly everything here is odd for a reason, found by the plain way failing, and much of it
-//! can only be checked by hand in the running app: `.claude/rules/windows.md` says what was,
+//! Nearly everything in `appkit` is odd for a reason, found by the plain way failing, and much of
+//! it can only be checked by hand in the running app: `.claude/rules/windows.md` says what was,
 //! when, and what hasn't been yet.
 //!
 //! All of it is the main thread's. Off it these functions do nothing and answer nothing, and a
 //! debug build stops to say so (`main_thread`).
 
-use std::cell::OnceCell;
-use std::ffi::CString;
-use std::sync::Mutex;
+#[cfg(target_os = "macos")]
+mod appkit;
+#[cfg(target_os = "macos")]
+pub use appkit::*;
+#[cfg(not(target_os = "macos"))]
+mod gtk;
+#[cfg(not(target_os = "macos"))]
+pub use self::gtk::*;
+
 use std::time::Duration;
 
-use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
-use objc2::{msg_send, sel, ClassType, MainThreadMarker};
-use objc2_app_kit::{NSApplication, NSBackingStoreType, NSColor, NSEvent, NSMainMenuWindowLevel, NSPanel, NSResponder, NSScreen, NSStatusWindowLevel, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowLevel, NSWindowOcclusionState, NSWindowStyleMask};
-use objc2_foundation::{NSPoint, NSRect, NSSize};
-use tauri::{AppHandle, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
+use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder, Wry};
 
-use crate::geometry::{Rect, Screen};
+use crate::geometry::Screen;
 
 /// How often a window that stays up checks that it is (macOS can leave one off the Space in
 /// front) and writes down where it was moved to: the bar, the cards and the sessions kept on the
@@ -51,7 +53,8 @@ pub enum Level {
     /// AppKit's floating level, where other apps' floating panels can cover a window.
     FloatingBar,
     /// The outline round a terminal that came forward on another screen (flash.rs): with the
-    /// floating bar.
+    /// floating bar. Only macOS draws one.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Outline,
     /// The bar's peek: over the floating bar it opens by.
     Peek,
@@ -64,18 +67,6 @@ pub enum Level {
     Quick,
 }
 
-impl Level {
-    /// The level as AppKit counts it.
-    pub fn raw(self) -> NSWindowLevel {
-        match self {
-            Level::Lines => NSStatusWindowLevel - 1,
-            Level::Card | Level::Kept | Level::FloatingBar | Level::Outline => NSStatusWindowLevel,
-            Level::Peek => NSStatusWindowLevel + 1,
-            Level::DockedBar => NSMainMenuWindowLevel + 2,
-            Level::Quick => NSMainMenuWindowLevel + 3,
-        }
-    }
-}
 
 /// How a panel answers AppKit about the keyboard. None ever becomes the main window, so a board
 /// window behind one stays the one menu commands are for.
@@ -112,16 +103,6 @@ pub enum Spaces {
     Transient,
 }
 
-impl Spaces {
-    /// The collection behaviour that says so.
-    pub fn behavior(self) -> NSWindowCollectionBehavior {
-        let everywhere = NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::FullScreenAuxiliary | NSWindowCollectionBehavior::IgnoresCycle;
-        match self {
-            Spaces::Stationary => everywhere | NSWindowCollectionBehavior::Stationary,
-            Spaces::Transient => everywhere | NSWindowCollectionBehavior::Transient,
-        }
-    }
-}
 
 /// The steps `make` takes. The panels were made by copies of one piece of code before they
 /// shared this one, and two of the copies told AppKit the same things in different orders.
@@ -139,8 +120,10 @@ pub enum Steps {
     One,
 }
 
-/// What kind of panel a window is made into (`make`).
+/// What kind of panel a window is made into (`make`). GTK's windows take none of it: every one is
+/// on top, and the window manager says which has the keyboard (panel/gtk.rs).
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub struct Config {
     pub keys: Keys,
     /// The level it starts at (`set_level` moves it).
@@ -220,391 +203,6 @@ pub fn poll(app: &AppHandle, every: Duration, going: impl Fn(&AppHandle) -> bool
     });
 }
 
-/// AppKit is the main thread's. Off it there's no marker, so the caller does nothing, as these
-/// functions always have; a debug build stops instead, to say who called.
-fn main_thread() -> Option<MainThreadMarker> {
-    let mtm = MainThreadMarker::new();
-    debug_assert!(mtm.is_some(), "panel.rs was called off the main thread, where AppKit isn't to be called");
-    mtm
-}
-
-/// Whether this is the main thread, for a caller that may be on either.
-pub fn on_main_thread() -> bool {
-    MainThreadMarker::new().is_some()
-}
-
-/// The window's NSWindow, on the main thread only.
-fn ns(w: &WebviewWindow) -> Option<&NSWindow> {
-    main_thread()?;
-    let ptr = w.ns_window().ok()? as *const NSWindow;
-    // SAFETY: Tauri hands out the window's own NSWindow, which lives as long as the window,
-    // and this is the main thread, where AppKit expects to be called.
-    unsafe { ptr.as_ref() }
-}
-
-/// The panels that have the keyboard or are taking it, by their address: the docked bar, while
-/// it shows a session to answer, the peek, the sessions kept on the desktop. They answer AppKit
-/// truthfully about being key; the others say they are (`Keys`). The floating bar and the cards
-/// on the desktop are never here.
-static ENGAGED: Mutex<Vec<usize>> = Mutex::new(Vec::new());
-
-fn engaged(this: *const AnyObject) -> bool {
-    ENGAGED.lock().is_ok_and(|e| e.contains(&(this as usize)))
-}
-
-/// Whether the panel answers truthfully about being key (`on`), or says it is.
-fn engage(n: &NSWindow, on: bool) {
-    note(n as *const NSWindow as usize, on);
-}
-
-fn note(this: usize, on: bool) {
-    if let Ok(mut e) = ENGAGED.lock() {
-        e.retain(|x| *x != this);
-        if on {
-            e.push(this);
-        }
-    }
-}
-
-/// The NSPanel subclass for a way with the keyboard, made the first time it's asked for. It
-/// overrides only what that way answers differently from a panel.
-fn class(keys: Keys, unconstrained: bool) -> &'static AnyClass {
-    extern "C" fn yes(_: &AnyObject, _: Sel) -> Bool {
-        Bool::YES
-    }
-    extern "C" fn no(_: &AnyObject, _: Sel) -> Bool {
-        Bool::NO
-    }
-    extern "C" fn if_engaged(this: &AnyObject, _: Sel) -> Bool {
-        Bool::new(engaged(this))
-    }
-    extern "C" fn is_key(this: &AnyObject, _: Sel) -> Bool {
-        if !engaged(this) {
-            return Bool::YES;
-        }
-        // SAFETY: NSWindow's own `- (BOOL)isKeyWindow`, asked of the panel it was asked of.
-        unsafe { msg_send![super(this, NSPanel::class()), isKeyWindow] }
-    }
-    extern "C" fn as_asked(_: &AnyObject, _: Sel, frame: NSRect, _: *const AnyObject) -> NSRect {
-        frame
-    }
-    static CLASSES: Mutex<Vec<(Keys, bool, &'static AnyClass)>> = Mutex::new(Vec::new());
-    let mut classes = CLASSES.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((_, _, made)) = classes.iter().find(|(k, u, _)| *k == keys && *u == unconstrained) {
-        return made;
-    }
-    let way = match keys {
-        Keys::WhenAsked => "KeyWhenAsked",
-        Keys::OnClick => "KeyOnClick",
-        Keys::Always => "KeyAlways",
-    };
-    let name = CString::new(format!("CodealongPanel{way}{}", if unconstrained { "Unconstrained" } else { "" })).expect("a class name without a NUL");
-    let made = match ClassBuilder::new(&name, NSPanel::class()) {
-        Some(mut builder) => {
-            // SAFETY: the overrides match NSWindow's `- (BOOL)canBecome…Window`,
-            // `- (BOOL)isKeyWindow` and
-            // `- (NSRect)constrainFrameRect:(NSRect)frame toScreen:(NSScreen *)screen`.
-            unsafe {
-                match keys {
-                    Keys::WhenAsked => builder.add_method(sel!(canBecomeKeyWindow), if_engaged as extern "C" fn(_, _) -> _),
-                    Keys::OnClick | Keys::Always => builder.add_method(sel!(canBecomeKeyWindow), yes as extern "C" fn(_, _) -> _),
-                }
-                builder.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(_, _) -> _);
-                if keys != Keys::Always {
-                    builder.add_method(sel!(isKeyWindow), is_key as extern "C" fn(_, _) -> _);
-                }
-                if unconstrained {
-                    builder.add_method(sel!(constrainFrameRect:toScreen:), as_asked as extern "C" fn(_, _, _, _) -> _);
-                }
-            }
-            builder.register()
-        }
-        None => AnyClass::get(&name).unwrap_or(NSPanel::class()),
-    };
-    classes.push((keys, unconstrained, made));
-    made
-}
-
-/// The class a window had before `make` swapped it.
-pub struct Original(&'static AnyClass);
-
-/// Turns a window into a non-activating panel, the only kind macOS puts on another app's
-/// full-screen Space. Tauri makes windows, so the class is swapped after the fact, and before
-/// the window is first shown: one shown as a window stays off full-screen Spaces. WebKit asks
-/// again whether the window is key each time it's ordered on screen, which `show` does after
-/// this, so the page counts as active from its first showing.
-///
-/// Then it's put at its level, on every Space and over full-screen apps, kept out of ⌘` and the
-/// Window menu, and still up when Codealong is hidden (⌘H), without bringing its other windows
-/// back.
-///
-/// Returns the class it replaced, which a window must get back before it's destroyed
-/// (`unmake`). The bar, its peek, the quick panel and the lines never are.
-pub fn make(w: &WebviewWindow, config: Config) -> Option<Original> {
-    let n = ns(w)?;
-    let original = swap(n, config.keys, config.unconstrained);
-    match (config.steps, original.is_some()) {
-        (Steps::Two, made) => {
-            if made && config.tooltips {
-                n.setAllowsToolTipsWhenApplicationIsInactive(true);
-            }
-            place(n, config);
-        }
-        (Steps::One, true) => {
-            place(n, config);
-            if config.tooltips {
-                n.setAllowsToolTipsWhenApplicationIsInactive(true);
-            }
-        }
-        (Steps::One, false) => {}
-    }
-    original
-}
-
-/// The class, and what makes a panel of it.
-fn swap(n: &NSWindow, keys: Keys, unconstrained: bool) -> Option<Original> {
-    let obj: &AnyObject = n;
-    let panel = class(keys, unconstrained);
-    let original = obj.class();
-    // NSPanel keeps no storage of its own beyond NSWindow's, so the swap needs no more room
-    // than tao's window already has; if that ever changes, the window stays a plain window.
-    if panel.instance_size() > original.instance_size() {
-        return None;
-    }
-    // SAFETY: the object is tao's NSWindow subclass, at least as large as the panel class,
-    // which only adds methods. tao reads its own ivar only when focusability changes, which
-    // these windows never do after they're made.
-    unsafe { AnyObject::set_class(obj, panel) };
-    n.setStyleMask(n.styleMask() | NSWindowStyleMask::NonactivatingPanel);
-    // Panels hide when their app deactivates unless told not to.
-    n.setHidesOnDeactivate(false);
-    Some(Original(original))
-}
-
-/// Where it floats.
-fn place(n: &NSWindow, config: Config) {
-    n.setLevel(config.level.raw());
-    n.setCollectionBehavior(n.collectionBehavior() | config.spaces.behavior());
-    n.setExcludedFromWindowsMenu(true);
-    n.setCanHide(false);
-}
-
-/// Takes a panel off the screen and gives its window back the class `make` replaced, so it can
-/// be destroyed. WebKit watches the window through key-value observing, which is itself a swap
-/// of the window's class (to `NSKVONotifying_TaoWindow`) made when the page went in; taking the
-/// page out of a window with the panel's class instead raises "Cannot remove an observer …
-/// because it is not registered", an exception that aborts the app.
-pub fn unmake(w: &WebviewWindow, original: Original) {
-    let Some(n) = ns(w) else { return };
-    n.orderOut(None);
-    engage(n, false);
-    n.setStyleMask(n.styleMask() & !NSWindowStyleMask::NonactivatingPanel);
-    // SAFETY: the class the object had before, which `make` checked is no larger than it.
-    unsafe { AnyObject::set_class(n, original.0) };
-}
-
-/// Brings the panel up without making it key or activating Codealong, whichever app is in front.
-pub fn show(w: &WebviewWindow) {
-    if let Some(n) = ns(w) {
-        n.orderFrontRegardless();
-    }
-}
-
-/// Orders the panel in over every other app, without activating Codealong. With `keys` it takes
-/// the keyboard too; without, whatever app you're in keeps it, and the panel says it's key, as
-/// one up from a hover does.
-pub fn present(w: &WebviewWindow, keys: bool) {
-    let Some(n) = ns(w) else { return };
-    // WebKit reads whether the window is key as it's ordered on screen.
-    engage(n, keys);
-    n.orderFrontRegardless();
-    if keys {
-        take_keys(w);
-    }
-}
-
-/// Takes the window off the screen. It has the keyboard no more, if it had.
-pub fn hide(w: &WebviewWindow) {
-    if let Some(n) = ns(w) {
-        n.orderOut(None);
-        engage(n, false);
-    }
-}
-
-/// Runs `f` with a window and its page's view, on the main thread: any window's, not only a
-/// panel's.
-pub fn with_page(w: &WebviewWindow, f: impl FnOnce(&NSWindow, &NSResponder) + Send + 'static) {
-    let window = w.clone();
-    let _ = w.with_webview(move |webview| {
-        let Some(n) = ns(&window) else { return };
-        let ptr = webview.inner() as *const NSResponder;
-        // SAFETY: on macOS `inner` is the webview's WKWebView, an NSResponder that lives as
-        // long as the window; this runs on the main thread.
-        if let Some(view) = unsafe { ptr.as_ref() } {
-            f(n, view);
-        }
-    });
-}
-
-/// Makes the panel the key window, and its webview the first responder, so the page's keys
-/// reach what it focused. Codealong stays inactive: the app you're in keeps its menu bar.
-pub fn take_keys(w: &WebviewWindow) {
-    let Some(n) = ns(w) else { return };
-    engage(n, true);
-    n.makeKeyWindow();
-    with_page(w, |n, view| {
-        n.makeFirstResponder(Some(view));
-    });
-}
-
-/// Hands the keyboard back to the app you're in, with the panel still up. A key panel gives
-/// the keyboard up when it's ordered out and at no other time AppKit offers, but one ordered
-/// out, even for a single turn of the run loop, has WebKit hide what its page shows until it
-/// draws again: the docked bar vanished as it closed and came back partway through its closing
-/// (2026-10-05). So an unseen panel takes the keyboard from it and is the one ordered out
-/// (`relay`). From then on the panel says it's key, as it does whenever it hasn't the keyboard,
-/// so its page still gets the pointer. Should the unseen panel fail to take the keyboard, the
-/// panel itself is ordered out and in again, as it was before there was one.
-pub fn drop_keys(w: &WebviewWindow) {
-    let Some(n) = ns(w) else { return };
-    if engaged(n as *const NSWindow as *const AnyObject) && n.isKeyWindow() {
-        // Saying it's key before the keyboard goes, so WebKit, asking as it goes, finds the page
-        // still active.
-        engage(n, false);
-        if !hand_over(n) {
-            // Ordered out while it still answers truthfully, so AppKit sees a key panel going.
-            engage(n, true);
-            n.orderOut(None);
-        }
-    }
-    engage(n, false);
-    // WebKit reads whether the window is key as it's ordered on screen.
-    n.orderFrontRegardless();
-}
-
-thread_local! {
-    /// The unseen panel that takes the keyboard from a panel giving it up, made the first time
-    /// one does and kept. AppKit's, so the main thread's.
-    static RELAY: OnceCell<Option<Retained<NSPanel>>> = const { OnceCell::new() };
-}
-
-/// The unseen panel: a clear point that lets every click through, at the bottom left of the main
-/// screen, a non-activating panel that can be key, on every Space and over full-screen apps as
-/// the others are, so ordering it in never takes you to another Space, and shown and hidden at
-/// once. None if it couldn't be made a panel that can be key.
-fn relay(mtm: MainThreadMarker) -> Option<Retained<NSPanel>> {
-    RELAY.with(|r| {
-        r.get_or_init(|| {
-            let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0));
-            let p = NSPanel::initWithContentRect_styleMask_backing_defer(mtm.alloc(), rect, NSWindowStyleMask::Borderless, NSBackingStoreType::Buffered, false);
-            // SAFETY: it's only ever ordered out, never closed, and kept in RELAY; AppKit
-            // releasing it on a close as well would release it twice.
-            unsafe { p.setReleasedWhenClosed(false) };
-            swap(&p, Keys::Always, false)?;
-            p.setOpaque(false);
-            p.setBackgroundColor(Some(&NSColor::clearColor()));
-            p.setHasShadow(false);
-            p.setIgnoresMouseEvents(true);
-            p.setAnimationBehavior(NSWindowAnimationBehavior::None);
-            p.setCollectionBehavior(Spaces::Transient.behavior());
-            p.setExcludedFromWindowsMenu(true);
-            p.setCanHide(false);
-            Some(p)
-        })
-        .clone()
-    })
-}
-
-/// The unseen panel takes the keyboard from `from`, at its level, and is ordered out, which
-/// gives the keyboard back to the app you're in, all in one turn of the run loop. Whether it
-/// took it.
-fn hand_over(from: &NSWindow) -> bool {
-    let Some(relay) = main_thread().and_then(relay) else { return false };
-    relay.setLevel(from.level());
-    relay.orderFrontRegardless();
-    relay.makeKeyWindow();
-    let took = relay.isKeyWindow();
-    relay.orderOut(None);
-    took
-}
-
-/// Another of Codealong's windows has the keyboard: the quick panel, a board window. While
-/// another app has it, Codealong has no key window.
-pub fn other_is_key(w: &WebviewWindow) -> bool {
-    let (Some(mtm), Some(n)) = (main_thread(), ns(w)) else { return false };
-    NSApplication::sharedApplication(mtm).keyWindow().is_some_and(|k| !std::ptr::eq(&*k, n))
-}
-
-/// Moves the panel to another level.
-pub fn set_level(w: &WebviewWindow, level: Level) {
-    if let Some(n) = ns(w) {
-        n.setLevel(level.raw());
-    }
-}
-
-/// Whether the window takes the pointer's clicks and moves or lets them through to what's under it.
-pub fn set_clickable(w: &WebviewWindow, clickable: bool) {
-    if let Some(n) = ns(w) {
-        n.setIgnoresMouseEvents(!clickable);
-    }
-}
-
-/// Shows and hides the window at once, without AppKit's scaling it in: what it draws is placed
-/// by the screen, and is off its place while the window is scaled.
-pub fn no_animation(w: &WebviewWindow) {
-    if let Some(n) = ns(w) {
-        n.setAnimationBehavior(NSWindowAnimationBehavior::None);
-    }
-}
-
-/// How much of the window shows through: 0 leaves it up, where it was, and unseen.
-pub fn set_alpha(w: &WebviewWindow, alpha: f64) {
-    if let Some(n) = ns(w) {
-        if n.alphaValue() != alpha {
-            n.setAlphaValue(alpha);
-        }
-    }
-}
-
-/// Ordered in, wherever it is.
-pub fn is_visible(w: &WebviewWindow) -> bool {
-    ns(w).map(|n| n.isVisible()).unwrap_or(false)
-}
-
-/// Ordered in and some part of it on screen. These sit above ordinary windows, so when one is
-/// ordered in but can't be seen, macOS kept it off the Space in front.
-pub fn on_screen(w: &WebviewWindow) -> bool {
-    ns(w).map(|n| n.isVisible() && n.occlusionState().contains(NSWindowOcclusionState::Visible)).unwrap_or(true)
-}
-
-/// A rectangle as AppKit gives it, in screen points.
-pub(crate) fn rect(r: NSRect) -> Rect {
-    Rect { x: r.origin.x, y: r.origin.y, w: r.size.width, h: r.size.height }
-}
-
-/// A window's frame, in screen points: any window's, not only a panel's.
-pub fn frame(w: &WebviewWindow) -> Option<Rect> {
-    ns(w).map(|n| rect(n.frame()))
-}
-
-/// A rectangle as AppKit takes it.
-pub fn ns_rect(r: Rect) -> NSRect {
-    NSRect::new(NSPoint::new(r.x, r.y), NSSize::new(r.w, r.h))
-}
-
-pub fn set_frame(w: &WebviewWindow, r: Rect) {
-    if let Some(n) = ns(w) {
-        n.setFrame_display(ns_rect(r), true);
-    }
-}
-
-/// Every screen, the one with the menu bar first.
-pub fn screens() -> Vec<Screen> {
-    let Some(mtm) = main_thread() else { return Vec::new() };
-    let all = NSScreen::screens(mtm);
-    (0..all.count()).map(|i| all.objectAtIndex(i)).map(|s| Screen { frame: rect(s.frame()), visible: rect(s.visibleFrame()) }).collect()
-}
-
 /// The top of a screen, as a notch is found from it: the safe area the screen keeps from its
 /// top, and how wide the menu bar is on either side of the camera (`auxiliaryTopLeftArea` and
 /// `…RightArea`). A screen without a notch has no safe area and empty sides.
@@ -613,100 +211,4 @@ pub struct Top {
     pub screen: Screen,
     pub safe_top: f64,
     pub sides: (f64, f64),
-}
-
-/// The top of every screen, the one with the menu bar first.
-pub fn tops() -> Vec<Top> {
-    let Some(mtm) = main_thread() else { return Vec::new() };
-    let all = NSScreen::screens(mtm);
-    (0..all.count())
-        .map(|i| all.objectAtIndex(i))
-        .map(|s| Top {
-            screen: Screen { frame: rect(s.frame()), visible: rect(s.visibleFrame()) },
-            safe_top: s.safeAreaInsets().top,
-            sides: (s.auxiliaryTopLeftArea().size.width, s.auxiliaryTopRightArea().size.width),
-        })
-        .collect()
-}
-
-/// Where the pointer is, in screen points.
-pub fn pointer() -> Option<(f64, f64)> {
-    main_thread()?;
-    let p = NSEvent::mouseLocation();
-    Some((p.x, p.y))
-}
-
-/// The mouse's main button is down, whichever app has the click.
-pub fn button_down() -> bool {
-    NSEvent::pressedMouseButtons() & 1 != 0
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_levels_stack_as_the_windows_do() {
-        let at = Level::raw;
-        // The lines are under the cards they join, and the cards no higher than the bar.
-        assert!(at(Level::Lines) < at(Level::Card));
-        assert!(at(Level::Card) <= at(Level::FloatingBar));
-        assert!(at(Level::Card) < at(Level::DockedBar));
-        assert_eq!(at(Level::Kept), at(Level::Card));
-        // Docked, the bar is over the menu bar and its status items, and the peek is over the
-        // floating bar and other apps' status items.
-        assert!(at(Level::DockedBar) > NSMainMenuWindowLevel && at(Level::DockedBar) > NSStatusWindowLevel);
-        assert!(at(Level::Peek) > at(Level::FloatingBar) && at(Level::Peek) > NSStatusWindowLevel);
-        // The quick panel is over them all, the docked bar and the peek too.
-        assert!(at(Level::Quick) > at(Level::DockedBar) && at(Level::Quick) > at(Level::Peek));
-        // As AppKit counts them: the menu bar is 24 and its status items 25.
-        assert_eq!([Level::Lines, Level::Card, Level::Kept, Level::FloatingBar, Level::Outline, Level::Peek, Level::DockedBar, Level::Quick].map(at), [24, 25, 25, 25, 25, 26, 26, 27]);
-    }
-
-    /// Which of a panel's answers a class gives itself, rather than leaving them to NSPanel.
-    fn overrides(keys: Keys, unconstrained: bool) -> [bool; 4] {
-        let class = class(keys, unconstrained);
-        [sel!(canBecomeKeyWindow), sel!(canBecomeMainWindow), sel!(isKeyWindow), sel!(constrainFrameRect:toScreen:)].map(|s| {
-            let of = |c: &AnyClass| c.instance_method(s).map(|m| m.implementation() as usize);
-            of(class) != of(NSPanel::class())
-        })
-    }
-
-    #[test]
-    fn a_class_overrides_only_what_its_way_with_the_keyboard_answers() {
-        // The bar's, the cards' and the lines': all four.
-        assert_eq!(overrides(Keys::WhenAsked, true), [true, true, true, true]);
-        assert_eq!(overrides(Keys::WhenAsked, false), [true, true, true, false]);
-        // The peek's and a kept session's: AppKit places them as it places any window.
-        assert_eq!(overrides(Keys::OnClick, false), [true, true, true, false]);
-        assert!(!std::ptr::eq(class(Keys::OnClick, false), class(Keys::WhenAsked, false)));
-        // The quick panel's: whether it's key is AppKit's to say.
-        assert_eq!(overrides(Keys::Always, false), [true, true, false, false]);
-        // Asked for again, it's the same class.
-        assert!(std::ptr::eq(class(Keys::WhenAsked, true), class(Keys::WhenAsked, true)));
-        assert!(!std::ptr::eq(class(Keys::WhenAsked, true), class(Keys::WhenAsked, false)));
-    }
-
-    #[test]
-    fn a_panel_answers_truthfully_only_while_it_has_the_keyboard() {
-        // Addresses no window has.
-        let (a, b) = (0x10usize, 0x20usize);
-        assert!(!engaged(a as *const AnyObject));
-        note(a, true);
-        note(a, true);
-        note(b, true);
-        assert!(engaged(a as *const AnyObject) && engaged(b as *const AnyObject));
-        // Taken once, however often it was given.
-        note(a, false);
-        assert!(!engaged(a as *const AnyObject) && engaged(b as *const AnyObject));
-        note(b, false);
-        assert!(!engaged(b as *const AnyObject));
-    }
-
-    #[test]
-    fn every_panel_is_on_every_space_and_out_of_the_window_cycle() {
-        let everywhere = NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::FullScreenAuxiliary | NSWindowCollectionBehavior::IgnoresCycle;
-        assert_eq!(Spaces::Stationary.behavior(), everywhere | NSWindowCollectionBehavior::Stationary);
-        assert_eq!(Spaces::Transient.behavior(), everywhere | NSWindowCollectionBehavior::Transient);
-    }
 }

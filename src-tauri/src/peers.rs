@@ -1594,7 +1594,7 @@ fn iroh_loop(inner: Arc<Inner>, gen: u64) {
 /// how long it took (the device stops waiting after a while: codealong-peer's `ACT_WAIT`), in
 /// `~/Library/Logs/Codealong/devices.log`. The prompt itself isn't written down.
 fn audit(from: &str, short: &str, method: &str, key: &str, got: &std::result::Result<Value, String>, took: std::time::Duration) {
-    let dir = crate::util::home().join("Library/Logs/Codealong");
+    let dir = crate::config::logs_dir();
     let _ = std::fs::create_dir_all(&dir);
     let took = format!("{:.1} s", took.as_secs_f64());
     let outcome = match got {

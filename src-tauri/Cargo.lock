@@ -607,6 +607,7 @@ dependencies = [
  "codealong-peer",
  "data-encoding",
  "dirs",
+ "gtk",
  "ignore",
  "iroh",
  "libc",

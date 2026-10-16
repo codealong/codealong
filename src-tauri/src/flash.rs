@@ -79,6 +79,7 @@ pub fn after_focus(app: &AppHandle, from: Option<(f64, f64)>, bundle_id: &'stati
     });
 }
 
+#[cfg(target_os = "macos")]
 mod native {
     use std::cell::RefCell;
     use std::ffi::c_void;
@@ -325,6 +326,31 @@ mod native {
             }
         });
     }
+}
+
+/// Off macOS a terminal's windows can't be found by its app, so nothing is outlined: with no
+/// pointer to start from, `after_focus` returns at once.
+#[cfg(not(target_os = "macos"))]
+mod native {
+    use super::Frame;
+
+    pub fn ticket() -> u64 {
+        0
+    }
+    pub fn is_newest(_ticket: u64) -> bool {
+        false
+    }
+    pub fn pointer() -> Option<(f64, f64)> {
+        None
+    }
+    pub fn screens() -> Vec<Frame> {
+        Vec::new()
+    }
+    pub fn front_window_settled(_bundle_id: &str) -> Option<Frame> {
+        None
+    }
+    pub fn warp(_at: (f64, f64)) {}
+    pub fn outline(_app: &tauri::AppHandle, _window: Frame, _ticket: u64) {}
 }
 
 #[cfg(test)]

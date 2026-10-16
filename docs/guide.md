@@ -1783,6 +1783,23 @@ extension's results lists the session's tab group); the profile from the extensi
 profile, which records its tab groups, or from each profile's History for a group it no longer
 remembers.
 
+### On Linux
+
+Codealong runs on Linux too, under X11, where a terminal emulator takes no scripts. So there
+`terminal = "terminal"` means the desktop's terminal: each new terminal is a tmux session, which
+Codealong types into and presses keys in, shown in a window of the first emulator found
+(`$TERMINAL` when it names one, else Ghostty, kitty, WezTerm, Alacritty, foot, Konsole, GNOME
+Terminal, Ptyxis, Xfce Terminal or xterm). A Background start opens no window, and Show in later
+opens one attached to it. Show in raises a session's window with `xdotool`. A session started by
+hand in an emulator's own tab, outside tmux, can be opened but not typed into or found. Editors
+are found by their commands on your PATH (`code`, `cursor`, `zed`, `subl`, `idea` and the rest),
+and `editor` in config.toml can name any other command. Links open with `xdg-open`, a Chrome
+profile's with `google-chrome --profile-directory`, and Show in Chrome opens the session's last
+page again, since Chrome takes no scripts there. The windows that float stay over other windows on
+every workspace, without the notch, and need a compositor for their clear parts. A sound plays
+through `paplay` from the freedesktop sound theme. What the Mac has and Linux doesn't is listed in
+the [development notes](development.md#linux).
+
 ## What Codealong works out
 
 ### Session status from Jev
@@ -2240,7 +2257,9 @@ background job stopped the way Close stops it; it judges nothing when the app do
 
 ## Files Codealong keeps
 
-Everything lives in `~/Library/Application Support/Codealong/`, beside `config.toml`.
+Everything lives in `~/Library/Application Support/Codealong/`, beside `config.toml`; on Linux
+in `~/.config/codealong/` (`$XDG_CONFIG_HOME`), with the logs in `~/.local/state/codealong/` and
+caches in `~/.cache/codealong/`.
 
 What you've seen (for Your turn), what you've pinned, snoozed and archived in Codealong are kept in
 `state.json` next to it; whether the bar is on, floating or in the notch, and where you left it
@@ -2261,7 +2280,7 @@ Todos and labels are in `todos.json`, which is watched, so an agent or an editor
 Attachments are kept by their content: images in `images/`, other files in `files/<hash>/<name>`;
 ones no todo uses are cleared after 30 days. The devices this one is linked with are in
 `devices.json`, and what each last said in `device-feeds.json`; this device's key is in the login
-keychain.
+keychain (on Linux, the desktop's Secret Service).
 
 ## What's next
 

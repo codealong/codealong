@@ -1,0 +1,57 @@
+# The Linux VM scripts/linux-vm.sh starts to build and try Codealong on Linux: Ubuntu 24.04 on
+# Apple's virtualization, with what Tauri needs on Linux (WebKitGTK 4.1, GTK 3), Rust, Node, a
+# headless X server to run the app in, and Claude Code and Codex to give it sessions to show.
+# It mounts nothing of the Mac's: linux-vm.sh copies in the checkout it runs from.
+minimumLimaVersion: 2.0.0
+
+base:
+- template:_images/ubuntu-24.04
+
+vmType: vz
+cpus: 8
+memory: 16GiB
+disk: 100GiB
+mounts: []
+containerd:
+  system: false
+  user: false
+
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y build-essential curl wget file git pkg-config libssl-dev \
+      libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+      xvfb xauth openbox xcompmgr xterm xdotool x11-utils imagemagick dbus-x11 at-spi2-core \
+      tmux zsh jq python3 unzip rsync sound-theme-freedesktop pulseaudio-utils libsecret-tools
+    if ! command -v node >/dev/null; then
+      curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+      apt-get install -y nodejs
+    fi
+    npm install -g @anthropic-ai/claude-code @openai/codex
+- mode: user
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+    fi
+    grep -q CARGO_TARGET_DIR "$HOME/.profile" || cat >> "$HOME/.profile" <<'EOF'
+    # Where cargo builds the VM's copy of the checkout (.cargo/config.toml's target-dir, seen from
+    # ~/codealong), for the scripts that run what it built.
+    export CARGO_TARGET_DIR="$HOME/codealong-target"
+    EOF
+
+probes:
+- mode: readiness
+  description: Rust, Node and WebKitGTK are installed
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    if ! timeout 30s bash -c "until [ -x \$HOME/.cargo/bin/cargo ] && command -v node && pkg-config --exists webkit2gtk-4.1; do sleep 3; done"; then
+      echo >&2 "the build tools are not installed yet"
+      exit 1
+    fi

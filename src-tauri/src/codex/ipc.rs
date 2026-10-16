@@ -696,6 +696,7 @@ mod tests {
     /// reaches: Codealong says so, and why, a few seconds after opening the thread rather than
     /// eighteen.
     #[test]
+    #[cfg(target_os = "macos")]
     fn says_when_the_codex_apps_windows_cant_reach_each_other() {
         let home = scratch("codex-split");
         let router = router(&home, None, json!({}));
@@ -807,6 +808,7 @@ mod tests {
     /// A send Codex didn't take fails, so the prompt stays where it was written, and the app has
     /// it filled in to send from there.
     #[test]
+    #[cfg(target_os = "macos")]
     fn a_codex_send_that_was_only_filled_in_is_not_sent() {
         let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": "/nonexistent/codex" })).unwrap();
         let s = Session { surface: Surface::App, status: Status::Idle, live: true, title: "Fix the build".into(), cwd: "/tmp".into(), ..Session::new(Harness::Codex, "codex", "abc") };

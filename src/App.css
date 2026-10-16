@@ -41,6 +41,10 @@
 .ca-win--app .ca-win-bar-start {
   padding-left: calc(84px - var(--space-4));
 }
+/* On Linux the window manager's title bar has the window's buttons (main.tsx). */
+.is-linux .ca-win--app .ca-win-bar-start {
+  padding-left: 0;
+}
 /* The sidebar's toggle, beside the traffic lights as in the Finder. */
 .ca-sidetoggle {
   flex: none;

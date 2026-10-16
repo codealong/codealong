@@ -107,13 +107,14 @@ pub fn open(app: &AppHandle, context: Value) {
 fn make(app: &AppHandle, state: &Waiting) -> Result<()> {
     let w = tauri::WebviewWindowBuilder::new(app, LABEL, tauri::WebviewUrl::App("index.html".into()))
         .title("Waiting on you")
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
         .inner_size(START_SIZE.0, START_SIZE.1)
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
         .visible(false)
-        .initialization_script("window.__CODEALONG_WAITING__ = true;")
-        .build()?;
+        .initialization_script("window.__CODEALONG_WAITING__ = true;");
+    // The card's strip is its title bar on macOS; elsewhere the window manager's stays.
+    #[cfg(target_os = "macos")]
+    let w = w.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
+    let w = w.build()?;
     let saved = state.frame.lock().ok().and_then(|f| *f);
     let pointer = panel::pointer().and_then(|p| screen_at(p, &panel::screens()));
     if let Some(frame) = panel::frame(&w).and_then(|now| start_frame(saved, now, &panel::screens(), pointer)) {

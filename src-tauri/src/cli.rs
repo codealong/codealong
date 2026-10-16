@@ -175,7 +175,7 @@ struct HygieneArgs {
     /// End what it lists, and log each.
     #[arg(long)]
     kill: bool,
-    /// Where --kill logs what it ended, a line each; ~/Library/Logs/Codealong/kills.log unless given.
+    /// Where --kill logs what it ended, a line each; kills.log in Codealong's logs (~/Library/Logs/Codealong, or ~/.local/state/codealong on Linux) unless given.
     #[arg(long, value_name = "FILE")]
     log: Option<String>,
 }
@@ -3872,8 +3872,7 @@ fn parse_todo_status(s: &str) -> Result<TodoStatus> {
 fn new_todo_id() -> String {
     let now = now_ms() as u64;
     let mut b = [0u8; 4];
-    // SAFETY: arc4random_buf writes exactly the length it's given into the buffer.
-    unsafe { libc::arc4random_buf(b.as_mut_ptr().cast(), b.len()) };
+    crate::util::random_bytes(&mut b);
     format!("t-{}{}", base36(now), base36(u32::from_le_bytes(b) as u64 % 36u64.pow(4)))
 }
 
@@ -4907,7 +4906,7 @@ fn hygiene(c: &mut Client, a: &HygieneArgs, json: bool) -> Result<()> {
                         _ => None,
                     };
                     let ended = hygiene::end(&due, &table, &protected, board, &cfg, &fresh);
-                    let path = a.log.as_deref().map(expand).unwrap_or_else(|| util::home().join("Library/Logs/Codealong/kills.log"));
+                    let path = a.log.as_deref().map(expand).unwrap_or_else(|| crate::config::logs_dir().join("kills.log"));
                     if let Err(e) = hygiene::log(&path, &ended, &due) {
                         out.notes.push(format!("Couldn't log to {}: {e}", path.display()));
                     }

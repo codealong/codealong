@@ -863,7 +863,7 @@ struct Saved {
 
 /// A cache: macOS may clear it, and a copy of the app with a home of its own has its own.
 fn saved_dir() -> PathBuf {
-    crate::util::home().join("Library/Caches/Codealong/github")
+    crate::config::cache_dir().join("github")
 }
 
 fn saved_path(dir: &Path, key: &str) -> PathBuf {

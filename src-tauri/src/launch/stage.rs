@@ -38,6 +38,7 @@ impl Default for Setup {
 pub struct Sent {
     pub what: String,
     pub args: Vec<String>,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub timeout: Duration,
 }
 
@@ -200,6 +201,12 @@ pub fn tty(pid: u32) -> Option<Option<PathBuf>> {
     staged(|s| s.setup.procs.iter().find(|p| p.0 == pid).and_then(|p| p.3).map(PathBuf::from))
 }
 
+/// Every Linux terminal emulator is on the PATH when the apps are installed.
+#[cfg(not(target_os = "macos"))]
+pub fn on_path(command: &str) -> Option<Option<PathBuf>> {
+    staged(|s| s.setup.installed.then(|| PathBuf::from("/usr/bin").join(command)))
+}
+
 pub fn tmux_bin() -> Option<PathBuf> {
     staged(|_| PathBuf::from("/opt/homebrew/bin/tmux"))
 }
@@ -237,7 +244,9 @@ pub fn hang_up(pids: &[u32]) -> Option<Vec<bool>> {
     Some(pids.iter().map(|p| !stays.contains(p)).collect())
 }
 
-#[cfg(test)]
+// What macOS's terminals are sent, by the profiles only its `TERMINALS` has; Linux's terminal is
+// pinned in launch/linux.rs.
+#[cfg(target_os = "macos")]
 mod tests {
     use std::cell::Cell;
     use std::path::Path;
@@ -373,6 +382,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn ghostty_opens_a_plain_window_another_way_when_its_script_fails() {
         let p = played(|_| Ok("ok\n".into()), || terminal_open("ghostty", window(), Path::new("/r/app"), None));
         p.got.unwrap();
@@ -1166,6 +1176,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn things_open_through_macos_open_with_each_ones_arguments_wait_and_words() {
         let ok = |_: &Sent| Ok(String::new());
         let no = |s: &Sent| if s.what == "/usr/bin/open" { Err("/usr/bin/open no such app".to_string()) } else { Ok(String::new()) };

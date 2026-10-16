@@ -1,7 +1,9 @@
 //! The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed,
 //! and any other app `[apps] editor` names. See README.md's Settings section. The ones with a
 //! command line inside their app (`Cli`) also open a file at a line and two files as a diff,
-//! which a PR's changed files use (prdiff.rs); the rest open a file as a folder opens.
+//! which a PR's changed files use (prdiff.rs); the rest open a file as a folder opens. On Linux
+//! an editor is its command on the PATH (`Known::commands`), which is its command line too, and
+//! `[apps] editor` can name any other command.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -12,6 +14,7 @@ use serde::Serialize;
 
 use crate::config::Profile;
 use crate::procs;
+#[cfg(target_os = "macos")]
 use crate::util::home;
 
 /// An editor Codealong knows, by an id of its own.
@@ -19,9 +22,13 @@ struct Known {
     id: &'static str,
     name: &'static str,
     /// Its app's names, the first found wins: some come in editions (Community, beta).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     apps: &'static [&'static str],
     /// Its command line, inside its app.
     cli: Option<Cli>,
+    /// Its commands on Linux, the first found on the PATH wins; none for a Mac-only one.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    commands: &'static [&'static str],
 }
 
 /// An editor's command line: where it is in its app, and how it's told a line. Both kinds take
@@ -29,6 +36,7 @@ struct Known {
 #[derive(Clone, Copy)]
 struct Cli {
     /// A name in VS Code's `Contents/Resources/app/bin`, or a path in the app.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     path: &'static str,
     goto: Goto,
 }
@@ -50,35 +58,49 @@ const ZED: Option<Cli> = Some(Cli { path: "Contents/MacOS/cli", goto: Goto::Suff
 
 /// In the order the Open in menus list them.
 const KNOWN: &[Known] = &[
-    Known { id: "vscode", name: "VS Code", apps: &["Visual Studio Code"], cli: code("code") },
-    Known { id: "vscode-insiders", name: "VS Code Insiders", apps: &["Visual Studio Code - Insiders"], cli: code("code-insiders") },
-    Known { id: "cursor", name: "Cursor", apps: &["Cursor"], cli: code("cursor") },
-    Known { id: "windsurf", name: "Windsurf", apps: &["Windsurf"], cli: code("windsurf") },
-    Known { id: "zed", name: "Zed", apps: &["Zed"], cli: ZED },
-    Known { id: "zed-preview", name: "Zed Preview", apps: &["Zed Preview"], cli: ZED },
-    Known { id: "kiro", name: "Kiro", apps: &["Kiro"], cli: code("kiro") },
-    Known { id: "sublime", name: "Sublime Text", apps: &["Sublime Text"], cli: None },
-    Known { id: "nova", name: "Nova", apps: &["Nova"], cli: None },
-    Known { id: "bbedit", name: "BBEdit", apps: &["BBEdit"], cli: None },
-    Known { id: "xcode", name: "Xcode", apps: &["Xcode", "Xcode-beta"], cli: None },
-    Known { id: "intellij", name: "IntelliJ IDEA", apps: &["IntelliJ IDEA", "IntelliJ IDEA Ultimate", "IntelliJ IDEA CE", "IntelliJ IDEA Community Edition"], cli: None },
-    Known { id: "webstorm", name: "WebStorm", apps: &["WebStorm"], cli: None },
-    Known { id: "pycharm", name: "PyCharm", apps: &["PyCharm", "PyCharm Professional Edition", "PyCharm CE", "PyCharm Community Edition"], cli: None },
-    Known { id: "goland", name: "GoLand", apps: &["GoLand"], cli: None },
-    Known { id: "rustrover", name: "RustRover", apps: &["RustRover"], cli: None },
-    Known { id: "clion", name: "CLion", apps: &["CLion"], cli: None },
-    Known { id: "android-studio", name: "Android Studio", apps: &["Android Studio"], cli: None },
+    Known { id: "vscode", name: "VS Code", apps: &["Visual Studio Code"], cli: code("code"), commands: &["code"] },
+    Known { id: "vscode-insiders", name: "VS Code Insiders", apps: &["Visual Studio Code - Insiders"], cli: code("code-insiders"), commands: &["code-insiders"] },
+    Known { id: "cursor", name: "Cursor", apps: &["Cursor"], cli: code("cursor"), commands: &["cursor"] },
+    Known { id: "windsurf", name: "Windsurf", apps: &["Windsurf"], cli: code("windsurf"), commands: &["windsurf"] },
+    Known { id: "zed", name: "Zed", apps: &["Zed"], cli: ZED, commands: &["zed", "zeditor"] },
+    Known { id: "zed-preview", name: "Zed Preview", apps: &["Zed Preview"], cli: ZED, commands: &[] },
+    Known { id: "kiro", name: "Kiro", apps: &["Kiro"], cli: code("kiro"), commands: &["kiro"] },
+    Known { id: "sublime", name: "Sublime Text", apps: &["Sublime Text"], cli: None, commands: &["subl"] },
+    Known { id: "nova", name: "Nova", apps: &["Nova"], cli: None, commands: &[] },
+    Known { id: "bbedit", name: "BBEdit", apps: &["BBEdit"], cli: None, commands: &[] },
+    Known { id: "xcode", name: "Xcode", apps: &["Xcode", "Xcode-beta"], cli: None, commands: &[] },
+    Known { id: "intellij", name: "IntelliJ IDEA", apps: &["IntelliJ IDEA", "IntelliJ IDEA Ultimate", "IntelliJ IDEA CE", "IntelliJ IDEA Community Edition"], cli: None, commands: &["idea", "intellij-idea-ultimate", "intellij-idea-community"] },
+    Known { id: "webstorm", name: "WebStorm", apps: &["WebStorm"], cli: None, commands: &["webstorm"] },
+    Known { id: "pycharm", name: "PyCharm", apps: &["PyCharm", "PyCharm Professional Edition", "PyCharm CE", "PyCharm Community Edition"], cli: None, commands: &["pycharm", "pycharm-professional", "pycharm-community"] },
+    Known { id: "goland", name: "GoLand", apps: &["GoLand"], cli: None, commands: &["goland"] },
+    Known { id: "rustrover", name: "RustRover", apps: &["RustRover"], cli: None, commands: &["rustrover"] },
+    Known { id: "clion", name: "CLion", apps: &["CLion"], cli: None, commands: &["clion"] },
+    Known { id: "android-studio", name: "Android Studio", apps: &["Android Studio"], cli: None, commands: &["android-studio", "studio"] },
 ];
 
 /// Where Mac apps are installed: by hand or Homebrew, for one user (JetBrains Toolbox puts its
 /// IDEs there, or in a folder of its own there), and by Setapp.
+#[cfg(target_os = "macos")]
 fn app_dirs() -> Vec<PathBuf> {
     let h = home();
     vec![PathBuf::from("/Applications"), h.join("Applications"), h.join("Applications/JetBrains Toolbox"), PathBuf::from("/Applications/Setapp")]
 }
 
+#[cfg(target_os = "macos")]
 fn find_in(dirs: &[PathBuf], k: &Known) -> Option<PathBuf> {
     k.apps.iter().flat_map(|app| dirs.iter().map(move |d| d.join(format!("{app}.app")))).find(|p| p.is_dir())
+}
+
+/// On Linux, the folders on your PATH.
+#[cfg(not(target_os = "macos"))]
+fn app_dirs() -> Vec<PathBuf> {
+    procs::user_path().split(':').filter(|d| !d.is_empty()).map(PathBuf::from).collect()
+}
+
+/// On Linux, where its command is.
+#[cfg(not(target_os = "macos"))]
+fn find_in(dirs: &[PathBuf], k: &Known) -> Option<PathBuf> {
+    k.commands.iter().flat_map(|c| dirs.iter().map(move |d| d.join(c))).find(|p| p.is_file())
 }
 
 /// The known editors installed, in menu order, with where each one's app is.
@@ -115,6 +137,7 @@ pub fn name(id: &str) -> String {
 
 /// What `open -a` is given for `id`: a known editor's app where it's installed (its first name
 /// when it isn't found, for Launch Services to look for), else `id` itself, an app's name or path.
+#[cfg(target_os = "macos")]
 fn app_for(dirs: &[PathBuf], id: &str) -> String {
     match KNOWN.iter().find(|k| k.id == id) {
         Some(k) => find_in(dirs, k).map_or_else(|| k.apps[0].to_string(), |p| p.to_string_lossy().into_owned()),
@@ -123,20 +146,43 @@ fn app_for(dirs: &[PathBuf], id: &str) -> String {
 }
 
 /// Opens `path`, a folder or a file, in the editor `id` names.
+#[cfg(target_os = "macos")]
 pub fn open(id: &str, path: &Path) -> Result<()> {
     let app = app_for(&app_dirs(), id);
     procs::open(&["-a", &app, &path.to_string_lossy()], Duration::from_secs(15))
         .map_err(|_| anyhow!("Couldn't open {}. Is it installed?", name(id)))
 }
 
+/// On Linux, by its command: a known editor's where it's found, else `id` itself, a command on
+/// the PATH or a path. It's left to run by itself, since some (JetBrains') stay until you quit.
+#[cfg(not(target_os = "macos"))]
+pub fn open(id: &str, path: &Path) -> Result<()> {
+    let dirs = app_dirs();
+    let program = match KNOWN.iter().find(|k| k.id == id) {
+        Some(k) => find_in(&dirs, k),
+        None if id.contains('/') => Some(crate::util::expand(id)).filter(|p| p.is_file()),
+        None => dirs.iter().map(|d| d.join(id)).find(|p| p.is_file()),
+    };
+    let program = program.ok_or_else(|| anyhow!("Couldn't open {}. Is it installed?", name(id)))?;
+    procs::start_detached(&program.to_string_lossy(), &[&path.to_string_lossy()], Duration::from_secs(15)).map_err(|e| anyhow!("Couldn't open {}: {e}", name(id)))
+}
+
 /// The command line of the editor `id` where it's installed: the program, and how it takes a
 /// line. It's the one inside the app, so nobody has to have put it on their PATH.
+#[cfg(target_os = "macos")]
 fn cli_in(dirs: &[PathBuf], id: &str) -> Option<(PathBuf, Goto)> {
     let k = KNOWN.iter().find(|k| k.id == id)?;
     let cli = k.cli?;
     let app = find_in(dirs, k)?;
     let program = if cli.path.contains('/') { app.join(cli.path) } else { app.join("Contents/Resources/app/bin").join(cli.path) };
     program.is_file().then_some((program, cli.goto))
+}
+
+/// On Linux an editor's command is its command line.
+#[cfg(not(target_os = "macos"))]
+fn cli_in(dirs: &[PathBuf], id: &str) -> Option<(PathBuf, Goto)> {
+    let k = KNOWN.iter().find(|k| k.id == id)?;
+    Some((find_in(dirs, k)?, k.cli?.goto))
 }
 
 /// The editor a diff opens in: yours (`[apps] editor`) when its command line takes one, else the
@@ -229,6 +275,7 @@ pub fn icons() -> Vec<Icon> {
 }
 
 /// Draws the app's icon as the Finder shows it, `ICON_PX` square.
+#[cfg(target_os = "macos")]
 fn draw_icon(app: &Path) -> Option<Vec<u8>> {
     use objc2::AllocAnyThread;
     use objc2_app_kit::{NSBitmapImageRep, NSCompositingOperation, NSDeviceRGBColorSpace, NSGraphicsContext, NSImageInterpolation, NSWorkspace};
@@ -260,7 +307,14 @@ fn draw_icon(app: &Path) -> Option<Vec<u8>> {
     Some(straight(premultiplied))
 }
 
+/// Linux has no one icon for an app: the menus show editors by name alone.
+#[cfg(not(target_os = "macos"))]
+fn draw_icon(_app: &Path) -> Option<Vec<u8>> {
+    None
+}
+
 /// Premultiplied RGBA, as AppKit draws, made straight, as menus and canvases take it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn straight(rgba: &[u8]) -> Vec<u8> {
     rgba.chunks_exact(4)
         .flat_map(|p| {
@@ -275,6 +329,7 @@ fn straight(rgba: &[u8]) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
     fn apps_in(root: &Path, names: &[&str]) -> Vec<PathBuf> {
         let dirs = vec![root.join("Applications"), root.join("home/Applications")];
         for n in names {
@@ -284,6 +339,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn finds_editors_where_apps_are_installed_in_menu_order() {
         let root = crate::fixtures::scratch("editors");
         let dirs = apps_in(&root, &["Applications/Zed.app", "Applications/Visual Studio Code.app", "home/Applications/PyCharm CE.app", "Applications/Notes.app"]);
@@ -297,6 +353,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn a_diff_opens_in_yours_when_it_can_else_the_first_that_can() {
         let root = crate::fixtures::scratch("editors-diff");
         let dirs = apps_in(&root, &["Applications/Zed.app/Contents/MacOS", "Applications/Cursor.app/Contents/Resources/app/bin", "Applications/Sublime Text.app"]);
@@ -312,6 +369,27 @@ mod tests {
         assert_eq!(cli_in(&dirs, "cursor").map(|(p, _)| p), Some(root.join("Applications/Cursor.app/Contents/Resources/app/bin/cursor")));
         assert_eq!(cli_in(&dirs, "zed").map(|(_, g)| g), Some(Goto::Suffix));
         assert_eq!(diff_editor_in(&[root.join("nowhere")], "cursor"), None);
+    }
+
+    /// On Linux an editor is its command on the PATH, which takes a line and a diff when the Mac
+    /// app's command line does.
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn finds_linux_editors_by_their_commands_in_menu_order() {
+        let root = crate::fixtures::scratch("editors-linux");
+        let dirs = vec![root.join("bin"), root.join("local/bin")];
+        for (d, c) in [("local/bin", "zeditor"), ("bin", "code"), ("bin", "pycharm-community"), ("bin", "subl"), ("bin", "ls")] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+            std::fs::write(root.join(d).join(c), "").unwrap();
+        }
+        let ids: Vec<String> = installed_in(&dirs).into_iter().map(|p| p.id).collect();
+        assert_eq!(ids, ["vscode", "zed", "sublime", "pycharm"]);
+        assert_eq!(cli_in(&dirs, "vscode"), Some((root.join("bin/code"), Goto::Flag)));
+        assert_eq!(cli_in(&dirs, "zed"), Some((root.join("local/bin/zeditor"), Goto::Suffix)));
+        // Sublime takes no diff, so a diff opens in the first that does.
+        assert_eq!(cli_in(&dirs, "sublime"), None);
+        assert_eq!(diff_editor_in(&dirs, "sublime").map(|p| p.id).as_deref(), Some("vscode"));
+        assert_eq!(diff_editor_in(&[root.join("nowhere")], "vscode"), None);
     }
 
     #[test]

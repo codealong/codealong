@@ -3083,8 +3083,8 @@ Options:
           Tables, even when piped
 
       --log <FILE>
-          Where --kill logs what it ended, a line each;
-          ~/Library/Logs/Codealong/kills.log unless given
+          Where --kill logs what it ended, a line each; kills.log in Codealong's logs
+          (~/Library/Logs/Codealong, or ~/.local/state/codealong on Linux) unless given
 
       --verbose
           Say on stderr whether the app or the files answered

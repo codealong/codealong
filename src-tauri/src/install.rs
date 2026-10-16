@@ -309,7 +309,11 @@ pub fn open_as_the_dock_does() -> Option<i32> {
     // LaunchServices knows the copy it opened from its first moment, before it has said it's
     // running, and nothing else: not one a shell started, nor one started in the background whose
     // starter quit, which launchd adopts with whatever environment it had (checked 2026-10-14).
+    #[cfg(target_os = "macos")]
     let by_macos = objc2_app_kit::NSRunningApplication::runningApplicationWithProcessIdentifier(pid as libc::pid_t).is_some();
+    // Never reached: no binary is in a bundle off macOS.
+    #[cfg(not(target_os = "macos"))]
+    let by_macos = false;
     let (ppid, me) = crate::procs::parent_and_name(pid)?;
     let parent = crate::procs::parent_and_name(ppid).map(|(_, name)| (ppid, name));
     if !opened_by_hand(by_macos, parent.as_ref().map(|(pid, name)| (*pid, name.as_str())), &me) {
@@ -365,6 +369,12 @@ fn dock_environment(caller: impl Fn(&str) -> Option<String>, shell: &str, temp: 
 
 /// The per-user temporary folder macOS gives apps (`getconf DARWIN_USER_TEMP_DIR`): a shell's
 /// TMPDIR can be one an agent's sandbox set.
+#[cfg(not(target_os = "macos"))]
+fn user_temp_dir() -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "macos")]
 fn user_temp_dir() -> Option<String> {
     let mut buf = vec![0u8; 1024];
     // SAFETY: confstr writes at most `buf.len()` bytes, its NUL included, and returns the length
@@ -881,6 +891,7 @@ mod tests {
         assert_eq!(env["CODEALONG_DEVICE_KEY"], "ab12");
         assert!(!env.contains_key("CLAUDE_CODE_SESSION_ID") && !env.contains_key("CODEALONG_SESSION"), "{env:?}");
         assert!(!env.contains_key("LOGNAME"), "only what the opener has");
+        #[cfg(target_os = "macos")]
         assert!(user_temp_dir().is_some_and(|t| t.ends_with("/T/")), "{:?}", user_temp_dir());
     }
 

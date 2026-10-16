@@ -56,9 +56,48 @@ scripts/checks.sh                        # every browser check in scripts/previe
 ```
 
 `cargo test` covers the model's rules, the harnesses' parsers, git and GitHub parsing, usage,
-config writes, deep links and terminal scripts. `scripts/preview.sh` renders the UI with Tauri's
+config writes, deep links and terminal scripts. It passes on Linux too, less the tests of what
+only macOS has (`#[cfg(target_os = "macos")]`); see Linux below. `scripts/preview.sh` renders the UI with Tauri's
 IPC stubbed, for screenshots and scripted checks; its header lists the views and options.
 `codealong --snapshot` checks the engine's behavior without a window (CLAUDE.md lists its modes).
+
+## Linux
+
+The engine and the app build and run on Linux (X11, WebKitGTK 4.1), where some of what macOS
+gives the app has no counterpart. `scripts/linux-vm.sh` makes and drives a VM to build and try it
+in from a Mac (Ubuntu 24.04 under [Lima](https://lima-vm.io), `brew install lima`; the VM's
+packages are in `scripts/linux/lima.yaml`):
+
+```bash
+scripts/linux-vm.sh                # create the VM (the first time) and start it
+scripts/linux-vm.sh test           # cargo test in it, on a copy of this checkout
+scripts/linux-vm.sh build          # tauri build: the binary and a .deb
+scripts/linux-vm.sh run [secs]     # the app on the VM's own headless display; .preview/linux.png
+scripts/linux-vm.sh shell [cmd…]   # a shell in the VM's copy of the checkout
+```
+
+The VM mounts nothing of the Mac's: it works on its own copy of the checkout the script runs
+from (`~/codealong`, brought up to date over ssh by every command but `start` and `shell`), so
+any worktree can use it, and its builds and `node_modules` never mix with the Mac's. A run has a
+home of its own there (`~/run-home`, kept between runs): its own config.toml, sessions and
+socket, and nothing of the Mac's.
+
+Where the two differ, a module keeps both, by `cfg(target_os = "macos")`:
+
+| macOS | Linux |
+|---|---|
+| `panel/appkit.rs`: non-activating NSPanels at their levels | `panel/gtk.rs`: borderless windows kept on top through Tauri, screens and the pointer from GDK |
+| `procs.rs`: `sysctl` and `proc_pidinfo` | `procs/linux.rs`: `/proc` |
+| Ghostty, iTerm2 and Terminal through AppleScript | `launch/linux.rs`: each new terminal a tmux session, shown in the desktop's terminal emulator |
+| `keychain.rs`: the login keychain | the desktop's Secret Service (`secret-tool`) |
+| `~/Library/Application Support/Codealong`, `Logs`, `Caches` | `~/.config/codealong`, `~/.local/state/codealong`, `~/.cache/codealong` (config.rs) |
+| `sounds.rs`: NSSound | the freedesktop sound theme, through `paplay` |
+
+What Linux goes without: the notch, the focus outline round a terminal on another screen
+(flash.rs), app icons in the editor menus, pictures of the windows for Improve Codealong, the
+Dock icon's status, the Claude and Codex apps (macOS's), and Antigravity's and Cursor's sign-ins
+for their usage. The keys the windows show are macOS's (⌘). `.claude/rules/linux.md` has what
+was found there.
 
 ## Icons and the mark
 
@@ -133,7 +172,7 @@ light scan (no git, PRs or visitors).
 | `src-tauri/src/suggestions.rs`, `src/ui/SuggestedReplies.tsx` | Suggested replies: what another session suggested a session's user send it (`codealong session suggest`, `suggestions.json`), kept until the session moves on (`board::suggestions_hold`), and the list above the reply box that sends one with a click; for questions a session asks, choices of their own picked in its question box (`suggestions::picked`) |
 | `src-tauri/src/repos.rs`, `git.rs`, `github.rs`, `ghpoll.rs` | Repo discovery, callsigns, worktrees, git status, PRs, and when GitHub is asked for them |
 | `src-tauri/src/held.rs` | The repo scan's reads of folders it doesn't own, each on a thread of its own, so one macOS holds for a privacy prompt holds up only that folder |
-| `src-tauri/src/launch.rs`, `launch/iterm.rs`, `launch/terminal_app.rs` | Terminal profiles: Ghostty, iTerm2 and Terminal through AppleScript (a session's tab found exactly, typing, closing), deep links |
+| `src-tauri/src/launch.rs`, `launch/iterm.rs`, `launch/terminal_app.rs`, `launch/linux.rs` | Terminal profiles: Ghostty, iTerm2 and Terminal through AppleScript (a session's tab found exactly, typing, closing), on Linux tmux shown in the desktop's emulator, deep links |
 | `src-tauri/src/editors.rs`, `src/editors.ts` | The editors a folder opens in: the ones Codealong knows, found where Mac apps are installed, and the Open in menus |
 | `src-tauri/src/flash.rs` | Outlines a focused terminal that came forward on another screen |
 | `src-tauri/src/caret.rs`, `src/caret.ts` | A text cursor WebKit stopped drawing in a window you type in: typing into a page that says it isn't focused hands it its focus again, and the perf log says what macOS said of the window |
@@ -191,7 +230,7 @@ light scan (no git, PRs or visitors).
 | `src/prLinks.ts`, `src/ui/PrLink.tsx` | Links to PRs in conversations and prompts: the board's PRs by link, and the card a link shows on hover (`pr_card` for a PR the board doesn't list) |
 | `src-tauri/src/chrometabs.rs` | The Chrome tabs a Claude Code session drove through Claude in Chrome, read from its transcript; which profile they're in (the extension's storage, then History); bringing its tab forward by AppleScript, or its last page again in that profile |
 | `src-tauri/src/detect.rs` | The harness accounts on this device: folders, sign-ins, and the wrappers and aliases that run them |
-| `src-tauri/src/panel.rs` | The one AppKit layer for the windows that float (the bar, its peek, the quick panel, the cards and sessions kept on the desktop, the lines between cards): turning a Tauri window into a non-activating panel and back, what each kind answers about the keyboard, every window's level (`Level`), showing, hiding, taking and handing back the keyboard, frames, screens and the pointer |
+| `src-tauri/src/panel.rs`, `panel/appkit.rs`, `panel/gtk.rs` | The one AppKit (and on Linux GTK) layer for the windows that float (the bar, its peek, the quick panel, the cards and sessions kept on the desktop, the lines between cards): turning a Tauri window into a non-activating panel and back, what each kind answers about the keyboard, every window's level (`Level`), showing, hiding, taking and handing back the keyboard, frames, screens and the pointer |
 | `src-tauri/src/geometry.rs` | Rectangles on the screen (`Rect`, AppKit's y up) and in a window's page (`PageRect`, y down from its window's top) with the flip between them, the screen a thing is on, and keeping a window on it (pure, tested) |
 | `src-tauri/src/front.rs` | Bringing the main window forward, asking another app to come forward after a panel opened something in it, and whether an app is the active one |
 | `src-tauri/src/bar.rs`, `barfeed.rs` | The bar's window (a panel over every app, floating where you put it or docked in the notch, found from the screen's sides of the menu bar, where it takes clicks only on the shape it shows and has the keyboard only while it shows a session; Window › Floating bar and Bar in the notch) and the small feed of what it shows, sent only when that changes |

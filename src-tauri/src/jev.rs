@@ -3,9 +3,9 @@
 //! own switch in `[jev]` (config.rs): where a prompt goes (route.rs), how a session's turn ended
 //! (insights.rs), which todo a session is for (todos), which review comments ask for a change.
 //!
-//! The API key lives in the login keychain (service `Codealong TypeSafe`), never in config.toml
-//! or on a command line: curl gets it and the request on stdin, and saving it goes through
-//! `security -i`, which reads its command from stdin too. It's read from the keychain once and
+//! The API key lives in the login keychain (service `Codealong TypeSafe`, keychain.rs), never in
+//! config.toml or on a command line: curl gets it and the request on stdin, and saving it hands
+//! it over on stdin too. It's read from the keychain once and
 //! kept in memory, since the engine asks often. `TYPESAFE_API_KEY` works when the keychain has
 //! none, for the command line.
 //!
@@ -29,7 +29,6 @@ use serde_json::{json, Map, Value};
 
 const ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
 const KEYCHAIN_SERVICE: &str = "Codealong TypeSafe";
-const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a key read from the keychain is used before it's read again, so a key replaced
 /// from another place (the `security` command) is picked up.
 const KEY_FOR: Duration = Duration::from_secs(10 * 60);
@@ -326,7 +325,8 @@ fn ready(path: &Path, pixels: u64) -> Option<Value> {
 
 /// An image as an asset Jev takes: PNG or JPEG, upright, sized by `fit`. One that's all of
 /// those already goes as it is; any other is made so by `sips`, a JPEG staying JPEG and the rest
-/// (GIF and WebP, which Jev doesn't take, too) becoming PNG, padded with white.
+/// (GIF and WebP, which Jev doesn't take, too) becoming PNG, padded with white. `sips` is
+/// macOS's, so on Linux images aren't sent.
 fn make_ready(path: &Path, pixels: u64) -> Option<Value> {
     let ext = path.extension()?.to_str()?;
     let format = if ext == "jpg" { "jpeg" } else { "png" };
@@ -585,10 +585,6 @@ fn answer(status: &str, reply: &str) -> Result<Value> {
 
 static KEY: Mutex<Option<(Instant, String)>> = Mutex::new(None);
 
-pub(crate) fn keychain_account() -> String {
-    std::env::var("USER").ok().filter(|u| !u.is_empty() && u.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))).unwrap_or_else(|| "codealong".into())
-}
-
 fn forget_key() {
     if let Ok(mut k) = KEY.lock() {
         *k = None;
@@ -602,10 +598,7 @@ fn api_key() -> Option<String> {
             return Some(key);
         }
     }
-    let key = crate::procs::run("/usr/bin/security", &["find-generic-password", "-a", &keychain_account(), "-s", KEYCHAIN_SERVICE, "-w"], None, KEYCHAIN_TIMEOUT)
-        .ok()
-        .map(|k| k.trim().to_string())
-        .filter(|k| !k.is_empty())
+    let key = crate::keychain::read(KEYCHAIN_SERVICE)
         .or_else(|| std::env::var("TYPESAFE_API_KEY").ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()))?;
     if let Ok(mut k) = KEY.lock() {
         *k = Some((Instant::now(), key.clone()));
@@ -615,8 +608,7 @@ fn api_key() -> Option<String> {
 
 /// Whether there's a key, without reading it.
 pub fn has_key() -> bool {
-    crate::procs::run("/usr/bin/security", &["find-generic-password", "-a", &keychain_account(), "-s", KEYCHAIN_SERVICE], None, KEYCHAIN_TIMEOUT).is_ok()
-        || std::env::var("TYPESAFE_API_KEY").is_ok_and(|k| !k.trim().is_empty())
+    crate::keychain::has(KEYCHAIN_SERVICE) || std::env::var("TYPESAFE_API_KEY").is_ok_and(|k| !k.trim().is_empty())
 }
 
 /// Saves the key in the keychain, replacing one that's there. The command goes to `security`
@@ -626,18 +618,16 @@ pub fn save_key(key: &str) -> Result<()> {
     if key.is_empty() || key.chars().any(|c| c.is_control() || c.is_whitespace() || c == '"' || c == '\\') {
         bail!("That doesn't look like an API key.");
     }
-    let command = format!("add-generic-password -U -a \"{}\" -s \"{}\" -l \"{}\" -w \"{}\"\n", keychain_account(), KEYCHAIN_SERVICE, KEYCHAIN_SERVICE, key);
-    let out = crate::procs::run_stdin("/usr/bin/security", &["-i"], &command, KEYCHAIN_TIMEOUT)?;
+    let saved = crate::keychain::save(KEYCHAIN_SERVICE, key);
     forget_key();
-    // `security -i` exits cleanly whatever its command did; errors come back as text.
-    if out.to_lowercase().contains("error") || !has_key() {
+    if saved.is_err() || !has_key() {
         bail!("The keychain didn't take the key.");
     }
     Ok(())
 }
 
 pub fn delete_key() -> Result<()> {
-    let _ = crate::procs::run("/usr/bin/security", &["delete-generic-password", "-a", &keychain_account(), "-s", KEYCHAIN_SERVICE], None, KEYCHAIN_TIMEOUT);
+    crate::keychain::delete(KEYCHAIN_SERVICE);
     forget_key();
     Ok(())
 }
@@ -712,6 +702,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn an_image_goes_as_an_asset_named_where_it_was() {
         let dir = crate::store::test_dir("jev-images");
         // Jev takes a 1 × 1 PNG only padded out to 280 × 280.
@@ -829,6 +820,7 @@ mod tests {
     const ONE_PIXEL: &[u8] = b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn an_image_on_its_side_is_turned_upright() {
         let dir = crate::store::test_dir("jev-orientation");
         let one = dir.join("one.png");

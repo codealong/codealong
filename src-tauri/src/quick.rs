@@ -567,6 +567,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn starts_bring_their_app_forward() {
         assert_eq!(start_app(Place::Terminal, "ghostty"), Some("com.mitchellh.ghostty"));
         assert_eq!(start_app(Place::Terminal, "iterm2"), Some("com.googlecode.iterm2"));

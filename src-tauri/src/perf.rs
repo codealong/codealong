@@ -30,7 +30,7 @@ pub fn enabled() -> bool {
 }
 
 pub fn log_path() -> PathBuf {
-    home().join("Library/Logs/Codealong/perf.log")
+    crate::config::logs_dir().join("perf.log")
 }
 
 /// Only the app logs; `--snapshot` runs load the same config and must not.
@@ -113,7 +113,7 @@ pub fn probe(post: impl FnOnce(Probe) -> bool, stuck_after: Duration, hung_after
 
 /// Where samples of a stuck main thread go.
 pub fn stalls_dir() -> PathBuf {
-    home().join("Library/Logs/Codealong/stalls")
+    crate::config::logs_dir().join("stalls")
 }
 
 /// Samples kept; the oldest go as new ones come.

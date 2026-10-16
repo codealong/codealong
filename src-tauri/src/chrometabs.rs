@@ -20,7 +20,6 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use rusqlite::{Connection, OpenFlags};
@@ -28,7 +27,6 @@ use serde_json::Value;
 
 use crate::chrome;
 use crate::model::ChromeTabs;
-use crate::util::home;
 
 /// Text a transcript line has when it's worth decoding here: a call to one of Claude in Chrome's
 /// tools, or what its results say. Other tools' output can say the same (a search of these very
@@ -266,7 +264,7 @@ const VISIT_NEAR_MS: i64 = 30 * 60_000;
 
 impl Clues {
     pub fn read() -> Clues {
-        Self::read_in(&home().join("Library/Application Support/Google/Chrome"), &chrome::profiles().into_iter().map(|p| p.dir).collect::<Vec<_>>())
+        Self::read_in(&chrome::data_dir(), &chrome::profiles().into_iter().map(|p| p.dir).collect::<Vec<_>>())
     }
 
     fn read_in(root: &Path, dirs: &[String]) -> Clues {
@@ -397,6 +395,7 @@ fn uuid_in(b: &[u8]) -> Option<String> {
 /// selected there and its window raised. Says the id it found, or nothing. Windows are held by
 /// id (`every window` answers `window id N`), and every window's tab ids are asked for before
 /// anything moves.
+#[cfg(target_os = "macos")]
 const SHOW_TAB: &str = r#"on run argv
 	if application id "com.google.Chrome" is not running then return ""
 	tell application id "com.google.Chrome"
@@ -428,8 +427,9 @@ end run"#;
 
 /// Brings a session's Chrome tab forward, in its window and tab group. When none of its tabs is
 /// open any more (closed, or Chrome restarted and gave them new ids), its last page opens again
-/// in its profile.
+/// in its profile. Only macOS's Chrome takes scripts, so on Linux the page opens again always.
 pub fn show(c: &ChromeTabs) -> Result<()> {
+    #[cfg(target_os = "macos")]
     if !c.tabs.is_empty() {
         let ids: Vec<String> = c.tabs.iter().map(|t| t.to_string()).collect();
         let args: Vec<&str> = ids.iter().map(String::as_str).collect();
@@ -443,7 +443,7 @@ pub fn show(c: &ChromeTabs) -> Result<()> {
     let profile = c.profile_dir.as_ref().and_then(|dir| chrome::profiles().into_iter().find(|p| &p.dir == dir));
     match profile {
         Some(p) => chrome::open(&c.url, &p),
-        None => crate::procs::open(&["-b", chrome::BUNDLE_ID, &c.url], Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open {} in Chrome: {e}", c.url)),
+        None => chrome::open_page(&c.url),
     }
 }
 

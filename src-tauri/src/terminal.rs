@@ -470,6 +470,7 @@ pub fn wrapper(d: &Path, run: &Run, closes_after: Duration) -> String {
             "  pkill -P \"$closer\" 2>/dev/null; kill \"$closer\" 2>/dev/null\n".to_string(),
         )
     };
+    let under_script = under_script();
     format!(
         r#"# A command run in your terminal, as you allowed or asked (Codealong's terminal.rs).
 d={d}
@@ -481,7 +482,7 @@ case "${{SHELL##*/}}" in
   zsh|bash|ksh|sh) run="$SHELL" ;;
   *) run=/bin/sh ;;
 esac
-CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; . "$CODEALONG_RUN_DIR/{COMMAND}"'
+{under_script}
 status=$?
 printf '%s\n' "$status" > "$d/{EXIT}"
 printf '\n\033[2m%s %s. %s\033[0m ' 'It exited with status' "$status" {ended}
@@ -490,6 +491,22 @@ printf '\n\033[2m%s %s. %s\033[0m ' 'It exited with status' "$status" {ended}
 fi
 "#
     )
+}
+
+/// The wrapper's line that runs `$run`, the shell, under `script`, which keeps what it prints, the
+/// shell noting its pid and sourcing the command: macOS's `script` takes the command's words and
+/// exits with its status.
+#[cfg(target_os = "macos")]
+fn under_script() -> String {
+    format!(r#"CODEALONG_RUN_DIR="$d" /usr/bin/script -q -F "$d/{OUTPUT}" "$run" -l -i -c 'printf %s "$$" > "$CODEALONG_RUN_DIR/{SHELL}"; . "$CODEALONG_RUN_DIR/{COMMAND}"'"#)
+}
+
+/// util-linux's `script` takes the command as one line, which it gives `$SHELL -c` (`$run` here,
+/// which can read it), and exits with its status only with `-e`; `-f` writes each output as it
+/// comes, as macOS's `-F` does.
+#[cfg(not(target_os = "macos"))]
+fn under_script() -> String {
+    format!(r#"CODEALONG_RUN_DIR="$d" SHELL="$run" script -q -f -e -O "$d/{OUTPUT}" -c "exec \"\$SHELL\" -l -i -c 'printf %s \"\$\$\" > \"\$CODEALONG_RUN_DIR/{SHELL}\"; . \"\$CODEALONG_RUN_DIR/{COMMAND}\"'""#)
 }
 
 /// How long until a run's tab closes, in words: "a minute", "10 minutes", "an hour".
@@ -1002,6 +1019,13 @@ fn only_the_run(on_tty: &[u32], above: &[u32], under_the_wrapper: impl Fn(u32) -
 mod tests {
     use super::*;
 
+    /// The wrapper's `script` taken out, the shell it would run run straight away (on Linux from
+    /// the line its `-c` takes, with `-O <file>` before it).
+    #[cfg(target_os = "macos")]
+    const NO_SCRIPT: (&str, &str) = ("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
+    #[cfg(not(target_os = "macos"))]
+    const NO_SCRIPT: (&str, &str) = ("script -q -f -e", "sh -c 'shift 3; exec \"$SHELL\" -c \"$1\"' script");
+
     #[test]
     fn a_progress_line_drawn_over_itself_reads_as_it_ends() {
         let printed = b"\x1b[1m$ build\x1b[0m\r\nfetching\r\n\rprogress 1/3\rprogress 2/3\rprogress 3/3\r\ndone\x1b[K\n\x1b]0;title\x07after\ttab\nshort\x1b[1Gx\n";
@@ -1142,7 +1166,9 @@ mod tests {
         let s = until(&id, &|s| s.state != State::Running);
         tmux(&["kill-session", "-t", &id]);
         assert!(said.starts_with("Sent it Ctrl-C."), "{said}");
-        assert_eq!((s.state, s.exit_code), (State::Exited, Some(130)), "as zsh and bash end on Ctrl-C");
+        // zsh and macOS's bash 3.2 end on Ctrl-C with 130; bash 5 (Linux's) ends its `-c` with 1
+        // once its foreground job is interrupted, with or without `script` round it.
+        assert!(s.state == State::Exited && matches!(s.exit_code, Some(130) | Some(1)), "{:?}", (s.state, s.exit_code));
         assert!(!output(&id, 50, 0, None).unwrap().lines.iter().any(|(_, l)| l == "never"));
 
         // Closing: in your login zsh, the line typed into it as a new tab's shell gets it, which
@@ -1323,6 +1349,7 @@ mod tests {
     /// noted itself: the command runs there, and the wrapper needs the folder to note the end and
     /// close the tab. One whose wrapper hadn't started is a run that didn't start.
     #[test]
+    #[cfg(target_os = "macos")]
     fn a_tab_that_opened_without_its_terminal_answering_still_has_its_run() {
         let scratch = crate::fixtures::scratch("terminal-late-tab");
         TEST_RUNS.with(|r| *r.borrow_mut() = Some(scratch.join("runs")));
@@ -1411,7 +1438,7 @@ mod tests {
         let d = crate::fixtures::scratch("terminal-wrapper");
         std::fs::write(d.join(COMMAND), "printf '%s\\n' \"it's $((40 + 2))\"; shopt -q login_shell && case $- in *i*) echo 'a login shell, interactive';; esac; exit 3\n").unwrap();
         let run = Run { session: "k".into(), session_title: "Fix the 'build'".into(), ..Default::default() };
-        let text = wrapper(&d, &run, Duration::ZERO).replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
+        let text = wrapper(&d, &run, Duration::ZERO).replace(NO_SCRIPT.0, NO_SCRIPT.1);
         // sh, in a home of the test's own, so none of your startup files run: a login sh reads
         // ~/.profile, an interactive one $ENV. The test's profile shows it was read.
         let home = d.join("home");
@@ -1440,7 +1467,7 @@ mod tests {
         let d = crate::fixtures::scratch("terminal-wrapper-zsh");
         std::fs::write(d.join(COMMAND), "alias greet='echo hello from an alias'\ngreet\n").unwrap();
         let run = Run { session: "k".into(), session_title: "A test".into(), ..Default::default() };
-        let text = wrapper(&d, &run, Duration::ZERO).replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
+        let text = wrapper(&d, &run, Duration::ZERO).replace(NO_SCRIPT.0, NO_SCRIPT.1);
         let home = d.join("home");
         std::fs::create_dir_all(&home).unwrap();
         let out = std::process::Command::new("/bin/sh").arg("-c").arg(&text).env("SHELL", "/bin/zsh").env("HOME", &home).env("ZDOTDIR", &home).output().unwrap();
@@ -1461,7 +1488,7 @@ mod tests {
             let d = crate::fixtures::scratch(name);
             std::fs::write(d.join(COMMAND), "echo ran\n").unwrap();
             let run = Run { session: "k".into(), session_title: "A test".into(), ..Default::default() };
-            let text = wrapper(&d, &run, Duration::from_secs(1)).replace("/usr/bin/script -q -F", "sh -c 'shift; \"$@\"' script");
+            let text = wrapper(&d, &run, Duration::from_secs(1)).replace(NO_SCRIPT.0, NO_SCRIPT.1);
             assert!(text.contains("This tab closes in a second, unless you press Return for a shell in it."), "{text}");
             let home = d.join("home");
             std::fs::create_dir_all(&home).unwrap();

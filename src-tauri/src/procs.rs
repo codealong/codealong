@@ -12,6 +12,14 @@ use anyhow::{anyhow, Result};
 
 use crate::util::home;
 
+// The kernel's process table: macOS's readers are here, Linux's read `/proc`.
+#[cfg(not(target_os = "macos"))]
+mod linux;
+#[cfg(not(target_os = "macos"))]
+pub use linux::{cwd_of, environment, listeners, open_files, parent_pid, proc_start_ms, tty};
+#[cfg(not(target_os = "macos"))]
+use linux::listed;
+
 pub fn pid_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
@@ -23,6 +31,7 @@ pub fn pid_alive(pid: u32) -> bool {
 
 /// What the kernel keeps about one of your processes: its parent and start. None once it's
 /// gone, and for another user's process.
+#[cfg(target_os = "macos")]
 fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
     // SAFETY: proc_pidinfo fills a plain-old-data struct of the size we pass.
     unsafe {
@@ -34,12 +43,14 @@ fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
 }
 
 /// Process start time in epoch milliseconds, read from the kernel.
+#[cfg(target_os = "macos")]
 pub fn proc_start_ms(pid: u32) -> Option<i64> {
     let info = bsd_info(pid)?;
     Some(info.pbi_start_tvsec as i64 * 1000 + info.pbi_start_tvusec as i64 / 1000)
 }
 
 /// A process's parent, from the kernel; None once it's gone.
+#[cfg(target_os = "macos")]
 pub fn parent_pid(pid: u32) -> Option<u32> {
     bsd_info(pid).map(|info| info.pbi_ppid).filter(|&p| p > 0)
 }
@@ -59,6 +70,7 @@ struct Listed {
 /// process's own, so it answers at once however busy the Mac is: `ps`, asked the same on a Mac
 /// that had stalled, took minutes, and a send waiting on it gave up on the session's terminal.
 /// None once it's gone.
+#[cfg(target_os = "macos")]
 fn listed(pid: u32) -> Option<Listed> {
     // `struct kinfo_proc` (sys/sysctl.h) is 648 bytes on 64-bit macOS; these are the offsets of
     // the fields read, from the SDK's layout. `p_pid` is checked, so a layout that changed reads
@@ -97,6 +109,7 @@ pub fn parent_and_name(pid: u32) -> Option<(u32, String)> {
 
 /// The terminal a process runs in (`/dev/ttys006`), from the kernel; None for one with no
 /// terminal, such as a background job, or once it's gone.
+#[cfg(target_os = "macos")]
 pub fn tty(pid: u32) -> Option<std::path::PathBuf> {
     extern "C" {
         fn devname_r(dev: libc::dev_t, kind: libc::mode_t, buf: *mut libc::c_char, len: libc::c_int) -> *mut libc::c_char;
@@ -159,6 +172,7 @@ pub struct Listener {
 /// and each process's sockets, starting no `lsof`. With 730 of your processes holding 1,400
 /// sockets it took 4 to 6 ms, at a load of 15 to 25 (2026-09-28). The kernel doesn't answer
 /// for other users' processes, so they're left out.
+#[cfg(target_os = "macos")]
 pub fn listeners() -> Vec<Listener> {
     // `struct socket_fdinfo` (sys/proc_info.h) is 792 bytes on 64-bit macOS; these are the
     // offsets of the fields read, from the SDK's layout. `listeners_are_found` checks them
@@ -244,6 +258,7 @@ pub fn listeners() -> Vec<Listener> {
 
 /// Fills `fds` with a process's open file descriptors, from the kernel. False, and `fds` empty,
 /// when the kernel doesn't answer: another user's process, or one that has gone.
+#[cfg(target_os = "macos")]
 fn list_fds(pid: libc::c_int, fds: &mut Vec<libc::proc_fdinfo>) -> bool {
     if fds.capacity() == 0 {
         fds.reserve(256);
@@ -272,6 +287,7 @@ fn list_fds(pid: libc::c_int, fds: &mut Vec<libc::proc_fdinfo>) -> bool {
 
 /// The files one of your processes has open, from the kernel, starting no `lsof`. None when the
 /// kernel doesn't answer: another user's process, or one that has gone.
+#[cfg(target_os = "macos")]
 pub fn open_files(pid: u32) -> Option<Vec<std::path::PathBuf>> {
     use std::os::unix::ffi::OsStrExt;
     // `struct vnode_fdinfowithpath` (sys/proc_info.h): a 24-byte `proc_fileinfo`, then the
@@ -306,6 +322,7 @@ pub fn open_files(pid: u32) -> Option<Vec<std::path::PathBuf>> {
 }
 
 /// The folder one of your processes runs in, from the kernel; None once it's gone.
+#[cfg(target_os = "macos")]
 pub fn cwd_of(pid: u32) -> Option<std::path::PathBuf> {
     // SAFETY: proc_pidinfo fills a plain-old-data struct of the size we pass; the path in it
     // ends in a NUL.
@@ -325,6 +342,7 @@ pub fn cwd_of(pid: u32) -> Option<std::path::PathBuf> {
 /// KERN_PROCARGS2, which `ps -E` reads): what it inherited, whoever its parent is now. None once
 /// it's gone, and for another user's process. Apple's own programs (`/bin/sleep`, `/bin/zsh`)
 /// show none but to root, which `ps` runs as: only their arguments come back (macOS 26).
+#[cfg(target_os = "macos")]
 pub fn environment(pid: u32) -> Option<HashMap<String, String>> {
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
     let mut len: libc::size_t = 0;
@@ -346,6 +364,7 @@ pub fn environment(pid: u32) -> Option<HashMap<String, String>> {
 /// the NULs that pad it, the arguments and then the environment, each ending in a NUL, and an
 /// empty string after the last. An argument can be empty (`--tools ''`), so they're counted
 /// rather than skipped; the padding is skipped as `ps` skips it.
+#[cfg(target_os = "macos")]
 fn procargs_environment(buf: &[u8]) -> Option<HashMap<String, String>> {
     let argc = i32::from_ne_bytes(buf.get(..4)?.try_into().ok()?);
     let rest = &buf[4..];
@@ -529,9 +548,42 @@ pub fn run_without(program: &str, args: &[&str], unset: &[&str], timeout: Durati
 
 /// Runs macOS's `open` with `args`: a link, a file, or an app by its name, path or bundle ID. Each
 /// caller says how long it gets and what a failure is called.
+#[cfg(target_os = "macos")]
 pub fn open(args: &[&str], timeout: Duration) -> Result<()> {
     run("/usr/bin/open", args, None, timeout).map(|_| ())
 }
+
+/// `open` on Linux: a link or a file goes to `xdg-open`, which opens it in the desktop's app for
+/// it, and `-R` (show it in a file manager) opens the folder it's in. Apps are opened by their
+/// own commands, so one asked for by name or bundle ID (`-a`, `-b`) can't be opened here.
+#[cfg(not(target_os = "macos"))]
+pub fn open(args: &[&str], timeout: Duration) -> Result<()> {
+    let target = match args {
+        [target] => target.to_string(),
+        ["-R", path] => Path::new(path).parent().map_or_else(|| path.to_string(), |p| p.to_string_lossy().into_owned()),
+        _ => return Err(anyhow!("an app is opened by name only on macOS")),
+    };
+    run("xdg-open", &[&target], None, timeout).map(|_| ())
+}
+
+/// Starts a program that carries on by itself, a window's app say, and doesn't wait for it: a
+/// shell starts it in a session of its own and is gone at once, so it outlives no process of
+/// Codealong's and nothing has to wait for it to end. Its arguments go to it as they are. Gone,
+/// the shell couldn't say the program isn't there, so it looks first and fails when it isn't, and
+/// it waits a moment for one that fails as it starts. One that's quick to hand over to a copy
+/// already running (GNOME Terminal's, VS Code's, Chrome's) and exits cleanly has started. One
+/// that fails later than that, or out of sight, isn't seen. Linux's: macOS opens apps through
+/// `open`, and has no `setsid`.
+#[cfg(not(target_os = "macos"))]
+pub fn start_detached(program: &str, args: &[&str], timeout: Duration) -> Result<()> {
+    let mut all = vec!["-c", START_DETACHED, program];
+    all.extend_from_slice(args);
+    // The shell's words are about the program: they're said of it.
+    run("/bin/sh", &all, None, timeout).map(|_| ()).map_err(|e| anyhow!("{program} {}", e.to_string().trim_start_matches("/bin/sh").trim()))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) const START_DETACHED: &str = "command -v \"$0\" >/dev/null || { echo 'is not installed' >&2; exit 127; }; setsid \"$0\" \"$@\" </dev/null >/dev/null 2>&1 & started=$!; sleep 0.3; kill -0 \"$started\" 2>/dev/null && exit 0; wait \"$started\" || { s=$?; echo \"exited with status $s as it started\" >&2; exit $s; }";
 
 /// `run`, for work nobody is waiting on: the process gets a lower priority (nice 10), so
 /// under load it yields to the agents and to the windows.
@@ -876,6 +928,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn reads_the_environment_past_the_arguments_empty_ones_too() {
         let mut buf = 3i32.to_ne_bytes().to_vec();
         buf.extend_from_slice(b"/usr/local/bin/claude\0\0\0\0claude\0--tools\0\0HOME=/Users/me\0SESSION=a=b\0\0ptr_munge=\0");
@@ -897,7 +950,14 @@ mod tests {
             return;
         }
         let mut child = Command::new(std::env::current_exe().unwrap()).args([NAME, "--exact"]).env("CODEALONG_TEST_VAR", "from the parent").stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("this test");
-        let env = environment(child.id());
+        // Linux lets `spawn` return a moment before the kernel has said where the new program's
+        // environment is, and reads none meanwhile.
+        let started = Instant::now();
+        let mut env = environment(child.id());
+        while env.as_ref().is_some_and(|e| e.is_empty()) && started.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+            env = environment(child.id());
+        }
         let _ = child.kill();
         let _ = child.wait();
         assert_eq!(env.unwrap().get("CODEALONG_TEST_VAR").map(String::as_str), Some("from the parent"));
@@ -980,6 +1040,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         // Launchd's files aren't yours to read.
         assert_eq!(open_files(1), None);
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn a_program_started_by_itself_is_looked_for_first() {
+        // Still running after the moment, or done and fine.
+        assert!(start_detached("/bin/sleep", &["2"], Duration::from_secs(5)).is_ok());
+        assert!(start_detached("/bin/true", &[], Duration::from_secs(5)).is_ok());
+        let e = start_detached("no-such-program-codealong", &["x"], Duration::from_secs(5)).unwrap_err();
+        assert_eq!(e.to_string(), "no-such-program-codealong is not installed");
+        let e = start_detached("/bin/sh", &["-c", "exit 3"], Duration::from_secs(5)).unwrap_err();
+        assert!(e.to_string().ends_with("exited with status 3 as it started"), "{e}");
     }
 
     #[test]

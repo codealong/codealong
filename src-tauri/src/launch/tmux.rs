@@ -29,9 +29,10 @@ impl Terminal for Tmux {
         bin().is_some()
     }
 
-    /// tmux's server leaves the terminal it started in, so nothing above it is one.
+    /// tmux's server leaves the terminal it started in, so nothing above it is one. On Linux tmux
+    /// renames its processes `tmux: server` and `tmux: client`.
     fn runs_as(&self, process: &str) -> bool {
-        process == "tmux"
+        process == "tmux" || process.starts_with("tmux: ")
     }
 
     /// Everything goes through its command, which has to be where Codealong looks.
@@ -102,7 +103,7 @@ impl Terminal for Tmux {
     }
 }
 
-fn bin() -> Option<PathBuf> {
+pub(super) fn bin() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(staged) = super::stage::tmux_bin() {
         return Some(staged);

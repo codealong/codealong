@@ -9,6 +9,8 @@
 //! A running app only gets arguments when a new copy starts, so the page opens through `open -n`
 //! with `--profile-directory`: the new copy hands the URL to the running Chrome, which opens it
 //! in that profile's window, and quits. LaunchServices starts it, so it's never Codealong's child.
+//! On Linux Chrome keeps the same files in `~/.config/google-chrome`, and its command takes the
+//! same arguments, started on its own (`procs::start_detached`).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -35,8 +37,19 @@ pub struct Profile {
     pub email: Option<String>,
 }
 
+/// Chrome's data folder, with a folder for each profile and `Local State`.
+#[cfg(target_os = "macos")]
+pub fn data_dir() -> PathBuf {
+    home().join("Library/Application Support/Google/Chrome")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn data_dir() -> PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).filter(|p| p.is_absolute()).unwrap_or_else(|| home().join(".config")).join("google-chrome")
+}
+
 fn local_state() -> PathBuf {
-    home().join("Library/Application Support/Google/Chrome/Local State")
+    data_dir().join("Local State")
 }
 
 /// Chrome's profiles in its picker's order; none when Chrome isn't set up here.
@@ -97,9 +110,25 @@ fn resolve_in(all: &[Profile], wanted: &str) -> Result<Profile> {
 /// Opens a web page in one of Chrome's profiles, starting Chrome if it isn't running.
 pub fn open(url: &str, profile: &Profile) -> Result<()> {
     let dir = format!("--profile-directory={}", profile.dir);
-    procs::open(&["-n", "-b", BUNDLE_ID, "--args", &dir, url], Duration::from_secs(10))
-        .map_err(|e| anyhow!("Couldn't open {url} in Chrome's {} profile: {e}", profile.name))
+    #[cfg(target_os = "macos")]
+    let opened = procs::open(&["-n", "-b", BUNDLE_ID, "--args", &dir, url], Duration::from_secs(10));
+    #[cfg(not(target_os = "macos"))]
+    let opened = procs::start_detached(COMMAND, &[&dir, url], Duration::from_secs(10));
+    opened.map_err(|e| anyhow!("Couldn't open {url} in Chrome's {} profile: {e}", profile.name))
 }
+
+/// Opens a web page in Chrome, in whichever profile it opens pages in.
+pub fn open_page(url: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    let opened = procs::open(&["-b", BUNDLE_ID, url], Duration::from_secs(10));
+    #[cfg(not(target_os = "macos"))]
+    let opened = procs::start_detached(COMMAND, &[url], Duration::from_secs(10));
+    opened.map_err(|e| anyhow!("Couldn't open {url} in Chrome: {e}"))
+}
+
+/// Chrome's command on Linux.
+#[cfg(not(target_os = "macos"))]
+const COMMAND: &str = "google-chrome";
 
 #[cfg(test)]
 mod tests {

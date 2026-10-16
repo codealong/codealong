@@ -495,7 +495,7 @@ fn adapter_path() -> String {
 }
 
 fn log_path(account: &str) -> PathBuf {
-    crate::util::home().join("Library/Logs/Codealong").join(format!("acp-{account}.log"))
+    crate::config::logs_dir().join(format!("acp-{account}.log"))
 }
 
 fn log_file(account: &str) -> std::fs::File {

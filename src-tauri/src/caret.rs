@@ -3,15 +3,22 @@
 // AppKit's notifications; a page that gets typing while WebKit has it otherwise shows the text
 // but no cursor. The page notices (`document.hasFocus()` false on a key typed into a text field,
 // src/caret.ts) and asks for this: it writes to the perf log what AppKit says of the window, then
-// hands the page its focus again, which makes WebKit ask AppKit afresh.
+// hands the page its focus again, which makes WebKit ask AppKit afresh. GTK has no first
+// responder to hand back, so on Linux the report is only written down.
 
+#[cfg(target_os = "macos")]
 use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
 use objc2_app_kit::{NSApplication, NSWindowDidBecomeKeyNotification};
+#[cfg(target_os = "macos")]
 use objc2_foundation::NSNotificationCenter;
 use tauri::WebviewWindow;
 
-use crate::{panel, perf};
+#[cfg(target_os = "macos")]
+use crate::panel;
+use crate::perf;
 
+#[cfg(target_os = "macos")]
 fn yes(b: bool) -> &'static str {
     if b {
         "yes"
@@ -20,7 +27,13 @@ fn yes(b: bool) -> &'static str {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+pub fn refocus(w: &WebviewWindow) {
+    perf::log(&format!("ui[{}] typing into a text field WebKit had as unfocused", w.label()));
+}
+
 /// On the main thread.
+#[cfg(target_os = "macos")]
 pub fn refocus(w: &WebviewWindow) {
     let label = w.label().to_string();
     panel::with_page(w, move |ns, view| {

@@ -1217,7 +1217,7 @@ const MODELS_AGAIN: Duration = Duration::from_secs(60);
 /// Antigravity's models from a launch until its first read answered, seconds and, under load,
 /// longer. A cache, which macOS may clear; a copy of the app with a home of its own has its own.
 fn kept_models_path() -> PathBuf {
-    crate::util::home().join("Library/Caches/Codealong/agy-models.json")
+    crate::config::cache_dir().join("agy-models.json")
 }
 
 /// The command line's list of models, and when to ask for it again.
@@ -1306,7 +1306,7 @@ fn signed_in(home: &Path) -> bool {
 /// leaves a log of its own in the command line's folder, so a read every couple of minutes would
 /// pile them up there.
 fn usage_log() -> PathBuf {
-    crate::util::home().join("Library/Logs/Codealong/agy-usage.log")
+    crate::config::logs_dir().join("agy-usage.log")
 }
 
 /// An account's plan usage, from the command line's `/usage` in a print run, which answers

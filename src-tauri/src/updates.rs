@@ -190,8 +190,8 @@ fn cant_replace(bundle: &Path) -> Option<String> {
 fn read_only(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
     let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
-    let mut fs: libc::statfs = unsafe { std::mem::zeroed() };
-    unsafe { libc::statfs(c.as_ptr(), &mut fs) == 0 && fs.f_flags & libc::MNT_RDONLY as u32 != 0 }
+    let mut fs: libc::statvfs = unsafe { std::mem::zeroed() };
+    unsafe { libc::statvfs(c.as_ptr(), &mut fs) == 0 && fs.f_flag & libc::ST_RDONLY != 0 }
 }
 
 /// Check for updates… right under About; Restart to update once one is in place.

@@ -2,7 +2,8 @@
 //! somewhere else: a session that needs you (it asks you something, waits on a call to allow, or
 //! stopped with an error), a session whose turn ended, or a PR that asks for your review. Each has
 //! its sound in config.toml (`[sounds]`, "" for none): one of macOS's, or one you put in
-//! ~/Library/Sounds, at the volume there. Notification Center banners are left out on purpose:
+//! ~/Library/Sounds, at the volume there. On Linux, one of the freedesktop sound theme's or one
+//! in ~/.local/share/sounds, played through PulseAudio or PipeWire (`paplay`). Notification Center banners are left out on purpose:
 //! they need a permission, pile up, and say again what the bar's mark and the notch show already
 //! (src/mark.ts). The sound is for when you aren't looking at those.
 //!
@@ -19,7 +20,7 @@
 //!   urgent's.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::barfeed::{BarFeed, Group};
 use crate::config::SoundsCfg;
@@ -151,7 +152,19 @@ impl Chimer {
     }
 }
 
+/// The sounds a new config.toml names: a pop and a click, which every Mac has.
+#[cfg(target_os = "macos")]
+pub const DEFAULT_NEEDS_YOU: &str = "Pop";
+#[cfg(target_os = "macos")]
+pub const DEFAULT_YOUR_TURN: &str = "Tink";
+/// On Linux, the freedesktop sound theme's, which desktops install.
+#[cfg(not(target_os = "macos"))]
+pub const DEFAULT_NEEDS_YOU: &str = "message-new-instant";
+#[cfg(not(target_os = "macos"))]
+pub const DEFAULT_YOUR_TURN: &str = "complete";
+
 /// The folders NSSound's `soundNamed:` looks in, in its order: yours, the Mac's, macOS's.
+#[cfg(target_os = "macos")]
 fn folders() -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Some(home) = dirs::home_dir() {
@@ -161,8 +174,26 @@ fn folders() -> Vec<PathBuf> {
     out
 }
 
+/// Yours, then the freedesktop theme's, which is where desktops keep their event sounds.
+#[cfg(not(target_os = "macos"))]
+fn folders() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(data) = dirs::data_dir() {
+        out.push(data.join("sounds"));
+    }
+    out.extend(["/usr/local/share/sounds", "/usr/share/sounds/freedesktop/stereo"].map(PathBuf::from));
+    out
+}
+
 /// What a sound file can be, by its extension.
-const EXTENSIONS: [&str; 10] = ["aiff", "aif", "aifc", "wav", "caf", "mp3", "m4a", "aac", "au", "snd"];
+#[cfg(target_os = "macos")]
+const EXTENSIONS: &[&str] = &["aiff", "aif", "aifc", "wav", "caf", "mp3", "m4a", "aac", "au", "snd"];
+#[cfg(not(target_os = "macos"))]
+const EXTENSIONS: &[&str] = &["oga", "ogg", "wav", "flac"];
+
+fn is_sound(p: &Path) -> bool {
+    p.extension().and_then(|x| x.to_str()).is_some_and(|x| EXTENSIONS.contains(&x.to_ascii_lowercase().as_str()))
+}
 
 /// The sounds that can be named in `[sounds]`, by name, sorted, each once.
 pub fn names() -> Vec<String> {
@@ -176,7 +207,7 @@ fn names_in(folders: &[PathBuf]) -> Vec<String> {
         .flatten()
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|x| x.to_str()).is_some_and(|x| EXTENSIONS.contains(&x.to_ascii_lowercase().as_str())))
+        .filter(|p| is_sound(p))
         .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(String::from))
         .collect();
     out.sort_by_key(|n| n.to_lowercase());
@@ -188,6 +219,11 @@ fn names_in(folders: &[PathBuf]) -> Vec<String> {
 pub fn check(key: &str, name: &str) -> Result<(), String> {
     let name = name.trim();
     if name.is_empty() || names().iter().any(|n| n.eq_ignore_ascii_case(name)) {
+        return Ok(());
+    }
+    // A Linux without the sound theme plays nothing for the defaults rather than refusing every
+    // setting saved.
+    if cfg!(not(target_os = "macos")) && [DEFAULT_NEEDS_YOU, DEFAULT_YOUR_TURN].contains(&name) {
         return Ok(());
     }
     Err(format!("[sounds] {key} is {name:?}, which isn't in {}; use the name of a sound there, or \"\" for none.", folders().iter().map(|p| crate::util::tilde(p)).collect::<Vec<_>>().join(", ")))
@@ -215,9 +251,25 @@ pub fn play(name: &str, volume: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Plays the sound's file through PulseAudio or PipeWire, which both answer to `paplay`, at
+/// `volume` percent, and waits for it to end. Off the main thread.
 #[cfg(not(target_os = "macos"))]
-pub fn play(_name: &str, _volume: u32) -> anyhow::Result<()> {
-    Ok(())
+pub fn play(name: &str, volume: u32) -> anyhow::Result<()> {
+    let Some(file) = file_in(&folders(), name.trim()) else {
+        anyhow::bail!("There's no sound named {:?} in ~/.local/share/sounds or the desktop's sounds.", name.trim());
+    };
+    let volume = format!("--volume={}", volume.min(100) * 65536 / 100);
+    crate::procs::run("paplay", &[&volume, &file.to_string_lossy()], None, std::time::Duration::from_secs(10)).map(|_| ())
+}
+
+/// The file of the sound named `name`, the first folder's that has it.
+#[cfg(not(target_os = "macos"))]
+fn file_in(folders: &[PathBuf], name: &str) -> Option<PathBuf> {
+    folders
+        .iter()
+        .filter_map(|d| std::fs::read_dir(d).ok())
+        .flat_map(|entries| entries.filter_map(|e| e.ok()).map(|e| e.path()))
+        .find(|p| is_sound(p) && p.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case(name)))
 }
 
 #[cfg(test)]
@@ -383,7 +435,9 @@ mod tests {
         for d in [&mine, &macos] {
             std::fs::create_dir_all(d).unwrap();
         }
-        for f in [mine.join("Chirp.wav"), mine.join("glass.aiff"), mine.join("notes.txt"), macos.join("Glass.aiff"), macos.join("Pop.AIFF")] {
+        // AIFF on macOS, Ogg on Linux.
+        let e = EXTENSIONS[0];
+        for f in [mine.join("Chirp.wav"), mine.join(format!("glass.{e}")), mine.join("notes.txt"), macos.join(format!("Glass.{e}")), macos.join(format!("Pop.{}", e.to_uppercase()))] {
             std::fs::write(&f, b"").unwrap();
         }
         assert_eq!(names_in(&[mine.clone(), macos.clone(), root.join("missing")]), vec!["Chirp", "glass", "Pop"]);
@@ -391,6 +445,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn macos_sounds_are_found_and_others_are_refused() {
         assert!(check("needs_you", "Glass").is_ok());
         assert!(check("needs_you", "").is_ok());

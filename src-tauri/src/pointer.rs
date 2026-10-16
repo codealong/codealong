@@ -11,20 +11,33 @@
 // compares that with where macOS has the pointer and where WebKit's drawing side has each list
 // scrolled (its scrolling tree, from WKWebView's testing SPI `_scrollingTreeAsText`), and writes
 // a line to the perf log when they disagree, and one when the first report agrees, to say it runs.
+//
+// Only on macOS: WebKitGTK has no scrolling tree to read, so elsewhere the reports are dropped and
+// only the parts the tests check are built.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
+#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "macos")]
 use std::sync::Mutex;
+#[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "macos")]
 use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
 use objc2::runtime::{AnyObject, NSObjectProtocol};
+#[cfg(target_os = "macos")]
 use objc2::{msg_send, sel, MainThreadMarker};
+#[cfg(target_os = "macos")]
 use objc2_app_kit::{NSApplication, NSEvent, NSView};
+#[cfg(target_os = "macos")]
 use objc2_foundation::NSString;
 use serde::Deserialize;
 use tauri::WebviewWindow;
 
 use crate::geometry::Rect;
+#[cfg(target_os = "macos")]
 use crate::{panel, perf};
 
 /// A list on the page under the pointer: what it is and how far it's scrolled, in CSS pixels.
@@ -171,12 +184,16 @@ pub fn page_pointer(host: Rect, p: (f64, f64), zoom: f64) -> Option<(f64, f64)> 
 }
 
 /// The first report agreeing is logged, to say the probe runs; a disagreement at most this often.
+#[cfg(target_os = "macos")]
 static SAID_AGREE: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
 static LAST_OFF: Mutex<Option<Instant>> = Mutex::new(None);
+#[cfg(target_os = "macos")]
 const OFF_EVERY: Duration = Duration::from_secs(2);
 
 /// Compares a page's report with macOS and WebKit's drawing side, on the main thread, and logs
 /// what disagrees.
+#[cfg(target_os = "macos")]
 pub fn compare(w: &WebviewWindow, probe: PageProbe) {
     if !perf::enabled() {
         return;
@@ -221,6 +238,9 @@ pub fn compare(w: &WebviewWindow, probe: PageProbe) {
         }
     });
 }
+
+#[cfg(not(target_os = "macos"))]
+pub fn compare(_w: &WebviewWindow, _probe: PageProbe) {}
 
 fn shown(r: Rect) -> String {
     format!("{:.0},{:.0} {:.0}x{:.0}", r.x, r.y, r.w, r.h)

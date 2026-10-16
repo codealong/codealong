@@ -28,6 +28,7 @@ scripts/engine.sh                       # builds this checkout's engine binary w
 scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
 scripts/relaunch.sh                     # builds Codealong Dev, then quits it and reopens it from Applications
 scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
+scripts/linux-vm.sh [test|build|run]    # a Linux VM (Lima) to build, test and run it on Linux in
 ```
 
 Every checkout and worktree builds into one directory, `codealong-target` next to the main
@@ -317,6 +318,10 @@ Each rule names the file whose header has the rest.
   is a new token, not a hand-written `font:` nor a family, size, line height or weight beside one.
   `styles.test.ts` says what else it holds. Icons are Tabler outline paths in `src/ui/icons.ts`.
 - UI copy is sentence case and plain words. Comments explain why, in plain sentences.
+- It builds and runs on Linux too. What differs is `cfg(target_os = "macos")` in the module that
+  has it, both sides there (development.md's Linux table): a new call to AppKit, `osascript`,
+  `security` or a BSD `libc` function gets its Linux side, or a stand-in that says why there's
+  none. `scripts/linux-vm.sh test` checks it builds and passes there.
 - `rustfmt` isn't installed here, so Rust formatting is unchecked; match the surrounding code.
 
 ## Where facts live
@@ -333,7 +338,8 @@ its adapter, and add what you find to it, not here.
 - `terminals.md`: Ghostty, iTerm2, Terminal, and starting a session in them. `chrome.md`:
   Chrome's profiles and tabs, Claude in Chrome.
 - `windows.md`: Tauri, AppKit and WebKit (panels and their levels, the notch, the keyboard,
-  events). `macos-privacy.md`: macOS's privacy prompts.
+  events). `macos-privacy.md`: macOS's privacy prompts. `linux.md`: Linux, its desktops and
+  the harnesses there, and trying it in the VM.
 - `github.md`: `gh`, GraphQL points and polling. `jev.md`: TypeSafe. `devices.md`: Tailscale,
   iroh and testing linked devices.
 - `preview.md`: writing browser checks. `performance.md`: the timing log and benches.

@@ -1,17 +1,14 @@
 //! This device's key: the Ed25519 key your other devices know it by (peers.rs). Over iroh it's the
 //! address they dial; over Tailscale each side proves it holds its key when a connection
 //! opens. It's made the first time `[devices]` is turned on and kept in the login keychain
-//! (service `Codealong device key`), like Jev's API key, so it never sits in a file and a
-//! reinstall keeps this device's links.
-
-use std::time::Duration;
+//! (service `Codealong device key`, keychain.rs), like Jev's API key, so it never sits in a file
+//! and a reinstall keeps this device's links.
 
 use anyhow::{anyhow, bail, Result};
 use data_encoding::HEXLOWER;
 use iroh::SecretKey;
 
 const SERVICE: &str = "Codealong device key";
-const TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The key in the keychain, made and saved there first if there's none. `CODEALONG_DEVICE_KEY`
 /// (hex) stands in for it, so a second copy of the app on one computer can be a device of its own.
@@ -32,18 +29,11 @@ pub fn load_or_create() -> Result<SecretKey> {
 }
 
 fn read() -> Option<SecretKey> {
-    let out = crate::procs::run("/usr/bin/security", &["find-generic-password", "-a", &crate::jev::keychain_account(), "-s", SERVICE, "-w"], None, TIMEOUT).ok()?;
-    decode(out.trim()).ok()
+    decode(&crate::keychain::read(SERVICE)?).ok()
 }
 
 fn save(key: &SecretKey) -> Result<()> {
-    // `security -i` reads the command from stdin, so the key never shows in the process list.
-    let command = format!("add-generic-password -U -a \"{}\" -s \"{SERVICE}\" -l \"{SERVICE}\" -w \"{}\"\n", crate::jev::keychain_account(), HEXLOWER.encode(&key.to_bytes()));
-    let out = crate::procs::run_stdin("/usr/bin/security", &["-i"], &command, TIMEOUT)?;
-    if out.to_lowercase().contains("error") {
-        bail!("The keychain didn't take this device's key.");
-    }
-    Ok(())
+    crate::keychain::save(SERVICE, &HEXLOWER.encode(&key.to_bytes())).map_err(|_| anyhow!("The keychain didn't take this device's key."))
 }
 
 fn decode(hex: &str) -> Result<SecretKey> {

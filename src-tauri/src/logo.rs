@@ -2,6 +2,13 @@
 
 use crate::model::LogoStatus;
 
+/// Linux has no Dock: a taskbar shows the windows' own icon, which stays as it is.
+#[cfg(not(target_os = "macos"))]
+pub fn update(_app: &tauri::AppHandle, _status: LogoStatus) -> tauri::Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 pub fn update(app: &tauri::AppHandle, status: LogoStatus) -> tauri::Result<()> {
     use objc2::{AnyThread, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSImage};

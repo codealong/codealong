@@ -678,6 +678,12 @@ macOS 13 or later, on Apple silicon or Intel. Ghostty is the best supported term
 Terminal and tmux work too. It opens worktrees in VS Code, Cursor, Windsurf, Zed, Sublime Text,
 Nova, BBEdit, Xcode, the JetBrains IDEs and Android Studio, or any editor you name.
 
+**Does it run on Linux?**
+It builds and runs there, under X11, built from source (there's no installer yet): sessions in
+tmux, shown in your terminal emulator's windows, and editors found by their commands. Some of
+what macOS gives it has no counterpart there, the notch among them;
+[the development notes](docs/development.md#linux) say what, and how to try it in a VM.
+
 **Can I answer my agents from my phone?**
 Soon: [Codealong for iPhone](https://github.com/codealong/codealong-ios) is early, and for now you
 build and install it yourself. Today you can answer an agent from any of your Macs: link them, and

@@ -2,14 +2,21 @@
 //! are in editors.rs. See `[apps]` in README.md's Settings section.
 //!
 //! Each terminal is a module of its own behind `Terminal` (Ghostty, iTerm2 and Terminal through
-//! AppleScript, tmux through its command). What's here is what they share: where a new terminal
-//! goes, the launcher that sets up a new tab's shell, waiting for that shell, a process's TTY
-//! and which terminal it runs under, marks on a TTY, and focus requests taking turns.
+//! AppleScript, tmux through its command, and on Linux an emulator's window showing tmux). What's
+//! here is what they share: where a new terminal goes, the launcher that sets up a new tab's
+//! shell, waiting for that shell, a process's TTY and which terminal it runs under, marks on a
+//! TTY, and focus requests taking turns.
 
+// The AppleScript terminals are macOS's alone, and only its `TERMINALS` lists them.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod ghostty;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod iterm;
+#[cfg(not(target_os = "macos"))]
+mod linux;
 #[cfg(test)]
 pub(crate) mod stage;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod terminal_app;
 mod tmux;
 
@@ -154,7 +161,11 @@ fn app_installed(app: &str) -> bool {
 
 /// Every terminal: the profiles first, in the order Settings lists them and a new config.toml
 /// picks the first one installed.
-pub static TERMINALS: [&dyn Terminal; 4] = [&ghostty::Ghostty, &iterm::ITerm2, &terminal_app::AppleTerminal, &tmux::Tmux];
+#[cfg(target_os = "macos")]
+pub static TERMINALS: &[&dyn Terminal] = &[&ghostty::Ghostty, &iterm::ITerm2, &terminal_app::AppleTerminal, &tmux::Tmux];
+/// On Linux, the desktop's emulator through tmux, and tmux sessions run in any terminal.
+#[cfg(not(target_os = "macos"))]
+pub static TERMINALS: &[&dyn Terminal] = &[&linux::LinuxTerminal, &tmux::Tmux];
 
 fn terminal(kind: HostKind) -> &'static dyn Terminal {
     *TERMINALS.iter().find(|t| t.kind() == kind).expect("every kind has a terminal")
@@ -770,6 +781,8 @@ pub enum HostKind {
     ITerm2,
     Terminal,
     Tmux,
+    #[cfg(not(target_os = "macos"))]
+    Linux,
 }
 
 /// The terminals Codealong can press keys in, for messages.
@@ -939,22 +952,38 @@ pub fn reveal(path: &Path) -> Result<()> {
 /// scripts, which Terminal or a launcher runs.
 const RUNS_WHEN_OPENED: [&str; 17] = ["app", "command", "tool", "terminal", "sh", "zsh", "bash", "py", "rb", "pl", "jar", "pkg", "mpkg", "prefpane", "saver", "workflow", "action"];
 
+/// What a Linux desktop runs when it opens one: a launcher (`.desktop`) and an AppImage.
+#[cfg(not(target_os = "macos"))]
+const LINUX_RUNS_WHEN_OPENED: [&str; 2] = ["desktop", "appimage"];
+
 /// Whether opening a file would run something: a folder (an app is one), a program, or a kind in
-/// `RUNS_WHEN_OPENED`.
+/// `RUNS_WHEN_OPENED` (and on Linux `LINUX_RUNS_WHEN_OPENED`).
 fn runs_when_opened(path: &Path, folder: bool, mode: u32) -> bool {
-    folder || mode & 0o111 != 0 || path.extension().and_then(|e| e.to_str()).is_some_and(|e| RUNS_WHEN_OPENED.contains(&e.to_ascii_lowercase().as_str()))
+    let kind = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    #[cfg(not(target_os = "macos"))]
+    if LINUX_RUNS_WHEN_OPENED.contains(&kind.as_str()) {
+        return true;
+    }
+    folder || mode & 0o111 != 0 || RUNS_WHEN_OPENED.contains(&kind.as_str())
 }
 
 /// Whether a file is a Finder alias, which `open` follows to what it points at as it does a link,
 /// though it's a plain file with any name: the alias flag (`kIsAlias`, 0x8000) in the Finder
 /// flags of its `com.apple.FinderInfo`, bytes 8 and 9 (one to an app is type `fapa`, creator
 /// `MACS`, as Foundation's bookmark files are written on macOS 26).
+#[cfg(target_os = "macos")]
 fn finder_alias(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
     let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
     let mut info = [0u8; 32];
     let n = unsafe { libc::getxattr(c.as_ptr(), b"com.apple.FinderInfo\0".as_ptr().cast(), info.as_mut_ptr().cast(), info.len(), 0, 0) };
     n >= 10 && u16::from_be_bytes([info[8], info[9]]) & 0x8000 != 0
+}
+
+/// Linux has no Finder aliases.
+#[cfg(not(target_os = "macos"))]
+fn finder_alias(_path: &Path) -> bool {
+    false
 }
 
 /// Opens a file a conversation names (one an agent sent you, or cites) in the app that opens its
@@ -1015,7 +1044,9 @@ pub fn codex_review_url(pr_url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::ghostty::{osascript, terminal_of as ghostty_terminal_of, terminals as ghostty_terminals};
-    use super::ghostty::{GHOSTTY_ACTION, GHOSTTY_CLOSE, GHOSTTY_FIND, GHOSTTY_FOCUS, GHOSTTY_IN_FRONT, GHOSTTY_KEY, GHOSTTY_LIST, GHOSTTY_NEW, GHOSTTY_TYPE};
+    use super::ghostty::GHOSTTY_FOCUS;
+    #[cfg(target_os = "macos")]
+    use super::ghostty::{GHOSTTY_ACTION, GHOSTTY_CLOSE, GHOSTTY_FIND, GHOSTTY_IN_FRONT, GHOSTTY_KEY, GHOSTTY_LIST, GHOSTTY_NEW, GHOSTTY_TYPE};
     use super::tmux::{client_for as tmux_client_for, pane_for as tmux_pane_for, Client as TmuxClient, Pane as TmuxPane};
     use super::*;
 
@@ -1034,6 +1065,17 @@ mod tests {
     }
 
     #[test]
+    fn opening_runs_apps_programs_and_scripts_so_those_are_shown() {
+        let runs = |name: &str, mode: u32| runs_when_opened(Path::new(name), false, mode);
+        assert!(!runs("/d/report.pdf", 0o644) && !runs("/d/notes", 0o644));
+        assert!(runs("/d/build.sh", 0o644) && runs("/d/tool", 0o755) && runs("/d/Setup.PKG", 0o644));
+        assert!(runs_when_opened(Path::new("/d/Calculator.app"), true, 0o755));
+        // A Linux desktop's launchers and AppImages run too.
+        assert_eq!(runs("/d/app.desktop", 0o644), cfg!(not(target_os = "macos")));
+        assert_eq!(runs("/d/Tool.AppImage", 0o644), cfg!(not(target_os = "macos")));
+    }
+
+    #[test]
     fn builds_deep_links() {
         assert_eq!(codex_thread_url("01a0c4a6"), "codex://threads/01a0c4a6");
         assert_eq!(
@@ -1043,6 +1085,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn terminal_scripts_compile() {
         // osacompile checks the scripts against each app's dictionary without running them.
         let ghostty = [GHOSTTY_NEW, GHOSTTY_LIST, GHOSTTY_FOCUS, GHOSTTY_FIND, GHOSTTY_TYPE, GHOSTTY_IN_FRONT, GHOSTTY_CLOSE, GHOSTTY_KEY, GHOSTTY_ACTION].map(String::from).to_vec();
@@ -1520,6 +1563,7 @@ end run
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn knows_which_terminal_a_session_runs_in() {
         // (pid, parent, name) as the kernel has them, from this Mac.
         let table = [
@@ -1555,6 +1599,7 @@ end run
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn knows_the_terminal_profiles() {
         assert_eq!(terminal_name("iterm2"), "iTerm2");
         assert_eq!(terminal_name("terminal"), "Terminal");
@@ -1630,11 +1675,16 @@ end run
         let by_ps = |pid: u32| rows.iter().find(|r| r.0 == pid).map(|r| (r.1, r.3.to_string()));
         let mut checked = 0;
         for &(pid, ppid, tty, name) in &rows {
+            // A Linux kernel thread names itself for the work it's on, which changes as it goes.
+            if ppid == 2 {
+                continue;
+            }
             // Gone since `ps` looked.
             let Some((parent, kernel_name)) = procs::parent_and_name(pid) else { continue };
             // A name cut to 16 characters can end in a space, which `ps` doesn't print.
             assert_eq!((parent, kernel_name.trim_end()), (ppid, name), "pid {pid}");
-            let want = tty.starts_with("tty").then(|| Path::new("/dev").join(tty));
+            // macOS's `ttys004`, Linux's `pts/3`.
+            let want = (tty.starts_with("tty") || tty.starts_with("pts/")).then(|| Path::new("/dev").join(tty));
             assert_eq!(procs::tty(pid), want, "pid {pid}");
             assert_eq!(runs_under(pid, "ghostty"), runs_under_by(pid, "ghostty", by_ps), "pid {pid}");
             assert_eq!(kind_by(pid, procs::parent_and_name), kind_by(pid, by_ps), "pid {pid}");

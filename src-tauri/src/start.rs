@@ -777,8 +777,7 @@ pub fn as_argument(prompt: &str) -> String {
 /// A random version 4 UUID, the form `--session-id` takes.
 pub fn new_session_id() -> String {
     let mut b = [0u8; 16];
-    // SAFETY: arc4random_buf writes exactly the length it's given into the buffer.
-    unsafe { libc::arc4random_buf(b.as_mut_ptr().cast(), b.len()) };
+    crate::util::random_bytes(&mut b);
     uuid_v4(b)
 }
 
