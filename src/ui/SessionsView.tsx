@@ -1,4 +1,4 @@
-// The Sessions view: every session in the project, Pinned first in your order, each with a pin.
+// The Sessions view: every session in the project, Pinned first in your order.
 // The rest go by status under the headings the other views have (Needs you, Your turn, Working,
 // Snoozed, then the days they were last active), or by when they started, under the days they
 // started; the bar over the list picks which, and two lines a row or one (`SessionsBar`). Drag a

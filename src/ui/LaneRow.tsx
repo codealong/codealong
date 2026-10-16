@@ -181,14 +181,6 @@ export function ReuseMark({ lane }: { lane: Lane }) {
   );
 }
 
-function PinMark() {
-  return (
-    <span className="ca-pinmark" title="Pinned: drag, or press ⌃⌘↑ ⌃⌘↓, to reorder. Drag it down to the list to unpin it.">
-      <Icon name="pinned" size={12} />
-    </span>
-  );
-}
-
 function LaneRowView(props: LaneRowProps) {
   return props.row.lines.length > 0 ? <GroupRow {...props} /> : <EmptyRow {...props} />;
 }
@@ -230,7 +222,6 @@ function EmptyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
           </span>
           <span className="ca-agentline-age" title={lane.lastActivity ? `Last active ${absolute(lane.lastActivity)}` : undefined}>
             {lane.lastActivity ? ago(lane.lastActivity, now) : ''}
-            {pinned && <PinMark />}
           </span>
         </div>
       </div>
@@ -267,14 +258,13 @@ function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
       </div>
       <DeltaSeg git={lane.git} onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)} />
       <div className="ca-seg-lines">
-        {lines.map((a, i) => (
+        {lines.map((a) => (
           <AgentLine
             key={a.key}
             item={a}
             now={now}
             domId={domId(a.key)}
             selected={isSelected(a.key)}
-            pinned={pinned === true && i === 0}
             onSelect={(how) => onSelect(a.key, how)}
             onOpen={() => onOpenTarget(lane, a.session.openTarget)}
             onContextMenu={onAgentMenu ? () => onAgentMenu(a.session) : undefined}
@@ -377,8 +367,6 @@ interface AgentLineProps {
   now: number;
   domId: string;
   selected: boolean;
-  /** Shows the pin mark under its age: the first line of a pinned worktree. */
-  pinned: boolean;
   onSelect: (how: SelectHow) => void;
   onOpen: () => void;
   onContextMenu?: () => void;
@@ -390,7 +378,7 @@ interface AgentLineProps {
 /** One agent on its worktree's row, on the two lines Sessions gives it (`SessionLines`) less its
  *  worktree, which the row has on its left: its status, its title and what it's doing, then its
  *  todo, Jev's read and its account's chip (double-click to open); and its age. */
-function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onContextMenu, todos, onShowTodo }: AgentLineProps) {
+function AgentLine({ item, now, domId, selected, onSelect, onOpen, onContextMenu, todos, onShowTodo }: AgentLineProps) {
   const s = item.session;
   return (
     <Row
@@ -411,7 +399,6 @@ function AgentLine({ item, now, domId, selected, pinned, onSelect, onOpen, onCon
       </span>
       <span className="ca-agentline-age" title={`Last active ${absolute(s.lastActivity)}. You last sent it a prompt ${agoPhrase(s.lastPromptAt, now)}, which sets its place in the list.`}>
         {ago(s.lastActivity, now)}
-        {pinned && <PinMark />}
       </span>
     </Row>
   );
@@ -713,7 +700,6 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
         }
       >
         {ago(started ? startedOf(s) : s.lastActivity, now)}
-        {pinned && <PinMark />}
       </div>
     </Row>
   );

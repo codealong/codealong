@@ -1,4 +1,4 @@
-/* The Sessions view (SessionsView.tsx): the bar over the list, archived rows and pin marks. Its
+/* The Sessions view (SessionsView.tsx): the bar over the list and archived rows. Its
    headings are the other views' (`.ca-bay`, `.ca-bayblock` in styles/rows.css). */
 
 .ca-archived .ca-lane {

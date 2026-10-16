@@ -125,7 +125,7 @@
   border-left: 1px solid var(--line);
 }
 
-/* Pinned rows carry a small mark under their age. */
+/* Drop lines and the drag grip sit inside the row. */
 .ca-lane {
   position: relative;
 }
@@ -201,16 +201,12 @@
   box-shadow: none;
 }
 
-/* On one line (Rows, in the sidebar): what it's about, then its lane and PR at the line's end,
-   and its age (44px, or 56px when pinned to fit the pin beside it) right next to that without
-   the main column's right padding. What it's doing gives way first, then the lane, then the
-   title, as on an agent's line in Worktrees. */
+/* On one line (Rows, over the list): what it's about, then its lane and PR at the line's end,
+   and its age (44px) right next to that without the main column's right padding. What it's doing
+   gives way first, then the lane, then the title, as on an agent's line in Worktrees. */
 .ca-lane.is-agent.is-slim {
   grid-template-columns: 32px minmax(0, 1fr) 44px;
   min-height: 32px;
-}
-.ca-lane.is-agent.is-slim.is-pinned {
-  grid-template-columns: 32px minmax(0, 1fr) 56px;
 }
 .ca-lane.is-agent.is-slim .ca-seg-glyph {
   justify-content: center;
@@ -221,9 +217,6 @@
 }
 
 .ca-lane.is-agent.is-slim .ca-seg-age {
-  flex-direction: row-reverse;
-  justify-content: flex-start;
-  align-items: center;
-  gap: var(--space-1);
+  justify-content: center;
   padding: 0 var(--space-3) 0 0;
 }

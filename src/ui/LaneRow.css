@@ -1,4 +1,4 @@
-/* Worktree and session rows (LaneRow.tsx): the delta, agent lines, pin marks, reuse marks, and
+/* Worktree and session rows (LaneRow.tsx): the delta, agent lines, reuse marks, and
    the slim one-line session row. */
 
 /* Each row as high as the name's line and the repo's beside it, so it sits level with them. */
@@ -113,9 +113,6 @@
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
-.ca-agentline-age .ca-pinmark {
-  margin-top: 0;
-}
 /* A worktree no agent has worked in says so where an agent's title would start, past the place
    of its glyph, and on its line. */
 .ca-lane.is-empty .ca-agentline-glyph {
@@ -130,12 +127,6 @@
 .ca-agentline[data-menu] {
   outline: 2px solid var(--line-strong);
   outline-offset: -2px;
-}
-
-.ca-pinmark {
-  display: inline-flex;
-  margin-top: var(--space-1);
-  color: var(--ink-3);
 }
 
 .ca-chip.ca-snoozechip,
@@ -273,10 +264,6 @@
 }
 .ca-lane.is-agent.is-slim .ca-agentline-tags:not(:empty) + .ca-pr {
   margin-left: calc(var(--chip-gap) - var(--space-2));
-}
-
-.ca-lane.is-agent.is-slim .ca-pinmark {
-  margin-top: 0;
 }
 
 /* A reusable worktree's mark, before its repo and branch (LaneRow.tsx): green, as an app that

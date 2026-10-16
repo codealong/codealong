@@ -1,4 +1,4 @@
-// Checks the Sessions list (SessionsView.tsx, App.tsx): Pinned first, each with its pin, and a
+// Checks the Sessions list (SessionsView.tsx, App.tsx): Pinned first, and a
 // drag still reorders them; the rest under the headings the other views have, by status or by
 // the day they started. Sort by, icon buttons in the bar over the list, switches between status
 // and start and remembers it. The bar stays at the top as the list scrolls, and shows only in
@@ -74,7 +74,6 @@
       var all = rows();
       var pinned = all.filter(function (r) { return r.classList.contains('is-pinned'); });
       check('pinned rows first', pinned.length >= 2 && pinned.every(function (r, i) { return all[i] === r; }), pinned.length + ' pinned');
-      check('each pinned row has its pin', pinned.every(function (r) { return !!r.querySelector('.ca-pinmark'); }) && all.slice(pinned.length).every(function (r) { return !r.querySelector('.ca-pinmark'); }));
       var after = all[pinned.length];
       check('the rest are under headings of their own', !after || after.closest('.ca-bayblock') !== pinned[0].closest('.ca-bayblock'));
 

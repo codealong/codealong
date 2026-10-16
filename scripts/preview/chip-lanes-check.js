@@ -133,7 +133,7 @@
           var age = r.querySelector('.ca-seg-age');
           return age && age.scrollWidth > age.clientWidth + 1;
         });
-        check('the age and pin fit their column', crampedAge.length === 0, crampedAge.length + ' rows');
+        check('the age fits its column', crampedAge.length === 0, crampedAge.length + ' rows');
         // Rows hit where they're drawn: the board is a stacking context, so WebKit draws its
         // positioned rows in its scroller's layer, not each in a layer of its own (App.css).
         var board = document.querySelector('.ca-board');

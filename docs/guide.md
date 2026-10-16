@@ -68,7 +68,7 @@ chip, and the last chips drop out whole.
 ### Sessions
 
 Every session, under headings as the other views have them. Pinned ones come first in your order
-(drag or ⌃⌘↑ ⌃⌘↓), each with a pin under its age. Drag any session up among them to pin it there,
+(drag or ⌃⌘↑ ⌃⌘↓). Drag any session up among them to pin it there,
 and a pinned one down to the rest to unpin it. The bar over the list has two groups of icon buttons,
 each named in its tooltip. Sort by orders the rest: Status puts Needs you, Your turn and Working
 first, as the floating bar orders them, then Snoozed, the soonest back first, then the rest under
