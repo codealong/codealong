@@ -20,6 +20,9 @@ export interface SessionsCfg {
   /** A session that isn't running is resumed out of sight when one it started, or the one that
    *  started it, sends it a message (send.rs `wakes`). Files from before it have none: on. */
   resume_for_sessions_it_started?: boolean;
+  /** The same for any session's message, the one above being part of it while it's on (send.rs
+   *  `wakes`). Files from before it have none: on. */
+  resume_for_any_session?: boolean;
 }
 
 /** A turn a lost connection ended (peer/src/model.rs `ConnectionLost`). */
@@ -664,7 +667,7 @@ export interface Config {
   /** Routing groups and default routing rules. Older files have none. */
   routing?: RoutingCfg;
   /** What Codealong does for sessions by itself. Older files have none: carry on after a lost
-   *  connection, and resume a session for one it started or the one that started it. */
+   *  connection, and resume a session for any session's message. */
   sessions?: SessionsCfg;
   /** Reviewing the PRs that wait on your review without being asked. Older files have none: off. */
   reviews?: ReviewsCfg;

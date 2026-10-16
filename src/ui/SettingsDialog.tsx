@@ -392,17 +392,18 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
 /** `[limits] when_hit` and `continue_when_lifted`: what's done about a session its account's
  *  usage limit stopped; `[sessions] continue_after_network_error`, about one a lost connection
  *  stopped; `[sessions] continue_after_restart`, about one Codealong runs that its quitting cut
- *  off; and `[sessions] resume_for_sessions_it_started`, about one that stopped before a session
- *  it started, or the one that started it, sent it a message. */
+ *  off; and `[sessions] resume_for_any_session` and `resume_for_sessions_it_started`, about one
+ *  that stopped before another session sent it a message. */
 function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const limits = { when_hit: 'suggest' as WhenLimited, continue_when_lifted: true, ...cfg.limits };
   const value = limits.when_hit;
   const lifted = limits.continue_when_lifted ?? true;
   const agents = MOVES_ACCOUNTS.map((h) => HARNESS_WORD[h]).join(', ');
-  const sessions: SessionsCfg = { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, ...cfg.sessions };
+  const sessions: SessionsCfg = { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, ...cfg.sessions };
   const continues = sessions.continue_after_network_error;
   const restarts = sessions.continue_after_restart ?? true;
   const resumes = sessions.resume_for_sessions_it_started ?? true;
+  const resumesAny = sessions.resume_for_any_session ?? true;
   const saveSessions = (change: Partial<SessionsCfg>) => void onSave({ ...cfg, sessions: { ...sessions, ...change } });
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
@@ -429,10 +430,17 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
         <small>A session that runs in Codealong itself stops when Codealong quits, as it does for an update or a new build. When that cuts off a turn partway, Codealong tells the session to carry on once it’s back. Sessions in a terminal or another app aren’t affected when Codealong quits.</small>
       </label>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={resumes} onChange={(e) => saveSessions({ resume_for_sessions_it_started: e.target.checked })} />
+        <input type="checkbox" checked={resumesAny} onChange={(e) => saveSessions({ resume_for_any_session: e.target.checked })} />
+        <span>Resume a stopped session for another session’s message</span>
+        <small>
+          When a session’s agent sends a message to one that has stopped (Claude Code ends a background job left idle for an hour), Codealong resumes it out of sight with the message, rather than nothing being sent. The session is told it had stopped and which session wrote, and the sender that it was resumed. Not one you archived or marked done, nor one that skips permission prompts (or may, as far as Codealong can tell) when the sender doesn’t.
+        </small>
+      </label>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={resumes} disabled={resumesAny} onChange={(e) => saveSessions({ resume_for_sessions_it_started: e.target.checked })} />
         <span>Resume a session for one it started, or the one that started it</span>
         <small>
-          When a session’s agent started another with codealong start, and either sends the other a message once that one has stopped (Claude Code ends a background job left idle for an hour), Codealong resumes it out of sight with the message, rather than nothing being sent: the session that asked for the work hears of it, and the one doing it can be handed more. Not one you archived or marked done, nor one that skips permission prompts (or may, as far as Codealong can tell) when the sender doesn’t.
+          The same, only between a session and one its agent started with codealong start: the session that asked for the work hears of it, and the one doing it can be handed more. Part of the one above while that’s on.
         </small>
       </label>
     </fieldset>

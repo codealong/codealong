@@ -322,8 +322,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `workers`. Its `state.json` keeps `state: "done"` (`lastTerminalAt` the retirement), and
   `--resume <id> --bg` brings it back under the same job ID (`bg claimed-spare <job> (fleet)`).
   Seen across a day's jobs on 2.1.296 (2026-10-12); whether a setting changes the hour wasn't
-  looked into. Why a session it started, or the one that started it, may resume it: send.rs
-  (`wakes`).
+  looked into. Why another session's message may resume it: send.rs (`wakes`).
 - Removing a worktree from outside Claude Code (2.1.296, a scratch repo, 2026-10-12):
   `cleanup.rs`, `claude/teardown.rs`. A `WorktreeCreate` hook's stdin is `{session_id,
   transcript_path, cwd, scratchpad_dir, hook_event_name, name}`, with no base ref; a

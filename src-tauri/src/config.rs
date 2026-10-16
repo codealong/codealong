@@ -350,14 +350,20 @@ pub struct SessionsCfg {
     /// than nothing being sent: it asked for the work the message reports, or does the work the
     /// message hands it more of (send.rs `wakes`). Claude Code's background service ends a job
     /// left idle at its prompt for an hour, so a session waiting to hear back otherwise never
-    /// does.
+    /// does. Counts only while `resume_for_any_session` is off, which it's part of.
     #[serde(default = "yes")]
     pub resume_for_sessions_it_started: bool,
+    /// A session that isn't running is resumed out of sight when any other session sends it a
+    /// message, with that message, which tells it it had stopped (send.rs `wakes`), and the sender
+    /// is told it was resumed. While it's on, `resume_for_sessions_it_started` is part of it.
+    /// Files from before it have none: on.
+    #[serde(default = "yes")]
+    pub resume_for_any_session: bool,
 }
 
 impl Default for SessionsCfg {
     fn default() -> Self {
-        SessionsCfg { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true }
+        SessionsCfg { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true }
     }
 }
 
@@ -1496,7 +1502,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), or \"round-robin\".\n";
-const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n";
+const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that, failing checks and\n# conflicts.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own
@@ -1910,6 +1916,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["sessions"]["continue_after_network_error"], Value::from(cfg.sessions.continue_after_network_error));
         set_value(&mut doc["sessions"]["continue_after_restart"], Value::from(cfg.sessions.continue_after_restart));
         set_value(&mut doc["sessions"]["resume_for_sessions_it_started"], Value::from(cfg.sessions.resume_for_sessions_it_started));
+        set_value(&mut doc["sessions"]["resume_for_any_session"], Value::from(cfg.sessions.resume_for_any_session));
     }
 
     // The same: only a file that has the table or turns reviews on gets it.
@@ -2338,6 +2345,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("continue_after_network_error = {}\n", cfg.sessions.continue_after_network_error));
         s.push_str(&format!("continue_after_restart = {}\n", cfg.sessions.continue_after_restart));
         s.push_str(&format!("resume_for_sessions_it_started = {}\n", cfg.sessions.resume_for_sessions_it_started));
+        s.push_str(&format!("resume_for_any_session = {}\n", cfg.sessions.resume_for_any_session));
     }
     if cfg.reviews != ReviewsCfg::default() {
         s.push('\n');
@@ -2482,7 +2490,7 @@ mod tests {
                     members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into() }, GroupMemberCfg { account: "codex".into(), model: String::new() }],
                 }],
             },
-            sessions: SessionsCfg { continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false },
+            sessions: SessionsCfg { continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false },
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), other_harness: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
@@ -2986,6 +2994,21 @@ mod tests {
         off.sessions.resume_for_sessions_it_started = false;
         let out = with_config(&old, &off).unwrap();
         assert!(out.contains("[sessions]\ncontinue_after_network_error = true\ncontinue_after_restart = true\nresume_for_sessions_it_started = false"), "{out}");
+        assert_eq!(parse(&out).unwrap(), off);
+        assert_eq!(parse(&render(&off)).unwrap(), off);
+    }
+
+    #[test]
+    fn resuming_a_session_for_any_session_is_on_unless_the_file_turns_it_off() {
+        assert!(toml::from_str::<Config>("").unwrap().sessions.resume_for_any_session);
+        // A file written before the setting has it on, and keeps the others as they were.
+        let older: Config = toml::from_str("[sessions]\nresume_for_sessions_it_started = false\n").unwrap();
+        assert!(older.sessions.resume_for_any_session && !older.sessions.resume_for_sessions_it_started);
+        let old = render(&full());
+        let mut off = full();
+        off.sessions.resume_for_any_session = false;
+        let out = with_config(&old, &off).unwrap();
+        assert!(out.contains("\nresume_for_sessions_it_started = true\nresume_for_any_session = false\n"), "{out}");
         assert_eq!(parse(&out).unwrap(), off);
         assert_eq!(parse(&render(&off)).unwrap(), off);
     }

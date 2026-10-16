@@ -32,10 +32,11 @@
 //! as the user's own words or need someone at this Mac: a harness's own way in for other
 //! sessions' messages where it has one (`Adapter::takes_messages`), which tells the model as
 //! much, and for the harnesses that have none, their terminal or service. It never leaves a
-//! prompt for someone to send, and never resumes a session that isn't running, but for one that
-//! started the agent's own session or that the agent's started: Codealong resumes that one out of
-//! sight with the message, by itself, as `[sessions] resume_for_sessions_it_started` has it
-//! (`wakes`).
+//! prompt for someone to send, and doesn't resume a session that isn't running by the ways an
+//! agent's message takes: Codealong resumes it out of sight with the message, by itself, as
+//! `[sessions] resume_for_any_session` has it, or only for a message along a start with just
+//! `[sessions] resume_for_sessions_it_started` on (`wakes`). The session is told it had stopped,
+//! and the agent that it was resumed.
 //!
 //! What Codealong sends by itself, as you set it up to (a PR's news, a review handed back, a
 //! helper's news, carrying on after a lost connection or at another account; `tell`), isn't
@@ -97,6 +98,12 @@ const FROM_CODEALONG_ITSELF_BEFORE: &str = "Codealong sent this by itself, as yo
 pub fn by_codealong(text: &str) -> String {
     format!("{FROM_CODEALONG_ITSELF}\n\n{}", text.trim())
 }
+
+/// The line a message starts with where it resumed the session it's for (`wake`), ahead of the
+/// agent's byline: the session had stopped and goes on for another session's message, which isn't
+/// its user's. A resume's prompt reads as typed, so the line says so where a message's way in
+/// would (claude/peer.rs). Recognized ahead of a byline (`past_resumed`).
+pub const RESUMED_FOR_A_MESSAGE: &str = "You had stopped, and Codealong resumed you for this message from another session, as your user set it up to; your user didn't write it.";
 
 /// Text that `by_codealong` led, without its line: what Codealong said.
 pub fn from_codealong(text: &str) -> Option<&str> {
@@ -160,16 +167,23 @@ pub fn without_byline(text: &str) -> &str {
 }
 
 /// Text an agent sent with `codealong session send`, as a session that takes it typed in records
-/// it, without its byline: what the agent said. None for anything else.
+/// it, or that was resumed on it, without its byline: what the agent said. None for anything else.
 pub fn from_an_agent(text: &str) -> Option<&str> {
-    let t = text.trim_start();
+    let t = past_resumed(text);
     AGENT_BYLINES.iter().any(|s| t.starts_with(s)).then(|| without_byline(t))
+}
+
+/// Text past the line that says a message resumed its session (`RESUMED_FOR_A_MESSAGE`), or the
+/// text as it is.
+fn past_resumed(text: &str) -> &str {
+    let t = text.trim_start();
+    t.strip_prefix(RESUMED_FOR_A_MESSAGE).map_or(t, str::trim_start)
 }
 
 /// The session an agent's message is from, by the title its byline quotes; None where the byline
 /// names no session the board knew.
 pub fn sender_of(text: &str) -> Option<&str> {
-    let who = text.trim_start().strip_prefix(AGENT_BYLINES[0])?.strip_prefix('“')?;
+    let who = past_resumed(text).strip_prefix(AGENT_BYLINES[0])?.strip_prefix('“')?;
     who.split_once('”').map(|(title, _)| title.trim()).filter(|t| !t.is_empty())
 }
 
@@ -565,8 +579,8 @@ pub(crate) fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<(
 /// resumed on its words, the session would take them as its user's own prompt, and spend their
 /// usage, with nobody at this Mac having asked. A send never resumes one for an agent
 /// (`agent_routes`), nor does a resume (`ensure_may_resume`), and the command can't ask for one
-/// (actions.rs). The one way round it is Codealong's own, by a setting of yours: a session that
-/// started the agent's, or that the agent's started (`wakes`).
+/// (actions.rs). The one way round it is Codealong's own, by a setting of yours (`wakes`), with a
+/// first line that says the session was resumed for another session's message.
 pub(crate) const NOT_STARTED_AGAIN: &str = "isn't running, and a message from another session doesn't start it again, so nothing was sent. Its user can resume it, or `codealong start` starts a new session.";
 
 /// Whether `sender` may start the session `title` names again where it isn't running (start.rs
@@ -579,52 +593,59 @@ pub(crate) fn ensure_may_resume(sender: &Sender, title: &str) -> Result<()> {
 }
 
 /// How a start links a session that isn't running to the agent's that sends it a message, which
-/// has Codealong resume it for the message (`wakes`).
+/// Codealong resumes it for (`wakes`).
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Started {
+enum Link {
     /// It started the agent's session, which reports what it was asked for.
-    Yours,
+    StartedYours,
     /// The agent's session started it, and hands it more of the work it was started for.
-    ByYours,
+    YoursStarted,
+    /// No start links them.
+    Neither,
 }
 
-/// Where an agent's message resumes the session it's for, which isn't running: only a message
-/// along a start that said which session it made (`origins::Store::known_starter_of`), from a
-/// session it started or from the one that started it, with `[sessions]
-/// resume_for_sessions_it_started` on. The first asked for the work the message reports, and may
-/// be waiting to hear of it, as a helper's session is (`from_its_helper`); Claude Code's
-/// background service ends a job left idle at its prompt for an hour, so otherwise it would never
-/// hear. The second hands the session it started more of that work, as a session coordinating the
-/// ones it started does, and finds them stopped the same way; it could as well start another with
-/// `codealong start`, which would know none of what that one did. Codealong resumes it by itself,
-/// by your setting (`wake`), out of sight (`start::resume_out_of_sight`, `out_of_sight`). Never
-/// one you archived or marked done, one whose harness doesn't go on by a resume (a Claude app
-/// session goes on in its app), nor one that skips permission prompts where the sender doesn't, or
-/// may as far as Codealong can tell (`holds`, `Adapter::would_hold_messages`): running, it would
-/// hold the message for you (claude/peer.rs), and as a resume's prompt it would act on it unasked.
-/// None for any other message, which goes no further than an agent's does (`agent_routes`); an
-/// error says why one of these isn't resumed.
-fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: &Session, routes: &[Route], holds: impl FnOnce() -> bool, place: impl FnOnce() -> Option<Place>) -> Result<Option<(Place, Started)>> {
+/// Where an agent's message resumes the session it's for, which isn't running, and how a start
+/// links them: a message from any session, with `[sessions] resume_for_any_session` on, else only
+/// one along a start that said which session it made (`origins::Store::known_starter_of`), with
+/// `[sessions] resume_for_sessions_it_started` on. Agents hand each other work and report on it
+/// (`codealong session send`), and Claude Code's background service ends a job left idle at its
+/// prompt for an hour, so the session a message is for has often stopped: a session waiting to
+/// hear back would never hear, and one handed more of its work could only be replaced by a new one
+/// (`codealong start`) that knows none of what it did. Codealong resumes it by itself, by your
+/// setting (`wake`), out of sight (`start::resume_out_of_sight`, `out_of_sight`): the session is
+/// told it had stopped and whose message it is, and the agent that it was resumed. Never one you
+/// archived or marked done, one whose harness doesn't go on by a resume (a Claude app session goes
+/// on in its app), nor one that skips permission prompts where the sender doesn't, or may as far as
+/// Codealong can tell (`holds`, `Adapter::would_hold_messages`): running, it would hold the
+/// message for you (claude/peer.rs), and as a resume's prompt it would act on it unasked. None for
+/// a message from no session, which goes no further than an agent's does (`agent_routes`); an
+/// error says why one from a session isn't resumed.
+fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: &Session, routes: &[Route], holds: impl FnOnce() -> bool, place: impl FnOnce() -> Option<Place>) -> Result<Option<(Place, Link)>> {
     let Sender::Agent(Some(from)) = msg.sender else { return Ok(None) };
     let resumes = routes.iter().any(|r| matches!(r, Route::Resume));
     if session.live || !resumes {
         return Ok(None);
     }
-    let started = if origins.known_starter_of(from) == Some(session.key.as_str()) {
-        Started::Yours
+    let link = if origins.known_starter_of(from) == Some(session.key.as_str()) {
+        Link::StartedYours
     } else if origins.known_starter_of(&session.key) == Some(from.as_str()) {
-        Started::ByYours
+        Link::YoursStarted
     } else {
-        return Ok(None);
+        Link::Neither
     };
     let title = quoted(&session.title);
     let instead = "Its user can resume it, or `codealong start` starts a new session.";
-    if !cfg.sessions.resume_for_sessions_it_started {
-        let whom = match started {
-            Started::Yours => "one it started",
-            Started::ByYours => "the one that started it",
+    let sessions = &cfg.sessions;
+    if !sessions.resume_for_any_session {
+        let whom = match link {
+            Link::Neither => bail!("{title} isn't running, and its user turned off resuming a session for another session's message (`[sessions] resume_for_any_session`), so nothing was sent. {instead}"),
+            _ if sessions.resume_for_sessions_it_started => None,
+            Link::StartedYours => Some("one it started"),
+            Link::YoursStarted => Some("the one that started it"),
         };
-        bail!("{title} isn't running, and its user turned off resuming a session for {whom} (`[sessions] resume_for_sessions_it_started`), so nothing was sent. {instead}");
+        if let Some(whom) = whom {
+            bail!("{title} isn't running, and its user turned off resuming a session for {whom}, or for any session (`[sessions] resume_for_sessions_it_started` and `resume_for_any_session`), so nothing was sent. {instead}");
+        }
     }
     if session.archived {
         bail!("{title} isn't running, and its user archived it or marked it done, so Codealong doesn't resume it and nothing was sent. {instead}");
@@ -633,7 +654,7 @@ fn wakes(cfg: &Config, origins: &crate::origins::Store, msg: &Message, session: 
         bail!("{title} isn't running, and it skips permission prompts (or may: Codealong can't tell) where your session doesn't, so it would hold your message for its user: Codealong doesn't resume it on it, and nothing was sent. {instead}");
     }
     match place() {
-        Some(place) => Ok(Some((place, started))),
+        Some(place) => Ok(Some((place, link))),
         None => bail!("{title} isn't running, and its account can't resume it out of sight, so nothing was sent. {instead}"),
     }
 }
@@ -666,15 +687,16 @@ fn claim_wake(woken: &mut BTreeMap<String, i64>, key: &str, now: i64) -> bool {
 }
 
 /// Resumes the session `place` on an agent's message, as `wakes` allows: as Codealong resumes
-/// one by itself (autoreview.rs `hand` hands a review back the same way), the message led by the
-/// line that says Codealong sent it and isn't its user's (`by_codealong`), then by the agent's
-/// byline. On the account's own model, as a send from its box resumes it unless you pick another.
+/// one by itself, the message led by the line that says it had stopped and was resumed for another
+/// session's message, not its user's (`RESUMED_FOR_A_MESSAGE`), then by the agent's byline, which
+/// says whose it is and how to answer. On the account's own model, as a send from its box resumes
+/// it unless you pick another; the agent is told it wasn't running.
 /// It's claimed first (`claim_wake`), so a message sent while another resumes it, or just after,
 /// is told to come again once it runs rather than resuming it twice; the claim is only the file's
 /// lock long, so nothing waits on another session's resume, and what `wakes` found still holds.
 /// Where its harness goes on with a copy, a copy resumed for the session that started it carries
 /// on that start (`origins::carry_start`), so that session can resume the copy in turn.
-fn wake(board: &Board, cfg: &Config, session: &Session, (place, started): (Place, Started), msg: &Message) -> Result<Sent> {
+fn wake(board: &Board, cfg: &Config, session: &Session, (place, link): (Place, Link), msg: &Message) -> Result<Sent> {
     let (key, now) = (session.key.as_str(), crate::util::now_ms());
     let mut claimed = false;
     crate::store::change(&woken_path(), WOKEN, |woken: &mut BTreeMap<String, i64>| {
@@ -686,21 +708,23 @@ fn wake(board: &Board, cfg: &Config, session: &Session, (place, started): (Place
         bail!("{} is being resumed for another message sent to it just now, so yours wasn't sent: send it again in a minute, once it's running.", quoted(&session.title));
     }
     let how = crate::start::ResumeIn { place, model: None, effort: None };
-    let resumed = crate::start::resume(board, cfg, key, &how, &by_codealong(&msg.text), &Sender::Codealong).inspect_err(|_| {
+    let prompt = format!("{RESUMED_FOR_A_MESSAGE}\n\n{}", msg.text.trim());
+    let resumed = crate::start::resume(board, cfg, key, &how, &prompt, &Sender::Codealong).inspect_err(|_| {
         // It didn't go on, so the next message may try again. A file that can't be changed now
         // only keeps that one waiting out `WAKING_MS`.
         let _ = crate::store::change(&woken_path(), WOKEN, |woken: &mut BTreeMap<String, i64>| woken.get(key) == Some(&now) && woken.remove(key).is_some());
     })?;
     let copied = resumed.key.as_deref().filter(|k| *k != session.key);
-    if let (Some(copy), Started::ByYours) = (copied, started) {
+    if let (Some(copy), Link::YoursStarted) = (copied, link) {
         crate::origins::carry_start(copy, key);
     }
     let copy = copied.map(|k| format!(" It goes on as {k}: send there from now on.")).unwrap_or_default();
-    let why = match started {
-        Started::Yours => "it started your session",
-        Started::ByYours => "your session started it",
+    let why = match link {
+        Link::StartedYours => "; it started your session",
+        Link::YoursStarted => "; your session started it",
+        Link::Neither => "",
     };
-    Ok(sent(format!("{} wasn't running; {why}, so Codealong resumed it {} with your message.{copy}", quoted(&session.title), crate::start::place_words(place, cfg))))
+    Ok(sent(format!("{} wasn't running{why}, so Codealong resumed it {} with your message and told it it had stopped.{copy}", quoted(&session.title), crate::start::place_words(place, cfg))))
 }
 
 /// Whether a prompt is a command for the session's own shell: it starts with `!`, which Claude
@@ -1160,12 +1184,13 @@ mod tests {
         Board { lanes: vec![crate::fixtures::lane("/w", vec![s])], ..Board::default() }
     }
 
-    /// A session that isn't running is resumed out of sight for a message from one it started,
-    /// or from the one that started it, as the setting has it, and for no other: not where the
-    /// setting's off, it's archived, its harness doesn't go on by a resume, or it would hold the
-    /// message for its user.
+    /// A session that isn't running is resumed out of sight for any session's message, as the
+    /// setting has it; with that off, only for one from a session it started or from the one that
+    /// started it, as the other has it. Never where both are off, it's archived, its harness doesn't
+    /// go on by a resume, or it would hold the message for its user, nor for a message from no
+    /// session.
     #[test]
-    fn a_session_that_isnt_running_is_resumed_along_a_start() {
+    fn a_session_that_isnt_running_is_resumed_for_another_sessions_message() {
         use crate::model::OriginHow;
         use crate::origins::{Entry, Store};
         let entry = |from: &str, how: OriginHow, known: bool| Entry { from: from.into(), how, at: 1, helper: false, report: false, known };
@@ -1186,45 +1211,71 @@ mod tests {
             msg.bypasses = bypasses;
             wakes(cfg, &origins, &msg, s, routes, || holds, || Some(Place::Background)).map_err(|e| e.to_string())
         };
-        assert_eq!(wakes_for(&cfg, &senders[0], &boss, &resumes, false, false), Ok(Some((Place::Background, Started::Yours))));
-        // From any other agent, or none, to a running one, or to one that goes on in its app:
-        // no further than any agent's message goes.
+        let woken = |link| Ok(Some((Place::Background, link)));
+        assert_eq!(wakes_for(&cfg, &senders[0], &boss, &resumes, false, false), woken(Link::StartedYours));
+        // Any other session's message too, saying no start links them.
         for sender in &senders[1..] {
-            assert_eq!(wakes_for(&cfg, sender, &boss, &resumes, false, false), Ok(None), "{sender:?}");
+            assert_eq!(wakes_for(&cfg, sender, &boss, &resumes, false, false), woken(Link::Neither), "{sender:?}");
         }
+        // From no session, to a running one, or to one that goes on in its app: no further than
+        // any agent's message goes.
         for sender in [Sender::Agent(None), Sender::You, Sender::Codealong] {
             assert_eq!(wakes_for(&cfg, &sender, &boss, &resumes, false, false), Ok(None), "{sender:?}");
         }
         let running = Session { live: true, status: Status::Idle, ..boss.clone() };
-        assert_eq!(wakes_for(&cfg, &senders[0], &running, &resumes, false, false), Ok(None));
-        assert_eq!(wakes_for(&cfg, &senders[0], &boss, &[Stand(Way::ClaudeApp).into()], false, false), Ok(None));
+        assert_eq!(wakes_for(&cfg, &senders[3], &running, &resumes, false, false), Ok(None));
+        assert_eq!(wakes_for(&cfg, &senders[3], &boss, &[Stand(Way::ClaudeApp).into()], false, false), Ok(None));
         // Each of the rest says why not.
-        let mut off = Config::default();
-        off.sessions.resume_for_sessions_it_started = false;
-        assert!(wakes_for(&off, &senders[0], &boss, &resumes, false, false).unwrap_err().contains("turned off resuming a session for one it started"));
         let archived = Session { archived: true, ..boss.clone() };
-        assert!(wakes_for(&cfg, &senders[0], &archived, &resumes, false, false).unwrap_err().contains("archived it or marked it done"));
-        let held = wakes_for(&cfg, &senders[0], &boss, &resumes, false, true).unwrap_err();
+        assert!(wakes_for(&cfg, &senders[3], &archived, &resumes, false, false).unwrap_err().contains("archived it or marked it done"));
+        let held = wakes_for(&cfg, &senders[3], &boss, &resumes, false, true).unwrap_err();
         assert!(held.starts_with("“Cloud SQL CPU spike” isn't running, and it skips permission prompts (or may: Codealong can't tell) where your session doesn't"), "{held}");
         // One that skips them too is no hold.
-        assert_eq!(wakes_for(&cfg, &senders[0], &boss, &resumes, true, true), Ok(Some((Place::Background, Started::Yours))));
-        let mut msg = Message::new(&board, &cfg, "hi", &senders[0], false);
+        assert_eq!(wakes_for(&cfg, &senders[3], &boss, &resumes, true, true), woken(Link::Neither));
+        let mut msg = Message::new(&board, &cfg, "hi", &senders[3], false);
         msg.bypasses = true;
         assert!(wakes(&cfg, &origins, &msg, &boss, &resumes, || false, || None).unwrap_err().to_string().contains("can't resume it out of sight"));
-        // The other way along the start: the session that started one hands it more of the work.
+
+        // With any session's turned off, only along a start, either way.
+        let mut starts = Config::default();
+        starts.sessions.resume_for_any_session = false;
+        assert_eq!(wakes_for(&starts, &senders[0], &boss, &resumes, false, false), woken(Link::StartedYours));
+        for sender in &senders[1..] {
+            assert!(wakes_for(&starts, sender, &boss, &resumes, false, false).unwrap_err().contains("turned off resuming a session for another session's message"), "{sender:?}");
+        }
         let child = Session { key: "claude:claude2:child".into(), title: "Prescient follow-ups".into(), live: false, status: Status::Stopped, ..Session::new(Harness::Claude, "claude2", "child") };
         let from_boss = Sender::Agent(Some("claude:claude2:boss".into()));
-        assert_eq!(wakes_for(&cfg, &from_boss, &child, &resumes, false, false), Ok(Some((Place::Background, Started::ByYours))));
-        // Not one only matched to its start afterwards, a fork of it, or one another started.
+        assert_eq!(wakes_for(&starts, &from_boss, &child, &resumes, false, false), woken(Link::YoursStarted));
+        assert_eq!(wakes_for(&cfg, &from_boss, &child, &resumes, false, false), woken(Link::YoursStarted));
+        // Not one only matched to its start afterwards, a fork of it, one another started, nor
+        // another session the same one started.
         for key in ["codex:codex:matched", "claude:claude2:copy", "claude:claude2:other"] {
             let s = Session { key: key.into(), ..child.clone() };
-            assert_eq!(wakes_for(&cfg, &from_boss, &s, &resumes, false, false), Ok(None), "{key}");
+            assert!(wakes_for(&starts, &from_boss, &s, &resumes, false, false).is_err(), "{key}");
         }
-        // Nor for another session the same one started.
-        assert_eq!(wakes_for(&cfg, &Sender::Agent(Some("claude:claude2:twin".into())), &child, &resumes, false, false), Ok(None));
+        assert!(wakes_for(&starts, &Sender::Agent(Some("claude:claude2:twin".into())), &child, &resumes, false, false).is_err());
+        // With both off, none; with any session's on, the other is part of it.
+        let mut off = starts.clone();
+        off.sessions.resume_for_sessions_it_started = false;
+        assert!(wakes_for(&off, &senders[0], &boss, &resumes, false, false).unwrap_err().contains("turned off resuming a session for one it started, or for any session"));
         assert!(wakes_for(&off, &from_boss, &child, &resumes, false, false).unwrap_err().contains("turned off resuming a session for the one that started it"));
-        assert!(wakes_for(&cfg, &from_boss, &Session { archived: true, ..child.clone() }, &resumes, false, false).unwrap_err().contains("archived it or marked it done"));
-        assert!(wakes_for(&cfg, &from_boss, &child, &resumes, false, true).unwrap_err().contains("where your session doesn't"));
+        let any = Config { sessions: crate::config::SessionsCfg { resume_for_sessions_it_started: false, ..Config::default().sessions }, ..Config::default() };
+        assert_eq!(wakes_for(&any, &senders[0], &boss, &resumes, false, false), woken(Link::StartedYours));
+        assert!(wakes_for(&starts, &from_boss, &Session { archived: true, ..child.clone() }, &resumes, false, false).unwrap_err().contains("archived it or marked it done"));
+        assert!(wakes_for(&starts, &from_boss, &child, &resumes, false, true).unwrap_err().contains("where your session doesn't"));
+    }
+
+    /// A message that resumed its session is the agent's, as the conversation shows it, after the
+    /// line that says the session had stopped.
+    #[test]
+    fn a_message_that_resumed_its_session_is_the_agents() {
+        let intro = byline(&Board::default(), Some("claude:claude2:boss")).intro;
+        let resumed = format!("{RESUMED_FOR_A_MESSAGE}\n\n{intro}\n\nPR #1199 is open.");
+        assert_eq!(from_an_agent(&resumed), Some("PR #1199 is open."));
+        assert_eq!(from_an_agent(&format!("{RESUMED_FOR_A_MESSAGE}\n\nGo on.")), None);
+        let board = board_with(Session { key: "claude:claude2:boss".into(), title: "Cloud SQL CPU spike".into(), ..Session::new(Harness::Claude, "claude2", "boss") });
+        let named = format!("{RESUMED_FOR_A_MESSAGE}\n\n{}\n\nPR #1199 is open.", byline(&board, Some("claude:claude2:boss")).intro);
+        assert_eq!(sender_of(&named), Some("Cloud SQL CPU spike"));
     }
 
     /// A session resumed for a message isn't resumed again for another until the board has had

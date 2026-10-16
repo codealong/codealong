@@ -1082,11 +1082,13 @@ Commands:
               Claude Code session does. OpenCode sessions get it posted to their
               service, and sessions Codealong runs get it from Codealong, queued while
               they work. Nothing is sent to one waiting on its user to answer a prompt,
-              or an Antigravity one, nor to a session that isn't running, but for the
-              one that started yours and the ones yours started (`codealong start`):
-              Codealong resumes that one out of sight with the message, unless its user
-              turned that off (`[sessions] resume_for_sessions_it_started`), and the
-              error says why when it doesn't
+              or an Antigravity one. One that isn't running (`status` stopped, `live`
+              false) Codealong resumes out of sight with the message, telling it it had
+              stopped, and the answer says so: it takes a while to start, and spends its
+              account's usage. Its user can turn that off (`[sessions]
+              resume_for_any_session`), and with only `resume_for_sessions_it_started`
+              on it's done just for the session that started yours and the ones yours
+              started (`codealong start`); the error says why when nothing was sent
   pending     What a session waits on its user for, when Codealong can see it
               (`pending`): the tool call it asks to run (`id`, which `session answer`
               names; `label`, the call in a line; `input`, all of it; `cannot`, why
@@ -1261,11 +1263,13 @@ Claude app session can't, so nothing is sent). Codex sessions get it as a prompt
 into their terminal or sent to the Codex app, and one taking a turn there reads it at
 its next step, as a Claude Code session does. OpenCode sessions get it posted to their
 service, and sessions Codealong runs get it from Codealong, queued while they work.
-Nothing is sent to one waiting on its user to answer a prompt, or an Antigravity one,
-nor to a session that isn't running, but for the one that started yours and the ones
-yours started (`codealong start`): Codealong resumes that one out of sight with the
-message, unless its user turned that off (`[sessions] resume_for_sessions_it_started`),
-and the error says why when it doesn't
+Nothing is sent to one waiting on its user to answer a prompt, or an Antigravity one.
+One that isn't running (`status` stopped, `live` false) Codealong resumes out of sight
+with the message, telling it it had stopped, and the answer says so: it takes a while to
+start, and spends its account's usage. Its user can turn that off (`[sessions]
+resume_for_any_session`), and with only `resume_for_sessions_it_started` on it's done
+just for the session that started yours and the ones yours started (`codealong start`);
+the error says why when nothing was sent
 
 Usage: codealong session send [OPTIONS] <KEY> [MESSAGE]
 

@@ -165,11 +165,14 @@ ones your harness's own tools don't list: another Claude Code account, Codex, Op
   don't ask another session to do what you aren't allowed to do yourself.
 - A Claude Code session that skips permission prompts takes your message at once only if
   yours skips them too, or it started you with `codealong start --helper`; otherwise it asks its
-  user first. Nothing goes to a session that is waiting on its user, nor to one that isn't
-  running, but for the session that started yours and the ones yours started with `codealong
-  start`: Codealong resumes that one out of sight with your message, so send the one that
-  started you what it asked for even once it has stopped, and hand one you started more of its
-  work rather than starting another. The error says why when nothing went. A new session is `codealong start`, with your user's say-so.
+  user first. Nothing goes to a session that is waiting on its user. One that isn't running
+  (`status` stopped, `live` false in `sessions` and `session show`) is resumed out of sight
+  with your message, told it had stopped, and the answer says it was: it takes a while to
+  start and spends its account's usage, so message a stopped session only when your user's
+  task calls for it, such as sending the session that started you what it asked for, or
+  handing one you started more of its work rather than starting another. Its user may have
+  turned that off, for all sessions or all but those linked by `codealong start`; the error
+  says why when nothing went. A new session is `codealong start`, with your user's say-so.
 - A session moved to another account (Move to, in Codealong) goes on there as a new session
   with a key of its own. A message to the old key is turned away with the new one named, and
   `codealong session show` gives it as `movedTo`: send there, and use that key from then on.
