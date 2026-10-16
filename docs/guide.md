@@ -275,9 +275,9 @@ the app opens it once its process has ended, going on there as itself. Not mid-t
 would cut off (let the turn finish or stop it first; a Codex turn quiet for a while is still one, as
 its record says), nor while a command a Claude Code turn left running in the background goes on, or
 a prompt waits on you there, since either would end with the terminal. A command Codex left running
-in a background terminal isn't something Codealong can see, so it ends with the terminal, as with
-Close terminal. One that isn't running opens in the app as it is (Continue in Claude app, Open in
-Codex).
+in a background terminal isn't something Codealong can see: nothing holds the move for it, and it
+doesn't go to the app, so it may stop with the terminal or run on without the session, as with Close
+terminal. One that isn't running opens in the app as it is (Continue in Claude app, Open in Codex).
 
 #### Side conversations
 
