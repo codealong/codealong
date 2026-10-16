@@ -38,7 +38,10 @@ What Linux, its desktops and the harnesses there turned out to need, found in th
   starts, before its `<pid>.json`; an unsigned one stops at the theme and login screens and
   writes no `<pid>.json` (`claude/usage.rs`).
 - WebKitGTK's user agent says `X11; Linux`, which is how the page knows it's there
-  (`src/main.tsx`, `is-linux`). A transparent window is drawn black without a compositor: the VM
+  (`src/platform.ts` `platform`, which `src/main.tsx`'s `is-linux` asks). It reports no Super to
+  a page at all: no `metaKey`, and `getModifierState` false for `Meta`, `OS` and `Super` (2.52,
+  Super on mod4 under openbox in the VM, 2026-10-16), so the windows' keys use Ctrl, Alt and
+  Shift alone there (platform.ts's header). A transparent window is drawn black without a compositor: the VM
   runs `xcompmgr` (`scripts/linux/run.sh`).
 - GDK's coordinates, the pointer's and a monitor's, are the whole desktop's in application pixels
   on X11, y growing down from the top left of the desktop; os/windows/linux.rs turns them into AppKit's.

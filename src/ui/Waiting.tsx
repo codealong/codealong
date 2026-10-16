@@ -46,6 +46,7 @@ import { SessionCard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
 import { Reading } from './Tip';
 import { useNow } from './useNow';
+import { chordMod } from '../platform';
 
 /** Where the sessions looked at here are kept, for ⌃- and ⌃⇧- (history.ts), apart from the other
  *  windows'. */
@@ -274,7 +275,7 @@ export function Waiting() {
         return;
       }
       const el = document.activeElement;
-      if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && (!el || el === document.body)) {
+      if (e.key.length === 1 && !chordMod(e) && (!el || el === document.body)) {
         document.querySelector<HTMLTextAreaElement>('.ca-waiting .ca-composer textarea')?.focus();
       }
     };

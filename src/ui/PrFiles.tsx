@@ -27,6 +27,7 @@ import { filterFiles, fileQuery, marks, parsePatch, pieces, splitPath, splitRows
 import { flag, oneOf, useStored } from '../stored';
 import type { PrFile } from '../types';
 import { cx, Icon, Kbd, Seg } from './primitives';
+import { chordPressed, typed } from '../platform';
 
 /** How diffs are drawn, as you left them, for every PR. */
 const LAYOUT_KEY = 'codealong.diffLayout';
@@ -341,7 +342,7 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
     if (!keys) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || !finding.current) return;
-      if (e.key.toLowerCase() !== 'f' || !e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (!chordPressed('Cmd+F', e)) return;
       if (!findsAt(section.current)) return;
       e.preventDefault();
       finding.current();
@@ -416,7 +417,7 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+                if (e.nativeEvent.isComposing || !typed(e)) return;
                 if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                   e.preventDefault();
                   const step = e.key === 'ArrowDown' ? 1 : -1;

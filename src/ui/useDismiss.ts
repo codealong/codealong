@@ -16,6 +16,7 @@
 // Escape itself (a name being typed, a turn to stop) gets it first and says so by taking it.
 
 import { useEffect, useRef, type RefObject } from 'react';
+import { held } from '../platform';
 
 export interface DismissOptions {
   /** Whether it's up: nothing is listened for while it isn't. Default true. */
@@ -85,9 +86,9 @@ export function useEscape(onClose: () => void, when = true): void {
 
 /** The keys a card the pointer brought up stays up for (`keys: 'any'`): a modifier pressed on its
  *  own, on the way to a chord or a ⌘-click, and ⌘C, which copies text selected on the card. */
-export function keyLeavesHover(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey'>): boolean {
+export function keyLeavesHover(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): boolean {
   if (e.key === 'Meta' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Control' || e.key === 'CapsLock') return true;
-  return e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'c';
+  return (held(e, 'Cmd') || held(e, 'Shift', 'Cmd')) && e.key.toLowerCase() === 'c';
 }
 
 /** Closes a popover on a press outside `ref` (anywhere at all, without a ref) and on Escape.

@@ -25,6 +25,7 @@ import { cardTitle, flagged, readNote, trainingOf } from '../training';
 import type { Meter, Severity, Training, Usage } from '../types';
 import { Button, cx, Icon } from './primitives';
 import { useDismiss } from './useDismiss';
+import { bare, keysIn, pinch } from '../platform';
 
 /** How long the pointer rests on a chip before its card shows; moving between chips while a card
  *  is up, or just after, switches straight away. */
@@ -405,7 +406,7 @@ function useSort(row: RefObject<HTMLDivElement | null>, onStart: () => void, onP
   const start = (e: ReactPointerEvent<HTMLElement>, from: number, names: string[]) => {
     const el = row.current;
     // ⌘-, ⌃-, ⌥- and ⇧-clicks stay clicks.
-    if (!el || e.button !== 0 || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    if (!el || e.button !== 0 || !bare(e)) return;
     stopNow.current?.();
     const chip = e.currentTarget;
     const x0 = e.clientX;
@@ -587,7 +588,7 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
     const el = row.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || el.scrollWidth <= el.clientWidth || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      if (pinch(e) || el.scrollWidth <= el.clientWidth || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       e.preventDefault();
       el.scrollLeft += e.deltaY;
     };
@@ -679,10 +680,10 @@ export function UsageBar({ usage: board, now, onRefresh, onAccounts, onUsage, on
           title={lastRead ? `Claude usage read ${agoPhrase(lastRead, now)}; it refreshes every 2 minutes. Refresh now` : 'Refresh usage'}
           onClick={onRefresh}
         />
-        <Button variant="ghost" size="sm" icon="chart-bar" title="What sessions used and cost (⇧⌘U)" onClick={() => onUsage()}>
+        <Button variant="ghost" size="sm" icon="chart-bar" title={keysIn('What sessions used and cost (⇧⌘U)')} onClick={() => onUsage()}>
           Usage
         </Button>
-        <Button variant="ghost" size="sm" icon="settings" title="Accounts, in Settings (⌘,)" onClick={() => onAccounts()}>
+        <Button variant="ghost" size="sm" icon="settings" title={keysIn('Accounts, in Settings (⌘,)')} onClick={() => onAccounts()}>
           Accounts
         </Button>
       </div>

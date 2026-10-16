@@ -85,6 +85,7 @@ import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel }
 import { findFor } from './threadFind';
 import { improveTitle } from './improve';
 import { setPageZoom, type ZoomStep } from './zoom';
+import { bare, keysIn } from './platform';
 
 /** No worktrees yet, as one list, so Settings doesn't see a new one on every render. */
 const NO_LANES: Lane[] = [];
@@ -644,7 +645,7 @@ export function App() {
   // The Kanban view's arrows: up and down a column, left and right across them (kanban.ts).
   const kanbanKeys = useLatest((e: KeyboardEvent): boolean => {
     const dir = ({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const)[e.key as 'ArrowUp'];
-    if (view !== 'kanban' || !dir || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
+    if (view !== 'kanban' || !dir || !bare(e)) return false;
     e.preventDefault();
     const to = kanbanStep(kanbanCols, selected?.key ?? null, dir, showDoneCards);
     if (to) {
@@ -1588,7 +1589,7 @@ export function App() {
             className={sideCollapsed ? 'ca-sidetoggle' : 'ca-sidetoggle is-on'}
             aria-label={sideCollapsed ? 'Show sidebar' : 'Hide sidebar'}
             aria-pressed={!sideCollapsed}
-            title={`${sideCollapsed ? 'Show' : 'Hide'} the sidebar (⌃⌘S)`}
+            title={keysIn(`${sideCollapsed ? 'Show' : 'Hide'} the sidebar (⌃⌘S)`)}
             onClick={toggleSidebar}
           >
             <Icon name="layout-sidebar" size={16} />
@@ -1622,7 +1623,7 @@ export function App() {
         <button
           type="button"
           className="ca-search"
-          title={`Find a session, a todo or a PR, or describe new work (⌘K${quickKeys ? `, or ${quickKeys.join('')} from any app` : ''})`}
+          title={keysIn(`Find a session, a todo or a PR, or describe new work (⌘K${quickKeys ? `, or ${shortcutLabel(board?.quickShortcut)} from any app` : ''})`)}
           onClick={() => newSession({ laneId: startLaneId })}
         >
           <Icon name="search" size={14} />
@@ -1646,7 +1647,7 @@ export function App() {
           <Button
             icon="plus"
             aria-label="New session"
-            title={pickedRows.length > 0 ? `Start one session for the ${pickedRows.length} selected todos (⌘N)` : selected?.kind === 'todo' ? 'Start a session for the selected todo (⌘N)' : 'Start a session in the selected worktree (⌘N)'}
+            title={keysIn(pickedRows.length > 0 ? `Start one session for the ${pickedRows.length} selected todos (⌘N)` : selected?.kind === 'todo' ? 'Start a session for the selected todo (⌘N)' : 'Start a session in the selected worktree (⌘N)')}
             onClick={() => (pickedRows.length > 0 ? startForTodos(pickedRows) : selected?.kind === 'todo' ? startForTodo(selected) : newSession({ laneId: startLaneId }))}
           />
           {/* Improve Codealong (improve.ts): the quick panel on Codealong's own project, with pictures
@@ -1718,7 +1719,7 @@ export function App() {
           loading={loading}
           foot={
             <div className="ca-side-foot">
-              <button type="button" className="ca-linkbtn ca-side-config" title="Settings (⌘,)" onClick={() => openSettings()}>
+              <button type="button" className="ca-linkbtn ca-side-config" title={keysIn('Settings (⌘,)')} onClick={() => openSettings()}>
                 <Icon name="settings" size={14} />
                 <span>Settings</span>
               </button>

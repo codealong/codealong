@@ -6,8 +6,8 @@
 // `left`). `useWaitingQueue` (useWaitingQueue.ts) runs them for a window; they're kept apart from
 // it so the rules have tests.
 
-import { historyChord } from './history';
 import type { Left } from './menus';
+import { chordPressed } from './platform';
 import type { Status } from './types';
 
 /** Sessions you answered, marked seen, closed or archived from the queue, with the time of the
@@ -113,27 +113,8 @@ export const AWAY_CHORD = 'Esc';
 
 export type Key = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>;
 
-/** Whether a key event is the chord, with exactly its modifiers. */
-export function chordPressed(chord: string, e: Key): boolean {
-  const parts = chord.split('+');
-  const key = parts.pop() ?? '';
-  const has = (mod: string) => parts.includes(mod);
-  if (e.metaKey !== has('Cmd') || e.ctrlKey !== has('Ctrl') || e.shiftKey !== has('Shift')) return false;
-  // ] and [ go by their keys' codes, which layouts that type them with ⌥ keep, and with ⌥ held or
-  // not, as the main window and the quick panel have always taken ].
-  if (key === ']') return e.code === 'BracketRight';
-  if (key === '[') return e.code === 'BracketLeft';
-  if (e.altKey !== has('Alt')) return false;
-  // - goes by what it types or where it is, as history.ts has it.
-  if (key === '-') return historyChord(e);
-  // ` goes by what it types or where it is too: layouts that make it a dead key type nothing.
-  if (key === '`') return e.key === '`' || e.code === 'Backquote';
-  if (key === 'Up' || key === 'Down') return e.key === `Arrow${key}`;
-  if (key === 'Enter') return e.key === 'Enter';
-  // A digit goes by its key's code: ⌥ changes what it types (⌥1 is ¡).
-  if (/^[0-9]$/.test(key)) return e.code === `Digit${key}`;
-  return e.key.toUpperCase() === key;
-}
+// Whether a key event is the chord, with exactly its modifiers, as this platform has them.
+export { chordPressed };
 
 /** The action a key event asks for, or none. */
 export function queueKey(e: Key): QueueAction | null {

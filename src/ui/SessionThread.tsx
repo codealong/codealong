@@ -66,6 +66,7 @@ import { says, shownText } from '../threadFind';
 import { scaleOf } from '../zoom';
 import { FindContext, ThreadFind, type FindAsk } from './ThreadFind';
 import { Reading } from './Tip';
+import { held, keysIn } from '../platform';
 
 /** Loads the page before once you're this close to the top. */
 const NEAR_TOP = 240;
@@ -769,7 +770,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || !e.metaKey || e.ctrlKey || e.altKey || e.isComposing || e.defaultPrevented) return;
+      if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || !(held(e, 'Cmd') || held(e, 'Shift', 'Cmd')) || e.isComposing || e.defaultPrevented) return;
       const el = scroller.current;
       if (!el || el.getClientRects().length === 0) return;
       // Settings and the rename sheet keep the keys while they're open.
@@ -861,7 +862,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                   <button
                     type="button"
                     className="ca-thread-pinned"
-                    title="Go to this prompt (⌘⇧↑)"
+                    title={keysIn('Go to this prompt (⌘⇧↑)')}
                     // The cursor stays in the box below.
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => goTo(pinned.key)}

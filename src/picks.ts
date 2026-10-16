@@ -4,13 +4,14 @@
 // marked seen, snoozed, closed, done or archived at once (menus.ts `sessionsActions`).
 
 import { useMemo, useState } from 'react';
+import { cmd } from './platform';
 
 /** How a press selects a row: alone, ⌘ to add it or leave it out, ⇧ for the rows up to it. */
 export type SelectHow = 'one' | 'toggle' | 'range';
 
 /** How a press with these keys held selects a row. */
-export function selectHow(e: { metaKey: boolean; shiftKey: boolean }): SelectHow {
-  return e.metaKey ? 'toggle' : e.shiftKey ? 'range' : 'one';
+export function selectHow(e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }): SelectHow {
+  return cmd(e) ? 'toggle' : e.shiftKey ? 'range' : 'one';
 }
 
 /** Rows picked together. It holds while `focus` is the selected row: selecting another row any

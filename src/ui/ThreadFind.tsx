@@ -23,6 +23,7 @@ import { chainFrom, countWords, findPattern, pageHits } from '../threadFind';
 import type { TranscriptPage } from '../types';
 import { scaleOf } from '../zoom';
 import { Button, Icon } from './primitives';
+import { held, keysIn, typed } from '../platform';
 
 /** What's being found while the bar is open, for what folds lines away to show the ones it finds. */
 export const FindContext = createContext<RegExp | null>(null);
@@ -441,7 +442,7 @@ export function ThreadFind({ host, asked, children }: { host: FindHost; asked?: 
   const stepNow = useLatest(step);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.isComposing || !e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.defaultPrevented || e.isComposing || !(held(e, 'Cmd') || held(e, 'Shift', 'Cmd'))) return;
       const key = e.key.toLowerCase();
       if (!(key === 'f' && !e.shiftKey) && key !== 'g') return;
       const el = hostNow.current.scroller.current;
@@ -494,7 +495,7 @@ export function ThreadFind({ host, asked, children }: { host: FindHost; asked?: 
               spellCheck={false}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+                if (e.nativeEvent.isComposing || !typed(e)) return;
                 if (e.key === 'Enter') {
                   e.preventDefault();
                   step(e.shiftKey ? 1 : -1);
@@ -512,8 +513,8 @@ export function ThreadFind({ host, asked, children }: { host: FindHost; asked?: 
             </span>
           )}
           {/* The cursor stays in the field. */}
-          <Button variant="ghost" size="sm" icon="chevron-up" title="Earlier match (⏎)" aria-label="Earlier match" disabled={!pattern || looking || atFirst} onMouseDown={(e) => e.preventDefault()} onClick={() => step(-1)} />
-          <Button variant="ghost" size="sm" icon="chevron-down" title="Later match (⇧⏎)" aria-label="Later match" disabled={!pattern || looking || view.at == null || view.at + 1 >= view.shown} onMouseDown={(e) => e.preventDefault()} onClick={() => step(1)} />
+          <Button variant="ghost" size="sm" icon="chevron-up" title={keysIn('Earlier match (⏎)')} aria-label="Earlier match" disabled={!pattern || looking || atFirst} onMouseDown={(e) => e.preventDefault()} onClick={() => step(-1)} />
+          <Button variant="ghost" size="sm" icon="chevron-down" title={keysIn('Later match (⇧⏎)')} aria-label="Later match" disabled={!pattern || looking || view.at == null || view.at + 1 >= view.shown} onMouseDown={(e) => e.preventDefault()} onClick={() => step(1)} />
           <Button variant="ghost" size="sm" icon="x" title="Close (esc)" aria-label="Close find" onClick={close} />
         </div>
       )}

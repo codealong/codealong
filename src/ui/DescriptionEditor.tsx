@@ -13,6 +13,7 @@ import type { Attachment } from '../types';
 import { cx, Icon } from './primitives';
 import { PrLink } from './PrLink';
 import { errorText } from '../report';
+import { cmd, keysIn } from '../platform';
 
 const open = (path: string) => void openAttachment(path);
 
@@ -285,7 +286,7 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
             }}
             onBlur={finish}
             onKeyDown={(e) => {
-              if (e.key === 'Escape' || (e.key === 'Enter' && e.metaKey)) {
+              if (e.key === 'Escape' || (e.key === 'Enter' && cmd(e))) {
                 e.preventDefault();
                 e.stopPropagation();
                 areaRef.current?.blur();
@@ -332,7 +333,7 @@ export function DescriptionEditor({ value, onSave, onError }: DescriptionEditorP
           <Icon name="paperclip" size={13} />
           Attach
         </button>
-        {editing && <small>Esc or ⌘⏎ when you’re done</small>}
+        {editing && <small>{keysIn('Esc or ⌘⏎ when you’re done')}</small>}
         <input
           ref={fileRef}
           type="file"

@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getConfig, onQuickShortcut, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, startOptions, takeTeamSettings, testJev } from '../api';
-import { shortcutFromKey, shortcutLabel, TAKEN } from '../quick';
+import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
@@ -24,6 +24,7 @@ import { UpdatesFields } from './Updates';
 import { Button, cx, Dialog, Icon, NavItem, Seg } from './primitives';
 import { THEMES } from './ThemeSwitch';
 import { errorText } from '../report';
+import { bare, cmd, keysIn, keysSaid, platform, type Platform } from '../platform';
 
 export type SettingsSection = 'general' | 'sounds' | 'accounts' | 'routing' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
 
@@ -245,13 +246,13 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
               others={SHORTCUTS.filter((o) => o !== field).map((o) => ({ value: cfg.shortcuts?.[o.key] ?? view.defaultShortcuts?.[o.key] ?? '', name: o.called }))}
               onChange={(shortcut) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, [field.key]: shortcut } })}
             />
-            <small>{field.says}</small>
+            <small>{keysIn(typeof field.says === 'string' ? field.says : field.says[platform()])}</small>
           </div>
         ))}
         <label className="ca-field">
           <span>Search what sessions said</span>
           <ProfileSelect value={String(searchDays)} profiles={dayOptions(searchDays)} onChange={(d) => void onSave({ ...cfg, search: { days: Number(d) } })} />
-          <small>The quick panel, the main window's find in its list (⌘F) and <code>codealong sessions find</code> look for your words in the prompts and replies of sessions active this recently, not just in their titles. Tool output is left out. Codealong keeps this text in memory, a few megabytes a week.</small>
+          <small>The quick panel, the main window's find in its list ({keysSaid('⌘F')}) and <code>codealong sessions find</code> look for your words in the prompts and replies of sessions active this recently, not just in their titles. Tool output is left out. Codealong keeps this text in memory, a few megabytes a week.</small>
         </label>
         <label className="ca-field">
           <span>Terminal</span>
@@ -1173,7 +1174,7 @@ const NUDGE_ABOUT: (Profile & { id: NudgeAbout; says: string })[] = [
 /** The shortcuts that work in every app, in General's order: `key` is config.toml's, `called`
  *  what another field says when you press this one's keys there. Their defaults are the engine's,
  *  which differ by OS (`ConfigView.defaultShortcuts`). */
-const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts']; title: string; name: string; called: string; says: string }[] = [
+const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts']; title: string; name: string; called: string; says: string | Record<Platform, string> }[] = [
   {
     which: 'quick',
     key: 'quick_panel',
@@ -1212,7 +1213,10 @@ const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts'
     title: 'Codealong’s window',
     name: 'Shortcut for Codealong’s window',
     called: 'the shortcut for Codealong’s window',
-    says: 'Brings the Codealong window you were in last to the front, from any app. Press it again there to hide Codealong, as ⌘H does, and go back to the app you were in.',
+    says: {
+      mac: 'Brings the Codealong window you were in last to the front, from any app. Press it again there to hide Codealong, as ⌘H does, and go back to the app you were in.',
+      linux: 'Brings the Codealong window you were in last to the front, from any app. Press it again there to hide Codealong and go back to the app you were in.',
+    },
   },
 ];
 
@@ -1380,7 +1384,7 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
                   </span>
                   <span className="ca-jev-feature-name">{f.label}</span>
                 </span>
-                <span className="ca-jev-feature-does">{f.does}</span>
+                <span className="ca-jev-feature-does">{keysIn(f.does)}</span>
                 <span className="ca-jev-feature-sends">
                   <b>Sends:</b> {f.sends}
                 </span>
@@ -1442,7 +1446,7 @@ function ShortcutField({ which, name, fallback, value, others, onChange }: Short
   useEffect(() => () => void pauseQuickShortcut(false), []);
 
   const label = shortcutLabel(value);
-  const taken = label ? TAKEN[label] : undefined;
+  const taken = label ? takenFor(label) : undefined;
   // The engine's word on the shortcut it has, once that's the one saved here.
   const engineError = status && status.shortcut === value.trim() ? status.error : null;
 
@@ -1460,13 +1464,13 @@ function ShortcutField({ which, name, fallback, value, others, onChange }: Short
             if (!recording) return;
             e.preventDefault();
             e.stopPropagation();
-            if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+            if (e.key === 'Escape' && bare(e)) {
               record(false);
               return;
             }
             const made = shortcutFromKey(e);
             if (!made) {
-              setHeld([e.ctrlKey && '⌃', e.altKey && '⌥', e.shiftKey && '⇧', e.metaKey && '⌘'].filter(Boolean).join(''));
+              setHeld(heldSaid(e));
               return;
             }
             if ('error' in made) {
@@ -1481,7 +1485,7 @@ function ShortcutField({ which, name, fallback, value, others, onChange }: Short
             record(false);
             onChange(made.shortcut);
           }}
-          onKeyUp={(e) => recording && setHeld([e.ctrlKey && '⌃', e.altKey && '⌥', e.shiftKey && '⇧', e.metaKey && '⌘'].filter(Boolean).join(''))}
+          onKeyUp={(e) => recording && setHeld(heldSaid(e))}
         >
           {recording ? held || 'Press a shortcut…' : (label ?? 'Off')}
         </button>
@@ -1899,7 +1903,7 @@ function FilePane({ view, draft, onDraft, editor, onOpenConfig, onSaved }: FileP
         aria-label="config.toml"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (e.metaKey && e.key.toLowerCase() === 's') {
+          if (cmd(e) && e.key.toLowerCase() === 's') {
             e.preventDefault();
             if (dirty && !busy) void save();
           }

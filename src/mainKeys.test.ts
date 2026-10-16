@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { VIEW_CHORDS, viewOfKey } from './mainKeys';
 import { CHORDS, chordKeys } from './menus';
+import { setPlatform } from './platform';
 import { QUEUE_CHORDS } from './queue';
 
 const VIEWS = [{ id: 'sessions' }, { id: 'worktrees' }, { id: 'prs' }, { id: 'todo' }, { id: 'canvas' }] as const;
@@ -31,5 +32,16 @@ describe('view chords', () => {
     expect(viewOfKey(press('c'), VIEWS)).toBeNull();
     const taken = [CHORDS.done, 'Shift+Cmd+F', 'Shift+Cmd+N', ...Object.values(QUEUE_CHORDS).flat()];
     expect(Object.values(VIEW_CHORDS).filter((c) => taken.includes(c))).toEqual([]);
+  });
+
+  it('are Ctrl+Shift and the letter on Linux, where ⌘ is Ctrl', () => {
+    setPlatform('linux');
+    try {
+      expect(VIEWS.map((v) => chordKeys(VIEW_CHORDS[v.id]).join('+'))).toEqual(['Ctrl+Shift+S', 'Ctrl+Shift+W', 'Ctrl+Shift+P', 'Ctrl+Shift+T', 'Ctrl+Shift+B']);
+      expect(['s', 'w', 'p', 't', 'b'].map((l) => viewOfKey(press(l, { ctrl: true, shift: true }), VIEWS))).toEqual(VIEWS.map((v) => v.id));
+      expect(viewOfKey(press('s'), VIEWS)).toBeNull();
+    } finally {
+      setPlatform(null);
+    }
   });
 });

@@ -3,6 +3,7 @@
 // session from somewhere back in the list drops what was ahead.
 
 import { useEffect, useRef } from 'react';
+import { chordPressed } from './platform';
 import { useStored, type Codec } from './stored';
 
 export interface History {
@@ -69,10 +70,11 @@ export function parseHistory(text: string | null): History {
 /** How a window's history is kept: as JSON, read back by `parseHistory`. */
 const HISTORY_STORED: Codec<History> = { parse: parseHistory, format: (h) => JSON.stringify(h) };
 
-/** ⌃- and ⌃⇧-, back and forward through the sessions you looked at, as VS Code has them. The key
- *  goes by what it types or where it is, so a layout that puts - elsewhere has it too. */
-export function historyChord(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'altKey'>): boolean {
-  return e.ctrlKey && !e.metaKey && !e.altKey && (e.key === '-' || e.key === '_' || e.code === 'Minus');
+/** ⌃- and ⌃⇧-, back and forward through the sessions you looked at, as VS Code has them (Alt and
+ *  - on Linux, platform.ts). The key goes by what it types or where it is, so a layout that puts -
+ *  elsewhere has it too. */
+export function historyChord(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): boolean {
+  return chordPressed('Ctrl+-', e) || chordPressed('Ctrl+Shift+-', e);
 }
 
 export interface SessionHistory {

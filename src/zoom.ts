@@ -14,6 +14,7 @@
 // 2026-10-06. So code inside a card that mixes the two converts with `scaleOf`.
 
 import type { CSSProperties } from 'react';
+import { held } from './platform';
 
 /** Which way a key or View's menu zooms, as the engine's `zoom` command takes it. */
 export type ZoomStep = 'in' | 'out' | 'actual';
@@ -21,7 +22,7 @@ export type ZoomStep = 'in' | 'out' | 'actual';
 /** The step a key asks for, or none. ⇧ is allowed for ⌘+ and ⌘_, which some keyboards need for
  *  the same key; by the character, so a keyboard whose + has a key of its own works too. */
 export function zoomStep(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): ZoomStep | null {
-  if (!e.metaKey || e.ctrlKey || e.altKey) return null;
+  if (!held(e, 'Cmd') && !held(e, 'Shift', 'Cmd')) return null;
   if (e.key === '=' || e.key === '+') return 'in';
   if (e.key === '-' || e.key === '_') return 'out';
   if (e.key === '0' && !e.shiftKey) return 'actual';

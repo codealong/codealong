@@ -20,6 +20,7 @@ import type { Label, Lane, ProjectSummary, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 import type { UndoToast } from './ui/Toasts';
 import type { ComposerContext } from './ui/TodoView';
+import { chordMod, held } from './platform';
 
 /** What the Todo view goes by, as the window has it. */
 export interface TodoViewInput {
@@ -317,7 +318,7 @@ export function useTodoView(input: TodoViewInput) {
   const todoKeys = useLatest((e: KeyboardEvent, key: string): boolean => {
     if (!listsTodos) return false;
     // Reordering moves one todo at a time.
-    if (e.ctrlKey && e.metaKey && !e.altKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    if (held(e, 'Ctrl', 'Cmd') && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       if (selected?.kind !== 'todo') return false;
       e.preventDefault();
       if (pickedRows.length > 0 || selected.todo.status === 'done') return true;
@@ -327,7 +328,7 @@ export function useTodoView(input: TodoViewInput) {
       if (run && i >= 0) moveTodoAmong(run, selected.todo.id, e.key === 'ArrowUp' ? i - 1 : i + 2);
       return true;
     }
-    if (e.metaKey || e.ctrlKey) return false;
+    if (chordMod(e)) return false;
     if (key === 'n' && !e.altKey) {
       e.preventDefault();
       setComposerFocus((n) => n + 1);

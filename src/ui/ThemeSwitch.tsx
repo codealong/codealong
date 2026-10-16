@@ -2,12 +2,20 @@
 // window follows it and it lasts.
 
 import { useEffect } from 'react';
+import { systemName } from '../platform';
 import type { Theme } from '../types';
 import { Seg, type SegOption } from './primitives';
 
 /** The themes, as the sidebar's switch draws them (icons) and Settings names them (words). */
 export const THEMES: SegOption<Theme>[] = [
-  { id: 'system', label: 'Follow macOS', icon: 'device-desktop' },
+  {
+    id: 'system',
+    // Read as it's drawn, so it names the platform the window is on.
+    get label() {
+      return `Follow ${systemName()}`;
+    },
+    icon: 'device-desktop',
+  },
   { id: 'light', label: 'Light', icon: 'sun' },
   { id: 'dark', label: 'Dark', icon: 'moon' },
 ];

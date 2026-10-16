@@ -3,6 +3,7 @@
 
 import { Menu, type MenuOptions } from '@tauri-apps/api/menu';
 import { inTauri, popupMenu } from './api';
+import { platformChord } from './platform';
 
 export interface MenuAction {
   label: string;
@@ -98,7 +99,9 @@ function options(items: MenuSpec, path: string): Items {
     const id = `${path}-${i}`;
     if (it === 'separator') return { item: 'Separator' as const };
     if ('items' in it) return { id, text: it.label, enabled: it.enabled ?? it.items.length > 0, items: options(it.items, id) };
-    const item = { id, text: it.label, enabled: it.enabled ?? true, action: () => it.run(), ...(it.accelerator ? { accelerator: it.accelerator } : {}) };
+    // An accelerator is written as the app's chords are, in macOS's terms: the menu has it as this
+    // platform's keys (platform.ts).
+    const item = { id, text: it.label, enabled: it.enabled ?? true, action: () => it.run(), ...(it.accelerator ? { accelerator: platformChord(it.accelerator) } : {}) };
     if (it.checked !== undefined) return { ...item, checked: it.checked };
     // Tauri's types list icons it loads itself; raw RGBA goes through to the engine as it is.
     return it.icon ? { ...item, icon: it.icon as unknown as number[] } : item;

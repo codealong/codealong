@@ -46,6 +46,7 @@ import { Tip } from './Tip';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
+import { keysIn, keysSaid } from '../platform';
 
 /** Whether a PR's details are open, for every PR, as you left them. */
 const DETAILS_KEY = 'codealong.prDetailsOpen';
@@ -209,7 +210,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
       <div className="ca-prinsp ca-prpanel-body">
         <PrDetails {...details} keys report={report} tabs={tabs} lead={lead} trail={trail} />
       </div>
-      <PrBoxView pr={pr} box={box} keys={{ approve: '⌘⏎', comment: '⌥⌘⏎' }} ownKeys onShowReview={() => tabs.show('review')} />
+      <PrBoxView pr={pr} box={box} keys={{ approve: keysSaid('⌘⏎'), comment: keysSaid('⌥⌘⏎') }} ownKeys onShowReview={() => tabs.show('review')} />
     </aside>
   );
 }
@@ -339,7 +340,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
                 icon={maximized ? 'minimize' : 'maximize'}
                 aria-label={maximized ? 'Show the list' : 'Expand to the window'}
                 aria-pressed={maximized}
-                title={maximized ? 'Show the list again (⇧⌘F)' : 'Expand to the whole window (⇧⌘F)'}
+                title={keysIn(maximized ? 'Show the list again (⇧⌘F)' : 'Expand to the whole window (⇧⌘F)')}
                 onClick={onMaximize}
               />
             )}
@@ -439,7 +440,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
           onPick={pick}
           tabs={[
             { id: 'description', label: 'Description', title: 'What its author says it does' },
-            { id: 'changes', label: 'Changes', count: pr.changedFiles, title: 'The files it changes, with their diffs (⌘F filters them)' },
+            { id: 'changes', label: 'Changes', count: pr.changedFiles, title: keysIn('The files it changes, with their diffs (⌘F filters them)') },
             {
               id: 'review',
               label: 'Reviews',

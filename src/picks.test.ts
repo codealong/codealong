@@ -28,10 +28,10 @@ describe('picking several rows', () => {
   });
 
   it('goes by the keys held, ⌘ before ⇧', () => {
-    expect(selectHow({ metaKey: false, shiftKey: false })).toBe('one');
-    expect(selectHow({ metaKey: true, shiftKey: false })).toBe('toggle');
-    expect(selectHow({ metaKey: false, shiftKey: true })).toBe('range');
-    expect(selectHow({ metaKey: true, shiftKey: true })).toBe('toggle');
+    expect(selectHow({ metaKey: false, ctrlKey: false, shiftKey: false })).toBe('one');
+    expect(selectHow({ metaKey: true, ctrlKey: false, shiftKey: false })).toBe('toggle');
+    expect(selectHow({ metaKey: false, ctrlKey: false, shiftKey: true })).toBe('range');
+    expect(selectHow({ metaKey: true, ctrlKey: false, shiftKey: true })).toBe('toggle');
   });
 
   it('selects the row after the ones that left, else the one before them', () => {

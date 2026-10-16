@@ -18,6 +18,7 @@ import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
 import type { DragProps } from './useRowDrag';
 import { useFocusTrap } from './focusTrap';
 import { useEscape } from './useDismiss';
+import { capsSaid, contextPress, typed } from '../platform';
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 
@@ -225,7 +226,7 @@ const MARK_KEY = /^[`'.,]$/;
 export function Kbd({ keys }: { keys: string[] }) {
   return (
     <span className="ca-kbds">
-      {keys.map((k, i) => (
+      {capsSaid(keys).map((k, i) => (
         <kbd key={i} className={cx('ca-kbd', MARK_KEY.test(k) && 'is-mark')}>
           {k}
         </kbd>
@@ -482,7 +483,7 @@ export function Tabs<T extends string>({ tabs, value, onPick, label, idBase, cla
       role="tablist"
       aria-label={label}
       onKeyDown={(e) => {
-        if (e.metaKey || e.ctrlKey || e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+        if (!typed(e) || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
         e.preventDefault();
         step(e.key === 'ArrowRight' ? 1 : -1);
       }}
@@ -719,7 +720,7 @@ export function WorktreeChip({ lane, short = false, note, onShow, onMenu }: { la
 /** Whether a press on a list's row selects it: the primary button, without ⌃, which macOS takes
  *  as a right-click. A right-click opens the row's menu and leaves the selection where it was. */
 export function selects(e: { button: number; ctrlKey: boolean }): boolean {
-  return e.button === 0 && !e.ctrlKey;
+  return e.button === 0 && !contextPress(e);
 }
 
 /** A row's answer to a right-click: its own menu in place of the webview's, and in place of

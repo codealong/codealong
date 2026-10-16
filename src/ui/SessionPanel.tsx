@@ -38,6 +38,7 @@ import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
 import { Reply, type BoxSays } from './SessionReply';
 import { SessionThread } from './SessionThread';
 import type { FindAsk } from './ThreadFind';
+import { keysSaid } from '../platform';
 
 /** Working through what waits on you: the next after this one. */
 export interface Queue {
@@ -147,7 +148,7 @@ export function Hotkey({ label, icon, keys, title, run }: { label?: string; icon
     <button type="button" className="ca-hotkey" title={title} aria-label={label ? undefined : title} disabled={!run} onClick={(e) => run?.(e.currentTarget)}>
       {icon && <Icon name={icon} size={12} />}
       {label && <span>{label}</span>}
-      {keys && <kbd>{keys}</kbd>}
+      {keys && <kbd>{keysSaid(keys)}</kbd>}
     </button>
   );
 }

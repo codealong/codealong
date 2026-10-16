@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead, quietAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, setPrPrimary, type Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { carryOnIn, chordLetter, chordSigns, chorded, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
+import { setPlatform } from './platform';
 import type { Report } from './report';
 import * as fx from './testing/fixtures';
 import type { TodoOp } from './todos';
@@ -806,6 +807,12 @@ describe('actions by name', () => {
     // ⌘1 opens things, and there's no fifth time.
     expect(press('1', false)).toBeNull();
     expect(press('5')).toBeNull();
+    setPlatform('linux');
+    try {
+      expect(chorded(acts, { key: '3', code: 'Digit3', metaKey: false, ctrlKey: true, altKey: true, shiftKey: false })).toBe(times[2]);
+    } finally {
+      setPlatform(null);
+    }
     expect(keyed(acts, '2', true)).toEqual({ id: 'snooze', action: times[1] });
     expect(keyed(acts, '2')).toBeNull();
     expect(chordLetter('3')).toBe(true);
@@ -826,6 +833,15 @@ describe('actions by name', () => {
     expect(chorded(acts, { key: 'w', code: '', metaKey: true, ctrlKey: true, altKey: false, shiftKey: false })).toBe(acts.close);
     // ⌘W is the window's, and the letter alone is nothing's.
     expect(chorded(acts, { key: 'w', code: '', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })).toBeNull();
+    // On Linux ⌃⌘ is Ctrl+Alt (platform.ts).
+    setPlatform('linux');
+    try {
+      expect(chordSigns(CHORDS.close ?? '')).toBe('Ctrl+Alt+W');
+      expect(chorded(acts, { key: 'w', code: '', metaKey: false, ctrlKey: true, altKey: true, shiftKey: false })).toBe(acts.close);
+      expect(chorded(acts, { key: 'w', code: '', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false })).toBeNull();
+    } finally {
+      setPlatform(null);
+    }
     expect(keyed(acts, 'w')).toBeNull();
     expect(keyed(acts, 'w', true)?.action).toBe(acts.close);
     expect(keyed(acts, 'a', true)?.action).toBe(acts.archive);

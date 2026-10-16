@@ -3,6 +3,7 @@
 // before gets it back when the dialog closes. `Dialog` in primitives.tsx uses it.
 
 import { useEffect, useState, type RefObject } from 'react';
+import { typed } from '../platform';
 
 const STOPS = 'a[href], button, input, select, textarea, [tabindex]';
 
@@ -39,7 +40,7 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>): void {
     if (!box.contains(document.activeElement)) box.focus({ preventScroll: true });
     // After the page's own handlers, so a field that uses Tab itself keeps it.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab' || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key !== 'Tab' || e.defaultPrevented || !typed(e)) return;
       const stops = tabStops(box);
       const active = document.activeElement as HTMLElement | null;
       const to = stops.length === 0 ? box : tabStop(stops, active, e.shiftKey);

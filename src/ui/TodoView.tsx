@@ -16,6 +16,7 @@ import type { Label, Lane, Pr, Session, Todo, TodoHint, TodoStatus } from '../ty
 import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, ReorderHint, Row, WorktreeChip } from './primitives';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
+import { cmd } from '../platform';
 
 /** Where a new todo will be linked, when it's made from a worktree or a session. */
 export interface ComposerContext {
@@ -120,7 +121,7 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
       // leaves the selection alone: on a picked row, the menu is for all of them.
       onSelect={(e) => onSelect(selectHow(e))}
       onOpen={(e) => {
-        if (!e.metaKey && !e.shiftKey) onOpen();
+        if (!cmd(e) && !e.shiftKey) onOpen();
       }}
       onMenu={onContextMenu}
     >

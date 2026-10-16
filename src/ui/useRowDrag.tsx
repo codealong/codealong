@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom';
 import { dragToDesktop, onDesktopDragAway, onDesktopDragEnd } from '../api';
 import type { DesktopPinned } from '../types';
 import { cx, Icon } from './primitives';
+import { chordMod } from '../platform';
 
 /** What a draggable row needs. */
 export interface DragProps {
@@ -197,7 +198,7 @@ export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOp
 
   const start = (e: ReactPointerEvent<HTMLElement>, key: string, index: number | null) => {
     // ⌘- and ⇧-clicks pick rows; they never start a drag. Nor does a press on a row's own controls.
-    if (e.button !== 0 || e.metaKey || e.shiftKey || e.ctrlKey || (e.target as HTMLElement).closest('button, a, input, textarea, select')) return;
+    if (e.button !== 0 || chordMod(e) || e.shiftKey || (e.target as HTMLElement).closest('button, a, input, textarea, select')) return;
     const o = opts.current;
     const inOrder = index != null && !!o.onPlace;
     const pin = o.desktop?.(key) ?? null;

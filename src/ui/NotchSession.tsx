@@ -38,6 +38,7 @@ import { useWaitingQueue } from '../useWaitingQueue';
 import { useCardHost, useLiveSession, type Told } from './cardHost';
 import { SessionCard, type WindowCan } from './SessionCard';
 import type { Notice, Queue } from './SessionPanel';
+import { chordMod, held } from '../platform';
 
 /** How long a session's card stays after it's put away, while the notch closes over it. */
 const LINGER_MS = 360;
@@ -238,7 +239,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
-      const mod = e.metaKey && !e.ctrlKey && !e.altKey;
+      const mod = held(e, 'Cmd') || held(e, 'Shift', 'Cmd');
       if (e.key === 'Escape' || (mod && !e.shiftKey && ['q', 'h', 'w'].includes(e.key.toLowerCase()))) {
         e.preventDefault();
         close();
@@ -251,7 +252,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
         return;
       }
       const el = document.activeElement;
-      if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && (!el || el === document.body)) {
+      if (e.key.length === 1 && !chordMod(e) && (!el || el === document.body)) {
         document.querySelector<HTMLTextAreaElement>('.ca-notch-session .ca-composer textarea')?.focus();
       }
     };

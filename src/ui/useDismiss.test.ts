@@ -60,7 +60,7 @@ describe('escapeTopmost', () => {
 });
 
 describe('keyLeavesHover', () => {
-  const press = (key: string, mods: { meta?: boolean; ctrl?: boolean; alt?: boolean } = {}) => ({ key, metaKey: !!mods.meta, ctrlKey: !!mods.ctrl, altKey: !!mods.alt });
+  const press = (key: string, mods: { meta?: boolean; ctrl?: boolean; alt?: boolean } = {}) => ({ key, metaKey: !!mods.meta, ctrlKey: !!mods.ctrl, altKey: !!mods.alt, shiftKey: false });
 
   it('keeps a hover card up for a modifier on its own and for ⌘C', () => {
     for (const k of ['Meta', 'Shift', 'Alt', 'Control', 'CapsLock']) expect(keyLeavesHover(press(k))).toBe(true);

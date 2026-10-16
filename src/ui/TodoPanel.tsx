@@ -23,6 +23,7 @@ import { PickList, PickPanel, PickRow } from './PickPanel';
 import { Button, Chip, cx, headerMenu, Icon, Kbd, Seg } from './primitives';
 import { AddChip, LabelChip, LabelDot, TodoGlyph } from './TodoBits';
 import { useDismiss } from './useDismiss';
+import { keysIn } from '../platform';
 
 /** Whether a todo's worktrees and sessions show their details, for every todo, as you left them. */
 const PLACES_KEY = 'codealong.todoPlacesOpen';
@@ -500,12 +501,12 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
             <Button variant="primary" icon="message-circle" title={`Show “${item.primary.session.title}”, its primary session, here`} onClick={() => item.primary && onShowSession(item.primary.lane, item.primary.session)}>
               Show session
             </Button>
-            <Button icon="player-play" title={`Start another session for this todo (⌘N). It works alongside “${item.primary.session.title}”, which stays its primary session.`} onClick={onStart}>
+            <Button icon="player-play" title={keysIn(`Start another session for this todo (⌘N). It works alongside “${item.primary.session.title}”, which stays its primary session.`)} onClick={onStart}>
               Start another
             </Button>
           </>
         ) : (
-          <Button variant="primary" icon="player-play" title="Start a session for this todo (⌘N). ⌘-click other todos in the list to start them with it, in one session." onClick={onStart}>
+          <Button variant="primary" icon="player-play" title={keysIn('Start a session for this todo (⌘N). ⌘-click other todos in the list to start them with it, in one session.')} onClick={onStart}>
             Start session
           </Button>
         )}
@@ -702,7 +703,7 @@ export function TodoPickPanel({ items, todos, showProject, onStart, onShow, onLe
       actions={
         <>
           <div className="ca-insp-actions ca-todoinsp-actions">
-            <Button variant="primary" icon="player-play" title="Start one session for all of them (⌘N)" onClick={onStart}>
+            <Button variant="primary" icon="player-play" title={keysIn('Start one session for all of them (⌘N)')} onClick={onStart}>
               Start one session
             </Button>
           </div>

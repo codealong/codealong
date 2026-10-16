@@ -153,6 +153,18 @@
   margin: 0 3px;
   background: var(--line);
 }
+/* Linux says its keys in words (Ctrl+Alt+W, platform.ts), which take half again the room macOS's
+   signs do, so there they draw tighter, and the strip keeps to one line at the width a session's
+   panel has in the main window. */
+.is-linux .ca-hotkey kbd {
+  padding: 0 2px;
+  letter-spacing: -0.02em;
+}
+@container queuestrip (max-width: 520px) {
+  .is-linux .ca-hotkey {
+    padding: 0 1px;
+  }
+}
 /* In the notch the strip is one line at any width the session has. */
 .ca-notch-card .ca-reply-queue.has-keys,
 .ca-notch-card .ca-hotkeys {

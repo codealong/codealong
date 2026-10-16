@@ -27,6 +27,7 @@ import type { AutoReview, Draft, DraftComment, Lane, LineComment, PrDetail, PrIt
 import { Markdown } from './Markdown';
 import { BoxText, Button, cx, Icon, Seg } from './primitives';
 import { prIsOpen } from './PrsView';
+import { cmd, keysIn } from '../platform';
 
 /** A commit as people read it. */
 const short = (sha: string) => sha.slice(0, 7);
@@ -163,7 +164,7 @@ function Editing({ text, label, saving, onText, onSave, onCancel }: { text: stri
           onChange={(e) => onText(e.target.value)}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return;
-            if (e.key === 'Enter' && e.metaKey) {
+            if (e.key === 'Enter' && cmd(e)) {
               e.preventDefault();
               onSave();
             } else if (e.key === 'Escape') {
@@ -175,7 +176,7 @@ function Editing({ text, label, saving, onText, onSave, onCancel }: { text: stri
         />
       </div>
       <div className="ca-agentrev-actions">
-        <Button size="sm" variant="primary" disabled={saving} title="Save it on GitHub (⌘⏎)" onClick={onSave}>
+        <Button size="sm" variant="primary" disabled={saving} title={keysIn('Save it on GitHub (⌘⏎)')} onClick={onSave}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
         <Button size="sm" variant="ghost" disabled={saving} title="Leave it as it was (Escape)" onClick={onCancel}>

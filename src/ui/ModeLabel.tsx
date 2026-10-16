@@ -10,6 +10,7 @@
 import type { ModeKind, SessionMode } from '../types';
 import { BoxMenu } from './ModelMenu';
 import { cx, Icon } from './primitives';
+import { keysIn } from '../platform';
 
 /** An icon for how much it does without asking. */
 const MODE_ICON: Record<ModeKind, string> = {
@@ -58,7 +59,7 @@ export function ModeMenu({ mode, modes, disabled, onPick, onDone }: { mode: Sess
       icon={mode ? iconOf(mode) : 'shield'}
       iconSize={11}
       label={mode?.label ?? 'Mode'}
-      title={`${mode ? `Its mode: ${mode.label}. ${mode.detail} ` : ''}Switch it${next ? ` (⇧⇥: ${next.label})` : ''}`}
+      title={keysIn(`${mode ? `Its mode: ${mode.label}. ${mode.detail} ` : ''}Switch it${next ? ` (⇧⇥: ${next.label})` : ''}`)}
       disabled={disabled}
       placeholder="Mode"
       onPick={(id) => {

@@ -110,8 +110,9 @@ on every push, which would spend the organization's plan's Actions minutes withi
 What Linux goes without: the notch, the focus outline round a terminal on another screen
 (flash.rs), app icons in the editor menus, pictures of the windows for Improve Codealong, the
 Dock icon's status, the Claude and Codex apps (macOS's), and Antigravity's and Cursor's sign-ins
-for their usage. The keys the windows show are macOS's (⌘). `.claude/rules/linux.md` has what
-was found there.
+for their usage. The windows' keys are written for macOS, and `src/platform.ts` presses and says
+them as Linux has them (⌘ is Ctrl, ⌥ and ⌃ are Alt); `PREVIEW_PLATFORM=linux` previews them.
+`.claude/rules/linux.md` has what was found there.
 
 ## Icons and the mark
 

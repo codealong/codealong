@@ -23,6 +23,7 @@ import { rememberResumed, resumeAccount, resumedIn } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { reviewChange, STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
 import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Session, StartAccount, StartPlace, Started, Todo } from './types';
+import { chordKeys as platformKeys, chordSigns as platformSigns, held as modsHeld } from './platform';
 import { mayApprove } from './prStatus';
 import { errorText, type Report } from './report';
 
@@ -934,15 +935,14 @@ function snoozeChorded(actions: SessionActions | SessionsActions | LaneActions |
 }
 
 /** A chord as the keys' own signs, for a button that says it: `Ctrl+Cmd+W` is ⌃⌘W, and
- *  `Alt+Shift+Down` ⌥⇧↓. */
+ *  `Alt+Shift+Down` ⌥⇧↓ (on Linux in its keys' names, platform.ts). */
 export function chordSigns(chord: string): string {
-  return chordKeys(chord).join('');
+  return platformSigns(chord);
 }
 
 /** A chord's signs one key at a time, as a list of places to open says its keys (`Target.kbd`). */
 export function chordKeys(chord: string): string[] {
-  const signs: Record<string, string> = { Ctrl: '⌃', Cmd: '⌘', Alt: '⌥', Shift: '⇧', Up: '↑', Down: '↓', Enter: '⏎', Esc: 'esc', Backspace: '⌫', Tab: '⇥' };
-  return chord.split('+').map((k) => signs[k] ?? k);
+  return platformKeys(chord);
 }
 
 /** The action a key runs among a session's or worktree's (or several sessions'), by the key as
@@ -960,7 +960,7 @@ export function keyed(actions: SessionActions | SessionsActions | LaneActions | 
 /** The action a chord runs among a session's (`CHORDS`), when it applies to the session now:
  *  for the windows that show one session with a box to answer it, where letters are typed. */
 export function chorded(actions: SessionActions, e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): MenuAction | null {
-  const snooze = e.metaKey && e.ctrlKey && !e.altKey && !e.shiftKey ? snoozeChorded(actions, e.key) : null;
+  const snooze = modsHeld(e, 'Ctrl', 'Cmd') ? snoozeChorded(actions, e.key) : null;
   if (snooze) return snooze;
   const id = Object.keys(CHORDS).find((name) => chordPressed(CHORDS[name as keyof typeof CHORDS] ?? '', e));
   const it = id ? (actions as unknown as Record<string, Item | undefined>)[id] : undefined;
@@ -996,7 +996,7 @@ export const PR_CHORDS: Partial<Record<keyof PrActions, string>> = { approve: 'C
 /** The action a chord runs among a PR card's (`PR_CHORDS`, and the snooze digits), when it
  *  applies to the PR now. Review with runs its first choice. */
 export function prChorded(actions: PrActions, e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): MenuAction | null {
-  if (e.metaKey && e.ctrlKey && !e.altKey && !e.shiftKey) {
+  if (modsHeld(e, 'Ctrl', 'Cmd')) {
     const snooze = snoozeChorded(actions, e.key);
     if (snooze) return snooze;
   }

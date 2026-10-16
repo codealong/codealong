@@ -16,10 +16,11 @@
 
 import { forwardRef, type KeyboardEvent, type MouseEvent } from 'react';
 import { showContextMenu } from '../contextMenu';
-import { chordKeys, SUGGESTION_CHORDS, suggestionChord } from '../menus';
+import { chordKeys, chordSigns, SUGGESTION_CHORDS, suggestionChord } from '../menus';
 import type { Key } from '../queue';
 import type { Suggestions } from '../types';
 import { cx, Icon, Kbd } from './primitives';
+import { bare, cmd, held, keysIn, typed } from '../platform';
 
 /** How a pick goes: sent as it is, sent and then on to the next that waits on you, or put in the
  *  box to change first. */
@@ -49,9 +50,9 @@ interface Props {
 }
 
 /** The way a click or a key with these modifiers picks a reply. */
-function how(e: { metaKey: boolean; altKey: boolean }, next: boolean): PickHow {
+function how(e: { metaKey: boolean; ctrlKey: boolean; altKey: boolean }, next: boolean): PickHow {
   if (e.altKey) return 'edit';
-  return e.metaKey && next ? 'next' : 'send';
+  return cmd(e) && next ? 'next' : 'send';
 }
 
 /** The reply a key sends, when it's one of their keys (`SUGGESTION_CHORDS`). */
@@ -62,7 +63,7 @@ export function chordedReply(e: Key, replies: string[]): string | null {
 
 export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function SuggestedReplies({ suggestions: g, onPick, onDismiss, blocked, denies, next = false, onLeave, keyed = false }, ref) {
   const sends = denies === 'question' ? 'Decline the question it asks, and send this instead' : denies ? 'Deny the call it waits on, and send this instead' : 'Send this as your reply';
-  const title = blocked ?? `${sends} · ⌥-click to change it first${next ? ' · ⌘-click sends and goes on to the next' : ''}`;
+  const title = blocked ?? keysIn(`${sends} · ⌥-click to change it first${next ? ' · ⌘-click sends and goes on to the next' : ''}`);
   const pick = (text: string, h: PickHow) => {
     if (blocked && h !== 'edit') return;
     onPick(text, h);
@@ -82,19 +83,18 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
     if (e.nativeEvent.isComposing) return;
     const all = [...(e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('.ca-suggest-reply') ?? [])];
     const at = all.indexOf(e.currentTarget);
-    const plain = !e.shiftKey && !e.ctrlKey;
     // Its number alone, by the key's place: some layouts type digits with ⇧.
     const number = /^Digit([1-9])$/.exec(e.code);
-    const chosen = number && !e.metaKey && !e.ctrlKey && !e.altKey ? g.replies[Number(number[1]) - 1] : undefined;
+    const chosen = number && typed(e) ? g.replies[Number(number[1]) - 1] : undefined;
     if (chosen !== undefined) {
       pick(chosen, 'send');
-    } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && plain && !e.metaKey && !e.altKey) {
+    } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && bare(e)) {
       const to = at + (e.key === 'ArrowUp' ? -1 : 1);
       if (to >= all.length) onLeave();
       else all[Math.max(0, to)]?.focus();
     } else if (e.key === 'Escape') {
       onLeave();
-    } else if (e.key === 'Enter' && plain) {
+    } else if (e.key === 'Enter' && (bare(e) || held(e, 'Cmd') || held(e, 'Alt') || held(e, 'Alt', 'Cmd'))) {
       pick(text, how(e, next));
     } else {
       return;
@@ -113,7 +113,7 @@ export const SuggestedReplies = forwardRef<HTMLDivElement, Props>(function Sugge
               key={text}
               type="button"
               className="ca-suggest-reply"
-              title={chord ? `${title} · ${chordKeys(chord).join('')}` : title}
+              title={chord ? `${title} · ${chordSigns(chord)}` : title}
               aria-disabled={!!blocked}
               aria-keyshortcuts={chord?.replace('Cmd', 'Meta')}
               onClick={(e) => pick(text, how(e, next))}

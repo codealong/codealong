@@ -12,6 +12,7 @@ import { inQueueOrder, statusWaits, type Reads } from './queue';
 import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
 import type { Codec } from './stored';
+import { platform } from './platform';
 import type { Board, DeviceFound, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit, Todo } from './types';
 
 export const ALL_PROJECTS = 'All projects';
@@ -425,12 +426,14 @@ export function projectCounts(board: Board, projects: string[]): Record<string, 
 
 /* ---- Shortcuts ---- */
 
-/** Modifiers in the order macOS writes them. */
+/** Modifiers in the order macOS writes them, with each one's sign there and its name on Linux.
+ *  These are keys as they are, not the windows' chords (platform.ts): a global shortcut is the
+ *  desktop's, where `Cmd` is Super, as the shortcut plugin reads it. */
 const MODS: [string, string, string][] = [
-  ['Ctrl', '⌃', 'Control'],
-  ['Option', '⌥', 'Option'],
+  ['Ctrl', '⌃', 'Ctrl'],
+  ['Option', '⌥', 'Alt'],
   ['Shift', '⇧', 'Shift'],
-  ['Cmd', '⌘', 'Command'],
+  ['Cmd', '⌘', 'Super'],
 ];
 
 const MOD_ALIASES: Record<string, string> = {
@@ -445,6 +448,13 @@ const MOD_ALIASES: Record<string, string> = {
   cmdorctrl: 'Cmd',
   commandorcontrol: 'Cmd',
 };
+
+/** A modifier's name in config.toml as `MODS` has it. `CmdOrCtrl` is Ctrl off macOS, as the
+ *  shortcut plugin reads it. */
+function modOf(part: string): string | undefined {
+  const m = MOD_ALIASES[part.toLowerCase()];
+  return m === 'Cmd' && platform() === 'linux' && /^c(md|ommand)orc(trl|ontrol)$/i.test(part) ? 'Ctrl' : m;
+}
 
 /** Keys whose names read better as symbols. */
 const KEY_SYMBOLS: Record<string, string> = {
@@ -476,13 +486,16 @@ const KEY_SYMBOLS: Record<string, string> = {
   slash: '/',
 };
 
-/** A shortcut as config.toml writes it (`Option+Cmd+/`) the way macOS shows it (⌥⌘/),
- *  or null when it's off or unreadable. */
+/** The keys Linux names in words where macOS draws a sign. */
+const KEY_WORDS: Record<string, string> = { enter: 'Enter', tab: 'Tab', escape: 'Esc', esc: 'Esc', backspace: 'Backspace', delete: 'Delete' };
+
+/** A shortcut as config.toml writes it (`Option+Cmd+/`) the way the platform shows it (⌥⌘/ on
+ *  macOS, Alt+Super+/ on Linux), or null when it's off or unreadable. */
 export function shortcutLabel(text: string | null | undefined): string | null {
-  return shortcutKeys(text)?.join('') ?? null;
+  return shortcutKeys(text)?.join(platform() === 'mac' ? '' : '+') ?? null;
 }
 
-/** `shortcutLabel`'s signs one key at a time (⌥ ⌘ /), for keycaps (primitives.tsx `Kbd`). */
+/** `shortcutLabel`'s keys one at a time (⌥ ⌘ /), for keycaps (primitives.tsx `Kbd`). */
 export function shortcutKeys(text: string | null | undefined): string[] | null {
   const parts = (text ?? '')
     .split('+')
@@ -492,15 +505,26 @@ export function shortcutKeys(text: string | null | undefined): string[] | null {
   const mods = new Set<string>();
   let key: string | null = null;
   for (const p of parts) {
-    const m = MOD_ALIASES[p.toLowerCase()];
+    const m = modOf(p);
     if (m) mods.add(m);
     else if (key === null) key = p;
     else return null;
   }
   if (!key) return null;
   const lower = key.toLowerCase();
-  const shown = KEY_SYMBOLS[lower] ?? (/^key[a-z]$/.test(lower) ? lower.slice(3).toUpperCase() : /^digit\d$/.test(lower) ? lower.slice(5) : key.length === 1 ? key.toUpperCase() : key);
-  return [...MODS.filter(([name]) => mods.has(name)).map(([, symbol]) => symbol), shown];
+  const mac = platform() === 'mac';
+  const shown = (mac ? undefined : KEY_WORDS[lower]) ?? KEY_SYMBOLS[lower] ?? (/^key[a-z]$/.test(lower) ? lower.slice(3).toUpperCase() : /^digit\d$/.test(lower) ? lower.slice(5) : key.length === 1 ? key.toUpperCase() : key);
+  return [...MODS.filter(([name]) => mods.has(name)).map(([, symbol, word]) => (mac ? symbol : word)), shown];
+}
+
+/** The modifiers a key event holds, as the platform shows them: ⌃⌥ on macOS, Ctrl+Alt on Linux.
+ *  What Settings shows while it records a shortcut. */
+export function heldSaid(e: { metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }): string {
+  const on = [e.ctrlKey, e.altKey, e.shiftKey, e.metaKey];
+  const mac = platform() === 'mac';
+  return MODS.filter((_, i) => on[i])
+    .map(([, symbol, word]) => (mac ? symbol : word))
+    .join(mac ? '' : '+');
 }
 
 /** Key codes (KeyboardEvent.code) as config.toml names them. */
@@ -536,13 +560,22 @@ function keyName(code: string): string | null {
 /**
  * The shortcut a key press makes, as config.toml writes it, or why it can't be one. Keys are
  * read by where they sit (`code`), so ⌥ turning letters into symbols doesn't matter. The same
- * rules as the engine's: ⌃, ⌥ or ⌘ unless it's a function key, and not ⌘ alone with a key.
+ * rules as the engine's: ⌃, ⌥ or ⌘ unless it's a function key, and not ⌘ alone with a key. On
+ * Linux those are Ctrl, Alt and Super, and Ctrl alone is every app's; a page there never sees
+ * Super (platform.ts), so a shortcut with it is written in config.toml.
  */
 export function shortcutFromKey(e: { code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }): { shortcut: string } | { error: string } | null {
-  if (['MetaLeft', 'MetaRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'ShiftLeft', 'ShiftRight', 'CapsLock', 'Fn'].includes(e.code)) return null;
+  if (['MetaLeft', 'MetaRight', 'OSLeft', 'OSRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'ShiftLeft', 'ShiftRight', 'CapsLock', 'Fn'].includes(e.code)) return null;
   const key = keyName(e.code);
   if (!key) return { error: 'That key can’t be part of a shortcut.' };
   const fn = /^F\d+$/.test(key);
+  if (platform() === 'linux') {
+    if (!fn && !e.ctrlKey && !e.altKey && !e.metaKey) return { error: 'Use Ctrl or Alt with it, or it would take a key you type.' };
+    if (e.altKey && !e.ctrlKey && !e.metaKey && key === 'Tab') return { error: 'The desktop keeps Alt+Tab for switching windows.' };
+    if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && key !== 'Space' && !fn) return { error: `Ctrl+${shortcutLabel(key)} is a shortcut in most apps. Add Alt.` };
+    const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean);
+    return { shortcut: [...mods, key].join('+') };
+  }
   if (!fn && !e.ctrlKey && !e.altKey && !e.metaKey) return { error: 'Use Control, Option or Command with it, or it would take a key you type.' };
   if (e.metaKey && !e.ctrlKey && !e.altKey && key === 'Tab') return { error: 'macOS keeps ⌘⇥ for switching apps.' };
   if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && key !== 'Space' && !fn) return { error: `⌘${shortcutLabel(key)} is a menu shortcut in most apps. Add ⌃ or ⌥.` };
@@ -568,6 +601,29 @@ export const TAKEN: Record<string, string> = {
   '⌃←': 'moving between Spaces',
   '⌃→': 'moving between Spaces',
 };
+
+/** The same on Linux, as GNOME and KDE have them by default. */
+export const LINUX_TAKEN: Record<string, string> = {
+  'Super+Space': 'GNOME’s input source switching',
+  'Alt+Space': 'the window menu',
+  'Alt+F2': 'the run dialog',
+  'Alt+F4': 'closing windows',
+  'Ctrl+Alt+T': 'a terminal, on Ubuntu',
+  'Ctrl+Alt+L': 'locking the screen, on some desktops',
+  'Ctrl+Alt+Delete': 'logging out',
+  'Ctrl+Alt+↑': 'moving between workspaces',
+  'Ctrl+Alt+↓': 'moving between workspaces',
+  'Ctrl+Alt+←': 'moving between workspaces',
+  'Ctrl+Alt+→': 'moving between workspaces',
+  'Super+L': 'locking the screen',
+  'Super+A': 'GNOME’s app grid',
+  'Super+V': 'GNOME’s notifications',
+};
+
+/** What a shortcut (as `shortcutLabel` shows it) would take over on this platform. */
+export function takenFor(label: string): string | undefined {
+  return (platform() === 'mac' ? TAKEN : LINUX_TAKEN)[label];
+}
 
 /** How many past prompts ↑ can bring back. */
 export const HISTORY_MAX = 50;

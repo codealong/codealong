@@ -13,7 +13,8 @@ import { AGENT_BAY, rowItems, seenable, type WorktreeRow } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
 import type { Pins } from './pins';
-import { chordPressed, queueKey, type QueueAction } from './queue';
+import { chordPressed, cmd, held, typed } from './platform';
+import { queueKey, type QueueAction } from './queue';
 import type { TodoItem } from './todos';
 import type { ListPicksKeys } from './useListPicks';
 import type { Bay, Lane, ProjectSummary, Session } from './types';
@@ -27,10 +28,15 @@ import { zoomStep, type ZoomStep } from './zoom';
  *  ⌥↑ ⌥↓, which jump to a paragraph's start or end. */
 function listChord(e: KeyboardEvent): boolean {
   const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
-  if (e.altKey && !e.metaKey && !e.ctrlKey) return vertical;
-  if (e.ctrlKey && e.metaKey && !e.altKey && !e.shiftKey) return vertical || menus.chordLetter(e.key);
-  if (e.shiftKey && e.metaKey && !e.ctrlKey && !e.altKey) return e.key.toLowerCase() === 'f';
-  return e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Tab';
+  if (held(e, 'Alt') || held(e, 'Alt', 'Shift')) return vertical;
+  if (held(e, 'Ctrl', 'Cmd')) return vertical || menus.chordLetter(e.key);
+  if (held(e, 'Shift', 'Cmd')) return e.key.toLowerCase() === 'f';
+  return viewTab(e);
+}
+
+/** ⌃Tab and ⌃⇧Tab, through the views as through tabs. */
+function viewTab(e: KeyboardEvent): boolean {
+  return chordPressed('Ctrl+Tab', e) || chordPressed('Ctrl+Shift+Tab', e);
 }
 
 /** Each view's chord: ⇧⌘ and the view's first letter, from any view and any field. Canvas has B
@@ -132,7 +138,8 @@ export interface MainKeys<V extends string> {
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
   const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, boardRef, listRef, canvasKeys, kanbanKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
   const typing = document.activeElement === searchRef.current;
-  const mod = e.metaKey;
+  // ⌘ held, whatever else is (Ctrl on Linux, platform.ts).
+  const mod = cmd(e);
   const key = e.key.toLowerCase();
   const inBox = view === 'sessions' && !!document.activeElement?.closest('.ca-sessinsp .ca-composer');
   // Sessions takes no plain letters: a click on a row puts the cursor in the panel's box, and a
@@ -140,7 +147,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // chords, which work from the box too (`listChord`) and in the other views as well.
   const letters = view !== 'sessions';
   // ⌃⌘, with a menu's letter or ↑ ↓.
-  const chord = e.ctrlKey && mod && !e.altKey && !e.shiftKey;
+  const chord = held(e, 'Ctrl', 'Cmd');
   // Several rows picked in the view's list: the keys that act on one act on all of them, by the
   // names one row's actions have.
   const picking = !!listPicks && listPicks.count > 0;
@@ -172,12 +179,17 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // ⇧⌘F from a PR panel's own fields (its review box, the files' filter), which have no use for it:
   // in PRs, and in Sessions, where a session's PR shows in its panel's place.
-  const prMaxKey = (view === 'prs' || view === 'sessions') && mod && e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f' && !!document.activeElement?.closest('.ca-prpanel');
+  const prMaxKey = (view === 'prs' || view === 'sessions') && held(e, 'Shift', 'Cmd') && key === 'f' && !!document.activeElement?.closest('.ca-prpanel');
   // ⌘F, and ⌥⌘F, which goes by the key's code, as ⌥ changes the character.
-  const findKey = mod && !e.ctrlKey && !e.shiftKey && (e.altKey ? e.code === 'KeyF' : key === 'f');
+  const findAnywhere = held(e, 'Alt', 'Cmd') && e.code === 'KeyF';
+  const findKey = (held(e, 'Cmd') && key === 'f') || findAnywhere;
+  // ⌥⌘ digits switch projects. ⌥ changes the character, so they go by the key's code. Not with ⌃
+  // as well, as in the quick panel.
+  const digit = /^Digit(\d)$/.exec(e.code);
+  const projectKey = !!digit && chordPressed(`Alt+Cmd+${digit[1]}`, e);
   // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘
   // ones, ⌃-, ⌃`, a view's ⌃ and digit, and Sessions' box for the list's chords.
-  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !findKey && !historyChord(e) && !toTerminal && !toView && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions') || (e.altKey && /^Digit\d$/.test(e.code))))) return;
+  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !findKey && !historyChord(e) && !toTerminal && !toView && !projectKey && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions')))) return;
   if (mod && e.key === ',') {
     e.preventDefault();
     openSettings();
@@ -187,7 +199,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   if (settings || previewFor || renaming) return;
   // A button with the keyboard (a row's PR chip, reached by Tab) takes its own Enter, before the
   // list or a view's keys (the canvas's, Todo's) can open or start what's selected.
-  if (e.key === 'Enter' && !mod && !e.ctrlKey && !e.altKey && e.target instanceof HTMLButtonElement) return;
+  if (e.key === 'Enter' && typed(e) && e.target instanceof HTMLButtonElement) return;
   // ⇧⌘ and a view's letter goes straight to it, from any view and any field (`VIEW_CHORDS`).
   if (toView) {
     e.preventDefault();
@@ -251,31 +263,28 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // a PR's panel keeps it for its own find (findKeys.ts); ⌥⌘F opens the list's from anywhere,
   // as in Mail and Notes.
   if (findKey) {
-    if (!e.altKey && !findsAt(boardRef.current)) return;
+    if (!findAnywhere && !findsAt(boardRef.current)) return;
     e.preventDefault();
     openFind();
     return;
   }
   // ⌘K opens the quick panel, to find a session, a todo or a PR, or to start one where ⌘N would.
-  if (mod && !e.ctrlKey && !e.altKey && !e.shiftKey && key === 'k') {
+  if (held(e, 'Cmd') && key === 'k') {
     e.preventDefault();
     newSession({ laneId: startLaneId });
     return;
   }
-  if (mod && !e.ctrlKey && key === 'p') {
+  if (held(e, 'Cmd') && key === 'p') {
     e.preventDefault();
     openSwitcher();
     return;
   }
-  if (mod && e.ctrlKey && key === 's') {
+  if (chord && key === 's') {
     e.preventDefault();
     toggleSidebar();
     return;
   }
-  // ⌥⌘ digits switch projects. ⌥ changes the character, so they go by the key's code. Not with ⌃
-  // as well, as in the quick panel.
-  const digit = /^Digit(\d)$/.exec(e.code);
-  if (mod && e.altKey && !e.ctrlKey && !e.shiftKey && digit) {
+  if (projectKey && digit) {
     e.preventDefault();
     const name = projectForDigit(Number(digit[1]), projects);
     if (name) pickProject(name);
@@ -307,7 +316,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // ⌘A picks every row listed, from the list (in a panel it's the page's), and Esc goes back to
   // the one the keyboard is on.
   const onList = !document.activeElement || document.activeElement === document.body || !!document.activeElement.closest('.ca-board-list');
-  if (listPicks && mod && !e.ctrlKey && !e.altKey && !e.shiftKey && key === 'a' && onList) {
+  if (listPicks && held(e, 'Cmd') && key === 'a' && onList) {
     e.preventDefault();
     listPicks.all();
     return;
@@ -332,7 +341,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   const lane = selectedLane;
   // ⌃Tab and ⌃⇧Tab go through the views as they go through tabs; so does v outside Sessions.
-  const tab = e.key === 'Tab' && e.ctrlKey && !mod && !e.altKey;
+  const tab = viewTab(e);
   if (tab || (key === 'v' && !mod && letters)) {
     e.preventDefault();
     const i = VIEWS.findIndex((x) => x.id === view);
@@ -341,7 +350,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   if (todoKeys.current(e, key)) return;
   // ⇧↑ ⇧↓ pick the row above or below too, as ⇧-click does (the Todo view's own keys, above).
-  if (listPicks && e.shiftKey && vertical && !mod && !e.ctrlKey && !e.altKey && selected) {
+  if (listPicks && held(e, 'Shift') && vertical && selected) {
     e.preventDefault();
     listPicks.step(e.key === 'ArrowUp' ? -1 : 1);
     return;
@@ -368,12 +377,12 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
       return;
     }
   }
-  if (mod && e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f' && view === 'sessions' && selected?.kind === 'agent') {
+  if (held(e, 'Shift', 'Cmd') && key === 'f' && view === 'sessions' && selected?.kind === 'agent') {
     e.preventDefault();
     togglePanelMax();
     return;
   }
-  if (mod && e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f' && view === 'prs' && selected?.kind === 'pr' && !picking) {
+  if (held(e, 'Shift', 'Cmd') && key === 'f' && view === 'prs' && selected?.kind === 'pr' && !picking) {
     e.preventDefault();
     togglePrPanelMax();
     return;
@@ -461,7 +470,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     if (github) github.run();
     else if (selected?.kind === 'pr') openRow(selected);
     else if (lane?.pr) open(lane, 'p|github');
-  } else if (mod && e.altKey && !e.shiftKey && !e.ctrlKey && e.code === 'KeyC') {
+  } else if (held(e, 'Alt', 'Cmd') && e.code === 'KeyC') {
     // ⌥⌘C copies the path, as Finder's Copy as pathname does (⇧⌘C is often a clipboard
     // manager's). By the key's code: ⌥ changes the character.
     e.preventDefault();
@@ -469,11 +478,11 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   } else if (mod && !e.shiftKey && !e.altKey && key === 'c' && !window.getSelection()?.toString()) {
     e.preventDefault();
     copy(lane?.branch, 'branch name');
-  } else if (key === 'e' && ((!mod && letters) || (mod && !e.ctrlKey && !e.shiftKey && !e.altKey)) && picking) {
+  } else if (key === 'e' && ((!mod && letters) || held(e, 'Cmd')) && picking) {
     // With several picked, all of them.
     const act = picked('seen');
     if (act) act.run();
-  } else if (key === 'e' && ((!mod && letters) || (mod && !e.ctrlKey && !e.shiftKey && !e.altKey))) {
+  } else if (key === 'e' && ((!mod && letters) || held(e, 'Cmd'))) {
     // ⌘E too, as in Sessions (above).
     const sessions = selected?.kind === 'agent' ? [selected.session] : selected?.kind === 'todo' ? (pickedRows.length > 0 ? pickedRows : [selected]).flatMap((r) => r.sessions.map((x) => x.session)) : (lane?.sessions ?? []);
     markSeen(sessions.filter(seenable).map((s) => s.key));

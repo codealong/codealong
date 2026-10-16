@@ -16,7 +16,7 @@
 import { VIEW_CHORDS } from './mainKeys';
 import { CHORDS, PR_CHORDS, SUGGESTION_CHORDS } from './menus';
 import { QUEUE_CHORDS } from './queue';
-import { shortcutLabel } from './quick';
+import { shortcutKeys, shortcutLabel } from './quick';
 import { SNOOZE_CHORDS } from './snooze';
 
 /** Where a tip can show: the main window's board, a session's conversation, the waiting window,
@@ -163,8 +163,5 @@ export function shownNow(shown: readonly string[], id: string, tips: readonly Ti
 
 /** A shortcut config.toml sets, as the keys a cap each: `Option+Cmd+/` is ⌥ ⌘ /. */
 export function shortcutCaps(text: string | undefined): string[] {
-  const label = shortcutLabel(text);
-  if (!label) return [];
-  const mods = /^[⌃⌥⇧⌘]*/.exec(label)?.[0] ?? '';
-  return [...mods, label.slice(mods.length)];
+  return shortcutKeys(text) ?? [];
 }

@@ -23,6 +23,7 @@ import { HelpersCard, type HelperActions } from './HelpersCard';
 import { useHoverCard } from './HoverCard';
 import { PreviewChip } from './PreviewBits';
 import { TodoChips } from './TodoBits';
+import { cmd } from '../platform';
 
 interface LaneRowProps {
   row: WorktreeRow;
@@ -202,7 +203,7 @@ function EmptyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
       drag={drag}
       onSelect={(e) => onSelect(lane.id, selectHow(e))}
       onOpen={(e) => {
-        if (!e.metaKey && !e.shiftKey) onOpen(lane);
+        if (!cmd(e) && !e.shiftKey) onOpen(lane);
       }}
       onMenu={onContextMenu}
     >
@@ -392,7 +393,7 @@ function AgentLine({ item, now, domId, selected, onSelect, onOpen, onContextMenu
       className={cx('ca-agentline', `is-${s.status === 'error' ? 'needs' : s.status}`)}
       onSelect={(e) => onSelect(selectHow(e))}
       onOpen={(e) => {
-        if (!e.metaKey && !e.shiftKey) onOpen();
+        if (!cmd(e) && !e.shiftKey) onOpen();
       }}
       onMenu={onContextMenu}
     >
@@ -644,7 +645,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
       // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it.
       onSelect={(e) => onSelect(selectHow(e))}
       onOpen={(e) => {
-        if (!e.metaKey && !e.shiftKey) onOpen();
+        if (!cmd(e) && !e.shiftKey) onOpen();
       }}
       onMenu={onContextMenu}
     >
@@ -738,7 +739,7 @@ function SideRowView({ sessionKey, side: g, now, onShow }: SideRowProps) {
       label={`On the side: ${sideTitle(g)}`}
       className={cx('ca-lane', 'is-agent', 'is-slim', 'is-nested', 'is-side', g.running ? 'is-working' : 'is-idle')}
       onSelect={(e) => {
-        if (!e.metaKey && !e.shiftKey) onShow(sessionKey, g);
+        if (!cmd(e) && !e.shiftKey) onShow(sessionKey, g);
       }}
     >
       <div className="ca-seg ca-seg-glyph" title={g.running ? 'Answering' : 'Answered'}>

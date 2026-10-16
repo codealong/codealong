@@ -51,6 +51,7 @@ import { CardDetail, CardPopover } from './card/CardPopover';
 import { cardData, cardSig } from './card/data';
 import { BringInPanel, TidyPanel, tidySummary } from './CanvasTidy';
 import { cx, Icon } from './primitives';
+import { chordMod, cmd, keysIn, pinch, zoomWheel } from '../platform';
 
 /** At or above this zoom, cards are HTML you can read; below it, blocks on the GPU. */
 const NEAR = 0.4;
@@ -792,9 +793,9 @@ export function CanvasView(props: CanvasViewProps) {
       e.preventDefault();
       const box = el.getBoundingClientRect();
       const line = e.deltaMode === 1 ? 16 : 1;
-      if (e.ctrlKey || e.metaKey) {
+      if (zoomWheel(e)) {
         if (gestureZoom.current) return;
-        const z = cam.current.zoom * Math.exp(-e.deltaY * line * (e.ctrlKey ? 0.01 : 0.0025));
+        const z = cam.current.zoom * Math.exp(-e.deltaY * line * (pinch(e) ? 0.01 : 0.0025));
         zoomAt(e.clientX - box.left, e.clientY - box.top, z);
       } else {
         cam.current = { ...cam.current, x: cam.current.x - e.deltaX * line, y: cam.current.y - e.deltaY * line };
@@ -849,7 +850,7 @@ export function CanvasView(props: CanvasViewProps) {
 
   keys.current = (e: KeyboardEvent) => {
     const key = e.key.toLowerCase();
-    const mod = e.metaKey || e.ctrlKey;
+    const mod = chordMod(e);
     if (e.key === ' ') {
       e.preventDefault();
       if (!e.repeat) setSpaceHeld(true);
@@ -1048,7 +1049,7 @@ export function CanvasView(props: CanvasViewProps) {
                 }}
                 onKeyDown={(e) => {
                   e.stopPropagation();
-                  if (e.key === 'Escape' || (e.key === 'Enter' && e.metaKey)) e.currentTarget.blur();
+                  if (e.key === 'Escape' || (e.key === 'Enter' && cmd(e))) e.currentTarget.blur();
                 }}
                 aria-label="Note"
                 placeholder="Write a note"
@@ -1144,7 +1145,7 @@ export function CanvasView(props: CanvasViewProps) {
         <button type="button" className="ca-cv-tool" title="Zoom out (−)" onClick={() => zoomBy(0.8)}>
           <Icon name="zoom-out" size={16} />
         </button>
-        <button ref={zoomLabel} type="button" className="ca-cv-zoom" title="Zoom to fit (⇧1). ⇧2 zooms to the selection, ⇧0 to 100%." onClick={fitAll}>
+        <button ref={zoomLabel} type="button" className="ca-cv-zoom" title={keysIn('Zoom to fit (⇧1). ⇧2 zooms to the selection, ⇧0 to 100%.')} onClick={fitAll}>
           {Math.round(cam.current.zoom * 100)}%
         </button>
         <button type="button" className="ca-cv-tool" title="Zoom in (+)" onClick={() => zoomBy(1.25)}>

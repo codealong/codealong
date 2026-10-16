@@ -21,6 +21,7 @@ import type { CardData } from './card/data';
 import { cx, Row } from './primitives';
 import { TodoGlyph } from './TodoBits';
 import { useRowDrag } from './useRowDrag';
+import { cmd } from '../platform';
 
 /** How many of a todo's sessions its card lists, the most urgent first. */
 const SESSIONS_SHOWN = 3;
@@ -226,7 +227,7 @@ function Card({ card, section, divider, domId, now, selected, onto, dropBefore, 
         // right-click leaves the selection alone: on a picked card, the menu is for all of them.
         onSelect={(e) => onSelect(selectHow(e))}
         onOpen={(e) => {
-          if (!e.metaKey && !e.shiftKey) onOpen();
+          if (!cmd(e) && !e.shiftKey) onOpen();
         }}
         onMenu={onMenu}
       >

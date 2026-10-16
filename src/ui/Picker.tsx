@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useDismiss } from './useDismiss';
 import { cx } from './primitives';
+import { cmd, emacsCtrl } from '../platform';
 
 export interface PickerOption {
   id: string;
@@ -90,10 +91,10 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
         aria-label={placeholder}
         onChange={(e) => setFilter(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) {
+          if (e.key === 'ArrowDown' || emacsCtrl(e, 'n')) {
             e.preventDefault();
             move(1);
-          } else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) {
+          } else if (e.key === 'ArrowUp' || emacsCtrl(e, 'p')) {
             e.preventDefault();
             move(-1);
           } else if (e.key === 'Enter') {
@@ -106,7 +107,7 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
             onClose();
           } else if (e.key === 'Tab') {
             onClose();
-          } else if (onStep && !filter && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.metaKey && !e.altKey && !e.shiftKey) {
+          } else if (onStep && !filter && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !cmd(e) && !e.altKey && !e.shiftKey) {
             e.preventDefault();
             onStep(e.key === 'ArrowLeft' ? -1 : 1);
           }

@@ -44,6 +44,7 @@ import { useNow } from './useNow';
 import { errorText } from '../report';
 import { cardZoom, zoomFactor } from '../zoom';
 import { cx } from './primitives';
+import { chordMod, held } from '../platform';
 
 /** Room around the card for its shadow (`--shadow-peek`, which falls away from the bar): the
  *  window (peek.rs) is the card, this on its sides, `FAR` on the side away from the bar, and
@@ -254,7 +255,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
         void peekHide();
         return;
       }
-      if (e.metaKey && !e.ctrlKey && !e.altKey && ['q', 'h', 'w'].includes(e.key.toLowerCase())) {
+      if ((held(e, 'Cmd') || held(e, 'Shift', 'Cmd')) && ['q', 'h', 'w'].includes(e.key.toLowerCase())) {
         e.preventDefault();
         if (!kept) void peekHide();
         else if (e.key.toLowerCase() === 'w') {
@@ -264,7 +265,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
         return;
       }
       const el = document.activeElement;
-      if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && (!el || el === document.body)) {
+      if (e.key.length === 1 && !chordMod(e) && (!el || el === document.body)) {
         document.querySelector<HTMLTextAreaElement>('.ca-peek .ca-composer textarea')?.focus();
       }
     };

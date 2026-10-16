@@ -112,6 +112,7 @@ import { useStartChoice, useStartPicks } from '../useStartChoice';
 import { findFor } from '../threadFind';
 import { useTextSearch } from '../useTextSearch';
 import { cardHeight, useQuickSize } from './useQuickSize';
+import { bare, chordPressed, cmd, emacsCtrl, held as modsHeld, keysIn } from '../platform';
 
 declare global {
   interface Window {
@@ -1279,7 +1280,7 @@ export function Quick() {
     if (e.nativeEvent.isComposing) return;
     const el = e.currentTarget;
     // ⇥ on a session answers it in the waiting window; elsewhere it moves the focus as usual.
-    if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey) {
+    if (e.key === 'Tab' && bare(e)) {
       const row = rows.find((r) => r.key === active);
       if (row?.kind === 'skill') {
         e.preventDefault();
@@ -1302,14 +1303,14 @@ export function Quick() {
     if (e.key === 'Enter') {
       if (e.shiftKey) return;
       e.preventDefault();
-      if (e.metaKey) start();
+      if (cmd(e)) start();
       else activate(active, e.altKey);
       return;
     }
     // ↑ in the empty input brings back the draft, then earlier prompts, and ↓ goes forward again
     // to the empty input; once you change what came back, the arrows move through the list.
     const recalled = recall !== null && withAttachments(el.value, attached) === recallable[recall];
-    const plainKey = !e.altKey && !e.metaKey && !e.shiftKey && !e.ctrlKey;
+    const plainKey = bare(e);
     const walk = (e.key === 'ArrowUp' && (recalled || (!el.value && attached.length === 0 && keys.indexOf(active) <= 0))) || (e.key === 'ArrowDown' && recalled);
     if (plainKey && walk) {
       const at = recalled ? recall + (e.key === 'ArrowUp' ? 1 : -1) : 0;
@@ -1323,7 +1324,7 @@ export function Quick() {
       window.requestAnimationFrame(() => el.setSelectionRange(shownText.length, shownText.length));
       return;
     }
-    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !e.metaKey && !e.shiftKey) {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !cmd(e) && !e.shiftKey) {
       // In a prompt of several lines the arrows move the cursor, and the selection only from
       // its first or last line.
       const before = el.value.slice(0, el.selectionStart);
@@ -1334,7 +1335,7 @@ export function Quick() {
       move(e.key === 'ArrowDown' ? 1 : -1);
       return;
     }
-    if (e.ctrlKey && !e.metaKey && (e.key === 'n' || e.key === 'p')) {
+    if (emacsCtrl(e, 'n') || emacsCtrl(e, 'p')) {
       e.preventDefault();
       move(e.key === 'n' ? 1 : -1);
     }
@@ -1355,13 +1356,13 @@ export function Quick() {
       // ⌥⌘ digits switch projects, as in the main window. ⌥ changes the character, so they go by
       // the key's code.
       const digit = /^Digit(\d)$/.exec(e.code);
-      if (e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey && digit) {
+      if (digit && chordPressed(`Alt+Cmd+${digit[1]}`, e)) {
         e.preventDefault();
         const name = projectForDigit(Number(digit[1]), projects);
         if (name) pickProject(name);
         return;
       }
-      if (!e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!modsHeld(e, 'Cmd') && !modsHeld(e, 'Shift', 'Cmd')) return;
       if (/^[1-9]$/.test(e.key)) {
         const row = rows[Number(e.key) - 1];
         if (row) {
@@ -1599,7 +1600,7 @@ export function Quick() {
         <div ref={inputBox} className="ca-quick-head">
         <div className="ca-quick-input">
           <div className="ca-quick-pick">
-            <button type="button" data-picker-trigger className="ca-quick-project" title="Project (⌘P)" aria-haspopup="dialog" aria-expanded={picker === 'project'} onClick={() => togglePicker('project')}>
+            <button type="button" data-picker-trigger className="ca-quick-project" title={keysIn('Project (⌘P)')} aria-haspopup="dialog" aria-expanded={picker === 'project'} onClick={() => togglePicker('project')}>
               <Mark size={16} status={logoStatus} />
               <span>{current}</span>
               <Icon name="chevron-down" size={12} />
@@ -1691,7 +1692,7 @@ export function Quick() {
                       {s.group === 'found' && (
                         <label
                           className="ca-check ca-quick-archived"
-                          title={withArchived ? 'Searches list archived sessions after the others. ⇧⌘A leaves them out' : `Searches leave archived sessions out${archivedFound > 0 ? `; ${archivedFound} ${archivedFound === 1 ? 'matches' : 'match'} this one` : ''}. ⇧⌘A lists them`}
+                          title={keysIn(withArchived ? 'Searches list archived sessions after the others. ⇧⌘A leaves them out' : `Searches leave archived sessions out${archivedFound > 0 ? `; ${archivedFound} ${archivedFound === 1 ? 'matches' : 'match'} this one` : ''}. ⇧⌘A lists them`)}
                           // The keyboard stays in the box.
                           onMouseDown={(e) => e.preventDefault()}
                         >
@@ -1735,7 +1736,7 @@ export function Quick() {
                             role="option"
                             aria-selected={active === r.key}
                             className={cx('ca-quick-row', 'is-suggest', active === r.key && 'is-active', held.extraClass)}
-                            title={`${said.title}\n${said.why}\n${Math.round(r.s.p * 100)}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' ? ' · ⌥⏎ shows the session in Codealong' : r.s.kind === 'open' ? ' · ⌥⏎ opens the session where it lives' : ''}`}
+                            title={keysIn(`${said.title}\n${said.why}\n${Math.round(r.s.p * 100)}% likely, from ${route?.model ?? 'Jev'} in ${route?.ms ?? 0} ms · ⏎ does it${r.s.kind === 'send' ? ' · ⌥⏎ shows the session in Codealong' : r.s.kind === 'open' ? ' · ⌥⏎ opens the session where it lives' : ''}`)}
                             {...handlers}
                           >
                             {suggestionFace(r.s)}
@@ -1750,7 +1751,7 @@ export function Quick() {
                             role="option"
                             aria-selected={active === r.key}
                             className={cx('ca-quick-row', 'is-skill', active === r.key && 'is-active')}
-                            title={`/${r.skill.name}${r.skill.hint ? ` ${r.skill.hint}` : ''}\n${r.skill.description}\n${r.lane ? `In ${r.lane.repo}` : `${r.accounts.join(', ')}’s own`}${r.skill.uses > 0 ? ` · run ${r.skill.uses} ${r.skill.uses === 1 ? 'time' : 'times'}` : ''}\n⏎ or ⇥ finishes the name; ${r.lane ? `a session on it starts in ${r.lane.repo}` : 'a session on it starts where it’s set to below'}`}
+                            title={keysIn(`/${r.skill.name}${r.skill.hint ? ` ${r.skill.hint}` : ''}\n${r.skill.description}\n${r.lane ? `In ${r.lane.repo}` : `${r.accounts.join(', ')}’s own`}${r.skill.uses > 0 ? ` · run ${r.skill.uses} ${r.skill.uses === 1 ? 'time' : 'times'}` : ''}\n⏎ or ⇥ finishes the name; ${r.lane ? `a session on it starts in ${r.lane.repo}` : 'a session on it starts where it’s set to below'}`)}
                             data-row={r.key}
                             onMouseDown={handlers.onMouseDown}
                             onClick={handlers.onClick}
@@ -1779,7 +1780,7 @@ export function Quick() {
                             role="option"
                             aria-selected={active === r.key}
                             className={cx('ca-quick-row', 'is-todo', active === r.key && 'is-active', held.extraClass)}
-                            title={`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows the todo in Codealong`}
+                            title={keysIn(`${t.title || 'Untitled'}\n⏎ ${opens} · ⌥⏎ shows the todo in Codealong`)}
                             {...handlers}
                           >
                             <TodoGlyph status={t.status} waiting={r.waiting} />
@@ -1824,7 +1825,7 @@ export function Quick() {
                             role="option"
                             aria-selected={active === r.key}
                             className={cx('ca-quick-row', 'is-pr', active === r.key && 'is-active', held.extraClass)}
-                            title={`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n${r.kind === 'review' ? '⏎ reviews it here · ⌥⏎ shows it in Codealong' : '⏎ shows it in Codealong · ⌥⏎ opens it on GitHub'}`}
+                            title={keysIn(`${pr.title}\n${pr.repoSlug}#${pr.number} · ${pr.head}\n${r.kind === 'review' ? '⏎ reviews it here · ⌥⏎ shows it in Codealong' : '⏎ shows it in Codealong · ⌥⏎ opens it on GitHub'}`)}
                             {...handlers}
                           >
                             <PrGlyph pr={pr} />
@@ -1847,7 +1848,7 @@ export function Quick() {
                           role="option"
                           aria-selected={active === r.key}
                           className={cx('ca-quick-row', active === r.key && 'is-active', held.extraClass, `is-${s2.status}`)}
-                          title={`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`}
+                          title={keysIn(`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`)}
                           {...handlers}
                         >
                           <SessionGlyph s={s2} />
@@ -1871,7 +1872,7 @@ export function Quick() {
                             {s2.account} · {r.lane.callsign}
                           </span>
                           <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
-                          {active === r.key && <span className="ca-quick-row-tab">⇥ Reply</span>}
+                          {active === r.key && <span className="ca-quick-row-tab">{keysIn('⇥ Reply')}</span>}
                           {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                         </div>
                       );
@@ -1882,7 +1883,7 @@ export function Quick() {
                     {s.group === 'found' && foundNothing && (
                       <p className="ca-quick-note">
                         {archivedFound > 0 && !withArchived
-                          ? `No sessions, todos or PRs match, but ${archivedFound} archived ${archivedFound === 1 ? 'session does' : 'sessions do'}: ⇧⌘A lists ${archivedFound === 1 ? 'it' : 'them'}. Or start a session with this prompt below.`
+                          ? keysIn(`No sessions, todos or PRs match, but ${archivedFound} archived ${archivedFound === 1 ? 'session does' : 'sessions do'}: ⇧⌘A lists ${archivedFound === 1 ? 'it' : 'them'}. Or start a session with this prompt below.`)
                           : 'No sessions, todos or PRs match. Start a session with this prompt below.'}
                       </p>
                     )}
@@ -1984,7 +1985,7 @@ export function Quick() {
         <div className="ca-quick-bar">
           {macs.length > 0 && (
             <div className="ca-quick-pick">
-              <button type="button" data-picker-trigger className="ca-quick-chip" title={deviceInfo ? `On ${deviceInfo.name}\nMac (⌘D)` : 'Mac (⌘D)'} aria-haspopup="dialog" aria-expanded={picker === 'device'} onClick={() => togglePicker('device')}>
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(deviceInfo ? `On ${deviceInfo.name}\nMac (⌘D)` : 'Mac (⌘D)')} aria-haspopup="dialog" aria-expanded={picker === 'device'} onClick={() => togglePicker('device')}>
                 {deviceInfo ? <i className={`ca-labeldot is-${deviceInfo.color}`} aria-hidden="true" /> : <Icon name="device-desktop" size={14} />}
                 <span>{deviceInfo ? deviceLabel(deviceInfo.name) : 'This Mac'}</span>
                 <Icon name="chevron-down" size={12} />
@@ -1993,7 +1994,7 @@ export function Quick() {
             </div>
           )}
           <div className="ca-quick-pick">
-            <button type="button" data-picker-trigger className="ca-quick-chip" title={lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)'} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
+            <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
               <Icon name={lane?.startsChats ? 'message-circle' : 'folder'} size={14} />
               <span>{lane ? (lane.startsChats ? NO_PROJECT : lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
               <Icon name="chevron-down" size={12} />
@@ -2012,7 +2013,7 @@ export function Quick() {
           </label>
           {places.length > 1 && (
             <div className="ca-quick-pick ca-quick-place">
-              <button type="button" data-picker-trigger className="ca-quick-chip" title="Opens in (⌘O)" aria-haspopup="dialog" aria-expanded={picker === 'place'} onClick={() => togglePicker('place')}>
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Opens in (⌘O)')} aria-haspopup="dialog" aria-expanded={picker === 'place'} onClick={() => togglePicker('place')}>
                 {placeShown && <Icon name={placeIcon(placeShown.place)} size={14} />}
                 <span>{placeShown?.label ?? 'Opens in'}</span>
                 <Icon name="chevron-down" size={12} />
@@ -2021,7 +2022,7 @@ export function Quick() {
             </div>
           )}
           <div className="ca-quick-pick ca-quick-agent">
-            <button type="button" data-picker-trigger className="ca-quick-chip" title="Account, model and effort (⌘L)" disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
+            <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Account, model and effort (⌘L)')} disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
               <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />
               <span>{agentChip.label}</span>
               {agentChip.detail && <span className="ca-quick-chip-detail">{agentChip.detail}</span>}

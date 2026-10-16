@@ -34,6 +34,9 @@
 #
 # PREVIEW_SCHEME=dark renders as if macOS were in dark mode (the screenshot is <view>-dark.png).
 # Under theme = "system" the page follows it; "light" and "dark" in config.toml win over it.
+# PREVIEW_PLATFORM=linux draws the windows as Linux has them (src/platform.ts): its keys in
+# words (Ctrl+Alt+W for ⌃⌘W) and pressed as Linux presses them, and no room for macOS's window
+# buttons. The screenshot is <view>-linux.png (<view>-linux-dark.png with PREVIEW_SCHEME=dark).
 # The notch view renders the bar docked in a 14-inch MacBook Pro's notch (185 by 32 points),
 # closed, on a stand-in screen top with its menu bar (default 1512,320); PREVIEW_INIT can point
 # at it to open it, and click a pill to show its session under the pills, which wants a taller
@@ -113,7 +116,7 @@ case "${PREVIEW_SCHEME:-}" in
   dark) scheme="--blink-settings=preferredColorScheme=0" ;;
   light) scheme="--blink-settings=preferredColorScheme=1" ;;
 esac
-shot="$dir/${PREVIEW_NAME:-$view}${PREVIEW_SCHEME:+-$PREVIEW_SCHEME}.png"
+shot="$dir/${PREVIEW_NAME:-$view}${PREVIEW_PLATFORM:+-$PREVIEW_PLATFORM}${PREVIEW_SCHEME:+-$PREVIEW_SCHEME}.png"
 prepare="${PREVIEW_PREPARE:-}"
 bin="${PREVIEW_BIN:-}"
 if [ -z "$bin" ] && { [ "$prepare" != skip ] || [ -n "${PREVIEW_TRANSCRIPT:-}" ]; }; then
@@ -187,6 +190,7 @@ setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('code
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
 [ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
 [ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__=true;"
+[ -n "${PREVIEW_PLATFORM:-}" ] && setup="$setup window.__CODEALONG_PLATFORM__='$PREVIEW_PLATFORM';"
 size="${PREVIEW_SIZE:-1440,900}"
 # The windows that float over the desktop render on a stand-in for it: `on_desktop <the page's
 # class> [a layer over it]`.

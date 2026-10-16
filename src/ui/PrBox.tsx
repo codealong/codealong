@@ -42,6 +42,7 @@ import type { Draft, PrItem, RoutingGroup, Side, SideKept, StartAccount, Usage, 
 import { prIsOpen } from './PrsView';
 import { BoxText, Button, cx, Icon, Seg } from './primitives';
 import { prSides, SideStrip } from './SideStrip';
+import { bare, chordPressed, keysIn } from '../platform';
 
 /** What's written for each PR, kept while the window goes from one to the next and back: the
  *  review, and the question being written on Ask. */
@@ -294,7 +295,7 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
             ? `${notReviewable}; ${keys.comment} comments${withDraft}`
             : 'It’s closed; a comment still goes to the PR';
   const answering = conversation?.running && !asking ? `${conversation.account ?? 'Ask'} is answering on Ask · ` : '';
-  const said = note?.text ?? (sending ? 'Sending to GitHub…' : starting ? 'Reading the PR…' : asking ? [`⏎ asks${answerer ? ` ${answerer}` : ''}`, reviewable && `${keys.approve} approves${onward}`].filter(Boolean).join(' · ') : answering + verdicts);
+  const said = note?.text ?? (sending ? 'Sending to GitHub…' : starting ? 'Reading the PR…' : asking ? [keysIn(`⏎ asks${answerer ? ` ${answerer}` : ''}`), reviewable && `${keys.approve} approves${onward}`].filter(Boolean).join(' · ') : answering + verdicts);
   // Ask's earlier questions, while nothing about them shows above the box.
   const earlier = kept.filter((k) => k.id !== conversation?.id);
   const sideShown = !!conversation || (!!shown && shown.kind !== 'starting') || starting;
@@ -334,15 +335,16 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
               if (note?.error) b.setNote(null);
             }}
             onKeyDown={(e) => {
-              if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.nativeEvent.isComposing) return;
+              if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
               // ⌘⏎ and ⌥⌘⏎ are the window's chords, or the box's own where it has none.
-              if (e.metaKey) {
+              const approve = chordPressed('Cmd+Enter', e);
+              if (approve || chordPressed('Alt+Cmd+Enter', e)) {
                 if (!ownKeys) return;
                 e.preventDefault();
-                b.review(reviewable && !e.altKey ? 'approve' : 'comment');
+                b.review(reviewable && approve ? 'approve' : 'comment');
                 return;
               }
-              if (e.altKey) return;
+              if (!bare(e)) return;
               // ⏎ asks on Ask, and runs `/side` on Review; ⇧⏎ is a new line.
               const typed = e.currentTarget.value.trim();
               const command = asking ? null : SIDE_COMMAND.exec(typed);
@@ -383,7 +385,7 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
                   <Icon name="chevron-down" size={12} />
                 </button>
               )}
-              <button type="button" className="ca-composer-send" aria-label="Ask" title="Ask (⏎)" disabled={!b.askText.trim() || starting} onClick={() => b.ask(b.askText.trim())}>
+              <button type="button" className="ca-composer-send" aria-label="Ask" title={keysIn('Ask (⏎)')} disabled={!b.askText.trim() || starting} onClick={() => b.ask(b.askText.trim())}>
                 <Icon name="help" size={16} stroke={2} />
               </button>
             </div>

@@ -16,6 +16,7 @@ import { PrPills } from './PrPills';
 import { cx, HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, Row, WorktreeChip } from './primitives';
 import { SnoozeChip } from './LaneRow';
 import { useRowDrag, type DragProps } from './useRowDrag';
+import { cmd } from '../platform';
 
 export interface PrRowItem {
   kind: 'pr';
@@ -140,7 +141,7 @@ function PrRow({ item, domId, now, selected, onSelect, onOpen, onOpenSession, on
       // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it.
       onSelect={(e) => onSelect(selectHow(e))}
       onOpen={(e) => {
-        if (!e.metaKey && !e.shiftKey) onOpen();
+        if (!cmd(e) && !e.shiftKey) onOpen();
       }}
       onMenu={onContextMenu}
     >

@@ -7,6 +7,7 @@
 import type { ReactNode } from 'react';
 import { below } from '../contextMenu';
 import { Button, cx, headerMenu, Icon } from './primitives';
+import { keysIn } from '../platform';
 
 interface PickPanelProps {
   /** What the panel is, for a screen reader: `Selected sessions`. */
@@ -38,7 +39,7 @@ export function PickPanel({ label, icon, head, help, moreTitle, onMoreMenu, acti
           <Button variant="ghost" size="sm" icon="dots" aria-label="More" title={moreTitle} className="ca-pick-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
         </div>
         <h2 className="ca-pick-head">{head}</h2>
-        <p className="ca-pick-help">{help}</p>
+        <p className="ca-pick-help">{keysIn(help)}</p>
       </header>
       {actions}
       {children}

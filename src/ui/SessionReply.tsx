@@ -107,6 +107,7 @@ import { SlashList, type SlashOption } from './SlashList';
 import { chordedReply, SuggestedReplies, SuggestionHead, type Denies, type PickHow } from './SuggestedReplies';
 import { useLatest } from '../latest';
 import { errorText } from '../report';
+import { bare, chordPressed, cmd, held, keysIn, typed } from '../platform';
 
 /** Nothing picked for a resume: it goes on where it went on last, on the account's own model. */
 const NO_PICKS: ResumePicks = { agent: null, effort: null, place: null };
@@ -444,7 +445,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   useEffect(() => {
     if (!canStop) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== '.' || !e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.defaultPrevented) return;
+      if (!chordPressed('Cmd+.', e) || e.defaultPrevented) return;
       e.preventDefault();
       stopNow.current();
     };
@@ -750,9 +751,9 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           : starting
           ? said('Starting it in your terminal…')
           : runs
-          ? said(`⏎ runs it in a new ${terminal} tab, as you; ${s.account} is told what it prints once it ends.`)
+          ? said(keysIn(`⏎ runs it in a new ${terminal} tab, as you; ${s.account} is told what it prints once it ends.`))
           : listing
-          ? said('↑ ↓ choose · ⇥ finishes the name · esc puts the list away', true)
+          ? said(keysIn('↑ ↓ choose · ⇥ finishes the name · esc puts the list away'), true)
           : commands.length > 0
           ? said(commands.map((c) => `/${c.name} ${c.args}: ${c.about}`).join(' · '))
           : skill
@@ -820,7 +821,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             // The list's keys come first while it's up: the arrows choose, ⇥ finishes the name,
             // and so does ⏎ unless the name is already whole, which sends it as ⏎ does. Escape
             // puts the list away, and stops nothing.
-            if (listing && !e.nativeEvent.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            if (listing && !e.nativeEvent.isComposing && typed(e)) {
               const whole = options[at].name === mention?.name;
               if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault();
@@ -840,7 +841,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               }
             }
             // ⇧⇥ steps to its next mode, where Codealong runs it.
-            if (e.key === 'Tab' && e.shiftKey && switchesMode && !aside && !e.metaKey && !e.ctrlKey && !e.altKey && !e.nativeEvent.isComposing) {
+            if (e.key === 'Tab' && held(e, 'Shift') && switchesMode && !aside && !e.nativeEvent.isComposing) {
               e.preventDefault();
               const to = nextMode(modes, mode);
               if (to?.id && !switching) switchMode(to.id);
@@ -848,7 +849,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             }
             // ↑ in the empty box goes to the replies suggested above it, and nowhere else: the
             // window's own keys would read it as the list's once the box no longer has the keyboard.
-            if (e.key === 'ArrowUp' && !text && suggested && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.nativeEvent.isComposing && intoSuggestions()) {
+            if (e.key === 'ArrowUp' && !text && suggested && bare(e) && !e.nativeEvent.isComposing && intoSuggestions()) {
               e.preventDefault();
               e.stopPropagation();
               return;
@@ -862,12 +863,14 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             }
             // ⌘⌫ with nothing written denies the call it waits on; with words, it deletes them as
             // it does in any box.
-            if (e.key === 'Backspace' && e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && onDeny && !aside && empty) {
+            if (chordPressed('Cmd+Backspace', e) && onDeny && !aside && empty) {
               e.preventDefault();
               onDeny();
               return;
             }
-            if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+            // ⌃⏎ is Ctrl+Shift+Enter on Linux (platform.ts), so ⇧ stops only the rest.
+            const sendNow = chordPressed('Ctrl+Enter', e);
+            if (e.key !== 'Enter' || (e.shiftKey && !sendNow) || e.nativeEvent.isComposing) return;
             // To the side conversation, or a command run here (`/fork`, one led by `!`), whatever
             // the keys: none of the session's own (send now, send and go on to the next, allow)
             // apply to it.
@@ -877,7 +880,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
               return;
             }
             // ⌃⏎ sends it now; the engine sends it as usual where it can't, or the turn has ended.
-            if (e.ctrlKey && !e.metaKey) {
+            if (sendNow) {
               e.preventDefault();
               send(true);
               return;
@@ -885,21 +888,21 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             // While it waits on a call answered here, ⌘⏎ answers it and goes on: what you wrote
             // denies it and is sent instead, as with ⏎, and an empty box allows it. Questions are
             // declined with what you wrote the same way.
-            if (e.metaKey && waiting && onDenySaying && !empty) {
+            if (cmd(e) && waiting && onDenySaying && !empty) {
               e.preventDefault();
               send(false, true);
               return;
             }
-            if (e.metaKey && onAllow && empty) {
+            if (cmd(e) && onAllow && empty) {
               e.preventDefault();
               onAllow();
               return;
             }
             // While it waits on you ⏎ denies it with what you wrote, where it can be answered here
             // (and sends nothing elsewhere), and ⌘⏎ goes on to Allow (the waiting window's).
-            if (waiting && e.metaKey) return;
+            if (waiting && cmd(e)) return;
             e.preventDefault();
-            if (send() && e.metaKey) onNext?.('sent.');
+            if (send() && cmd(e)) onNext?.('sent.');
           }}
           onPaste={paste}
           aria-label={aside ? `Question on the side about ${s.title}` : `Message to ${s.title}`}
@@ -929,7 +932,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             )}
             {/* A command, `/fork` or one led by `!`, runs here rather than going into the turn. */}
             {canSendNow && !empty && !command && !runs && (
-              <button type="button" className="ca-composer-send is-now" aria-label="Send now" title="Send now (⌃⏎), into the turn it’s taking" onClick={() => send(true)}>
+              <button type="button" className="ca-composer-send is-now" aria-label="Send now" title={keysIn('Send now (⌃⏎), into the turn it’s taking')} onClick={() => send(true)}>
                 <Icon name="bolt" size={14} stroke={2} />
               </button>
             )}
@@ -942,7 +945,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                 type="button"
                 className="ca-composer-send"
                 aria-label={runs ? 'Run in your terminal' : command ? `Run /${command.command.name}` : aside ? 'Ask on the side' : 'Send'}
-                title={runs ? `Run it in a new ${terminal} tab, as you (⏎)` : command ? `Run /${command.command.name} (⏎)` : aside ? 'Ask the side conversation (⏎)' : waiting ? (denies === 'question' ? 'Decline it, and send this instead (⏎)' : denies ? 'Deny it, and send this instead (⏎)' : 'Send this once it isn’t waiting on you') : 'Send (⏎)'}
+                title={keysIn(runs ? `Run it in a new ${terminal} tab, as you (⏎)` : command ? `Run /${command.command.name} (⏎)` : aside ? 'Ask the side conversation (⏎)' : waiting ? (denies === 'question' ? 'Decline it, and send this instead (⏎)' : denies ? 'Deny it, and send this instead (⏎)' : 'Send this once it isn’t waiting on you') : 'Send (⏎)')}
                 disabled={empty || (waiting && !command && !runs && !aside && !onDenySaying) || ((!!command || aside) && (forking || asking)) || (runs && starting)}
                 onClick={submit}
               >
@@ -973,10 +976,10 @@ function hint(waiting: boolean | undefined, next: boolean, allow: boolean, sendN
 
 function hintKeys(waiting: boolean | undefined, next: boolean, allow: boolean, sendNow: boolean, denies: Denies | undefined, written: boolean): string {
   const does = denies === 'question' ? 'declines' : 'denies';
-  if (waiting && denies && written) return `⏎ ${does} it and sends this instead${next ? ' · ⌘⏎ + next' : ''}`;
-  if (waiting && denies) return allow ? `⌘⏎ allow${next ? ' + next' : ''} · ⏎ ${does} it and sends what you write instead` : `⏎ ${does} it and sends what you write instead`;
-  if (waiting) return allow ? `⌘⏎ allow${next ? ' + next' : ''} · send this once it isn’t waiting on you` : 'Send this once it isn’t waiting on you';
-  return [next && '⌘⏎ send + next', sendNow && '⌃⏎ send now, into the turn it’s taking'].filter(Boolean).join(' · ');
+  if (waiting && denies && written) return keysIn(`⏎ ${does} it and sends this instead${next ? ' · ⌘⏎ + next' : ''}`);
+  if (waiting && denies) return keysIn(allow ? `⌘⏎ allow${next ? ' + next' : ''} · ⏎ ${does} it and sends what you write instead` : `⏎ ${does} it and sends what you write instead`);
+  if (waiting) return allow ? keysIn(`⌘⏎ allow${next ? ' + next' : ''} · send this once it isn’t waiting on you`) : 'Send this once it isn’t waiting on you';
+  return [next && keysIn('⌘⏎ send + next'), sendNow && keysIn('⌃⏎ send now, into the turn it’s taking')].filter(Boolean).join(' · ');
 }
 
 interface ApprovalProps {
@@ -1122,7 +1125,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   useEffect(() => {
     if (!keys || !answerable) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return;
+      if (e.defaultPrevented || !held(e, 'Cmd')) return;
       // With the keyboard anywhere in the window, as from the box: ⌘⏎ allows and goes on, and
       // ⌘⌫ denies, unless it's deleting words you wrote.
       if (e.key === 'Enter') {
@@ -1383,7 +1386,7 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, give
   useEffect(() => {
     if (!keys) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || e.key !== 'Enter') return;
+      if (e.defaultPrevented || !chordPressed('Cmd+Enter', e)) return;
       // Not from words being written elsewhere (the message box below): that's a message, and
       // answering would send whatever was left half typed here instead. An answer box of its own
       // takes ⌘⏎ before it gets here.
@@ -1469,8 +1472,8 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, give
           disabled={busy}
           onChange={(e) => type(q, e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== 'Enter' || e.altKey || e.ctrlKey || e.shiftKey || e.nativeEvent.isComposing) return;
-            if (e.metaKey) {
+            if (e.key !== 'Enter' || e.nativeEvent.isComposing || !(bare(e) || chordPressed('Cmd+Enter', e))) return;
+            if (cmd(e)) {
               // ⌘⏎ from an answer you typed, in every window: on to the next question, or, with
               // none left, it answers and goes on.
               e.preventDefault();

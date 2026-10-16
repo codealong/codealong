@@ -55,6 +55,7 @@ import { PrChipCard } from './PrLink';
 import { AccountLabel, BranchLabel, Button, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
 import { TodoGlyph } from './TodoBits';
+import { keysIn } from '../platform';
 
 /** PRs shown before a "+N": a long session can have made many. */
 const PRS_SHOWN = 3;
@@ -358,7 +359,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
               Open in {sessionPlace(s, apps.terminal)}
             </Button>
           )}
-          {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title="Mark as seen: it goes idle and leaves the bar (⌘E)" className="ca-sessinsp-seen" onClick={seen} />}
+          {seen && <Button variant="ghost" size="sm" icon="check" aria-label="Mark as seen" title={keysIn('Mark as seen: it goes idle and leaves the bar (⌘E)')} className="ca-sessinsp-seen" onClick={seen} />}
           {onKeep && <Button variant="ghost" size="sm" icon="pin" aria-label="Keep on the desktop" title={keepTitle ?? 'Keep on the desktop: it stays up, here, until you close it. Dragging it by its header, or its edge to make it bigger, keeps it too.'} onClick={onKeep} />}
           {onMaximize && (
             <Button
@@ -367,14 +368,14 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
               icon={maximized ? 'minimize' : 'maximize'}
               aria-label={maximized ? 'Show the list' : 'Expand to the window'}
               aria-pressed={maximized}
-              title={maximized ? 'Show the list again (⇧⌘F)' : 'Expand to the whole window (⇧⌘F)'}
+              title={keysIn(maximized ? 'Show the list again (⇧⌘F)' : 'Expand to the whole window (⇧⌘F)')}
               className="ca-sessinsp-max"
               onClick={onMaximize}
             />
           )}
           {!compact && <Button variant="ghost" size="sm" icon="info-circle" aria-label="Details" aria-expanded={details} title={details ? 'Hide the details' : 'Details: its account, ID, folder, times and what it cost'} className={details ? 'ca-sessinsp-detailsbtn is-on' : 'ca-sessinsp-detailsbtn'} onClick={() => setDetails(!details)} />}
           {onMenu && <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Snooze, archive, pin, rename, fork, copy and more" onClick={(e) => onMenu(below(e.currentTarget))} />}
-          {onClose && <Button variant="ghost" size="sm" icon="x" aria-label="Close" title={closeTitle ?? 'Close: it leaves the desktop (⌘W)'} onClick={onClose} />}
+          {onClose && <Button variant="ghost" size="sm" icon="x" aria-label="Close" title={keysIn(closeTitle ?? 'Close: it leaves the desktop (⌘W)')} onClick={onClose} />}
         </div>
       </div>
       {came.length > 0 && (
@@ -405,7 +406,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       )}
       <div className="ca-sessinsp-meta">
         {naming ? (
-          <span>⏎ renames it · Esc keeps the old name</span>
+          <span>{keysIn('⏎ renames it · Esc keeps the old name')}</span>
         ) : (
           <>
             <span>{status}</span>

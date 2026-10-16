@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { watchCaret } from './caret';
 import { drawNoticesHere } from './notices';
+import { platform } from './platform';
 import { Bar } from './ui/Bar';
 import { DesktopLines } from './ui/DesktopLines';
 import { DesktopPin } from './ui/DesktopPin';
@@ -53,7 +54,7 @@ if (isDesktop) document.documentElement.classList.add('is-desktop');
 if (isLineage) document.documentElement.classList.add('is-lineage');
 // On Linux the window manager draws a board window's title bar, so the page leaves no room for
 // macOS's window buttons (App.css).
-if (/Linux/.test(navigator.userAgent)) document.documentElement.classList.add('is-linux');
+if (platform() === 'linux') document.documentElement.classList.add('is-linux');
 // The board's windows draw the notices, at the end of the accounts bar: their own, and those the
 // other windows hand on.
 if (!isBar && !isQuick && !isWaiting && !isPeek && !isDesktop && !isLineage) drawNoticesHere();

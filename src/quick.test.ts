@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, titleMarks, worktreeCount, deviceHits } from './quick';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits } from './quick';
+import { setPlatform } from './platform';
 import * as fx from './testing/fixtures';
 import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
 
@@ -338,6 +339,39 @@ describe('shortcuts', () => {
     expect(shortcutFromKey(key('IntlBackslash', { altKey: true }))).toHaveProperty('error');
     // ⇧⌘ with a key is allowed: apps like Maccy ship on ⇧⌘C.
     expect(shortcutFromKey(key('KeyC', { metaKey: true, shiftKey: true }))).toEqual({ shortcut: 'Shift+Cmd+C' });
+  });
+
+  describe('on Linux', () => {
+    afterEach(() => setPlatform(null));
+
+    it('shows them as its keys are, in words: Cmd is Super, and CmdOrCtrl Ctrl', () => {
+      setPlatform('linux');
+      expect(shortcutLabel('Ctrl+Alt+/')).toBe('Ctrl+Alt+/');
+      expect(shortcutLabel('Option+Cmd+/')).toBe('Alt+Super+/');
+      expect(shortcutLabel('CommandOrControl+Shift+KeyP')).toBe('Ctrl+Shift+P');
+      expect(shortcutLabel('Super+Enter')).toBe('Super+Enter');
+      expect(shortcutLabel('Ctrl+Alt+Up')).toBe('Ctrl+Alt+↑');
+      expect(shortcutKeys('Ctrl+Alt+/')).toEqual(['Ctrl', 'Alt', '/']);
+      expect(heldSaid(key('ControlLeft', { ctrlKey: true, altKey: true }))).toBe('Ctrl+Alt');
+    });
+
+    it('records a key press with Linux’s names and its desktop’s keys turned away', () => {
+      setPlatform('linux');
+      expect(shortcutFromKey(key('Slash', { ctrlKey: true, altKey: true }))).toEqual({ shortcut: 'Ctrl+Alt+/' });
+      expect(shortcutFromKey(key('KeyK', { ctrlKey: true, shiftKey: true }))).toEqual({ shortcut: 'Ctrl+Shift+K' });
+      expect(shortcutFromKey(key('KeyK', { ctrlKey: true }))).toEqual({ error: 'Ctrl+K is a shortcut in most apps. Add Alt.' });
+      expect(shortcutFromKey(key('Tab', { altKey: true }))).toHaveProperty('error');
+      expect(shortcutFromKey(key('KeyK'))).toEqual({ error: 'Use Ctrl or Alt with it, or it would take a key you type.' });
+      expect(shortcutFromKey(key('OSLeft'))).toBeNull();
+      expect(takenFor(shortcutLabel('Alt+Space')!)).toBe('the window menu');
+      expect(takenFor(shortcutLabel('Cmd+Space')!)).toBe('GNOME’s input source switching');
+    });
+
+    it('leaves macOS’s as they were', () => {
+      setPlatform('mac');
+      expect(heldSaid(key('ControlLeft', { ctrlKey: true, altKey: true }))).toBe('⌃⌥');
+      expect(takenFor(shortcutLabel('Cmd+Space')!)).toBe('Spotlight');
+    });
   });
 });
 

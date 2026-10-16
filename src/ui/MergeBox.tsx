@@ -24,6 +24,7 @@ import { errorText } from '../report';
 import { flag, readStored, writeStored } from '../stored';
 import type { MergeBox as Box, MergeMethod, MergeOp, PrItem } from '../types';
 import { Button, cx, Icon } from './primitives';
+import { cmd, keysIn } from '../platform';
 
 /** Boxes already read, by what they were read for (merge.ts `boxKey`), so going back to a PR
  *  shows it at once. */
@@ -220,7 +221,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
   // them away and nothing else.
   const onFieldKey = (e: ReactKeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
-    if (e.key === 'Enter' && e.metaKey) {
+    if (e.key === 'Enter' && cmd(e)) {
       e.preventDefault();
       e.stopPropagation();
       confirm();
@@ -371,7 +372,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
             {box.deletesBranch && mode !== 'auto' && box.branchRef && <span className="ca-meta">GitHub deletes {box.branch} once it merges.</span>}
           </div>
           <div className="ca-merge-confirm">
-            <Button variant="primary" size="sm" icon="merge" disabled={!!doing} onClick={confirm} title={`${confirmLabel(mode, method)} (⌘⏎)`}>
+            <Button variant="primary" size="sm" icon="merge" disabled={!!doing} onClick={confirm} title={keysIn(`${confirmLabel(mode, method)} (⌘⏎)`)}>
               {busyWord ?? confirmLabel(mode, method)}
             </Button>
             <Button variant="ghost" size="sm" disabled={!!doing} onClick={() => setWriting(false)}>

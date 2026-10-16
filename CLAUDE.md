@@ -120,7 +120,8 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
 Tauri's IPC and renders in headless Chrome: a screenshot in `.preview/`, or with a check
 (`scripts/preview/*-check.js`), its result. Its header lists the views and every `PREVIEW_*`
 variable (sample todos, usage, devices, a real transcript, dark mode…); `scripts/checks.sh` runs
-every check, or the ones named. Check UI changes in light and dark (`PREVIEW_SCHEME=dark`).
+every check, or the ones named. Check UI changes in light and dark (`PREVIEW_SCHEME=dark`), and
+ones that show keys on Linux too (`PREVIEW_PLATFORM=linux`).
 Native menus, window creation and real opens can't be seen this way: say so rather than claiming
 they were checked. `.claude/rules/preview.md` has what writing a check needs.
 
@@ -281,6 +282,11 @@ Each rule names the file whose header has the rest.
   the waiting window), a review leaving it through `left` as a snoozed session does. An action's key
   is in `menus.ts` `CHORDS` and shows on the queue strip, in the menus and in every window at
   once. No key is written into one window or into the strip.
+- Keys are written for macOS (`Ctrl+Cmd+W`, ⌃⌘W) and `src/platform.ts` presses and says them as
+  the platform has them: a key is matched with `chordPressed`, `held` or `cmd`, never by reading
+  `metaKey` or `ctrlKey`, and text that names one goes through `keysIn` (a keycap, `Kbd`, does
+  it itself). A new chord goes in `platform.test.ts`'s list, which holds each to keys of its own
+  on Linux.
 - Skills are listed by the engine (skills.rs) and named by each harness's adapter; the windows
   write `/name` whatever the harness, and only one that starts the text is a skill (asked
   2026-10-14), swapped as they send or start (`src/skills.ts` `writtenFor`). Only accounts whose harness can run a skill by name are offered one (asked

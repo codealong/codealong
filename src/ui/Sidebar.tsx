@@ -13,6 +13,7 @@ import type { DevicesView, Label, Status } from '../types';
 import { cx, Icon, NavItem, Seg, StatusGlyph } from './primitives';
 import { LabelDot } from './TodoBits';
 import { RestartToUpdate } from './Updates';
+import { joinKeys, keysIn } from '../platform';
 
 export interface SideView {
   id: string;
@@ -105,7 +106,7 @@ function Open(p: SidebarProps) {
       <div className="ca-side-scroll">
         <div className="ca-label ca-side-label">View</div>
         {p.views.map((v) => (
-          <NavItem key={v.id} icon={v.icon} label={v.label} count={v.count === '' || p.loading ? undefined : (v.count as number)} badge={v.badge} badgeTitle={v.badgeTitle} kbd={v.kbd} active={p.view === v.id} title="⌃Tab goes to the next view" onClick={() => p.onView(v.id)} />
+          <NavItem key={v.id} icon={v.icon} label={v.label} count={v.count === '' || p.loading ? undefined : (v.count as number)} badge={v.badge} badgeTitle={v.badgeTitle} kbd={v.kbd} active={p.view === v.id} title={keysIn('⌃Tab goes to the next view')} onClick={() => p.onView(v.id)} />
         ))}
         {showDevices && p.devices && (
           <>
@@ -255,7 +256,7 @@ function Rail(p: SidebarProps) {
   return (
     <nav className="ca-rail" aria-label="Sidebar">
       {p.views.map((v) => (
-        <RailButton key={v.id} icon={v.icon} label={`${v.label} (${v.kbd.join('')})${v.id === 'prs' && v.badge ? ` · ${v.badgeTitle}` : ''}`} active={p.view === v.id} badge={v.id === 'sessions' ? needs : v.badge} onClick={() => p.onView(v.id)} />
+        <RailButton key={v.id} icon={v.icon} label={`${v.label} (${joinKeys(v.kbd)})${v.id === 'prs' && v.badge ? ` · ${v.badgeTitle}` : ''}`} active={p.view === v.id} badge={v.id === 'sessions' ? needs : v.badge} onClick={() => p.onView(v.id)} />
       ))}
       {showDevices && p.devices && (
         <>
@@ -279,7 +280,7 @@ function Rail(p: SidebarProps) {
       <RailButton icon="filter" label={filtered ? `Filtered: ${p.filters.join(', ')}. Show the sidebar` : 'Filters: show the sidebar'} active={filtered} badge={p.filters.length} tone="ink" onClick={p.onExpand} />
       <span className="ca-rail-fill" />
       <RestartToUpdate compact />
-      <RailButton icon="settings" label="Settings (⌘,)" onClick={p.onSettings} />
+      <RailButton icon="settings" label={keysIn('Settings (⌘,)')} onClick={p.onSettings} />
     </nav>
   );
 }

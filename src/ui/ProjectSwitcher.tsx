@@ -5,6 +5,7 @@ import type { LogoStatus, ProjectSummary } from '../types';
 import { cx, Icon, Mark, StatusGlyph } from './primitives';
 import { useDismiss } from './useDismiss';
 import { LOGO_LABEL } from '../logo';
+import { keysIn, keysSaid } from '../platform';
 
 export const ALL_PROJECTS = 'All projects';
 
@@ -16,9 +17,9 @@ export function projectForDigit(digit: number, projects: ProjectSummary[]): stri
 }
 
 export function projectKey(name: string, projects: ProjectSummary[]): string | null {
-  if (name === ALL_PROJECTS) return '⌥⌘0';
+  if (name === ALL_PROJECTS) return keysSaid('⌥⌘0');
   const i = projects.findIndex((p) => p.name === name);
-  return i >= 0 && i < 9 ? `⌥⌘${i + 1}` : null;
+  return i >= 0 && i < 9 ? keysSaid(`⌥⌘${i + 1}`) : null;
 }
 
 /** What waits for you in a project: agents and PRs that need you, agents that finished. */
@@ -87,7 +88,7 @@ export function ProjectSwitcher({ logoStatus, projects, current, total, actions,
           role="menuitem"
           className="ca-projswitch-newwin"
           aria-label={`Open ${name} in a new window`}
-          title={name === current ? 'Open in a new window (⌘⇧N)' : 'Open in a new window'}
+          title={keysIn(name === current ? 'Open in a new window (⌘⇧N)' : 'Open in a new window')}
           onClick={() => {
             setOpen(false);
             onOpenWindow(name);
@@ -106,7 +107,7 @@ export function ProjectSwitcher({ logoStatus, projects, current, total, actions,
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${current}. Switch project${badgeTitle ? `. ${badgeTitle}` : ''}. Codealong: ${LOGO_LABEL[logoStatus]}`}
-        title={`Switch project (⌘P)${badgeTitle ? `. ${badgeTitle}.` : ''} · Codealong: ${LOGO_LABEL[logoStatus]}`}
+        title={keysIn(`Switch project (⌘P)${badgeTitle ? `. ${badgeTitle}.` : ''} · Codealong: ${LOGO_LABEL[logoStatus]}`)}
         onClick={() => setOpen(!open)}
       >
         <Mark size={16} status={logoStatus} />

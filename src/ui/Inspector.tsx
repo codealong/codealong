@@ -13,6 +13,7 @@ import { useDismiss } from './useDismiss';
 import { PreviewChip, PreviewSection } from './PreviewBits';
 import { TodoChips, TodoGlyph } from './TodoBits';
 import { STATUS_WORD } from '../todos';
+import { keysIn } from '../platform';
 
 const ORIGIN_WORD: Record<Origin, string> = {
   main: 'Main worktree',
@@ -231,7 +232,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
       </header>
       <div className="ca-insp-actions">
         <OpenInMenu targets={withOtherEditors(lane.targets, apps, icons)} defaultId={lane.defaultTarget} onOpen={onOpen} />
-        <Button icon="plus" title="New session here (⌘N)" aria-label="New session here" onClick={onNewSession} />
+        <Button icon="plus" title={keysIn('New session here (⌘N)')} aria-label="New session here" onClick={onNewSession} />
         <Button icon="terminal" title={`New ${apps.terminal} terminal here`} aria-label={`New ${apps.terminal} terminal here`} onClick={() => onOpen('l|terminal')} />
         <Button icon="code" title={`Open in ${apps.editor}`} aria-label={`Open in ${apps.editor}`} onClick={() => onOpen('l|editor')} />
         {pr && <Button icon="external" title={`Open #${pr.number} on GitHub`} aria-label={`Open #${pr.number} on GitHub`} onClick={() => onOpen('p|github')} />}
