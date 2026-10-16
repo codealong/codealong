@@ -245,6 +245,11 @@ pub struct WaitingRow {
     pub tagged: bool,
     /// It's among this look's changed sessions, with what it said there.
     pub changed: bool,
+    /// It works for another agent (`start --helper`, an automatic review), not for its user: it
+    /// waits on them for a call to allow, a question it put to them or an error, and its last
+    /// reply is for that agent or its PR to read, not a question for them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub helper: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -403,6 +408,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
             suggested: s.suggestions.is_some(),
             tagged: s.insight.as_ref().is_some_and(|i| i.by.is_some()),
             changed: changed.contains(s.key.as_str()),
+            helper: s.helper.is_some(),
         })
         .collect();
     out.waiting.sort_by_key(|w| w.since);
@@ -1028,6 +1034,18 @@ mod tests {
         assert_eq!(out.sessions.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), vec!["b"]);
         let waiting: Vec<(&str, bool)> = out.waiting.iter().map(|w| (w.key.as_str(), w.changed)).collect();
         assert_eq!(waiting, vec![("c", false), ("b", true)]);
+    }
+
+    #[test]
+    fn a_helper_that_waits_says_its_a_helper() {
+        let review = Session { helper: Some(crate::model::Helper { pr: Some("o/r#7".into()), ..Default::default() }), ..s("h", Status::Needs, NOW - MIN) };
+        let b = board(vec![review, s("mine", Status::Needs, NOW - 2 * MIN)], vec![]);
+        let (out, _) = compare(&Sight { board: &b, sessions: true, prs: false, todos: true, me: None, project: None }, None, NOW - 15 * MIN, NOW);
+        let waiting: Vec<(&str, bool)> = out.waiting.iter().map(|w| (w.key.as_str(), w.helper)).collect();
+        assert_eq!(waiting, vec![("mine", false), ("h", true)]);
+        // Said only of a helper, so an orchestrator's rows stay as they were otherwise.
+        let json = serde_json::to_value(&out.waiting).unwrap();
+        assert_eq!((json[0].get("helper"), &json[1]["helper"]), (None, &serde_json::json!(true)));
     }
 
     #[test]

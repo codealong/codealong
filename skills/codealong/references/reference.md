@@ -110,12 +110,14 @@ Commands:
              second agent: they're counted by the worktree they ran in (`headless`).
              With them, every session that waits on you now (`waiting`, as `sessions
              --waiting` lists them), each saying whether it has suggested replies or a
-             tag. It prints a `cursor`: give it to --since next time, and what changed
-             is told by difference from what this look saw, so a busy app or a GitHub
-             error never makes a session or a PR look new. What it couldn't read is said
-             in `notes`, and told once it can be. Without --since, or with a duration,
-             it goes by times alone, which can't tell a review's change. The session
-             running it is left out
+             tag, and `helper` when it works for another agent or a PR (`start
+             --helper`, an automatic review), whose reply is that agent's or PR's to
+             read, not a question for you. It prints a `cursor`: give it to --since next
+             time, and what changed is told by difference from what this look saw, so a
+             busy app or a GitHub error never makes a session or a PR look new. What it
+             couldn't read is said in `notes`, and told once it can be. Without --since,
+             or with a duration, it goes by times alone, which can't tell a review's
+             change. The session running it is left out
   hygiene    Processes left over from old sessions, and this Mac's load, memory and
              swap, for keeping a Mac with many agents usable. It lists: the processes of
              sessions quiet for --after (an agent's own process and what it runs; not
@@ -2949,12 +2951,14 @@ started, done, reopened or set waiting; worktrees a second agent started working
 Headless runs (`claude -p`, `codex exec`, which a script or an agent started and reads
 itself) aren't sessions there, nor a second agent: they're counted by the worktree they
 ran in (`headless`). With them, every session that waits on you now (`waiting`, as
-`sessions --waiting` lists them), each saying whether it has suggested replies or a tag.
-It prints a `cursor`: give it to --since next time, and what changed is told by
-difference from what this look saw, so a busy app or a GitHub error never makes a
-session or a PR look new. What it couldn't read is said in `notes`, and told once it can
-be. Without --since, or with a duration, it goes by times alone, which can't tell a
-review's change. The session running it is left out
+`sessions --waiting` lists them), each saying whether it has suggested replies or a tag,
+and `helper` when it works for another agent or a PR (`start --helper`, an automatic
+review), whose reply is that agent's or PR's to read, not a question for you. It prints
+a `cursor`: give it to --since next time, and what changed is told by difference from
+what this look saw, so a busy app or a GitHub error never makes a session or a PR look
+new. What it couldn't read is said in `notes`, and told once it can be. Without --since,
+or with a duration, it goes by times alone, which can't tell a review's change. The
+session running it is left out
 
 Usage: codealong changes [OPTIONS]
 

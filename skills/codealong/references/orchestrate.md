@@ -70,8 +70,9 @@ tick*. Otherwise start at *Starting*.
    `lastPromptAt` and, for the first dozen, what began its latest turn (`prompt`; `promptFrom`
    says when another session or Codealong sent it rather than your user) and its `reply`;
    `waiting`, every session that waits on your user now, each saying whether it has suggestions
-   or a tag; `prs` opened, approved, sent back, merged or closed; `todos`; `shared`, worktrees a second agent
-   started working in; and `headless`, how many headless runs (`claude -p`, `codex exec`, which a
+   or a tag and whether it's a `helper` (*Reading, tagging and suggesting*); `prs` opened,
+   approved, sent back, merged or closed; `todos`; `shared`, worktrees a second agent started
+   working in; and `headless`, how many headless runs (`claude -p`, `codex exec`, which a
    script or an agent ran and reads itself) changed in each folder. Those aren't sessions to read
    or overlaps: mention them only when they bear on something else, such as load or a folder's
    owner. `notes` says what it couldn't read this time (PRs while GitHub doesn't answer, sessions
@@ -99,6 +100,11 @@ Go over each session in `waiting` that `changed` this tick or has neither `sugge
   Use the `lastPromptAt` that came with what you read, never a fresher one.
 - Tag it with what you read: `codealong session tag <key> --asks-you yes|no --landing <…>
   --finished yes|no --prompt-at <lastPromptAt> --note "<the one fact that decides it>"`.
+- A row with `helper` works for another agent or a PR (`start --helper`, an automatic review),
+  not for your user. It waits on them for a call to allow, a question it put to them or an
+  error: read and suggest for that as for any session. Its reply is for that agent or PR to
+  read, so never tag it `--asks-you yes` for what the reply says: a review's verdict is acted on
+  from its PR, which waits on your user's review by itself.
 - Suggest only where your user has a decision to make or a next step to give. Never pleasantries
   or acknowledgements ("Thanks", "Looks good", "That's all for now"), and nothing for a session
   that only reports finished work: sending one starts a turn for nothing. Don't pad a real reply
