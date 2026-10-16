@@ -4,16 +4,22 @@
 // Settings › Automation has the setting that turns carrying on off (`[sessions]
 // continue_after_network_error`), on by default, saved as config.toml has it; and beside it the one
 // that carries on a session Codealong runs after Codealong quitting cut it off
-// (`continue_after_restart`, reconnect.rs) and the one that resumes a session for one it started
-// (`resume_for_sessions_it_started`, send.rs `wakes`), on by default too, each saved without
-// changing the others. The loss is put on a real Claude Code session, since a board rarely has one.
+// (`continue_after_restart`, reconnect.rs) and the ones that resume a session for another
+// session's message (`resume_for_any_session`) or only along a start
+// (`resume_for_sessions_it_started`, send.rs `wakes`), on by default too, the second of those
+// part of the first while it's on, each saved without changing the others. Settings reads the
+// config back after each save, so get_config answers what was saved last. The loss is put on a
+// real Claude Code session, since a board rarely has one.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/network-error-check.js
 (function () {
   var key = null;
   var title = null;
+  var saved = null;
   var real = window.__TAURI_INTERNALS__.invoke;
-  window.__TAURI_INTERNALS__.invoke = function (cmd) {
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args) {
+    if (cmd === 'save_config') saved = args && args.config;
     var got = real.apply(this, arguments);
+    if (cmd === 'get_config' && saved) return got.then(function (v) { return Object.assign({}, v, { config: saved }); });
     if (cmd !== 'get_board') return got;
     return got.then(function (b) {
       b.lanes.forEach(function (l) {
@@ -44,6 +50,7 @@
   var box = labelled(/Carry on after a network error/);
   var restartBox = labelled(/Carry on after Codealong restarts/);
   var resumeBox = labelled(/Resume a session for one it started/);
+  var anyBox = labelled(/Resume a stopped session for another session/);
 
   (async function () {
     try {
@@ -66,20 +73,29 @@
       var cfg = calls('save_config')[0][1].config;
       check('turned off, it saves [sessions] as config.toml has it', cfg && cfg.sessions && cfg.sessions.continue_after_network_error === false, JSON.stringify(cfg && cfg.sessions));
       check('and leaves resuming a session for one it started on', cfg && cfg.sessions && cfg.sessions.resume_for_sessions_it_started === true, JSON.stringify(cfg && cfg.sessions));
+      check('and resuming one for any session’s message', cfg && cfg.sessions && cfg.sessions.resume_for_any_session === true, JSON.stringify(cfg && cfg.sessions));
       check('and carrying on after a restart', cfg && cfg.sessions && cfg.sessions.continue_after_restart === true, JSON.stringify(cfg && cfg.sessions));
-      await until(function () { return !!resumeBox(); }, 3000, 'no resume setting in Settings › Automation');
+      await until(function () { return !!anyBox() && !!resumeBox(); }, 3000, 'no resume settings in Settings › Automation');
+      var any = anyBox().querySelector('input');
+      check('resuming a session for any session’s message is there, on by default', any.checked, String(any.checked));
       var resume = resumeBox().querySelector('input');
-      check('resuming a session for one it started is there, on by default', resume.checked, String(resume.checked));
-      resume.click();
-      await until(function () { return calls('save_config').length > 1; }, 3000, 'unchecking resuming saved nothing');
+      check('resuming one for one it started is there, on and part of it', resume.checked && resume.disabled, 'checked ' + resume.checked + ', disabled ' + resume.disabled);
+      any.click();
+      await until(function () { return calls('save_config').length > 1; }, 3000, 'unchecking resuming for any session saved nothing');
       var then = calls('save_config')[1][1].config;
-      check('turned off, it saves resume_for_sessions_it_started = false', then && then.sessions && then.sessions.resume_for_sessions_it_started === false, JSON.stringify(then && then.sessions));
+      check('turned off, it saves resume_for_any_session = false', then && then.sessions && then.sessions.resume_for_any_session === false, JSON.stringify(then && then.sessions));
+      check('keeping carrying on after a network error off', then && then.sessions && then.sessions.continue_after_network_error === false, JSON.stringify(then && then.sessions));
+      await until(function () { return !resumeBox().querySelector('input').disabled; }, 3000, 'resuming for one it started stayed disabled');
+      resumeBox().querySelector('input').click();
+      await until(function () { return calls('save_config').length > 2; }, 3000, 'unchecking resuming for one it started saved nothing');
+      var after = calls('save_config')[2][1].config;
+      check('with that off, it can be turned off too: resume_for_sessions_it_started = false', after && after.sessions && after.sessions.resume_for_sessions_it_started === false && after.sessions.resume_for_any_session === false, JSON.stringify(after && after.sessions));
       await until(function () { return !!restartBox(); }, 3000, 'no restart setting in Settings › Automation');
       var restart = restartBox().querySelector('input');
       check('carrying on after Codealong restarts is there, on by default', restart.checked, String(restart.checked));
       restart.click();
-      await until(function () { return calls('save_config').length > 2; }, 3000, 'unchecking carrying on after a restart saved nothing');
-      var last = calls('save_config')[2][1].config;
+      await until(function () { return calls('save_config').length > 3; }, 3000, 'unchecking carrying on after a restart saved nothing');
+      var last = calls('save_config')[3][1].config;
       check('turned off, it saves continue_after_restart = false', last && last.sessions && last.sessions.continue_after_restart === false, JSON.stringify(last && last.sessions));
     } catch (e) {
       return stopped(e);
