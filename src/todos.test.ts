@@ -48,6 +48,13 @@ describe('applyOp', () => {
     expect([todoPr(item(here)), prInReview(item(here))]).toEqual([pr, true]);
     // Linked to the worktree itself, its PR is the todo's whatever its sessions are on.
     expect(todoPr(todoItem({ ...t, worktrees: ['/r/app'] }, new Map([[moved.id, moved]]), new Map(), new Map()))).toEqual(pr);
+    // Worktrees go in the order of their newest session, on the branch or not, as todos.rs
+    // `pr_in_review` has it: A's draft comes before B's open PR.
+    const on = (key: string, branch: string, at: number) => fx.session({ key, branch, lastActivity: at });
+    const a = fx.lane({ id: '/r/a', branch: 'a', pr: fx.pr({ number: 1, state: 'draft' }), sessions: [on('claude:claude:s1', 'other', 300), on('claude:claude:s2', 'a', 100)] });
+    const b = fx.lane({ id: '/r/b', branch: 'b', pr: fx.pr({ number: 2, state: 'open' }), sessions: [on('claude:claude:s3', 'b', 200)] });
+    const three = todoItem(todo('three', { status: 'in-progress', sessions: ['claude:claude:s1', 'claude:claude:s2', 'claude:claude:s3'] }), new Map([a, b].map((l) => [l.id, l])), sessionHomes([a, b]), new Map());
+    expect([todoPr(three)?.number, prInReview(three)]).toEqual([1, false]);
   });
 
   it('narrows to In review by its PR, its mark or a merge it waits on you over', () => {

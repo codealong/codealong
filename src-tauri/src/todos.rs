@@ -964,19 +964,22 @@ pub fn is_in_review(t: &Todo, lanes: &[Lane]) -> bool {
 /// in src/todos.ts have the same rule.
 pub fn pr_in_review(t: &Todo, lanes: &[Lane]) -> bool {
     use crate::model::PrState;
-    let mut places: Vec<&Lane> = t.worktrees.iter().filter_map(|w| lanes.iter().find(|l| &l.id == w)).collect();
-    let on_branch = |l: &Lane, s: &crate::model::Session| s.branch.is_none() || s.branch == l.branch;
-    let mut sessions: Vec<(&Lane, i64)> = lanes
+    // Its places in the order `todoItem` lists them, linked worktrees first, then the worktrees of
+    // its sessions newest first, each with whether its PR is the todo's.
+    let mut places: Vec<(&Lane, bool)> = t.worktrees.iter().filter_map(|w| lanes.iter().find(|l| &l.id == w)).map(|l| (l, true)).collect();
+    let mut sessions: Vec<(&Lane, &crate::model::Session)> = lanes
         .iter()
-        .flat_map(|l| l.sessions.iter().filter(move |s| s.visitor.is_none() && t.sessions.contains(&s.key) && on_branch(l, s)).map(move |s| (l, s.last_activity)))
+        .flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none() && t.sessions.contains(&s.key)).map(move |s| (l, s)))
         .collect();
-    sessions.sort_by_key(|(_, at)| -at);
-    for (l, _) in sessions {
-        if !places.iter().any(|p| p.id == l.id) {
-            places.push(l);
+    sessions.sort_by_key(|(_, s)| -s.last_activity);
+    for (l, s) in sessions {
+        let on_branch = s.branch.is_none() || s.branch == l.branch;
+        match places.iter_mut().find(|(p, _)| p.id == l.id) {
+            Some((_, counts)) => *counts |= on_branch,
+            None => places.push((l, on_branch)),
         }
     }
-    let prs: Vec<PrState> = places.iter().filter_map(|l| l.pr.as_ref().map(|p| p.state)).collect();
+    let prs: Vec<PrState> = places.iter().filter(|(_, counts)| *counts).filter_map(|(l, _)| l.pr.as_ref().map(|p| p.state)).collect();
     let pr = prs.iter().find(|s| s.is_open()).or(prs.first());
     matches!(pr, Some(PrState::Open | PrState::Approved | PrState::Changes | PrState::Merged))
 }
@@ -1246,6 +1249,15 @@ mod tests {
         let todo = Todo { worktrees: vec![], ..t.clone() };
         assert!(!is_in_review(&todo, &elsewhere("first-work")));
         assert!(is_in_review(&todo, &elsewhere("next-work")));
+        // The worktrees go in the order of their newest session, on the branch or not, as the
+        // app lists them: A's draft comes before B's open PR, as `todoPr` in src/todos.ts has it.
+        let on = |key: &str, branch: &str, at: i64| crate::model::Session { branch: Some(branch.into()), last_activity: at, ..session(key) };
+        let lanes = [
+            Lane { pr: pr(PrState::Draft), branch: Some("a".into()), ..lane("/r/a", vec![on("claude:claude:s1", "other", 300), on("claude:claude:s2", "a", 100)]) },
+            Lane { pr: pr(PrState::Open), branch: Some("b".into()), ..lane("/r/b", vec![on("claude:claude:s3", "b", 200)]) },
+        ];
+        let three = Todo { worktrees: vec![], sessions: vec!["claude:claude:s1".into(), "claude:claude:s2".into(), "claude:claude:s3".into()], ..t.clone() };
+        assert!(!is_in_review(&three, &lanes));
         // Waiting, or not started, it isn't.
         assert!(!is_in_review(&Todo { waiting: Some(Waiting::default()), ..t.clone() }, &with(PrState::Open)));
         assert!(!is_in_review(&Todo { status: TodoStatus::Todo, ..t }, &with(PrState::Open)));
