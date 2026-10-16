@@ -249,6 +249,12 @@ impl crate::harness::Adapter for Codex {
         }
     }
 
+    /// The rollout's last turn hasn't ended: one quiet past `board::CODEX_STALE_MS` shows Idle,
+    /// though its terminal UI is still taking it (a long command, a wait on an agent).
+    fn turn_open(&self, account: &AccountCfg, s: &Session) -> bool {
+        self.records(account, s).iter().any(|p| parse_rollout(p, 0, None).is_some_and(|(th, _)| th.turn_open))
+    }
+
     fn interrupt(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<String> {
         match (s.surface, s.pid) {
             (crate::model::Surface::Cli, Some(pid)) => {
@@ -841,6 +847,28 @@ mod tests {
         assert_eq!(let_go(&[(c, 350)], &held, lens), [OsString::from("rollout-c.jsonl")].into());
         // A ps that failed lists nothing, which says nothing about who holds what.
         assert_eq!(held_rollouts(&[]), None);
+    }
+
+    /// A turn quiet for long shows Idle on the board, but its rollout still has it open, which a
+    /// move to the app asks before it closes the terminal (start.rs `move_to_app`).
+    #[test]
+    fn reads_from_its_rollout_whether_a_threads_turn_is_open() {
+        use crate::harness::Adapter;
+        let home = crate::fixtures::scratch("codex-turn-open");
+        let id = "01a0c4a6-bc7b-7212-b766-77fcc7a15d43";
+        let day = home.join("sessions/2026/10/16");
+        std::fs::create_dir_all(&day).unwrap();
+        let path = day.join(format!("rollout-2026-10-16T11-17-00-{id}.jsonl"));
+        let meta = format!(r#"{{"timestamp":"2026-10-16T11:17:00.000Z","type":"session_meta","payload":{{"id":"{id}","cwd":"/r","originator":"codex_cli_rs","source":"cli","thread_source":"user"}}}}"#);
+        let started = r#"{"timestamp":"2026-10-16T11:17:01.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t"}}"#;
+        std::fs::write(&path, format!("{meta}\n{started}\n")).unwrap();
+        let a = crate::config::AccountCfg { name: "codex".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let s = Session::new(Harness::Codex, "codex", id);
+        assert!(Codex.turn_open(&a, &s));
+        let complete = r#"{"timestamp":"2026-10-16T11:17:05.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"t"}}"#;
+        std::fs::write(&path, format!("{meta}\n{started}\n{complete}\n")).unwrap();
+        assert!(!Codex.turn_open(&a, &s));
+        assert!(!Codex.turn_open(&a, &Session::new(Harness::Codex, "codex", "01a0ffff-0000-7000-8000-000000000000")), "no rollout");
     }
 
     #[test]

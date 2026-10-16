@@ -375,6 +375,12 @@ pub trait Adapter: Sync {
         bail!("Codealong can't stop this {} session; open it to stop it there.", self.harness().word())
     }
 
+    /// Whether the session's own record has a turn open that its status may not show, read
+    /// afresh before what would end the turn with its process (`start::move_to_app`).
+    fn turn_open(&self, _account: &AccountCfg, _session: &Session) -> bool {
+        false
+    }
+
     // ---- The account, besides its sessions ----
 
     /// Whether an account kept in `home` is signed in, and the email it's for when its files say

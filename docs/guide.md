@@ -272,9 +272,12 @@ Codex thread running in a terminal on the Codex app's account, list Move to Clau
 Codex under their Open button (and their worktree's), apart from the ways to open them, so ⌘⏎ never
 picks it. Both harnesses let one process at a time write a session, so it's closed where it runs and
 the app opens it once its process has ended, going on there as itself. Not mid-turn, which the close
-would cut off (let the turn finish or stop it first), nor while a command its turn left running in
-the background goes on, or a prompt waits on you there, since either would end with the terminal.
-One that isn't running opens in the app as it is (Continue in Claude app, Open in Codex).
+would cut off (let the turn finish or stop it first; a Codex turn quiet for a while is still one, as
+its record says), nor while a command a Claude Code turn left running in the background goes on, or
+a prompt waits on you there, since either would end with the terminal. A command Codex left running
+in a background terminal isn't something Codealong can see, so it ends with the terminal, as with
+Close terminal. One that isn't running opens in the app as it is (Continue in Claude app, Open in
+Codex).
 
 #### Side conversations
 

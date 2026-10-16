@@ -1279,7 +1279,7 @@ pub fn move_to_app(board: &Board, cfg: &Config, key: &str) -> Result<Resumed> {
     if !s.live || s.pid.is_none() || s.attach_command.is_some() || s.hosted {
         bail!("“{}” isn't running in a terminal.", s.title);
     }
-    if crate::harness::turn_running(s) {
+    if crate::harness::turn_running(s) || adapter.turn_open(account, s) {
         bail!("“{}” is in the middle of a turn. Stop it or let it finish, then move it.", s.title);
     }
     // It belongs to the process, which the close ends.
