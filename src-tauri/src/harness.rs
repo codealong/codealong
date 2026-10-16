@@ -375,12 +375,6 @@ pub trait Adapter: Sync {
         bail!("Codealong can't stop this {} session; open it to stop it there.", self.harness().word())
     }
 
-    /// Whether the session's own record has a turn open that its status may not show, read
-    /// afresh before what would end the turn with its process (`start::move_to_app`).
-    fn turn_open(&self, _account: &AccountCfg, _session: &Session) -> bool {
-        false
-    }
-
     // ---- The account, besides its sessions ----
 
     /// Whether an account kept in `home` is signed in, and the email it's for when its files say
@@ -1015,27 +1009,6 @@ impl Opens<'_> {
             (_, false) => ("Resume in", "resume"),
         };
         self.way(s, action, "terminal", format!("{verb} {}", self.term), detail, true, disabled)
-    }
-
-    /// Moving a session that runs in a terminal to the harness's app (`start::move_to_app`): its
-    /// terminal closes, as a move to another folder closes it. Apart from the ways to open it, so
-    /// ⌘⏎ never closes a terminal. Not mid-turn, which the move would cut off, nor while a command
-    /// its turn left running goes on, which ends with the process, nor while a prompt waits on you
-    /// there, which would go with the terminal (Claude Code writes the message it came with only
-    /// once it's answered).
-    pub fn to_app(&self, s: &Session, app: &str) -> Target {
-        let term = self.term;
-        // Short enough for the Open button's list, which cuts a longer one off.
-        let (detail, disabled) = if turn_running(s) {
-            (format!("Working in {term}, let its turn end first"), true)
-        } else if s.background.is_some() {
-            (format!("Its command still runs in {term}"), true)
-        } else if crate::send::waits_on_you(s) {
-            (format!("Waiting on you in {term}, answer it first"), true)
-        } else {
-            (format!("Closes it in {term}"), false)
-        };
-        crate::board::target(format!("s|{}|to-app", s.key), "app", format!("Move to {app}"), Some(detail), None, disabled, "move")
     }
 }
 

@@ -27,13 +27,6 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   Experimental feature request failed", offering "Run without daemon this time"), so whether the
   daemon finishes a turn whose terminal UI died is unchecked; it holds the rollout while it runs
   one, so it isn't taken as cut off meanwhile.
-- One process writes a thread: whatever loads it holds `<CODEX_HOME>/thread-writer-locks/<thread>.lock`
-  open with a lock on it (`lsof` shows the holder), and another is refused ("thread … already has
-  an active writer"). A 0.162.1 terminal UI in tmux held its thread's lock itself, not through the
-  daemon, and let go of it as `/quit` ended it (2026-10-16), so a thread running in a terminal
-  moves to the app by closing it first: `start.rs` (`move_to_app`). `codex app [PATH]` opens only a
-  folder in the app; the CLI has no command to hand a thread over. Unchecked: whether the daemon,
-  where a terminal UI runs through it, lets go of the thread as that UI quits.
 - The permissions a turn ran with, as Codex's own status line names them (0.157.1's tui
   `permissions_display`, `approval_mode_display`): `codex/rollout.rs` (`turn_mode`). A
   `turn_context` also has `permission_profile` and `file_system_sandbox_policy`; `approvals_reviewer`

@@ -835,7 +835,7 @@ pub struct Target {
     pub detail: Option<String>,
     pub kbd: Option<Vec<String>>,
     pub disabled: bool,
-    /// `session`, `move`, `browser`, `lane` or `pr`.
+    /// `session`, `lane` or `pr`.
     pub group: String,
 }
 

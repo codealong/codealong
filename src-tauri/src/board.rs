@@ -4463,40 +4463,11 @@ mod tests {
         assert!(t.iter().any(|x| x.label == "Open in Cursor"));
         let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let mine = claude_session(&main, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
-        let idle = Session { status: Status::Idle, ..mine.clone() };
-        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[idle], None, None, &apps);
-        // Live in a terminal, it moves to the app, apart from the ways to open it (⌘⏎).
-        let moves = &t[1];
-        assert_eq!((moves.id.as_str(), moves.label.as_str(), moves.group.as_str()), ("s|claude:claude:abc1234567|to-app", "Move to Claude app", "move"));
-        assert_eq!((moves.detail.as_deref(), moves.disabled), (Some("Closes it in Ghostty"), false));
-        assert!(t.iter().all(|x| !x.id.ends_with("|claude-app")));
-        // Not while its prompt waits on you there, which would close with it, nor mid-turn, nor
-        // while a command its turn left running goes on, which ends with the process.
-        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[mine.clone()], None, None, &apps);
-        assert_eq!((t[1].detail.as_deref(), t[1].disabled), (Some("Waiting on you in Ghostty, answer it first"), true));
-        let working = Session { status: Status::Working, ..mine };
-        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[working.clone()], None, None, &apps);
-        assert_eq!((t[1].detail.as_deref(), t[1].disabled), (Some("Working in Ghostty, let its turn end first"), true));
-        let watching = Session { background: Some("gh run watch".into()), ..working };
-        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[watching], None, None, &apps);
-        assert_eq!((t[1].detail.as_deref(), t[1].disabled), (Some("Its command still runs in Ghostty"), true));
+        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[mine], None, None, &apps);
+        assert!(t[1].disabled && t[1].id.ends_with("|claude-app"), "live elsewhere, so offered but disabled");
         let (none, default) = targets(&seed("/r/x", "x"), &[], None, None, &apps);
         assert_eq!(default.as_deref(), Some("l|terminal"));
         assert_eq!(none.len(), 3);
-    }
-
-    #[test]
-    fn a_codex_thread_in_a_terminal_moves_to_the_app() {
-        let apps = AppNames { terminal: "Ghostty".into(), ..Default::default() };
-        let running = Session { live: true, pid: Some(1), app_account: true, open_target: "s|codex:codex:t1|focus".into(), ..Session::new(Harness::Codex, "codex", "t1") };
-        let (t, _) = targets(&seed("/r/x", "x"), &[running.clone()], None, None, &apps);
-        let ways = |t: &[Target]| t.iter().filter(|x| x.id.starts_with("s|codex:codex:t1|")).map(|x| (x.id.clone(), x.label.clone(), x.disabled)).collect::<Vec<_>>();
-        let way = |id: &str, label: &str, disabled: bool| (format!("s|codex:codex:t1|{id}"), label.to_string(), disabled);
-        assert_eq!(ways(&t), vec![way("focus", "Show in Ghostty", false), way("to-app", "Move to Codex", false)]);
-        // Once its terminal UI has quit, the app opens it as it is.
-        let quit = Session { live: false, pid: None, ..running };
-        let (t, _) = targets(&seed("/r/x", "x"), &[quit], None, None, &apps);
-        assert_eq!(ways(&t), vec![way("resume", "Resume in Ghostty", false), way("codex", "Open in Codex", false)]);
     }
 
     #[test]
