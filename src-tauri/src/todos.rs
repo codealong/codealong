@@ -958,15 +958,17 @@ pub fn is_in_review(t: &Todo, lanes: &[Lane]) -> bool {
 }
 
 /// Whether the PR of a todo's work is with its reviewers: the PR of its worktrees, then of its
-/// sessions' newest first (an open one before the rest), is open and not a draft, or merged
-/// while the todo isn't done, which waits on you to say it is. `prInReview` in src/todos.ts has
-/// the same rule.
+/// sessions' newest first while the session is on the worktree's branch (a checkout gone on to
+/// other work has that work's PR), an open one before the rest, is open and not a draft, or
+/// merged while the todo isn't done, which waits on you to say it is. `prInReview` and `todoPr`
+/// in src/todos.ts have the same rule.
 pub fn pr_in_review(t: &Todo, lanes: &[Lane]) -> bool {
     use crate::model::PrState;
     let mut places: Vec<&Lane> = t.worktrees.iter().filter_map(|w| lanes.iter().find(|l| &l.id == w)).collect();
+    let on_branch = |l: &Lane, s: &crate::model::Session| s.branch.is_none() || s.branch == l.branch;
     let mut sessions: Vec<(&Lane, i64)> = lanes
         .iter()
-        .flat_map(|l| l.sessions.iter().filter(|s| s.visitor.is_none() && t.sessions.contains(&s.key)).map(move |s| (l, s.last_activity)))
+        .flat_map(|l| l.sessions.iter().filter(move |s| s.visitor.is_none() && t.sessions.contains(&s.key) && on_branch(l, s)).map(move |s| (l, s.last_activity)))
         .collect();
     sessions.sort_by_key(|(_, at)| -at);
     for (l, _) in sessions {
@@ -1229,13 +1231,21 @@ mod tests {
         // Merged, it waits on you to say it's done; a draft is still being written.
         assert!(is_in_review(&t, &with(PrState::Merged)));
         assert!(!is_in_review(&t, &with(PrState::Draft)) && !is_in_review(&t, &with(PrState::Closed)));
-        // Through a session's worktree too, an open PR before a merged one.
+        // Through a session's worktree too, an open PR (a draft here) before a closed one.
         let lanes = [
             Lane { pr: pr(PrState::Closed), ..lane("/r/app", Vec::new()) },
             Lane { pr: pr(PrState::Draft), ..lane("/r/app3", vec![session("claude:claude:s1")]) },
         ];
         t.sessions = vec!["claude:claude:s1".into()];
         assert!(!is_in_review(&t, &lanes));
+        // A session's worktree that has gone on to another branch has that work's PR, not this one's.
+        let elsewhere = |branch: &str| {
+            let s = crate::model::Session { branch: Some(branch.into()), ..session("claude:claude:s1") };
+            [Lane { pr: pr(PrState::Open), branch: Some("next-work".into()), ..lane("/r/app3", vec![s]) }]
+        };
+        let todo = Todo { worktrees: vec![], ..t.clone() };
+        assert!(!is_in_review(&todo, &elsewhere("first-work")));
+        assert!(is_in_review(&todo, &elsewhere("next-work")));
         // Waiting, or not started, it isn't.
         assert!(!is_in_review(&Todo { waiting: Some(Waiting::default()), ..t.clone() }, &with(PrState::Open)));
         assert!(!is_in_review(&Todo { status: TodoStatus::Todo, ..t }, &with(PrState::Open)));

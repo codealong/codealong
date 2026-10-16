@@ -289,6 +289,9 @@ pub struct TodoRow {
     /// What it waits for, while it's marked waiting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting: Option<String>,
+    /// What to look at, while it's marked ready for review (empty when nothing was said).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -474,7 +477,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
         }
         for (id, m) in todo_part.map(|p| &p.marks).into_iter().flatten() {
             if !marks.contains_key(id) && sight.project.is_none() {
-                out.todos.push(TodoRow { change: TodoChange::Removed, id: id.clone(), title: m.title.clone(), status: m.status, project: String::new(), waiting: None });
+                out.todos.push(TodoRow { change: TodoChange::Removed, id: id.clone(), title: m.title.clone(), status: m.status, project: String::new(), waiting: None, review: None });
             }
         }
         look.todos = Some(Part { at: now, marks, repos: BTreeMap::new() });
@@ -661,16 +664,18 @@ fn pr_row(change: PrChange, was: Option<PrState>, p: &PrItem) -> PrRow {
     }
 }
 
-/// What happened to a todo since its mark, or with none since `since`.
+/// What happened to a todo since its mark, or with none since `since`. Marked ready for review
+/// says so over its start or the end of its wait, which the mark brings with it.
 pub fn todo_change(t: &Todo, mark: Option<&TodoMark>, since: i64) -> Option<TodoChange> {
     match mark {
+        Some(m) if !m.review && t.review.is_some() => Some(TodoChange::InReview),
         Some(m) if m.status != t.status => Some(match t.status {
             TodoStatus::Done => TodoChange::Done,
             TodoStatus::InProgress => TodoChange::Started,
             TodoStatus::Todo => TodoChange::Reopened,
         }),
         Some(m) if m.waiting != t.waiting.is_some() => Some(if t.waiting.is_some() { TodoChange::Waiting } else { TodoChange::Ready }),
-        Some(m) if m.review != t.review.is_some() => Some(if t.review.is_some() { TodoChange::InReview } else { TodoChange::SentBack }),
+        Some(m) if m.review && t.review.is_none() => Some(TodoChange::SentBack),
         Some(_) => None,
         None if t.created_at >= since => Some(TodoChange::Added),
         None if t.done_at.is_some_and(|d| d >= since) => Some(TodoChange::Done),
@@ -679,7 +684,7 @@ pub fn todo_change(t: &Todo, mark: Option<&TodoMark>, since: i64) -> Option<Todo
 }
 
 fn todo_row(change: TodoChange, t: &Todo) -> TodoRow {
-    TodoRow { change, id: t.id.clone(), title: t.title.clone(), status: t.status, project: t.project.clone(), waiting: t.waiting.as_ref().map(|w| w.note.clone()) }
+    TodoRow { change, id: t.id.clone(), title: t.title.clone(), status: t.status, project: t.project.clone(), waiting: t.waiting.as_ref().map(|w| w.note.clone()), review: t.review.as_ref().map(|r| r.note.clone()) }
 }
 
 /// A session of a worktree's own that's at work there now: working or waiting on its user, or
@@ -1156,7 +1161,15 @@ mod tests {
         r.review = Some(crate::todos::TodoReview { note: String::new(), since: NOW });
         assert_eq!(todo_change(&r, Some(&m), NOW - MIN), Some(TodoChange::InReview));
         r.review = None;
-        assert_eq!(todo_change(&r, Some(&TodoMark { review: true, ..m }), NOW - MIN), Some(TodoChange::SentBack));
+        assert_eq!(todo_change(&r, Some(&TodoMark { review: true, ..m.clone() }), NOW - MIN), Some(TodoChange::SentBack));
+        // One not started, or waiting, that's marked ready for review says so, not that it started.
+        let reviewed = Todo { status: TodoStatus::InProgress, waiting: None, review: Some(crate::todos::TodoReview { note: "the docs".into(), since: NOW }), ..t.clone() };
+        let unstarted = TodoMark { status: TodoStatus::Todo, waiting: true, review: false, title: "Fix it".into() };
+        assert_eq!(todo_change(&reviewed, Some(&unstarted), NOW - MIN), Some(TodoChange::InReview));
+        assert_eq!(todo_row(TodoChange::InReview, &reviewed).review.as_deref(), Some("the docs"));
+        // Done from review is done.
+        let finished = Todo { status: TodoStatus::Done, review: None, ..reviewed.clone() };
+        assert_eq!(todo_change(&finished, Some(&TodoMark { status: TodoStatus::InProgress, waiting: false, review: true, title: String::new() }), NOW - MIN), Some(TodoChange::Done));
         assert_eq!(todo_change(&Todo { created_at: NOW, ..t }, None, NOW - MIN), Some(TodoChange::Added));
     }
 

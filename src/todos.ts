@@ -460,7 +460,10 @@ export function todoAgent(item: Pick<TodoItem, 'primary' | 'sessions'>): Placed 
 
 /** The PR of a todo's worktrees, open ones first. */
 export function todoPr(item: TodoItem): Pr | null {
-  const prs = item.places.flatMap((p) => (p.lane.pr ? [p.lane.pr] : []));
+  // A worktree it's linked to, or one a session on it works in while that session is on the
+  // worktree's branch, as lanes.ts `sessionPrs` has it: a checkout gone on to other work has
+  // that work's PR. `pr_in_review` in todos.rs picks the same.
+  const prs = item.places.flatMap((p) => (p.lane.pr && (p.linked || p.sessions.some((s) => (s.branch ?? p.lane.branch) === p.lane.branch)) ? [p.lane.pr] : []));
   return prs.find((p) => p.state !== 'merged' && p.state !== 'closed') ?? prs[0] ?? null;
 }
 
@@ -507,8 +510,9 @@ function todoIn(r: TodoItem, f: string): boolean {
     case 'unread':
       return has(f);
     case 'review': {
+      // Its PR open, a draft too, as the other views have it; or under In review, marked or merged.
       const pr = todoPr(r);
-      return !!pr && pr.state !== 'merged' && pr.state !== 'closed';
+      return (!!pr && pr.state !== 'merged' && pr.state !== 'closed') || (r.todo.status === 'in-progress' && !r.todo.waiting && (!!r.todo.review || prInReview(r)));
     }
     case 'work':
       return r.places.some((p) => prNeedsWork(p.lane.pr));

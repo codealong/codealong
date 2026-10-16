@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, prInReview, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoItem, todoPr, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import type { Label, Lane, Session, Todo } from './types';
@@ -36,6 +36,26 @@ describe('applyOp', () => {
     // A done one can't be marked.
     const done = applyOp(store(todo('b', { status: 'done' })), { op: 'update', id: 'b', patch: { review } }, NOW);
     expect(done.todos[0]).toMatchObject({ status: 'done', review: null });
+  });
+
+  it('takes a session’s worktree’s PR for its todo only while the session is on its branch', () => {
+    const pr = fx.pr({ state: 'open' });
+    const moved = fx.lane({ id: '/r/app', branch: 'next-work', pr, sessions: [fx.session({ key: 'claude:claude:s', branch: 'first-work' })] });
+    const t = todo('t', { status: 'in-progress', sessions: ['claude:claude:s'] });
+    const item = (l: typeof moved) => todoItem(t, new Map([[l.id, l]]), new Map(l.sessions.map((s) => [s.key, { lane: l, session: s }])), new Map());
+    expect([todoPr(item(moved)), prInReview(item(moved)), todoInFilter(item(moved), ['review'])]).toEqual([null, false, false]);
+    const here = { ...moved, sessions: [fx.session({ key: 'claude:claude:s', branch: 'next-work' })] };
+    expect([todoPr(item(here)), prInReview(item(here))]).toEqual([pr, true]);
+    // Linked to the worktree itself, its PR is the todo's whatever its sessions are on.
+    expect(todoPr(todoItem({ ...t, worktrees: ['/r/app'] }, new Map([[moved.id, moved]]), new Map(), new Map()))).toEqual(pr);
+  });
+
+  it('narrows to In review by its PR, its mark or a merge it waits on you over', () => {
+    const marked = todoItem(todo('m', { status: 'in-progress', review: { note: '', since: 1 } }), new Map(), new Map(), new Map());
+    const merged = fx.lane({ id: '/r/m', pr: fx.pr({ state: 'merged' }) });
+    const waitsOnYou = todoItem(todo('w', { status: 'in-progress', worktrees: ['/r/m'] }), new Map([[merged.id, merged]]), new Map(), new Map());
+    const plain = todoItem(todo('p', { status: 'in-progress' }), new Map(), new Map(), new Map());
+    expect([marked, waitsOnYou, plain].map((r) => todoInFilter(r, ['review']))).toEqual([true, true, false]);
   });
 
   it('keeps done time with the status', () => {

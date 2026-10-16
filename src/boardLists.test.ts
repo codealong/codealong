@@ -596,7 +596,7 @@ describe('the Kanban view’s columns', () => {
       fx.todo({ id: 'done', status: 'done', doneAt: NOW - DAY }),
       fx.todo({ id: 'long-done', status: 'done', doneAt: NOW - 30 * DAY }),
     ];
-    expect(cols(todos.map((t) => todoOf(t, lanes)), todos, [], new Set(), [], NOW - 7 * DAY)).toEqual({
+    expect(cols(todos.map((t) => todoOf(t, lanes)), todos, [], [], NOW - 7 * DAY)).toEqual({
       todo: ['todo:ready', 'todo:wait'],
       progress: ['todo:doing', 'todo:drafting'],
       review: ['todo:marked', 'todo:pr', 'todo:landed'],
@@ -612,12 +612,15 @@ describe('the Kanban view’s columns', () => {
     const landed = lane('/r/d', [s('claude:claude:landed', { status: 'unread', insight: { landing: 'landed' } }), s('claude:claude:mine', { live: true }), s('claude:claude:helper', { helper: { parent: 'claude:claude:mine' }, status: 'working' })]);
     // One that ended and that you've seen has gone on, unless its PR waits on its reviewers.
     const gone = lane('/r/e', [s('claude:claude:gone'), s('claude:claude:landed-long-ago', { insight: { landing: 'landed' } })]);
-    const items = sessionItemsOf([reviewing, mergedIdle, mergedBusy, landed, gone]);
-    const out = cols([], [], items, new Set(['claude:claude:mine']), [], 0);
+    // A session still at work on a done todo has a card of its own; one on an open todo is on its card.
+    const doneOn = lane('/r/f', [s('claude:claude:after', { status: 'working' })]);
+    const lanes = [reviewing, mergedIdle, mergedBusy, landed, gone, doneOn];
+    const todos = [fx.todo({ id: 'open', status: 'in-progress', sessions: ['claude:claude:mine'] }), fx.todo({ id: 'old', status: 'done', doneAt: NOW - 30 * DAY, sessions: ['claude:claude:after'] })];
+    const out = cols(todos.map((t) => todoOf(t, lanes)), todos, sessionItemsOf(lanes), [], NOW - 7 * DAY);
     expect(out.review).toEqual(['/r/a::claude:claude:pr']);
     expect(out.done.sort()).toEqual(['/r/b::claude:claude:merged', '/r/d::claude:claude:landed']);
-    // On a todo, a session is on its todo's card; a helper at work is its session's.
-    expect(out.progress).toEqual(['/r/c::claude:claude:busy']);
+    // A helper at work is its session's.
+    expect(out.progress.sort()).toEqual(['/r/c::claude:claude:busy', '/r/f::claude:claude:after', 'todo:open']);
   });
 
   it('puts what waits on you first in a column, a todo by its most urgent session, the rest by your last prompt', () => {
@@ -631,7 +634,7 @@ describe('the Kanban view’s columns', () => {
     const todo = fx.todo({ id: 't', status: 'in-progress', sessions: [quiet.key, waitedLess.key], updatedAt: NOW - 70_000 });
     const lonely = fx.todo({ id: 'lonely', status: 'in-progress', updatedAt: NOW - 20_000 });
     const items = sessionItemsOf([l]);
-    const out = cols([todoOf(todo, [l]), todoOf(lonely, [l])], [todo, lonely], items, new Set(todo.sessions), [], 0);
+    const out = cols([todoOf(todo, [l]), todoOf(lonely, [l])], [todo, lonely], items, [], 0);
     expect(out.progress).toEqual(['/r/app::claude:claude:a', 'todo:t', '/r/app::claude:claude:c', '/r/app::claude:claude:d', 'todo:lonely', '/r/app::claude:claude:e']);
   });
 });

@@ -581,12 +581,13 @@ function current(s: Session): boolean {
  * The Kanban view's columns, each always there: To do, In progress, In review and Done. The cards
  * are the todos listed (`todoRows`, in your order, the search and filters applied) and the
  * sessions listed (`sessions`, the same) that are worth one (`current`, or in review) and aren't
- * on one of `linked`'s todos, whose cards show them, nor helpers or headless runs that don't need
- * you (lanes.ts `unattended`), which work for another session. To do keeps your order, Ready
- * before Waiting; In progress and In review go by whose move it is (`byMove`); Done the latest
- * first, todos done since `doneSince`.
+ * on an open todo's card, which shows them, nor helpers or headless runs that don't need you
+ * (lanes.ts `unattended`), which work for another session. A session on a done todo, or on one
+ * the board doesn't show, has a card of its own while it's worth one. To do keeps your order,
+ * Ready before Waiting; In progress and In review go by whose move it is (`byMove`); Done the
+ * latest first, todos done since `doneSince`.
  */
-export function kanbanColumns(todoRows: TodoItem[], todos: Todo[], sessions: SessionItem[], linked: ReadonlySet<string>, prs: PrItem[], doneSince: number): KanbanColumn[] {
+export function kanbanColumns(todoRows: TodoItem[], todos: Todo[], sessions: SessionItem[], prs: PrItem[], doneSince: number): KanbanColumn[] {
   const cols: Record<KanbanColumnId, KanbanCard[]> = { todo: [], progress: [], review: [], done: [] };
   const waiting: TodoItem[] = [];
   for (const r of todoRows) {
@@ -596,8 +597,9 @@ export function kanbanColumns(todoRows: TodoItem[], todos: Todo[], sessions: Ses
     else cols[stage].push(r);
   }
   cols.todo.push(...waiting);
+  const onCards = new Set([...cols.todo, ...cols.progress, ...cols.review].flatMap((c) => (c.kind === 'todo' ? c.todo.sessions : [])));
   for (const r of sessions) {
-    if (linked.has(r.session.key) || unattended(r.session)) continue;
+    if (onCards.has(r.session.key) || unattended(r.session)) continue;
     const stage = sessionStage(r, prs);
     if (stage === 'review' || current(r.session)) cols[stage].push(r);
   }
@@ -753,12 +755,11 @@ export function useBoardLists(input: ListsInput) {
   const sessionTodos = useMemo(() => todoIndex(todos, new Map()).bySession, [todos]);
   const todosFor = useCallback((k: string) => sessionTodos.get(k), [sessionTodos]);
 
-  // The Kanban view: the todos listed, and the sessions listed that are on none of them, in
-  // columns by how far their work has got. Sessions have no labels, so a label shows only todos.
+  // The Kanban view: the todos listed, and the sessions listed that no open todo's card shows,
+  // in columns by how far their work has got. Sessions have no labels, so a label shows only todos.
   const cardSessions = useMemo(() => (labelFilter ? [] : shownSessionsOf(sessionItems, cutoff, NO_PINS, query, filter, said)), [labelFilter, sessionItems, cutoff, query, filter, said]);
-  const onTodos = useMemo(() => new Set(projectTodos.flatMap((t) => t.sessions)), [projectTodos]);
   const doneSince = cutoff || now - DONE_SPAN;
-  const kanbanCols = useMemo(() => kanbanColumns(todoRows, todos, cardSessions, onTodos, board?.prs ?? [], doneSince), [todoRows, todos, cardSessions, onTodos, board?.prs, doneSince]);
+  const kanbanCols = useMemo(() => kanbanColumns(todoRows, todos, cardSessions, board?.prs ?? [], doneSince), [todoRows, todos, cardSessions, board?.prs, doneSince]);
   const kanbanVisible = useMemo<ListRow[]>(() => kanbanCols.flatMap((c) => (c.id === 'done' && !showDoneCards ? [] : c.cards)), [kanbanCols, showDoneCards]);
   const openCardCount = useMemo(() => kanbanCols.reduce((n, c) => (c.id === 'done' ? n : n + c.cards.length), 0), [kanbanCols]);
 

@@ -916,12 +916,15 @@ any other files (paste, drop or attach them; files copied in the Finder paste to
 and a status: Todo, In progress (an agent is on it) or Done. The list has In progress, In review,
 Ready, Waiting and Done. Add one in the box at the top (`n`), reorder by dragging or with ⌃⌘↑ ⌃⌘↓,
 mark one done with `x`. A todo under way is In review once its work waits on your verdict: while
-a PR of its worktrees or sessions is open and not a draft (approved or with changes asked for
-too), or merged and the todo not yet marked done; or once it's marked ready for review, by you
+its PR is open and not a draft (approved or with changes asked for too), or merged and the todo
+not yet marked done, its PR being the one of a worktree linked to it, or of a session's worktree
+while the session is on that worktree's branch; or once it's marked ready for review, by you
 (`r`, or Ready for review in its menu) or by its agent (`codealong todo review <id>`, which a
 session started from a todo is told to run when it hands the work back). A mark holds until the
 todo is done, a session starts on it, or you send it back (`r` again, Back to in progress);
-marking it waiting ends it too, and a todo not started that's marked goes in progress. A todo can wait on other todos (Waits on, in its panel): until they're done it's
+marking it waiting ends it too, and a todo not started that's marked goes in progress. The
+sidebar's In review lists what's under it, and a todo whose PR is a draft. A todo can wait on
+other todos (Waits on, in its panel): until they're done it's
 under Waiting and shows what it's waiting on, and a dependency that would make a loop is refused.
 One an agent is already on stays In progress. Mark a todo as waiting by hand (`w`, the right-click
 menu, or type what it waits for in Waits on) when it waits on something outside the list, like a
@@ -937,9 +940,9 @@ Delete act on all of them.
 
 The project's todos and sessions as cards in four columns, by how far the work has got: To do,
 In progress, In review and Done. A card is a todo, with the sessions on it listed under its two
-lines, the most urgent first, or a session on no todo, while it's running or waits on you, or its
-PR is in review: one that ended and that you've seen leaves the board, as do helpers and
-headless runs that don't need you, which work for another session. Its face is the one cards on
+lines, the most urgent first, or a session on no open todo the board shows, while it's running or
+waits on you, or its PR is in review: one that ended and that you've seen leaves the board, as do
+helpers and headless runs that don't need you, which work for another session. Its face is the one cards on
 the canvas and the desktop have. A todo is in the column its Todo section says (Ready and Waiting
 are To do, with a line where Waiting begins); a session is In review while the PR it worked on is
 open and not a draft, Done once that PR merged or its turn ended saying its work landed, unless
