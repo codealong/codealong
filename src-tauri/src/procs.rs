@@ -558,10 +558,10 @@ mod tests {
         }
         let mut child = Command::new(std::env::current_exe().unwrap()).args([NAME, "--exact"]).env("CODEALONG_TEST_VAR", "from the parent").stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("this test");
         // Linux lets `spawn` return a moment before the kernel has said where the new program's
-        // environment is, and reads none meanwhile.
+        // environment is, and reads none, or the starter's, meanwhile.
         let started = Instant::now();
         let mut env = environment(child.id());
-        while env.as_ref().is_some_and(|e| e.is_empty()) && started.elapsed() < Duration::from_secs(5) {
+        while env.as_ref().is_some_and(|e| !e.contains_key("CODEALONG_TEST_VAR")) && started.elapsed() < Duration::from_secs(5) {
             std::thread::sleep(Duration::from_millis(20));
             env = environment(child.id());
         }
