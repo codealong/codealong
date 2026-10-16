@@ -395,6 +395,15 @@ impl crate::harness::Adapter for Codex {
         &models::EFFORTS
     }
 
+    /// The nearest level the model takes, by the account's list (`models::nearest_effort`).
+    fn effort_for<'a>(&self, account: &AccountCfg, model: Option<&str>, effort: &'a str) -> &'a str {
+        let home = account.home_path();
+        match model.map(str::to_string).or_else(|| models::default_model(&home)) {
+            Some(m) => models::nearest_effort(&home, &m, effort),
+            None => effort,
+        }
+    }
+
     fn default_model(&self, account: &AccountCfg) -> Option<String> {
         models::default_model(&account.home_path())
     }
@@ -456,7 +465,10 @@ impl crate::harness::Adapter for Codex {
             Ok(()) => Ok(Started { key, message: None }),
             Err(_) => {
                 crate::launch::open_codex(&format!("{}?prompt={}", crate::launch::codex_thread_url(&thread.id), urlencoding::encode(&text)))?;
-                Ok(Started { key, message: waiting(String::new()) })
+                // The thread was made on the model; the effort goes with a turn, which the app's
+                // box sends at its own.
+                let effort = ask.effort.map(|e| format!(" Set its effort to {e} there first.")).unwrap_or_default();
+                Ok(Started { key, message: waiting(effort) })
             }
         }
     }

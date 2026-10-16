@@ -627,6 +627,10 @@ describe('resuming a session that isn’t running', () => {
     const pickOf = (agent: string) => startChoice(accounts, [], efforts, [], null, agentOptions(accounts, [], null), 'claude', { agent, effort: 'ultra', place: 'terminal', newWorktree: false }, () => undefined);
     expect([pickOf(agentId('codex', null)).efforts, pickOf(agentId('codex', null)).effortNow]).toEqual([[{ id: 'ultra', label: 'Ultra' }], 'ultra']);
     expect([pickOf(agentId('claude', 'opus')).efforts, pickOf(agentId('claude', 'opus')).effortNow]).toEqual([efforts, null]);
+    // An account Codex hasn't run in lists no models yet, and still takes a level.
+    const unlisted = { ...codex, models: [] };
+    const c = startChoice([unlisted], [], [], [], null, agentOptions([unlisted], [], null), 'codex', { agent: agentId('codex', null), effort: 'ultra', place: 'terminal', newWorktree: false }, () => undefined);
+    expect([c.takesAModel, c.effortNow, resumeIn(c)]).toEqual([false, 'ultra', { place: 'terminal', model: null, effort: 'ultra' }]);
   });
 
   it('says what a send to it does', () => {

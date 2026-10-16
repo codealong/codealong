@@ -27,10 +27,11 @@
         note('no Codex account lists models here: nothing to check');
         return null;
       }
-      model = codex.models[1] || codex.models[0];
+      // One that isn't its own, whose name the Default line says too.
+      model = codex.models.find(function (m) { return m.id !== codex.defaultModel; }) || codex.models[0];
       key(window, { key: 'l', metaKey: true });
       return until(function () { return options().length > 0; }, 2000).then(function () {
-        var opt = options().find(function (o) { return o.textContent.indexOf(codex.name) >= 0 && o.textContent.indexOf(model.label) >= 0; }) || options().find(function (o) { return o.textContent.indexOf(model.label) >= 0; });
+        var opt = options().find(function (o) { return o.textContent.indexOf(model.label) === 0; });
         check('its model can be picked', !!opt && !opt.disabled, model.label);
         opt.click();
         return until(function () { return agentChip().textContent.indexOf(model.label) >= 0; }, 3000);

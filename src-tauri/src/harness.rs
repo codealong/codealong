@@ -584,6 +584,13 @@ pub trait Adapter: Sync {
         &[]
     }
 
+    /// The level a session on `model` (the account's own when None) is asked for when `effort`,
+    /// one of `efforts`, is picked: the nearest that model takes, where the harness says which
+    /// it takes. An ACP agent offers only the model's own, and leaves another unset.
+    fn effort_for<'a>(&self, _account: &AccountCfg, _model: Option<&str>, effort: &'a str) -> &'a str {
+        effort
+    }
+
     /// The model an account starts on when none is asked for, when its files say.
     fn default_model(&self, _account: &AccountCfg) -> Option<String> {
         None

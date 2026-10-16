@@ -610,12 +610,14 @@ export function startChoice(
   // A harness whose command line makes a worktree for a session (Claude Code's `--worktree`).
   const makesWorktree = !!placeNow && onCommandLine(placeNow) && !!accountInfo?.worktree;
   // A harness whose command line takes a model; Codealong hands it to an adapter the same way.
-  const takesAModel = !!placeNow && placeTakesModel(placeNow, resuming) && ((accountInfo?.models?.length ?? 0) > 0 || (!!chosenModel && !!accountInfo && offersModel(accountInfo, chosenModel)));
+  const placeTakes = !!placeNow && placeTakesModel(placeNow, resuming);
+  const takesAModel = placeTakes && ((accountInfo?.models?.length ?? 0) > 0 || (!!chosenModel && !!accountInfo && offersModel(accountInfo, chosenModel)));
   const modelNow = takesAModel ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
   const defaultModel = accountInfo?.defaultModel ?? null;
   const startsOn = takesAModel ? (modelNow ?? defaultModel) : null;
-  // A Mac whose Codealong doesn't know effort yet lists no levels.
-  const effortTaken = takesAModel && takesEffort && modelFamily(startsOn) !== 'haiku' && levels.some((e) => e.id === effort);
+  // A Mac whose Codealong doesn't know effort yet lists no levels. An account that lists no
+  // models still takes one (a Codex account Codex hasn't run in has no list yet).
+  const effortTaken = placeTakes && takesEffort && modelFamily(startsOn) !== 'haiku' && levels.some((e) => e.id === effort);
   const effortNow = effortTaken ? effort : null;
   return {
     agentNow,

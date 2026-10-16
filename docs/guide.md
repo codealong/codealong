@@ -1270,9 +1270,10 @@ the app's new-thread page, where the app picks them. A thread that goes on in th
 its own, as the app's box would send it. OpenCode starts in your terminal on your prompt
 (`--prompt`), and so does the Codex CLI, for any Codex account (`codex -- <prompt>`, images with
 `-i`), on one of the models Codex's own `/model` picker lists for the account (`-m`; Default is
-`model` in the account's `config.toml`) at the effort you picked (`model_reasoning_effort`, Low to
-Ultra; not every model takes Ultra), and Antigravity's command line, `agy`, once
-it's installed (`agy -i <prompt>`, on one of the models it lists); the Antigravity app starts
+`model` in the account's `config.toml`, or its `profile`'s) at the effort you picked
+(`model_reasoning_effort`, Low to Ultra; a model that doesn't take the level picked is asked for
+the nearest it does, as Codex lists them), and Antigravity's command line, `agy`, once it's
+installed (`agy -i <prompt>`, on one of the models it lists); the Antigravity app starts
 conversations only in its own window. Cursor's command line, `cursor-agent`, starts in your
 terminal on one of the models Cursor's own picker shows, Auto among them (`--model`, each on its
 default settings; turn more on in Cursor's Settings › Models and they're listed here too). It keeps
