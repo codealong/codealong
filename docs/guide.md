@@ -31,9 +31,11 @@ you point at it (the folded rail says them); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder
 what's pinned. ⌘F finds where you are, as VS Code's does: from a session's panel (the keyboard in
 it, or a click in it last) the words in its conversation, from a PR's panel its files, and from
-anywhere else, the list say, the filter at the top, which narrows the view's list. ⌥⌘F goes to the
-filter from anywhere, as in Mail and Notes, and ⌘K opens the quick panel, to find a session, a todo
-or a PR or to start one. ⌃- goes back to the session you were looking at before and ⌃⇧- forward
+anywhere else, the list say, the list's find, which narrows the view's list (*Find in the list*).
+⌥⌘F opens the list's find from anywhere, as in Mail and Notes, and ⌘K, or the box in the middle of
+the title bar, opens the quick panel, to find a session, a todo or a PR anywhere or to start one.
+The two icons at the title bar's right end are New session (+, ⌘N) and Improve Codealong (the
+bulb). ⌃- goes back to the session you were looking at before and ⌃⇧- forward
 again, as in
 VS Code, from any view or text field; the two arrows beside the sidebar's toggle do the same and say
 where they go. ⌃` opens a new terminal in the folder of what's shown, as VS Code opens its terminal,
@@ -369,8 +371,8 @@ pages further back are read for it), starting from the one nearest where you're 
 the match before, on into earlier pages, ⇧⏎ to the one after (⌘G and ⇧⌘G from anywhere in the
 window), a run of tool calls opens to show a call it finds, and Escape closes the bar and gives the
 keyboard back. It finds what shows: prompts, replies and the calls' lines, and a call's input and
-output once you've opened it. A session that a search found by what was said in it, in the filter
-at the top or the quick panel, opens with the bar already on the words it found (the words as you
+output once you've opened it. A session that a search found by what was said in it, in the list's
+find or the quick panel, opens with the bar already on the words it found (the words as you
 typed them when the line it was found by has them together, else the longest of them that line
 has), at the nearest match, the keyboard staying where it was.
 
@@ -960,9 +962,9 @@ rest (move onto it to select its text, click its PR chip to select the PR's card
 PRs when the canvas has no card of it, and double-click the chip to open it on GitHub, click a
 session in it to go
 to that session, right-click one for its menu), select one for its panel on the right (a session's
-shows its whole conversation and takes messages; the rest are the ones their own views show), type
-in the filter at the top or pick a status in the sidebar to fade what doesn't match (a status, or
-Return in the filter, also zooms to what does), double-click to open it where it lives, right-click
+shows its whole conversation and takes messages; the rest are the ones their own views show), find
+(⌘F) or pick a status in the sidebar to fade what doesn't match (a status, or Return in the find,
+also zooms to what does), double-click to open it where it lives, right-click
 for its usual menu.
 
 #### What's on it
@@ -1016,7 +1018,19 @@ sessions started. Devices and statuses toggle; none picked shows all, and Clear 
 the view as it is under a name to come back to it; right-click a saved view to update or delete it
 (they're kept per Mac, not in config.toml). ⌃⌘S, or the button beside the traffic lights, folds it
 to a rail of the views and devices whose filter button carries a badge while a filter narrows the
-view. The search at the top narrows every view too, by every word typed, in any order (a word of one
+view.
+
+### Find in the list
+
+Finding anything anywhere, and starting work, is the quick panel's (the box in the middle of the
+title bar, ⌘K). Finding in what the view lists is ⌘F's from the list, and ⌥⌘F's or `/`'s from
+anywhere in the window: a find opens in the strip over the list (beside Sessions' sort and rows
+buttons), as ⌘F in a session's panel opens one over its conversation, saying the view it finds in.
+What's typed narrows the view's list, and on the canvas fades the cards that don't match. ↓ hands
+the list the keyboard, ⏎ opens the selected row (on the canvas, zooms to what matches), Escape or
+its × clears it and puts it away. Left with nothing typed it goes away by itself; left with words it
+stays, the list narrowed, as you change views, and ⌘F gives it the keyboard back with the words
+selected. It finds by every word typed, in any order (a word of one
 or two letters among others counts only whole, as in the quick panel): in what describes a row (a
 session's title, account and latest line, its worktree, branch and PR; a worktree's name, branch,
 path and PR; a PR's number, title, author, branch and repo; a todo's title, description, labels and
@@ -1025,7 +1039,7 @@ replies, for sessions active in the last `[search] days`, your other devices' se
 searched on its own Mac). A session found only by what was said in it shows the line that has the
 words under its title, and its worktree, its PRs and its todos are found with it. Selecting it opens
 its conversation with the find bar on those words (*Find*). While Codealong is still reading what
-recent sessions said, a search in Sessions that finds nothing says so.
+recent sessions said, a find in Sessions that finds nothing says so.
 
 ### Notices
 
@@ -1125,8 +1139,9 @@ still take what you send them. **Turn on** brings it back; **Remove** stops read
 
 ### Quick panel
 
-*⌥⌘/ from any app, over full-screen ones too, or ⌥⌘' set to a chat; ⌘K, ⌘N, the title bar, the
-inspector, or a worktree's or session's right-click menu in Codealong*
+*⌥⌘/ from any app, over full-screen ones too, or ⌥⌘' set to a chat; ⌘K, ⌘N, the box in the middle
+of the title bar (which says the panel's shortcut) or its +, the inspector, or a worktree's or
+session's right-click menu in Codealong*
 
 One input, and below it what you can do next: it finds and starts, and answering is the waiting
 window's (below). With nothing typed it lists the sessions that need you, the longest wait first as
@@ -1352,7 +1367,7 @@ chats are listed together in one lane, Chats, in Elsewhere, and `codealong start
 
 ### Improve Codealong
 
-*The Improve Codealong button beside New session; ⌥⌘, from any app (`[shortcuts] improve`, Settings
+*The bulb at the title bar's right end, beside New session's +; ⌥⌘, from any app (`[shortcuts] improve`, Settings
 › General)*
 
 A session that improves Codealong itself, from whatever you just saw. The quick panel opens on

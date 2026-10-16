@@ -175,7 +175,7 @@
   background: var(--line);
 }
 
-/* Cards and notes that don't match the filter at the top fade back. */
+/* Cards and notes that don't match the list's find (ListBar.tsx) fade back. */
 .ca-cv-card.is-faded,
 .ca-cv-note.is-faded,
 .ca-cv-farlabel.is-faded {

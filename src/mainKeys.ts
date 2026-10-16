@@ -80,7 +80,10 @@ export interface MainKeys<V extends string> {
   sessionPins: Pins;
   lanePins: Pins;
   prPins: Pins;
+  /** The list's find (ui/ListBar.tsx), while it shows. */
   searchRef: RefObject<HTMLInputElement | null>;
+  /** The board, where ⌘F opens the list's find (`data-find="window"`, findKeys.ts). */
+  boardRef: RefObject<HTMLElement | null>;
   listRef: RefObject<HTMLDivElement | null>;
   /** The canvas's own keys, which say whether they took one. */
   canvasKeys: { readonly current: (e: KeyboardEvent) => boolean };
@@ -99,6 +102,8 @@ export interface MainKeys<V extends string> {
   startForTodos: (rows: TodoItem[]) => void;
   startForTodo: (row: TodoItem) => void;
   newSession: (at: { laneId: string | null }) => void;
+  /** Opens the list's find, or gives it the keyboard back, with its words selected. */
+  openFind: () => void;
   setQuery: (query: string) => void;
   setCanvasFit: Dispatch<SetStateAction<number>>;
   openRow: (row: ListRow | null) => void;
@@ -123,7 +128,7 @@ export interface MainKeys<V extends string> {
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, boardRef, listRef, canvasKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
   const typing = document.activeElement === searchRef.current;
   const mod = e.metaKey;
   const key = e.key.toLowerCase();
@@ -240,14 +245,13 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     runQueue(queueStep, queueStep === 'seen' ? inBox : true);
     return;
   }
-  // ⌘F goes to the filter from wherever nothing else finds, the list say, and a session's or
-  // a PR's panel keeps it for its own find (findKeys.ts); ⌥⌘F goes to the filter from anywhere,
+  // ⌘F opens the list's find from wherever nothing else finds, the list say, and a session's or
+  // a PR's panel keeps it for its own find (findKeys.ts); ⌥⌘F opens the list's from anywhere,
   // as in Mail and Notes.
   if (findKey) {
-    if (!e.altKey && !findsAt(searchRef.current)) return;
+    if (!e.altKey && !findsAt(boardRef.current)) return;
     e.preventDefault();
-    searchRef.current?.focus();
-    searchRef.current?.select();
+    openFind();
     return;
   }
   // ⌘K opens the quick panel, to find a session, a todo or a PR, or to start one where ⌘N would.
@@ -413,7 +417,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   if (e.key === '/') {
     e.preventDefault();
-    searchRef.current?.focus();
+    openFind();
   } else if (e.key === 'ArrowDown' || (key === 'j' && !mod && letters)) {
     // The arrows, and ⌥↑ ⌥↓ from Sessions' box, where the cursor goes on to the next one's.
     e.preventDefault();

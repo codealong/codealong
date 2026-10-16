@@ -217,9 +217,8 @@ export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number
   return sessionSections(rows, sort, now).flatMap((s) => s.rows);
 }
 
-/** The bar over the list, outside its listbox: how the list is sorted and how much each row
- *  says, as two groups of icon buttons, each named by its tooltip. It stays at the top while the
- *  list scrolls under it. */
+/** Sessions' tools in the bar over the list (ListBar.tsx), outside its listbox: how the list is
+ *  sorted and how much each row says, as two groups of icon buttons, each named by its tooltip. */
 export function SessionsBar({ sort, onSort, lines, onLines }: { sort: SessionSort; onSort: (sort: SessionSort) => void; lines: SessionRows; onLines: (lines: SessionRows) => void }) {
   return (
     <div className="ca-sessionbar" role="toolbar" aria-label="How Sessions is listed">

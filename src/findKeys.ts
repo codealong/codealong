@@ -1,12 +1,12 @@
 // Where ⌘F goes in a window: to what finds where you are, as VS Code's ⌘F finds in the editor or
 // filters the sidebar, whichever has the keyboard. Each place that finds marks the element around
 // it with `data-find`: a session's panel or card (its conversation, ui/ThreadFind.tsx), a PR's
-// panel (its files, ui/PrFiles.tsx) and the main window's filter (`data-find="window"`,
-// mainKeys.ts). ⌘F goes to the one that holds the keyboard; with nothing holding it, as after a
-// click on a conversation's text or a field let go of with Escape, to the one the keyboard or a
-// click was in last; and from anywhere else, the list say, to the window's filter. A window with
-// no filter, or one whose panel takes the whole window, gives it to the first that shows: a
-// card's conversation. ⌥⌘F always goes to the filter, as in Mail and Notes (mainKeys.ts).
+// panel (its files, ui/PrFiles.tsx) and the main window's board (its list's find, ui/ListBar.tsx:
+// `data-find="window"`, mainKeys.ts). ⌘F goes to the one that holds the keyboard; with nothing
+// holding it, as after a click on a conversation's text or a field let go of with Escape, to the
+// one the keyboard or a click was in last; and from anywhere else to the window's board. A window
+// with no board, or one whose panel takes the whole window, gives it to the first that shows: a
+// card's conversation. ⌥⌘F always opens the list's find, as in Mail and Notes (mainKeys.ts).
 
 const AREA = '[data-find]';
 

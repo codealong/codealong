@@ -15,6 +15,8 @@ import type { Codec } from './stored';
 import type { Board, DeviceFound, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit, Todo } from './types';
 
 export const ALL_PROJECTS = 'All projects';
+/** What the panel's empty box says, and the box in the main window's title bar that opens it. */
+export const QUICK_PLACEHOLDER = 'Find a session, or describe new work…';
 /** Codealong's chats, as the worktree picker offers them: a chat of its own, in no project. */
 export const NO_PROJECT = 'No project';
 const ELSEWHERE = 'Elsewhere';
@@ -476,6 +478,11 @@ const KEY_SYMBOLS: Record<string, string> = {
 /** A shortcut as config.toml writes it (`Option+Cmd+/`) the way macOS shows it (⌥⌘/),
  *  or null when it's off or unreadable. */
 export function shortcutLabel(text: string | null | undefined): string | null {
+  return shortcutKeys(text)?.join('') ?? null;
+}
+
+/** `shortcutLabel`'s signs one key at a time (⌥ ⌘ /), for keycaps (primitives.tsx `Kbd`). */
+export function shortcutKeys(text: string | null | undefined): string[] | null {
   const parts = (text ?? '')
     .split('+')
     .map((p) => p.trim())
@@ -492,9 +499,7 @@ export function shortcutLabel(text: string | null | undefined): string | null {
   if (!key) return null;
   const lower = key.toLowerCase();
   const shown = KEY_SYMBOLS[lower] ?? (/^key[a-z]$/.test(lower) ? lower.slice(3).toUpperCase() : /^digit\d$/.test(lower) ? lower.slice(5) : key.length === 1 ? key.toUpperCase() : key);
-  return `${MODS.filter(([name]) => mods.has(name))
-    .map(([, symbol]) => symbol)
-    .join('')}${shown}`;
+  return [...MODS.filter(([name]) => mods.has(name)).map(([, symbol]) => symbol), shown];
 }
 
 /** Key codes (KeyboardEvent.code) as config.toml names them. */

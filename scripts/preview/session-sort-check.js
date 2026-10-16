@@ -50,8 +50,9 @@
   say('session sort check: waiting for the board');
   until(function () { return rows().length > 0; }, 20000)
     .then(function () {
-      var bar = document.querySelector('.ca-sessionbar');
-      check('the bar is over the list, outside it', !!bar && !bar.closest('[role="listbox"]') && bar.getBoundingClientRect().bottom <= rows()[0].getBoundingClientRect().top + 1);
+      // Sessions' tools, in the strip over the list (ListBar.tsx).
+      var bar = document.querySelector('.ca-listbar');
+      check('the bar is over the list, outside it', !!bar && !!bar.querySelector('.ca-sessionbar') && !bar.closest('[role="listbox"]') && bar.getBoundingClientRect().bottom <= rows()[0].getBoundingClientRect().top + 1);
       var sideLabels = Array.prototype.map.call(document.querySelectorAll('.ca-side .ca-side-label'), function (l) { return l.textContent; });
       check('the sidebar has no Sort by or Rows', sideLabels.indexOf('Sort by') < 0 && sideLabels.indexOf('Rows') < 0, sideLabels.join(' | '));
       // Stuck to the top of the board as the list scrolls: layout places it, so no frame is needed.

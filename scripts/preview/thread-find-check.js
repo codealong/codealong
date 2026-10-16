@@ -8,9 +8,10 @@
 // clears the marks, folds the run again and gives the box its keyboard back. ⌘F opens it again
 // with the words ready to type over. A second session says "needle" only two pages back: typing
 // it goes there by itself. Words said nowhere say so. The bar takes the place of the prompt pinned
-// over the top while it's open. ⌘F finds where you are (findKeys.ts): from the list it goes to the
-// filter at the top, after a click on the conversation it finds there, and with the panel taking
-// the whole window too; ⌥⌘F goes to the filter from the box, and ⌘K opens the quick panel. In the
+// over the top while it's open. ⌘F finds where you are (findKeys.ts): from the list it opens the
+// list's find (ListBar.tsx), which Escape puts away, after a click on the conversation it finds
+// there, and with the panel taking the whole window too; ⌥⌘F opens the list's find from the box,
+// and ⌘K opens the quick panel. In the
 // waiting window it works the same from the card's box, and Escape closes only the bar.
 //   scripts/preview.sh sessions '' scripts/preview/thread-find-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/thread-find-check.js
@@ -84,7 +85,7 @@
   var box = function () { return q('.ca-sessinsp .ca-composer textarea, .ca-reply .ca-composer textarea'); };
   var thread = function () { return q('.ca-sessinsp .ca-thread, .ca-reply .ca-thread'); };
   var bar = function () { return q('.ca-thread-find'); };
-  var filter = function () { return q('.ca-search input'); };
+  var filter = function () { return q('.ca-listfind input'); };
   // The holder of the prompt pinned over the top, which makes way for the bar.
   var pinShown = function () { var p = q('.ca-sessinsp .ca-thread-pin'); return !!p && getComputedStyle(p).display !== 'none'; };
   var field = function () { return q('.ca-thread-find input'); };
@@ -248,17 +249,18 @@
       check('the keyboard stays in the bar', document.activeElement === field());
       return press(field(), { key: 'Escape' });
     })
-    // ⌘F finds where you are (findKeys.ts): from the list, the filter at the top.
+    // ⌘F finds where you are (findKeys.ts): from the list, the list's find.
     .then(function () {
       var list = q('.ca-board-list');
       list.focus();
       return press(list, { key: 'f', metaKey: true });
     })
     .then(function (e) {
-      check('⌘F from the list goes to the filter', e.defaultPrevented && document.activeElement === filter() && !bar(), document.activeElement && document.activeElement.className);
+      check('⌘F from the list opens the list’s find', e.defaultPrevented && !!filter() && document.activeElement === filter() && !bar(), document.activeElement && document.activeElement.className);
       return press(filter(), { key: 'Escape' });
     })
     .then(function () {
+      check('Escape puts it away', !filter());
       // A click on the conversation's text leaves the keyboard with nothing.
       q('.ca-sessinsp .ca-thread-agent').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
       return press(document.body, { key: 'f', metaKey: true });
@@ -272,7 +274,7 @@
       return press(box(), { key: 'ƒ', code: 'KeyF', metaKey: true, altKey: true });
     })
     .then(function (e) {
-      check('⌥⌘F goes to the filter from the box', e.defaultPrevented && document.activeElement === filter() && !bar(), document.activeElement && document.activeElement.className);
+      check('⌥⌘F opens the list’s find from the box', e.defaultPrevented && !!filter() && document.activeElement === filter() && !bar(), document.activeElement && document.activeElement.className);
       return press(filter(), { key: 'Escape' });
     })
     .then(function () {
@@ -282,8 +284,8 @@
       });
     })
     .then(function () {
-      // The filter had the keyboard last, but with the panel taking the whole window there's no
-      // list for it to filter.
+      // The board had the keyboard last, but with the panel taking the whole window there's no
+      // list for it to find in.
       return press(document.body, { key: 'f', metaKey: true, shiftKey: true });
     })
     .then(function () {

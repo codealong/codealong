@@ -1,0 +1,66 @@
+/* The strip over the main window's list (ListBar.tsx): Sessions' tools and the list's find. */
+
+/* Drawn as the strip over a session's panel is, on sunken ground, and stays at the top of the
+   board while the list scrolls under it. As tall as that strip (31px with its line), so the two
+   lines meet across the window. Its ground reaches 2px above it: stuck, WebKit places it on its
+   own layer, and at a zoom like 110% the board's top edge falls between device pixels, so a row
+   could show through a pixel above it. Unstuck, the board's edge clips that off. */
+.ca-listbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-listbar);
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: 3px var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-sunken);
+  box-shadow: 0 -2px 0 var(--surface-sunken);
+}
+/* A row the keyboard goes to is scrolled to just under the bar, not under it: the bar's height. */
+.ca-board:has(> .ca-listbar) {
+  scroll-padding-top: 31px;
+}
+
+/* The find takes the rest of the strip, after Sessions' tools. Its field is the conversation
+   find's (ThreadFind.css) on the strip's sunken ground: raised, with a line. */
+.ca-listfind {
+  flex: 1 1 200px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.ca-listfind-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-3);
+}
+.ca-listfind-field:focus-within {
+  box-shadow: var(--shadow-focus);
+}
+.ca-listfind-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-meta);
+}
+.ca-listfind-field input::placeholder {
+  color: var(--ink-3);
+}

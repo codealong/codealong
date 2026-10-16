@@ -95,7 +95,7 @@ export interface CanvasViewProps {
   onUndo: (message: string, undo: () => void, icon?: string) => void;
   /** The canvas's keys; true when it took the key. The window calls this before its own. */
   keys: MutableRefObject<(e: KeyboardEvent) => boolean>;
-  /** The filter at the top of the window: cards and notes that don't match it fade. Empty for none. */
+  /** The words in the list's find (ListBar.tsx): cards and notes that don't match them fade. Empty for none. */
   query: string;
   /** Whether the text filter or a status filter is on. */
   filtering: boolean;

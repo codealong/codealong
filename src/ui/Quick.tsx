@@ -64,7 +64,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
@@ -1611,7 +1611,7 @@ export function Quick() {
             rows={1}
             spellCheck
             aria-label="Find a session, or describe new work"
-            placeholder={improve ? IMPROVE_PLACEHOLDER : draft ? 'Find a session, or describe new work… ↑ brings back your draft' : history.length ? 'Find a session, or describe new work… ↑ for earlier prompts' : 'Find a session, or describe new work…'}
+            placeholder={improve ? IMPROVE_PLACEHOLDER : draft ? `${QUICK_PLACEHOLDER} ↑ brings back your draft` : history.length ? `${QUICK_PLACEHOLDER} ↑ for earlier prompts` : QUICK_PLACEHOLDER}
             onChange={(e) => {
               setText(e.target.value);
               setCaret(e.target.selectionStart);

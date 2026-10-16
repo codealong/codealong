@@ -107,14 +107,17 @@
     })
     .then(function () {
       check('⇧⌘B goes to Canvas', shown() === 'Canvas', shown());
-      var search = document.querySelector('.ca-search input');
-      if (!search) throw new Error('no search field');
-      search.focus();
-      go(search, 'S');
+      // The list's find (ListBar.tsx), as ⌘F opens it from the board.
+      key(document.body, { key: 'f', code: 'KeyF', metaKey: true });
+      return until(function () { return document.activeElement === document.querySelector('.ca-listfind input'); }, 2000, 'the list’s find');
+    })
+    .then(function () {
+      go(document.activeElement, 'S');
       return on('Sessions');
     })
     .then(function () {
-      check('⇧⌘S from the search field goes to Sessions', shown() === 'Sessions', shown());
+      check('⇧⌘S from the find field goes to Sessions', shown() === 'Sessions', shown());
+      check('and the field keeps the keyboard', !!document.activeElement && document.activeElement === document.querySelector('.ca-listfind input'), document.activeElement && document.activeElement.className);
       key(document.body, { key: 'w', code: 'KeyW', metaKey: true });
       return wait(200);
     })

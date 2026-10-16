@@ -1,12 +1,21 @@
-/* The main window (App.tsx): the title bar with its search, the sidebar toggle, the history
-   buttons and the bar placement; the body's grid in each of its states; the board and its empty
-   and loading notes; toasts; device groups. */
+/* The main window (App.tsx): the title bar with the quick panel's box, the sidebar toggle, the
+   history buttons and the bar placement; the body's grid in each of its states; the board and
+   its empty and loading notes; toasts; device groups. */
 
 .ca-win { display: grid; grid-template-rows: var(--titlebar-h) minmax(0, 1fr); height: 100%; min-height: 0; box-sizing: border-box; overflow: hidden; background: var(--ground); color: var(--ink); border-radius: var(--radius-lg); box-shadow: var(--shadow-popover); font: var(--type-body); }
-.ca-win-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: 0 var(--space-4); background: var(--surface); border-bottom: 1px solid var(--line); }
+/* Its two ends share what the box in the middle leaves them equally, so the box is centered in
+   the window while both fit; past that, each end keeps what it holds and the box moves over. */
+.ca-win-bar { display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(160px, 420px) minmax(max-content, 1fr); align-items: center; gap: var(--space-4); min-width: 0; padding: 0 var(--space-4); background: var(--surface); border-bottom: 1px solid var(--line); }
+.ca-win-bar-start,
+.ca-win-bar-end { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
+.ca-win-bar-end { justify-content: flex-end; gap: var(--space-2); }
 
-.ca-search { flex: 1; min-width: 160px; max-width: 420px; margin: 0 auto; display: flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 6px 0 9px; box-sizing: border-box; border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--ink-3); white-space: nowrap; overflow: hidden; }
+/* The quick panel's box (ui/Quick.tsx), as a button that opens it: what the panel's box says,
+   and its shortcut. */
+.ca-search { appearance: none; display: flex; align-items: center; gap: var(--space-2); min-width: 0; height: 28px; padding: 0 6px 0 9px; box-sizing: border-box; border: 0; border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--ink-3); font: var(--type-body); text-align: left; white-space: nowrap; overflow: hidden; cursor: text; }
 .ca-search > span:not(.ca-kbds) { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.ca-search:hover { background: var(--surface-hover); }
+.ca-search:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
 .ca-win-body { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--inspector-w); min-height: 0; }
 
 .ca-board { min-width: 0; min-height: 0; overflow: auto; padding-bottom: var(--space-6); background: var(--ground); }
@@ -27,51 +36,10 @@
   border-radius: 0;
   box-shadow: none;
 }
-.ca-win--app .ca-win-bar {
-  gap: var(--space-4);
-  padding-left: 84px;
-}
-.ca-search input {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--ink);
-  font: var(--type-body);
-}
-.ca-search input::placeholder {
-  color: var(--ink-3);
-}
-/* Clears the filter; stands where the ⌥⌘F hint does while there's text. */
-.ca-search-clear {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--ink-3);
-  cursor: default;
-}
-.ca-search-clear:hover {
-  background: var(--surface-hover);
-  color: var(--ink);
-}
-.ca-search:focus-within {
-  box-shadow: var(--shadow-focus);
-}
-/* The title bar's right end, as wide as the sidebar's toggle, the history buttons and the
-   project switcher so the search stays centered. */
-.ca-bar-tools {
-  display: flex;
-  justify-content: flex-end;
-  min-width: 282px;
+/* The traffic lights' room is the left end's own, so the bar's padding stays even and its middle
+   is the window's. */
+.ca-win--app .ca-win-bar-start {
+  padding-left: calc(84px - var(--space-4));
 }
 /* The sidebar's toggle, beside the traffic lights as in the Finder. */
 .ca-sidetoggle {

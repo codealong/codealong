@@ -80,7 +80,12 @@
   };
 
   var quick = function () { return !!q('.ca-quick-input textarea'); };
-  var filter = function () { return q('.ca-search input'); };
+  var filter = function () { return q('.ca-listfind input'); };
+  // Types into the list's find (ListBar.tsx), opened first as ⌥⌘F opens it from anywhere.
+  var find = function (text) {
+    if (!filter()) key(document.body, { key: 'ƒ', code: 'KeyF', metaKey: true, altKey: true });
+    return until(function () { return !!filter(); }, 2000, 'the list’s find').then(function () { type(filter(), text); });
+  };
   var rowOf = function (who) { return q('#row-' + CSS.escape(who.lane + '::' + who.key)); };
   var listed = function () { return all('.ca-sessionlist .ca-lane.is-agent'); };
   var saidIn = function (row) { return row ? q('.ca-agentrow-said', row) : null; };
@@ -97,11 +102,9 @@
   };
 
   var main = function () {
-    return until(function () { return !!A && !!B && !!filter() && !!rowOf(A) && !!rowOf(B); }, 20000, 'two sessions in Sessions')
-      .then(function () {
-        type(filter(), 'quokka bridge');
-        return until(function () { return !!saidIn(rowOf(A)); }, 5000, 'the line on its row');
-      })
+    return until(function () { return !!A && !!B && !!rowOf(A) && !!rowOf(B); }, 20000, 'two sessions in Sessions')
+      .then(function () { return find('quokka bridge'); })
+      .then(function () { return until(function () { return !!saidIn(rowOf(A)); }, 5000, 'the line on its row'); })
       .then(function () {
         var line = saidIn(rowOf(A));
         var marks = all('mark', line).map(function (m) { return m.textContent; });
@@ -121,14 +124,12 @@
         check('its conversation shows with the find bar open on the words', !!bar() && field().value === 'quokka bridge', field() && field().value);
         check('at a match', /^quokka bridge$/i.test(at() || ''), at());
         check('the keyboard stays where it was', document.activeElement !== field(), document.activeElement && document.activeElement.className);
-        type(filter(), 'bridge quokka');
-        return until(function () { return field() && field().value === 'bridge'; }, 5000).catch(function () {});
+        return find('bridge quokka').then(function () { return until(function () { return field() && field().value === 'bridge'; }, 5000).catch(function () {}); });
       })
       .then(function () {
         check('the words in another order still find it', !!saidIn(rowOf(A)));
         check('and the bar finds the longest of them its line has', field() && field().value === 'bridge', field() && field().value);
-        type(filter(), '');
-        return until(function () { return !q('.ca-agentrow-said') && !!rowOf(B); }, 5000).catch(function () {});
+        return find('').then(function () { return until(function () { return !q('.ca-agentrow-said') && !!rowOf(B); }, 5000).catch(function () {}); });
       })
       .then(function () {
         check('clearing the search takes the line away', !q('.ca-agentrow-said') && !!rowOf(B));
@@ -155,9 +156,9 @@
         check('another session selected, it opens without the bar again', !bar());
         if (!P) return note('no PR on the board: a PR found by what its sessions said wasn’t checked');
         key(document.body, { key: 'P', code: 'KeyP', metaKey: true, shiftKey: true });
-        type(filter(), 'quokka bridge');
         var prRow = function () { return document.getElementById('row-pr:' + P.key); };
-        return until(function () { return !!prRow(); }, 5000, 'the PR in PRs')
+        return find('quokka bridge')
+          .then(function () { return until(function () { return !!prRow(); }, 5000, 'the PR in PRs'); })
           .then(function () {
             check('a PR is found by what a session that worked on it said', !!prRow());
             prRow().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
@@ -181,16 +182,14 @@
       })
       .then(function () { return until(function () { return !!field(); }, 3000).catch(function () {}); })
       .then(function () {
-        type(filter(), 'quokka bridge');
-        return until(function () { return !!saidIn(rowOf(A)); }, 5000, 'A found by the search here');
+        return find('quokka bridge').then(function () { return until(function () { return !!saidIn(rowOf(A)); }, 5000, 'A found by the search here'); });
       })
       .then(function () {
         q('.ca-thread-find button[aria-label="Close find"]').click();
         return until(function () { return !bar(); }, 2000);
       })
       .then(function () {
-        type(filter(), '');
-        return wait(600);
+        return find('').then(function () { return wait(600); });
       })
       .then(function () {
         check('a search typed here retires what the quick panel asked', !bar() && title() === 'Said A', title());
@@ -219,7 +218,7 @@
   };
 
   say('said search check: waiting for the board');
-  until(function () { return !!document.querySelector('.ca-quick-input textarea, .ca-search input'); }, 20000)
+  until(function () { return !!document.querySelector('.ca-quick-input textarea, .ca-win-bar .ca-search'); }, 20000)
     .then(function () { return quick() ? panel() : main(); })
     .then(done)
     .catch(stopped);

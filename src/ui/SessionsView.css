@@ -1,37 +1,20 @@
-/* The Sessions view (SessionsView.tsx): the bar over the list and archived rows. Its
-   headings are the other views' (`.ca-bay`, `.ca-bayblock` in styles/rows.css). */
+/* The Sessions view (SessionsView.tsx): its tools in the bar over the list, and archived rows.
+   Its headings are the other views' (`.ca-bay`, `.ca-bayblock` in styles/rows.css). */
 
 .ca-archived .ca-lane {
   opacity: 0.8;
 }
 
-/* The bar over the list (`SessionsBar`): how it's sorted and how much a row says, two groups of
-   icon buttons. It's drawn as the strip over a session's panel is, on sunken ground, and stays
-   at the top of the board while the list scrolls under it. As tall as that strip (31px with its
-   line), so the two lines meet across the window. Its ground reaches 2px above it: stuck, WebKit
-   places it on its own layer, and at a zoom like 110% the board's top edge falls between device
-   pixels, so a row could show through a pixel above it. Unstuck, the board's edge clips that
-   off. */
+/* Its tools in the bar over the list (`SessionsBar`, in ListBar.tsx's strip): how it's sorted and
+   how much a row says, two groups of icon buttons. */
 .ca-sessionbar {
-  position: sticky;
-  top: 0;
-  z-index: var(--z-listbar);
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1) var(--space-2);
-  padding: 3px var(--space-3);
-  border-bottom: 1px solid var(--line);
-  background: var(--surface-sunken);
-  box-shadow: 0 -2px 0 var(--surface-sunken);
+  gap: var(--space-2);
 }
 .ca-sessionbar .ca-segctl button {
   justify-content: center;
   width: 28px;
   height: 20px;
   padding: 0;
-}
-/* A row the keyboard goes to is scrolled to just under the bar, not under it: the bar's height. */
-.ca-board:has(> .ca-sessionbar) {
-  scroll-padding-top: 31px;
 }

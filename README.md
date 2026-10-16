@@ -412,8 +412,8 @@ In Codealong:
 | ⌃⌘1 – ⌃⌘4 | Snooze: 15 minutes, 1 hour, 3 hours, tomorrow morning |
 | ⌃⌘P · ⌃⌘A · ⌃⌘R · ⌃⌘U | Pin, archive, rename, mark as unread |
 | ⌃⌘W | Close the session's terminal (the conversation stays, to resume) |
-| ⌘F | Find where you are: in a session's conversation, a PR's files, or the list's filter |
-| ⌥⌘F | The filter at the top, from anywhere |
+| ⌘F | Find where you are: in a session's conversation, a PR's files, or the view's list |
+| ⌥⌘F | Find in the view's list, from anywhere |
 | ⌃- / ⌃⇧- | Back / forward through the sessions you looked at |
 | ⌃` | A new terminal in the folder of what's shown |
 | ⌘C / ⌥⌘C | Copy the selected worktree's branch / path |

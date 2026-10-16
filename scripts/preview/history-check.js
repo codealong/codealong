@@ -38,7 +38,7 @@
   var LOOK = 1300;
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea'); };
-  var search = function () { return document.querySelector('.ca-search input'); };
+  var search = function () { return document.querySelector('.ca-listfind input'); };
   var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
   var click = function (i) { row(i).dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); };
   var key = function (init) { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
@@ -131,8 +131,12 @@
     })
     .then(function () {
       check('⌃- from another view shows the last session, in Sessions', title() === 'Place C' && !!row(2), title());
-      // A search that lists the session stays; one that hides it is cleared.
-      search().focus();
+      // A search that lists the session stays; one that hides it is cleared. The list's find
+      // (ListBar.tsx) opens as ⌥⌘F opens it.
+      key({ key: 'ƒ', code: 'KeyF', metaKey: true, altKey: true });
+      return until(function () { return !!search() && document.activeElement === search(); }, 2000, 'the list’s find');
+    })
+    .then(function () {
       type(search(), 'Place');
       return wait(100);
     })
@@ -150,7 +154,7 @@
       return on('Place B');
     })
     .then(function () {
-      check('a search that hides the session is cleared', title() === 'Place B' && search().value === '', title() + ' / ' + search().value);
+      check('a search that hides the session is cleared', title() === 'Place B' && (!search() || search().value === ''), title() + ' / ' + (search() && search().value));
       var kept = JSON.parse(localStorage.getItem('codealong.sessionHistory') || 'null');
       check('the history is kept for the next launch', !!kept && kept.keys[kept.at] === picked[1].key, JSON.stringify(kept && kept.at));
     })

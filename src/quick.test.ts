@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks, worktreeCount, deviceHits } from './quick';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, titleMarks, worktreeCount, deviceHits } from './quick';
 import * as fx from './testing/fixtures';
 import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
 
@@ -308,6 +308,13 @@ describe('shortcuts', () => {
     expect(shortcutLabel('')).toBeNull();
     expect(shortcutLabel(undefined)).toBeNull();
     expect(shortcutLabel('Option+A+B')).toBeNull();
+  });
+
+  it('says a shortcut one key at a time for its keycaps', () => {
+    expect(shortcutKeys('Option+Cmd+/')).toEqual(['⌥', '⌘', '/']);
+    expect(shortcutKeys('Option+Shift+Space')).toEqual(['⌥', '⇧', 'Space']);
+    expect(shortcutKeys('F18')).toEqual(['F18']);
+    expect(shortcutKeys('')).toBeNull();
   });
 
   it('records a key press as config.toml writes it', () => {

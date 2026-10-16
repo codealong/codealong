@@ -6,9 +6,11 @@
 // for each agent that needs you, is working or just finished; PRs lists the project's pull
 // requests; Todo lists work you mean to hand an agent, and the sessions on it;
 // Canvas lays the project's work out in space, to be remembered by where it is (CanvasView.tsx).
+// The box in the middle of the title bar opens the quick panel, the way into finding and starting
+// anything; ⌘F finds in the view's list (ui/ListBar.tsx).
 // Keyboard map: the design system's Surfaces page.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, rowItems, runsShownKey, sidesShownKey, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
@@ -45,6 +47,7 @@ import { mayApprove } from './prStatus';
 import { PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionItem, type SessionRows, type SessionSort } from './ui/SessionsView';
+import { ListBar, ListFind } from './ui/ListBar';
 import { TodoComposer, TodoView } from './ui/TodoView';
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
@@ -76,7 +79,7 @@ import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
 import { ageListingChain, ageListingPr, chainOf, laneInQuery, prInDone, prInFilter, prInQuery, revealing, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, toggleShown, useBoardLists } from './boardLists';
-import { inProject, queryWords, shortcutLabel } from './quick';
+import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { improveTitle } from './improve';
 import { setPageZoom, type ZoomStep } from './zoom';
@@ -131,6 +134,14 @@ const READING: Record<View, string> = {
   prs: 'Reading repos…',
   todo: 'Reading todos…',
   canvas: 'Reading sessions…',
+};
+/** What the list's find says it finds in, in each view (ui/ListBar.tsx). */
+const FIND_IN: Record<View, string> = {
+  sessions: 'Find in sessions',
+  worktrees: 'Find in worktrees',
+  prs: 'Find in PRs',
+  todo: 'Find in todos',
+  canvas: 'Find on the canvas',
 };
 /** How recently a worktree or session must have been active to show. */
 type Age = '1d' | '3d' | '7d' | 'all';
@@ -299,7 +310,22 @@ export function App() {
     [setToast],
   );
   const now = useNow(15_000);
+  // The list's find (ui/ListBar.tsx): open from ⌘F until the keyboard leaves it, and shown as
+  // long as it has words.
   const searchRef = useRef<HTMLInputElement>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const findShown = findOpen || query !== '';
+  const openFind = useCallback(() => {
+    setFindOpen(true);
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  }, []);
+  // Opened, or the board read once since: the keyboard goes to it, with its words ready to type over.
+  useLayoutEffect(() => {
+    if (!findOpen) return;
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  }, [findOpen, loading]);
   const gPending = useRef(false);
 
   useEffect(() => {
@@ -1214,6 +1240,7 @@ export function App() {
     lanePins,
     prPins,
     searchRef,
+    boardRef,
     listRef,
     canvasKeys,
     gPending,
@@ -1227,6 +1254,7 @@ export function App() {
     startForTodos,
     startForTodo,
     newSession,
+    openFind,
     setQuery,
     setCanvasFit,
     openRow,
@@ -1290,7 +1318,7 @@ export function App() {
     }
   };
 
-  /** Whether a card matches the filter at the top and the status filter, as its row would in its own view. */
+  /** Whether a card matches the list's find and the status filter, as its row would in its own view. */
   const canvasMatches = useCallback(
     (it: RefItem) => {
       const e = canvasEntities;
@@ -1473,70 +1501,60 @@ export function App() {
     },
   }, board);
 
+  // The quick panel's shortcut from any app, which the box in the title bar shows; ⌘K without one.
+  const quickKeys = shortcutKeys(board?.quickShortcut);
+
   return (
     <div className="ca-win ca-win--app">
       <div className="ca-win-bar" data-tauri-drag-region>
-        <button
-          type="button"
-          className={sideCollapsed ? 'ca-sidetoggle' : 'ca-sidetoggle is-on'}
-          aria-label={sideCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-          aria-pressed={!sideCollapsed}
-          title={`${sideCollapsed ? 'Show' : 'Hide'} the sidebar (⌃⌘S)`}
-          onClick={toggleSidebar}
-        >
-          <Icon name="layout-sidebar" size={16} />
-        </button>
-        <div className="ca-histnav" role="group" aria-label="Sessions you looked at">
+        <div className="ca-win-bar-start" data-tauri-drag-region>
           <button
             type="button"
-            aria-label="Back"
-            aria-disabled={!sessionHistory.back}
-            title={historyTitle(sessionHistory.back, 'Back', 'Back to the session you looked at before', menus.chordSigns(QUEUE_CHORDS.historyBack[0]))}
-            onClick={() => travel.current('back', false)}
+            className={sideCollapsed ? 'ca-sidetoggle' : 'ca-sidetoggle is-on'}
+            aria-label={sideCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+            aria-pressed={!sideCollapsed}
+            title={`${sideCollapsed ? 'Show' : 'Hide'} the sidebar (⌃⌘S)`}
+            onClick={toggleSidebar}
           >
-            <Icon name="chevron-left" size={16} />
+            <Icon name="layout-sidebar" size={16} />
           </button>
-          <button
-            type="button"
-            aria-label="Forward"
-            aria-disabled={!sessionHistory.forward}
-            title={historyTitle(sessionHistory.forward, 'Forward', 'Forward again, after going back', menus.chordSigns(QUEUE_CHORDS.historyForward[0]))}
-            onClick={() => travel.current('forward', false)}
-          >
-            <Icon name="chevron-right" size={16} />
-          </button>
-        </div>
-        <ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onAddProject={() => openSettings('projects', NEW_PROJECT)} onEditProjects={() => openSettings('projects')} />
-        <label className="ca-search">
-          <Icon name="search" size={14} />
-          <input
-            ref={searchRef}
-            // ⌘F comes here from the list (findKeys.ts), but not while a panel takes the whole window.
-            data-find={maxed ? undefined : 'window'}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Filter ${current === ALL_PROJECTS ? 'all projects' : current}`}
-            aria-label="Filter worktrees, sessions and PRs"
-            spellCheck={false}
-          />
-          {query ? (
+          <div className="ca-histnav" role="group" aria-label="Sessions you looked at">
             <button
               type="button"
-              className="ca-search-clear"
-              aria-label="Clear filter"
-              title="Clear filter"
-              onClick={() => {
-                setQuery('');
-                searchRef.current?.focus();
-              }}
+              aria-label="Back"
+              aria-disabled={!sessionHistory.back}
+              title={historyTitle(sessionHistory.back, 'Back', 'Back to the session you looked at before', menus.chordSigns(QUEUE_CHORDS.historyBack[0]))}
+              onClick={() => travel.current('back', false)}
             >
-              <Icon name="x" size={12} />
+              <Icon name="chevron-left" size={16} />
             </button>
-          ) : (
-            <Kbd keys={['⌥', '⌘', 'F']} />
-          )}
-        </label>
-        <div className="ca-bar-tools" data-tauri-drag-region>
+            <button
+              type="button"
+              aria-label="Forward"
+              aria-disabled={!sessionHistory.forward}
+              title={historyTitle(sessionHistory.forward, 'Forward', 'Forward again, after going back', menus.chordSigns(QUEUE_CHORDS.historyForward[0]))}
+              onClick={() => travel.current('forward', false)}
+            >
+              <Icon name="chevron-right" size={16} />
+            </button>
+          </div>
+          <ProjectSwitcher logoStatus={logoStatus} projects={projects} current={current} total={totalLanes} actions={actions} onPick={pickProject} onOpenWindow={switcherWindow} onAddProject={() => openSettings('projects', NEW_PROJECT)} onEditProjects={() => openSettings('projects')} />
+        </div>
+        {/* The way into the app: the quick panel (ui/Quick.tsx), as ⌘K and its own shortcut open it,
+            to find a session, a todo or a PR anywhere or to start new work where ⌘N would. It says
+            what the panel's box says, and the panel's shortcut. Finding in the list is ⌘F's
+            (ui/ListBar.tsx). */}
+        <button
+          type="button"
+          className="ca-search"
+          title={`Find a session, a todo or a PR, or describe new work (⌘K${quickKeys ? `, or ${quickKeys.join('')} from any app` : ''})`}
+          onClick={() => newSession({ laneId: startLaneId })}
+        >
+          <Icon name="search" size={14} />
+          <span>{QUICK_PLACEHOLDER}</span>
+          <Kbd keys={quickKeys ?? ['⌘', 'K']} />
+        </button>
+        <div className="ca-win-bar-end" data-tauri-drag-region>
           <Seg
             className="ca-barplace"
             label="Agents bar"
@@ -1550,20 +1568,16 @@ export function App() {
             value={barPlace === 'off' ? null : barPlace}
             onPick={pickBarPlace}
           />
+          <Button
+            icon="plus"
+            aria-label="New session"
+            title={pickedRows.length > 0 ? `Start one session for the ${pickedRows.length} selected todos (⌘N)` : selected?.kind === 'todo' ? 'Start a session for the selected todo (⌘N)' : 'Start a session in the selected worktree (⌘N)'}
+            onClick={() => (pickedRows.length > 0 ? startForTodos(pickedRows) : selected?.kind === 'todo' ? startForTodo(selected) : newSession({ laneId: startLaneId }))}
+          />
+          {/* Improve Codealong (improve.ts): the quick panel on Codealong's own project, with pictures
+              of its windows as they are, for a session that changes Codealong itself. */}
+          <Button icon="bulb" className="ca-improve" aria-label="Improve Codealong" title={improveTitle(shortcutLabel(board?.improveShortcut))} onClick={() => void showQuick({ improve: true, project: projectNow.current, opener: windowLabel() })} />
         </div>
-        <Button
-          size="sm"
-          icon="plus"
-          title={pickedRows.length > 0 ? `Start one session for the ${pickedRows.length} selected todos (⌘N)` : selected?.kind === 'todo' ? 'Start a session for the selected todo (⌘N)' : 'Start a session in the selected worktree (⌘N)'}
-          onClick={() => (pickedRows.length > 0 ? startForTodos(pickedRows) : selected?.kind === 'todo' ? startForTodo(selected) : newSession({ laneId: startLaneId }))}
-        >
-          New session
-        </Button>
-        {/* Improve Codealong (improve.ts): the quick panel on Codealong's own project, with pictures
-            of its windows as they are, for a session that changes Codealong itself. */}
-        <Button size="sm" icon="bulb" className="ca-improve" title={improveTitle(shortcutLabel(board?.improveShortcut))} onClick={() => void showQuick({ improve: true, project: projectNow.current, opener: windowLabel() })}>
-          Improve Codealong
-        </Button>
       </div>
       <UsageBar
         usage={board?.usage ?? []}
@@ -1638,8 +1652,27 @@ export function App() {
           }
         />
         {sideCollapsed ? <span aria-hidden="true" /> : <Resizer panel="before" cssVar="--sidebar-w" onResize={setSidebarWidth} />}
-        <main ref={boardRef} className={view === 'canvas' ? 'ca-board is-canvas' : 'ca-board'} aria-label={VIEWS.find((v) => v.id === view)?.label}>
-          {view === 'sessions' && !loading && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
+        {/* ⌘F from the board opens its find (findKeys.ts), but not while a panel takes the whole window. */}
+        <main ref={boardRef} className={view === 'canvas' ? 'ca-board is-canvas' : 'ca-board'} aria-label={VIEWS.find((v) => v.id === view)?.label} data-find={maxed ? undefined : 'window'}>
+          {/* One strip in every view, so the find keeps the keyboard as the view changes under it. */}
+          {!loading && (view === 'sessions' || findShown) && (
+            <ListBar>
+              {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
+              {findShown && (
+                <ListFind
+                  inputRef={searchRef}
+                  value={query}
+                  onChange={setQuery}
+                  placeholder={FIND_IN[view]}
+                  onLeave={() => setFindOpen(false)}
+                  onClose={() => {
+                    setQuery('');
+                    setFindOpen(false);
+                  }}
+                />
+              )}
+            </ListBar>
+          )}
           {devices?.asks.map((a) => (
             <div key={a.key} className="ca-device-banner" role="alert">
               <Icon name="device-desktop" size={14} />
