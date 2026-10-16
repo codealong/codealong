@@ -6,7 +6,9 @@
 // its line has. Clearing the search takes the line away. A session the quick panel shows (`reveal`
 // with `find`) opens with the bar on those words too, and again after the bar was closed when it's
 // shown once more, until another session is selected. A PR one of whose sessions said the words is
-// found in PRs, and that session shown in the PR's place opens with the bar on them. With
+// found in PRs, and that session shown in the PR's place opens with the bar on them. A search typed
+// here retires what the quick panel asked: closing the bar and clearing the search doesn't bring
+// it back. With
 // PREVIEW_DEVICES, another device's session its own search found is listed as well. In the quick
 // panel: ⏎ on a session found that way asks the main window to show it with the words.
 //   scripts/preview.sh sessions '' scripts/preview/said-search-check.js
@@ -172,6 +174,26 @@
           .then(function () {
             check('the session shown in the PR’s place opens with the bar on the words', !!field() && field().value === 'quokka bridge', field() && field().value);
           });
+      })
+      .then(function () {
+        window.__emit('reveal', { kind: 'session', laneId: A.lane, key: A.key, find: 'quokka bridge' });
+        return shown('Said A');
+      })
+      .then(function () { return until(function () { return !!field(); }, 3000).catch(function () {}); })
+      .then(function () {
+        type(filter(), 'quokka bridge');
+        return until(function () { return !!saidIn(rowOf(A)); }, 5000, 'A found by the search here');
+      })
+      .then(function () {
+        q('.ca-thread-find button[aria-label="Close find"]').click();
+        return until(function () { return !bar(); }, 2000);
+      })
+      .then(function () {
+        type(filter(), '');
+        return wait(600);
+      })
+      .then(function () {
+        check('a search typed here retires what the quick panel asked', !bar() && title() === 'Said A', title());
       });
   };
 

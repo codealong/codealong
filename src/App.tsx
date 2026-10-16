@@ -504,12 +504,13 @@ export function App() {
   const selectedLane = selected?.lane ?? null;
   // What the find bar in a session's panel opens on, wherever the panel shows it: for a session
   // this window's search found by what was said in it, the words it found there; else the words
-  // the quick panel found it by (`Reveal.find`), until another session is selected. Each reveal is
+  // the quick panel found it by (`Reveal.find`), until another session is selected or a search is
+  // typed here, which would otherwise hand the bar that ask again once it's cleared. Each reveal is
   // a new ask, so showing the session again opens a bar that was closed.
   const [revealFind, setRevealFind] = useState<{ key: string; ask: FindAsk } | null>(null);
   useEffect(() => {
-    if (revealFind && selectedSessionKey !== revealFind.key) setRevealFind(null);
-  }, [revealFind, selectedSessionKey]);
+    if (revealFind && (query || selectedSessionKey !== revealFind.key)) setRevealFind(null);
+  }, [revealFind, selectedSessionKey, query]);
   const findIn = useCallback(
     (key: string): FindAsk | null => {
       const said = saidOf(key);
