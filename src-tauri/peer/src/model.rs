@@ -202,6 +202,11 @@ pub struct Session {
     pub archived: bool,
     /// A background job has no terminal tab; this opens it in a new one (`claude attach <job>`).
     pub attach_command: Option<String>,
+    /// While it runs, the id its harness's app reaches it by as it goes on where it is: a Claude
+    /// Code session's Remote Control session (`session_…`), which the Claude app shows and
+    /// sends to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_control: Option<String>,
     /// The session whose record holds this one's conversation until it writes its own: a
     /// Claude Code conversation moved to the background goes on in a job that writes nothing
     /// until its next prompt (`board::claude_moves`). Its panel reads again when this changes.
@@ -507,6 +512,7 @@ impl Session {
             branch: None,
             archived: false,
             attach_command: None,
+            remote_control: None,
             continues: None,
             origin: None,
             stalled_since: None,

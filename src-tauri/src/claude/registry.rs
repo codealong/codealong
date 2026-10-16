@@ -53,6 +53,10 @@ pub struct RegistryEntry {
     /// The Claude app's own id for a session it runs (`local_…`), which names the app's record
     /// of it.
     pub host_session: Option<String>,
+    /// Its Remote Control session (`bridgeSessionId`, `session_…`), while it has one: the Claude
+    /// app and claude.ai/code show it by that and send it what you type there. Only in the
+    /// shape the app's links take (`remote_control_id`).
+    pub remote_control: Option<String>,
 }
 
 impl RegistryEntry {
@@ -86,6 +90,7 @@ struct RawRegistry {
     messaging_socket_path: Option<Value>,
     peer_protocol: Option<Value>,
     host_session_id: Option<Value>,
+    bridge_session_id: Option<Value>,
 }
 
 pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
@@ -110,7 +115,15 @@ pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
         messaging_socket: text_of(raw.messaging_socket_path),
         peer_protocol: raw.peer_protocol.as_ref().and_then(Value::as_u64),
         host_session: text_of(raw.host_session_id),
+        remote_control: text_of(raw.bridge_session_id).filter(|id| remote_control_id(id)),
     })
+}
+
+/// Whether `id` is a Remote Control session's id as the Claude app's `claude://code/<id>` takes
+/// one (2.42304's `^(cse|session)_[A-Za-z0-9_-]+$`): it goes into a link, so nothing else does.
+fn remote_control_id(id: &str) -> bool {
+    let rest = id.strip_prefix("session_").or_else(|| id.strip_prefix("cse_"));
+    rest.is_some_and(|r| !r.is_empty() && r.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
 }
 
 /// The entry of the process `pid`, whatever it says of itself: a window whose conversation
@@ -279,7 +292,20 @@ mod tests {
         assert_eq!(e.name.as_deref(), Some("spark-app4-4b"));
         assert_eq!(e.parked_job, None);
         assert!(!e.spare);
+        assert_eq!(e.remote_control, None);
         assert!(parse_registry(r#"{"pid":1}"#).is_none());
+    }
+
+    /// Remote Control's session, which the Claude app opens a running session by, only in the
+    /// shape its links take, since it goes into one.
+    #[test]
+    fn reads_its_remote_control_session() {
+        let with = |id: &str| parse_registry(&format!(r#"{{"pid":2,"sessionId":"9f62","cwd":"/x","bridgeSessionId":{id}}}"#)).unwrap().remote_control;
+        assert_eq!(with(r#""session_014qjYYnNbycKT9F3gWV""#).as_deref(), Some("session_014qjYYnNbycKT9F3gWV"));
+        assert_eq!(with(r#""cse_01ab-c_d""#).as_deref(), Some("cse_01ab-c_d"));
+        for odd in [r#""session_""#, r#""session_a/../b""#, r#""local_abc""#, r#""session_a?x=1""#, "null", "7"] {
+            assert_eq!(with(odd), None, "{odd}");
+        }
     }
 
     #[test]

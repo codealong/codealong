@@ -570,14 +570,18 @@ impl crate::harness::Adapter for ClaudeCode {
         let (term, who) = (o.term, o.who.clone());
         let mut t = Vec::new();
         match s.surface {
-            Surface::Cli if s.live && s.attach_command.is_some() => {
-                t.push(o.way(s, "attach", "terminal", format!("Attach in {term}"), format!("{who} · runs in the background"), true, false));
-            }
             Surface::Cli if s.live => {
-                let verb = if o.respond { "Respond in" } else { "Show in" };
-                t.push(o.way(s, "focus", "terminal", format!("{verb} {term}"), who, true, false));
+                if s.attach_command.is_some() {
+                    t.push(o.way(s, "attach", "terminal", format!("Attach in {term}"), format!("{who} · runs in the background"), true, false));
+                } else {
+                    let verb = if o.respond { "Respond in" } else { "Show in" };
+                    t.push(o.way(s, "focus", "terminal", format!("{verb} {term}"), who.clone(), true, false));
+                }
+                // The app shows a running session and sends it what you type there through its
+                // Remote Control, as it runs on here; without one it can't take it while it runs.
                 if o.first && s.app_account {
-                    t.push(o.way(s, "claude-app", "app", "Open in Claude app".into(), format!("Live in {term}, finish there first"), false, true));
+                    let (why, off) = if s.remote_control.is_some() { (who, false) } else { ("Needs Remote Control (/remote-control)".to_string(), true) };
+                    t.push(o.way(s, "claude-app", "app", "Open in Claude app".into(), why, false, off));
                 }
             }
             Surface::Cli => {
@@ -601,7 +605,10 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn open(&self, s: &Session, action: &str) -> anyhow::Result<()> {
         match action {
-            "claude-app" => crate::launch::open_url(&app::claude_app_url(&s.id)),
+            "claude-app" => crate::launch::open_url(&match s.remote_control.as_deref().filter(|_| s.live) {
+                Some(id) => app::remote_control_url(id),
+                None => app::claude_app_url(&s.id),
+            }),
             other => anyhow::bail!("Unknown action {other:?}"),
         }
     }

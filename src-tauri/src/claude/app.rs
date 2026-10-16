@@ -160,6 +160,14 @@ pub fn claude_app_url(cli_session_id: &str) -> String {
     claude_app_url_in(&records_dir(), cli_session_id)
 }
 
+/// Opens a session that runs elsewhere (a terminal, a background job) in the Claude app by its
+/// Remote Control session (`Session::remote_control`), as the app's own list of them does: the
+/// app shows it, and what you type there goes to it where it runs (2.42304's `code/<id>`
+/// route, which also finds a session of its own with that id).
+pub fn remote_control_url(id: &str) -> String {
+    format!("claude://code/{}", urlencoding::encode(id))
+}
+
 fn claude_app_url_in(records: &Path, cli_session_id: &str) -> String {
     match claude_app_session(records, cli_session_id) {
         Some(local) => format!("claude://code/continue?session={}", urlencoding::encode(&local)),
@@ -273,5 +281,7 @@ mod tests {
         // With no records at all, the app imports the session.
         let empty = std::env::temp_dir().join("codealong-no-records");
         assert_eq!(claude_app_url_in(&empty, "87412567-2cd2"), "claude://resume?session=87412567-2cd2");
+        // One running elsewhere, by its Remote Control session.
+        assert_eq!(remote_control_url("session_014qjYYnNbycKT9F3gWV"), "claude://code/session_014qjYYnNbycKT9F3gWV");
     }
 }

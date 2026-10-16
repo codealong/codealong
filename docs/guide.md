@@ -1734,7 +1734,12 @@ conversation in its terminal (or resumed in a new one with `agy --conversation`)
 app brought forward (it has no link to a conversation), a Cursor app chat in Cursor's Agents
 window, a Cursor command line chat in its terminal (or resumed in a new one with `cursor-agent
 --resume`), a background job attached in a new terminal,
-or the folder in your editor. A new terminal opens in the terminal app config.toml names, as a tab
+or the folder in your editor. A Claude Code session running in a terminal or as a background job,
+on the account the Claude app is signed into, also has Open in Claude app (⌘3) while it has Remote
+Control (`/remote-control`, or `"remoteControlAtStartup": true` in its settings.json for every
+session): the app shows it and sends it what you type there, and it goes on running where it is.
+Without Remote Control the app can't take it while it runs, so the entry says so; one that isn't
+running continues in the app (Continue in Claude app). A new terminal opens in the terminal app config.toml names, as a tab
 in the window already showing that worktree, repo or project (`new_terminal` in config.toml;
 Terminal can't open tabs for another app, so there it's a window). A worktree opens in your editor
 (`editor` in config.toml, ⌘2) or, from Open in in its right-click menu and its Open button, any

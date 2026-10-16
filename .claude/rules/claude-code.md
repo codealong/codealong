@@ -586,6 +586,20 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   and `claude://resume?session=<uuid>` imports a CLI session and opens it: `claude/app.rs`
   (`claude_app_url`). `continue` also takes `last`. Rejected links are logged as
   `claudeURLHandler: code entry link invalid ?session` in `~/Library/Logs/Claude/main.log`.
+- A session running in a terminal or as a background job shows in the app through its Remote
+  Control, as it runs on there: `/remote-control` (`/rc`) turns it on, settings.json's
+  `remoteControlAtStartup: true` for every session, and the registry entry then has
+  `bridgeSessionId` (`session_…`). `claude://code/<that id>` opens it (the app's `/code/<id>`
+  route takes `session_` and `cse_` ids, finding a session of its own with that Remote Control
+  id, else showing the Remote Control one), and the log says `LocalSessions.setFocusedSession:
+  sessionId=session_…` (2.42304, 2026-10-16): `claude/registry.rs` (`remote_control_id`),
+  `claude/app.rs` (`remote_control_url`). The app's `CliSessionDiscovery` also lists its own
+  account's recent terminal transcripts (its config folder's) in its sidebar, with whether each runs (from the
+  registry), and tails them; it resumes one only once nothing runs it ("Running" refusal), and
+  its handles for them are made up afresh each launch, so no link reaches one without Remote
+  Control. Claude Code's own `/desktop` (`/app`) hands a session over instead: it saves it, opens
+  `claude://resume?session=<id>` and exits; `claude --desktop --resume <id>` refuses one open in
+  a terminal ("Run /desktop there instead"), 2.1.302.
 - `claude://code/new?folder=<path>&q=<prompt>` opens the new-session page with the folder and
   prompt filled in, for you to send there, and takes no model or worktree: `claude/mod.rs`
   (`app_link`). `prompt=` works too. `q` is capped at 14,336 characters; `folder` can repeat;

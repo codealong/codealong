@@ -370,6 +370,7 @@ pub fn claude_session(
         excerpt,
         branch: tr.and_then(|t| t.git_branch.clone()),
         attach_command,
+        remote_control: reg.and_then(|r| r.remote_control.clone()),
         stalled_since,
         background: background.then(|| quiet.running.unwrap_or_default().to_string()),
         app_account: account.home_path() == crate::util::home().join(".claude"),
@@ -4464,7 +4465,20 @@ mod tests {
         let main = AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let mine = claude_session(&main, Some(&reg("waiting", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[mine], None, None, &apps);
-        assert!(t[1].disabled && t[1].id.ends_with("|claude-app"), "live elsewhere, so offered but disabled");
+        let app = |t: &[Target]| t.iter().find(|x| x.id.ends_with("|claude-app")).map(|x| (x.label.clone(), x.detail.clone().unwrap_or_default(), x.disabled));
+        // Live in a terminal, the app takes it only through its Remote Control.
+        assert_eq!(app(&t), Some(("Open in Claude app".to_string(), "Needs Remote Control (/remote-control)".to_string(), true)));
+        let controlled = RegistryEntry { remote_control: Some("session_01abc".into()), ..reg("waiting", NOW) };
+        let mine = claude_session(&main, Some(&controlled), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!(mine.remote_control.as_deref(), Some("session_01abc"));
+        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[mine], None, None, &apps);
+        assert_eq!(t[0].label, "Respond in Ghostty", "the terminal still leads");
+        assert!(app(&t).is_some_and(|(_, why, off)| !off && why.starts_with("claude · ")));
+        // A background job too, beside attaching it.
+        let job = RegistryEntry { kind: Some("bg".into()), job_id: Some("b887d77f".into()), ..controlled };
+        let (t, _) = targets(&seed("/r/spark-portal", "portal"), &[claude_session(&main, Some(&job), Some(&tr()), 0, NOW, &Quiet::default()).unwrap()], None, None, &apps);
+        assert_eq!(t[0].label, "Attach in Ghostty");
+        assert!(app(&t).is_some_and(|(_, _, off)| !off));
         let (none, default) = targets(&seed("/r/x", "x"), &[], None, None, &apps);
         assert_eq!(default.as_deref(), Some("l|terminal"));
         assert_eq!(none.len(), 3);
