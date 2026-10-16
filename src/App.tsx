@@ -314,18 +314,22 @@ export function App() {
   // long as it has words.
   const searchRef = useRef<HTMLInputElement>(null);
   const [findOpen, setFindOpen] = useState(false);
+  // Each ⌘F, which gives the find the keyboard once what it asks for is laid out.
+  const [findAsk, setFindAsk] = useState(0);
   const findShown = findOpen || query !== '';
   const openFind = useCallback(() => {
+    // The find is over the list: a panel taking the whole window (⇧⌘F, `maxed` below) gives the
+    // list its place back. Only Sessions' and PRs' panels do.
+    if (boardRef.current?.getClientRects().length === 0) (view === 'prs' ? setPrPanelMax : setPanelMax)(false);
     setFindOpen(true);
-    searchRef.current?.focus();
-    searchRef.current?.select();
-  }, []);
-  // Opened, or the board read once since: the keyboard goes to it, with its words ready to type over.
+    setFindAsk((n) => n + 1);
+  }, [view, setPanelMax, setPrPanelMax]);
+  // Asked for, or the board read once since: the keyboard goes to it, with its words ready to type over.
   useLayoutEffect(() => {
     if (!findOpen) return;
     searchRef.current?.focus();
     searchRef.current?.select();
-  }, [findOpen, loading]);
+  }, [findOpen, findAsk, loading]);
   const gPending = useRef(false);
 
   useEffect(() => {

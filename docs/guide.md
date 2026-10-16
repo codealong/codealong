@@ -1024,7 +1024,7 @@ view.
 
 Finding anything anywhere, and starting work, is the quick panel's (the box in the middle of the
 title bar, ⌘K). Finding in what the view lists is ⌘F's from the list, and ⌥⌘F's or `/`'s from
-anywhere in the window: a find opens in the strip over the list (beside Sessions' sort and rows
+anywhere in the window (a panel taking the whole window gives the list its place back): a find opens in the strip over the list (beside Sessions' sort and rows
 buttons), as ⌘F in a session's panel opens one over its conversation, saying the view it finds in.
 What's typed narrows the view's list, and on the canvas fades the cards that don't match. ↓ hands
 the list the keyboard, ⏎ opens the selected row (on the canvas, zooms to what matches), Escape or
