@@ -1234,15 +1234,16 @@ conversation is cached for what it's on ("Your next response will be slower"); C
 yes, as picking it meant. It also saves what it's switched to as the account's default for new
 sessions; Codealong puts the default back a few seconds later, so the switch stays with that
 session, and the box says what happened once that's done. Meanwhile the account's other running
-sessions may follow the new default.
+sessions may follow the new default. A Codex session in a terminal is switched there, with its own
+`/model`; one Codealong runs is switched from the chip.
 
 ### New session
 
 **New session**, the panel's last row: pick the worktree (⌘T; it starts at whatever's selected in
 Codealong: a worktree, a session's, a PR's, or for a PR with none here its repo's main checkout;
 pinned ones first), the account and model in one menu (⌘L, every account on every model it can start
-on, with its limits, and the effort under them: Default, Low, Medium, High, Extra or Max, ← → to
-change it), and where it runs (⌘O, a chip beside the agent menu that says the place, with a line on
+on, with its limits, and the effort under them: Default, Low, Medium, High, Extra or Max, for Codex
+Extra high and Ultra too, ← → to change it), and where it runs (⌘O, a chip beside the agent menu that says the place, with a line on
 each in its menu). Where a start on this Mac runs becomes the account's `start` in config.toml (with
 Auto, of every account Auto picks among), so the next start opens there, and so does `codealong
 start` without `--in`; the places keep their order whichever it is. With other Macs linked, ⌘D picks
@@ -1264,9 +1265,13 @@ their own, so for them Background opens the terminal behind your windows instead
 to come forward, so you stay where you are). The Claude app opens a new session with the prompt
 filled in, and you send it there (its own model and worktree choices included). The Codex app runs
 the new thread on your prompt: Codealong makes the thread, opens it in the app and has the app send
-the prompt, on the account's default model; without a prompt it opens the app's new-thread page.
-OpenCode starts in your terminal on your prompt (`--prompt`), and so does the Codex CLI, for any
-Codex account (`codex -- <prompt>`, images with `-i`), and Antigravity's command line, `agy`, once
+the prompt, on the model and effort you picked, else the account's own; without a prompt it opens
+the app's new-thread page, where the app picks them. A thread that goes on in the app goes on with
+its own, as the app's box would send it. OpenCode starts in your terminal on your prompt
+(`--prompt`), and so does the Codex CLI, for any Codex account (`codex -- <prompt>`, images with
+`-i`), on one of the models Codex's own `/model` picker lists for the account (`-m`; Default is
+`model` in the account's `config.toml`) at the effort you picked (`model_reasoning_effort`, Low to
+Ultra; not every model takes Ultra), and Antigravity's command line, `agy`, once
 it's installed (`agy -i <prompt>`, on one of the models it lists); the Antigravity app starts
 conversations only in its own window. Cursor's command line, `cursor-agent`, starts in your
 terminal on one of the models Cursor's own picker shows, Auto among them (`--model`, each on its

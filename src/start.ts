@@ -96,8 +96,8 @@ export interface AutoPick {
 }
 
 /** Whether an account's command line would take `model`: one it lists, and for Claude Code any,
- *  since `--model` takes a model's full name too. The adapters' `offers_model` has the same rule,
- *  which `codealong start --model` goes by. */
+ *  since `--model` takes a model's full name too. The adapters' `offers_model` has the same rule
+ *  (Codex's also takes the models its picker hides), which `codealong start --model` goes by. */
 function offersModel(a: StartAccount, model: string): boolean {
   return a.harness === 'claude' || (a.models ?? []).some((m) => m.id === model);
 }
@@ -411,6 +411,12 @@ export function modelFamily(model: string | null): string | null {
  * full name by family and version (`claude-fable-5-1[1m]` is Fable 5.1 1M), anything else as
  * written.
  */
+/** The models to name an account's by: its own list, else those every account lists between them
+ *  (an account from a Mac that sends none). */
+export function ownModels(a: StartAccount | undefined, all: ModelOption[]): ModelOption[] {
+  return a?.models?.length ? a.models : all;
+}
+
 export function modelName(model: string, models: ModelOption[]): string {
   const known = models.find((m) => m.id === model);
   if (known) return known.label.split(':')[0].replace(/ \(1M context\)$/, ' 1M');
@@ -486,14 +492,16 @@ export function onCommandLine(place: StartPlace): boolean {
   return place === 'terminal' || place === 'background';
 }
 
-/** Whether a Claude Code start there takes the model you pick: the command line, or the adapter. */
-export function placeTakesModel(place: StartPlace): boolean {
-  return onCommandLine(place) || place === 'codealong';
+/** Whether a start there, or a resume, takes the model you pick: the command line, or the adapter;
+ *  and for a start, the Codex app, whose thread Codealong makes on it (codex/mod.rs
+ *  `start_in_app`). A resume there goes as the app's own box sends it. */
+export function placeTakesModel(place: StartPlace, resuming = false): boolean {
+  return onCommandLine(place) || place === 'codealong' || (place === 'codex-app' && !resuming);
 }
 
 /** A place's line under its name in a menu of places (StartControls.tsx `placeLine`): what it is
  *  beyond its name, and that an app goes on its own model, as a model picked gives way there. */
-export function placeNote(place: StartPlace, behind = false): string {
+export function placeNote(place: StartPlace, behind = false, resuming = false): string {
   switch (place) {
     case 'terminal':
       return 'A new tab, in front';
@@ -502,7 +510,7 @@ export function placeNote(place: StartPlace, behind = false): string {
     case 'codealong':
       return 'Its panel here takes your replies';
     default:
-      return 'On the app’s own model';
+      return placeTakesModel(place, resuming) ? 'A new thread there, on the model picked' : 'On the app’s own model';
   }
 }
 
@@ -513,6 +521,8 @@ export interface StartPicks {
   effort: string | null;
   place: StartPlace | null;
   newWorktree: boolean;
+  /** A resume's picks (`resumeChoice`), which an app takes no model for (`placeTakesModel`). */
+  resuming?: boolean;
 }
 
 /** What the picks come to among what's offered: the account a start runs, where, on which model
@@ -540,6 +550,8 @@ export interface ChosenStart {
   startsOn: string | null;
   /** The model the effort row speaks of. */
   effortModel: string | null;
+  /** The levels the effort row offers: its account's. */
+  efforts: { id: string; label: string }[];
   effortNow: string | null;
   effortWord: string | null;
   /** What the agent chip says of the model (`modelWords`). */
@@ -568,7 +580,7 @@ export function startChoice(
   now = 0,
   lanes: Lane[] = [],
 ): ChosenStart {
-  const { agent, effort, place, newWorktree } = picks;
+  const { agent, effort, place, newWorktree, resuming = false } = picks;
   const acceptedAgent = (id: string) => {
     if (agents.some((o) => o.id === id)) return true;
     const { choice: c, model: m } = parseAgent(id);
@@ -589,19 +601,21 @@ export function startChoice(
       : autoModel(accountInfo?.defaultModel ?? null, usage.find((u) => u.account === account), accountInfo?.usageCap)
     : null;
   const allPlaces = placesFor(choice, accounts, pick, groups, usage, now, lanes);
+  // The levels its account takes (Codex's go past Claude Code's), else those offered for any.
+  const levels = accountInfo?.efforts?.length ? accountInfo.efforts : efforts;
   const takesEffort = (accountInfo?.efforts?.length ?? 0) > 0;
-  const tuned = (!!chosenModel || !!activePick?.model || (!!effort && takesEffort)) && allPlaces.some((p) => placeTakesModel(p.place));
-  const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place)) : allPlaces;
+  const tuned = (!!chosenModel || !!activePick?.model || (!!effort && takesEffort)) && allPlaces.some((p) => placeTakesModel(p.place, resuming));
+  const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place, resuming)) : allPlaces;
   const placeNow = [place, choice ? (settledPlace(choice, accounts, pick, groups, usage, now, lanes) ?? lastPlace(choice)) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
   // A harness whose command line makes a worktree for a session (Claude Code's `--worktree`).
   const makesWorktree = !!placeNow && onCommandLine(placeNow) && !!accountInfo?.worktree;
   // A harness whose command line takes a model; Codealong hands it to an adapter the same way.
-  const takesAModel = !!placeNow && placeTakesModel(placeNow) && ((accountInfo?.models?.length ?? 0) > 0 || (!!chosenModel && !!accountInfo && offersModel(accountInfo, chosenModel)));
+  const takesAModel = !!placeNow && placeTakesModel(placeNow, resuming) && ((accountInfo?.models?.length ?? 0) > 0 || (!!chosenModel && !!accountInfo && offersModel(accountInfo, chosenModel)));
   const modelNow = takesAModel ? (autoFor ? (autoModelPick?.model ?? null) : chosenModel) : null;
   const defaultModel = accountInfo?.defaultModel ?? null;
   const startsOn = takesAModel ? (modelNow ?? defaultModel) : null;
   // A Mac whose Codealong doesn't know effort yet lists no levels.
-  const effortTaken = takesAModel && takesEffort && modelFamily(startsOn) !== 'haiku';
+  const effortTaken = takesAModel && takesEffort && modelFamily(startsOn) !== 'haiku' && levels.some((e) => e.id === effort);
   const effortNow = effortTaken ? effort : null;
   return {
     agentNow,
@@ -620,9 +634,10 @@ export function startChoice(
     defaultModel,
     startsOn,
     effortModel: (autoFor ? autoModelPick?.model : chosenModel) ?? defaultModel,
+    efforts: levels,
     effortNow,
-    effortWord: efforts.find((e) => e.id === effortNow)?.label ?? null,
-    modelShown: modelWords(takesAModel, placeNow, harness, modelNow, defaultModel, models),
+    effortWord: levels.find((e) => e.id === effortNow)?.label ?? null,
+    modelShown: modelWords(takesAModel, placeNow, harness, modelNow, defaultModel, ownModels(accountInfo, models)),
   };
 }
 
@@ -691,7 +706,7 @@ function startsIn(lane: Pick<Lane, 'callsign' | 'startsChats'>): string {
 function startHappensThere({ lane, account, place, mac: on, reading, newWorktree, onModel, prompted, terminal, behind }: StartPlan, mac: string): string {
   if (!lane) return on ? `No worktrees in this project on ${mac}.` : reading ? 'Reading worktrees…' : 'No worktrees in this project yet.';
   if (!account || !place) return on?.error ? `${mac} didn’t say where its accounts can start: ${on.error}` : '';
-  const does = startDoes({ lane, who: `${account}${onModel}`, place, newWorktree, prompted, terminal, behind });
+  const does = startDoes({ lane, who: `${account}${onModel}`, onModel, place, newWorktree, prompted, terminal, behind });
   // What the start row has room to add after the words it shares with Jev's suggestions.
   const more =
     place === 'background' && !behind
@@ -721,13 +736,15 @@ export function startWhereWords(lane: Pick<Lane, 'project' | 'repo' | 'startsCha
 }
 
 /** What a start does: "Starts claude on Opus in api in the background." `who` is the account
- *  with what it starts on (`onModelWords`); `newWorktree`, that its harness makes one for it. */
-export function startDoes(s: { lane: Pick<Lane, 'repo' | 'callsign' | 'startsChats'>; who: string; place: StartPlace | null; newWorktree: boolean; prompted: boolean; terminal: string; behind: boolean }): string {
+ *  with what it starts on (`onModelWords`), which is `onModel`; `newWorktree`, that its harness
+ *  makes one for it. */
+export function startDoes(s: { lane: Pick<Lane, 'repo' | 'callsign' | 'startsChats'>; who: string; onModel?: string; place: StartPlace | null; newWorktree: boolean; prompted: boolean; terminal: string; behind: boolean }): string {
   // The row's title says a chat is in no project.
   const there = s.lane.startsChats ? 'a folder of its own' : s.lane.callsign;
   if (s.place === 'codealong') return `Codealong runs ${s.who} in ${there}.`;
   if (s.place === 'claude-app') return `The Claude app opens a new session in ${there}${s.prompted ? ' with this prompt filled in' : ''}.`;
-  if (s.place === 'codex-app') return s.prompted ? `The Codex app starts a new thread in ${there} on this prompt.` : `Codex opens a new thread in ${there}.`;
+  // Codealong makes the thread a prompt starts, on what's picked; without one the app picks.
+  if (s.place === 'codex-app') return s.prompted ? `The Codex app starts a new thread${s.onModel ?? ''} in ${there} on this prompt.` : `Codex opens a new thread in ${there}.`;
   const how = s.place === 'terminal' ? ` in ${s.terminal}` : s.place === 'background' ? (s.behind ? ` in ${s.terminal}, behind your windows` : ' in the background') : '';
   return s.newWorktree && !s.lane.startsChats ? `Claude Code makes a new worktree of ${s.lane.repo} and starts ${s.who} there${how}.` : `Starts ${s.who} in ${there}${how}.`;
 }
@@ -792,8 +809,11 @@ export function accountHeadWords(a: StartAccount, u: Usage | undefined, note: st
   return { detail: [HARNESS_WORD[a.harness], u?.plan].filter(Boolean).join(' · '), note: cant ? 'Can’t start from here' : note };
 }
 
-/** One of an account's lines in the agent menu: what its filter matches, and what it says. */
-export function agentOptionWords(o: Pick<AgentOption, 'model'>, a: StartAccount, models: ModelOption[]): { text: string; label: string; detail: string | null } {
+/** One of an account's lines in the agent menu: what its filter matches, and what it says. Its
+ *  models go by its own names for them: two harnesses can list one id (Codex and Cursor each have
+ *  `gpt-5.6-sol`) under names of their own. */
+export function agentOptionWords(o: Pick<AgentOption, 'model'>, a: StartAccount, all: ModelOption[]): { text: string; label: string; detail: string | null } {
+  const models = ownModels(a, all);
   const cant = a.places.length === 0;
   const text = `${a.name} ${HARNESS_WORD[a.harness]} ${o.model ? `${o.model} ${modelName(o.model, models)}` : 'default'}`;
   if (o.model) return { text, label: modelName(o.model, models), detail: models.find((m) => m.id === o.model)?.label.split(': ')[1] ?? null };
@@ -803,10 +823,16 @@ export function agentOptionWords(o: Pick<AgentOption, 'model'>, a: StartAccount,
 }
 
 /** What the effort row under the agent menu's models says beside the levels: who picks for a
- *  harness that picks its own, that Haiku takes none, or null for the keys that step it. */
-export function effortNote(harness: Harness | null, model: string | null): string | null {
-  if (harness && harness !== 'claude') return `${HARNESS_WORD[harness]} picks its own`;
+ *  harness that picks its own (an account that lists no levels: `takesEffort`), that Haiku takes
+ *  none, or null for the keys that step it. */
+export function effortNote(harness: Harness | null, model: string | null, takesEffort = harness === 'claude'): string | null {
+  if (harness && !takesEffort) return `${HARNESS_WORD[harness]} picks its own`;
   return modelFamily(model) === 'haiku' ? 'Haiku takes none' : null;
+}
+
+/** What the effort row's Default says it is: where the account's own level is set. */
+export function effortDefaultTitle(harness: Harness | null): string {
+  return harness === 'codex' ? 'The account’s own: config.toml’s model_reasoning_effort, else the model’s' : 'The account’s own: settings.json’s effortLevel, else the model’s';
 }
 
 /** What the New worktree box says of itself. */
@@ -870,7 +896,7 @@ export function resumeAccount(a: StartAccount): StartAccount {
 export function resumeChoice(account: StartAccount, models: ModelOption[], picks: ResumePicks, last: StartPlace | undefined): ChosenStart {
   const a = resumeAccount(account);
   const listed = a.models ?? models;
-  return startChoice([a], listed, a.efforts ?? [], [], null, agentOptions([a], listed, null), a.name, { ...picks, newWorktree: false }, () => last ?? 'terminal');
+  return startChoice([a], listed, a.efforts ?? [], [], null, agentOptions([a], listed, null), a.name, { ...picks, newWorktree: false, resuming: true }, () => last ?? 'terminal');
 }
 
 /** What the engine is asked for, from what the picks came to. */

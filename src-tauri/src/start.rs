@@ -44,8 +44,9 @@ pub enum Plan {
     Background { cwd: PathBuf, command: String },
     /// A link the Claude app opens.
     ClaudeApp { url: String },
-    /// A link the Codex app opens.
-    CodexApp { url: String },
+    /// A link the Codex app opens; with a prompt, a thread Codealong makes there, on `model` and
+    /// `effort` where they're asked for (`Adapter::app_takes_model`).
+    CodexApp { url: String, model: Option<String>, effort: Option<String> },
     /// A session Codealong runs over the account's ACP adapter, on `prompt`.
     Hosted { account: String, cwd: PathBuf, prompt: String, model: Option<String>, effort: Option<String> },
 }
@@ -734,7 +735,10 @@ fn plan_in(account: &AccountCfg, place: Place, folder: &Path, prompt: &str, sess
             Plan::Terminal { cwd, input: typed.input, env: typed.env, behind: place == Place::Background }
         }
         Place::ClaudeApp => Plan::ClaudeApp { url: adapter.app_link(folder, &ask).unwrap_or_default() },
-        Place::CodexApp => Plan::CodexApp { url: adapter.app_link(folder, &ask).unwrap_or_default() },
+        Place::CodexApp => {
+            let tuned = tunes(adapter, place, false);
+            Plan::CodexApp { url: adapter.app_link(folder, &ask).unwrap_or_default(), model: ask.model.filter(|_| tuned).map(String::from), effort: ask.effort.filter(|_| tuned).map(String::from) }
+        }
         // The agents take the prompt as text, so attachments go as paths they can read.
         Place::Codealong => Plan::Hosted { account: account.name.clone(), cwd, prompt: hosted_prompt(&ask), model: ask.model.map(String::from), effort: ask.effort.map(String::from) },
     }
@@ -820,7 +824,7 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     }
     let adapter = adapter_of(account);
     let word = adapter.harness().word();
-    let (model, effort) = tuning(adapter, spec.place, spec.model.as_deref(), spec.effort.as_deref())?;
+    let (model, effort) = tuning(adapter, spec.place, false, spec.model.as_deref(), spec.effort.as_deref())?;
     // A new worktree goes where the harness's command line takes it.
     let on_command_line = matches!(spec.place, Place::Terminal | Place::Background);
     let worktree = spec.worktree && on_command_line && chat.is_none();
@@ -856,7 +860,7 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
         }
         Place::ClaudeApp | Place::CodexApp => {
             let link = adapter.app_link(folder, &ask).ok_or_else(|| anyhow!("{} can't start a session there.", account.name))?;
-            adapter.start_in_app(account, &lane.callsign, folder, &spec.prompt, &link)
+            adapter.start_in_app(account, &lane.callsign, folder, &ask, &link)
         }
         Place::Codealong => {
             let key = crate::acp::start(account, folder, &hosted_prompt(&ask), ask.model, ask.effort)?;
@@ -865,13 +869,23 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     }
 }
 
-/// The model and effort asked for, where `place` takes them: a model, an effort level and a new
-/// worktree go where the harness's command line takes them, in a terminal or the background,
-/// or through its adapter under Codealong, which takes the same names. The apps pick their own,
-/// so there they're left out. One the harness doesn't take is an error.
-fn tuning<'a>(adapter: &dyn Adapter, place: Place, model: Option<&'a str>, effort: Option<&'a str>) -> Result<(Option<&'a str>, Option<&'a str>)> {
+/// Whether a start, or a resume, at `place` takes a model and an effort level: where the
+/// harness's command line takes them, in a terminal or the background, or through its adapter
+/// under Codealong, which takes the same names. An app picks its own, except for a start whose
+/// session the adapter makes there itself (`Adapter::app_takes_model`).
+fn tunes(adapter: &dyn Adapter, place: Place, resuming: bool) -> bool {
+    adapter.takes_model()
+        && match place {
+            Place::Terminal | Place::Background | Place::Codealong => true,
+            Place::ClaudeApp | Place::CodexApp => !resuming && adapter.app_takes_model(),
+        }
+}
+
+/// The model and effort asked for, where `place` takes them (`tunes`); elsewhere they're left
+/// out. One the harness doesn't take is an error.
+fn tuning<'a>(adapter: &dyn Adapter, place: Place, resuming: bool, model: Option<&'a str>, effort: Option<&'a str>) -> Result<(Option<&'a str>, Option<&'a str>)> {
     let word = adapter.harness().word();
-    let tuned = matches!(place, Place::Terminal | Place::Background | Place::Codealong) && adapter.takes_model();
+    let tuned = tunes(adapter, place, resuming);
     let model = model.map(str::trim).filter(|m| !m.is_empty() && tuned);
     let effort = effort.map(str::trim).filter(|e| !e.is_empty() && tuned && !adapter.efforts().is_empty());
     if let Some(m) = model.filter(|m| !valid_model(m)) {
@@ -923,7 +937,7 @@ pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &s
     if !resume_places(account, &home()).contains(&how.place) {
         bail!("{title} can't go on {} from here.", place_words(how.place, cfg));
     }
-    let (model, effort) = tuning(adapter, how.place, how.model.as_deref(), how.effort.as_deref())?;
+    let (model, effort) = tuning(adapter, how.place, true, how.model.as_deref(), how.effort.as_deref())?;
     let (prompt, carries_on) = resume_prompt(prompt, s);
     let dirs = (attachments::images_dir(), attachments::files_dir());
     let ask = asked(adapter, prompt, &s.id, model, effort, false, (&dirs.0, &dirs.1));
@@ -1676,10 +1690,17 @@ mod tests {
     #[test]
     fn a_model_goes_only_where_the_command_line_or_codealong_takes_it() {
         let claude = crate::harness::adapter(Harness::Claude);
-        assert_eq!(tuning(claude, Place::Terminal, Some(" opus "), Some("high")).unwrap(), (Some("opus"), Some("high")));
-        assert_eq!(tuning(claude, Place::Codealong, Some("sonnet"), None).unwrap(), (Some("sonnet"), None));
-        assert_eq!(tuning(claude, Place::ClaudeApp, Some("opus"), Some("high")).unwrap(), (None, None));
-        assert_eq!(tuning(crate::harness::adapter(Harness::Codex), Place::Terminal, Some("gpt-5"), Some("high")).unwrap(), (None, None));
+        assert_eq!(tuning(claude, Place::Terminal, false, Some(" opus "), Some("high")).unwrap(), (Some("opus"), Some("high")));
+        assert_eq!(tuning(claude, Place::Codealong, true, Some("sonnet"), None).unwrap(), (Some("sonnet"), None));
+        assert_eq!(tuning(claude, Place::ClaudeApp, false, Some("opus"), Some("high")).unwrap(), (None, None));
+        // Codealong makes the thread a start in the Codex app runs, so it takes one there too; a
+        // resume goes as the app's box sends it, which takes none.
+        let codex = crate::harness::adapter(Harness::Codex);
+        assert_eq!(tuning(codex, Place::Terminal, true, Some("gpt-6-sol"), Some("ultra")).unwrap(), (Some("gpt-6-sol"), Some("ultra")));
+        assert_eq!(tuning(codex, Place::CodexApp, false, Some("gpt-6-sol"), Some("low")).unwrap(), (Some("gpt-6-sol"), Some("low")));
+        assert_eq!(tuning(codex, Place::CodexApp, true, Some("gpt-6-sol"), Some("low")).unwrap(), (None, None));
+        assert!(tuning(codex, Place::Terminal, false, None, Some("extreme")).unwrap_err().to_string().contains("Codex takes low, medium, high, xhigh, max, ultra"));
+        assert_eq!(tuning(crate::harness::adapter(Harness::Opencode), Place::Terminal, false, Some("gpt-5"), Some("high")).unwrap(), (None, None));
     }
 
     fn places(o: &StartOptions, name: &str) -> Vec<Place> {
@@ -1817,13 +1838,23 @@ mod tests {
         let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, None, Some("high; rm -rf ~"), false) else { panic!() };
         assert_eq!(input, format!("claude2 --session-id {id}\n"));
         assert!(effort_levels().contains(&"medium") && !effort_levels().contains(&"ultracode") && !effort_levels().contains(&""));
-        // The other agents choose their own.
+        // OpenCode chooses its own.
         let o = account("opencode", "opencode", "~/.local/share/opencode", Some("opencode"));
         let Plan::Terminal { input, .. } = plan(&o, Place::Terminal, Path::new("/r/x"), "", id, None, Some("high"), false) else { panic!() };
         assert_eq!(input, "opencode\n");
+        // Codex takes its effort as config.toml's setting, its own levels among them.
         let cx = account("codex", "codex", "~/.codex", Some("codex"));
         let Plan::Terminal { input, .. } = plan(&cx, Place::Terminal, Path::new("/r/x"), "", id, None, Some("high"), false) else { panic!() };
-        assert_eq!(input, "codex -c check_for_update_on_startup=false\n");
+        assert_eq!(input, "codex -c check_for_update_on_startup=false -c 'model_reasoning_effort=\"high\"'\n");
+        let Plan::Terminal { input, .. } = plan(&cx, Place::Terminal, Path::new("/r/x"), "", id, Some("gpt-6-luna"), Some("ultra"), false) else { panic!() };
+        assert_eq!(input, "codex -c check_for_update_on_startup=false -m 'gpt-6-luna' -c 'model_reasoning_effort=\"ultra\"'\n");
+        let Plan::Terminal { input, .. } = plan(&a, Place::Terminal, Path::new("/r/x"), "", id, None, Some("ultra"), false) else { panic!() };
+        assert_eq!(input, format!("claude2 --session-id {id}\n"), "a level only Codex takes isn't typed for Claude Code");
+        // In the app, the thread Codealong makes for a prompt is made on them.
+        assert_eq!(
+            plan(&cx, Place::CodexApp, Path::new("/r/x"), "Fix it", id, Some("gpt-6-sol"), Some("low"), false),
+            Plan::CodexApp { url: "codex://threads/new?path=%2Fr%2Fx&prompt=Fix%20it".into(), model: Some("gpt-6-sol".into()), effort: Some("low".into()) }
+        );
         let o = options(&[a], "Ghostty", Vec::new(), Path::new("/Users/me"), |_| None);
         assert_eq!(o.claude_efforts.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["low", "medium", "high", "xhigh", "max"]);
     }
@@ -1905,14 +1936,14 @@ mod tests {
         assert_eq!(input, format!("claude2 --session-id {id} \"$CODEALONG_PROMPT\"\n"));
         // The Codex CLI gets the image with -i and taken out of the prompt, `--` before the prompt.
         let cx2 = account("codex2", "codex", "~/.codex2", Some("CODEX_HOME=~/.codex2 codex"));
-        let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), prompt, id, Some("opus"), None, true, (dir, Path::new("/f"))) else { panic!() };
-        assert_eq!(input, format!("CODEX_HOME=~/.codex2 codex -c check_for_update_on_startup=false -i '{}/0123456789abcdef.png' -- \"$CODEALONG_PROMPT\"\n", dir.display()));
+        let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), prompt, id, Some("gpt-6-sol"), None, true, (dir, Path::new("/f"))) else { panic!() };
+        assert_eq!(input, format!("CODEX_HOME=~/.codex2 codex -c check_for_update_on_startup=false -m 'gpt-6-sol' -i '{}/0123456789abcdef.png' -- \"$CODEALONG_PROMPT\"\n", dir.display()));
         assert_eq!(env, vec![(PROMPT_VAR.to_string(), "Match this:".to_string())]);
         let Plan::Terminal { input, env, .. } = plan_in(&cx2, Place::Terminal, Path::new("/r/x"), "", id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert_eq!((input.as_str(), env.len()), ("CODEX_HOME=~/.codex2 codex -c check_for_update_on_startup=false\n", 0));
         // Codex opens the path; the Claude app gets the same mention the terminal does.
         let codex = account("codex", "codex", "~/.codex", None);
-        let Plan::CodexApp { url } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
+        let Plan::CodexApp { url, .. } = plan_in(&codex, Place::CodexApp, Path::new("/r/x"), prompt, id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
         assert!(url.ends_with(&urlencoding::encode(&format!("Match this:\n![image]({}/0123456789abcdef.png)", dir.display())).to_string()));
         let claude = account("claude", "claude", "~/.claude", Some("claude"));
         let Plan::ClaudeApp { url } = plan_in(&claude, Place::ClaudeApp, Path::new("/r/x"), prompt, id, None, None, false, (dir, Path::new("/f"))) else { panic!() };
@@ -1975,7 +2006,7 @@ mod tests {
         assert_eq!(plan(&claude, Place::ClaudeApp, folder, "", "id", None, None, false), Plan::ClaudeApp { url: "claude://code/new?folder=%2FUsers%2Fme%2FMy%20Repo".into() });
         assert_eq!(
             plan(&codex, Place::CodexApp, folder, "Review #12", "id", None, None, false),
-            Plan::CodexApp { url: "codex://threads/new?path=%2FUsers%2Fme%2FMy%20Repo&prompt=Review%20%2312".into() }
+            Plan::CodexApp { url: "codex://threads/new?path=%2FUsers%2Fme%2FMy%20Repo&prompt=Review%20%2312".into(), model: None, effort: None }
         );
     }
 

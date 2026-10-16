@@ -1212,14 +1212,15 @@ mod tests {
         assert_eq!(refused(Session { status: Status::Working, ..idle.clone() }, "haiku"), "“Fix the build” is in the middle of a turn: switch its model once the turn ends.");
         assert!(refused(Session { status: Status::Needs, ..idle.clone() }, "haiku").contains("is waiting on you"));
         assert!(refused(idle.clone(), "haiku; rm -rf ~").contains("isn't a model Codealong can switch"));
-        // Codex's command line takes no model from Codealong.
+        // A Codex terminal is switched there: Codealong types no command into one.
         let thread = Session { key: "codex:codex:t1".into(), account: "codex".into(), harness: Harness::Codex, ..idle.clone() };
-        assert!(refused(thread.clone(), "gpt-5").contains("isn't a model Codealong can switch"));
+        assert_eq!(refused(thread.clone(), "gpt-6-sol"), "Codex has no command to switch a running session's model.");
         // An effort level the same way, and only one of the account's.
         let refused = |s: Session, effort: &str| switch_effort(&board_with(s.clone()), &cfg, &s.key, effort).unwrap_err().to_string();
         assert_eq!(refused(Session { status: Status::Working, ..idle.clone() }, "high"), "“Fix the build” is in the middle of a turn: switch its effort once the turn ends.");
         assert!(refused(idle.clone(), "turbo").contains("isn't an effort level Codealong can switch"));
-        assert!(refused(thread, "high").contains("isn't an effort level Codealong can switch"));
+        assert_eq!(refused(thread.clone(), "high"), "Codex has no command to switch a running session's effort.");
+        assert!(refused(thread, "turbo").contains("isn't an effort level Codealong can switch"));
     }
 
     /// A mode is switched only for a session Codealong runs, and only to one its agent offers;

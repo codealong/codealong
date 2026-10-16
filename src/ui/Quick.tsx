@@ -75,6 +75,7 @@ import {
   KEEP_PLACE_NOTICE,
   newWorktreeTitle,
   onModelWords,
+  ownModels,
   remember,
   remembered,
   START_OPTIONS_NOTICE,
@@ -630,6 +631,7 @@ export function Quick() {
     first,
     agentNow,
     autoFor,
+    accountInfo,
     account,
     harness,
     places,
@@ -1092,7 +1094,7 @@ export function Quick() {
   const ready = !!lane && !!account && !!placeNow;
   const terminalName = places.find((p) => p.place === 'terminal')?.label ?? 'The terminal';
   const placeShown = places.find((p) => p.place === placeNow);
-  const onModel = onModelWords(startsOn, effortWord, models);
+  const onModel = onModelWords(startsOn, effortWord, ownModels(accountInfo, models));
   const behind = places.find((p) => p.place === 'background')?.behind ?? false;
   const happens = startHappens({
     lane,
@@ -1147,7 +1149,7 @@ export function Quick() {
     // Improve Codealong: the pictures of the windows go after what you wrote.
     const prompt = withShots(written);
     const spec: StartSpec = { laneId: where.id, account: targetAccount, place: targetPlace, prompt, model: targetModel, effort: targetEffort, worktree: newTree, todos: forTodos.map((t) => t.id) };
-    const targetOnModel = sgChoice ? onModelWords(sgChoice.startsOn, sgChoice.effortWord, models) : onModel;
+    const targetOnModel = sgChoice ? onModelWords(sgChoice.startsOn, sgChoice.effortWord, ownModels(sgChoice.accountInfo, models)) : onModel;
     const label = startingLabel(targetPlace, targetAccount, targetOnModel, where, newTree, deviceInfo?.name ?? null);
     const id = Date.now();
     const to = opener ?? 'main';
@@ -1470,7 +1472,7 @@ export function Quick() {
     refocus();
   };
 
-  const effortFoot = efforts.length > 0 ? <EffortFoot efforts={efforts} value={effort} onPick={setEffort} harness={harness} model={effortModel} /> : null;
+  const effortFoot = efforts.length > 0 ? <EffortFoot efforts={efforts} value={effort} onPick={setEffort} harness={harness} model={effortModel} takesEffort={(accountInfo?.efforts?.length ?? 0) > 0} /> : null;
 
   const deviceSections: PickerSection[] = useMemo(() => {
     if (!devices) return [];
@@ -1519,7 +1521,7 @@ export function Quick() {
     const sgAccount = sgChoice ? sgChoice.account : account;
     const sgPlace = sgChoice ? sgChoice.placeNow : placeNow;
     const sgMakesWorktree = (sgChoice ? sgChoice.makesWorktree : harnessMakesWorktree) && !sg.lane.startsChats;
-    const sgOnModel = sgChoice ? onModelWords(sgChoice.startsOn, sgChoice.effortWord, models) : onModel;
+    const sgOnModel = sgChoice ? onModelWords(sgChoice.startsOn, sgChoice.effortWord, ownModels(sgChoice.accountInfo, models)) : onModel;
     const sgBehind = (sgChoice ? sgChoice.places : places).find((p) => p.place === 'background')?.behind ?? false;
     return suggestionWords(sg, { now, text, account: sgAccount, onModel: sgOnModel, place: sgPlace, makesWorktree: sgMakesWorktree, terminal: terminalName, behind: sgBehind, duplicate });
   };

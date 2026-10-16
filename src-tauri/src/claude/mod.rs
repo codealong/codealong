@@ -914,9 +914,9 @@ impl crate::harness::Adapter for ClaudeCode {
         Some(crate::start::with_param(format!("claude://code/new?folder={}", urlencoding::encode(&folder.to_string_lossy())), "q", prompt.trim()))
     }
 
-    fn start_in_app(&self, _account: &AccountCfg, lane: &str, _folder: &Path, prompt: &str, link: &str) -> anyhow::Result<crate::start::Started> {
+    fn start_in_app(&self, _account: &AccountCfg, lane: &str, _folder: &Path, ask: &crate::harness::StartAsk, link: &str) -> anyhow::Result<crate::start::Started> {
         crate::launch::open_url(link)?;
-        let message = if prompt.trim().is_empty() { format!("A new Claude app session is open in {lane}.") } else { "Your prompt is waiting in a new Claude app session. Send it from there.".to_string() };
+        let message = if ask.prompt.trim().is_empty() { format!("A new Claude app session is open in {lane}.") } else { "Your prompt is waiting in a new Claude app session. Send it from there.".to_string() };
         Ok(crate::start::Started { key: None, message: Some(message) })
     }
 

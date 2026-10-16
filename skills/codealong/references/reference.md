@@ -2360,7 +2360,7 @@ Options:
           How hard Claude Code thinks (`claude --effort`); without it, the account's own
           setting. xhigh is what Claude Code's picker calls Extra
           
-          [possible values: low, medium, high, xhigh, max]
+          [possible values: low, medium, high, xhigh, max, ultra]
 
       --helper
           Start it as a helper of the session running this command: work for that

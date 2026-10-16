@@ -4,12 +4,13 @@
 //! board. Beside it: rollouts and the thread index (rollout.rs), the conversation a rollout
 //! holds (conversation.rs), its app-server, for what Codex does itself (appserver.rs), the
 //! socket the app's windows talk on (ipc.rs), its terminal UIs (terminals.rs), side
-//! conversations (side.rs), plan usage (usage.rs) and whether OpenAI may train on the account
-//! (training.rs). See .claude/rules/codex.md.
+//! conversations (side.rs), the models an account offers (models.rs), plan usage (usage.rs) and
+//! whether OpenAI may train on the account (training.rs). See .claude/rules/codex.md.
 
 mod appserver;
 mod conversation;
 pub mod ipc;
+mod models;
 mod rollout;
 mod side;
 mod terminals;
@@ -263,13 +264,12 @@ impl crate::harness::Adapter for Codex {
     }
 
     /// `codex resume -i <image>… -- <id> <prompt>`; its other files go as paths, and `--` keeps a
-    /// prompt that starts with a dash from reading as an option.
-    /// `codex resume` takes no model or effort here (`takes_model`), and without a prompt it
-    /// opens on the thread and waits for one.
+    /// prompt that starts with a dash from reading as an option. On the model and effort asked
+    /// for, as a start is (`tuned`), and without a prompt it opens on the thread and waits for one.
     fn resume(&self, account: &AccountCfg, s: &Session, ask: &crate::harness::StartAsk) -> anyhow::Result<(String, Vec<(String, String)>)> {
         let (prompt, images) = crate::attachments::take_images_in(ask.prompt, ask.images_dir, ask.files_dir, crate::attachments::Style::Path);
         let prompt = prompt.trim();
-        let mut input = format!("{} resume", terminal_ui(account));
+        let mut input = format!("{} resume{}", terminal_ui(account), tuned(ask));
         for p in &images {
             input.push_str(&format!(" -i {}", crate::util::sh_quote(&p.to_string_lossy())));
         }
@@ -377,13 +377,35 @@ impl crate::harness::Adapter for Codex {
         }
     }
 
+    /// The models its own `/model` picker offers the account (models.rs).
+    fn models(&self, account: &AccountCfg) -> Vec<crate::start::ModelOption> {
+        models::listed(&account.home_path())
+    }
+
+    fn takes_model(&self) -> bool {
+        true
+    }
+
+    /// `-m` takes the models its picker hides too.
+    fn offers_model(&self, account: &AccountCfg, model: &str) -> bool {
+        models::known(&account.home_path(), model)
+    }
+
+    fn efforts(&self) -> &'static [(&'static str, &'static str)] {
+        &models::EFFORTS
+    }
+
+    fn default_model(&self, account: &AccountCfg) -> Option<String> {
+        models::default_model(&account.home_path())
+    }
+
     /// Codex picks its own thread id. Its images go with `-i`, which takes several, so `--`
     /// ends them before the prompt; other files are paths it can read.
     fn start_in_terminal(&self, account: &AccountCfg, ask: &crate::harness::StartAsk) -> crate::harness::Typed {
         use crate::attachments::{self, Style};
         let (prompt, images) = attachments::take_images_in(ask.prompt, ask.images_dir, ask.files_dir, Style::Path);
         let prompt = prompt.trim();
-        let mut input = terminal_ui(account);
+        let mut input = format!("{}{}", terminal_ui(account), tuned(ask));
         let mut env = Vec::new();
         for img in &images {
             input.push_str(&format!(" -i {}", crate::util::sh_quote(&img.to_string_lossy())));
@@ -404,34 +426,45 @@ impl crate::harness::Adapter for Codex {
     }
 
     /// The app's new-thread link only fills a prompt in, so on a prompt Codealong makes the
-    /// thread itself, and the app, once it has the thread open, runs the first turn as if you'd
-    /// sent it there. When that fails the link still fills the prompt in: in the thread just made
-    /// if there is one, else on the new-thread page.
-    fn start_in_app(&self, account: &AccountCfg, lane: &str, folder: &Path, prompt: &str, link: &str) -> anyhow::Result<crate::start::Started> {
+    /// thread itself, on the model asked for, and the app, once it has the thread open, runs the
+    /// first turn as if you'd sent it there, at the effort asked for. When that fails the link
+    /// still fills the prompt in: in the thread just made if there is one, else on the
+    /// new-thread page, where the app's own model is picked, as it is for a start with no prompt.
+    fn start_in_app(&self, account: &AccountCfg, lane: &str, folder: &Path, ask: &crate::harness::StartAsk, link: &str) -> anyhow::Result<crate::start::Started> {
         use crate::start::Started;
-        if prompt.trim().is_empty() {
+        // What the app picks for itself, said where something else was asked for.
+        let unasked = || ask.model.map(|m| format!(" Pick {} there: the app chooses the model for a thread it starts.", crate::start::model_label(self, account, m))).unwrap_or_default();
+        if ask.prompt.trim().is_empty() {
             crate::launch::open_codex(link)?;
-            return Ok(Started { key: None, message: Some(format!("A new Codex thread is open in {lane}.")) });
+            return Ok(Started { key: None, message: Some(format!("A new Codex thread is open in {lane}.{}", unasked())) });
         }
-        let waiting = || Some("Your prompt is waiting in a new Codex thread. Send it from there.".to_string());
+        let waiting = |then: String| Some(format!("Your prompt is waiting in a new Codex thread. Send it from there.{then}"));
         let home = account.home_path();
-        let text = crate::attachments::expand(prompt.trim(), crate::attachments::Style::Path);
-        let thread = match appserver::new_thread(&home, folder, None) {
+        let text = crate::attachments::expand(ask.prompt.trim(), crate::attachments::Style::Path);
+        let thread = match appserver::new_thread(&home, folder, ask.model) {
             Ok(t) => t,
             Err(_) => {
                 crate::launch::open_codex(link)?;
-                return Ok(Started { key: None, message: waiting() });
+                return Ok(Started { key: None, message: waiting(unasked()) });
             }
         };
         let key = Some(Session::key_for(Harness::Codex, &account.name, &thread.id));
-        let model = thread.model.as_deref().map(|m| (m, thread.effort.as_deref()));
+        // The model the thread was made on (the one asked for, else the account's), which its
+        // first turn names, or the window sends an empty one.
+        let model = thread.model.as_deref().map(|m| (m, ask.effort.or(thread.effort.as_deref())));
         match codex_start_turn(&home, &thread.id, &text, model) {
             Ok(()) => Ok(Started { key, message: None }),
             Err(_) => {
                 crate::launch::open_codex(&format!("{}?prompt={}", crate::launch::codex_thread_url(&thread.id), urlencoding::encode(&text)))?;
-                Ok(Started { key, message: waiting() })
+                Ok(Started { key, message: waiting(String::new()) })
             }
         }
+    }
+
+    /// Codealong makes the thread a start in the app runs (`start_in_app`), on the model asked
+    /// for, and starts its first turn at the effort asked for.
+    fn app_takes_model(&self) -> bool {
+        true
     }
 
     fn app_projects(&self, account: &AccountCfg) -> Vec<String> {
@@ -732,6 +765,20 @@ fn terminal_ui(account: &AccountCfg) -> String {
     format!("{} -c check_for_update_on_startup=false", account.command())
 }
 
+/// The model and effort a start or a resume asks for, as its terminal UI takes them: `-m`, and
+/// the effort as config.toml's `model_reasoning_effort`, a TOML string. Both are names start.rs
+/// let through (`valid_model`, `EFFORTS`), so nothing in them leaves the quotes.
+fn tuned(ask: &crate::harness::StartAsk) -> String {
+    let mut out = String::new();
+    if let Some(m) = ask.model.filter(|m| crate::start::valid_model(m)) {
+        out.push_str(&format!(" -m '{m}'"));
+    }
+    if let Some(e) = ask.effort.filter(|e| models::EFFORTS.iter().any(|(id, _)| id == e)) {
+        out.push_str(&format!(" -c 'model_reasoning_effort=\"{e}\"'"));
+    }
+    out
+}
+
 fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
     use crate::harness::Adapter;
     a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its rollout isn't on this Mac any more."))
@@ -803,6 +850,27 @@ mod tests {
         // Its process is still Codex's terminal UI, on the thread it resumed.
         assert_eq!(terminal_args("codex -c check_for_update_on_startup=false Review the branch"), Some((None, None)));
         assert_eq!(terminal_args("codex -c check_for_update_on_startup=false resume 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b"), Some((Some("01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b".into()), None)));
+    }
+
+    /// `-m` and the effort as config.toml's setting, which its terminal UI takes after `resume`
+    /// too (0.162.1's `codex resume --help`).
+    #[test]
+    fn starts_and_resumes_on_the_model_and_effort_asked_for() {
+        let a = crate::config::AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: Some("codex".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        use crate::harness::Adapter;
+        let ask = crate::harness::StartAsk { prompt: "Review the branch", session_id: "unused", model: Some("gpt-6-sol"), effort: Some("xhigh"), worktree: false, images_dir: Path::new("/i"), files_dir: Path::new("/f") };
+        let start = Codex.start_in_terminal(&a, &ask);
+        assert_eq!(start.input, "codex -c check_for_update_on_startup=false -m 'gpt-6-sol' -c 'model_reasoning_effort=\"xhigh\"' -- \"$CODEALONG_PROMPT\"\n");
+        let s = Session::new(Harness::Codex, "codex", "01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b");
+        let (resume, _) = Codex.resume(&a, &s, &crate::harness::StartAsk { prompt: "", ..ask }).unwrap();
+        assert_eq!(resume, "codex -c check_for_update_on_startup=false resume -m 'gpt-6-sol' -c 'model_reasoning_effort=\"xhigh\"' -- 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b\n");
+        // Its process, as `ps` shows it without the quotes, is still Codex's terminal UI, on the
+        // thread it resumed.
+        assert_eq!(terminal_args("codex -c check_for_update_on_startup=false -m gpt-6-sol -c model_reasoning_effort=\"xhigh\" Review the branch"), Some((None, None)));
+        assert_eq!(terminal_args("codex -c check_for_update_on_startup=false resume -m gpt-6-sol -c model_reasoning_effort=\"xhigh\" -- 01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b"), Some((Some("01a0e375-1c2d-7e3f-8a9b-0c1d2e3f4a5b".into()), None)));
+        // Nothing that could leave the quotes is typed.
+        let odd = crate::harness::StartAsk { model: Some("x'; rm -rf ~; '"), effort: Some("high\"; x"), ..ask };
+        assert_eq!(Codex.start_in_terminal(&a, &odd).input, "codex -c check_for_update_on_startup=false -- \"$CODEALONG_PROMPT\"\n");
     }
 
     #[test]

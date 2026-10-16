@@ -28,13 +28,14 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
   const autoGroup = useMemo(() => (options?.autoGroup ? groups.find((g) => g.name === options.autoGroup) ?? null : null), [options, groups]);
   // Every account's models, for saying one by its name; each account lists its own.
   const models = useMemo(() => accounts.flatMap((a) => a.models ?? []).filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i), [accounts]);
-  // The effort levels the agent menu offers: those of the accounts that take one.
-  const efforts = useMemo(() => accounts.find((a) => (a.efforts?.length ?? 0) > 0)?.efforts ?? [], [accounts]);
+  // The effort levels the agent menu offers for an account that lists none of its own: those of the
+  // first that does. The chosen account's own are `chosen.efforts`.
+  const anyEfforts = useMemo(() => accounts.find((a) => (a.efforts?.length ?? 0) > 0)?.efforts ?? [], [accounts]);
   // Auto follows usage while the panel is up, and resolves when you start.
   const pick = useMemo(() => autoPick(accounts, usage, now, null, autoGroup, lanes), [accounts, usage, now, autoGroup, lanes]);
   const agents = useMemo(() => agentOptions(accounts, models, pick, groups, usage, now, lanes), [accounts, models, pick, groups, usage, now, lanes]);
   const first = useMemo(() => initialChoice(accounts, pick, undefined, groups, usage, now, lanes), [accounts, pick, groups, usage, now, lanes]);
-  const chosen = startChoice(accounts, models, efforts, usage, pick, agents, first, { agent, effort, place, newWorktree }, (c) => remembered().places?.[c], groups, now, lanes);
+  const chosen = startChoice(accounts, models, anyEfforts, usage, pick, agents, first, { agent, effort, place, newWorktree }, (c) => remembered().places?.[c], groups, now, lanes);
   const { choice, chosenModel } = chosen;
 
   /** Picks a line of the agent menu. A model is asked for on the command line or of Codealong's
@@ -55,9 +56,10 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
   };
 
   // The effort under the agent menu's models: a setting for whichever is chosen, so it stays
-  // while you look through them. It goes to Claude Code only, and not to Haiku. From the effort as
-  // it is, not as last drawn: a held key can repeat before the menu redraws.
-  const stepEffort = (delta: -1 | 1) => setEffort((e) => effortStep(efforts, e, delta));
+  // while you look through them, among the chosen account's levels. It goes to a harness that
+  // takes one, and not to Haiku. From the effort as it is, not as last drawn: a held key can
+  // repeat before the menu redraws.
+  const stepEffort = (delta: -1 | 1) => setEffort((e) => effortStep(chosen.efforts, e, delta));
 
-  return { ...chosen, accounts, groups, models, efforts, pick, agents, first, pickAgent, pickPlace, stepEffort };
+  return { ...chosen, accounts, groups, models, pick, agents, first, pickAgent, pickPlace, stepEffort };
 }

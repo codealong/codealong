@@ -272,7 +272,7 @@ export function suggestionWords(sg: Suggestion, c: SuggestionContext): { icon: s
   const tree = c.makesWorktree && sg.newWorktree && !sg.lane.startsChats;
   const who = c.account ? `${c.account}${c.onModel}` : 'a session';
   // Said as the start row below says its own start (start.ts), so the two read alike.
-  const why = startDoes({ lane: sg.lane, who, place: c.place, newWorktree: tree, prompted: true, terminal: c.terminal, behind: c.behind });
+  const why = startDoes({ lane: sg.lane, who, onModel: c.account ? c.onModel : '', place: c.place, newWorktree: tree, prompted: true, terminal: c.terminal, behind: c.behind });
   const title = startTitleWords(sg.lane, tree);
   const where = startWhereWords(sg.lane);
   if (sg.lane.startsChats) {

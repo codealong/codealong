@@ -161,6 +161,18 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - The CLI inside the app bundle (0.158.0-alpha.2 in 26.924) can be older than the account's
   default model, which the API then refuses ("requires a newer version of Codex"); `-m` picks
   another. A new folder asks to be trusted, then about new or changed hooks.
+- The models an account offers, as its `/model` picker lists them, and the effort levels:
+  `codex/models.rs` (`listed`, `EFFORTS`). Codex fetches the list for the account into
+  `<CODEX_HOME>/models_cache.json` (`fetched_at`, `etag`, `client_version` of the client that
+  fetched it, 0.157.1 here on 2026-10-16), each model with `slug`, `display_name`, `visibility`,
+  `priority`, `default_reasoning_level` and `supported_reasoning_levels` (each `{effort,
+  description}`), `context_window` and much else. The app-server's `model/list` answers the same
+  list, which codex-acp offers as its `model` option (values the slugs) and its model's levels as
+  `reasoning_effort` (category `thought_level`). The terminal UI takes `-m` and `-c
+  model_reasoning_effort="<level>"`, after `resume` too (0.162.1's `codex resume --help`), `-c`'s
+  value read as TOML, else as a string. In the app, `thread/start {model}` and the first turn's
+  `model` and `effort` (`codex_start_request`) set them: `codex/mod.rs` (`start_in_app`). Not
+  checked: whether the terminal UI's `/model` takes a name after it.
 - Folder trust and trusting a folder before a start: `codex/trust.rs` (module header,
   `trust_folder`), `Codex::before_start`. The terminal UI's question ("Folder access … Trust this
   folder?", 1 Trust and continue, 2 Quit) shows when the folder has no entry; an entry written

@@ -1,7 +1,9 @@
 // Checks that the quick panel's agent menu lists each account's own models (Quick.tsx,
 // start.ts `withLists`): an account whose harness lists some (Claude Code's aliases,
 // Antigravity's `agy models`) offers them, one that lists none offers only itself, and a start
-// on one asks for it in the terminal, with the worktree choice left to a harness that makes one.
+// on one asks for it where it opens if that place takes a model (the Codex app, whose thread
+// Codealong makes, does), else in the terminal, with the worktree choice left to a harness that
+// makes one.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-models-check.js
 // It needs an account of each kind in config.toml; one that's missing is noted and its steps
 // are skipped.
@@ -55,7 +57,9 @@
         key(window, { key: 'Enter', metaKey: true });
         return until(function () { return calls('start_from_quick').length > 0; }, 3000).then(function () {
           var spec = calls('start_from_quick')[0][1].spec;
-          check('the start asks for it in the terminal', spec.account === other.name && spec.model === model.id && spec.place === 'terminal' && !spec.worktree, JSON.stringify({ account: spec.account, model: spec.model, place: spec.place, worktree: spec.worktree }));
+          var takes = function (p) { return ['terminal', 'background', 'codealong', 'codex-app'].indexOf(p) >= 0; };
+          var where = takes(other.chosen) ? other.chosen : other.places.map(function (p) { return p.place; }).find(takes);
+          check('the start asks for it where it opens, a place that takes one', spec.account === other.name && spec.model === model.id && spec.place === where && !spec.worktree, JSON.stringify({ account: spec.account, model: spec.model, place: spec.place, worktree: spec.worktree, expected: where }));
         });
       });
     })

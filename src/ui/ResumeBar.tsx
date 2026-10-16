@@ -22,12 +22,12 @@ interface ResumeProps {
 export function ResumePlace({ picks, chosen, onPicks, onDone }: Omit<ResumeProps, 'account'> & { onDone: () => void }) {
   /** Picks where it goes on. The apps choose their model: a model asked for gives way to the
    *  account's own there, as it does for a start (useStartChoice.ts). */
-  const pickPlace = (place: StartPlace) => onPicks({ ...picks, place, agent: placeTakesModel(place) ? picks.agent : null });
+  const pickPlace = (place: StartPlace) => onPicks({ ...picks, place, agent: placeTakesModel(place, true) ? picks.agent : null });
   const now = chosen.places.find((p) => p.place === chosen.placeNow);
   return (
     <BoxMenu
       kind="place"
-      sections={placeSections(chosen.places)}
+      sections={placeSections(chosen.places, true)}
       value={chosen.placeNow}
       icon={now ? placeIcon(now.place) : undefined}
       label={now?.label ?? 'Goes on in'}
@@ -48,7 +48,7 @@ export function ResumeModel({ account, picks, chosen, onPicks, onDone }: ResumeP
    *  takes none gives way to a terminal. */
   const pickModel = (id: string) => {
     const { model } = parseAgent(id);
-    const place = model && chosen.placeNow && !placeTakesModel(chosen.placeNow) ? 'terminal' : picks.place;
+    const place = model && chosen.placeNow && !placeTakesModel(chosen.placeNow, true) ? 'terminal' : picks.place;
     onPicks({ ...picks, agent: id, place });
   };
   // The levels as the chip says them (`xhigh`).

@@ -348,6 +348,7 @@ describe('what the quick panel says of a start', () => {
     expect(startHappens(plan({ place: 'claude-app', prompted: true }))).toBe('The Claude app opens a new session in feature with this prompt filled in. You send it from there.');
     expect(startHappens(plan({ place: 'codex-app' }))).toBe('Codex opens a new thread in feature. You write the prompt there.');
     expect(startHappens(plan({ place: 'codex-app', prompted: true }))).toBe('The Codex app starts a new thread in feature on this prompt.');
+    expect(startHappens(plan({ place: 'codex-app', prompted: true, onModel: ' on GPT-6-Sol at high effort' }))).toBe('The Codex app starts a new thread on GPT-6-Sol at high effort in feature on this prompt.');
   });
 
   it('says a chat starts on its own', () => {
@@ -451,7 +452,10 @@ describe('what the quick panel says of a start', () => {
   });
 
   it('says beside the effort levels who picks, or that Haiku takes none', () => {
+    expect(effortNote('opencode', null)).toBe('OpenCode picks its own');
+    // A Codex account lists its levels from a Codealong that knows them.
     expect(effortNote('codex', null)).toBe('Codex picks its own');
+    expect(effortNote('codex', 'gpt-6-sol', true)).toBeNull();
     expect(effortNote('claude', 'haiku')).toBe('Haiku takes none');
     expect(effortNote(null, 'claude-haiku-4-5')).toBe('Haiku takes none');
     expect(effortNote('claude', 'opus')).toBeNull();
@@ -466,12 +470,13 @@ describe('what the quick panel says of a start', () => {
   });
 
   it('knows which places start the command line, and which take a model', () => {
-    expect((['terminal', 'background', 'codealong', 'claude-app', 'codex-app'] as const).map((p) => [onCommandLine(p), placeTakesModel(p)])).toEqual([
-      [true, true],
-      [true, true],
-      [false, true],
-      [false, false],
-      [false, false],
+    expect((['terminal', 'background', 'codealong', 'claude-app', 'codex-app'] as const).map((p) => [onCommandLine(p), placeTakesModel(p), placeTakesModel(p, true)])).toEqual([
+      [true, true, true],
+      [true, true, true],
+      [false, true, true],
+      [false, false, false],
+      // Codealong makes the thread a start in the Codex app runs; a resume goes as its box sends.
+      [false, true, false],
     ]);
   });
 
@@ -480,10 +485,9 @@ describe('what the quick panel says of a start', () => {
     expect(placeNote('background')).toBe('No window; attach a terminal any time');
     expect(placeNote('background', true)).toBe('A tab behind your windows');
     expect(placeNote('codealong')).toBe('Its panel here takes your replies');
-    for (const p of ['claude-app', 'codex-app'] as const) {
-      expect(placeTakesModel(p)).toBe(false);
-      expect(placeNote(p)).toBe('On the app’s own model');
-    }
+    expect(placeNote('claude-app')).toBe('On the app’s own model');
+    expect(placeNote('codex-app')).toBe('A new thread there, on the model picked');
+    expect(placeNote('codex-app', false, true)).toBe('On the app’s own model');
   });
 });
 
@@ -600,6 +604,29 @@ describe('resuming a session that isn’t running', () => {
     expect(resumeIn(resumeChoice(claude, [], { agent: agentId('claude', 'opus'), effort: 'high', place: 'codealong' }, undefined))).toEqual({ place: 'codealong', model: 'opus', effort: 'high' });
     // The app picks its own.
     expect(resumeIn(resumeChoice(claude, [], { ...none, place: 'claude-app' }, undefined))).toEqual({ place: 'claude-app', model: null, effort: null });
+  });
+
+  it('goes on in the Codex app on the thread’s own model, which a start there takes', () => {
+    const codexApp = { place: 'codex-app' as const, label: 'Codex app' };
+    const levels = [
+      { id: 'high', label: 'High' },
+      { id: 'ultra', label: 'Ultra' },
+    ];
+    const codex = fx.startAccount({ name: 'codex', harness: 'codex', places: [codexApp, ghostty], resumes: ['codex-app', 'terminal'], defaultModel: 'gpt-6-astra', models: [{ id: 'gpt-6-sol', label: 'GPT-6-Sol' }], efforts: levels });
+    const sol = { agent: agentId('codex', 'gpt-6-sol'), effort: 'ultra', place: 'codex-app' as const };
+    const c = resumeChoice(codex, [], sol, undefined);
+    expect(c.places.map((p) => p.place)).toEqual(['terminal']);
+    expect(resumeIn(c)).toEqual({ place: 'terminal', model: 'gpt-6-sol', effort: 'ultra' });
+    const started = startChoice([codex], [], [], [], null, agentOptions([codex], [], null), 'codex', { ...sol, newWorktree: false }, () => undefined);
+    expect([started.places.map((p) => p.place), started.placeNow, started.modelNow, started.effortNow, started.effortWord]).toEqual([['codex-app', 'terminal'], 'codex-app', 'gpt-6-sol', 'ultra', 'Ultra']);
+  });
+
+  it('offers the chosen account’s own effort levels, and asks none of them for a level it doesn’t take', () => {
+    const codex = fx.startAccount({ name: 'codex', harness: 'codex', places: [ghostty], models: [{ id: 'gpt-6-sol', label: 'GPT-6-Sol' }], efforts: [{ id: 'ultra', label: 'Ultra' }] });
+    const accounts = [claude, codex];
+    const pickOf = (agent: string) => startChoice(accounts, [], efforts, [], null, agentOptions(accounts, [], null), 'claude', { agent, effort: 'ultra', place: 'terminal', newWorktree: false }, () => undefined);
+    expect([pickOf(agentId('codex', null)).efforts, pickOf(agentId('codex', null)).effortNow]).toEqual([[{ id: 'ultra', label: 'Ultra' }], 'ultra']);
+    expect([pickOf(agentId('claude', 'opus')).efforts, pickOf(agentId('claude', 'opus')).effortNow]).toEqual([efforts, null]);
   });
 
   it('says what a send to it does', () => {

@@ -563,7 +563,7 @@ pub trait Adapter: Sync {
     // ---- Starting a session (start.rs) ----
 
     /// The models a start can ask for, as the harness's command line takes them, when it takes
-    /// one. An app's new-session page picks its own.
+    /// one. An app's new-session page picks its own, unless `app_takes_model`.
     fn models(&self, _account: &AccountCfg) -> Vec<ModelOption> {
         Vec::new()
     }
@@ -643,9 +643,17 @@ pub trait Adapter: Sync {
     }
 
     /// Starts a session in its app from `app_link`'s link, in the worktree the board calls
-    /// `lane`, and says what happened.
-    fn start_in_app(&self, _account: &AccountCfg, _lane: &str, _folder: &Path, _prompt: &str, _link: &str) -> Result<Started> {
+    /// `lane`, and says what happened: on the model and effort asked for where
+    /// `app_takes_model`.
+    fn start_in_app(&self, _account: &AccountCfg, _lane: &str, _folder: &Path, _ask: &StartAsk, _link: &str) -> Result<Started> {
         bail!("{} has no app Codealong can start a session in.", self.harness().word())
+    }
+
+    /// Whether a start in its app takes a model and an effort level (`models`, `efforts`), as
+    /// one that makes the app's session itself can: a link to the app's new-session page takes
+    /// none. A resume there goes as the app's own box sends it, which takes none either.
+    fn app_takes_model(&self) -> bool {
+        false
     }
 
     /// The folders its app has as projects, for an account the app runs: a session started
