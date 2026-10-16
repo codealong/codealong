@@ -237,15 +237,16 @@ export function findSessions(board: Board, project: string, query: string, limit
   const words = queryWords(query);
   if (words.length === 0) return [];
   const found = sessionsIn(board, project, archived).flatMap(({ lane, session: s }) => {
+    // Marks only for a session that matches: a long prompt has hundreds of words, and looking for
+    // each in every session's title was most of what a key cost.
+    const row = (): SessionRow => ({ kind: 'session', key: s.key, group: 'found', lane, session: s, marks: titleMarks(s.title, words) });
+    if (hasWords(s.title.toLowerCase(), words)) return [{ row: row(), tier: 0, score: 0 }];
     const pr = lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '';
     const hay = [s.title, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr].join('\n').toLowerCase();
-    const title = s.title.toLowerCase();
-    const row: SessionRow = { kind: 'session', key: s.key, group: 'found', lane, session: s, marks: titleMarks(s.title, words) };
-    if (hasWords(title, words)) return [{ row, tier: 0, score: 0 }];
-    if (hasWords(hay, words)) return [{ row, tier: 1, score: 0 }];
+    if (hasWords(hay, words)) return [{ row: row(), tier: 1, score: 0 }];
     const hit = said.get(s.key);
     if (!hit) return [];
-    return [{ row: { ...row, said: saidLine(hit, words) }, tier: 2, score: hit.score ?? 0 }];
+    return [{ row: { ...row(), said: saidLine(hit, words) }, tier: 2, score: hit.score ?? 0 }];
   });
   return found
     .sort(

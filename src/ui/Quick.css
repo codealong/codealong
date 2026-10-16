@@ -1,6 +1,7 @@
 /* The quick panel: its own window (quick.rs), transparent. The card fills it but for 20px on
-   each side for its shadow; the page sizes the window to the card, or to a menu reaching below
-   it. The input, the lists of sessions and todos, the compose row, the agent and place bars. */
+   each side for its shadow, and keeps one height (useQuickSize.ts): what it lists scrolls, and its
+   menus open within it. The input, the lists of sessions and todos, the compose row, the agent and
+   place bars. */
 
 html.is-quick,
 html.is-quick body {
@@ -21,6 +22,7 @@ html.is-quick body {
   color: var(--ink);
 }
 .ca-quick-head {
+  flex: none;
   border-bottom: 1px solid var(--line);
 }
 .ca-quick-input {
@@ -89,17 +91,17 @@ html.is-quick body {
 .ca-quick-attached {
   padding: 0 14px 10px 14px;
 }
-/* What was found scrolls, and the last row, a new session, stays in view below it. When the card
-   meets the bottom of the screen (its max-height, from Quick.tsx) it's the list that gives way. */
+/* The list takes what the card's height leaves. What was found scrolls in it, and the last row, a
+   new session, stays at its foot, in the same place whatever is listed. */
 .ca-quick-list {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   min-height: 0;
 }
 .ca-quick-scroll {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 460px;
   padding: 2px 6px 5px;
   overflow-y: auto;
 }
@@ -397,6 +399,7 @@ html.is-quick body {
 }
 .ca-quick-bar {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 10px;

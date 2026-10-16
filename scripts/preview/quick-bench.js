@@ -3,7 +3,7 @@
 // it), and board pushes while it's up. Run on the real clock:
 //   PREVIEW_WAIT=120000 scripts/preview.sh quick '' scripts/preview/quick-bench.js
 // The title ends up as "done: open …; key …; push …", each a median, p90 and max in ms, with how
-// many times typing resized the window (`fits`) and how many long tasks it ran into.
+// many long tasks typing ran into. quick-long-bench.js times keys after a long prompt.
 (function () {
   var OPENS = 12;
   var PUSHES = 20;
@@ -39,11 +39,6 @@
       });
     }
     return inner.call(this, cmd, args, options);
-  };
-  var count = function (cmd, since) {
-    return sent.filter(function (c) {
-      return c[0] === cmd && c[1] >= since;
-    }).length;
   };
   var lastAt = function (cmd) {
     for (var i = sent.length - 1; i >= 0; i--) if (sent[i][0] === cmd) return sent[i][1];
@@ -117,7 +112,6 @@
   var keysSync = [];
   var keysPaint = [];
   var pushes = [];
-  var fits = 0;
   var typedFrom = 0;
 
   show('quick bench: loading');
@@ -180,7 +174,6 @@
       return nextQuery();
     })
     .then(function () {
-      fits = count('fit_quick', typedFrom);
       var typedLong = longTasks.filter(function (t) {
         return t[0] >= typedFrom;
       });
@@ -214,7 +207,7 @@
     })
     .then(function (typedLong) {
       show(
-        'done: open ' + stats(opens) + ' ms; key (sync) ' + stats(keysSync) + ' ms; key (painted) ' + stats(keysPaint) + ' ms over ' + keysSync.length + ' keys, ' + fits + ' fits, ' + typedLong.length + ' long tasks while typing (' + typedLong.map(function (t) {
+        'done: open ' + stats(opens) + ' ms; key (sync) ' + stats(keysSync) + ' ms; key (painted) ' + stats(keysPaint) + ' ms over ' + keysSync.length + ' keys, ' + typedLong.length + ' long tasks while typing (' + typedLong.map(function (t) {
           return t[1].toFixed(0);
         }).join(' ') + '); push (parsed to painted) ' + stats(pushes) + ' ms',
       );

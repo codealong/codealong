@@ -25,8 +25,10 @@ paths:
   window that can't be seen holds pushes and renders the latest when it's shown, so its push
   times are for boards someone saw.
 - A push's cost in a window is `scripts/preview/push-bench.js` (forty pushes of the real board
-  with one worktree changed, as most publishes are), and the quick panel's open, keys and pushes
-  `quick-bench.js`; each header has its command. Rows of the board and the sidebar skip
+  with one worktree changed, as most publishes are), the quick panel's open, keys and pushes
+  `quick-bench.js`, and its keys after a prompt of up to 12,000 characters `quick-long-bench.js`
+  (a key cost 48 ms there until the session search stopped marking titles it didn't match);
+  each header has its command. Rows of the board and the sidebar skip
   rendering when nothing they show changed (`reuse.ts` keeps unchanged parts of a push as the
   same objects, `ui/memoRow.ts` compares rows), which `rows-check.js` checks.
 - The engine thread's own costs on this Mac's real data (composing the board, hashing it, a

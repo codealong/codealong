@@ -38,8 +38,9 @@ use crate::{engine, panel, perf};
 pub const LABEL: &str = "quick";
 /// The window's width: the page's card and the room its shadow needs on each side.
 const WIDTH: f64 = 760.0;
-/// Its height before the page has measured itself.
-const START_HEIGHT: f64 = 240.0;
+/// Its height before the page has said its own: the card's (useQuickSize.ts `HEIGHT`, which
+/// doesn't change with what it lists) and the room for its shadow.
+const START_HEIGHT: f64 = 680.0;
 /// Where its top edge sits: this far down the usable part of the screen, as Spotlight's does.
 const TOP: f64 = 0.18;
 /// How long an open waits for the page before showing anyway.
@@ -52,8 +53,7 @@ const PANEL: panel::Config = panel::Config { keys: panel::Keys::Always, level: p
 
 #[derive(Default)]
 struct Quick {
-    /// Where the panel's left and top edges are while it's up, in AppKit points (y grows up). It
-    /// grows and shrinks downward from the top as the list changes.
+    /// Where the panel's left and top edges are while it's up, in AppKit points (y grows up).
     anchor: Mutex<Option<(f64, f64)>>,
     /// Counts opens, so a late answer from the page only shows the panel for the latest one.
     opens: Mutex<u64>,
@@ -258,7 +258,7 @@ pub fn ready(app: &AppHandle, height: Option<f64>) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
     if let Ok(mut w) = state.waiting.lock() {
         if w.is_none() {
-            // Not opening: the page just changed size.
+            // Not opening: the page answered after its wait ran out and the panel showed anyway.
             drop(w);
             if let Some(h) = height {
                 fit(app, h);
@@ -303,9 +303,9 @@ fn frame_for(state: &Quick, height: f64) -> Option<Rect> {
     Some(Rect { x, y: top - height, w: WIDTH, h: height })
 }
 
-/// The page changed size while up: the panel follows, its top edge where it was. On the main
-/// thread.
-pub fn fit(app: &AppHandle, height: f64) {
+/// The page said its height after the panel showed: the panel takes it, its top edge where it
+/// was. On the main thread.
+fn fit(app: &AppHandle, height: f64) {
     let (Some(state), Some(window)) = (app.try_state::<Quick>(), app.get_webview_window(LABEL)) else { return };
     if !panel::is_visible(&window) {
         return;

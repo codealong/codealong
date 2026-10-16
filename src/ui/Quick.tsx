@@ -111,7 +111,7 @@ import { useLatest } from '../latest';
 import { useStartChoice, useStartPicks } from '../useStartChoice';
 import { findFor } from '../threadFind';
 import { useTextSearch } from '../useTextSearch';
-import { MARGIN, useQuickSize } from './useQuickSize';
+import { cardHeight, useQuickSize } from './useQuickSize';
 
 declare global {
   interface Window {
@@ -238,7 +238,7 @@ export function Quick() {
   const [shown, setShown] = useState(false);
   // Counts opens; each one is answered with the page's height once it's laid out.
   const [opens, setOpens] = useState(0);
-  // How tall the window can be on its screen; the card keeps within it and the list scrolls.
+  // How tall the window can be on its screen; the card keeps within it (useQuickSize.ts).
   const [room, setRoom] = useState<number | null>(null);
   const [opener, setOpener] = useState<string | null>(null);
   const [project, setProject] = useState<string>(() => readStored(PROJECT_KEY, asText, ALL_PROJECTS));
@@ -275,7 +275,6 @@ export function Quick() {
   const now = useNow(30_000);
   const input = useRef<HTMLTextAreaElement>(null);
   const inputBox = useRef<HTMLDivElement>(null);
-  const card = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const textNow = useLatest(text);
@@ -474,13 +473,16 @@ export function Quick() {
   useTheme(theme);
   const logoStatus = useLogo(board?.logoStatus);
 
-  // The input grows with what you write.
+  // The input grows with what you write. At its tallest with more than it shows there's nothing
+  // to measure: setting it to auto to measure laid a long prompt out again at every key.
   useLayoutEffect(() => {
     const el = input.current;
     if (!el) return;
-    el.style.height = 'auto';
     const line = parseFloat(getComputedStyle(el).lineHeight) || 22;
-    el.style.height = `${Math.min(el.scrollHeight, Math.ceil(line * INPUT_LINES))}px`;
+    const tallest = Math.ceil(line * INPUT_LINES);
+    if (el.style.height === `${tallest}px` && el.scrollHeight > el.clientHeight) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, tallest)}px`;
   }, [text, opens]);
 
   const refocus = () => window.requestAnimationFrame(() => input.current?.focus());
@@ -737,7 +739,7 @@ export function Quick() {
   // What was said in sessions is searched in the engine, once typing pauses; its hits join the
   // list below the sessions whose titles and the like match. The panel lists this Mac's sessions
   // only, so other devices aren't asked.
-  const { words: textFor, found: textFound, said } = useTextSearch(query, { ready: !!board, devices: false });
+  const { found: textFound, said } = useTextSearch(query, { ready: !!board, devices: false });
   const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said, withArchived ? 'with' : 'without') : []), [board, current, query, said, withArchived]);
   // How many archived sessions match, for the toggle that lists them or leaves them out.
   const archivedFound = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said, 'only').length : 0), [board, current, query, said]);
@@ -797,8 +799,8 @@ export function Quick() {
 
   // The Suggested group is there while what's typed goes to Jev, and only grows meanwhile: an
   // answer with fewer suggestions than the last leaves room where they were, so the rows under it
-  // stay put. It lets go once what's typed no longer goes to Jev. Laid out before the panel's
-  // height is measured, below.
+  // stay put. It lets go once what's typed no longer goes to Jev. Laid out before where the rows
+  // sit is compared, below.
   const suggestedGroup = useRef<HTMLDivElement>(null);
   const suggestedTall = useRef(0);
   useLayoutEffect(() => {
@@ -812,9 +814,8 @@ export function Quick() {
     el.style.minHeight = `${suggestedTall.current}px`;
   });
 
-  // The panel's height, as the list may change it while you type, told to quick.rs
-  // (useQuickSize.ts).
-  useQuickSize({ card, list, scroller, input, text: fullPrompt, opens, shown, room, answered: !routing && (!textFor || !!textFound), opening, reported });
+  // The panel's height, one whatever it lists, told to quick.rs as it opens (useQuickSize.ts).
+  useQuickSize({ list, scroller, input, opens, room, opening, reported });
 
   // The last answer orders the sessions found too while the next is worked out, so the ones it
   // put first don't drop back at every key.
@@ -1594,7 +1595,7 @@ export function Quick() {
       }}
     >
       {drag.ghost}
-      <div ref={card} className="ca-quick" role="dialog" aria-label="Codealong" style={room ? { maxHeight: room - 2 * MARGIN } : undefined}>
+      <div className="ca-quick" role="dialog" aria-label="Codealong" style={{ height: cardHeight(room) }}>
         <div ref={inputBox} className="ca-quick-head">
         <div className="ca-quick-input">
           <div className="ca-quick-pick">

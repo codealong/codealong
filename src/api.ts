@@ -1538,12 +1538,6 @@ export async function quickReady(height: number): Promise<void> {
   await invoke('quick_ready', { height });
 }
 
-/** The quick panel's page changed size while up. */
-export async function fitQuick(height: number): Promise<void> {
-  if (!inTauri) return;
-  await invoke('fit_quick', { height });
-}
-
 /** Calls `cb` when the quick panel has hidden, by Escape, a click elsewhere or its shortcut. */
 export function onQuickHidden(cb: () => void): () => void {
   return onWindowEvent<null>('quick-hidden', () => cb());

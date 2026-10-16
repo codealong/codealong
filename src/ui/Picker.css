@@ -19,6 +19,12 @@
 .ca-picker.is-wide {
   width: 440px;
 }
+/* The bar is at the foot of the quick panel, which keeps one height: its menus open above it,
+   over the list, rather than past the card, 6px clear of the bar (whose padding is 8px). */
+.ca-quick-bar .ca-picker {
+  top: auto;
+  bottom: calc(100% + 8px + 6px);
+}
 .ca-quick-agent .ca-picker,
 .ca-quick-place .ca-picker {
   right: 0;
