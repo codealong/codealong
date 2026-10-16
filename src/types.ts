@@ -963,6 +963,9 @@ export interface ConfigView {
   reviewPrompt?: string;
   /** The sounds `[sounds]` can name, sorted (sounds.rs `names`). Missing from older engines. */
   sounds?: string[];
+  /** The shortcuts a new config.toml has on this OS (config.rs `default_shortcuts`), which
+   *  Settings offers to put back. Missing from older engines. */
+  defaultShortcuts?: Config['shortcuts'];
 }
 
 /** A Chrome profile (src-tauri/src/chrome.rs). */

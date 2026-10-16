@@ -240,9 +240,9 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
             <ShortcutField
               which={field.which}
               name={field.name}
-              fallback={field.fallback}
-              value={cfg.shortcuts?.[field.key] ?? field.fallback}
-              others={SHORTCUTS.filter((o) => o !== field).map((o) => ({ value: cfg.shortcuts?.[o.key] ?? o.fallback, name: o.called }))}
+              fallback={view.defaultShortcuts?.[field.key] ?? ''}
+              value={cfg.shortcuts?.[field.key] ?? view.defaultShortcuts?.[field.key] ?? ''}
+              others={SHORTCUTS.filter((o) => o !== field).map((o) => ({ value: cfg.shortcuts?.[o.key] ?? view.defaultShortcuts?.[o.key] ?? '', name: o.called }))}
               onChange={(shortcut) => void onSave({ ...cfg, shortcuts: { ...cfg.shortcuts, [field.key]: shortcut } })}
             />
             <small>{field.says}</small>
@@ -1170,16 +1170,16 @@ const NUDGE_ABOUT: (Profile & { id: NudgeAbout; says: string })[] = [
   { id: 'feedback-and-checks', name: 'Comments, requests for changes, checks and conflicts', says: 'When someone else comments on it, asks for changes, or reviews it with something to say, and when its checks fail or its branch comes to conflict with its base: what asks for work. Never for an approval, a merge or a close.' },
 ];
 
-/** The shortcuts that work in every app, in General's order: `key` is config.toml's, `fallback`
- *  config.rs's default, `called` what another field says when you press this one's keys there. */
-const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts']; title: string; name: string; called: string; fallback: string; says: string }[] = [
+/** The shortcuts that work in every app, in General's order: `key` is config.toml's, `called`
+ *  what another field says when you press this one's keys there. Their defaults are the engine's,
+ *  which differ by OS (`ConfigView.defaultShortcuts`). */
+const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts']; title: string; name: string; called: string; says: string }[] = [
   {
     which: 'quick',
     key: 'quick_panel',
     title: 'Quick panel',
     name: 'Quick panel shortcut',
     called: 'the quick panel’s shortcut',
-    fallback: 'Option+Cmd+/',
     says: 'Opens from any app, over full-screen ones too: the sessions that need you, a search, and a new session. ⌘N does the same in Codealong.',
   },
   {
@@ -1188,7 +1188,6 @@ const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts'
     title: 'Chat',
     name: 'Chat shortcut',
     called: 'the chat shortcut',
-    fallback: "Option+Cmd+'",
     says: 'Opens the quick panel set to start a chat of its own, in no project, instead of in a worktree. It still finds sessions as you type.',
   },
   {
@@ -1197,7 +1196,6 @@ const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts'
     title: 'What waits on you',
     name: 'Shortcut for what waits on you',
     called: 'the shortcut for what waits on you',
-    fallback: 'Option+Cmd+.',
     says: 'Opens the first session that waits on you, from any app, to answer one after another: in the notch when the bar is docked there, else in a window of its own. Press it again to put it away.',
   },
   {
@@ -1206,7 +1204,6 @@ const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts'
     title: 'Improve Codealong',
     name: 'Improve Codealong’s shortcut',
     called: 'Improve Codealong’s shortcut',
-    fallback: 'Option+Cmd+,',
     says: 'Opens the quick panel on Codealong’s own project with a picture of every Codealong window as it is, to describe what to change: the session improves Codealong itself. The button beside New session does the same.',
   },
   {
@@ -1215,7 +1212,6 @@ const SHORTCUTS: { which: ShortcutStatus['which']; key: keyof Config['shortcuts'
     title: 'Codealong’s window',
     name: 'Shortcut for Codealong’s window',
     called: 'the shortcut for Codealong’s window',
-    fallback: 'Option+Cmd+;',
     says: 'Brings the Codealong window you were in last to the front, from any app. Press it again there to hide Codealong, as ⌘H does, and go back to the app you were in.',
   },
 ];
@@ -1410,7 +1406,7 @@ interface ShortcutFieldProps {
   which: ShortcutStatus['which'];
   /** What it's called, for the button's label. */
   name: string;
-  /** Its default, which a button puts back. */
+  /** Its default on this OS, which a button puts back; empty when the engine didn't say. */
   fallback: string;
   value: string;
   /** The other shortcuts, which this one can't be too. */
@@ -1503,7 +1499,7 @@ function ShortcutField({ which, name, fallback, value, others, onChange }: Short
                 Turn off
               </Button>
             )}
-            {value !== fallback && others.every((o) => shortcutLabel(fallback) !== shortcutLabel(o.value)) && (
+            {fallback && value !== fallback && others.every((o) => shortcutLabel(fallback) !== shortcutLabel(o.value)) && (
               <Button variant="ghost" size="sm" onClick={() => onChange(fallback)}>
                 Use {shortcutLabel(fallback)}
               </Button>

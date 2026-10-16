@@ -36,12 +36,11 @@ pub fn footprint(pid: u32) -> Option<u64> {
     Some((meminfo_kb(&status, "VmRSS")? + meminfo_kb(&status, "VmSwap").unwrap_or(0)) * 1024)
 }
 
-/// Work nobody is waiting on: the calling thread gets a lower priority (nice 10), which Linux
-/// keeps for each thread, so under load it yields to the agents and to the windows.
-pub fn utility_thread() {
-    // SAFETY: setpriority with `who` 0 changes the calling thread only.
-    unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 10) };
-}
+/// Work nobody is waiting on, left at the app's own priority. Linux keeps a nice value for each
+/// thread and a thread takes its starter's, but only a privileged process can lower one again: a
+/// utility thread's nice 10 would hold back for good every thread it starts, the peers' request
+/// handlers among them, which `user_initiated_thread` couldn't raise as macOS's classes are.
+pub fn utility_thread() {}
 
 /// Work a person waits on from another device. A thread can't be raised above the app's own
 /// priority without privileges, so it's left at that.
@@ -53,6 +52,27 @@ pub fn no_app_nap() {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A thread started from utility work runs as the app does, so one a person waits on isn't
+    /// held back.
+    #[test]
+    fn threads_started_from_utility_work_keep_the_apps_priority() {
+        // SAFETY: getpriority with `who` 0 reads the calling thread's nice value.
+        let nice = || unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
+        let app = nice();
+        let theirs = std::thread::spawn(move || {
+            utility_thread();
+            std::thread::spawn(move || {
+                user_initiated_thread();
+                nice()
+            })
+            .join()
+            .unwrap()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(theirs, app);
+    }
 
     #[test]
     fn linux_memory_reads_from_its_kb_lines() {

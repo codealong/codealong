@@ -942,8 +942,8 @@ impl Default for ShortcutsCfg {
     }
 }
 
-/// The shortcuts a new config.toml has, written as Settings records them on each OS, so its
-/// "Use …" buttons know them.
+/// The shortcuts a new config.toml has, written as Settings records them on each OS; Settings'
+/// "Use …" buttons put them back (`ConfigView::default_shortcuts`).
 #[derive(Clone, Copy, Debug)]
 pub struct DefaultShortcuts {
     pub quick_panel: &'static str,
@@ -1694,6 +1694,8 @@ pub struct ConfigView {
     pub review_prompt: String,
     /// The sounds `[sounds]` can name (sounds.rs `names`).
     pub sounds: Vec<String>,
+    /// The shortcuts a new config.toml has on this OS, which Settings offers to put back.
+    pub default_shortcuts: ShortcutsCfg,
 }
 
 pub fn view() -> ConfigView {
@@ -1707,7 +1709,7 @@ fn view_of(text: &str, path: &str) -> ConfigView {
         Ok(c) => (c, None),
         Err(e) => (Config::default(), Some(e.to_string().trim().to_string())),
     };
-    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles(), review_prompt: crate::autoreview::INSTRUCTIONS.to_string(), sounds: crate::sounds::names() }
+    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles(), review_prompt: crate::autoreview::INSTRUCTIONS.to_string(), sounds: crate::sounds::names(), default_shortcuts: ShortcutsCfg::default() }
 }
 
 /// Why a list of projects can't be saved, in words.
