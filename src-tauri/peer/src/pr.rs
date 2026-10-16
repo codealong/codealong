@@ -74,6 +74,48 @@ pub struct PrCard {
     /// The sessions that worked on it, by their keys on the sending device.
     #[serde(default)]
     pub sessions: Vec<String>,
+    /// Where Codealong's own review of it stands on the sending device, once it's had one. Missing
+    /// from Macs before 2026-10-16.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_review: Option<AutoReview>,
+}
+
+/// The latest round of Codealong's automatic review of a PR (the engine's autoreview.rs), as the
+/// line over a PR's review box says it: the engine's `AutoReview` cut down, in the same shape.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoReview {
+    pub stage: ReviewStage,
+    /// The commit it reviews, as GitHub names it.
+    pub head: String,
+    /// What its agent would do with the PR, which the review box suggests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggests: Option<Verdict>,
+    /// What its review was submitted as yours as (`[reviews] submit`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submitted: Option<Verdict>,
+}
+
+/// Where a round of the automatic review stands.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewStage {
+    /// Its commit is to be reviewed, and no session has started on it yet.
+    Queued,
+    Reviewing,
+    /// Reviewed, and posted on the PR as a comment.
+    Posted,
+    /// Reviewed, and put in a draft review on your account, for you to finish.
+    Drafted,
+    /// Reviewed, and left in its session: its Mac's settings say not to post.
+    Kept,
+    /// Its agent said it couldn't review it.
+    Skipped,
+    /// It didn't get done.
+    Failed,
+    /// One a later version names.
+    #[serde(other)]
+    Other,
 }
 
 /// A PR's description, reviews, comments and changed files with their diffs, as the Mac's PR panel

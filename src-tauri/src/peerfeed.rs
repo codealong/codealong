@@ -95,8 +95,31 @@ pub fn pr_cards(board: &Board) -> Vec<PrCard> {
             merged_at: p.merged_at,
             closed_at: p.closed_at,
             sessions: p.sessions.iter().map(|s| s.key.clone()).collect(),
+            auto_review: p.auto_review.as_ref().map(auto_review_card),
         })
         .collect()
+}
+
+/// A PR's automatic review as another device is told of it.
+fn auto_review_card(r: &crate::model::AutoReview) -> codealong_peer::pr::AutoReview {
+    use crate::github::Verdict as V;
+    use crate::model::ReviewStage as S;
+    use codealong_peer::pr::{ReviewStage, Verdict};
+    let verdict = |v: V| match v {
+        V::Approve => Verdict::Approve,
+        V::Comment => Verdict::Comment,
+        V::RequestChanges => Verdict::RequestChanges,
+    };
+    let stage = match r.stage {
+        S::Queued => ReviewStage::Queued,
+        S::Reviewing => ReviewStage::Reviewing,
+        S::Posted => ReviewStage::Posted,
+        S::Drafted => ReviewStage::Drafted,
+        S::Kept => ReviewStage::Kept,
+        S::Skipped => ReviewStage::Skipped,
+        S::Failed => ReviewStage::Failed,
+    };
+    codealong_peer::pr::AutoReview { stage, head: r.head.clone(), suggests: r.suggests.map(verdict), submitted: r.submitted.map(verdict) }
 }
 
 /// Whether every device's build reads the harness: the ones there were before a device's hello
@@ -374,6 +397,25 @@ mod tests {
         // A reconnect starts with the list, whatever the other side kept.
         out.restart();
         assert!(out.next(&snapshot(&two, info("Mini"))).unwrap().prs.is_some());
+    }
+
+    #[test]
+    fn a_prs_agent_review_goes_with_its_card() {
+        use codealong_peer::pr::{AutoReview, ReviewStage, Verdict};
+        let mut p = pr(1, crate::model::PrState::Open, true, None);
+        p.auto_review = Some(serde_json::from_value(serde_json::json!({ "stage": "drafted", "head": "abc1234def", "at": 5, "rounds": 2, "holds": true, "suggests": "request-changes" })).expect("a review"));
+        let snap = snapshot(&Board { generated_at: 10, prs: vec![p.clone()], ..board(vec![]) }, info("Mini"));
+        let sent = snap.prs[0].auto_review.clone();
+        assert_eq!(sent, Some(AutoReview { stage: ReviewStage::Drafted, head: "abc1234def".into(), suggests: Some(Verdict::RequestChanges), submitted: None }));
+        // The card's is the engine's own, cut down: the same shape reads the same.
+        let engines: AutoReview = serde_json::from_value(serde_json::to_value(&p.auto_review).unwrap()).unwrap();
+        assert_eq!(Some(engines), sent);
+        // A stage a later Mac names doesn't lose a device the whole list.
+        let later: AutoReview = serde_json::from_value(serde_json::json!({ "stage": "pondering", "head": "h" })).unwrap();
+        assert_eq!(later.stage, ReviewStage::Other);
+        // None before its first round.
+        let none = snapshot(&Board { generated_at: 10, prs: vec![pr(2, crate::model::PrState::Open, true, None)], ..board(vec![]) }, info("Mini"));
+        assert!(none.prs[0].auto_review.is_none());
     }
 
     #[test]

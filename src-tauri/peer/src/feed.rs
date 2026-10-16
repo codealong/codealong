@@ -240,6 +240,7 @@ mod tests {
             merged_at: None,
             closed_at: None,
             sessions: Vec::new(),
+            auto_review: None,
         };
         let mut replica = Replica::default();
         replica.apply(FeedMsg { rev: 1, full: true, prs: Some(vec![card(1), card(2)]), ..Default::default() });
