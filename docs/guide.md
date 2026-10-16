@@ -698,7 +698,7 @@ round stands, with the session that wrote it a click away, and shows your draft 
 (see *Your review*); without a draft (a comment, or one you submitted) it shows the review the agent
 wrote: its text, then each comment on a line of the code with the lines around it from the PR's
 diff, its file and line opening that line on GitHub at the commit it read, and the reviews of
-earlier commits too. Once you've submitted the agent's draft, it says so and how. `codealong
+earlier commits too: the latest three a click away, and a +N for the rest. Once you've submitted the agent's draft, it says so and how. `codealong
 --snapshot --review-plan <owner/name> <number>` prints what a review would start, without starting
 it, and `codealong --snapshot --pr-draft <owner/name> <number>` your draft as the Reviews tab reads
 it.

@@ -34,9 +34,35 @@
 .ca-agentrev {
   row-gap: var(--space-3);
 }
-/* Which commit's review shows, when it has had more than one. */
+/* Which commit's review shows, when it has had more than one: the latest few, then a `+` for the
+   rest. All of them wrap rather than widen the panel. */
 .ca-agentrev-rounds {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
   justify-self: start;
+  min-width: 0;
+}
+.ca-agentrev-rounds .ca-segctl {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.ca-agentrev-rounds .ca-segctl button {
+  white-space: nowrap;
+}
+.ca-agentrev-more {
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--type-meta-strong);
+  cursor: pointer;
+}
+.ca-agentrev-more:hover {
+  background: var(--neutral-tint);
+  color: var(--ink);
 }
 .ca-agentrev-body {
   display: grid;

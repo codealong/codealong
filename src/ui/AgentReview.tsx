@@ -293,6 +293,9 @@ function DraftReview({ pr, draft, detail, verdicts }: { pr: PrItem; draft: Draft
   );
 }
 
+/** How many commits' reviews are a click away before the rest are asked for. */
+const ROUNDS_SHOWN = 3;
+
 /** The review the agent wrote, from reviews.json: its text and comments on lines, each earlier
  *  commit's a click away. */
 function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrItem; review: AutoReview; detail?: PrDetail; now: number; sessions: { lane: Lane; session: Session }[]; onShowSession: (lane: Lane, session: Session) => void }) {
@@ -312,12 +315,27 @@ function Written({ pr, review, detail, now, sessions, onShowSession }: { pr: PrI
   }, [asked, pr.key]);
   const reviews = read.key === pr.key ? read.reviews : [];
   const [picked, setPicked] = useState<string | null>(null);
+  // The PR whose earlier rounds are all shown, after a click on the `+`.
+  const [allOf, setAllOf] = useState<string | null>(null);
   const shown = reviews.find((w) => w.head === picked) ?? reviews[0];
   if (!shown) return null;
   const latest = shown === reviews[0];
+  // The latest few, and the rest behind a `+`: a PR reviewed at every push has a commit for each.
+  // The one shown stays among them when new rounds push it down.
+  const rounds = allOf === pr.key || reviews.indexOf(shown) >= ROUNDS_SHOWN ? reviews : reviews.slice(0, ROUNDS_SHOWN);
+  const hidden = reviews.length - rounds.length;
   return (
     <>
-      {reviews.length > 1 && <Seg className="ca-agentrev-rounds" label="The review of which commit" look="text" options={reviews.map((w, i) => ({ id: w.head, label: i === 0 ? `${short(w.head)}, the latest` : short(w.head) }))} value={shown.head} onPick={setPicked} />}
+      {reviews.length > 1 && (
+        <div className="ca-agentrev-rounds">
+          <Seg label="The review of which commit" look="text" options={rounds.map((w, i) => ({ id: w.head, label: i === 0 ? `${short(w.head)}, the latest` : short(w.head) }))} value={shown.head} onPick={setPicked} />
+          {hidden > 0 && (
+            <button type="button" className="ca-agentrev-more" title={hidden === 1 ? 'The review of an earlier commit' : `The reviews of ${hidden} earlier commits`} onClick={() => setAllOf(pr.key)}>
+              +{hidden}
+            </button>
+          )}
+        </div>
+      )}
       <div className="ca-agentrev-body">
         <div className="ca-agentrev-byline">
           <span>

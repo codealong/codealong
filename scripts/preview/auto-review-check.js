@@ -15,8 +15,9 @@
 // the agent suggests (asking for changes, its button marked so), which shows the Reviews tab from
 // another; Approve there with your words sends review_pr, the toast says the draft went with its
 // comment, and once GitHub has no draft but your approval of the agent's review, the tab says you
-// submitted it and shows what the agent wrote (pr_agent_reviews, stubbed), the review of an
-// earlier commit a click away, saying whose and when. The file count goes to Changes. The next
+// submitted it and shows what the agent wrote (pr_agent_reviews, stubbed), the reviews of the
+// latest three commits a click away and a `+` for the rest, an earlier one saying whose and when.
+// The file count goes to Changes. The next
 // PR's review didn't finish: it opens on Description, and its Reviews tab says why in red. The
 // third is still being reviewed, so it's held out of what waits on you (prStatus.ts
 // `heldForAgent`): its row says Agent reviewing in place of Review requested, its Reviews tab has a
@@ -60,6 +61,9 @@
       ],
     },
     { head: '1111111aaaa', stage: 'posted', at: Date.now() - 3 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: 'https://github.com/o/r/pull/1#issuecomment-9', summary: 'An earlier review.', comments: [] },
+    { head: '2222222aaaa', stage: 'posted', at: Date.now() - 4 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'Another.', comments: [] },
+    { head: '3333333aaaa', stage: 'posted', at: Date.now() - 5 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'Another.', comments: [] },
+    { head: '4444444aaaa', stage: 'posted', at: Date.now() - 6 * 3600000, session: null, agent: 'Codex, gpt-5.5', link: null, summary: 'The first.', comments: [] },
   ];
   var DEFAULT = 'Look for bugs, security and data risks, missing tests, and anything that doesn’t do what the PR says it does. Read the code around the changes too, and raise where they don’t fit it in a way that will cost whoever works on it next.';
   // Your draft on GitHub, as pr_draft has it, until it's submitted.
@@ -274,9 +278,15 @@
       check('then the tab says you submitted it', /^You submitted the agent’s review, approving it/.test(q('.ca-agentrev-submitted').textContent) && q('.ca-prinsp-auto-note').textContent.indexOf('You submitted it, approving it.') === 0, q('.ca-agentrev-submitted').textContent + ' / ' + q('.ca-prinsp-auto-note').textContent);
       await until(function () { return !!q('.ca-agentrev-body'); }, 5000, 'what the agent wrote never showed');
       check('and what the agent wrote', /The agent’s review \(Claude Code, claude-opus-5-5\) · 2 comments on lines/.test(q('.ca-agentrev-byline').textContent) && /I’d hold this until the first finding is fixed\./.test(q('.ca-agentrev-body > .ca-agentrev-text').textContent), q('.ca-agentrev-byline').textContent);
-      var rounds = all('.ca-agentrev-rounds button').map(function (b) { return b.textContent; });
-      check('the review of each commit is a click away, the latest first', rounds.join(' | ') === '309811a, the latest | 1111111', rounds.join(' | '));
-      press(all('.ca-agentrev-rounds button')[1]);
+      var rounds = function () { return all('.ca-agentrev-rounds [role="radio"]').map(function (b) { return b.textContent; }).join(' | '); };
+      var more = function () { return q('.ca-agentrev-more'); };
+      check('the reviews of the latest three commits are a click away, the latest first, and a + the rest', rounds() === '309811a, the latest | 1111111 | 2222222' && !!more() && more().textContent === '+2', rounds() + ' / ' + (more() && more().textContent));
+      press(more());
+      await until(function () { return !more(); }, 3000, 'the + showed no more');
+      check('the + shows every commit’s, and takes itself away', rounds() === '309811a, the latest | 1111111 | 2222222 | 3333333 | 4444444', rounds());
+      var right = function (s) { return q(s).getBoundingClientRect().right; };
+      check('which wrap rather than widen the panel', right('.ca-agentrev-rounds') <= right('.ca-agentrev'), right('.ca-agentrev-rounds') + ' > ' + right('.ca-agentrev'));
+      press(all('.ca-agentrev-rounds [role="radio"]')[1]);
       await until(function () { return !!q('.ca-agentrev-byline'); }, 3000, 'the earlier review never showed');
       await until(function () { return /^Of 1111111/.test(q('.ca-agentrev-byline').textContent); }, 3000, 'the earlier review never showed');
       check('an earlier review says whose and when', /^Of 1111111, 3h ago, by Codex, gpt-5\.5/.test(q('.ca-agentrev-byline').textContent) && all('.ca-agentrev-comment').length === 0, q('.ca-agentrev-byline').textContent);
