@@ -94,6 +94,8 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
    *  window's way: a card puts the session's own under it, as a right-click anywhere else on it
    *  gives the session's menu. */
   onThreadMenu?: (items: MenuSpec) => void;
+  /** What the conversation's find bar opens on: the words a search found it by in what was said. */
+  find?: string | null;
 }
 
 /** What the strip says at its left: whichever came last of what the window said (how the one
@@ -233,7 +235,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   );
 }
 
-export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, onThreadMenu, ...header }: SessionPanelProps) {
+export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, onThreadMenu, find, ...header }: SessionPanelProps) {
   const { lane, session: s, apps, now, onOpen, onMenu, device, renaming } = header;
   const terminal = apps.terminal;
   const openIt = () => onOpen(s.openTarget);
@@ -261,6 +263,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
             answeredBelow={replies}
             run={run}
             onMenu={onThreadMenu}
+            find={find}
             fallback={
               s.excerpt ? (
                 <p className="ca-sessinsp-now">

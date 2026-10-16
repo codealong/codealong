@@ -12,6 +12,7 @@ import { reviewMark } from '../prStatus';
 import type { Bay, Emblem, GitInfo, Lane, LogoStatus, Pr, PrItem, PrState, Session, Status, Surface } from '../types';
 import type { Waits } from '../queue';
 import { LOGO_LABEL } from '../logo';
+import type { SaidLine } from '../quick';
 import { ICONS } from './icons';
 import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
 import type { DragProps } from './useRowDrag';
@@ -73,6 +74,31 @@ export function Rich({ text, now }: { text: string; now: number }) {
         ),
       )}
     </>
+  );
+}
+
+/** Text with the words a search found in it marked, `marks` being [start, end) pairs in order. */
+export function Marked({ text, marks }: { text: string; marks: [number, number][] }) {
+  if (marks.length === 0) return <>{text}</>;
+  const out: ReactNode[] = [];
+  let at = 0;
+  marks.forEach(([a, b], i) => {
+    if (a > at) out.push(text.slice(at, a));
+    out.push(<mark key={i}>{text.slice(a, b)}</mark>);
+    at = b;
+  });
+  if (at < text.length) out.push(text.slice(at));
+  return <>{out}</>;
+}
+
+/** The line of what was said that a search found a session by (quick.ts `saidLine`), the words
+ *  marked, and who said it when it was you. */
+export function SaidText({ said, className }: { said: SaidLine; className?: string }) {
+  return (
+    <span className={cx('ca-said', className)}>
+      {said.you ? 'You: ' : ''}
+      <Marked text={said.text} marks={said.marks} />
+    </span>
   );
 }
 

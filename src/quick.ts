@@ -12,7 +12,7 @@ import { inQueueOrder, statusWaits, type Reads } from './queue';
 import { sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
 import type { Codec } from './stored';
-import type { Board, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit, Todo } from './types';
+import type { Board, DeviceFound, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit, Todo } from './types';
 
 export const ALL_PROJECTS = 'All projects';
 /** Codealong's chats, as the worktree picker offers them: a chat of its own, in no project. */
@@ -45,9 +45,20 @@ export interface SessionRow {
   session: Session;
   /** Where the typed words are in the title, as [start, end) pairs, for underlining. */
   marks: [number, number][];
-  /** Found by what was said rather than what describes it: a line of that, and where the
-   *  words are in it. */
-  said?: { text: string; you: boolean; marks: [number, number][] };
+  /** Found by what was said rather than what describes it (`saidLine`). */
+  said?: SaidLine;
+}
+
+/** What a session found by what was said shows under its title: a line of what matched, whether
+ *  you wrote it, and where the words are in it. */
+export interface SaidLine {
+  text: string;
+  you: boolean;
+  marks: [number, number][];
+}
+
+export function saidLine(hit: TextHit, words: string[]): SaidLine {
+  return { text: hit.snippet, you: hit.you, marks: titleMarks(hit.snippet, words) };
 }
 
 /** A PR waiting on your review, in the empty panel's list among the sessions, keyed by the PR's
@@ -220,7 +231,7 @@ export const TEXT_SEARCH_MIN = 3;
  * rest), then the most recently active. Archived sessions are left out, unless `archived` asks
  * for them: then they come after all the others, in the same order among themselves.
  */
-export function findSessions(board: Board, project: string, query: string, limit = MAX_ROWS, said: Map<string, TextHit> = new Map(), archived: Archived = 'without'): SessionRow[] {
+export function findSessions(board: Board, project: string, query: string, limit = MAX_ROWS, said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without'): SessionRow[] {
   const words = queryWords(query);
   if (words.length === 0) return [];
   const found = sessionsIn(board, project, archived).flatMap(({ lane, session: s }) => {
@@ -232,7 +243,7 @@ export function findSessions(board: Board, project: string, query: string, limit
     if (hasWords(hay, words)) return [{ row, tier: 1, score: 0 }];
     const hit = said.get(s.key);
     if (!hit) return [];
-    return [{ row: { ...row, said: { text: hit.snippet, you: hit.you, marks: titleMarks(hit.snippet, words) } }, tier: 2, score: hit.score ?? 0 }];
+    return [{ row: { ...row, said: saidLine(hit, words) }, tier: 2, score: hit.score ?? 0 }];
   });
   return found
     .sort(
@@ -258,6 +269,13 @@ export function stillSaid(hits: TextHit[], words: string[]): TextHit[] {
   return hits.filter((h) => {
     return hasWords(h.snippet.toLowerCase(), words);
   });
+}
+
+/** What your other devices found, as one list: their hits (keyed as their sessions are here,
+ *  `@<short>:`), and whether any is still reading what its sessions said. A device that couldn't
+ *  be asked adds nothing: its sessions are still found by what describes them. */
+export function deviceHits(found: DeviceFound[]): { hits: TextHit[]; building: boolean } {
+  return { hits: found.flatMap((d) => d.found?.hits ?? []), building: found.some((d) => !!d.found?.building) };
 }
 
 /** A todo a search found, or one ready to start under the empty panel's sessions. */

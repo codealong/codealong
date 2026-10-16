@@ -9,9 +9,9 @@ import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
 import { AGENT_BAY, buildBays, bySession, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sideTitle, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
-import { ALL_PROJECTS, inProject } from './quick';
-import { todoIndex, todoInFilter, todoInQuery, todoItem, todoSections, type TodoItem } from './todos';
-import type { Bay, Board, DevicesView, Label, Lane, PrItem, ProjectSummary, Session, Todo } from './types';
+import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
+import { todoIndex, todoInFilter, todoItem, todoSections, type TodoItem } from './todos';
+import type { Bay, Board, DevicesView, Label, Lane, PrItem, ProjectSummary, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { prIsOpen, prPlaces, prSections, waitsOnReview, type PrRowItem } from './ui/PrsView';
 import { helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
@@ -44,21 +44,49 @@ export function currentProject(picked: string | null, projects: { name: string }
   return known && picked ? picked : (projects.find((p) => p.name !== ELSEWHERE)?.name ?? ALL_PROJECTS);
 }
 
-/** Search on the board: the worktree, its PR and the accounts and titles of its sessions. */
-export function laneInQuery(lane: Lane, q: string): boolean {
-  if (!q) return true;
-  const needle = q.toLowerCase();
-  const hay = [lane.callsign, lane.repo, lane.branch ?? '', lane.headline, lane.path, lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '', ...lane.sessions.map((s) => `${s.account} ${s.title}`)];
-  return hay.some((h) => h.toLowerCase().includes(needle));
+/** The text search's hits by session key (useTextSearch.ts): a session whose conversation has
+ *  every word typed. */
+export type Said = ReadonlyMap<string, TextHit>;
+const NO_HITS: Said = new Map();
+
+/** Whether what describes something has every word of the search, by the quick panel's rule
+ *  (quick.ts `hasWords`): the words in any order, a word of one or two letters among others only
+ *  whole. */
+function described(hay: string[], q: string): boolean {
+  return hasWords(hay.join('\n').toLowerCase(), queryWords(q));
 }
 
-/** Search in the Sessions view: the session, then its worktree and PR. */
-export function sessionInQuery(r: SessionItem, q: string): boolean {
+/** Search on the board: the worktree, its PR and the accounts and titles of its sessions, or what
+ *  one of its sessions said. */
+export function laneInQuery(lane: Lane, q: string, said: Said = NO_HITS): boolean {
   if (!q) return true;
-  const needle = q.toLowerCase();
+  const hay = [lane.callsign, lane.repo, lane.branch ?? '', lane.headline, lane.path, lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '', ...lane.sessions.map((s) => `${s.account} ${s.title}`)];
+  return described(hay, q) || lane.sessions.some((s) => said.has(s.key));
+}
+
+/** Whether a session in the Sessions view is found by what describes it: the session, then its
+ *  worktree and PR. */
+function sessionDescribed(r: SessionItem, q: string): boolean {
   const { lane, session: s } = r;
-  const hay = [s.title, s.account, s.excerpt ?? '', lane.callsign, lane.repo, lane.branch ?? '', lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : ''];
-  return hay.some((h) => h.toLowerCase().includes(needle));
+  return described([s.title, s.account, s.excerpt ?? '', lane.callsign, lane.repo, lane.branch ?? '', lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : ''], q);
+}
+
+/** Search in the Sessions view: what describes the session, or what was said in it. */
+export function sessionInQuery(r: SessionItem, q: string, said: Said = NO_HITS): boolean {
+  return !q || sessionDescribed(r, q) || said.has(r.session.key);
+}
+
+/** The line each session found only by what was said in it shows under its title, by its key, as
+ *  the quick panel shows one. */
+export function saidLinesOf(items: SessionItem[], q: string, said: Said): Map<string, SaidLine> {
+  const out = new Map<string, SaidLine>();
+  if (!q || said.size === 0) return out;
+  const words = queryWords(q);
+  for (const r of items) {
+    const hit = said.get(r.session.key);
+    if (hit && !sessionDescribed(r, q)) out.set(r.session.key, saidLine(hit, words));
+  }
+  return out;
 }
 
 /** The status filters, applied to one session: any of them. */
@@ -83,11 +111,26 @@ export function sessionIn(r: SessionItem, f: Filter): boolean {
   }
 }
 
-/** Search in the PRs view: number, title, author, branch, repo. */
-export function prInQuery(p: PrItem, q: string): boolean {
+/** Search in the PRs view: number (`#123` or `123`), title, author, branch, repo, or what a
+ *  session that worked on it said. */
+export function prInQuery(r: PrRowItem, q: string, said: Said = NO_HITS): boolean {
   if (!q) return true;
-  const needle = q.toLowerCase().replace(/^#/, '');
-  return [String(p.number), p.title, p.author ?? '', p.head, p.repoSlug].some((h) => h.toLowerCase().includes(needle));
+  const p = r.pr;
+  return described([`#${p.number}`, p.title, p.author ?? '', p.head, p.repoSlug], q) || r.sessions.some(({ session }) => said.has(session.key));
+}
+
+/** Search in the Todo view: the title, the description, labels, and the worktrees and sessions
+ *  it's linked to, or what one of those sessions said. */
+export function todoInQuery(r: TodoItem, q: string, said: Said = NO_HITS): boolean {
+  if (!q) return true;
+  const hay = [
+    r.todo.title,
+    r.todo.description,
+    ...r.labels.map((l) => l.name),
+    ...r.places.map((p) => `${p.lane.callsign} ${p.lane.branch ?? ''}`),
+    ...r.sessions.map((s) => `${s.session.account} ${s.session.title}`),
+  ];
+  return described(hay, q) || r.sessions.some(({ session }) => said.has(session.key));
 }
 
 /** The status filters, applied to a PR and the sessions that worked on it: any of them. */
@@ -123,11 +166,11 @@ export function unarchived(lanes: Lane[]): Lane[] {
 
 /** The project's archived sessions, the latest first, for the Archived list: with a search, the
  *  ones it finds, so the list says how many archived sessions match and shows them. */
-export function archivedIn(lanes: Lane[], project: string, query = ''): SessionItem[] {
+export function archivedIn(lanes: Lane[], project: string, query = '', said: Said = NO_HITS): SessionItem[] {
   return lanes
     .filter((l) => inProject(l, project))
     .flatMap((lane) => lane.sessions.filter((s) => !s.visitor && s.archived).map((s): SessionItem => ({ kind: 'agent', key: `${lane.id}::${s.key}`, lane, session: s })))
-    .filter((r) => sessionInQuery(r, query))
+    .filter((r) => sessionInQuery(r, query, said))
     .sort((a, b) => b.session.lastActivity - a.session.lastActivity);
 }
 
@@ -348,8 +391,8 @@ function recentSession(r: SessionItem, cutoff: number, pinned: Set<string>): boo
 }
 
 /** The sessions the Sessions view shows: recent or pinned, matching the search and the filters. */
-export function shownSessionsOf(items: SessionItem[], cutoff: number, pinned: Set<string>, query: string, filter: readonly Filter[]): SessionItem[] {
-  return items.filter((r) => recentSession(r, cutoff, pinned) && sessionInQuery(r, query) && sessionInFilter(r, filter));
+export function shownSessionsOf(items: SessionItem[], cutoff: number, pinned: Set<string>, query: string, filter: readonly Filter[], said: Said = NO_HITS): SessionItem[] {
+  return items.filter((r) => recentSession(r, cutoff, pinned) && sessionInQuery(r, query, said) && sessionInFilter(r, filter));
 }
 
 /** How many sessions the age filter lets through, whatever the search and the filters: the sidebar's count. */
@@ -365,19 +408,19 @@ export function inPinOrder<T>(rows: T[], keys: string[], keyOf: (r: T) => string
 
 /** Pinned worktrees that match the search and the status filter, in your order. Each shows at the
  *  top of the board and leaves the bays below. */
-export function pinnedLaneRowsOf(lanes: Lane[], keys: string[], query: string, filter: readonly Filter[], since: string): WorktreeRow[] {
+export function pinnedLaneRowsOf(lanes: Lane[], keys: string[], query: string, filter: readonly Filter[], since: string, said: Said = NO_HITS): WorktreeRow[] {
   const byId = new Map(lanes.map((l) => [l.id, l]));
   return keys.flatMap((id): WorktreeRow[] => {
     const lane = byId.get(id);
-    const shown = lane && laneInQuery(lane, query) ? narrowed(lane, filter, since) : null;
+    const shown = lane && laneInQuery(lane, query, said) ? narrowed(lane, filter, since) : null;
     return shown ? [worktreeRow(shown)] : [];
   });
 }
 
 /** Every other worktree once, in the bay its status puts it in. The status filter narrows each to
  *  what it's about, which can move it to that bay. */
-export function bayRowsOf(lanes: Lane[], query: string, pinned: Set<string>, filter: readonly Filter[], since: string): { bay: Bay; rows: WorktreeRow[] }[] {
-  return buildBays(lanes.flatMap((l) => (laneInQuery(l, query) && !pinned.has(l.id) ? (narrowed(l, filter, since) ?? []) : [])));
+export function bayRowsOf(lanes: Lane[], query: string, pinned: Set<string>, filter: readonly Filter[], since: string, said: Said = NO_HITS): { bay: Bay; rows: WorktreeRow[] }[] {
+  return buildBays(lanes.flatMap((l) => (laneInQuery(l, query, said) && !pinned.has(l.id) ? (narrowed(l, filter, since) ?? []) : [])));
 }
 
 /** The bays with parked worktrees folded away, unless they're asked for or searched. */
@@ -402,11 +445,11 @@ export function prRowOf(pr: PrItem, laneById: Map<string, Lane>, sessionIndex: M
 }
 
 /** The PRs the PRs view shows: updated since the cutoff or pinned, matching the search and the filters. */
-export function prRowsOf(prs: PrItem[], cutoff: number, pinned: Set<string>, query: string, filter: readonly Filter[], laneById: Map<string, Lane>, sessionIndex: Map<string, { lane: Lane; session: Session }>): PrRowItem[] {
+export function prRowsOf(prs: PrItem[], cutoff: number, pinned: Set<string>, query: string, filter: readonly Filter[], laneById: Map<string, Lane>, sessionIndex: Map<string, { lane: Lane; session: Session }>, said: Said = NO_HITS): PrRowItem[] {
   return prs
-    .filter((p) => (p.updatedAt >= cutoff || pinned.has(p.key)) && prInQuery(p, query))
+    .filter((p) => p.updatedAt >= cutoff || pinned.has(p.key))
     .map((p) => prRowOf(p, laneById, sessionIndex))
-    .filter((r) => prInFilter(r, filter));
+    .filter((r) => prInQuery(r, query, said) && prInFilter(r, filter));
 }
 
 /** Whether a PR is listed under Merged & closed, which the PRs view keeps folded until it's
@@ -481,6 +524,8 @@ export interface ListsInput {
   since: string;
   now: number;
   query: string;
+  /** What the text search found for `query`, by session key (useTextSearch.ts). */
+  said: Said;
   filter: readonly Filter[];
   sessionPins: Pins;
   /** The sessions whose every helper Sessions lists under them (`placeHelpers`). */
@@ -499,7 +544,7 @@ export interface ListsInput {
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, showParked, showArchived, showDonePrs, todos, labels, labelFilter, showDoneTodos } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, showParked, showArchived, showDonePrs, todos, labels, labelFilter, showDoneTodos } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
@@ -511,7 +556,7 @@ export function useBoardLists(input: ListsInput) {
   const deviceWorking = useMemo(() => deviceCountsOf(withDevices(board?.lanes ?? [], deviceLanes, []), devices?.devices ?? [], workingOn), [board?.lanes, deviceLanes, devices?.devices]);
   const lanes = useMemo(() => unarchived(rawLanes), [rawLanes]);
   const projectLanes = useMemo(() => lanes.filter((l) => inProject(l, current)), [lanes, current]);
-  const archivedItems = useMemo(() => archivedIn(rawLanes, current, query), [rawLanes, current, query]);
+  const archivedItems = useMemo(() => archivedIn(rawLanes, current, query, said), [rawLanes, current, query, said]);
   // Worktrees active since the cutoff and pinned ones, each showing only its sessions active
   // since then.
   const recentLanes = useMemo(() => filterByAge(projectLanes, cutoff, lanePins.set, since), [projectLanes, cutoff, lanePins.set, since]);
@@ -519,7 +564,10 @@ export function useBoardLists(input: ListsInput) {
   // The Sessions view: each session once, in the worktree it runs in, pinned ones first.
   const sessionItems = useMemo(() => sessionItemsOf(projectLanes), [projectLanes]);
   // Helpers under the sessions that started them, or out of sight while they don't need you.
-  const shownSessions = useMemo(() => placeHelpers(shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter), !!query, helpersShown, sessionItems), [sessionItems, cutoff, sessionPins.set, query, filter, helpersShown]);
+  const shownSessions = useMemo(() => placeHelpers(shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter, said), !!query, helpersShown, sessionItems), [sessionItems, cutoff, sessionPins.set, query, filter, said, helpersShown]);
+  // A session found only by what was said in it shows the line that has the words.
+  const saidLines = useMemo(() => saidLinesOf([...sessionItems, ...archivedItems], query, said), [sessionItems, archivedItems, query, said]);
+  const saidOf = useCallback((k: string) => saidLines.get(k), [saidLines]);
   const helpers = useMemo(() => helperCounts(sessionItems), [sessionItems]);
   const helpersOf = useCallback((k: string) => helpers.get(k), [helpers]);
   const runs = useMemo(() => runCounts(sessionItems), [sessionItems]);
@@ -549,8 +597,8 @@ export function useBoardLists(input: ListsInput) {
   const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
 
   // The board: pinned worktrees, then every other worktree once in its bay.
-  const pinnedLaneRows = useMemo(() => pinnedLaneRowsOf(recentLanes, lanePins.keys, query, filter, since), [recentLanes, lanePins.keys, query, filter, since]);
-  const bays = useMemo(() => bayRowsOf(recentLanes, query, lanePins.set, filter, since), [recentLanes, query, lanePins.set, filter, since]);
+  const pinnedLaneRows = useMemo(() => pinnedLaneRowsOf(recentLanes, lanePins.keys, query, filter, since, said), [recentLanes, lanePins.keys, query, filter, since, said]);
+  const bays = useMemo(() => bayRowsOf(recentLanes, query, lanePins.set, filter, since, said), [recentLanes, query, lanePins.set, filter, since, said]);
   const foldParked = !showParked && !query;
   const shownBays = useMemo(() => folded(bays, foldParked), [bays, foldParked]);
   // How many parked worktrees Idle folds away, for its Show button.
@@ -566,7 +614,7 @@ export function useBoardLists(input: ListsInput) {
   const laneById = useMemo(() => new Map(lanes.map((l) => [l.id, l])), [lanes]);
   const prRow = useCallback((pr: PrItem): PrRowItem => prRowOf(pr, laneById, sessionIndex), [laneById, sessionIndex]);
   const projectPrs = useMemo(() => (board?.prs ?? []).filter((p) => current === ALL_PROJECTS || p.project === current), [board?.prs, current]);
-  const prRows = useMemo(() => prRowsOf(projectPrs, cutoff, prPins.set, query, filter, laneById, sessionIndex), [projectPrs, cutoff, query, filter, laneById, sessionIndex, prPins.set]);
+  const prRows = useMemo(() => prRowsOf(projectPrs, cutoff, prPins.set, query, filter, laneById, sessionIndex, said), [projectPrs, cutoff, query, filter, laneById, sessionIndex, prPins.set, said]);
   // Pinned PRs lead the PRs view in your order, whatever their age, and leave its sections.
   const pinnedPrRows = useMemo(() => inPinOrder(prRows, prPins.keys, (r) => r.pr.key), [prRows, prPins.keys]);
   const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key))), [prRows, prPins.set]);
@@ -579,7 +627,7 @@ export function useBoardLists(input: ListsInput) {
   const labelById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
   const projectTodos = useMemo(() => todos.filter((t) => current === ALL_PROJECTS || t.project === current), [todos, current]);
   const todoItems = useMemo(() => projectTodos.map((t) => todoItem(t, laneById, homes, labelById)), [projectTodos, laneById, homes, labelById]);
-  const todoRows = useMemo(() => todoItems.filter((r) => todoInQuery(r, query) && todoInFilter(r, filter) && (!labelFilter || r.todo.labels.includes(labelFilter))), [todoItems, query, filter, labelFilter]);
+  const todoRows = useMemo(() => todoItems.filter((r) => todoInQuery(r, query, said) && todoInFilter(r, filter) && (!labelFilter || r.todo.labels.includes(labelFilter))), [todoItems, query, said, filter, labelFilter]);
   const todoSecs = useMemo(() => todoSections(todoRows, todos), [todoRows, todos]);
   const todoVisible = useMemo<ListRow[]>(() => todoSecs.flatMap((s) => (s.id === 'done' && !showDoneTodos ? [] : s.rows)), [todoSecs, showDoneTodos]);
   const openTodoCount = useMemo(() => projectTodos.filter((t) => t.status !== 'done').length, [projectTodos]);
@@ -605,6 +653,7 @@ export function useBoardLists(input: ListsInput) {
     archivedItems,
     recentLanes,
     shownSessions,
+    saidOf,
     shownSessionCount,
     pinnedRows,
     pinnedHelpers,

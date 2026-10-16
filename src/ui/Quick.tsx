@@ -26,7 +26,7 @@
 
 import { reuse } from '../reuse';
 import { aimAfter, aimAfterChange, aimedAt, aimedAtNothing, aimedByScroll, clickDoes, type Aim } from '../aim';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
   deviceStartOptions,
@@ -42,7 +42,6 @@ import {
   openUrl,
   routeQuick,
   saveConfig,
-  searchText,
   showMain,
   showQuick,
   showWaiting,
@@ -65,7 +64,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, stillSaid, TEXT_SEARCH_MIN, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
@@ -93,11 +92,11 @@ import { alreadyOnWords, duplicateOf, rankedBy, suggestedChoice, suggestions, su
 import { dueWords } from '../due';
 import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
-import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, Session, StartOptions, StartPlace, StartSpec, TextFound } from '../types';
+import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { agentMenuSections, EffortFoot, placeIcon, placeSections } from './StartControls';
-import { Button, Chip, cx, Icon, Kbd, Mark, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
+import { Button, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
@@ -110,6 +109,8 @@ import { openWhere, where } from '../open';
 import { asText, flag, readStored, strings, useStored, writeStored } from '../stored';
 import { useLatest } from '../latest';
 import { useStartChoice, useStartPicks } from '../useStartChoice';
+import { findFor } from '../threadFind';
+import { useTextSearch } from '../useTextSearch';
 import { MARGIN, useQuickSize } from './useQuickSize';
 
 declare global {
@@ -174,8 +175,6 @@ const FOUND_ALL = 40;
 
 /** How long typing has to pause before what's typed goes to Jev. */
 const ROUTE_AFTER_MS = 350;
-/** How long typing has to pause before what's typed is looked for in what sessions said. */
-const TEXT_AFTER_MS = 150;
 
 /** What a found todo's row says under its title: when it's due, then what it waits for, else the
  *  start of its description, else how many sessions it has. */
@@ -218,19 +217,6 @@ function deskTitle(r: Row | undefined): string {
   if (r?.kind === 'todo') return r.item.todo.title || 'Untitled';
   if (r?.kind === 'pr' || r?.kind === 'review') return `#${r.pr.number} ${r.pr.title}`;
   return '';
-}
-
-function Marked({ text, marks }: { text: string; marks: [number, number][] }) {
-  if (marks.length === 0) return <>{text}</>;
-  const out: ReactNode[] = [];
-  let at = 0;
-  marks.forEach(([a, b], i) => {
-    if (a > at) out.push(text.slice(at, a));
-    out.push(<mark key={i}>{text.slice(a, b)}</mark>);
-    at = b;
-  });
-  if (at < text.length) out.push(text.slice(at));
-  return <>{out}</>;
 }
 
 /** What Auto does when it starts a session, on its line in the agent menu. */
@@ -749,27 +735,9 @@ export function Quick() {
   // Below them, the rest of the day's sessions, for ↓ to reach one that isn't waiting on you.
   const recent = useMemo(() => (board && attention ? recentRows(board, current, new Set(attention.rows.map((r) => r.key)), now) : null), [board, current, attention, now]);
   // What was said in sessions is searched in the engine, once typing pauses; its hits join the
-  // list below the sessions whose titles and the like match.
-  const textFor = !!board && query.replace(/\s+/g, '').length >= TEXT_SEARCH_MIN ? queryWords(query).join(' ') : null;
-  const [textSearch, setTextSearch] = useState<{ for: string; found: TextFound } | null>(null);
-  useEffect(() => {
-    if (!textFor) return;
-    let live = true;
-    const id = window.setTimeout(() => {
-      searchText(textFor.split(' '))
-        .then((found) => live && setTextSearch({ for: textFor, found }))
-        // What matches by title still shows, and the search is asked again as typing goes on.
-        .catch(() => undefined);
-    }, TEXT_AFTER_MS);
-    return () => {
-      live = false;
-      window.clearTimeout(id);
-    };
-  }, [textFor]);
-  const textFound = textFor && textSearch?.for === textFor ? textSearch.found : null;
-  // Until it answers, the last search's hits whose lines still have every word stay in the list.
-  const hits = useMemo(() => (textFound ? textFound.hits : textFor && textSearch ? stillSaid(textSearch.found.hits, queryWords(textFor)) : []), [textFound, textFor, textSearch]);
-  const said = useMemo(() => new Map(hits.map((h) => [h.key, h] as const)), [hits]);
+  // list below the sessions whose titles and the like match. The panel lists this Mac's sessions
+  // only, so other devices aren't asked.
+  const { words: textFor, found: textFound, said } = useTextSearch(query, { ready: !!board, devices: false });
   const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said, withArchived ? 'with' : 'without') : []), [board, current, query, said, withArchived]);
   // How many archived sessions match, for the toggle that lists them or leaves them out.
   const archivedFound = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said, 'only').length : 0), [board, current, query, said]);
@@ -929,18 +897,20 @@ export function Quick() {
     });
   };
 
-  const revealSession = (lane: Lane, session: Session) => {
+  const revealSession = (lane: Lane, session: Session, find?: string) => {
     void hideQuick();
-    void showMain({ kind: 'session', laneId: lane.id, key: session.key });
+    void showMain({ kind: 'session', laneId: lane.id, key: session.key, find });
   };
 
   /** What picking a session does: Codealong shows it, with its conversation, rather than the
-   *  terminal or app it runs in. The search that found it is done with, as when it opens there. */
-  const showSession = (lane: Lane, session: Session) => {
+   *  terminal or app it runs in. The search that found it is done with, as when it opens there;
+   *  one that found it by what was said in it has the conversation's find bar open on its words
+   *  (`find`). */
+  const showSession = (lane: Lane, session: Session, find?: string) => {
     clearPrompt();
     setActiveKey(null);
     setError(null);
-    revealSession(lane, session);
+    revealSession(lane, session, find);
   };
 
   /** Answers a session, or reviews a PR waiting on your review, in the waiting window
@@ -1278,7 +1248,8 @@ export function Quick() {
       // The first of those it adds takes its place.
       setAllFor(query);
       setActiveKey(ranked[FOUND_SESSIONS]?.key ?? null);
-    } else (alt ? openSession : showSession)(row.lane, row.session);
+    } else if (alt) openSession(row.lane, row.session);
+    else showSession(row.lane, row.session, row.said && findFor(row.said.text, queryWords(query)));
   };
 
   /** A click on a row (or the new-session row) does it when the pointer was moved onto it, and
@@ -1884,10 +1855,7 @@ export function Quick() {
                               <Marked text={s2.title} marks={r.marks} />
                             </span>
                             {r.said ? (
-                              <span className="ca-quick-row-why is-said">
-                                {r.said.you ? 'You: ' : ''}
-                                <Marked text={r.said.text} marks={r.said.marks} />
-                              </span>
+                              <SaidText said={r.said} className="ca-quick-row-why is-said" />
                             ) : (
                               <span className="ca-quick-row-why">{sessionWhy(s2.detail, s2.headline, now)}</span>
                             )}

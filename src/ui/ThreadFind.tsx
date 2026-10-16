@@ -4,7 +4,9 @@
 // conversation says it, the one you're on more strongly, and brought into view. ⏎ goes to the
 // match before, back through the conversation as ⌘⇧↑ goes back through your prompts, and ⇧⏎ to
 // the one after; ⌘G and ⇧⌘G do the same from anywhere in the window, and Escape closes the bar and
-// gives the keyboard back to where it was.
+// gives the keyboard back to where it was. A session that a search (the main window's, or the
+// quick panel's) found by what was said in it shows with the bar open on the words it found, at
+// the nearest match, the keyboard staying where it was (`asked`).
 //
 // It finds what the conversation shows: your prompts, the replies, notes and the tool calls'
 // lines, a run of calls folded into one line opening to show the ones it finds (`FindContext`),
@@ -125,9 +127,17 @@ function threadFor(): Element | null {
   return shown.find((el) => at && el.parentElement?.contains(at)) ?? shown[0] ?? null;
 }
 
-export function ThreadFind({ host, children }: { host: FindHost; children: ReactNode }) {
+/** `asked`: what a search that found the session by what was said in it looks for (threadFind.ts
+ *  `findFor`). Each time it changes the bar opens with it and goes to the nearest match, once the
+ *  conversation is laid out, leaving the keyboard where it was; closed, it stays closed until it
+ *  changes again. */
+export function ThreadFind({ host, asked, children }: { host: FindHost; asked?: string | null; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  // An open that was asked for rather than typed for, which leaves the keyboard where it is.
+  const quiet = useRef(false);
+  // An ask that came before the conversation was laid out, which goes to its match once it is.
+  const nearOnReady = useRef(false);
   const pattern = useMemo(() => (open ? findPattern(query) : null), [open, query]);
   const input = useRef<HTMLInputElement>(null);
   // Where the keyboard was before ⌘F, for Escape to give it back.
@@ -135,6 +145,7 @@ export function ThreadFind({ host, children }: { host: FindHost; children: React
   const owner = useRef({}).current;
   const hostNow = useLatest(host);
   const patternNow = useLatest(pattern);
+  const openNow = useLatest(open);
 
   // The matches laid out, the one you're on, and what the bar says of them.
   const matches = useRef<Match[]>([]);
@@ -288,6 +299,23 @@ export function ThreadFind({ host, children }: { host: FindHost; children: React
     refreshNow.current(true);
   }, [pattern, refreshNow]);
 
+  // Asked to find something: the bar opens with it, and the new query goes to its match as one
+  // typed does, or once the conversation is laid out.
+  useEffect(() => {
+    if (!asked) return;
+    setQuery(asked);
+    if (!openNow.current) {
+      quiet.current = true;
+      setOpen(true);
+    }
+    nearOnReady.current = !hostNow.current.ready;
+  }, [asked, hostNow, openNow]);
+  useEffect(() => {
+    if (!host.ready || !nearOnReady.current) return;
+    nearOnReady.current = false;
+    refreshNow.current(true);
+  }, [host.ready, refreshNow]);
+
   // As the conversation changes (pages, new steps, a call opened, a reply streaming in), the
   // matches are found again and the one you're on stays.
   useEffect(() => {
@@ -399,7 +427,6 @@ export function ThreadFind({ host, children }: { host: FindHost; children: React
   // ⌘F opens it (or takes the keyboard back to it) when it's for this conversation's panel
   // (findKeys.ts), and ⌘G and ⇧⌘G step while it's open, ahead of the window's own keys. ⇧⌘F is
   // the window's (it expands the panel in Sessions and PRs).
-  const openNow = useLatest(open);
   const stepNow = useLatest(step);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -427,9 +454,11 @@ export function ThreadFind({ host, children }: { host: FindHost; children: React
     return () => window.removeEventListener('keydown', onKey, true);
   }, [hostNow, openNow, patternNow, stepNow]);
 
-  // Opened: the keyboard goes to the bar, with what was found last ready to type over.
+  // Opened: the keyboard goes to the bar, with what was found last ready to type over, unless
+  // the open was asked for (`asked`).
   useLayoutEffect(() => {
     if (!open) return;
+    if (quiet.current) return void (quiet.current = false);
     input.current?.focus();
     input.current?.select();
   }, [open]);

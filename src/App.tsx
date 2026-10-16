@@ -21,7 +21,7 @@ import { reuse } from './reuse';
 import { usePins } from './pins';
 import { reviewItems as reviewItemsFor, startReview } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
-import { itemPrimaryHolds, todoAgent, todoInFilter, todoInQuery, todoPrompt, useTodoStore, type TodoItem } from './todos';
+import { itemPrimaryHolds, todoAgent, todoInFilter, todoPrompt, useTodoStore, type TodoItem } from './todos';
 import { repoReviews } from './repoSettings';
 import type { DevicesView, Lane, Pr, PrItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
@@ -67,14 +67,16 @@ import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './us
 import { openWhere, where } from './open';
 import { asText, flag, oneOf, strings, useStored } from './stored';
 import { useBoard } from './useBoard';
+import { useTextSearch } from './useTextSearch';
 import { useLatest } from './latest';
 import { useMainKeys, VIEW_CHORDS } from './mainKeys';
 import { useListPicks } from './useListPicks';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingChain, ageListingPr, chainOf, laneInQuery, prInDone, prInFilter, prInQuery, revealing, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, toggleShown, useBoardLists } from './boardLists';
-import { inProject, shortcutLabel } from './quick';
+import { ageListingChain, ageListingPr, chainOf, laneInQuery, prInDone, prInFilter, prInQuery, revealing, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, toggleShown, useBoardLists } from './boardLists';
+import { inProject, queryWords, shortcutLabel } from './quick';
+import { findFor } from './threadFind';
 import { improveTitle } from './improve';
 import { setPageZoom, type ZoomStep } from './zoom';
 
@@ -353,6 +355,9 @@ export function App() {
   const [showDoneTodos, setShowDoneTodos] = useState(false);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
 
+  // What was said in sessions, here and on your other devices, for the search to find them by.
+  const textSearch = useTextSearch(query, { ready: !!board, devices: deviceLanes.length > 0 });
+
   // What each view lists, from the board, the filters and the search (boardLists.ts).
   const {
     projects,
@@ -363,6 +368,7 @@ export function App() {
     deviceWorking,
     archivedItems,
     recentLanes,
+    saidOf,
     shownSessionCount,
     pinnedRows,
     pinnedHelpers,
@@ -411,6 +417,7 @@ export function App() {
     since,
     now,
     query,
+    said: textSearch.said,
     filter: bayFilter,
     sessionPins,
     helpersShown,
@@ -494,6 +501,15 @@ export function App() {
     if (selectedKey === null && top !== undefined) setSelectedKey((k) => k ?? top);
   }, [selectedKey, selected?.key]);
   const selectedLane = selected?.lane ?? null;
+  // What the find bar in a session's panel opens on: for a session this window's search found by
+  // what was said in it, the words it found there; else the words the quick panel found it by
+  // (`Reveal.find`), until another session is selected.
+  const [revealFind, setRevealFind] = useState<{ key: string; words: string } | null>(null);
+  useEffect(() => {
+    if (revealFind && selectedSessionKey !== revealFind.key) setRevealFind(null);
+  }, [revealFind, selectedSessionKey]);
+  const selectedSaid = selected?.kind === 'agent' ? saidOf(selected.session.key) : undefined;
+  const panelFind = selected?.kind === 'agent' && selectedSaid ? { key: selected.session.key, words: findFor(selectedSaid.text, queryWords(query)) } : revealFind;
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
   const {
     duePick,
@@ -592,6 +608,7 @@ export function App() {
   // PR or todo here: in its project, with no search hiding it, nor one of its sessions shown in
   // its panel's place (`drill`), which selecting what's selected already would leave.
   const reveal = useLatest((r: Reveal) => {
+    setRevealFind(r.kind === 'session' && r.find ? { key: r.key, words: r.find } : null);
     // A project's canvas `codealong canvas arrange --show` laid out, with the frames it made in view.
     if (r.kind === 'canvas') {
       if (current !== r.project) pickProject(r.project);
@@ -1271,24 +1288,25 @@ export function App() {
       switch (it.ref) {
         case 'worktree': {
           const lane = e.lanes.get(it.key);
-          return !!lane && laneInQuery(lane, query) && !!narrowed(lane, bayFilter, since);
+          return !!lane && laneInQuery(lane, query, textSearch.said) && !!narrowed(lane, bayFilter, since);
         }
         case 'session': {
           const p = e.sessions.get(it.key);
           const row: SessionItem | null = p ? { kind: 'agent', key: it.key, lane: p.lane, session: p.session } : null;
-          return !!row && sessionInQuery(row, query) && sessionInFilter(row, bayFilter);
+          return !!row && sessionInQuery(row, query, textSearch.said) && sessionInFilter(row, bayFilter);
         }
         case 'todo': {
           const r = todoItems.find((x) => x.todo.id === it.key);
-          return !!r && todoInQuery(r, query) && todoInFilter(r, bayFilter);
+          return !!r && todoInQuery(r, query, textSearch.said) && todoInFilter(r, bayFilter);
         }
         case 'pr': {
           const pr = e.prs.get(it.key);
-          return !!pr && prInQuery(pr, query) && prInFilter(prRowOf(pr), bayFilter);
+          const row = pr && prRowOf(pr);
+          return !!row && prInQuery(row, query, textSearch.said) && prInFilter(row, bayFilter);
         }
       }
     },
-    [canvasEntities, todoItems, query, bayFilter, since, prRowOf],
+    [canvasEntities, todoItems, query, textSearch.said, bayFilter, since, prRowOf],
   );
 
   /** A card's right-click menu: the one its row has in the other views. */
@@ -1637,7 +1655,7 @@ export function App() {
           {board && !board.loading && view === 'sessions' && sessionRows.length === 0 && (
             <div className="ca-board-empty">
               {query
-                ? `No sessions in ${current} match “${query}”.`
+                ? `No sessions in ${current} match “${query}”${textSearch.building ? ' yet: Codealong is still reading what recent sessions said' : ''}.`
                 : bayFilter.length > 0
                   ? 'No sessions here right now.'
                   : cutoff > 0
@@ -1815,6 +1833,7 @@ export function App() {
                 onShowSide={showSideOf}
                 helperActions={helperActions}
                 onShowTodo={showTodo}
+                saidOf={saidOf}
               />
             )}
             {/* The first pin lands at the top of the board. */}
@@ -1860,6 +1879,7 @@ export function App() {
           <MainPanel
             view={view}
             selected={selected}
+            find={panelFind}
             selectedLane={selectedLane}
             canvasPicked={canvasPick}
             board={board}

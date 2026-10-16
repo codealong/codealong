@@ -250,7 +250,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
         <label className="ca-field">
           <span>Search what sessions said</span>
           <ProfileSelect value={String(searchDays)} profiles={dayOptions(searchDays)} onChange={(d) => void onSave({ ...cfg, search: { days: Number(d) } })} />
-          <small>The quick panel and <code>codealong sessions find</code> look for your words in the prompts and replies of sessions active this recently, not just in their titles. Tool output is left out. Codealong keeps this text in memory, a few megabytes a week.</small>
+          <small>The quick panel, the filter at the top of the main window and <code>codealong sessions find</code> look for your words in the prompts and replies of sessions active this recently, not just in their titles. Tool output is left out. Codealong keeps this text in memory, a few megabytes a week.</small>
         </label>
         <label className="ca-field">
           <span>Terminal</span>

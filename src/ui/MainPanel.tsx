@@ -128,10 +128,13 @@ export interface MainPanelProps {
   setPreviewFor: (laneId: string) => void;
   markSeen: (keys: string[]) => void;
   setToast: (message: string | null) => void;
+  /** What the conversation's find bar opens on in a session's panel, by the session's key: the
+   *  words a search found it by in what was said. */
+  find: { key: string; words: string } | null;
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, find } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -256,6 +259,7 @@ export function MainPanel(props: MainPanelProps) {
         onSessionMenu={(l, x) => sessionMenu(l, x, 'session')}
         onMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
         onThreadMenu={(items) => void showContextMenu(items).catch((err: unknown) => setToast(String(err)))}
+        find={find?.key === session.key ? find.words : null}
         // The keyboard stays where it was: the next one's box doesn't take the cursor.
         onSeen={() => (queued ? void runQueue('seen', false) : markSeen([session.key]))}
         device={deviceOf(devices, session.key)}

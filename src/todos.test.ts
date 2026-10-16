@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoInQuery, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoItem, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import type { Label, Lane, Session, Todo } from './types';
@@ -84,9 +84,6 @@ describe('the list', () => {
     expect(todoInFilter(item, ['working'])).toBe(true);
     expect(todoInFilter(item, ['work'])).toBe(true);
     expect(todoInFilter(item, ['needs'])).toBe(false);
-    expect(todoInQuery(item, 'bug')).toBe(true);
-    expect(todoInQuery(item, 'app3')).toBe(true);
-    expect(todoInQuery(item, 'nothing like it')).toBe(false);
   });
 
   it('shows In progress, Ready and Waiting in your order, then Done, latest first', () => {

@@ -363,7 +363,10 @@ pages further back are read for it), starting from the one nearest where you're 
 the match before, on into earlier pages, ⇧⏎ to the one after (⌘G and ⇧⌘G from anywhere in the
 window), a run of tool calls opens to show a call it finds, and Escape closes the bar and gives the
 keyboard back. It finds what shows: prompts, replies and the calls' lines, and a call's input and
-output once you've opened it.
+output once you've opened it. A session that a search found by what was said in it, in the filter
+at the top or the quick panel, opens with the bar already on the words it found (the words as you
+typed them when the line it was found by has them together, else the longest of them that line
+has), at the nearest match, the keyboard staying where it was.
 
 #### Copy and Run
 
@@ -1006,7 +1009,16 @@ sessions started. Devices and statuses toggle; none picked shows all, and Clear 
 the view as it is under a name to come back to it; right-click a saved view to update or delete it
 (they're kept per Mac, not in config.toml). ⌃⌘S, or the button beside the traffic lights, folds it
 to a rail of the views and devices whose filter button carries a badge while a filter narrows the
-view. The search at the top narrows every view too.
+view. The search at the top narrows every view too, by every word typed, in any order (a word of one
+or two letters among others counts only whole, as in the quick panel): in what describes a row (a
+session's title, account and latest line, its worktree, branch and PR; a worktree's name, branch,
+path and PR; a PR's number, title, author, branch and repo; a todo's title, description, labels and
+what it's linked to), or, from three letters on, in what was said in a session (your prompts and its
+replies, for sessions active in the last `[search] days`, your other devices' sessions too, each
+searched on its own Mac). A session found only by what was said in it shows the line that has the
+words under its title, and its worktree, its PRs and its todos are found with it. Selecting it opens
+its conversation with the find bar on those words (*Find*). While Codealong is still reading what
+recent sessions said, a search in Sessions that finds nothing says so.
 
 ### Notices
 
@@ -1122,7 +1134,8 @@ whole word, so "class c" doesn't find everything with a c in it. Archived sessio
 unless you ask for them: the Archived box at the end of the Sessions heading, there whenever you
 search, says how many match, and checked (a click, or ⇧⌘A) lists them after the others, each with an
 Archived chip, in this and later searches until you uncheck it. ⏎ on a session shows it in
-Codealong, with its conversation and a box to answer it, and ⌥⏎ opens it where it lives. ⏎ on a todo
+Codealong, with its conversation and a box to answer it (one found by what was said, with the find
+bar on the words), and ⌥⏎ opens it where it lives. ⏎ on a todo
 shows its session the same way, or, when it has none, gets a session ready to start for it (its
 prompt, its worktree, linked to it); on a PR it shows the PR in Codealong, and ⌥⏎ opens it on
 GitHub; the PR's right-click menu copies its link. ⏎ or ⇥ on a PR under Review requested reviews it

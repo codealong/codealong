@@ -16,6 +16,7 @@ import { Fragment } from 'react';
 import { bySession, byStatusTime, foldsOf, runsShownKey, sidesListed, sidesShownKey, startedOf, waitingSince, workingFor, type Fold } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
+import type { SaidLine } from '../quick';
 import type { Bay, DesktopPinned, Lane, Session, SideGlance, Status, Todo } from '../types';
 import type { HelperActions } from './HelpersCard';
 import { AgentRow, FoldRow, SideRow } from './LaneRow';
@@ -290,12 +291,15 @@ interface SessionsViewProps {
   /** What a helpers chip's card does with a helper (HelpersCard.tsx). */
   helperActions?: HelperActions;
   onShowTodo?: (todo: Todo) => void;
+  /** The line a session the search found by what was said in it shows (boardLists.ts
+   *  `saidLinesOf`). */
+  saidOf?: (sessionKey: string) => SaidLine | undefined;
 }
 
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 export function SessionsView(props: SessionsViewProps) {
-  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo } = props;
+  const { pinned, pinnedHelpers, sections, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, saidOf } = props;
   const shown = helpersShown ?? NO_KEYS;
   const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? [...(pinnedHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
@@ -343,6 +347,7 @@ export function SessionsView(props: SessionsViewProps) {
       nested={r.nested}
       elsewhere={r.elsewhere}
       onShowTodo={onShowTodo}
+      said={saidOf?.(r.session.key)}
       drag={held}
     />
   );

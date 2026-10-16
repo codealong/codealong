@@ -444,9 +444,12 @@ interface SessionThreadProps {
   /** Shows the menu a right-click on a message asks for, the window's way (SessionPanel.tsx
    *  `onThreadMenu`). Without it a message has none. */
   onMenu?: (items: MenuSpec) => void;
+  /** What the find bar opens on: the words a search found it by in what was said
+   *  (ThreadFind.tsx `asked`). */
+  find?: string | null;
 }
 
-export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run, onMenu }: SessionThreadProps) {
+export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run, onMenu, find }: SessionThreadProps) {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [before, setBefore] = useState<number | null>(null);
   // `before` as soon as it's set, for laying out pages that must begin where the last ones did.
@@ -835,7 +838,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     <RunContext.Provider value={run ?? null}>
       <FollowUpContext.Provider value={answeredBelow ? followUp : null}>
         <ImagesFrom.Provider value={shortOf(s.key)}>
-          <ThreadFind host={{ key: s.key, scroller, roots: FIND_IN, ready: loaded, read: reading.current, before, pageAt, show }}>
+          <ThreadFind host={{ key: s.key, scroller, roots: FIND_IN, ready: loaded, read: reading.current, before, pageAt, show }} asked={find}>
             <div className="ca-thread" ref={scroller} onScroll={onScroll}>
               {/* Takes no room: it floats over the top of the view while it has a prompt to show. */}
               <div className="ca-thread-pin">

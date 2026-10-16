@@ -35,15 +35,18 @@ import {
   sessionInFilter,
   sessionInQuery,
   sessionItemsOf,
+  saidLinesOf,
   shownSessionsOf,
+  todoInQuery,
   unarchived,
 } from './boardLists';
 import { needsOn } from './devices';
 import { bayOf, runsShownKey } from './lanes';
 import { ALL_PROJECTS } from './quick';
+import { todoItem } from './todos';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
-import type { Lane, Pr, ProjectSummary, Session, SideGlance } from './types';
+import type { Lane, Pr, ProjectSummary, Session, SideGlance, TextHit } from './types';
 import { familiesOf, helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
 
 const NOW = fx.NOW;
@@ -109,9 +112,60 @@ describe('searching', () => {
   });
 
   it('finds a PR by its number with or without #, title, author, branch and repo', () => {
-    const p = fx.prItem({ number: 42, title: 'Login page', author: 'sam', head: 'feat/login', repoSlug: 'acme/web' });
-    for (const q of ['', '42', '#42', 'LOGIN', 'sam', 'feat/', 'acme/web']) expect(prInQuery(p, q)).toBe(true);
+    const p = prRowOf(fx.prItem({ number: 42, title: 'Login page', author: 'sam', head: 'feat/login', repoSlug: 'acme/web' }), new Map(), sessionIndexOf([]));
+    for (const q of ['', '42', '#42', 'LOGIN', 'sam', 'feat/', 'acme/web', 'page login']) expect(prInQuery(p, q)).toBe(true);
     expect(prInQuery(p, 'docs')).toBe(false);
+  });
+
+  it('finds by every word in any order, as the quick panel does, a short one among others only whole', () => {
+    const r = item(l, s);
+    for (const q of ['login fix', 'branch pushed', 'work  login']) expect(sessionInQuery(r, q)).toBe(true);
+    expect(laneInQuery(l, 'ci waiting')).toBe(true);
+    // The "a" of "Pushed a branch" counts whole, so "fix a" finds it, but "fix g" isn't a word there.
+    expect(sessionInQuery(r, 'fix a')).toBe(true);
+    expect(sessionInQuery(r, 'fix g')).toBe(false);
+    expect(sessionInQuery(r, 'login nothing')).toBe(false);
+  });
+
+  it('finds a todo by its title, description, labels and what it’s linked to', () => {
+    const t = todoItem(fx.todo({ id: 't1', title: 'Ship the login', description: 'Before Friday', labels: ['l1'], worktrees: [l.id], sessions: [s.key] }), new Map([[l.id, l]]), new Map([[s.key, { lane: l, session: s }]]), new Map([['l1', { id: 'l1', name: 'Bug', color: 'red' }]]));
+    for (const q of ['', 'bug', 'friday ship', 'feat/login', 'work fix']) expect(todoInQuery(t, q)).toBe(true);
+    expect(todoInQuery(t, 'nothing like it')).toBe(false);
+  });
+});
+
+describe('searching what was said', () => {
+  const s = session('claude:work:s1', { title: 'Fix the login', account: 'work' });
+  const quiet = session('claude:work:s2', { title: 'Tidy the docs', account: 'work' });
+  const l = lane('/r/app/feature', [s, quiet], { pr: fx.pr({ number: 42, title: 'Login page' }) });
+  const hit = (key: string, snippet: string, you = false): TextHit => ({ key, snippet, you, at: NOW, score: 4 });
+  const said = new Map([[quiet.key, hit(quiet.key, 'The webhook retries twice, then gives up.')]]);
+
+  it('finds a session, its worktree, its PR and its todo by what was said in it', () => {
+    expect(sessionInQuery(item(l, quiet), 'webhook retries', said)).toBe(true);
+    expect(sessionInQuery(item(l, s), 'webhook retries', said)).toBe(false);
+    expect(laneInQuery(l, 'webhook retries', said)).toBe(true);
+    expect(laneInQuery(lane('/r/other', [s]), 'webhook retries', said)).toBe(false);
+    const pr = fx.prItem({ number: 42, title: 'Login page', lanes: [l.id], sessions: [{ lane: l.id, key: quiet.key }] });
+    expect(prInQuery(prRowOf(pr, new Map([[l.id, l]]), sessionIndexOf([l])), 'webhook retries', said)).toBe(true);
+    expect(prInQuery(prRowOf({ ...pr, sessions: [] }, new Map([[l.id, l]]), sessionIndexOf([l])), 'webhook retries', said)).toBe(false);
+    const t = todoItem(fx.todo({ id: 't1', title: 'Ship it', sessions: [quiet.key] }), new Map([[l.id, l]]), new Map([[quiet.key, { lane: l, session: quiet }]]), new Map());
+    expect(todoInQuery(t, 'webhook retries', said)).toBe(true);
+    expect(shownSessionsOf([item(l, s), item(l, quiet)], 0, new Set(), 'webhook retries', [], said).map((r) => r.session.key)).toEqual([quiet.key]);
+    expect(archivedIn([lane('/r/a', [{ ...quiet, archived: true }])], ALL_PROJECTS, 'webhook retries', said).map((r) => r.session.key)).toEqual([quiet.key]);
+  });
+
+  it('gives a line only to the sessions found by what was said and not by what describes them', () => {
+    const lines = saidLinesOf([item(l, s), item(l, quiet)], 'webhook retries', said);
+    expect([...lines.keys()]).toEqual([quiet.key]);
+    expect(lines.get(quiet.key)).toEqual({ text: 'The webhook retries twice, then gives up.', you: false, marks: [[4, 11], [12, 19]] });
+    // Both said "fix", but it's in s's title, so s's row needs no line to say why it's listed.
+    const fix = new Map([
+      [s.key, hit(s.key, 'You asked to fix it first.', true)],
+      [quiet.key, hit(quiet.key, 'A fix for the docs.')],
+    ]);
+    expect([...saidLinesOf([item(l, s), item(l, quiet)], 'fix', fix).keys()]).toEqual([quiet.key]);
+    expect(saidLinesOf([item(l, quiet)], '', said).size).toBe(0);
   });
 });
 

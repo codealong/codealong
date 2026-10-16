@@ -205,15 +205,6 @@ html.is-quick body {
   background: transparent;
   color: var(--ink-3);
 }
-/* A line of what was said, for a session found by its conversation. */
-.ca-quick-row-why.is-said mark {
-  background: transparent;
-  color: var(--ink-2);
-  font: var(--type-meta-strong);
-  text-decoration: underline;
-  text-decoration-color: var(--line-strong);
-  text-underline-offset: 2px;
-}
 .ca-quick-row-where {
   flex: none;
   max-width: 210px;

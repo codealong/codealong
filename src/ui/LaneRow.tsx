@@ -14,8 +14,9 @@ import { branchLabel, foldWords, helperLine, sideTitle, startedOf, worktreeName,
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
+import type { SaidLine } from '../quick';
 import type { GitInfo, Lane, Session, SideGlance, Suggestions, Todo } from '../types';
-import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, selects, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
+import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, SaidText, selects, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { HelpersCard, type HelperActions } from './HelpersCard';
@@ -329,19 +330,23 @@ interface SessionLinesProps {
   sidesShown?: boolean;
   onToggleSides?: () => void;
   sideActions?: HelperActions;
+  /** What a search found it by when that's what was said in it, under the first line. */
+  said?: SaidLine;
 }
 
 /**
  * A session on two lines, wherever a list gives it two: what it's about first (its title, what it
  * waits on you for, and what it's doing or said last), then where and why (`where`, its snooze,
- * quiet, todo and Jev's read, then its account), with `end` at the second line's end.
+ * quiet, todo and Jev's read, then its account), with `end` at the second line's end. A search
+ * that found it by what was said puts the line that has the words between them.
  */
-function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions }: SessionLinesProps) {
+function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, said }: SessionLinesProps) {
   return (
     <>
       <div className="ca-agentrow-line1">
         <SessionText s={s} now={now} />
       </div>
+      {said && <SaidText said={said} className="ca-agentrow-said" />}
       <div className="ca-lane-line2">
         <span className="ca-chips ca-lane-lead ca-agentrow-chips">
           {where}
@@ -455,6 +460,8 @@ interface AgentRowProps {
   nested?: boolean;
   /** A nested helper in another worktree than its session's, which its row names. */
   elsewhere?: boolean;
+  /** What a search found it by when that's what was said in it (boardLists.ts `saidLinesOf`). */
+  said?: SaidLine;
 }
 
 /** A snooze's chip: how long until it's back, as short as the age beside it, and the time and
@@ -621,8 +628,10 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * then its status, worktree and PR chips at the line's end, the worktree giving way before the
  * status chips. A helper under the session it works for is on one line either way, and says only
  * what the session's row doesn't: its worktree only when it works in another, and no PR or diff.
+ * A search that found it by what was said in it adds the line that has the words, under the
+ * first.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere, said }: AgentRowProps) {
   const started = age === 'started';
   const oneLine = slim || nested;
   const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />;
@@ -661,6 +670,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             </span>
             {!nested && pr}
           </div>
+          {said && <SaidText said={said} className="ca-agentrow-said" />}
         </div>
       ) : (
         <div className="ca-seg ca-seg-main">
@@ -688,6 +698,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
             sidesShown={sidesShown}
             onToggleSides={onToggleSides}
             sideActions={sideActions}
+            said={said}
           />
         </div>
       )}

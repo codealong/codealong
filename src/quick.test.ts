@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks, worktreeCount } from './quick';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutLabel, stillSaid, TAKEN, titleMarks, worktreeCount, deviceHits } from './quick';
 import * as fx from './testing/fixtures';
 import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
 
@@ -401,6 +401,20 @@ describe('stillSaid', () => {
     // A word typed further along narrows what's kept; one no line has keeps nothing.
     expect(stillSaid(hits, ['quick', 'fixes'])).toEqual([]);
     expect(stillSaid(hits, [])).toEqual(hits);
+  });
+});
+
+describe('deviceHits', () => {
+  const hit = (key: string) => ({ key, snippet: 'the webhook', you: false, at: 0 });
+  it('puts every device’s hits in one list, leaving out the ones that couldn’t be asked', () => {
+    const found = deviceHits([
+      { device: 'b1', name: 'Studio', found: { hits: [hit('@b1:claude:claude:a')], building: false, off: false }, error: null },
+      { device: 'c2', name: 'Air', found: null, error: 'It didn’t answer.' },
+      { device: 'd3', name: 'Mini', found: { hits: [hit('@d3:codex:codex:b')], building: true, off: false }, error: null },
+    ]);
+    expect(found.hits.map((h) => h.key)).toEqual(['@b1:claude:claude:a', '@d3:codex:codex:b']);
+    expect(found.building).toBe(true);
+    expect(deviceHits([])).toEqual({ hits: [], building: false });
   });
 });
 

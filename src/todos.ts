@@ -449,20 +449,6 @@ export function todoSections(items: TodoItem[], todos: Todo[]): TodoSection[] {
   return [...rows].filter(([, list]) => list.length > 0).map(([id, list]) => ({ id, label: SECTION_WORD[id], rows: list }));
 }
 
-/** Search: the title, the description, labels, and the worktrees and sessions it's linked to. */
-export function todoInQuery(r: TodoItem, q: string): boolean {
-  if (!q) return true;
-  const needle = q.toLowerCase();
-  const hay = [
-    r.todo.title,
-    r.todo.description,
-    ...r.labels.map((l) => l.name),
-    ...r.places.map((p) => `${p.lane.callsign} ${p.lane.branch ?? ''}`),
-    ...r.sessions.map((s) => `${s.session.account} ${s.session.title}`),
-  ];
-  return hay.some((h) => h.toLowerCase().includes(needle));
-}
-
 /** The status filters, applied to a todo through its sessions and worktrees. */
 export function todoInFilter(r: TodoItem, fs: readonly string[]): boolean {
   return fs.length === 0 || fs.some((f) => todoIn(r, f));

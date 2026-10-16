@@ -220,3 +220,14 @@
   justify-content: center;
   padding: 0 var(--space-3) 0 0;
 }
+
+/* A line of what was said, for a session a search found by its conversation (`SaidText`): the
+   words it found underlined, in the quick panel's rows and the main window's alike. */
+.ca-said mark {
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--type-meta-strong);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}

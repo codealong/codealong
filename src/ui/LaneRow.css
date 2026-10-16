@@ -266,6 +266,20 @@
   margin-left: calc(var(--chip-gap) - var(--space-2));
 }
 
+/* The line of what was said that a search found the session by, under its first line: one
+   line, cut short at its end. On one line the row grows to take it. */
+.ca-agentrow-said {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-lane.is-agent.is-slim .ca-seg-main:has(> .ca-agentrow-said) {
+  padding: var(--space-1) 0;
+}
+
 /* A reusable worktree's mark, before its repo and branch (LaneRow.tsx): green, as an app that
    runs is, while new work can start there. */
 .ca-reusemark {

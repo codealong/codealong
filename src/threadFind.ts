@@ -15,6 +15,21 @@ export function findPattern(query: string): RegExp | null {
   return new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'), 'giu');
 }
 
+/** What the bar looks for in a session a search found by what was said in it, from `line`, the
+ *  line it was found by, and the words typed (quick.ts `queryWords`): the words as typed when the
+ *  line has them in that order, else the longest of them the line has, else the longest. The
+ *  search finds a session with its words anywhere in what was said, but the bar finds them only
+ *  together. */
+export function findFor(line: string, words: string[]): string {
+  if (words.length === 0) return '';
+  const phrase = words.join(' ');
+  const pattern = findPattern(phrase);
+  if (pattern && says(pattern, line)) return phrase;
+  const longest = [...words].sort((a, b) => b.length - a.length);
+  const lower = line.toLowerCase();
+  return longest.find((w) => lower.includes(w)) ?? longest[0];
+}
+
 /** How many times `text` says it. */
 export function countIn(pattern: RegExp, text: string): number {
   return text ? (text.match(pattern)?.length ?? 0) : 0;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chainFrom, countIn, countWords, findPattern, pageHits, plainOf, says, shownText } from './threadFind';
+import { chainFrom, countIn, countWords, findFor, findPattern, pageHits, plainOf, says, shownText } from './threadFind';
 import type { TranscriptItem } from './types';
 
 const item = (kind: TranscriptItem['kind'], text: string, extra: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: 0, kind, text, failed: false, cursor: 0, n: 0, ...extra });
@@ -105,5 +105,18 @@ describe('countWords', () => {
     expect(countWords({ ...none, partial: true, reading: true })).toBe('Looking…');
     expect(countWords({ ...none, partial: true })).toBe('No matches so far');
     expect(countWords({ ...none, at: 0, total: 4, looking: true })).toBe('Looking earlier…');
+  });
+});
+
+describe('findFor', () => {
+  it('finds the words as typed when the line found has them together', () => {
+    expect(findFor('…so the Webhook   retries go through the same path', ['webhook', 'retries'])).toBe('webhook retries');
+    expect(findFor('The retry loop lives in stripe.ts', ['stripe'])).toBe('stripe');
+  });
+  it('else the longest word the line has, else the longest typed', () => {
+    expect(findFor('Retries happen in the webhook handler', ['webhook', 'retries'])).toBe('webhook');
+    expect(findFor('…the handler retries…', ['webhook', 'retries'])).toBe('retries');
+    expect(findFor('nothing here', ['ab', 'webhook'])).toBe('webhook');
+    expect(findFor('anything', [])).toBe('');
   });
 });
