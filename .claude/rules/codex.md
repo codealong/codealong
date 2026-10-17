@@ -142,6 +142,17 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   ended ("Cannot steer conversation … because its active turn already ended"); the router's
   refusals before it hands a request on are `no-client-found`, `no-handler-for-request` and
   `request-version-mismatch` (26.924's code).
+- Setting the model and effort a thread's next turn runs on (`thread-follower-update-thread-settings`,
+  version 2, as a window's box does), and the `thread_settings_applied` line the app-server writes
+  for it: `codex/ipc.rs` (`codex_settings_request`, `codex_update_settings`), `codex/rollout.rs`
+  (`apply_event`). Not there: the app-server's `thread/settings/update` (experimental API) also
+  takes `approvalPolicy`, `sandboxPolicy`, `permissions` (a profile id), `serviceTier` (`null`
+  clears it), `summary`, `cwd` and `collaborationMode`, and writes the thread's `model` and
+  `reasoning_effort` to `state_5.sqlite`'s `threads` too (0.160.1 on a scratch `CODEX_HOME`,
+  2026-10-17). The app writes `thread_settings_applied` before each turn as well, so a rollout has
+  one per turn (2,004 of this Mac's rollouts had them); a guardian review's rollout has its own,
+  on `codex-auto-review`. Checked on 26.930 (2026-10-17): a thread a window had answered
+  `{applied: true}` and its rollout and database followed effort to `high` and back.
 - What's sent while a thread's turn runs in the app (26.1007): the app's box steers it in or
   queues it to start once the turn ends, as `[desktop] followUpQueueMode` in config.toml says
   (`steer` unless set, `queue`, or `interrupt`). The queue is the app-server's

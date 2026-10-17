@@ -90,7 +90,7 @@ import { notAsked, showSides, startingSide, useAside, usePopped } from '../side'
 import { COMMANDS, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionAt, mentionsIn, sessionSkills, skillNamed, writtenFor } from '../skills';
 import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
-import { accountOf, useStartAccounts } from '../startAccounts';
+import { accountOf, useDeviceStartAccounts } from '../startAccounts';
 import { sessionSkillsFor, useSkills } from '../useSkills';
 import { mergeAttachments, splitAttachments, withAttachments } from '../todos';
 import type { Answers, Attachment, Pending, Question, Sent, Session, StartPlace, Suggestions, Way } from '../types';
@@ -293,10 +293,16 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
 
   // Where a session on this Mac that isn't running goes on, and on what (ResumeBar.tsx), when
   // its account offers a choice; without one, a send resumes it in a terminal. The place and the
-  // model are chips beside Send, where a running one's model is.
-  const here = !shortOf(s.key);
-  const resumable = way?.kind === 'resume' && here;
-  const account = accountOf(useStartAccounts(here && (resumable || s.live)), s);
+  // model are chips beside Send, where a running one's model is. A session on another device is
+  // switched there, with the accounts that device has.
+  const device = shortOf(s.key);
+  const resumable = way?.kind === 'resume' && !device;
+  // A Cursor app chat is set to its model, the Codex app starts a thread's turn on the model and
+  // effort it's on (codex/ipc.rs `codex_start_request`), and OpenCode's service runs a prompt on
+  // the session's (opencode.rs `model_and_effort`), so where a send goes to one of those it says
+  // them between turns too.
+  const goesOnWithIt = way?.kind === 'cursor' || way?.kind === 'codex-app' || way?.kind === 'opencode';
+  const account = accountOf(useDeviceStartAccounts(device, resumable || s.live || goesOnWithIt), s);
   const [resumePicks, setResumePicks] = useState<ResumePicks>(NO_PICKS);
   useEffect(() => setResumePicks(NO_PICKS), [s.key]);
   const resumeChosen = resumable && account ? resumeChoice(account, [], resumePicks, resumedIn(account.name)) : null;
@@ -305,14 +311,12 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resuming?.places.find((p) => p.place === resumeHow.place)?.behind };
   // A running one says what model and effort it's on, beside Send, and where Codealong can switch
   // them (SessionModel.tsx): one it runs, or one whose terminal it types into, by its harness's
-  // commands. A Cursor app chat is set to its model, the Codex app starts a thread's turn on the
-  // model and effort it's on (codex/ipc.rs `codex_start_request`), and OpenCode's service runs a
-  // prompt on the session's (opencode.rs `model_and_effort`), so where a send goes to one of
-  // those it says them between turns too.
-  const switchable = here && s.live && (!!s.hosted || way?.kind === 'typed');
-  const switches = switchable && !!account && (account.models?.length ?? 0) > 0 && (!!s.hosted || !!account.switchesModel);
-  const switchesEffort = switchable && !!account && (account.efforts?.length ?? 0) > 0 && (!!s.hosted || !!account.switchesEffort);
-  const goesOnWithIt = way?.kind === 'cursor' || way?.kind === 'codex-app' || way?.kind === 'opencode';
+  // commands. One whose app goes on with it is switched in the app, running or not, from its
+  // next turn (the Codex app's, codex/ipc.rs `codex_settings_request`).
+  const inApp = goesOnWithIt && !!account?.switchesInApp;
+  const switchable = s.live && (!!s.hosted || way?.kind === 'typed');
+  const switches = !!account && (account.models?.length ?? 0) > 0 && (inApp || (switchable && (!!s.hosted || !!account.switchesModel)));
+  const switchesEffort = !!account && (account.efforts?.length ?? 0) > 0 && (inApp || (switchable && (!!s.hosted || !!account.switchesEffort)));
   const saysModel = !resuming && (s.live || goesOnWithIt) && (switches || switchesEffort || !!s.model);
   const [switching, setSwitching] = useState(false);
   const switchTo = (switched: Promise<string>, failed?: () => void) => {
@@ -328,11 +332,12 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
       )
       .finally(() => setSwitching(false));
   };
-  // The mode of one Codealong runs switches here, any time (ModeLabel.tsx). The one picked shows
-  // at once, then the one its agent says it's in, which may be another (Accept edits for Auto, on
-  // a model that doesn't take it), until the board has it, so a second ⇧⇥ steps on from it.
+  // The mode of one Codealong runs switches here, any time (ModeLabel.tsx), on whichever device
+  // runs it. The one picked shows at once, then the one its agent says it's in, which may be
+  // another (Accept edits for Auto, on a model that doesn't take it), until the board has it, so
+  // a second ⇧⇥ steps on from it.
   const modes = s.modes ?? [];
-  const switchesMode = here && s.live && !!s.hosted && modes.length > 1;
+  const switchesMode = s.live && !!s.hosted && modes.length > 1;
   const [modePicked, setModePicked] = useState<string | null>(null);
   useEffect(() => setModePicked(null), [s.key, s.mode?.id]);
   const mode = (modePicked ? modes.find((m) => m.id === modePicked) : null) ?? s.mode;
@@ -920,7 +925,8 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                 account={account}
                 switches={switches}
                 switchesEffort={switchesEffort}
-                busy={switching || s.status === 'working' || !!s.stalledSince || !!waiting}
+                busy={switching || (!inApp && (s.status === 'working' || !!s.stalledSince || !!waiting))}
+                nextTurn={inApp}
                 onSwitch={(model) => switchTo(switchSessionModel(s.key, model))}
                 onEffort={(effort) => switchTo(switchSessionEffort(s.key, effort))}
                 onDone={() => box.current?.focus()}

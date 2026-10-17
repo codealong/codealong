@@ -291,6 +291,18 @@ pub trait Own: std::fmt::Debug + Send + Sync {
 
     /// Sends the message this way, and says how it went.
     fn deliver(&self, d: &Delivery) -> Result<Sent>;
+
+    /// The app this way goes through sets the model and effort level the session's next turn
+    /// runs on, running or not (`switch`).
+    fn switches(&self) -> bool {
+        false
+    }
+
+    /// Switches the session to a model or an effort level this way, for it alone, and says the
+    /// one it's on now, which may be the nearest the model takes. Only where `switches`.
+    fn switch(&self, session: &Session, _account: &AccountCfg, to: Switch) -> Result<String> {
+        bail!("{} can't be switched to another {} this way.", quoted(&session.title), to.what())
+    }
 }
 
 impl<T: Own + 'static> From<T> for Route {
@@ -876,12 +888,13 @@ pub fn switch_mode(board: &Board, cfg: &Config, key: &str, mode: &str) -> Result
     Ok(ModeSwitched { message, mode: now })
 }
 
-/// Switches a running session's model or effort level, for that session alone: one Codealong
-/// runs through its agent (acp.rs `switch`), any other by its harness's command typed into its
-/// terminal (`Adapter::model_command`, `effort_command`), the way a prompt is typed, and seen
-/// through as its harness needs (`Adapter::type_switch`). Only typed: another way in would take
-/// the command as a prompt. Not mid-turn, where it would wait as a prompt does, nor while the
-/// session waits on you, where it would answer.
+/// Switches a session's model or effort level, for that session alone: one Codealong runs
+/// through its agent (acp.rs `switch`), one that goes on in its harness's app through the app,
+/// for its next turn (`Own::switch`), any other by its harness's command typed into its terminal
+/// (`Adapter::model_command`, `effort_command`), the way a prompt is typed, and seen through as
+/// its harness needs (`Adapter::type_switch`). Only typed: another way in would take the command
+/// as a prompt. Not mid-turn, where it would wait as a prompt does, nor while the session waits
+/// on you, where it would answer; the app takes it whenever, running or not.
 fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> {
     let (session, account) = crate::harness::find(board, cfg, key)?;
     let adapter = crate::harness::adapter(session.harness);
@@ -894,6 +907,18 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
     if !taken {
         bail!("{value:?} isn't {} Codealong can switch {title} to.", if what == "model" { "a model" } else { "an effort level" });
     }
+    let label = |now: &str| match to {
+        Switch::Model(_) => crate::start::model_label(adapter, account, now),
+        Switch::Effort(_) => format!("{now} effort"),
+    };
+    let in_app = adapter.routes(account, session).into_iter().find_map(|r| match r {
+        Route::Own(own) if own.switches() => Some(own),
+        _ => None,
+    });
+    if let (false, Some(own)) = (session.hosted, in_app) {
+        let now = own.switch(session, account, to)?;
+        return Ok(format!("{title} is on {} from its next turn.", label(&now)));
+    }
     if !session.live {
         bail!("{title} isn't running: pick its {what} as it resumes.");
     }
@@ -901,10 +926,6 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
         bail!("{title} is in the middle of a turn: switch its {what} once the turn ends.");
     }
     ensure_not_waiting(session, &Sender::You)?;
-    let label = |now: &str| match to {
-        Switch::Model(_) => crate::start::model_label(adapter, account, now),
-        Switch::Effort(_) => format!("{now} effort"),
-    };
     if session.hosted {
         crate::acp::switch(account, key, to)?;
         return Ok(format!("{title} is on {} now.", label(value)));
@@ -1317,6 +1338,12 @@ mod tests {
         // A Codex terminal is switched there: Codealong types no command into one.
         let thread = Session { key: "codex:codex:t1".into(), account: "codex".into(), harness: Harness::Codex, ..idle.clone() };
         assert_eq!(refused(thread.clone(), "gpt-6-sol"), "Codex has no command to switch a running session's model.");
+        // A thread in the Codex app is switched there, from its next turn, running or not: here
+        // no app is running to take it.
+        let app = Session { surface: Surface::App, pid: None, live: false, status: Status::Idle, ..thread.clone() };
+        assert_eq!(refused(app.clone(), "gpt-6-sol"), "The Codex app isn't running.");
+        assert_eq!(refused(Session { live: true, status: Status::Working, ..app.clone() }, "gpt-6-sol"), "The Codex app isn't running.");
+        assert_eq!(switch_effort(&board_with(app.clone()), &cfg, &app.key, "high").unwrap_err().to_string(), "The Codex app isn't running.");
         // An effort level the same way, and only one of the account's.
         let refused = |s: Session, effort: &str| switch_effort(&board_with(s.clone()), &cfg, &s.key, effort).unwrap_err().to_string();
         assert_eq!(refused(Session { status: Status::Working, ..idle.clone() }, "high"), "“Fix the build” is in the middle of a turn: switch its effort once the turn ends.");

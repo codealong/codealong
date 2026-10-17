@@ -894,6 +894,11 @@ pub struct StartAccount {
     /// Missing from Macs before 2026-10-14.
     #[serde(default)]
     pub switches_effort: bool,
+    /// Its sessions that go on in its app (`Way::CodexApp`) can be switched to another of
+    /// `models` and `efforts` there, running or not, from their next turn (`session-model`,
+    /// `session-effort`). Missing from Macs before 2026-10-17.
+    #[serde(default)]
+    pub switches_in_app: bool,
     /// Where Auto and routing groups pass over this account for one with more room (1 to 100
     /// percent); None is 90%. Missing from Macs before 2026-10-14.
     #[serde(default, skip_serializing_if = "Option::is_none")]

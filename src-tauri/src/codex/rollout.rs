@@ -632,6 +632,17 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
             info.last_complete_at = ts;
             info.pending_approval = None;
         }
+        // The model and level the thread's next turn runs on, written as they're set: by the
+        // app before each turn, and between turns by a pick in its box or a switch from
+        // Codealong (ipc.rs `codex_settings_request`), which no `turn_context` says until then.
+        "thread_settings_applied" => {
+            if let Some(t) = payload.get("thread_settings") {
+                if let Some(m) = t.get("model").and_then(Value::as_str).filter(|m| !m.is_empty()) {
+                    info.model = Some(m.to_string());
+                }
+                info.effort = t.get("reasoning_effort").and_then(Value::as_str).filter(|e| !e.is_empty()).map(str::to_string);
+            }
+        }
         "user_message" => {
             if let Some(m) = prompt_of(payload) {
                 info.last_user_message = Some(one_line(&m, 140));
@@ -766,6 +777,15 @@ mod tests {
         let turn = |model: &str| format!(r#"{{"timestamp":"2026-10-06T10:00:00.000Z","type":"turn_context","payload":{{"model":"{model}","effort":"high"}}}}"#);
         apply_events(&mut info, &[turn("gpt-5.4"), turn("gpt-5.5")].join("\n"));
         assert_eq!(info.model.as_deref(), Some("gpt-5.5"));
+        // Settings set between turns, as `thread/settings/update` writes them (0.160.1), are what
+        // its next turn runs on; its permissions are named differently there and are left alone.
+        let mode = info.mode.clone();
+        let settings = r#"{"timestamp":"2026-10-06T10:01:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_id":"t1","thread_settings":{"model":"gpt-6-luna","model_provider_id":"openai","approval_policy":"on-request","approvals_reviewer":"user","active_permission_profile":{"id":":read-only"},"reasoning_effort":"low","collaboration_mode":{"mode":"default","settings":{"model":"gpt-6-luna","reasoning_effort":"low","developer_instructions":null}}}}}"#;
+        apply_events(&mut info, settings);
+        assert_eq!((info.model.as_deref(), info.effort.as_deref()), (Some("gpt-6-luna"), Some("low")));
+        assert_eq!(info.mode, mode);
+        apply_events(&mut info, &turn("gpt-6-astra"));
+        assert_eq!((info.model.as_deref(), info.effort.as_deref()), (Some("gpt-6-astra"), Some("high")));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! The socket the Codex app's windows use to reach each other (`<CODEX_HOME>/ipc/ipc.sock`):
 //! starting a turn in a thread, which is a way in (`InApp`), sending a prompt into the turn it's
-//! taking, and stopping one, through the window that owns the thread.
+//! taking, stopping one, and setting the model and effort its next turn runs on, through the
+//! window that owns the thread.
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
@@ -11,8 +12,11 @@ use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 
 use crate::attachments::{self, Style};
-use crate::codex::appserver;
+use crate::codex::{appserver, models};
+use crate::config::AccountCfg;
+use crate::harness::Switch;
 use crate::launch;
+use crate::model::Session;
 use crate::procs;
 use crate::send::{opened, sent, Delivery, MayHaveArrived, Own, Sent, Way};
 
@@ -137,6 +141,45 @@ impl Ipc {
         }))?;
         Ok(self.response(&find, wait).ok().filter(|r| r.get("resultType").and_then(Value::as_str) == Some("success")).and_then(|r| r.get("handledByClientId").and_then(Value::as_str).map(String::from)))
     }
+
+    /// The window that has `thread` loaded; when none has, the thread is opened in the app after
+    /// a short wait, which loads it and takes it within a couple of seconds, and asked about
+    /// again until `deadline`.
+    fn owner_opening(&mut self, codex_home: &Path, thread: &str, deadline: Instant) -> Result<String> {
+        let mut opened = false;
+        // Once a look finds no window: whether more than one router listens (asked once), and
+        // while that's so, whether the app's log says a window has taken the thread, before the
+        // open or since. One that has it answers at once if it can be reached, so from then
+        // Codealong waits only the couple of seconds a window takes to load it, in case it had
+        // let it go.
+        let mut routers = None;
+        let mut split = false;
+        let mut by = deadline;
+        loop {
+            let wait = (Instant::now() + Duration::from_millis(1500)).min(by);
+            if let Some(owner) = self.owner(thread, wait)? {
+                if opened {
+                    // A window takes a thread as it starts loading it, and a turn that arrives
+                    // before its settings are in goes out with an empty model (refused) and the
+                    // app's default reviewer. They're in within about a second.
+                    std::thread::sleep(Duration::from_secs(2));
+                }
+                return Ok(owner);
+            }
+            if !split && *routers.get_or_insert_with(|| routers_split(codex_home)) && taken_in_log(&app_logs(), thread) {
+                split = true;
+                by = (Instant::now() + Duration::from_secs(3)).min(deadline);
+            }
+            if Instant::now() >= by {
+                bail!(if split { SPLIT } else { "No Codex window took this thread." });
+            }
+            if !opened {
+                launch::open_codex(&launch::codex_thread_url(thread))?;
+                opened = true;
+            }
+            std::thread::sleep(Duration::from_millis(300));
+        }
+    }
 }
 
 /// Why no window answered for a thread when the app's windows can't reach each other.
@@ -214,40 +257,7 @@ pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Opti
     let deadline = Instant::now() + Duration::from_secs(18);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let client = ipc.client_id.clone();
-
-    let mut opened = false;
-    // Once a look finds no window: whether more than one router listens (asked once), and while
-    // that's so, whether the app's log says a window has taken the thread, before the open or
-    // since. One that has it answers at once if it can be reached, so from then Codealong waits
-    // only the couple of seconds a window takes to load it, in case it had let it go.
-    let mut routers = None;
-    let mut split = false;
-    let mut by = deadline;
-    let owner = loop {
-        let wait = (Instant::now() + Duration::from_millis(1500)).min(by);
-        if let Some(owner) = ipc.owner(thread, wait)? {
-            if opened {
-                // A window takes a thread as it starts loading it, and a turn that arrives
-                // before its settings are in goes out with an empty model (refused) and the
-                // app's default reviewer. They're in within about a second.
-                std::thread::sleep(Duration::from_secs(2));
-            }
-            break owner;
-        }
-        if !split && *routers.get_or_insert_with(|| routers_split(codex_home)) && taken_in_log(&app_logs(), thread) {
-            split = true;
-            by = (Instant::now() + Duration::from_secs(3)).min(deadline);
-        }
-        if Instant::now() >= by {
-            bail!(if split { SPLIT } else { "No Codex window took this thread." });
-        }
-        if !opened {
-            launch::open_codex(&launch::codex_thread_url(thread))?;
-            opened = true;
-        }
-        std::thread::sleep(Duration::from_millis(300));
-    };
-
+    let owner = ipc.owner_opening(codex_home, thread, deadline)?;
     let turn = crate::start::new_session_id();
     ipc.send(&codex_start_request(&turn, &client, &owner, thread, text, &crate::start::new_session_id(), model))?;
     let r = ipc.response(&turn, deadline).map_err(|e| unheard("start a turn with this", &e.to_string()))?;
@@ -371,6 +381,53 @@ pub fn codex_interrupt_turn(codex_home: &Path, thread: &str) -> Result<()> {
     Ok(())
 }
 
+/// The request that sets what a thread's next turn runs on, sent to the window that owns it:
+/// what a window that doesn't sends as you pick a model or an effort level in its box (26.930's
+/// `updateThreadSettingsForNextTurn`, version 2). The owner sends them to its app-server's
+/// `thread/settings/update`, which takes a setting left out as unchanged and writes the thread's
+/// settings to its rollout as `thread_settings_applied` (rollout.rs `apply_event`), and its box
+/// shows them. Without `activeTurnId` they're for the next turn, a running one's too; with it the
+/// window changes the running turn's permissions instead. It answers `applied`, false only when
+/// a `condition` sent with them (`ifModelEquals`, `ifEffortEquals`) didn't hold.
+pub fn codex_settings_request(request_id: &str, client_id: &str, owner: &str, thread: &str, model: Option<&str>, effort: Option<&str>) -> Value {
+    let mut settings = json!({});
+    if let Some(m) = model {
+        settings["model"] = json!(m);
+    }
+    if let Some(e) = effort {
+        settings["effort"] = json!(e);
+    }
+    json!({
+        "type": "request",
+        "requestId": request_id,
+        "sourceClientId": client_id,
+        "version": 2,
+        "method": "thread-follower-update-thread-settings",
+        "targetClientId": owner,
+        "timeoutMs": 10_000,
+        "params": { "conversationId": thread, "threadSettings": settings },
+    })
+}
+
+/// Sets the model and effort level a Codex thread's next turn in the app runs on, through the
+/// window that has it, as picking them in its box does; a thread no window has is opened in the
+/// app first, as a send's is.
+pub fn codex_update_settings(codex_home: &Path, thread: &str, model: Option<&str>, effort: Option<&str>) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(18);
+    let mut ipc = Ipc::connect(codex_home, deadline)?;
+    let owner = ipc.owner_opening(codex_home, thread, deadline)?;
+    let id = crate::start::new_session_id();
+    ipc.send(&codex_settings_request(&id, &ipc.client_id.clone(), &owner, thread, model, effort))?;
+    let r = ipc.response(&id, deadline)?;
+    if r.get("resultType").and_then(Value::as_str) != Some("success") {
+        bail!("Codex didn't take it: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
+    }
+    if r.pointer("/result/applied") == Some(&json!(false)) {
+        bail!("Codex didn't take it.");
+    }
+    Ok(())
+}
+
 /// The way in for a thread the app has: a turn started through the app's own windows, as if
 /// you'd sent it there. When that doesn't work nothing was sent, and the send fails, so the
 /// prompt stays in the box it was sent from; the app opens the thread with it filled in too, to
@@ -437,14 +494,32 @@ impl Own for InApp {
             }
         }
     }
+
+    fn switches(&self) -> bool {
+        true
+    }
+
+    /// The app runs the thread's next turn on it, as a pick in its box does. A model goes with
+    /// the level the thread is on, or the nearest one the model takes, and a level with the
+    /// nearest the thread's model takes (`models::nearest_effort`).
+    fn switch(&self, session: &Session, account: &AccountCfg, to: Switch) -> Result<String> {
+        let home = account.home_path();
+        let (model, effort) = match to {
+            Switch::Model(m) => (Some(m), session.effort.as_deref().map(|e| models::nearest_effort(&home, m, e))),
+            Switch::Effort(e) => (None, Some(session.model.as_deref().map_or(e, |m| models::nearest_effort(&home, m, e)))),
+        };
+        codex_update_settings(&home, &session.id, model, effort)?;
+        Ok(match to {
+            Switch::Model(m) => m.to_string(),
+            Switch::Effort(e) => effort.unwrap_or(e).to_string(),
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::AccountCfg;
-    use crate::model::{Harness, Session, Status, Surface};
-    use std::path::PathBuf;
+    use crate::model::{Harness, Status, Surface};
 
     /// A folder of its own under the system's temporary one, short enough for a socket path.
     fn scratch(name: &str) -> PathBuf {
@@ -454,40 +529,62 @@ mod tests {
         dir
     }
 
-    #[test]
-    fn stops_a_codex_turn_through_the_window_that_owns_the_thread() {
-        let home = scratch("codex");
+    /// A router on `home`'s socket whose window "window" has every thread: it takes Codealong
+    /// in, and answers the first request for the window with `result`, handing that request back.
+    fn window_router(home: &Path, result: Value) -> std::thread::JoinHandle<Value> {
         std::fs::create_dir_all(home.join("ipc")).unwrap();
         let listener = std::os::unix::net::UnixListener::bind(home.join("ipc/ipc.sock")).unwrap();
-        let router = std::thread::spawn(move || {
+        std::thread::spawn(move || {
             let (mut conn, _) = listener.accept().unwrap();
             let mut buf = Vec::new();
             let mut chunk = [0u8; 4096];
-            let mut asked = Vec::new();
             loop {
                 while let Some(m) = ipc_take(&mut buf) {
-                    asked.push(m["method"].as_str().unwrap_or_default().to_string());
                     let id = m["requestId"].clone();
                     let answer = match m["method"].as_str() {
                         Some("initialize") => json!({ "type": "response", "requestId": id, "resultType": "success", "result": { "clientId": "me" } }),
                         Some("thread-owner-discovery") => json!({ "type": "response", "requestId": id, "resultType": "success", "handledByClientId": "window" }),
                         _ => {
-                            conn.write_all(&ipc_frame(&json!({ "type": "response", "requestId": id, "resultType": "success", "result": { "ok": true } }))).unwrap();
+                            conn.write_all(&ipc_frame(&json!({ "type": "response", "requestId": id, "resultType": "success", "result": result }))).unwrap();
                             return m;
                         }
                     };
                     conn.write_all(&ipc_frame(&answer)).unwrap();
                 }
                 let n = conn.read(&mut chunk).unwrap();
-                assert!(n > 0, "Codealong hung up before asking to stop");
+                assert!(n > 0, "Codealong hung up before asking the window");
                 buf.extend_from_slice(&chunk[..n]);
             }
-        });
+        })
+    }
+
+    #[test]
+    fn stops_a_codex_turn_through_the_window_that_owns_the_thread() {
+        let home = scratch("codex");
+        let router = window_router(&home, json!({ "ok": true }));
         codex_interrupt_turn(&home, "t1").unwrap();
         let asked = router.join().unwrap();
         assert_eq!(asked["method"], "thread-follower-interrupt-turn");
         assert_eq!((&asked["version"], &asked["sourceClientId"], &asked["targetClientId"]), (&json!(3), &json!("me"), &json!("window")));
         assert_eq!(asked["params"], json!({ "conversationId": "t1", "mode": "user-stop" }));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn sets_a_codex_threads_next_turn_through_the_window_that_owns_it() {
+        let home = scratch("codex-settings");
+        let router = window_router(&home, json!({ "applied": true }));
+        codex_update_settings(&home, "t1", Some("gpt-x"), Some("low")).unwrap();
+        let asked = router.join().unwrap();
+        assert_eq!((&asked["method"], &asked["version"], &asked["targetClientId"]), (&json!("thread-follower-update-thread-settings"), &json!(2), &json!("window")));
+        // No `activeTurnId`: a running turn's permissions aren't what's changed.
+        assert_eq!(asked["params"], json!({ "conversationId": "t1", "threadSettings": { "model": "gpt-x", "effort": "low" } }));
+        let _ = std::fs::remove_dir_all(&home);
+        // A level alone leaves the model as it is, and a condition that didn't hold is no switch.
+        let home = scratch("codex-settings-refused");
+        let router = window_router(&home, json!({ "applied": false }));
+        assert_eq!(codex_update_settings(&home, "t1", None, Some("high")).unwrap_err().to_string(), "Codex didn't take it.");
+        assert_eq!(router.join().unwrap()["params"]["threadSettings"], json!({ "effort": "high" }));
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -527,6 +624,10 @@ mod tests {
         assert_eq!(
             codex_interrupt_request("r2", "me", "window", "t1").to_string(),
             r#"{"method":"thread-follower-interrupt-turn","params":{"conversationId":"t1","mode":"user-stop"},"requestId":"r2","sourceClientId":"me","targetClientId":"window","timeoutMs":10000,"type":"request","version":3}"#
+        );
+        assert_eq!(
+            codex_settings_request("r3", "me", "window", "t1", Some("gpt-x"), None).to_string(),
+            r#"{"method":"thread-follower-update-thread-settings","params":{"conversationId":"t1","threadSettings":{"model":"gpt-x"}},"requestId":"r3","sourceClientId":"me","targetClientId":"window","timeoutMs":10000,"type":"request","version":2}"#
         );
     }
 

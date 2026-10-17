@@ -187,6 +187,7 @@ pub fn options(accounts_in: &[AccountCfg], terminal: &str, codex_projects: Vec<S
                 resumes,
                 switches_model: tuned && adapter.model_command().is_some(),
                 switches_effort: tuned && !adapter.efforts().is_empty() && adapter.effort_command().is_some(),
+                switches_in_app: tuned && matches!(adapter.app_way(), Some(crate::send::Route::Own(own)) if own.switches()),
             }
         })
         .collect();
@@ -1753,6 +1754,9 @@ mod tests {
         assert!(switches("claude") && switches("claude2") && !switches("codex") && !switches("opencode"));
         let switches_effort = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().switches_effort;
         assert!(switches_effort("claude") && !switches_effort("codex") && !switches_effort("opencode"));
+        // The Codex app sets the model and effort a thread's next turn runs on.
+        let in_app = |name: &str| o.accounts.iter().find(|a| a.name == name).unwrap().switches_in_app;
+        assert!(in_app("codex") && !in_app("claude") && !in_app("opencode"));
         assert_eq!(o.accounts[1].default_model.as_deref(), Some("claude-fable-5-1"));
         assert_eq!(o.accounts[0].default_model, None);
         assert!(o.claude_models.iter().any(|m| m.id == "opus[1m]"));

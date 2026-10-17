@@ -1334,6 +1334,14 @@ session, and the box says what happened once that's done. Meanwhile the account'
 sessions may follow the new default. A Codex session in a terminal is switched there, with its own
 `/model`; one Codealong runs is switched from the chip.
 
+A thread in the Codex app is switched from the chip too, running or not: the app takes the model
+or level for the thread's next turn, as a pick in its own box does, and its box shows it. A model
+keeps the thread's level where the model takes it, else the nearest it does. One no Codex window
+has open is opened in the app first, as a send's is. A session on another of your Macs is switched
+the same way, from that Mac's accounts' menus, as is the mode of one that Mac runs in Codealong;
+the Mac needs remote control on, and a build of Codealong from 2026-10-17 or later for a Codex
+app thread.
+
 ### New session
 
 **New session**, the panel's last row: pick the worktree (⌘T; it starts at whatever's selected in

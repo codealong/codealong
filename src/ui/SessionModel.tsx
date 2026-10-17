@@ -4,17 +4,18 @@
 // harness writes it (`xhigh`), as the chip of one that isn't running says the effort it goes on
 // with (ResumeBar.tsx). Where Codealong can switch them (one it runs, through its agent; one
 // whose terminal it types into, by its harness's commands, `StartAccount.switchesModel` and
-// `switchesEffort`), it's a menu of its account's models with its levels under them, as the
-// start menu has them, and picking one switches that session alone (send.rs `switch_model`,
-// `switch_effort`). Not while its turn runs or it waits on you, where the command would go in as
-// a prompt or answer it.
+// `switchesEffort`; one whose app goes on with it, through the app, `switchesInApp`), it's a menu
+// of its account's models with its levels under them, as the start menu has them, and picking
+// one switches that session alone (send.rs `switch_model`, `switch_effort`), on whichever device
+// it's on. Not while its turn runs or it waits on you, where the command would go in as a prompt
+// or answer it; the app takes a switch whenever, for the session's next turn (`nextTurn`).
 
 import { agentOptions, modelName, parseAgent } from '../start';
 import type { Session, StartAccount } from '../types';
 import { ModelMenu } from './ModelMenu';
 import { EffortFoot } from './StartControls';
 
-export function SessionModel({ session: s, account, switches, switchesEffort, busy, onSwitch, onEffort, onDone }: { session: Session; account: StartAccount | undefined; switches: boolean; switchesEffort: boolean; busy: boolean; onSwitch: (model: string) => void; onEffort: (effort: string) => void; onDone: () => void }) {
+export function SessionModel({ session: s, account, switches, switchesEffort, busy, nextTurn = false, onSwitch, onEffort, onDone }: { session: Session; account: StartAccount | undefined; switches: boolean; switchesEffort: boolean; busy: boolean; nextTurn?: boolean; onSwitch: (model: string) => void; onEffort: (effort: string) => void; onDone: () => void }) {
   const models = account?.models ?? [];
   const label = s.model ? modelName(s.model, models) : 'Model';
   const effort = s.effort ?? null;
@@ -38,7 +39,7 @@ export function SessionModel({ session: s, account, switches, switchesEffort, bu
       value={null}
       label={label}
       detail={effort}
-      title={busy ? `Switch its ${what} once its turn ends` : `Switch its ${what}, for this session alone`}
+      title={busy ? `Switch its ${what} once its turn ends` : nextTurn ? `Switch its ${what} from its next turn, for this session alone` : `Switch its ${what}, for this session alone`}
       disabled={busy}
       // A pick is a switch, so it's done with the menu, as a model's is.
       foot={

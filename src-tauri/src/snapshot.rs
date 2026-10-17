@@ -202,7 +202,7 @@ fn tokens(args: &Args, rest: &[String]) -> Done {
 /// `codealong --snapshot --resume <session key> <place> [prompt] [--model <model>] [--effort
 /// <level>]`: goes on with a session that isn't running there, as its box and Resume in do.
 /// `codealong --snapshot --switch-model <session key> <model>`: switches a running session's
-/// model, as its box does.
+/// model, or a Codex app thread's for its next turn, as its box does.
 /// `codealong --snapshot --move <session key> <account | worktree folder>`: moves it to another
 /// account of its harness, or to a worktree (a lane's folder: Codealong's chats for a chat of its
 /// own), as Move to in its menu does.
