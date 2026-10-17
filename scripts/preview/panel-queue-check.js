@@ -3,8 +3,8 @@
 // and one whose turn ended. ⌘⏎ in the box sends and goes on; on a call, ⌘⏎ with words in the box
 // denies it with them and goes on, and in an empty box allows it and goes on; ⌘] skips and ⌘[
 // goes back, a skipped one comes round again, and a plain ⏎ sends and stays. The strip says how
-// the last one went, then the box's keys once that's gone, on a line under its buttons where they
-// don't fit beside them, and counts nothing. Clicking a row puts the cursor in the box, and Escape
+// the last one went, on one line beside its buttons, and counts nothing; the box's keys are said in
+// its foot. Clicking a row puts the cursor in the box, and Escape
 // there gives the list its keys back. (A synthetic press doesn't focus the list first as a real
 // one does.)
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/panel-queue-check.js
@@ -60,15 +60,15 @@
 
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var strip = function () { var t = document.querySelector('.ca-sessinsp .ca-reply-queue-note'); return t ? t.textContent : ''; };
-  // What the box says, which the strip says once how the last one went has gone (NOTICE_MS).
-  var note = strip;
+  // What the box says, in its foot.
+  var note = function () { var t = document.querySelector('.ca-sessinsp .ca-composer-footrow > .ca-composer-note'); return t ? t.textContent : ''; };
   var says = function (what) { return until(function () { return what.test(note()); }, 6000).catch(function () {}); };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer textarea'); };
   var row = function (i) { return document.getElementById('row-' + picked[i].lane + '::' + picked[i].key); };
   var on = function (name) { return until(function () { return title() === name; }, 3000).catch(function () {}); };
-  // How the strip is laid out, where its buttons fit on one line: they stay on its top line, and
-  // what it says is beside them or, where it doesn't fit there, whole on a line of its own under
-  // them. Where the buttons don't fit, nothing to check.
+  // How the strip is laid out, where its buttons fit on one line: they stay on its one line, and
+  // what it says is beside them, cut short there rather than put on a line of its own. Where the
+  // buttons don't fit, nothing to check.
   var laidOut = function () {
     var s = q('.ca-sessinsp .ca-reply-queue');
     if (!s) return 'no strip';
@@ -81,9 +81,9 @@
     var noteEl = q('.ca-reply-queue-note', s);
     var n = noteEl.getBoundingClientRect();
     if (k.top - sr.top > parseFloat(cs.paddingTop) + 4) return 'the buttons moved down, ' + Math.round(k.top - sr.top) + 'px';
-    if (Math.abs(n.top + n.height / 2 - (k.top + k.height / 2)) < 4) return 'beside the buttons';
-    if (n.top < k.bottom - 1) return 'neither beside nor under the buttons';
-    return noteEl.scrollWidth <= noteEl.clientWidth + 1 ? 'under the buttons, whole' : 'under the buttons, cut';
+    if (Math.abs(n.top + n.height / 2 - (k.top + k.height / 2)) >= 4) return 'not beside the buttons';
+    if (s.getBoundingClientRect().height > k.height + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + 1) return 'more than one line';
+    return 'beside the buttons';
   };
 
   say('panel queue check: waiting for the list');
@@ -96,9 +96,9 @@
     .then(function () {
       check('clicking a row puts the cursor in its box', document.activeElement === box());
       check('the strip counts nothing of what’s left', !q('.ca-sessinsp .ca-reply-queue .ca-chip'), q('.ca-sessinsp .ca-reply-queue').textContent);
-      check('the buttons stay on the strip’s top line, what it says beside them or whole under them', /^(beside the buttons|under the buttons, whole|no room)/.test(laidOut()), laidOut());
+      check('the strip is one line, what it says beside its buttons', /^(beside the buttons|no room)/.test(laidOut()), laidOut());
       window.note('strip at ' + Math.round(q('.ca-sessinsp .ca-reply-queue').getBoundingClientRect().width) + ': ' + laidOut());
-      check('the strip says what ⌘⏎ does in the box', /⌘⏎ send \+ next/.test(note()), note());
+      check('the box’s foot says what ⌘⏎ does in the box', /⌘⏎ send \+ next/.test(note()), note());
       check('and nothing is said under the box', !q('.ca-sessinsp .ca-composer:not(.is-approval) > .ca-composer-note'));
       type(box(), 'Yes, go ahead.');
       key(box(), { key: 'Enter', metaKey: true });
@@ -107,7 +107,7 @@
     .then(function () {
       check('⌘⏎ sends and goes on to the next', title() === 'Queue B' && calls('send_to_session').length === 1, title());
       check('and says it went', /Queue A: sent/.test(strip()), strip());
-      check('which leaves the buttons where they were', /^(beside the buttons|under the buttons, whole|no room)/.test(laidOut()), laidOut());
+      check('beside the buttons, on the strip’s one line', /^(beside the buttons|no room)/.test(laidOut()), laidOut());
       check('the next one’s box has the cursor', document.activeElement === box());
       return until(function () { return document.querySelector('.ca-sessinsp .ca-composer.is-approval'); }, 3000).then(function () { return wait(50); });
     })

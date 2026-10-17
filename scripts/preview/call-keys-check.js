@@ -50,8 +50,8 @@
   var title = function () { var t = document.querySelector('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var box = function () { return document.querySelector('.ca-sessinsp .ca-composer:not(.is-approval) textarea'); };
   var approval = function () { return document.querySelector('.ca-sessinsp .ca-composer.is-approval'); };
-  // What the box says, on the strip over the header.
-  var note = function () { var t = document.querySelector('.ca-sessinsp .ca-reply-queue-note'); return t ? t.textContent : ''; };
+  // What the box says, in its foot.
+  var note = function () { var t = document.querySelector('.ca-sessinsp .ca-composer-footrow > .ca-composer-note'); return t ? t.textContent : ''; };
   var button = function (text) { return Array.prototype.filter.call(approval().querySelectorAll('button'), function (b) { return b.textContent.indexOf(text) === 0; })[0]; };
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var key = function (el, init) { el.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };

@@ -13,8 +13,8 @@
 /* The box itself, as chat apps draw theirs: what's attached, then the text across the box's whole
    width, its scrollbar at the box's edge once it has one, then a row at its foot: who a message
    goes to at the left (`.ca-composer-who`), and the model and Send at the right (and before the
-   model, where a session that isn't running goes on, ResumeBar.tsx). What the box has to say
-   goes on the strip at the top of the window, or below the box where there's none. */
+   model, where a session that isn't running goes on, ResumeBar.tsx), with what the box has to
+   say between them. */
 .ca-composer-field {
   /* What opens over the conversation from inside it (ModelMenu.tsx) is placed against it. */
   position: relative;
@@ -148,9 +148,10 @@
   gap: var(--space-2);
 }
 /* A session's box's foot, under the text: who a message goes to at the left, the buttons at the
-   right, level with each other. Where the two don't fit side by side whole (a narrow card, with
-   the place and the model a resume goes on beside Send), the buttons go on a line of their own
-   under it, still at the right, rather than cut the account away or run over it. */
+   right, level with each other, and what the box has to say between them. Where the two don't
+   fit side by side whole (a narrow card, with the place and the model a resume goes on beside
+   Send), the buttons go on a line of their own under it, still at the right, rather than cut the
+   account away or run over it. */
 .ca-composer-footrow {
   grid-column: 1 / -1;
   display: flex;
@@ -183,6 +184,24 @@
 }
 .ca-composer-note.is-error {
   color: var(--alert);
+}
+/* What the box has to say, between who it goes to and the buttons, level with them: it gives up
+   its room first, so neither moves for it. Cut short, it shows all of itself over the box's foot
+   under the pointer (base.css `.ca-oneline`), across the box's whole width rather than only the
+   room left between them, which in a narrow box would stand it up a word to a line: the card is
+   placed against the box (`.ca-composer-field`), not the line. */
+.ca-composer-footrow > .ca-composer-note {
+  position: static;
+  flex: 1 1 0;
+  margin: 0 var(--space-2) 5px 0;
+}
+.ca-composer-footrow > .ca-composer-note[data-whole]::after {
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  width: auto;
+  min-width: 0;
+  max-width: none;
 }
 .ca-composer.is-waiting {
   display: flex;

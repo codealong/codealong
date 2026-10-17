@@ -50,8 +50,8 @@
   var calls = function (cmd) { return window.__calls.filter(function (c) { return c[0] === cmd; }); };
   var box = function () { return document.querySelector('.ca-sessinsp textarea'); };
   var sendButton = function () { return document.querySelector('.ca-sessinsp .ca-composer-send:not(.is-now)'); };
-  // What the box says, on the strip over the header.
-  var under = function () { var n = document.querySelector('.ca-sessinsp .ca-reply-queue-note'); return n ? n.textContent : ''; };
+  // What the box says, in its foot.
+  var under = function () { var n = document.querySelector('.ca-sessinsp .ca-composer-footrow > .ca-composer-note'); return n ? n.textContent : ''; };
   var press = function (opts) {
     box().dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: 'Enter', bubbles: true, cancelable: true }, opts || {})));
   };
@@ -121,7 +121,7 @@
       return until(function () { return sendButton() && sendButton().getAttribute('aria-label') === 'Run in your terminal'; }, 3000).then(function () {
         check('the box’s button runs it', /^Run it in a new .+ tab, as you \(⏎\)$/.test(sendButton().title), sendButton().title);
         check('no Send now beside it, which would send it into the turn', !document.querySelector('.ca-sessinsp .ca-composer-send.is-now'));
-        check('the strip says what happens', /runs it in a new .+ tab, as you; .+ is told what it prints once it ends/.test(under()), under());
+        check('the box’s foot says what happens', /runs it in a new .+ tab, as you; .+ is told what it prints once it ends/.test(under()), under());
         var before = calls('run_command').length;
         // ⏎ runs it, as the button does.
         press();

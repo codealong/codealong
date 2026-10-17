@@ -505,16 +505,15 @@ agent has it once that's read: Claude Code ends the turn there, others carry on.
 
 #### What the box says
 
-What the box has to say goes on the strip at the top of the panel, at its left, where the panel has
-one (Sessions, the notch, the waiting window): how a message went (Sending…, then what Codealong did
-with it, or why it didn't go, in red), what what you've typed will do (a `!` command, a `/` command
-or skill, the side conversation), and the keys that aren't a chat box's usual ones (⌘⏎ send + next,
-⌃⏎ send now, ↑ for suggested replies, what ⏎ and ⌘⏎ do while it waits on you). How the last one went
-comes before the keys, for the few seconds it shows. What doesn't fit beside the strip's buttons
-goes on a line of its own under them (in the notch it's cut short, all of it on hover). On the
-canvas, in the floating bar's peek and in a session kept on the desktop, which have no strip, it's
-said on a line under the box while there's something to say; the keys aren't, as the buttons'
-tooltips have them.
+What the box has to say goes in the box itself, on the line at its foot, between who the message
+goes to and the buttons: how a message went (Sending…, then what Codealong did with it, or why it
+didn't go, in red), what what you've typed will do (a `!` command, a `/` command or skill, the side
+conversation), and, where the window is worked from the keyboard (Sessions, the notch, the waiting
+window), the keys that aren't a chat box's usual ones (⌘⏎ send + next, ⌃⏎ send now, ↑ for suggested
+replies, what ⏎ and ⌘⏎ do while it waits on you). It stays on that one line: what doesn't fit is cut
+short with an ellipsis, and resting the pointer on it shows all of it over the box. On the canvas,
+in the floating bar's peek and in a session kept on the desktop the keys aren't said, as the
+buttons' tooltips have them.
 
 #### Stop and send now
 
@@ -550,9 +549,10 @@ you press it again; Escape in the box then leaves the keys with the window.
 
 #### The strip
 
-A strip at the top of the panel says how the last one went and what the box has to say (*What the
-box says*). It has what's commonly done to a session as buttons
-that say their keys: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4, one for each of its menu's times: 15
+A strip at the top of the panel says how the last one went, at its left, on one line beside its
+buttons, cut short where they leave it too little room, with all of it under the pointer (what the
+box has to say is in the box: *What the box says*). It has what's commonly done to a session as
+buttons that say their keys: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4, one for each of its menu's times: 15
 minutes, 1 hour, 3 hours, the next morning), Close (⌃⌘W, which closes its terminal, or ends a
 background job where the session is one; the conversation stays, to go on with later), Archive (⌃⌘A)
 and Next (⌘]). One that doesn't apply to the session shown is dimmed in its place. Clicking a
@@ -1667,9 +1667,9 @@ waits on you as a session's panel in Sessions does, with the same keys: ⌘⏎ s
 session waits on) and goes on to the next that waits on you, ⌘E marks a finished turn seen and goes
 on (from one that runs it goes on all the same), ⌘] or ⌥⇧↓ skips to the next and ⌘[ or ⌥⇧↑ goes
 back, ⌥↑ ⌥↓ step along the bar's sessions, the running ones too, and ⌃- and ⌃⇧- go back and forward
-through the ones you looked at there. A strip over the header says how the last one went and what
-the box has to say (a message that didn't go after ⌘⏎ went on says why there, or on its session's pill
-once the notch has closed), and has what's commonly done to the session as buttons that say their keys, as its
+through the ones you looked at there. A strip over the header says how the last one went (a
+message that didn't go after ⌘⏎ went on says why there, or on its session's pill once the notch has
+closed), and has what's commonly done to the session as buttons that say their keys, as its
 panel in Sessions has: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4), Close (⌃⌘W), Archive (⌃⌘A), Back
 (⌃-), Next (⌘]) and × (esc). The PRs waiting on your review are in that same list, after the
 sessions that need you and before the turns that ended, so the keys go from a session to a review

@@ -53,8 +53,8 @@
   var own = function () { return q('.ca-question-own'); };
   var box = function () { return q('.ca-composer:not(.is-approval) textarea'); };
   var send = function () { return q('.ca-composer:not(.is-approval) .ca-composer-send'); };
-  // What the box says, on the strip at the top of the window.
-  var boxNote = function () { var n = q('.ca-reply-queue-note'); return n ? n.textContent : ''; };
+  // What the box says, in its foot.
+  var boxNote = function () { var n = q('.ca-composer-footrow > .ca-composer-note'); return n ? n.textContent : ''; };
   var questionsNote = function () { var n = q('.ca-composer.is-questions .ca-composer-note'); return n ? n.textContent : ''; };
   var answers = function () { return sent('session_answer'); };
   var cmdEnter = function (el) { key(el, { key: 'Enter', code: 'Enter', metaKey: true }); };

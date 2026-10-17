@@ -1,7 +1,7 @@
 // Small pieces from the Codealong design system, typed for the live board.
 
-import type { ButtonHTMLAttributes, CSSProperties, FormEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
-import { forwardRef, Fragment, useId, useRef } from 'react';
+import type { AriaRole, ButtonHTMLAttributes, CSSProperties, FormEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
+import { forwardRef, Fragment, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CLICK_WAIT_MS } from '../bar';
 import { fieldAt, typingIn } from '../contextMenu';
 import { deviceLabel } from '../devices';
@@ -218,6 +218,31 @@ export function LaneGlyph({ lane }: { lane: Lane }) {
     );
   }
   return <StatusGlyph status={lane.glyph} waiting={laneWaits(lane)} />;
+}
+
+/** Words kept to one line: cut short with an ellipsis where they don't fit, and then all of them
+ *  over that line while the pointer is on it (base.css `.ca-oneline`), growing up from it, or down
+ *  with `down`, toward the room there is. The whole is drawn by CSS from `data-whole`, so the
+ *  element's text is the words once, as a check or a screen reader reads them. */
+export function OneLine({ text, className, down = false, role }: { text: string; className?: string; down?: boolean; role?: AriaRole }) {
+  const line = useRef<HTMLSpanElement>(null);
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const el = line.current;
+    if (!el) return;
+    const measure = () => setCut(el.scrollWidth > el.clientWidth);
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    measure();
+    return () => observer.disconnect();
+  }, [text]);
+  return (
+    <span className={cx('ca-oneline', down && 'is-down', className)} role={role} data-whole={cut ? text : undefined}>
+      <span ref={line} className="ca-oneline-text">
+        {text}
+      </span>
+    </span>
+  );
 }
 
 /** Keys that are a speck at a cap's size (⌃`'s backtick), which a cap sets larger so they read. */

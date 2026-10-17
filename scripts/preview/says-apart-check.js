@@ -1,9 +1,11 @@
-// Checks that the strip over a session's panel in Sessions says whichever came last of what the
-// window said and what the box said (SessionPanel.tsx `StripNote`): ⌘⏎ sends to the first and goes
-// on to the second, whose box is given a command led by `!`, so the strip says what ⏎ does with
-// it; then the first's message fails, and the strip says so over what the box said before; then
-// the box says something new (what a `/` command typed whole does), and that's what the strip says.
-//   PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/strip-last-check.js
+// Checks that what the window says and what the box says are each said in their own place in a
+// session's panel in Sessions, so neither hides the other: the window's on the strip over the
+// header (SessionPanel.tsx `StripNote`), the box's in the box's foot (SessionReply.tsx `BoxSays`).
+// ⌘⏎ sends to the first and goes on to the second, whose box is given a command led by `!`, so its
+// foot says what ⏎ does with it and the strip doesn't; then the first's message fails, and the
+// strip says so, in the alert color, while the foot still says what ⏎ does; then the box says
+// something new (what a `/` command typed whole does), and the strip still says what failed.
+//   PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/says-apart-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
@@ -48,8 +50,9 @@
 
   var title = function () { var t = q('.ca-sessinsp-title'); return t ? t.textContent : null; };
   var box = function () { return q('.ca-sessinsp .ca-composer:not(.is-approval) textarea'); };
-  var noteEl = function () { return q('.ca-sessinsp .ca-reply-queue-note'); };
-  var note = function () { var n = noteEl(); return n ? n.textContent : ''; };
+  var stripEl = function () { return q('.ca-sessinsp .ca-reply-queue-note'); };
+  var strip = function () { var n = stripEl(); return n ? n.textContent : ''; };
+  var note = function () { var n = q('.ca-sessinsp .ca-composer-footrow > .ca-composer-note'); return n ? n.textContent : ''; };
   var row = function () { return picked[0] && document.getElementById('row-' + picked[0].lane + '::' + picked[0].key); };
   var key = function (el, init) { el.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
   var type = function (el, text) {
@@ -58,7 +61,7 @@
   };
   var says = function (what, why) { return until(function () { return what.test(note()); }, 4000, why); };
 
-  say('strip last check: waiting for the list');
+  say('says apart check: waiting for the list');
   until(function () { return picked.length === 2 && row(); }, 20000, 'two Claude Code sessions to make wait')
     .then(function () {
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
@@ -74,17 +77,20 @@
       return says(/runs it in a new/, 'what ⏎ does with a command');
     })
     .then(function () {
-      check('the box’s command says what ⏎ does, over how the last one went', /^⏎ runs it in a new /.test(note()), note());
+      check('the box’s foot says what ⏎ does with the command', /^⏎ runs it in a new /.test(note()), note());
+      check('and the strip doesn’t', !/runs it in a new/.test(strip()), strip());
       pending[0].reject('Its terminal is gone.');
-      return says(/Didn’t send to Strip A/, 'the failure');
+      return until(function () { return /Didn’t send to Strip A/.test(strip()); }, 4000, 'the failure');
     })
     .then(function () {
-      check('a message that then fails says so over what the box said before', /^Didn’t send to Strip A, so it’s back in its box: Its terminal is gone\./.test(note()) && noteEl().classList.contains('is-error'), note());
+      check('a message that then fails says so on the strip, in the alert color', /^Didn’t send to Strip A, so it’s back in its box: Its terminal is gone\./.test(strip()) && stripEl().classList.contains('is-error'), strip());
+      check('while the box’s foot still says what ⏎ does', /^⏎ runs it in a new /.test(note()), note());
       type(box(), '/fork now');
       return says(/^\/fork/, 'the box’s newer word');
     })
     .then(function () {
-      check('and what the box says after that is said over it', /^\/fork /.test(note()) && !noteEl().classList.contains('is-error'), note());
+      check('what the box says after that is said in its foot', /^\/fork /.test(note()), note());
+      check('and the strip still says what failed', /^Didn’t send to Strip A/.test(strip()), strip());
       check('nothing is said under the box', !q('.ca-sessinsp .ca-composer:not(.is-approval) > .ca-composer-note'));
     })
     .then(done)

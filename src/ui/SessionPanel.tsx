@@ -14,15 +14,15 @@
 // goes on, and ⌘] skips to it. Where a session is worked from the keyboard (its panel in
 // Sessions, the notch, the waiting window) a strip above the header has what's commonly done to
 // a session as buttons that say their keys: mark seen, mark done, snooze, close its terminal,
-// archive, back and next (`Hotkeys`). At its left it says what the box has to say (how a send
-// went, what what's typed will do, the box's own keys: SessionReply.tsx `BoxSays`) and how the
-// last one went. The keys it says are read from where they're kept: a session's own from
+// archive, back and next (`Hotkeys`). At its left it says how the last one went, on one line; what
+// the box has to say is said in the box's own foot, beside where you write (SessionReply.tsx
+// `BoxSays`). The keys it says are read from where they're kept: a session's own from
 // menus.ts `CHORDS` and snooze.ts `SNOOZE_CHORDS`, the ones for getting about from queue.ts
 // `QUEUE_CHORDS`. In Sessions, ⇧⌘F
 // expands it to the whole window, so the list is out of the way while you do. Rename in a pill's
 // or a row's menu shows it with its name ready to change.
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { runCommand } from '../api';
 import { below, showContextMenu, type MenuGroup, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
@@ -32,10 +32,10 @@ import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
 import { cardZoom } from '../zoom';
-import { Button, cx, Icon, Rich } from './primitives';
+import { Button, cx, Icon, OneLine, Rich } from './primitives';
 import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
-import { Reply, type BoxSays } from './SessionReply';
+import { Reply } from './SessionReply';
 import { SessionThread } from './SessionThread';
 import type { FindAsk } from './ThreadFind';
 import { keysSaid } from '../platform';
@@ -62,9 +62,8 @@ export interface Hotkeys {
    *  and leaves room at its start for the window's buttons. */
   titleBar?: boolean;
 }
-/** How the one before went: sent, or why it didn't go. `at` numbers each time it's said
- *  (useWaitingQueue.ts), so the same words said again are new to the strip. */
-export type Notice = { text: string; error: boolean; at?: number };
+/** How the one before went: sent, or why it didn't go. */
+export type Notice = { text: string; error: boolean };
 
 export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' | 'compact' | 'accountBelow' | 'inMain'> {
   /** A panel in the main window, or a card of its own (the bar's peek, the waiting
@@ -100,27 +99,12 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
   find?: FindAsk | null;
 }
 
-/** What the strip says at its left: whichever came last of what the window said (how the one
- *  before went, or how something done to this one went) and what the box said of something done
- *  in it or of what's typed, so a warning isn't kept under a hint that was there before it; with
- *  neither, the box's keys. Where it doesn't fit beside the buttons it goes on a line under them,
- *  or is cut short where the strip keeps to one line (SessionPanel.css), its tooltip having all
- *  of it. */
-function StripNote({ says, notice }: { says?: BoxSays | null; notice: Notice | null | undefined }) {
-  const said = says && !says.keys ? says : null;
-  const saying = notice ? (notice.at ?? notice.text) : undefined;
-  // Which came last, as each changes: the window's, when both change at once.
-  const [last, setLast] = useState({ notice: saying, said: said?.text, box: false });
-  if (last.notice !== saying || last.said !== said?.text) {
-    const box = saying !== undefined && saying !== last.notice ? false : said && said.text !== last.said ? true : last.box;
-    setLast({ notice: saying, said: said?.text, box });
-  }
-  const shown = (last.box ? (said ?? notice) : (notice ?? said)) ?? says;
-  return (
-    <span className={cx('ca-reply-queue-note', shown?.error && 'is-error')} role="status" title={shown?.text}>
-      {shown?.text}
-    </span>
-  );
+/** What the strip says at its left: what the window said (how the one before went, or how
+ *  something done to this one went). It keeps to one line beside the buttons, which keep their
+ *  place, cut short where they leave it too little room and all of it under the pointer, over the
+ *  strip and down from it (primitives.tsx `OneLine`). */
+function StripNote({ notice }: { notice: Notice | null | undefined }) {
+  return <OneLine className={cx('ca-reply-queue-note', notice?.error && 'is-error')} role="status" down text={notice?.text ?? ''} />;
 }
 
 /** A Snooze menu's times with the chord for each, as a tooltip says them: `⌃⌘1 for 15 minutes`. */
@@ -164,22 +148,20 @@ interface QueueStripProps {
   /** What's commonly done to the thing shown, as `Hotkey` buttons, where it isn't a session (a
    *  PR waiting on your review, PrCard.tsx): in place of the session's five. */
   buttons?: ReactNode;
-  /** What the session's box has to say, said at the strip's left (`StripNote`). */
-  says?: BoxSays | null;
 }
 
-/** Above a session answered in turn: what its box has to say and how the one before went, and
- *  the way on to the next (⌘]). With `hotkeys` it's always there, and has what's commonly done to
- *  the session as buttons that say their keys, the ones the session's menu runs (menus.ts); the
- *  keys for back, next and putting it away are the queue's (queue.ts). */
-export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own, says }: QueueStripProps) {
+/** Above a session answered in turn: how the one before went, and the way on to the next (⌘]).
+ *  With `hotkeys` it's always there, and has what's commonly done to the session as buttons that
+ *  say their keys, the ones the session's menu runs (menus.ts); the keys for back, next and
+ *  putting it away are the queue's (queue.ts). */
+export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own }: QueueStripProps) {
   const next = queue?.next;
   const [nextKey, nextToo] = queueSigns('next');
   if (!hotkeys) {
     if (!notice && !next) return null;
     return (
       <div className="ca-reply-queue">
-        <StripNote says={says} notice={notice} />
+        <StripNote notice={notice} />
         {next && queue && (
           <Button variant="ghost" size="sm" kbd={[...nextKey]} title={`Next: ${next.title}`} onClick={queue.onNext}>
             Next
@@ -231,7 +213,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   );
   return (
     <div className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
-      <StripNote says={says} notice={notice} />
+      <StripNote notice={notice} />
       {buttons}
     </div>
   );
@@ -250,11 +232,9 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const replies = !device || (device.online && device.remoteControl);
   const key = s.key;
   const run = useMemo(() => (folder === null ? undefined : { folder, terminal, own: (command: string, at: string) => runCommand(key, at, command) }), [folder, terminal, key]);
-  // What the box has to say, which the strip says where there is one; elsewhere the box says it.
-  const [says, setSays] = useState<BoxSays | null>(null);
   const body = (
     <>
-          <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} says={says} />
+          <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
           <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} />
           <SessionThread
             key={s.key}
@@ -283,7 +263,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
             </p>
           ) : (
-            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} onSays={hotkeys ? setSays : undefined} />
+            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} sayKeys={!!hotkeys} />
           )}
     </>
   );

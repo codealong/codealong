@@ -2,9 +2,10 @@
 // window has none of its own, so the strip along the top of the card is one. It drags the window,
 // its first line starts clear of the window's buttons (macOS 26 puts them 9 to 69 points in) and
 // is centered on them (16 down), at actual size and at a zoom, which the window's buttons don't
-// take; and a strip that wraps gives its buttons' line the whole width, where they wrap again
-// rather than run past its end. With a PR shown its card's
-// strip is one too (the second run). The window's buttons themselves are native, so not here.
+// take; and narrow, what it says and its buttons stay beside the window's buttons, its buttons
+// wrapping where they must rather than run past its end, their first line level with the
+// window's. With a PR shown its card's strip is one too (the second run). The window's buttons
+// themselves are native, so not here.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-titlebar-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_INIT=scripts/preview/waiting-review-init.js scripts/preview.sh waiting '' scripts/preview/waiting-titlebar-check.js
 (function () {
@@ -57,8 +58,8 @@
       return until(function () { return getComputedStyle(q('.ca-waiting .ca-reply')).zoom === '1'; }, 5000, 'the card at actual size');
     })
     .then(function () {
-      // Narrow, the buttons go on a line of their own, which starts where the strip does, not
-      // after the window's buttons.
+      // Narrow, what it says and its buttons stay beside the window's buttons, and the buttons'
+      // first line level with them.
       var root = q('.ca-waiting');
       root.style.width = '520px';
       return wait(300).then(function () {
@@ -66,9 +67,11 @@
         var first = all('.ca-hotkey', s)[0].getBoundingClientRect();
         var block = q('.ca-hotkeys', s).getBoundingClientRect();
         var l = firstLine();
-        check('narrow, the buttons wrap to a line under the first', first.top > l.middle + 8, 'first button at ' + first.top.toFixed(1) + ' down');
-        check('which starts where the strip does', block.left < 20, 'the buttons’ line starts ' + block.left.toFixed(1) + ' in');
-        check('and the first line stays clear of the window’s buttons, centered on them', near(l.left, 80, 1) && near(l.middle, 16, 1), at(l));
+        check('narrow, the buttons stay beside the window’s', block.left >= l.left - 1, 'the buttons start ' + block.left.toFixed(1) + ' in');
+        check('their first line level with them', near(first.top + first.height / 2, 16, 1), 'first button’s middle ' + (first.top + first.height / 2).toFixed(1) + ' down');
+        check('and the strip’s line stays clear of the window’s buttons, centered on them', near(l.left, 80, 1) && near(l.middle, 16, 1), at(l));
+        var said = q('.ca-reply-queue-note', s).getBoundingClientRect();
+        check('what it says keeps room for a word and its ellipsis to rest the pointer on', said.width >= 39, Math.round(said.width) + ' wide');
         check('nothing on the strip goes past its end', all('.ca-hotkey', s).every(function (b) { return b.getBoundingClientRect().right <= 520.5; }), 'last ends at ' + all('.ca-hotkey', s).pop().getBoundingClientRect().right.toFixed(1));
         root.style.width = '';
       });

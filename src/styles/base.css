@@ -13,6 +13,45 @@
 .ca-kv dt { color: var(--ink-3); }
 .ca-kv dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
 
+/* Words kept to one line (primitives.tsx `OneLine`), in the color and type of where they are.
+   Cut short, they're all there over the line while the pointer rests on it: a card that starts
+   where the words do and covers the line, growing up from it (down with .is-down), as wide as
+   the words need up to --oneline-room, which a place sets to the room it has (the line's own
+   width by default); a place with more room than that, but not beside the line, places the card
+   itself (the box's foot, SessionReply.css). It takes no clicks, so whatever it covers is still a
+   move of the pointer away. With nothing to say it keeps its line's height, so what's lined up
+   on it stays put. */
+.ca-oneline { position: relative; display: block; min-width: 0; }
+.ca-oneline-text { display: block; min-height: 1lh; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-oneline[data-whole]::after {
+  content: attr(data-whole);
+  content: attr(data-whole) / '';
+  position: absolute;
+  left: -6px;
+  bottom: -4px;
+  z-index: var(--z-popover);
+  box-sizing: border-box;
+  width: max-content;
+  min-width: calc(100% + 12px);
+  max-width: var(--oneline-room, calc(100% + 12px));
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-hud);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur-fast) ease-out, visibility 0s linear var(--dur-fast);
+}
+.ca-oneline.is-down[data-whole]::after { top: -4px; bottom: auto; }
+.ca-oneline[data-whole]:hover::after { opacity: 1; visibility: visible; transition-delay: var(--dur-base); }
+/* After the rule it overrides: no fade, though it still waits a moment before it shows. */
+@media (prefers-reduced-motion: reduce) {
+  .ca-oneline[data-whole]::after { transition: visibility 0s linear var(--dur-fast); }
+}
+
 /* The page itself. */
 html,
 body,
