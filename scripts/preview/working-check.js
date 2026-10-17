@@ -36,6 +36,7 @@
         s.lastPromptAt = started + at * 30e3;
         s.stalledSince = own.stalledSince || null;
         s.snoozedUntil = undefined;
+        s.queued = undefined;
         s.asks = false;
         s.lastActivity = Date.now();
       });
