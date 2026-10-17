@@ -616,6 +616,9 @@ pub struct ContextUse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct QueuedMessage {
+    /// Its id in its harness's queue: for one Codealong queued, the one its send said
+    /// (`api::Sent::queued`).
+    pub id: String,
     /// When it was queued.
     pub at: i64,
     /// What it says, each image in it as `[Image #n]`.

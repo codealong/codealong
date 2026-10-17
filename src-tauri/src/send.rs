@@ -356,12 +356,12 @@ impl Delivery<'_> {
 
 /// The prompt went, where it lives.
 pub fn sent(message: String) -> Sent {
-    Sent { message, opened: false, fell_back: false, uncertain: false }
+    Sent { message, opened: false, fell_back: false, uncertain: false, queued: None }
 }
 
 /// The prompt is in a window that came forward, for someone to send from there.
 pub fn opened(message: String) -> Sent {
-    Sent { message, opened: true, fell_back: false, uncertain: false }
+    Sent { message, opened: true, fell_back: false, uncertain: false, queued: None }
 }
 
 /// Sends `text` to the session with this key; `now` sends it into the turn the session is
@@ -1083,7 +1083,7 @@ mod tests {
             tried += 1;
             Err(MayHaveArrived("Look there before sending it again.".into()).into())
         });
-        assert_eq!(went.unwrap(), Sent { message: "Look there before sending it again.".into(), opened: false, fell_back: false, uncertain: true });
+        assert_eq!(went.unwrap(), Sent { message: "Look there before sending it again.".into(), opened: false, fell_back: false, uncertain: true, queued: None });
         assert_eq!(tried, 1);
         let mut tried = 0;
         let went = through(&routes, "Fix the build", |_, _, _| {

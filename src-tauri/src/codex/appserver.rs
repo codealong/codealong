@@ -100,9 +100,12 @@ fn serve_as<T>(cmd: Command, hello: Value, f: impl FnOnce(&Server) -> Result<T>)
 /// thread loaded starts what's in it as each turn ends, and notices an addition from another
 /// process within seconds while the thread is idle. This one doesn't load the thread, so nothing
 /// runs here (two app-servers on one CODEX_HOME, 2026-10-12). Once Codex has the request, no
-/// answer may mean it was queued (`MayHaveArrived`).
-pub fn queue(codex_home: &Path, thread_id: &str, text: &str) -> Result<()> {
-    serve_as(app_server(codex_home)?, queue_hello(), |s| add_to_queue(s, thread_id, text, &crate::start::new_session_id()))
+/// answer may mean it was queued (`MayHaveArrived`). Answers the id it's queued under, its
+/// `clientUserMessageId`, which the queue lists it by (queue.rs).
+pub fn queue(codex_home: &Path, thread_id: &str, text: &str) -> Result<String> {
+    let id = crate::start::new_session_id();
+    serve_as(app_server(codex_home)?, queue_hello(), |s| add_to_queue(s, thread_id, text, &id))?;
+    Ok(id)
 }
 
 fn queue_hello() -> Value {

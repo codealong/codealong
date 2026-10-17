@@ -2,9 +2,10 @@
 // as queued for as long as the board says so, not as one that may not have reached it, and as sent
 // once it's out of the queue (ahead.ts `settled`, SessionThread.tsx `Unsaid`): a session runs, a
 // message goes to it, and boards come that show it held (`queuedAt`), then taken. Then the board
-// lists what's held (`queued`, the Codex app's queue): a message sent from here shows once, one
-// queued elsewhere shows too, after the turn, and they go as the queue empties. It ends with two
-// messages queued, for the screenshot.
+// lists what's held (`queued`, the Codex app's queue): a message sent from here, by the id its send
+// said it was queued under, shows once; one sent into the turn stays sent while another waits
+// after it; one queued elsewhere shows too, after the turn; and they go as the queue empties. It
+// ends with two messages queued, for the screenshot.
 //   PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
 //   PREVIEW_SCHEME=dark PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
 (function () {
@@ -13,6 +14,8 @@
   localStorage.removeItem('codealong.sessionPanelMax');
   var picked = null;
   var boardNow = null;
+  // Whether a send is queued, with the id it went under (`Sent.queued`), as Codex's is.
+  var queueing = false;
   var real = window.__TAURI_INTERNALS__.invoke;
   var running = function (s) {
     s.status = 'working';
@@ -27,7 +30,7 @@
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'send_to_session') {
       window.__calls.push([cmd, args, options]);
-      return Promise.resolve({ message: 'Typed into its Ghostty tab.', opened: false });
+      return Promise.resolve(queueing ? { message: 'Queued in Codex.', opened: false, queued: 'q:' + args.text } : { message: 'Typed into its Ghostty tab.', opened: false });
     }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
@@ -115,39 +118,55 @@
       return until(function () { var u = saying('And the changelog'); return u && u.says === 'Queued until this turn ends'; }, 5000, 'the second message queued');
     })
     .then(function () {
-      // The board lists what the harness holds: the one sent from here shows once, from the list.
+      // Taken; the board lists what the harness holds from here on.
+      push({ queuedAt: undefined, lastPromptAt: Date.now() });
+      return wait(6000);
+    })
+    .then(function () {
+      queueing = true;
+      return send('Then the tests');
+    })
+    .then(function () {
+      // The one sent from here shows once, from the board's list, by the id it went under.
       var at = Date.now();
-      push({ queuedAt: at, queued: [{ at: at, text: 'And the changelog' }] });
+      push({ queuedAt: at, queued: [{ id: 'q:Then the tests', at: at, text: 'Then the tests' }] });
       return until(function () { return all('.ca-sessinsp .ca-thread-said.is-ahead[data-prompt^="queued:"]').length === 1; }, 5000, 'the board’s queued message');
     })
     .then(function () {
-      var shown = sayingAll('And the changelog');
+      var shown = sayingAll('Then the tests');
       check('a message the board lists as queued shows once', shown.length === 1, shown.length);
       check('as queued until the turn ends', shown[0] && shown[0].says === 'Queued until this turn ends', shown[0] && shown[0].says);
+      // One sent into the turn (Send now) isn't queued, though another is queued after it.
+      queueing = false;
+      return wait(1500).then(function () { return send('Right away'); });
+    })
+    .then(function () {
       // One queued elsewhere (the Codex app's own box, another device) shows too, in the queue's order.
       var at = Date.now();
-      push({ queuedAt: at, queued: [{ at: at - 1000, text: 'And the changelog' }, { at: at, text: 'Queued in the app' }] });
+      push({ queuedAt: at, queued: [{ id: 'q:Then the tests', at: at - 5000, text: 'Then the tests' }, { id: 'app-1', at: at, text: 'Queued in the app' }] });
       return until(function () { return !!saying('Queued in the app'); }, 5000, 'the message queued elsewhere');
     })
     .then(function () {
+      var now = sayingAll('Right away');
+      check('one sent into the turn still shows, as sent, once something is queued after it', now.length === 1 && now[0].says === 'Sent', now.map(function (u) { return u.says; }).join(', '));
       var u = saying('Queued in the app');
       check('one queued elsewhere shows, as queued', u.says === 'Queued until this turn ends', u.says);
       var said = all('.ca-sessinsp .ca-thread-said');
       var tail = said.slice(-2).map(function (el) { return el.querySelector('.ca-thread-you') && el.querySelector('.ca-thread-you').textContent.trim(); });
-      check('both at the end of the conversation, in the queue’s order', tail[0] === 'And the changelog' && tail[1] === 'Queued in the app', tail.join(' | '));
+      check('both queued at the end of the conversation, in the queue’s order', tail[0] === 'Then the tests' && tail[1] === 'Queued in the app', tail.join(' | '));
       // The queue empties as the turn ends: neither waits any more.
       push({ queuedAt: undefined, queued: undefined, status: 'working', statusSince: Date.now(), lastPromptAt: Date.now() });
       return until(function () { return !saying('Queued in the app'); }, 5000, 'the queue emptied');
     })
     .then(function () {
       check('out of the queue, one queued elsewhere goes', !saying('Queued in the app'));
-      var u = saying('And the changelog');
+      var u = saying('Then the tests');
       check('and yours says sent, if it still shows', !u || u.says === 'Sent', u && u.says);
       return wait(6000);
     })
     .then(function () {
       var at = Date.now();
-      push({ queuedAt: at, queued: [{ at: at - 1000, text: 'Then the release notes' }, { at: at, text: 'Queued in the app' }], status: 'working' });
+      push({ queuedAt: at, queued: [{ id: 'app-2', at: at - 1000, text: 'Then the release notes' }, { id: 'app-3', at: at, text: 'Queued in the app' }], status: 'working' });
       return until(function () { return !!saying('Queued in the app'); }, 5000, 'two queued for the screenshot');
     })
     .then(function () { return wait(300); })

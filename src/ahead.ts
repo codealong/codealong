@@ -26,7 +26,9 @@
 // clears as you send, the thread shows the message as sending, then sent, until the session's
 // record has it (SessionThread.tsx), and the session shows as working meanwhile. A message that
 // doesn't go is back in the box with why, with any sent after it. One that its harness holds
-// until the session's turn ends (`Session.queuedAt`) shows as queued for as long as it waits.
+// until the session's turn ends shows as queued for as long as it waits: while the board lists
+// the id its send said it went under (`Session.queued`, the Codex app's queue), or where the
+// board doesn't list what's held, while something held came after it (`Session.queuedAt`).
 // One that went but that nothing shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
@@ -98,6 +100,9 @@ export interface Ahead {
   doneAt: number | null;
   /** The time of the first board that shows it, when the engine said. */
   shownAt: number | null;
+  /** A message's id where its harness holds it until the turn ends, as its send said
+   *  (`Sent.queued`). */
+  queuedAs?: string;
   // A message, as this window reads the board. Each window reads its own; other windows don't hear.
   /** When the board first showed the session took it. */
   takenAt?: number;
@@ -125,6 +130,9 @@ export interface Shown {
   /** When the latest message its harness holds came (`Session.queuedAt`), null when it holds
    *  none; undefined where the view can't say (the bar's). */
   queuedAt: number | null | undefined;
+  /** The ids of the messages its harness holds, where the board lists them (`Session.queued`);
+   *  undefined where it lists none, or the view can't say. */
+  queued?: string[];
 }
 
 /** What a window shows: the time of its board (null with none yet) and its sessions. */
@@ -440,7 +448,7 @@ export function boardView(boardAt: number | null, laneLists: Lane[][]): View {
       for (const lanes of laneLists) {
         for (const l of lanes) {
           const s = l.sessions.find((x) => x.key === key && !x.visitor);
-          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, quiet: !!s.quiet, queuedAt: s.queuedAt ?? null };
+          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, quiet: !!s.quiet, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id) };
         }
       }
       return undefined;
@@ -499,8 +507,11 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
   const s = v.find(c.key);
   // Its harness holds it until the turn ends, however long that is: its record has it only then.
   // That's so whatever else the board says, and even after it seemed taken: a send at the turn's
-  // end that fails puts it back.
-  const held = s?.queuedAt != null && s.queuedAt >= a.at - SLACK_MS;
+  // end that fails puts it back. Where the board lists what's held, it's held while that has the
+  // id it went under, and one that went into the turn (Send now) isn't, whatever was queued after;
+  // elsewhere, while something held came after it.
+  const listed = a.queuedAs != null || s?.queued != null;
+  const held = listed ? a.queuedAs != null && !!s?.queued?.includes(a.queuedAs) : s?.queuedAt != null && s.queuedAt >= a.at - SLACK_MS;
   if (held) return a.queued ? a : { ...a, queued: true, takenAt: undefined, lapsed: false, unconfirmed: false };
   // A view that can't see the queue (the bar's) leaves one held as it was.
   if (a.queued && s?.queuedAt === undefined) return a;
@@ -564,7 +575,7 @@ function publish(next: Ahead[]): void {
 
 /** Only what every window shares: each reads the board for itself. */
 function shared(a: Ahead): Ahead {
-  return { id: a.id, change: a.change, at: a.at, doneAt: a.doneAt, shownAt: a.shownAt };
+  return { id: a.id, change: a.change, at: a.at, doneAt: a.doneAt, shownAt: a.shownAt, ...(a.queuedAs != null && { queuedAs: a.queuedAs }) };
 }
 
 function put(a: Ahead, tell: boolean): void {
@@ -632,9 +643,9 @@ function made(change: Change): Ahead {
 }
 
 /** The engine answered: the change now waits for a board this new, or for one that shows it. */
-function answered(id: string, shownAt: number | null): void {
+function answered(id: string, shownAt: number | null, queuedAs?: string): void {
   const a = all.find((x) => x.id === id);
-  if (a) put({ ...a, doneAt: Date.now(), shownAt }, true);
+  if (a) put({ ...a, doneAt: Date.now(), shownAt, ...(queuedAs != null && { queuedAs }) }, true);
 }
 
 /** Marks sessions seen, in every window at once. Rejects with why when the engine can't. */
@@ -873,7 +884,7 @@ export function sendAhead(s: Session, text: string, { toDraft = true, now = fals
       clear();
       // Opened with it to paste rather than sent: nothing to wait for.
       if (sent.opened) drop(a.id, true);
-      else answered(a.id, null);
+      else answered(a.id, null, sent.queued);
       return sent;
     },
     (e: unknown) => {

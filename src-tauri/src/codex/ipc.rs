@@ -480,7 +480,7 @@ impl Own for InApp {
         let home = d.account.home_path();
         if d.busy() && !d.now && d.agent.is_none() && queues_follow_ups(&home) {
             match appserver::queue(&home, &d.session.id, &prompt) {
-                Ok(()) => return Ok(sent(format!("Queued for {title} in Codex: it starts once its current turn ends."))),
+                Ok(id) => return Ok(Sent { queued: Some(id), ..sent(format!("Queued for {title} in Codex: it starts once its current turn ends.")) }),
                 Err(e) if e.is::<MayHaveArrived>() => return Err(e),
                 // An app without the queue takes it into the turn instead.
                 Err(_) => {}

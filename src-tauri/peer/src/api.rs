@@ -734,6 +734,10 @@ pub struct Sent {
     /// don't know it yet.
     #[serde(default)]
     pub uncertain: bool,
+    /// The id its harness holds it under until the turn the session is taking ends (the Codex
+    /// app's queue), as `Session::queued` lists it: it waits there while that has the id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued: Option<String>,
 }
 
 /// An image kept for a prompt (`image-keep`).

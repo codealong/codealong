@@ -164,7 +164,7 @@ impl Own for Message {
         if held {
             super::held::note(&d.session.key, &peer_body(&text, d.agent));
         }
-        Ok(Sent { message: peer_note(&title, d.untyped, d.busy(), held, d.from_agent()), opened: false, fell_back: d.untyped.is_some(), uncertain: false })
+        Ok(Sent { message: peer_note(&title, d.untyped, d.busy(), held, d.from_agent()), opened: false, fell_back: d.untyped.is_some(), uncertain: false, queued: None })
     }
 }
 

@@ -41,6 +41,9 @@ export interface ConnectionLost {
 /** A message a session's harness holds until the turn it's taking ends (peer/src/model.rs
  *  `QueuedMessage`). */
 export interface QueuedMessage {
+  /** Its id in its harness's queue: for one Codealong queued, the one its send said
+   *  (`Sent.queued`). */
+  id: string;
   /** When it was queued. */
   at: number;
   /** What it says, each image in it as `[Image #n]`. */
@@ -1284,6 +1287,9 @@ export interface Sent {
    *  typing, say), so it counts as sent without being sure, and `message` says where to look.
    *  Missing from other devices that don't know it yet. */
   uncertain?: boolean;
+  /** The id its harness holds it under until the turn the session is taking ends (the Codex
+   *  app's queue), as `Session.queued` lists it. Missing where it wasn't queued. */
+  queued?: string;
 }
 
 export type TodoStatus = 'todo' | 'in-progress' | 'done';

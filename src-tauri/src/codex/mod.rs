@@ -1075,7 +1075,7 @@ mod tests {
         assert!(reader.glance(accounts, &look).dirty);
         let s = session(&reader);
         assert_eq!(s.queued_at, Some(at));
-        assert_eq!(s.queued, [QueuedMessage { at, text: "Also the docs".into() }]);
+        assert_eq!(s.queued, [QueuedMessage { id: "u1".into(), at, text: "Also the docs".into() }]);
         assert!(!reader.glance(accounts, &look).dirty, "an unchanged queue is the same board");
 
         rusqlite::Connection::open(home.join(queue::DB)).unwrap().execute("DELETE FROM queued_items", []).unwrap();

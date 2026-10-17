@@ -171,7 +171,9 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   is steered in. Queued in a long turn, agents' messages were recorded in that turn 2.5 to 6.5
   minutes after they were sent, two of them together (2026-10-13). What's in the queue, and how a
   row is kept (`queued_items`, its `payload_json`): `codex/queue.rs`, which the reader looks at
-  every glance (`Reader::glance`) for `Session::queued`. The app's windows list the queue again
+  every glance (`Reader::glance`) for `Session::queued`, each message by its `clientUserMessageId`,
+  which a send from Codealong picks and answers (`appserver::queue`, `Sent::queued`), so a window
+  knows which of what's held is its own. The app's windows list the queue again
   as another process adds to it (`thread/queue/list`, logged in the app's own log), and a queued
   message's Steer sends `turn/steer` and then `thread/queue/delete`; the steered message reached
   the rollout 38 seconds later, at the turn's next step (26.930, 2026-10-17). The app-server that

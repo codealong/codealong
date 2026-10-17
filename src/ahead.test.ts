@@ -216,7 +216,7 @@ describe('boardAhead', () => {
 describe('settled', () => {
   const view = (boardAt: number | null, s?: Partial<Session> & { status: Session['status'] }): View => ({
     boardAt,
-    find: () => (s ? { title: s.title ?? 'Title', status: s.status, statusSince: s.statusSince ?? null, lastPromptAt: s.lastPromptAt ?? null, archived: s.archived ?? false, asks: false, snoozedUntil: s.snoozedUntil ?? null, quiet: s.quiet ?? false, queuedAt: s.queuedAt ?? null } : undefined),
+    find: () => (s ? { title: s.title ?? 'Title', status: s.status, statusSince: s.statusSince ?? null, lastPromptAt: s.lastPromptAt ?? null, archived: s.archived ?? false, asks: false, snoozedUntil: s.snoozedUntil ?? null, quiet: s.quiet ?? false, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id) } : undefined),
   });
 
   it('keeps a seen until a board at least as new as the engine’s arrives', () => {
@@ -324,6 +324,23 @@ describe('settled', () => {
     // Dropped there, the same: the record never has it.
     const dropped = settled(queued!, view(NOW, { status: 'idle', statusSince: NOW + 900 }), NOW + 2_000);
     expect(dropped?.takenAt).toBe(NOW + 2_000);
+  });
+
+  it('keeps a message queued while the board lists the id it went under, and no other', () => {
+    const q = (id: string, at: number) => ({ id, at, text: id });
+    const a = send('a', { doneAt: NOW + 500, queuedAs: 'q-a' });
+    // Not yet listed: the queue is read a moment after the send.
+    expect(settled(a, view(NOW, { status: 'working' }), NOW + 1_000)?.queued).toBeUndefined();
+    const listing = view(NOW, { status: 'working', queuedAt: NOW + 300, queued: [q('q-a', NOW + 300)] });
+    const queued = settled(a, listing, NOW + 1_000);
+    expect([queued?.queued, queued?.takenAt]).toEqual([true, undefined]);
+    expect(settled(queued!, listing, NOW + 60 * 60_000)).toBe(queued);
+    // Taken out to go in, while one queued after it waits: out of the queue.
+    const after = view(NOW, { status: 'working', queuedAt: NOW + 9_000, queued: [q('q-b', NOW + 9_000)] });
+    expect(settled(queued!, after, NOW + 10_000)?.takenAt).toBe(NOW + 10_000);
+    // One sent into the turn (Send now) isn't queued by one queued after it.
+    const now = send('a', { doneAt: NOW + 500 });
+    expect(settled(now, after, NOW + 10_000)?.queued).toBeUndefined();
   });
 
   it('leaves a queued message as it was where the view can’t see the queue', () => {
