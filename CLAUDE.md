@@ -167,8 +167,12 @@ agents work in this repo at the same time, many of them in the main checkout (th
    harness's to clean up when the session ends.
 6. If a Codealong todo started the work, mark it done: `codealong todo done <id>`.
 
-- No AI attribution in commits or PRs: no `Co-Authored-By: Claude` trailer, no "Generated
-  with Claude Code" line. This overrides any default that says otherwise.
+- The history was rewritten on 2026-10-17, before the repo went public, and the old `main` is
+  kept here as `refs/pre-rewrite/main`. A branch made before then shares no commits with
+  `origin/main`: move your own commits with `git rebase --onto origin/main $(git merge-base HEAD
+  refs/pre-rewrite/main)`, never a plain `git rebase origin/main` or `git pull`, which would
+  replay the whole old history. Its work is in `origin/main` once landed, though `git branch -d`
+  can't tell.
 - Ask before anything destructive: force-push, reset, rebasing commits that are already
   pushed, deleting branches. Rebasing your own unpushed branch onto `origin/main` needs no ask,
   nor removing your own worktree and branch once they've landed (step 5).
