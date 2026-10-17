@@ -6,8 +6,9 @@
 //   scripts/preview.sh quick '' scripts/preview/quick-snoozed-check.js
 (function () {
   // This runs before the app's script: two of the board's sessions get titles nothing else has
-  // and both need you, one of them snoozed for an hour. The board has no todos or PRs and the
-  // text search finds nothing, so a search for the word lists those two.
+  // and both need you, one of them snoozed for an hour, and the rest are archived so they can't
+  // fill the lists ahead of them. The board has no todos or PRs and the text search finds
+  // nothing, so a search for the word lists those two.
   localStorage.setItem('codealong.quick.project', 'All projects');
   localStorage.removeItem('codealong.quick.archived');
   var WORD = 'pangolin';
@@ -25,9 +26,11 @@
       var now = Date.now();
       var n = 0;
       board.lanes.forEach(function (l) {
-        if (l.hidden || l.device) return;
         l.sessions.forEach(function (s) {
-          if (s.visitor || s.helper || s.headless || n >= 2) return;
+          if (l.hidden || l.device || s.visitor || s.helper || s.headless || n >= 2) {
+            s.archived = true;
+            return;
+          }
           s.title = n === 0 ? AWAKE : NAPPING;
           s.status = 'needs';
           s.archived = false;
