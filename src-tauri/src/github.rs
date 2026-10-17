@@ -98,15 +98,17 @@ fragment asked on PullRequest {
 "#;
 
 /// What's read of each PR, for the board and for a link to one. Its labels cost a point for a
-/// hundred PRs, as any connection does (a repo's `QUERY` went from 5 to 6, 2026-10-17), and come
-/// in the order of their names, as GitHub lists them.
+/// hundred PRs, as any connection does, however many each may bring (a repo's `QUERY` went from 5
+/// to 6 at 20 a PR and at 100 alike, 2026-10-17), so they're asked for a hundred, which is as many
+/// as GitHub lets a PR have: one page always holds them all. They come in the order of their
+/// names, as GitHub lists them.
 const PR_FIELDS: &str = r#"
 fragment pr on PullRequest {
   number title url body state isDraft reviewDecision updatedAt createdAt mergedAt closedAt headRefName headRefOid baseRefName
   additions deletions changedFiles
   author { login }
   headRepositoryOwner { login }
-  labels(first: 20, orderBy: {field: NAME, direction: ASC}) { nodes { name color description } }
+  labels(first: 100, orderBy: {field: NAME, direction: ASC}) { nodes { name color description } }
   commits(last: 1) { nodes { commit { message statusCheckRollup { contexts(first: 100) { nodes {
     __typename
     ... on CheckRun { name status conclusion }
@@ -1924,6 +1926,12 @@ mod tests {
         assert_eq!(answer_parts("{\"data\":{}}"), (None, "{\"data\":{}}"));
         assert_eq!(answer_parts(""), (None, ""));
         assert_eq!(answer_parts("HTTP/2.0 502 Bad Gateway\r\n\r\n").0, None);
+    }
+
+    #[test]
+    fn a_pr_is_asked_for_every_label_it_can_have() {
+        // GitHub lets a PR have a hundred labels: a smaller page would leave the rest out.
+        assert!(PR_FIELDS.contains("labels(first: 100,"), "{PR_FIELDS}");
     }
 
     #[test]
