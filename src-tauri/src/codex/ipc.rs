@@ -447,6 +447,18 @@ fn switch_settings(account: &AccountCfg, session: &Session, to: Switch) -> (Opti
     }
 }
 
+/// How queueing a send in the app went, as its answer: queued under `id`, which the queue lists it
+/// by (`Sent::queued`), so a window knows it there; maybe queued, as sent, unsure
+/// (`send::sent_unsure`), under the same id, which the queue lists if Codex kept it; or None when
+/// Codex didn't take it, for the turn to take it instead (an app without the queue).
+fn queued_as(went: Result<()>, id: String, title: &str) -> Option<Result<Sent>> {
+    match went {
+        Ok(()) => Some(Ok(Sent { queued: Some(id), ..sent(format!("Queued for {title} in Codex: it starts once its current turn ends.")) })),
+        Err(e) if e.is::<MayHaveArrived>() => Some(crate::send::sent_unsure(e).map(|s| Sent { queued: Some(id), ..s })),
+        Err(_) => None,
+    }
+}
+
 /// The way in for a thread the app has: a turn started through the app's own windows, as if
 /// you'd sent it there. When that doesn't work nothing was sent, and the send fails, so the
 /// prompt stays in the box it was sent from; the app opens the thread with it filled in too, to
@@ -479,11 +491,9 @@ impl Own for InApp {
         // shows it twice, in the turn and as the turn it took itself to be starting.
         let home = d.account.home_path();
         if d.busy() && !d.now && d.agent.is_none() && queues_follow_ups(&home) {
-            match appserver::queue(&home, &d.session.id, &prompt) {
-                Ok(id) => return Ok(Sent { queued: Some(id), ..sent(format!("Queued for {title} in Codex: it starts once its current turn ends.")) }),
-                Err(e) if e.is::<MayHaveArrived>() => return Err(e),
-                // An app without the queue takes it into the turn instead.
-                Err(_) => {}
+            let id = crate::start::new_session_id();
+            if let Some(went) = queued_as(appserver::queue(&home, &d.session.id, &prompt, &id), id, &title) {
+                return went;
             }
         }
         if d.busy() || d.now {
@@ -936,6 +946,19 @@ mod tests {
         assert_eq!(router.join().unwrap(), ["initialize", "thread-owner-discovery", "thread-follower-steer-turn"]);
         assert_eq!(sent.message, "Sent to \u{201c}Fix the build\u{201d} in Codex: it takes it into the turn it's taking.");
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A send queued in the app answers the id it went under, which the queue lists it by; so does
+    /// one Codex may have kept without saying so, as sent, unsure, so a window can still tell it
+    /// among what's held. Codex turning it down leaves it to the turn.
+    #[test]
+    fn a_queued_send_answers_the_id_it_went_under_even_unsure() {
+        let queued = queued_as(Ok(()), "u1".into(), "“Fix”").unwrap().unwrap();
+        assert_eq!((queued.queued.as_deref(), queued.uncertain), (Some("u1"), false));
+        let quiet = MayHaveArrived("Codealong asked Codex to queue this and didn't hear how it went: look there before sending it again.".into());
+        let maybe = queued_as(Err(quiet.into()), "u2".into(), "“Fix”").unwrap().unwrap();
+        assert_eq!((maybe.queued.as_deref(), maybe.uncertain, maybe.message.as_str()), (Some("u2"), true, "Codealong asked Codex to queue this and didn't hear how it went: look there before sending it again."));
+        assert!(queued_as(Err(anyhow!("Codex didn't queue it: ephemeral thread does not support queued submissions")), "u3".into(), "“Fix”").is_none());
     }
 
     #[test]

@@ -100,12 +100,10 @@ fn serve_as<T>(cmd: Command, hello: Value, f: impl FnOnce(&Server) -> Result<T>)
 /// thread loaded starts what's in it as each turn ends, and notices an addition from another
 /// process within seconds while the thread is idle. This one doesn't load the thread, so nothing
 /// runs here (two app-servers on one CODEX_HOME, 2026-10-12). Once Codex has the request, no
-/// answer may mean it was queued (`MayHaveArrived`). Answers the id it's queued under, its
-/// `clientUserMessageId`, which the queue lists it by (queue.rs).
-pub fn queue(codex_home: &Path, thread_id: &str, text: &str) -> Result<String> {
-    let id = crate::start::new_session_id();
-    serve_as(app_server(codex_home)?, queue_hello(), |s| add_to_queue(s, thread_id, text, &id))?;
-    Ok(id)
+/// answer may mean it was queued (`MayHaveArrived`). `id` is its `clientUserMessageId`, which the
+/// queue lists it by (queue.rs).
+pub fn queue(codex_home: &Path, thread_id: &str, text: &str, id: &str) -> Result<()> {
+    serve_as(app_server(codex_home)?, queue_hello(), |s| add_to_queue(s, thread_id, text, id))
 }
 
 fn queue_hello() -> Value {
@@ -292,7 +290,7 @@ mod tests {
     fn queues_a_follow_up_through_codex() {
         let home = crate::store::test_dir("appserver-real-queue");
         let t = new_thread(&home, &home, None).unwrap();
-        queue(&home, &t.id, "and the docs").unwrap();
+        queue(&home, &t.id, "and the docs", "u1").unwrap();
         let listed = serve_as(app_server(&home).unwrap(), queue_hello(), |s| s.request("thread/queue/list", json!({ "threadId": t.id }))).unwrap();
         assert_eq!(listed["data"][0]["input"], json!([{ "type": "text", "text": "and the docs", "text_elements": [] }]), "{listed}");
         let _ = std::fs::remove_dir_all(&home);

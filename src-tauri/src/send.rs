@@ -579,7 +579,7 @@ fn through(routes: &[Route], title: &str, mut attempt: impl FnMut(&Route, Option
 /// unsure, with what it said; any other failure as it was. Told it failed, a sender puts it back
 /// to send again (the windows' box, Codealong's own messages trying again later), and the session
 /// had it twice (2026-10-17). Its record says soon enough whether it went in.
-fn sent_unsure(e: anyhow::Error) -> Result<Sent> {
+pub(crate) fn sent_unsure(e: anyhow::Error) -> Result<Sent> {
     e.downcast::<MayHaveArrived>().map(|m| Sent { uncertain: true, ..sent(m.0) })
 }
 
