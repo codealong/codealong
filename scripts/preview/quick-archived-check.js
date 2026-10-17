@@ -32,6 +32,8 @@
           if (s.visitor || n >= 2) return;
           s.title = n === 0 ? LIVE : GONE;
           s.archived = n === 1;
+          // A snooze would give it a chip of its own (quick-snoozed-check.js).
+          delete s.snoozedUntil;
           if (named.length < 2) named.push(s.key);
           n++;
         });

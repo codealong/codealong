@@ -103,8 +103,8 @@ export function Waiting() {
   }, [board, key]);
   // A PR waiting on your review, shown while the board lists it.
   const reviewing = useMemo(() => (board && key && !replying ? (board.prs.find((p) => p.key === key) ?? null) : null), [board, key, replying]);
-  // What it works through. Snoozed ones wait their time.
-  const queue = useMemo(() => (board ? queueRows(board, ALL_PROJECTS).filter((r) => r.kind !== 'session' || !r.session.snoozedUntil) : []), [board]);
+  // What it works through. Snoozed ones wait their time (quick.ts `groupOf`).
+  const queue = useMemo(() => (board ? queueRows(board, ALL_PROJECTS) : []), [board]);
   const answerable = useMemo(() => new Set(board ? [...board.lanes.flatMap((l) => l.sessions.filter((s) => !s.archived).map((s) => s.key)), ...board.prs.map((p) => p.key)] : []), [board]);
   const shownKey = replying?.session.key ?? reviewing?.key ?? null;
   const looked = useSessionHistory(up ? shownKey : null, (k) => answerable.has(k), LOOKED_KEY);

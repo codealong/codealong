@@ -8,7 +8,7 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, buildBays, bySession, byStatusTime, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sessionPrs, sideTitle, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, bySession, byStatusTime, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sessionPrs, sideTitle, snoozedApart, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem } from './todos';
@@ -558,7 +558,7 @@ export function todoStage(item: TodoItem, todos: Todo[]): KanbanColumnId {
 /** How a card's session stands in its column, as Sessions sorts by status: Needs you, Your turn,
  *  Working, then the rest; a snoozed one that isn't working waits with the rest. */
 function standing(s: Session | null): number {
-  if (!s || (s.snoozedUntil != null && s.status !== 'working')) return 3;
+  if (!s || snoozedApart(s)) return 3;
   return AGENT_RANK[s.status] ?? 3;
 }
 const AGENT_RANK: Partial<Record<Session['status'], number>> = { needs: 0, error: 0, unread: 1, working: 2 };

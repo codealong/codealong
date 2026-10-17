@@ -97,6 +97,7 @@ import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { agentMenuSections, EffortFoot, placeIcon, placeSections } from './StartControls';
 import { Button, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
+import { SnoozeChip } from './LaneRow';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
@@ -1868,6 +1869,7 @@ export function Quick() {
                               Archived
                             </Chip>
                           )}
+                          <SnoozeChip until={s2.snoozedUntil} now={now} away="out of what waits on you" />
                           <span className="ca-quick-row-where">
                             {s2.account} · {r.lane.callsign}
                           </span>

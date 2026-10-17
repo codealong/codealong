@@ -13,7 +13,7 @@
 // end that takes them away again (`FoldRow`).
 
 import { Fragment } from 'react';
-import { bySession, byStatusTime, foldsOf, runsShownKey, sidesListed, sidesShownKey, startedOf, waitingSince, workingFor, type Fold } from '../lanes';
+import { bySession, byStatusTime, foldsOf, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, workingFor, type Fold } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { SaidLine } from '../quick';
@@ -68,12 +68,6 @@ const ATTENTION: { bay: Bay; statuses: Status[]; queue: boolean }[] = [
   { bay: 'unread', statuses: ['unread'], queue: true },
   { bay: 'working', statuses: ['working'], queue: false },
 ];
-
-/** Snoozed and not running: it waits apart until its time, as on the floating bar. A running
- *  one stays with Working. */
-function snoozedApart(s: Session): s is Session & { snoozedUntil: number } {
-  return s.snoozedUntil != null && s.status !== 'working';
-}
 
 const inGroup = (statuses: Status[]) => (r: SessionItem) => statuses.includes(r.session.status) && !snoozedApart(r.session);
 const byGroupTime = (a: SessionItem, b: SessionItem) => byStatusTime(a.session, b.session) || a.key.localeCompare(b.key);

@@ -1,13 +1,14 @@
 // What the quick panel lists, and how it names shortcuts. With nothing typed it lists the
-// sessions that need you, then the ones whose turn ended; with nothing waiting, the ones
-// working. Under them go the first few todos ready to start, then the rest of the sessions
-// started in the last day, which ↓ reaches past the rest. Typed words find sessions, then
-// todos, then PRs: every word has to be in what describes them, or, for a session, in what was
-// said in it (the engine's text search, search.rs). Kept free of React so the rules have tests.
+// sessions that need you, then the ones whose turn ended, snoozed ones left out until their time
+// as on the floating bar; with nothing waiting, the ones working. Under them go the first few
+// todos ready to start, then the rest of the sessions started in the last day, which ↓ reaches
+// past the rest. Typed words find sessions, then todos, then PRs: every word has to be in what
+// describes them, or, for a session, in what was said in it (the engine's text search,
+// search.rs). Kept free of React so the rules have tests.
 
 import { agoPhrase, middleTruncate } from './format';
 import { heldForAgent } from './prStatus';
-import { branchLabel, byStatusTime, sessionHomes, unattended } from './lanes';
+import { branchLabel, byStatusTime, sessionHomes, snoozedApart, unattended } from './lanes';
 import { inQueueOrder, statusWaits, type Reads } from './queue';
 import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } from './todos';
 import { prFlag } from './prStatus';
@@ -32,11 +33,14 @@ export function inProject(lane: Pick<Lane, 'project' | 'hidden'>, project: strin
 
 export type RowGroup = 'suggested' | 'skills' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'todos' | 'prs' | 'ready' | 'recent';
 
-/** Where a status puts a session in the empty panel's list, as on the floating bar: errors wait
- *  on you like questions do. */
-function groupOf(status: Status): 'needs' | 'unread' | 'working' | null {
-  if (status === 'needs' || status === 'error') return 'needs';
-  if (status === 'unread' || status === 'working') return status;
+/** Where a session goes in the empty panel's list by its status, as on the floating bar: errors
+ *  wait on you like questions do. A helper or a headless run waits there only while it needs
+ *  you, and one you snoozed not until its time, though it shows with Working while it runs
+ *  (barfeed.rs). */
+function groupOf(s: Session): 'needs' | 'unread' | 'working' | null {
+  if (unattended(s) || snoozedApart(s)) return null;
+  if (s.status === 'needs' || s.status === 'error') return 'needs';
+  if (s.status === 'unread' || s.status === 'working') return s.status;
   return null;
 }
 
@@ -138,13 +142,12 @@ export const QUEUE_READS: Reads<QueueRow> = {
  *  (queue.ts `byPlace`), sessions that need you, then the PRs waiting on your review, then the
  *  sessions whose turn ended, each the longest wait first, as on the floating bar and in the
  *  notch (bar.ts `NOTCH_ORDER`); with none of those, the ones working, the longest running first.
+ *  Snoozed ones are left out until their time (`groupOf`), so a recent one is in `recentRows`.
  *  `counts` has every group's full size, for the headings. */
 export function attentionRows(board: Board, project: string, limit = MAX_ROWS): { rows: QueueRow[]; counts: Record<'needs' | 'reviews' | 'unread' | 'working', number> } {
-  // A helper or a headless run waits here only while it needs you, as on the floating bar
-  // (barfeed.rs).
   const sessions = sessionsIn(board, project)
     .flatMap(({ lane, session }) => {
-      const group = unattended(session) ? null : groupOf(session.status);
+      const group = groupOf(session);
       return group ? [{ kind: 'session' as const, key: session.key, group, lane, session, marks: [] }] : [];
     })
     .sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group) || byStatusTime(a.session, b.session) || a.key.localeCompare(b.key));
@@ -222,6 +225,8 @@ export function titleMarks(title: string, words: string[]): [number, number][] {
 }
 
 const STATUS_RANK: Record<Status, number> = { needs: 0, error: 0, unread: 1, working: 2, idle: 3, stopped: 4 };
+/** A snoozed session that isn't running ranks with the idle ones: it doesn't wait on you yet. */
+const statusRank = (s: Session) => (snoozedApart(s) ? STATUS_RANK.idle : STATUS_RANK[s.status]);
 
 /** The shortest search that's sent to the text search: fewer letters match nearly everything. */
 export const TEXT_SEARCH_MIN = 3;
@@ -231,7 +236,7 @@ export const TEXT_SEARCH_MIN = 3;
  * (`said`, the text search's hits by session key), best first: those whose title has them all,
  * then the rest of what describes them, then what was said, the best match first there (the
  * words as typed beat them apart); within each by status (needs you, your turn, working, the
- * rest), then the most recently active. Archived sessions are left out, unless `archived` asks
+ * rest, snoozed ones among the rest), then the most recently active. Archived sessions are left out, unless `archived` asks
  * for them: then they come after all the others, in the same order among themselves.
  */
 export function findSessions(board: Board, project: string, query: string, limit = MAX_ROWS, said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without'): SessionRow[] {
@@ -255,7 +260,7 @@ export function findSessions(board: Board, project: string, query: string, limit
         Number(a.row.session.archived) - Number(b.row.session.archived) ||
         a.tier - b.tier ||
         b.score - a.score ||
-        STATUS_RANK[a.row.session.status] - STATUS_RANK[b.row.session.status] ||
+        statusRank(a.row.session) - statusRank(b.row.session) ||
         b.row.session.lastActivity - a.row.session.lastActivity ||
         a.row.key.localeCompare(b.row.key),
     )
@@ -416,7 +421,7 @@ export function projectCounts(board: Board, projects: string[]): Record<string, 
   for (const name of projects) {
     const c = { needs: 0, unread: 0 };
     for (const { session } of sessionsIn(board, name)) {
-      const g = groupOf(session.status);
+      const g = groupOf(session);
       if (g === 'needs' || g === 'unread') c[g] += 1;
     }
     out[name] = c;

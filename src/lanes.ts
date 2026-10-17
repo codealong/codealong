@@ -60,6 +60,12 @@ export function unattended(s: Pick<Session, 'helper' | 'headless' | 'status'>): 
   return (s.helper != null || !!s.headless) && s.status !== 'needs' && s.status !== 'error';
 }
 
+/** Snoozed and not running: it waits apart until its time, out of Needs you and Your turn, as on
+ *  the floating bar. A running one stays with Working. */
+export function snoozedApart<S extends Pick<Session, 'snoozedUntil' | 'status'>>(s: S): s is S & { snoozedUntil: number } {
+  return s.snoozedUntil != null && s.status !== 'working';
+}
+
 /** The session a helper or a headless run works for, by its key: the one whose agent started it
  *  as a helper, or the one a headless run came from, which for one Codealong saw running is the
  *  session whose command ran it (board.rs `started_by`). */

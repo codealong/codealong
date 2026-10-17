@@ -61,6 +61,21 @@ describe('attentionRows', () => {
     expect(recentRows(b, ALL_PROJECTS, new Set(), NOW).rows.map((r) => r.key)).toEqual(['boss', 'asks']);
   });
 
+  it('leaves out sessions snoozed until their time, as the floating bar does, and lists them with the recent ones', () => {
+    const later = { snoozedUntil: NOW + 60_000, startedAt: NOW - 100 };
+    const b = board([lane('app2', [session('n', 'needs', NOW - 90), session('zn', 'needs', NOW - 95, later), session('zu', 'unread', NOW - 10, later), session('zw', 'working', NOW - 5, later)])]);
+    const { rows, counts } = attentionRows(b, ALL_PROJECTS);
+    expect(rows.map((r) => r.key)).toEqual(['n']);
+    // One that runs still counts with Working.
+    expect(counts).toEqual({ needs: 1, reviews: 0, unread: 0, working: 1 });
+    expect(queueRows(b, ALL_PROJECTS).map((r) => r.key)).toEqual(['n']);
+    expect(recentRows(b, ALL_PROJECTS, new Set(rows.map((r) => r.key)), NOW).rows.map((r) => r.key)).toEqual(['zw', 'zu', 'zn']);
+    expect(projectCounts(b, [ALL_PROJECTS])).toEqual({ [ALL_PROJECTS]: { needs: 1, unread: 0 } });
+    // With nothing else waiting, the running one is what's listed.
+    const quiet = board([lane('app2', [session('zn', 'needs', NOW - 95, later), session('zw', 'working', NOW - 5, later)])]);
+    expect(attentionRows(quiet, ALL_PROJECTS).rows.map((r) => r.key)).toEqual(['zw']);
+  });
+
   it('lists the working sessions when nothing waits on you, the longest running first', () => {
     const b = board([lane('app2', [session('w2', 'working', NOW), session('w1', 'working', NOW - 5), session('i', 'idle', NOW)])]);
     expect(attentionRows(b, ALL_PROJECTS).rows.map((r) => r.key)).toEqual(['w1', 'w2']);
@@ -127,6 +142,17 @@ describe('findSessions', () => {
     ]);
     // s4 needs you, but s1 said the words as typed.
     expect(findSessions(b, ALL_PROJECTS, 'class c', 9, said).map((r) => r.key)).toEqual(['s1', 's4']);
+  });
+
+  it('ranks a snoozed session that isn’t running with the idle ones', () => {
+    const b2 = board([
+      lane('app2', [
+        session('idle', 'idle', NOW - 10, { title: 'Login idle' }),
+        session('napping', 'needs', NOW - 100, { title: 'Login question', snoozedUntil: NOW + 60_000 }),
+        session('busy', 'working', NOW - 200, { title: 'Login busy', snoozedUntil: NOW + 60_000 }),
+      ]),
+    ]);
+    expect(findSessions(b2, ALL_PROJECTS, 'login').map((r) => r.key)).toEqual(['busy', 'idle', 'napping']);
   });
 
   it('takes a short word among others only whole', () => {

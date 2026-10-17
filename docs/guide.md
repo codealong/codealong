@@ -1216,7 +1216,9 @@ One input, and below it what you can do next: it finds and starts, and answering
 window's (below). With nothing typed it lists the sessions that need you, the longest wait first as
 on the floating bar, then the PRs waiting on your review under Review requested, the longest wait
 first, then the sessions whose turn ended (the working ones when nothing waits on you), and under
-them the first three todos ready to start, in your order. Typed words find sessions by title,
+them the first three todos ready to start, in your order, then the rest of the sessions started in
+the last day. A snoozed session doesn't wait on you there until its time: it's listed with the rest,
+and a search finds it among the idle ones, with a chip saying how long until it's back. Typed words find sessions by title,
 account, worktree, branch, repo, project or PR, then by what was said in them (your prompts and the
 agents' replies, for sessions active in the last `[search] days`, with the matching line shown; the
 words as you typed them rank first), six at first and the rest a row away, and under them todos by
@@ -1609,7 +1611,8 @@ pill opens the quick panel ready to start a session for a todo (its menu picks w
 
 **Snooze** (a session's menu on the bar or in Codealong, the peek's ⋯ menu, or a folded pill's menu
 for all of its sessions): for 15 minutes, an hour, three hours or until 9 the next morning. A
-snoozed session leaves Needs you and Your turn, and the mark stops counting it; the snoozed pill
+snoozed session leaves Needs you and Your turn (on the bar, in the quick panel and the waiting
+window), and the mark stops counting it; the snoozed pill
 lists it with when it's back, to show it in Codealong, open it or wake it early. When the time comes
 it's back as it is then, and one with nothing new (its turn already seen, or its process gone) comes
 back as Your turn, so a snooze always brings its session back. A running session stays in Working
