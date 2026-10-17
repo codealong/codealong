@@ -1,28 +1,34 @@
 // The line at the end of a conversation while its agent works (working.ts says what it says, and
-// when a tip comes): the mark breathing, a word for what the agent's up to and how long the turn
-// has gone on, quiet, where its words will come. Under the word, now and then, a tip; only in the
-// main window's panel, since a card is read at a glance.
+// when a tip comes): the mark breathing, a word for what the agent's up to and how long it has
+// worked on what you last asked, quiet, where its words will come. Under the word, now and then, a
+// tip; only in the main window's panel, since a card is read at a glance.
 
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { duration } from '../format';
+import { workingSince } from '../lanes';
 import { readStored, writeStored, type Codec } from '../stored';
-import { TIPS, tipShows, type Tip } from '../tips';
+import { TIPS, tipShows } from '../tips';
 import type { Session } from '../types';
-import { turnOf, workingTip, workingWord, type TipClaim } from '../working';
+import { claimed, turnOf, workingTip, workingWord, type TipClaim } from '../working';
 import { MarkLive } from './MarkLive';
 import { takeTip, TipWords, useTipShortcuts } from './Tip';
 
-/** The last tip a turn got, for every window (working.ts `workingTip`). */
-const CLAIM_KEY = 'codealong.tips.working';
-const CLAIM: Codec<TipClaim> = {
+/** The tips turns got, the latest last, for every window (working.ts `workingTip`). */
+const CLAIMS_KEY = 'codealong.tips.working';
+/** As JSON; a claim that doesn't read is left out. */
+const CLAIMS: Codec<TipClaim[]> = {
   parse: (raw) => {
     const v: unknown = JSON.parse(raw);
-    if (!v || typeof v !== 'object') return undefined;
-    const { turn, id, at } = v as Record<string, unknown>;
-    return typeof turn === 'string' && typeof id === 'string' && typeof at === 'number' ? { turn, id, at } : undefined;
+    if (!Array.isArray(v)) return undefined;
+    return v.flatMap((c: unknown) => {
+      if (!c || typeof c !== 'object') return [];
+      const { turn, id, at } = c as Record<string, unknown>;
+      return typeof turn === 'string' && typeof id === 'string' && typeof at === 'number' ? [{ turn, id, at }] : [];
+    });
   },
-  format: (claim) => JSON.stringify(claim),
+  format: (claims) => JSON.stringify(claims),
 };
+const readClaims = () => readStored<TipClaim[]>(CLAIMS_KEY, CLAIMS, []);
 /** How often the line looks at the clock: on the clock's own beat, so windows change word together. */
 const TICK_MS = 10_000;
 
@@ -48,13 +54,12 @@ function useClock(everyMs: number): number {
 
 export function Working({ session: s, tips, onGrow }: { session: Session; tips: boolean; onGrow: () => void }) {
   const now = useClock(TICK_MS);
-  const since = s.statusSince ?? s.lastPromptAt;
+  const since = workingSince(s) ?? s.lastPromptAt;
   const word = workingWord(s.key, since, now);
   const turn = turnOf(s.key, s.lastPromptAt);
   // Read again at each beat: another window may have given this turn its tip. A window that can't
   // be seen takes none, so none counts as seen.
-  const last = tips ? readStored<TipClaim, null>(CLAIM_KEY, CLAIM, null) : null;
-  const due = tips ? workingTip(last, turn, now - since, now) : null;
+  const due = tips ? workingTip(readClaims(), turn, now - since, now) : null;
   useLayoutEffect(onGrow, [onGrow]);
   return (
     <div className="ca-working">
@@ -65,24 +70,36 @@ export function Working({ session: s, tips, onGrow }: { session: Session; tips: 
         </span>
         <span className="ca-working-for">{duration(since, now)}</span>
       </span>
-      {(due === 'keep' || (due === 'take' && !document.hidden)) && <WorkingTip kept={due === 'keep' ? last : null} turn={turn} onGrow={onGrow} />}
+      {due && (due !== 'take' || !document.hidden) && <WorkingTip kept={due === 'take' ? null : due.keep} turn={turn} since={since} onGrow={onGrow} />}
     </div>
   );
 }
 
 /** The turn's tip: the one it got, or a new one once the shortcuts are known. */
-function WorkingTip({ kept, turn, onGrow }: { kept: TipClaim | null; turn: string; onGrow: () => void }) {
+function WorkingTip({ kept, turn, since, onGrow }: { kept: TipClaim | null; turn: string; since: number; onGrow: () => void }) {
   const shortcuts = useTipShortcuts();
-  const [taken, setTaken] = useState<Tip | null>(null);
+  const [taken, setTaken] = useState<TipClaim | null>(null);
   useEffect(() => {
     if (kept || taken || !shortcuts) return;
+    // Asked again: another window may have given one, to this turn or another, while this one
+    // waited on the shortcuts.
+    const claims = readClaims();
+    const now = Date.now();
+    const due = workingTip(claims, turn, now - since, now);
+    if (due === null) return;
+    if (due !== 'take') {
+      setTaken(due.keep);
+      return;
+    }
     const tip = takeTip('working', shortcuts);
     if (!tip) return;
-    writeStored(CLAIM_KEY, CLAIM, { turn, id: tip.id, at: Date.now() });
-    setTaken(tip);
-  }, [kept, taken, shortcuts, turn]);
+    const claim = { turn, id: tip.id, at: now };
+    writeStored(CLAIMS_KEY, CLAIMS, claimed(claims, claim));
+    setTaken(claim);
+  }, [kept, taken, shortcuts, turn, since]);
   // Two windows that took one at once show the one kept, once they read it.
-  const tip = kept ? TIPS.find((t) => t.id === kept.id) : taken;
+  const id = (kept ?? taken)?.id;
+  const tip = id ? TIPS.find((t) => t.id === id) : undefined;
   const shows = !!tip && !!shortcuts && tipShows(tip, shortcuts);
   useLayoutEffect(() => {
     if (shows) onGrow();

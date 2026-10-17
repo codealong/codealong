@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, worktreeRow } from './lanes';
+import { ageFiltered, bayOf, branchLabel, buildBays, bySession, closable, connectionLostWords, cutOffWords, exitsItsOwnWay, filterByAge, foldsOf, foldWords, helperLine, helperName, helperStands, homeOf, inboxCounts, laneWaits, limitWords, liveOrLatest, narrowed, relaned, rowItems, runsShownKey, seenable, sessionFlag, sessionHeadline, sessionPrs, sidesListed, sidesShownKey, stoppable, unattended, waitsInBackground, withoutAccount, workingFor, workingSince, worktreeRow } from './lanes';
 import * as fx from './testing/fixtures';
 import type { Lane, Pr, PrItem, Session, SideGlance } from './types';
 
@@ -595,5 +595,15 @@ describe('folding what’s listed in full under a session', () => {
   it('says what it does when nothing would leave the list', () => {
     expect(foldWords({ kind: 'helpers', key: 'boss', title: 'The boss', hides: 0 }, true)).toBe('List only the helpers at work');
     expect(foldWords({ kind: 'sides', key: 'boss', title: 'The boss', hides: 1 }, true)).toBe('Hide 1 answered side conversation');
+  });
+});
+
+describe('workingSince', () => {
+  it('counts from what you last asked, a prompt sent while it works included', () => {
+    expect(workingSince({ ...session('a', 'working', 5_000, 1_000), statusSince: 2_000 })).toBe(2_000);
+    expect(workingSince({ ...session('a', 'working', 5_000, 4_000), statusSince: 2_000 })).toBe(4_000);
+  });
+  it('says nothing when its status does not say when it began', () => {
+    expect(workingSince({ ...session('a', 'working', 5_000, 4_000), statusSince: null })).toBeNull();
   });
 });

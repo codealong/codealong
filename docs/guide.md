@@ -374,15 +374,15 @@ every Claude Code account that has its copy when you change it.
 
 While a session's agent works, the end of its conversation says so, wherever the conversation
 shows: the Codealong mark, breathing, then a word for what the agent's up to (Tinkering…, Untangling…,
-Sharpening pencils…) and how long its turn has gone on. The word is for fun, not news; a new one
+Sharpening pencils…) and how long it has worked on what you last asked. The word is for fun, not news; a new one
 comes every 30 seconds, each session with its words in an order of its own, the same in every
 window, and a turn past a quarter of an hour gets one that says so now and then (Still at it…).
 A session gone silent mid-turn has no line: its header says how long it's been silent.
 
 Now and then, in the main window, a tip on using Codealong sits quietly under the word (*Tips*):
 only once a turn has gone on 20 seconds, and no more than one every 20 minutes, wherever the last
-showed. A turn keeps the tip it got until it ends, when you look at another session and come back
-and in another window.
+showed. A turn keeps the tip it got until it ends, when you look at another session and come back,
+in another window, and while other turns get theirs.
 
 #### Moving through a conversation
 

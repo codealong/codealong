@@ -51,6 +51,10 @@ export function waitingSince(s: Session): number | null {
 /** When a session's status began. */
 const statusAt = (s: Session) => s.statusSince ?? s.lastActivity;
 
+/** Since when a working session has worked on what you last asked, as the engine counts it: a
+ *  prompt sent while it works goes on in the same status. Null when its status doesn't say. */
+export const workingSince = (s: Session) => (s.statusSince != null ? Math.max(s.statusSince, s.lastPromptAt) : null);
+
 /** A helper or a headless run that doesn't need you: what started it waits on it, not you, so
  *  it's out of its worktree's status, the bar, the mark and the queues, and Sessions lists it
  *  under the session it works for (`workingFor`), or counts it there. One that needs you (a call
@@ -425,8 +429,7 @@ export function sessionHeadline(s: Session): [string, string | null] {
       if (s.cutOff != null) return [`${acct} was cut off · ${s.title}`, s.excerpt];
       return [`${acct} stopped with an error · ${s.title}`, s.excerpt];
     case 'working': {
-      // How long it has worked on what you last asked, as the engine counts it.
-      const since = s.statusSince != null ? Math.max(s.statusSince, s.lastPromptAt) : null;
+      const since = workingSince(s);
       const detail = since != null ? (s.excerpt != null ? `{for:${since}} · ${s.excerpt}` : `{for:${since}}`) : s.excerpt;
       return [`${acct} · ${s.title}`, detail];
     }

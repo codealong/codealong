@@ -51,7 +51,12 @@
   var line = function () { return q('.ca-sessinsp .ca-thread .ca-working'); };
   var word = function () { var w = q('.ca-sessinsp .ca-working-word'); return w ? w.textContent : ''; };
   var tip = function () { return q('.ca-sessinsp .ca-working-tip'); };
-  var claim = function () { try { return JSON.parse(localStorage.getItem('codealong.tips.working') || 'null'); } catch (e) { return null; } };
+  // The tip the first turn got, as kept for every window.
+  var claim = function () {
+    try {
+      return (JSON.parse(localStorage.getItem('codealong.tips.working') || '[]') || []).filter(function (c) { return c.turn === picked[0].key + ':' + started; })[0] || null;
+    } catch (e) { return null; }
+  };
 
   say('working check: waiting for the list');
   until(function () { return row(0) && row(1); }, 20000, 'two sessions to work')
@@ -69,7 +74,7 @@
       check('last in the conversation', thread.lastElementChild === l, thread.lastElementChild && thread.lastElementChild.className);
       check('a tip under it, as a tip', /^Tip\s/.test(tip().textContent), tip().textContent);
       var c = claim();
-      check('kept for the turn', !!c && c.turn === picked[0].key + ':' + started && c.id === tip().getAttribute('data-tip'), JSON.stringify(c));
+      check('kept for the turn', !!c && c.id === tip().getAttribute('data-tip'), JSON.stringify(c));
       var first = word();
       return wait(31e3).then(function () {
         check('another word in time', word() !== first && /…$/.test(word()), first + ' → ' + word());

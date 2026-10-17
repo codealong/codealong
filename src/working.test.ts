@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LONG_MS, LONG_WORDS, shuffled, TIP_AFTER_MS, TIP_EVERY_MS, turnOf, WORD_FOR_MS, WORKING_WORDS, workingTip, workingWord, type TipClaim } from './working';
+import { claimed, CLAIMS_KEPT, LONG_MS, LONG_WORDS, shuffled, TIP_AFTER_MS, TIP_EVERY_MS, turnOf, WORD_FOR_MS, WORKING_WORDS, workingTip, workingWord, type TipClaim } from './working';
 
 const T0 = 1_760_000_000_000;
 
@@ -57,18 +57,38 @@ describe('workingTip', () => {
   const claim = (over: Partial<TipClaim>): TipClaim => ({ turn: turnOf('s0', T0 - 3_600_000), id: 'find', at: T0 - TIP_EVERY_MS, ...over });
 
   it('gives none in the first moments of a turn', () => {
-    expect(workingTip(null, turn, TIP_AFTER_MS - 1, T0)).toBe(null);
-    expect(workingTip(null, turn, TIP_AFTER_MS, T0)).toBe('take');
+    expect(workingTip([], turn, TIP_AFTER_MS - 1, T0)).toBe(null);
+    expect(workingTip([], turn, TIP_AFTER_MS, T0)).toBe('take');
   });
   it('gives none for a while after the last, wherever it showed', () => {
-    expect(workingTip(claim({ at: T0 - TIP_EVERY_MS + 1 }), turn, 60_000, T0)).toBe(null);
-    expect(workingTip(claim({ at: T0 - TIP_EVERY_MS }), turn, 60_000, T0)).toBe('take');
+    expect(workingTip([claim({ at: T0 - TIP_EVERY_MS + 1 })], turn, 60_000, T0)).toBe(null);
+    expect(workingTip([claim({ at: T0 - TIP_EVERY_MS })], turn, 60_000, T0)).toBe('take');
+    expect(workingTip([claim({ at: T0 - TIP_EVERY_MS }), claim({ turn: 'b:1', at: T0 - 1_000 })], turn, 60_000, T0)).toBe(null);
   });
   it('keeps the tip a turn got for as long as it goes on', () => {
-    expect(workingTip(claim({ turn, at: T0 - 1_000 }), turn, 0, T0)).toBe('keep');
-    expect(workingTip(claim({ turn, at: T0 - 2 * TIP_EVERY_MS }), turn, 10 * TIP_EVERY_MS, T0)).toBe('keep');
+    const got = claim({ turn, at: T0 - 1_000 });
+    expect(workingTip([got], turn, 0, T0)).toEqual({ keep: got });
+    const old = claim({ turn, at: T0 - 2 * TIP_EVERY_MS });
+    expect(workingTip([old], turn, 10 * TIP_EVERY_MS, T0)).toEqual({ keep: old });
+  });
+  it('keeps it though another turn got one since', () => {
+    const got = claim({ turn, id: 'find', at: T0 - TIP_EVERY_MS - 1_000 });
+    const claims = claimed([got], claim({ turn: 'b:1', id: 'side', at: T0 }));
+    expect(workingTip(claims, turn, 30 * 60_000, T0 + 1_000)).toEqual({ keep: got });
   });
   it('takes one when the last says it showed later than now (the clock went back)', () => {
-    expect(workingTip(claim({ at: T0 + 60_000 }), turn, 60_000, T0)).toBe('take');
+    expect(workingTip([claim({ at: T0 + 60_000 })], turn, 60_000, T0)).toBe('take');
+  });
+});
+
+describe('claimed', () => {
+  it('puts the claim last, once for its turn, and keeps only the latest', () => {
+    const a = { turn: 'a:1', id: 'find', at: 1 };
+    expect(claimed([a], { turn: 'a:1', id: 'side', at: 2 })).toEqual([{ turn: 'a:1', id: 'side', at: 2 }]);
+    let claims: TipClaim[] = [];
+    for (let i = 0; i < CLAIMS_KEPT + 3; i++) claims = claimed(claims, { turn: `s${i}:1`, id: 'find', at: i });
+    expect(claims.length).toBe(CLAIMS_KEPT);
+    expect(claims[0].turn).toBe('s3:1');
+    expect(claims[claims.length - 1].turn).toBe(`s${CLAIMS_KEPT + 2}:1`);
   });
 });
