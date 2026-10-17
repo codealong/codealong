@@ -73,8 +73,9 @@ export const LONG_MS = 15 * 60_000;
 export const TIP_AFTER_MS = 20_000;
 /** And only this long after the last tip a turn got. */
 export const TIP_EVERY_MS = 20 * 60_000;
-/** The tips turns got that are kept, for the turns still going: the latest. */
-export const CLAIMS_KEPT = 8;
+/** How long the tip a turn got is kept, for the turn while it goes on: longer than any turn, and
+ *  at a tip every `TIP_EVERY_MS` at most, a few dozen claims. */
+export const CLAIM_FOR_MS = 24 * 60 * 60_000;
 
 /** A number from text, the same every time (FNV-1a). */
 function hashOf(text: string): number {
@@ -135,7 +136,7 @@ export function workingTip(claims: readonly TipClaim[], turn: string, worked: nu
   return !last || now - last.at >= TIP_EVERY_MS || last.at > now ? 'take' : null;
 }
 
-/** `claims` with `claim` the latest, and only the latest `CLAIMS_KEPT`. */
+/** `claims` with `claim` the latest, less those older than `CLAIM_FOR_MS`. */
 export function claimed(claims: readonly TipClaim[], claim: TipClaim): TipClaim[] {
-  return [...claims.filter((c) => c.turn !== claim.turn), claim].slice(-CLAIMS_KEPT);
+  return [...claims.filter((c) => c.turn !== claim.turn && claim.at - c.at < CLAIM_FOR_MS && c.at <= claim.at), claim];
 }

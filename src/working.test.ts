@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { claimed, CLAIMS_KEPT, LONG_MS, LONG_WORDS, shuffled, TIP_AFTER_MS, TIP_EVERY_MS, turnOf, WORD_FOR_MS, WORKING_WORDS, workingTip, workingWord, type TipClaim } from './working';
+import { CLAIM_FOR_MS, claimed, LONG_MS, LONG_WORDS, shuffled, TIP_AFTER_MS, TIP_EVERY_MS, turnOf, WORD_FOR_MS, WORKING_WORDS, workingTip, workingWord, type TipClaim } from './working';
 
 const T0 = 1_760_000_000_000;
 
@@ -71,10 +71,11 @@ describe('workingTip', () => {
     const old = claim({ turn, at: T0 - 2 * TIP_EVERY_MS });
     expect(workingTip([old], turn, 10 * TIP_EVERY_MS, T0)).toEqual({ keep: old });
   });
-  it('keeps it though another turn got one since', () => {
-    const got = claim({ turn, id: 'find', at: T0 - TIP_EVERY_MS - 1_000 });
-    const claims = claimed([got], claim({ turn: 'b:1', id: 'side', at: T0 }));
-    expect(workingTip(claims, turn, 30 * 60_000, T0 + 1_000)).toEqual({ keep: got });
+  it('keeps it though other turns got theirs since, for hours', () => {
+    const got = claim({ turn, id: 'find', at: T0 });
+    let claims = [got];
+    for (let i = 1; i <= 20; i++) claims = claimed(claims, claim({ turn: `b${i}:1`, id: 'side', at: T0 + i * TIP_EVERY_MS }));
+    expect(workingTip(claims, turn, 21 * TIP_EVERY_MS, T0 + 20 * TIP_EVERY_MS + 1_000)).toEqual({ keep: got });
   });
   it('takes one when the last says it showed later than now (the clock went back)', () => {
     expect(workingTip([claim({ at: T0 + 60_000 })], turn, 60_000, T0)).toBe('take');
@@ -82,13 +83,16 @@ describe('workingTip', () => {
 });
 
 describe('claimed', () => {
-  it('puts the claim last, once for its turn, and keeps only the latest', () => {
+  it('puts the claim last, once for its turn', () => {
     const a = { turn: 'a:1', id: 'find', at: 1 };
-    expect(claimed([a], { turn: 'a:1', id: 'side', at: 2 })).toEqual([{ turn: 'a:1', id: 'side', at: 2 }]);
-    let claims: TipClaim[] = [];
-    for (let i = 0; i < CLAIMS_KEPT + 3; i++) claims = claimed(claims, { turn: `s${i}:1`, id: 'find', at: i });
-    expect(claims.length).toBe(CLAIMS_KEPT);
-    expect(claims[0].turn).toBe('s3:1');
-    expect(claims[claims.length - 1].turn).toBe(`s${CLAIMS_KEPT + 2}:1`);
+    const b = { turn: 'b:1', id: 'side', at: 2 };
+    expect(claimed([a], b)).toEqual([a, b]);
+    expect(claimed([a, b], { turn: 'a:1', id: 'fork', at: 3 })).toEqual([b, { turn: 'a:1', id: 'fork', at: 3 }]);
+  });
+  it('lets go of claims older than any turn, and any from a clock gone back', () => {
+    const old = { turn: 'a:1', id: 'find', at: T0 - CLAIM_FOR_MS };
+    const recent = { turn: 'b:1', id: 'side', at: T0 - CLAIM_FOR_MS + 1 };
+    const ahead = { turn: 'c:1', id: 'fork', at: T0 + 60_000 };
+    expect(claimed([old, recent, ahead], { turn: 'd:1', id: 'find', at: T0 }).map((c) => c.turn)).toEqual(['b:1', 'd:1']);
   });
 });
