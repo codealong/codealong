@@ -477,7 +477,7 @@ fn join(key: &str, text: &str, send: impl FnOnce() -> Result<Sent>) -> Result<Se
 
 /// A way in that failed after the prompt may have reached the session, such as typing Ghostty
 /// didn't confirm: no other way is tried, or the session could get it twice, and the send counts
-/// as sent, unsure (`through`).
+/// as sent, unsure (`sent_unsure`).
 #[derive(Debug)]
 pub(crate) struct MayHaveArrived(pub(crate) String);
 
@@ -554,10 +554,8 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
 }
 
 /// Tries each way in, best first, until one sends it (`attempt`, given why typing didn't work
-/// and whether a way comes after). One that may have put it in the session ends the send as sent,
-/// unsure, with what it said: a sender told it failed puts it back to send again (the windows'
-/// box, Codealong's own messages trying again later), and the session had it twice (2026-10-17).
-/// Its record says soon enough whether it went in.
+/// and whether a way comes after). One that may have put it in the session ends the send
+/// (`sent_unsure`).
 fn through(routes: &[Route], title: &str, mut attempt: impl FnMut(&Route, Option<&str>, bool) -> Result<Tried>) -> Result<Sent> {
     let mut last_err = None;
     // Why typing into its terminal didn't work, for the note on the way it went instead.
@@ -568,11 +566,21 @@ fn through(routes: &[Route], title: &str, mut attempt: impl FnMut(&Route, Option
             Ok(Tried::Sent(sent)) => return Ok(sent),
             // This way doesn't reach the session; the next one may.
             Ok(Tried::Passed(why)) => untyped = why.or(untyped),
-            Err(e) if e.is::<MayHaveArrived>() => return Ok(Sent { uncertain: true, ..sent(e.to_string()) }),
-            Err(e) => last_err = Some(e),
+            Err(e) => match sent_unsure(e) {
+                Ok(sent) => return Ok(sent),
+                Err(e) => last_err = Some(e),
+            },
         }
     }
     Err(last_err.unwrap_or_else(|| anyhow!("Codealong can't reach {} to send it this. Open it and send it there.", quoted(title))))
+}
+
+/// A send that failed after it may have put the prompt in the session (`MayHaveArrived`) as sent,
+/// unsure, with what it said; any other failure as it was. Told it failed, a sender puts it back
+/// to send again (the windows' box, Codealong's own messages trying again later), and the session
+/// had it twice (2026-10-17). Its record says soon enough whether it went in.
+fn sent_unsure(e: anyhow::Error) -> Result<Sent> {
+    e.downcast::<MayHaveArrived>().map(|m| Sent { uncertain: true, ..sent(m.0) })
 }
 
 /// Whether it waits on you to answer a prompt (a permission, or a turn stuck on a command), not
@@ -965,7 +973,7 @@ fn switch(board: &Board, cfg: &Config, key: &str, to: Switch) -> Result<String> 
 /// Sends your prompt one of a harness's own ways in, outside a send: its app's, for a session
 /// that goes on there (`start::resume`). An empty prompt opens the session there.
 pub(crate) fn deliver_yours(own: &dyn Own, session: &Session, account: &AccountCfg, text: &str) -> Result<Sent> {
-    own.deliver(&Delivery { session, account, text, agent: None, bypasses: true, now: false, untyped: None })
+    own.deliver(&Delivery { session, account, text, agent: None, bypasses: true, now: false, untyped: None }).or_else(sent_unsure)
 }
 
 /// A prompt as it's pasted into a session's input box, for the Return that follows to send it.
@@ -1084,6 +1092,29 @@ mod tests {
         });
         assert_eq!(went.unwrap_err().to_string(), "Ghostty said no.");
         assert_eq!(tried, 2);
+    }
+
+    /// The same when its app's way is the only one, as a resume there with a prompt sends it.
+    #[test]
+    fn a_prompt_its_app_may_have_taken_counts_as_sent() {
+        #[derive(Debug)]
+        struct Unheard;
+        impl Own for Unheard {
+            fn way(&self) -> Way {
+                Way::CodexApp
+            }
+            fn takes_agents(&self) -> bool {
+                false
+            }
+            fn deliver(&self, _: &Delivery) -> Result<Sent> {
+                Err(MayHaveArrived("Look there before sending it again.".into()).into())
+            }
+        }
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": "/nowhere/codex" })).unwrap();
+        let s = session(Harness::Codex, Surface::Cli, Status::Idle, false, None);
+        let sent = deliver_yours(&Unheard, &s, &account, "Go on").unwrap();
+        assert_eq!((sent.message.as_str(), sent.uncertain), ("Look there before sending it again.", true));
+        assert_eq!(deliver_yours(&Stand(Way::CodexApp), &s, &account, "Go on").unwrap().uncertain, false);
     }
 
     #[test]
