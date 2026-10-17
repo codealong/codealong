@@ -750,7 +750,7 @@ npm install
 npm run tauri dev
 ```
 
-You'll need Rust 1.91 or later (`rustup`), Node 22.12 or later and Xcode's command line tools.
+You'll need Rust 1.91 or later (`rustup`), Node 22.13 or later and Xcode's command line tools.
 Builds go to `codealong-target`, a folder beside the clone, which every checkout and worktree of it
 shares. A development build uses the same settings and todos as an installed Codealong, and quits
 it while it runs. [docs/development.md](docs/development.md) has the rest: building an app bundle,
@@ -763,11 +763,12 @@ every change follows.
 - **[Developing Codealong](docs/development.md)**: building, testing and the code map.
 - **[Codealong for iPhone](https://github.com/codealong/codealong-ios)**: your sessions on your
   phone.
-- **[The design system](https://claude.ai/artifact/Eg7p4HkWgTVUR54RfYgUPc)**: tokens, components,
-  the model and the build plan (the app has moved past it in places).
+- **[Third-party notices](THIRD_PARTY_NOTICES.md)**: the icons, fonts and libraries Codealong
+  includes, and their licenses.
 
 ## License
 
 Copyright 2026 Gordon L. Hempton. The code is under the [Apache License 2.0](LICENSE); copies
-carry the [NOTICE](NOTICE). The Codealong name and logo are trademarks, and the license doesn't
-grant rights to them: a fork should go by its own name.
+carry the [NOTICE](NOTICE). What it includes from others is under their own licenses, listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The Codealong name and logo are trademarks, and
+the license doesn't grant rights to them: a fork should go by its own name.

@@ -22,8 +22,7 @@ permissions:
 
 jobs:
   cask:
-    # Prereleases don't move `latest`, and neither do they move the cask.
-    if: ${{ !github.event.repository.private && !github.event.release.prerelease }}
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-24.04
     environment: homebrew
     timeout-minutes: 10
@@ -33,6 +32,14 @@ jobs:
     steps:
       - name: The release's disk image and its checksum
         run: |
+          # Asked of the release itself, which a run by hand has no event to say: a draft or a
+          # prerelease moves neither `latest` nor the cask.
+          state="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"')"
+          if [ "$state" != "false false" ]; then
+            echo "$TAG is a draft or a prerelease, so the cask stays where it is."
+            echo "SKIP=1" >>"$GITHUB_ENV"
+            exit 0
+          fi
           version="${TAG#v}"
           dmg="Codealong_${version}_universal.dmg"
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$dmg.sha256" --dir "$RUNNER_TEMP"
@@ -41,11 +48,13 @@ jobs:
           echo "VERSION=$version" >>"$GITHUB_ENV"
           echo "SHA256=$sha" >>"$GITHUB_ENV"
       - uses: actions/checkout@v7
+        if: env.SKIP != '1'
         with:
           repository: codealong/homebrew-tap
           ssh-key: ${{ secrets.HOMEBREW_TAP_KEY }}
           path: tap
       - name: Point the cask at it
+        if: env.SKIP != '1'
         working-directory: tap
         run: |
           sed -i -E "s/^  version \"[^\"]*\"$/  version \"$VERSION\"/; s/^  sha256 \"[0-9a-f]{64}\"$/  sha256 \"$SHA256\"/" Casks/codealong.rb

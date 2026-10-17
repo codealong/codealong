@@ -54,14 +54,16 @@ notes_file=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --arch)
-      arch="${2:-}"
-      shift 2 || true
+      [ $# -ge 2 ] || { echo "--arch takes arm64, x86_64 or universal." >&2 && exit 2; }
+      arch="$2"
+      shift 2
       ;;
     --no-notarize) notarize=0 && shift ;;
     --allow-dirty) dirty=1 && shift ;;
     --notes)
-      notes_file="${2:-}"
-      shift 2 || true
+      [ $# -ge 2 ] || { echo "--notes takes the notes' file." >&2 && exit 2; }
+      notes_file="$2"
+      shift 2
       ;;
     --draft) draft=1 && shift ;;
     -h | --help)
@@ -305,7 +307,10 @@ if [ "$updates" = 1 ]; then
   if [ -n "$notes_file" ]; then
     cp "$notes_file" "$dist/notes.md"
   elif [ "$tagged" = 1 ] && [ "$(git cat-file -t "refs/tags/v$version")" = tag ]; then
-    git tag -l --format='%(contents)' "v$version" | sed '/^-----BEGIN PGP SIGNATURE-----/,$d' >"$dist/notes.md"
+    # Without the tag's signature, if it has one: the headers git's gpg-interface.c knows for
+    # PGP, X.509 and SSH.
+    git tag -l --format='%(contents)' "v$version" |
+      sed -E '/^-----BEGIN (PGP SIGNATURE|PGP MESSAGE|SIGNED MESSAGE|SSH SIGNATURE)-----$/,$d' >"$dist/notes.md"
   elif last="$(git describe --tags --abbrev=0 --match 'v*' --exclude "v$version" 2>/dev/null)"; then
     git log --no-merges --format='- %s' "$last..HEAD" >"$dist/notes.md"
   else
@@ -355,6 +360,9 @@ if [ "$draft" = 1 ]; then
   cp "$dmg" "$work/stable/Codealong.dmg"
   tag_flag=(--target "$(git rev-parse HEAD)")
   [ "$tagged" = 0 ] || tag_flag=(--verify-tag)
+  # A prerelease (0.3.0-beta.1) is marked one, so publishing it moves neither `latest`, which
+  # installed copies update from, nor the Homebrew cask.
+  case "$version" in *-*) tag_flag+=(--prerelease) ;; esac
   gh release create "v$version" --draft --title "Codealong $version" --notes-file "$dist/notes.md" "${tag_flag[@]}" \
     "$dmg" "$dmg.sha256" "$work/stable/Codealong.dmg" "$archive" "$archive.sig" "$dist/latest.json"
 fi

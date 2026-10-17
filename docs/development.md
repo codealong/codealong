@@ -14,7 +14,7 @@ devices is its own crate, codealong-peer (`src-tauri/peer/`), which the
 ## Requirements
 
 - macOS 13 or later, with Xcode's command line tools (`xcode-select --install`)
-- Rust 1.91 or later (`rustup`) and Node 22.12 or later
+- Rust 1.91 or later (`rustup`) and Node 22.13 or later
 - `gh` signed in (`gh auth login`) for PRs
 - A terminal: Ghostty 1.3+, iTerm2 or Terminal (a new config.toml picks the first of those installed)
 

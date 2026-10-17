@@ -27,8 +27,9 @@ push=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --notes)
-      notes_file="${2:-}"
-      shift 2 || true
+      [ $# -ge 2 ] || fail "--notes takes the notes' file."
+      notes_file="$2"
+      shift 2
       ;;
     --push) push=1 && shift ;;
     -h | --help)
@@ -43,7 +44,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$version" ] || fail "Which version? scripts/version.sh <x.y.z>; see --help."
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || fail "$version isn't a version: x.y.z, or x.y.z-beta.1 for a prerelease."
+# Numbers without leading zeros, as Cargo and the updater read them, and a prerelease only as
+# alpha.n, beta.n or rc.n, whose order is then the order of their names and numbers.
+[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$ ]] ||
+  fail "$version isn't a version: x.y.z, or x.y.z-beta.1 (alpha, beta or rc) for a prerelease."
 [ -z "$notes_file" ] || [ -f "$notes_file" ] || fail "No release notes at $notes_file."
 
 [ -z "$(git status --porcelain)" ] || fail "This checkout has uncommitted changes: a release is a commit of its own."
@@ -52,14 +56,17 @@ git fetch -q origin main --tags
 ! git rev-parse -q --verify "refs/tags/v$version" >/dev/null || fail "v$version is tagged already: a release's files never change, so pick a new version."
 
 current="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-# Newer by semver's order: the numbers in turn, and a prerelease before its release.
+# Newer by semver's order: the numbers in turn, a prerelease before its release, and between
+# prereleases alpha, beta, rc, then their numbers.
 newer="$(node -e '
-const parse = (v) => { const [core, pre] = v.split("-"); return [...core.split(".").map(Number), pre]; };
+const parse = (v) => {
+  const [core, pre] = v.split("-");
+  const [label, n] = pre ? pre.split(".") : ["~", "0"];
+  return [...core.split(".").map(Number), label, Number(n)];
+};
 const [a, b] = process.argv.slice(1).map(parse);
-for (let i = 0; i < 3; i++) if (a[i] !== b[i]) { console.log(a[i] > b[i]); process.exit(0); }
-if (a[3] === b[3]) console.log(false);
-else if (!a[3] || !b[3]) console.log(!a[3]);
-else console.log(a[3].localeCompare(b[3], "en", { numeric: true }) > 0);
+const i = a.findIndex((x, i) => x !== b[i]);
+console.log(i >= 0 && a[i] > b[i]);
 ' "$version" "$current")"
 [ "$newer" = true ] || fail "$version isn't newer than the app's $current: installed copies would never take it."
 
