@@ -24,6 +24,9 @@
 // ones a record holds with Codealong's own and writes each as text refers to a kept image
 // (transcript.rs), so they show as an image in a todo's description does; a click opens one.
 //
+// While its agent works, a line at the end says so, with a word for what it's up to and, now and
+// then in the main window, a tip under it (Working.tsx).
+//
 // A message you sent shows at the end as it goes (ahead.ts): sending, then sent, until the
 // session's record has it and it shows from there. One that went but that the session shows no
 // sign of taking, well after, says so, with a way to open the session and look.
@@ -66,6 +69,7 @@ import { says, shownText } from '../threadFind';
 import { scaleOf } from '../zoom';
 import { FindContext, ThreadFind, type FindAsk } from './ThreadFind';
 import { Reading } from './Tip';
+import { Working } from './Working';
 import { held, keysIn } from '../platform';
 
 /** Loads the page before once you're this close to the top. */
@@ -478,9 +482,11 @@ interface SessionThreadProps {
   /** What the find bar opens on: the words a search found it by in what was said
    *  (ThreadFind.tsx `asked`). */
   find?: FindAsk | null;
+  /** While its agent works, a tip comes under the line that says so now and then (Working.tsx). */
+  tips?: boolean;
 }
 
-export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run, onMenu, find }: SessionThreadProps) {
+export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run, onMenu, find, tips = false }: SessionThreadProps) {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [before, setBefore] = useState<number | null>(null);
   // `before` as soon as it's set, for laying out pages that must begin where the last ones did.
@@ -845,6 +851,11 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   useEffect(() => {
     for (const id of found) delivered(id);
   }, [found]);
+  // The working line, and its tip, keep you at the end as they come.
+  const follow = useCallback(() => {
+    const el = scroller.current;
+    if (el && atEnd.current) toEnd(el);
+  }, [toEnd]);
   // A message you just sent, or one queued, brings the view to the end, wherever you'd scrolled.
   const yours = showing.length + queued.length;
   const shownSends = useRef(0);
@@ -945,6 +956,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                 </div>
               )}
               {loaded && items.length === 0 && yours === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
+              {/* One gone silent says so in its header instead. */}
+              {loaded && s.status === 'working' && !s.stalledSince && <Working session={s} tips={tips} onGrow={follow} />}
               {s.status === 'needs' && !pending && s.excerpt && (
                 <div className="ca-thread-tool is-asks">
                   <div className="ca-thread-askrow">

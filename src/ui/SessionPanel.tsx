@@ -246,6 +246,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
             run={run}
             onMenu={onThreadMenu}
             find={find}
+            tips={variant === 'panel'}
             fallback={
               s.excerpt ? (
                 <p className="ca-sessinsp-now">

@@ -1,7 +1,8 @@
 // Tips on using Codealong, shown where a window has nothing to show yet but that it's reading
 // (ui/Tip.tsx): the main window's board before the engine's first scan, a conversation being
 // read, the waiting window and the quick panel before the board comes, a PR's description on its
-// way from GitHub, the PRs view before its PRs come. This is the one list of them. A window asks
+// way from GitHub, the PRs view before its PRs come; and now and then under a conversation whose
+// agent is working, while you wait on it (ui/Working.tsx). This is the one list of them. A window asks
 // for the tips of its place, and they come round in this order, the ones never shown first, then
 // the one shown longest ago, wherever it showed: so the list's order is what someone new sees
 // first.
@@ -20,8 +21,9 @@ import { shortcutKeys, shortcutLabel } from './quick';
 import { SNOOZE_CHORDS } from './snooze';
 
 /** Where a tip can show: the main window's board, a session's conversation, the waiting window,
- *  the quick panel, a PR's panel and the PRs view. */
-export type TipPlace = 'board' | 'session' | 'waiting' | 'quick' | 'pr';
+ *  the quick panel, a PR's panel and the PRs view, and the end of a conversation while its agent
+ *  works. */
+export type TipPlace = 'board' | 'session' | 'waiting' | 'quick' | 'pr' | 'working';
 
 /** The shortcuts that work in every app, which config.toml sets (`[shortcuts]`), as config.toml
  *  writes them (`Option+Cmd+/`); empty or missing when off or not working. */
@@ -63,40 +65,41 @@ const IMPROVE = { shortcut: 'improve' } as const;
 const MAIN = { shortcut: 'main' } as const;
 
 /** Every place, for the tests. */
-export const TIP_PLACES: readonly TipPlace[] = ['board', 'session', 'waiting', 'quick', 'pr'];
+export const TIP_PLACES: readonly TipPlace[] = ['board', 'session', 'waiting', 'quick', 'pr', 'working'];
 const BOARD: readonly TipPlace[] = ['board'];
-const SESSION: readonly TipPlace[] = ['session'];
+/** In a conversation: while it's read, and while its agent works. */
+const CONVERSATION: readonly TipPlace[] = ['session', 'working'];
 const QUICK_PANEL: readonly TipPlace[] = ['quick'];
 const SESSION_KEYS: readonly TipPlace[] = ['board', 'session', 'waiting'];
 
 export const TIPS: readonly Tip[] = [
-  { id: 'quick-panel', places: ['board', 'session', 'waiting', 'pr'], says: says`${QUICK} opens the quick panel from any app: type a few words to find a session, or a prompt to start one.` },
-  { id: 'chat-shortcut', places: ['board', 'session', 'waiting', 'pr'], says: says`${CHAT} opens the quick panel on a chat of its own, in no project: for a question that needs no repo.` },
+  { id: 'quick-panel', places: ['board', 'session', 'waiting', 'pr', 'working'], says: says`${QUICK} opens the quick panel from any app: type a few words to find a session, or a prompt to start one.` },
+  { id: 'chat-shortcut', places: ['board', 'session', 'waiting', 'pr', 'working'], says: says`${CHAT} opens the quick panel on a chat of its own, in no project: for a question that needs no repo.` },
   { id: 'improve', places: ['board', 'session', 'waiting', 'pr'], says: says`${IMPROVE} starts a session that improves Codealong itself, with pictures of its windows as they are: describe what to change.` },
-  { id: 'waiting-window', places: ['board', 'session', 'quick', 'pr'], says: says`${WAITING} goes through what waits on you, one at a time, from any app.` },
+  { id: 'waiting-window', places: ['board', 'session', 'quick', 'pr', 'working'], says: says`${WAITING} goes through what waits on you, one at a time, from any app.` },
   { id: 'main-window', places: ['board', 'session', 'waiting', 'quick', 'pr'], says: says`${MAIN} brings Codealong's window to the front from any app, and hides Codealong when you're in it.` },
   { id: 'right-click', places: BOARD, says: says`Right-click a session, worktree, PR or todo for everything it can do, each action with its keys beside it.` },
   { id: 'view-letters', places: BOARD, says: says`${key(VIEW_CHORDS.sessions)} Sessions, ${key(VIEW_CHORDS.worktrees)} Worktrees, ${key(VIEW_CHORDS.prs)} PRs, ${key(VIEW_CHORDS.todo)} Todo, ${key(VIEW_CHORDS.kanban)} Kanban and ${key(VIEW_CHORDS.canvas)} Canvas go straight to a view, from a text field too.` },
   { id: 'mark-done', places: SESSION_KEYS, says: says`${key(CHORDS.done)} marks a session done: it's closed where it runs, marked seen and archived.` },
   { id: 'mark-seen', places: SESSION_KEYS, says: says`${key(CHORDS.seen)} marks a finished turn seen, which takes it off the floating bar.` },
   { id: 'snooze', places: SESSION_KEYS, says: says`${key(SNOOZE_CHORDS[0])} to ${key(SNOOZE_CHORDS[SNOOZE_CHORDS.length - 1])} snooze a session for one of the Snooze menu's times. It comes back when the time is up.` },
-  { id: 'bar-peek', places: ['board', 'session'], says: says`Rest the pointer on a pill in the floating bar to read that session and answer it, without leaving the app you're in.` },
+  { id: 'bar-peek', places: ['board', 'session', 'working'], says: says`Rest the pointer on a pill in the floating bar to read that session and answer it, without leaving the app you're in.` },
   { id: 'history', places: SESSION_KEYS, says: says`${key(QUEUE_CHORDS.historyBack[0])} goes back to the session you looked at before, and ${key(QUEUE_CHORDS.historyForward[0])} forward again.` },
   { id: 'terminal', places: ['board', 'session'], says: says`${key(CHORDS.terminal)} opens a new terminal in the folder of what's shown, as VS Code opens its terminal.` },
-  { id: 'queue-next', places: ['session', 'waiting'], says: says`${key(QUEUE_CHORDS.next[0])} skips to the next session that waits on you, and ${key(QUEUE_CHORDS.back[0])} goes back.` },
+  { id: 'queue-next', places: ['session', 'waiting', 'working'], says: says`${key(QUEUE_CHORDS.next[0])} skips to the next session that waits on you, and ${key(QUEUE_CHORDS.back[0])} goes back.` },
   { id: 'pin', places: BOARD, says: says`${key(CHORDS.pin)} pins a session to the top of Sessions. Drag the pinned ones into the order you want.` },
   { id: 'picks', places: BOARD, says: says`${key('Cmd')}-click or ${key('Shift')}-click picks several rows, and ${key('Cmd+A')} every row: the panel then acts on all of them at once.` },
   { id: 'desktop', places: BOARD, says: says`Drag a row out of the window to pin its card to the desktop, where it floats over every app.` },
   { id: 'pr-chip', places: BOARD, says: says`A click on a PR's chip shows the PR beside the list, with a way back to the row. A double-click opens it on GitHub.` },
-  { id: 'side', places: ['session', 'waiting'], says: says`${code('/side')} and a question asks a throwaway copy of a Claude Code or Codex session. The session carries on and never hears of it.` },
+  { id: 'side', places: ['session', 'waiting', 'working'], says: says`${code('/side')} and a question asks a throwaway copy of a Claude Code or Codex session. The session carries on and never hears of it.` },
   { id: 'bang', places: ['session', 'waiting'], says: says`For a session on this Mac, a message that starts with ${code('!')} runs in a new tab of your terminal, as you. The session is told what it printed.` },
-  { id: 'slash', places: SESSION, says: says`Type ${code('/')} in a session's box for Codealong's commands and the skills its agent can run.` },
-  { id: 'find', places: SESSION, says: says`${key('Cmd+F')} finds words anywhere in a session's conversation, from its first prompt on.` },
-  { id: 'prompts', places: SESSION, says: says`${key('Cmd+Shift+Up')} and ${key('Cmd+Shift+Down')} bring your previous or next prompt to the top of the conversation.` },
-  { id: 'copy-message', places: SESSION, says: says`Right-click a message in a conversation to copy it as it was written, Markdown and all.` },
-  { id: 'context', places: SESSION, says: says`The pie under a session's box says how full its context window is. Point at it for the tokens and, on this Mac, what the session has cost.` },
-  { id: 'fork', places: SESSION, says: says`${code('/fork')} in a session's box copies its conversation into a new session, and you stay where you are.` },
-  { id: 'quiet', places: ['board', 'session'], says: says`A session that loops or wakes on a schedule can be made Quiet from its right-click menu: it comes to you only when it needs you.` },
+  { id: 'slash', places: CONVERSATION, says: says`Type ${code('/')} in a session's box for Codealong's commands and the skills its agent can run.` },
+  { id: 'find', places: CONVERSATION, says: says`${key('Cmd+F')} finds words anywhere in a session's conversation, from its first prompt on.` },
+  { id: 'prompts', places: CONVERSATION, says: says`${key('Cmd+Shift+Up')} and ${key('Cmd+Shift+Down')} bring your previous or next prompt to the top of the conversation.` },
+  { id: 'copy-message', places: CONVERSATION, says: says`Right-click a message in a conversation to copy it as it was written, Markdown and all.` },
+  { id: 'context', places: CONVERSATION, says: says`The pie under a session's box says how full its context window is. Point at it for the tokens and, on this Mac, what the session has cost.` },
+  { id: 'fork', places: CONVERSATION, says: says`${code('/fork')} in a session's box copies its conversation into a new session, and you stay where you are.` },
+  { id: 'quiet', places: ['board', 'session', 'working'], says: says`A session that loops or wakes on a schedule can be made Quiet from its right-click menu: it comes to you only when it needs you.` },
   { id: 'move-account', places: ['board', 'session'], says: says`A Claude Code session its account's limit stopped offers to go on in an account with room. Settings › Automation can move it by itself.` },
   { id: 'carry-on', places: ['board', 'session'], says: says`A session cut off partway, by its terminal closing or the Mac restarting, says Cut off. Carry on resumes it where it stopped.` },
   { id: 'rename', places: SESSION_KEYS, says: says`${key(CHORDS.rename)} renames a session where its harness keeps names, so the harness shows the name too.` },
@@ -115,7 +118,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'pr-draft', places: ['pr', 'waiting'], says: says`A PR's Reviews tab shows your draft review as it will go, over everyone's. Edit or remove its comments there, then Approve or Comment to submit it.` },
   { id: 'pr-nudge', places: ['pr', 'session'], says: says`Nudge its session on updates, in a PR's menu, tells the session that opened it of reviews, failing checks and conflicts.` },
   { id: 'team-settings', places: ['pr'], says: says`A repo's ${code('.codealong/config.toml')} shares its review and nudge settings with everyone who works on it, once merged.` },
-  { id: 'pr-links', places: ['session', 'pr'], says: says`Point at a PR linked in a conversation to see where it stands: its review, checks and the sessions that worked on it.` },
+  { id: 'pr-links', places: ['session', 'pr', 'working'], says: says`Point at a PR linked in a conversation to see where it stands: its review, checks and the sessions that worked on it.` },
   { id: 'quick-tab', places: QUICK_PANEL, says: says`${key('Tab')} on a session answers it in the waiting window; ${key('Alt+Enter')} opens it where it runs.` },
   { id: 'quick-start', places: QUICK_PANEL, says: says`${key('Cmd+Enter')} always starts a new session, with what you typed as its prompt.` },
   { id: 'quick-recall', places: QUICK_PANEL, says: says`${key('Up')} brings back what you typed before closing, then the prompts you sent before that.` },
@@ -137,7 +140,7 @@ export const TIPS: readonly Tip[] = [
   { id: 'zoom', places: BOARD, says: says`${key('Cmd+=')} and ${key('Cmd+-')} make the windows bigger or smaller, and ${key('Cmd+0')} puts them back.` },
   { id: 'agents', places: ['board', 'session'], says: says`Agents can run the ${code('codealong')} command to list todos, message other sessions and start work.` },
   { id: 'terminal-run', places: ['board', 'session'], says: says`An agent can ask to run a command in your terminal, as you: a sign-in, say. Allow opens it in a new tab, and what it prints goes back.` },
-  { id: 'orchestrate', places: ['board', 'session'], says: says`${code('/codealong:orchestrate')} in a Claude Code session's box makes it your orchestrator: it watches the others on a loop and suggests replies.` },
+  { id: 'orchestrate', places: ['board', 'session', 'working'], says: says`${code('/codealong:orchestrate')} in a Claude Code session's box makes it your orchestrator: it watches the others on a loop and suggests replies.` },
 ];
 
 /** Whether a tip can show: a shortcut it names must be on and readable. */

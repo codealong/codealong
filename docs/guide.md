@@ -370,6 +370,20 @@ moment later, though the reply ends at the same time. It applies to sessions sta
 turned on, since Claude Code reads hooks as a session starts, and Codealong updates the plugin in
 every Claude Code account that has its copy when you change it.
 
+#### While it works
+
+While a session's agent works, the end of its conversation says so, wherever the conversation
+shows: the Codealong mark, breathing, then a word for what the agent's up to (Tinkering…, Untangling…,
+Sharpening pencils…) and how long its turn has gone on. The word is for fun, not news; a new one
+comes every 30 seconds, each session with its words in an order of its own, the same in every
+window, and a turn past a quarter of an hour gets one that says so now and then (Still at it…).
+A session gone silent mid-turn has no line: its header says how long it's been silent.
+
+Now and then, in the main window, a tip on using Codealong sits quietly under the word (*Tips*):
+only once a turn has gone on 20 seconds, and no more than one every 20 minutes, wherever the last
+showed. A turn keeps the tip it got until it ends, when you look at another session and come back
+and in another window.
+
 #### Moving through a conversation
 
 ⌘⇧↑ and ⌘⇧↓ bring your previous or next prompt to the top, from the box too (⌘↑ and ⌘↓ as well while
@@ -1137,7 +1151,8 @@ as they are now and the shortcuts as Settings has them; a tip about a shortcut t
 show. At launch the tip comes with the line over it; a conversation or a description gets one only
 once it has taken a moment, since they often come at once. Another comes every 12 seconds while the
 wait goes on, and Next tip brings one at once. They come in turn, the ones you haven't seen first,
-wherever you saw the last.
+wherever you saw the last. A conversation whose agent works gets one now and then too, under the
+line that says so (*While it works*).
 
 ### Light or dark
 

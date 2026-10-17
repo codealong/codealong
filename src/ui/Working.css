@@ -1,0 +1,52 @@
+/* The line at the end of a conversation while its agent works (Working.tsx): the mark breathing,
+   then a word for what it's up to and how long it has gone on, in quiet text where the agent's
+   words will come. A tip, now and then, goes under the word, quieter still. Each word fades in. */
+
+.ca-working {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-2);
+  row-gap: var(--space-1);
+  color: var(--ink-3);
+  font: var(--type-meta);
+}
+.ca-working-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.ca-working-word {
+  color: var(--ink-2);
+  animation: ca-working-in var(--dur-base) ease-out;
+}
+.ca-working-for {
+  font-variant-numeric: tabular-nums;
+}
+.ca-working-tip {
+  grid-column: 2;
+  margin: 0;
+  text-wrap: pretty;
+  animation: ca-working-in var(--dur-sweep) ease-out;
+}
+.ca-working-tip .ca-label {
+  margin-right: 2px;
+}
+/* Caps sit on the line's text, as a loading tip's do (Tip.css). */
+.ca-working-tip .ca-kbds {
+  margin: 0 1px;
+  vertical-align: -1px;
+}
+
+@keyframes ca-working-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-working-word,
+  .ca-working-tip {
+    animation: none;
+  }
+}
