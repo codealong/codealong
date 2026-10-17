@@ -1,10 +1,10 @@
 [package]
 name = "codealong"
 version = "0.1.0"
-description = "Every agent runs in a worktree, and every worktree is a lane."
+description = "Every coding agent you run, in one window."
 edition = "2021"
 license = "Apache-2.0"
-rust-version = "1.80"
+rust-version = "1.91"
 publish = false
 
 # The engine, and codealong-peer (peer/): the part of it other devices' apps build on.

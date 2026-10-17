@@ -55,8 +55,8 @@ and no server.
 - **Pull requests and todos beside the agents doing them.** Every PR is joined to the worktree
   and sessions behind it; review, approve and merge in place. Keep a todo list your agents can
   read and work through.
-- **Know where your plan limits stand.** 5-hour and weekly limits for every account, always in
-  view, and new work goes to the account with room.
+- **Know where your plan limits stand.** Each account's limits (5-hour and weekly, or monthly
+  where the plan counts by the month), always in view, and new work goes to the account with room.
 - **All your Macs on one board.** Link your Macs and see, and if you allow it act on, the sessions
   running on any of them. An [iPhone app](https://github.com/codealong/codealong-ios) is on the way.
 
@@ -67,6 +67,12 @@ and no server.
 1. Download `Codealong.dmg` from the [latest release](https://github.com/codealong/codealong/releases/latest).
 2. Open it and drag Codealong into Applications.
 3. Open Codealong.
+
+Or with [Homebrew](https://brew.sh), which also puts the `codealong` command on your PATH:
+
+```bash
+brew install --cask codealong/tap/codealong
+```
 
 It runs on Apple silicon and Intel Macs, is signed and notarized by Apple, and keeps itself up to
 date: when a new version is ready, *Restart to update* shows at the foot of the sidebar. Prefer to
@@ -86,7 +92,8 @@ build it yourself? See [Building from source](#building-from-source).
 1. **Open Codealong.** It finds your agents' accounts by the files they keep: Claude Code's
    `~/.claude` and any sibling folders like `~/.claude-work`, Codex's `~/.codex`, OpenCode,
    Antigravity and Cursor, including accounts your shell's aliases point at. It looks for git
-   repos in `~/projects`. Your sessions show up straight away, wherever you started them.
+   repos in `~/projects`, and makes a project for each GitHub owner your recent sessions worked
+   in. Your sessions show up straight away, wherever you started them.
 2. **Tell it where your code lives**, if that isn't `~/projects`: Settings (⌘,) › General. Group
    your repos into projects under Settings › Projects.
 3. **Check your accounts** in Settings › Accounts. Accounts Codealong found but didn't add wait
@@ -113,7 +120,7 @@ build it yourself? See [Building from source](#building-from-source).
   </picture>
 </p>
 
-Six views of your work, each in a window of its own if you like (⌘⇧N):
+Six views of your work, each in a window of its own if you like (⇧⌘N):
 
 | View | What it shows |
 | --- | --- |
@@ -180,7 +187,10 @@ another app: not for the session you just answered, and one at most every few se
 sounds, or turn them off, in Settings › Sounds.
 
 <p align="center">
-  <img src="docs/images/bar-light.webp" alt="The floating bar: pills for two sessions that need you, finished work, running agents, a PR to review and three todos ready to start." width="640" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/bar-dark.webp" />
+    <img src="docs/images/bar-light.webp" alt="The floating bar: pills for two sessions that need you, finished work, running agents, a PR to review and three todos ready to start." width="640" />
+  </picture>
 </p>
 
 The keys are the same everywhere: **⌘⏎** sends your reply (or allows the call) and moves on to the
@@ -188,9 +198,9 @@ next agent waiting, **⌘⌫** denies, **⌘E** marks a finished turn seen, **�
 **⌃⌘1** to **⌃⌘4** snooze a session for 15 minutes, an hour, three hours or until tomorrow morning.
 
 Approvals and questions can be answered for Claude Code (in a terminal, as a background job or in
-the Claude app), OpenCode, Antigravity's command line in a terminal, and any agent you run inside
-Codealong. Codex, Cursor and the Antigravity app show what they're waiting on, and open where they
-ask.
+the Claude app), OpenCode, Antigravity's command line in a terminal that takes keypresses (Allow
+and Deny), and any agent you run inside Codealong. Codex, the Cursor app and the Antigravity app
+show what they're waiting on, and open where they ask.
 
 <p align="center">
   <picture>
@@ -218,7 +228,7 @@ typing a prompt and start it, choosing:
   Codealong itself;
 - and, with other Macs linked, **which Mac** (⌘D).
 
-*Auto* picks the account with room (or from your routing group in Settings › Automation): an
+*Auto* picks the account with room (or from your routing group in Settings › Routing): an
 account at its usage cap (90% by default) has none, and among those with room it picks the one
 whose week resets soonest, so no week's allowance goes unused, until it's within 5% of its cap and
 what's left is for the sessions already on it. A
@@ -248,7 +258,8 @@ through Claude Code's background service, started as a new turn in the Codex app
 OpenCode's service. Paste screenshots or files into it. From there you can also:
 
 - **stop** a turn (Esc or ⌘.), or **send now** to slip a message into the running turn (⌃⏎);
-- **switch a running Claude Code session's model** without starting over;
+- **switch a session's model or effort** without starting over (a running Claude Code session, a
+  Codex app thread, or any session run in Codealong);
 - **ask on the side**: `/side <question>` asks a throwaway copy of a Claude Code or Codex session,
   which never hears of it;
 - **fork** a session into a copy that carries on alongside (`/fork`);
@@ -273,8 +284,9 @@ checks, comments and diffs.
   auto-merge, the merge queue, updating the branch. A merge shows everywhere as you confirm it,
   and comes back with why if GitHub refuses it.
 - **Snooze** a review request until later.
-- **Nudge a PR's agent**, the session that opened it, and it's told when someone reviews, asks for
-  changes or comments, or when checks fail, so it takes it from there; it's never told to merge.
+- **Nudge a PR's agent** (the session that opened it or pushed to it most, or one you pick), and
+  it's told when someone reviews, asks for changes or comments, or when checks fail, so it takes
+  it from there; it's never told to merge.
 - **Ask about a PR**: put questions to an agent that has read its whole diff.
 - **Automatic reviews** (optional): an agent on the account and model you pick reviews each PR
   that asks for your review, told what to look for by instructions you can edit (which can have it
@@ -317,8 +329,8 @@ status color.
 
 Double-click a session to bring forward its exact terminal tab in Ghostty, iTerm2 or Terminal,
 its Claude app session or its Codex thread, or to resume it in a new terminal. Open a worktree in
-your editor: VS Code, Cursor, Windsurf, Zed, Sublime Text, Nova, BBEdit, Xcode, the JetBrains IDEs
-or Android Studio. ⌃` opens a terminal in the folder of whatever you're looking at. A worktree
+your editor: VS Code, Cursor, Windsurf, Kiro, Zed, Sublime Text, Nova, BBEdit, Xcode, the JetBrains
+IDEs or Android Studio. ⌃` opens a terminal in the folder of whatever you're looking at. A worktree
 whose dev server is running shows a green globe: click it to open the app, in the Chrome profile
 you choose.
 
@@ -329,8 +341,9 @@ Turn on Settings › Devices on each Mac and link them once: on your
 anywhere else, you enter a link code. Each Mac then shows the others' worktrees and sessions
 beside its own, with a badge saying which Mac each one is on. Read any conversation from any Mac.
 Turn on remote control at a Mac, and your other Macs can send its sessions messages, answer their
-approvals and start work there. Macs talk to each other directly, encrypted end to end, through
-Tailscale or [iroh](https://iroh.computer); there's no Codealong server in between.
+approvals and start work there. Macs talk to each other encrypted end to end, through Tailscale or
+[iroh](https://iroh.computer): directly where they can, otherwise through iroh's public relays,
+which pass along packets they can't read. There's no Codealong server in between.
 
 **On your iPhone**, [Codealong for iPhone](https://github.com/codealong/codealong-ios) links with
 your Macs the same way and lists every session, most urgent first, to read, and where a Mac has
@@ -356,7 +369,8 @@ codealong start --todo <id>
 [the skill's reference](skills/codealong/references/reference.md).
 
 An agent can also keep watch over all your sessions for you on a loop:
-`codealong start --prompt "/codealong:orchestrate"` starts an orchestrator, which asks what you'd
+`codealong start --account <a Claude Code account> --prompt "/codealong:orchestrate"` starts an
+orchestrator, which asks what you'd
 like it to do, then tags what waits on you, suggests replies, and flags agents getting in each
 other's way, without messaging any of them ([its skill](skills/codealong/references/orchestrate.md)).
 
@@ -374,7 +388,7 @@ session where it lives.**
 | **Codex CLI** | ✓ | Types into its tab | In its terminal | ✓ | ✓ | 5-hour, weekly |
 | **Codex app** | ✓ | Starts a new turn | In the app | ✓ | Its signed-in account | 5-hour, weekly |
 | **OpenCode** | ✓ | Its own service | ✓ | ✓ | — | You bring the provider |
-| **Antigravity** | ✓ | Opens it, prompt on the clipboard | In the app | In its own window | — | Shown in the app |
+| **Antigravity** | ✓ | Types into `agy`'s tab; the app opens with the prompt on the clipboard | `agy` in a terminal; the app in the app | `agy` in a terminal; the app in its own window | — | Weekly, per model group (with `agy`) |
 | **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | In Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others |
 | **In Codealong** (Claude Code, Codex or OpenCode) | ✓ | ✓ | ✓ | ✓ | ✓ | Per account |
 
@@ -402,14 +416,17 @@ In Codealong:
 | ⇧⌘S · ⇧⌘W · ⇧⌘P · ⇧⌘T · ⇧⌘K · ⇧⌘B | Sessions, Worktrees, PRs, Todo, Kanban, Canvas |
 | ⌘P | Switch project (⌥⌘1 – ⌥⌘9 jump to one, ⌥⌘0 shows them all) |
 | ⌘K | The quick panel, in this window's project |
-| ⌘N / ⌘⇧N | New session / new window |
+| ⌘N / ⇧⌘N | New session / new window |
+| ⏎ | Open the selected session, worktree or PR where it lives |
+| ⌘1 – ⌘5 | Open the selected worktree in its terminal, editor, the Claude app, the Codex app or its preview |
+| ⌘O | Open the selected PR on GitHub |
 | ⌘⏎ | Send your reply (or allow the call) and go on to the next agent waiting |
-| ⌘⌫ | Deny the call |
+| ⌘⌫ | Deny the call (with nothing typed in the box) |
 | ⌃⏎ | Send now, into the running turn |
 | ⌘1 – ⌘6 | Send a suggested reply, from the reply box (from anywhere in the notch and the waiting window) |
 | Esc or ⌘. | Stop the turn |
 | ⌘E / ⇧⌘E | Mark seen / mark as done |
-| ⌘] / ⌘[ | Next / previous of what waits on you |
+| ⌘] / ⌘[ | Next / previous of what waits on you (in Sessions, the notch and the waiting window) |
 | ⌃⌘1 – ⌃⌘4 | Snooze: 15 minutes, 1 hour, 3 hours, tomorrow morning |
 | ⌃⌘P · ⌃⌘A · ⌃⌘R · ⌃⌘U | Pin, archive, rename, mark as unread |
 | ⌃⌘W | Close the session's terminal (the conversation stays, to resume) |
@@ -426,8 +443,10 @@ In Codealong:
 
 In the quick panel: **⏎** does the selected row, **⌘⏎** always starts a session, **⌥⏎** opens a
 session where it lives, **⇥** answers a session in the *Waiting on you* window, **⌘1** – **⌘9**
-pick a row, and **⌘T**, **⌘L**, **⌘O**, **⌘D** choose the worktree, agent, place and Mac. Right-click
-menus show every action's keys.
+pick a row, and **⌘P**, **⌘T**, **⌘L**, **⌘O**, **⌘D** choose the project, worktree, agent, place
+and Mac. On a PR waiting on your review, in the notch or the waiting window, **⌘⏎** approves it,
+**⌥⌘⏎** comments, **⌃⌘R** has an agent review it and **⌃⌘G** opens it on GitHub. Right-click
+menus show every action's keys. On Linux, ⌘ is Ctrl, and ⌥ and ⌃ are Alt.
 
 ## Settings
 
@@ -476,7 +495,7 @@ close_command_tabs_after = 10   # minutes after a command Codealong runs in your
 
 [appearance]
 theme = "system"               # follows macOS; or "light", "dark"
-zoom = 110                     # the windows and the cards in the notch and peek, in percent, 50 to 200 (⌘= ⌘- ⌘0); absent at actual size
+zoom = 100                     # the windows and the cards in the notch and peek, in percent, 50 to 200 (⌘= ⌘- ⌘0)
 
 [shortcuts]
 quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)
@@ -498,6 +517,7 @@ days = 14                      # prompts and replies searched this far back; 0 i
 
 [devices]                      # your other devices (Settings › Devices)
 enabled = false
+name = ""                      # this Mac's name on your other devices; "" is the computer's name
 tailscale = true               # find them on your tailnet
 iroh = true                    # reach linked devices anywhere
 remote_control = false         # let linked devices act on sessions here
@@ -513,7 +533,7 @@ resume_for_sessions_it_started = true  # resume a session that isn't running, ou
 resume_for_any_session = true  # the same for any session's message, telling it it had stopped; the line above is part of it while it's on (Settings › Automation)
 live_replies = false           # Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong shows it as it's written; their terminals then show a reply a paragraph at a time; new sessions only (Settings › Agents)
 
-[routing]
+[routing]                      # Settings › Routing
 auto = ""                      # the routing group Auto uses for new sessions and reviews; "" picks among accounts of the first harness with room
 prompt = ""                    # instructions for Jev in the quick panel to suggest an agent, model or routing group for what you type
 
@@ -552,7 +572,7 @@ review_requested = ""          # a PR asks for your review; "" is no sound
 volume = 60                    # in percent of the Mac's own; any sound in /System/Library/Sounds or ~/Library/Sounds
 
 [repos."github.com/acme/web".reviews]  # yours for one repo, over the above and its team's file (Settings › Automation, the repo picked)
-account = "claude-work"        # any of [reviews], [reviews.own] (as reviews.own) and [pull_requests]; what's left out is as they say
+account = "claude-work"        # any of [reviews] but start, [reviews.own] (as reviews.own) and [pull_requests]; what's left out is as they say
 post = "none"
 
 [updates]
@@ -576,6 +596,12 @@ usage_cap = 90                 # Auto, routing groups and reviews pass over it o
 monthly = 200                  # what its plan costs you a month, in dollars: Paid in the Usage window
 # per_token = true             # it pays by the token (an API key): what its work cost at API prices was paid
 # disabled = true              # turned off: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show
+
+[[accounts]]
+name = "codex"
+harness = "codex"
+home = "~/.codex"
+command = "codex"              # used for `codex resume <id>`
 
 [[accounts]]
 name = "opencode"
@@ -603,29 +629,33 @@ chrome_profile = "Work"        # its worktrees' previews, and links into them, o
 </details>
 
 Codealong finds each agent by the files it keeps: Claude Code's `~/.claude` and sibling folders,
-`~/.codex`, OpenCode's and Antigravity's databases, Cursor's `~/.cursor`, and the folders your
-shell's wrappers and aliases point `CLAUDE_CONFIG_DIR`, `CODEX_HOME` or `XDG_DATA_HOME` at, which
-also name the account and start it. The ones in use or signed in go into config.toml; the rest wait
-under Settings › Accounts › *Found on this Mac*. What else Codealong keeps beside config.toml is
-listed in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
+`~/.codex` and its siblings, OpenCode's and Antigravity's databases, Cursor's `~/.cursor`, and the
+folders your shell's wrappers and aliases point `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
+`CURSOR_CONFIG_DIR` or `XDG_DATA_HOME` at, which also name the account and start it. On first run,
+the ones in use or signed in go into config.toml; the rest, and any found later, wait under
+Settings › Accounts › *Found on this Mac*. What else Codealong keeps beside config.toml is listed
+in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
 
 ## Privacy and safety
 
-- **Nothing leaves your Mac unless you turn it on.** Transcripts stay on the Mac that ran them,
-  and Codealong keeps only titles, statuses and short excerpts in memory. There's no sign-up and
-  no Codealong server. GitHub is read through your own `gh` sign-in.
+- **Nothing of your work leaves your Mac unless you turn it on.** Transcripts stay on the Mac that
+  ran them, and Codealong keeps only titles, statuses and short excerpts in memory. There's no
+  sign-up and no Codealong server. Codealong talks only to your agents' providers, with their own
+  sign-ins, for plan usage and training settings; to GitHub through your own `gh` sign-in; and to
+  this repo's releases to check for updates (`[updates] check = false` turns that off).
 - **Jev is opt-in.** Each Jev feature is off until you add your own TypeSafe key and switch it on,
   and Settings › Jev says what each one sends (what you type, and your sessions' titles, branches
   and latest lines). The key stays in your login keychain.
-- **Linked devices talk directly**, encrypted end to end, and read a conversation or search what
-  was said only by asking the Mac it's on. Remote control is off until you turn it on at that Mac;
+- **Linked devices talk to each other**, encrypted end to end (directly, or through relays that
+  can't read what they pass along), and read a conversation or search what was said only by
+  asking the Mac it's on. Remote control is off until you turn it on at that Mac;
   then your linked devices can send prompts, answer approvals, start sessions and end them there,
   and each request is written to `~/Library/Logs/Codealong/devices.log`.
 - **Git is read-only, but for cleaning up.** Codealong never commits, checks out, fetches or
-  resets, and never creates a worktree: when you ask for a new worktree, Claude Code makes it. It
-  removes one only when you clean it up (Clean up worktree…, or Mark as done on a background job
-  that made its own) and nothing in it would be lost: no uncommitted file, no commit that isn't on
-  a remote, nothing running in it. A repo whose worktrees a hook makes has them taken down by its
+  resets, and never creates a worktree: when you ask for a new worktree, the agent (Claude Code,
+  or `cursor-agent`) makes it. It removes one, and deletes its branch, only when you clean it up
+  (Clean up worktree…, or Mark as done on a background job that made its own) and nothing in it
+  would be lost: no uncommitted file, no commit that isn't on a remote, nothing running in it. A repo whose worktrees a hook makes has them taken down by its
   own `WorktreeRemove` hook. Git runs with `GIT_OPTIONAL_LOCKS=0`, so it never holds a lock your
   agents need. A pull request is merged only when you press Merge.
 - **Only you allow what an agent does.** Agents can see what another agent is waiting on, and deny
@@ -660,8 +690,9 @@ the quick panel when it's quicker.
 **Does it wrap or proxy my agents?**
 No. Codealong reads the files each agent already writes, and starts new work in the official tool,
 in your terminal or the maker's own app. Nothing sits between your agent and its model, and no API
-keys are involved. The optional plugin adds one hook to Claude Code so you can answer its
-permission prompts from Codealong. If you choose to run an agent inside Codealong instead, it talks
+keys are involved. The optional plugin adds the `codealong` command, its skills and two hooks to
+Claude Code: one so you can answer its permission prompts from Codealong, and one that tells a new
+session its todo and worktree. If you choose to run an agent inside Codealong instead, it talks
 to the agent over the Agent Client Protocol.
 
 **Can I use several Claude Code accounts?**
@@ -670,14 +701,14 @@ and Codealong finds them on its own, even from an alias in your shell. Follow ea
 for how you use your accounts.
 
 **Does it change my git repos?**
-Only to remove a worktree you clean up, and only when nothing in it would be lost: no uncommitted
-file and no commit that isn't on a remote. Otherwise it runs git read-only. When work needs a new
-worktree, Claude Code makes it, and a pull request is merged only when you press Merge.
+Only to remove a worktree you clean up, with its branch, and only when nothing in it would be lost:
+no uncommitted file and no commit that isn't on a remote. Otherwise it runs git read-only. When work
+needs a new worktree, the agent makes it, and a pull request is merged only when you press Merge.
 
 **Which Macs, terminals and editors does it support?**
 macOS 13 or later, on Apple silicon or Intel. Ghostty is the best supported terminal; iTerm2,
-Terminal and tmux work too. It opens worktrees in VS Code, Cursor, Windsurf, Zed, Sublime Text,
-Nova, BBEdit, Xcode, the JetBrains IDEs and Android Studio, or any editor you name.
+Terminal and tmux work too. It opens worktrees in VS Code, Cursor, Windsurf, Kiro, Zed, Sublime
+Text, Nova, BBEdit, Xcode, the JetBrains IDEs and Android Studio, or any editor you name.
 
 **Does it run on Linux?**
 It builds and runs there, under X11, built from source (there's no installer yet): sessions in
@@ -719,9 +750,12 @@ npm install
 npm run tauri dev
 ```
 
-You'll need Rust (`rustup`), Node 20 or later and Xcode's command line tools.
-[docs/development.md](docs/development.md) has the rest: building an app bundle, running the tests
-and the UI checks, and a map of the code. [CLAUDE.md](CLAUDE.md) has the notes every change follows.
+You'll need Rust 1.91 or later (`rustup`), Node 22.12 or later and Xcode's command line tools.
+Builds go to `codealong-target`, a folder beside the clone, which every checkout and worktree of it
+shares. A development build uses the same settings and todos as an installed Codealong, and quits
+it while it runs. [docs/development.md](docs/development.md) has the rest: building an app bundle,
+running the tests and the UI checks, and a map of the code. [CLAUDE.md](CLAUDE.md) has the notes
+every change follows.
 
 ## Learn more
 
