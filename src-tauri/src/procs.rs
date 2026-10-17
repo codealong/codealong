@@ -106,17 +106,20 @@ pub fn command(program: impl AsRef<OsStr>, path: &str, cwd: Option<&Path>) -> st
     let mut cmd = if program.as_bytes().contains(&b'/') {
         Command::new(program)
     } else {
-        let here = cwd.map(Path::to_path_buf).or_else(|| std::env::current_dir().ok()).unwrap_or_default();
+        // Absolute, so the program is found where it runs, and named from anywhere.
+        let parent = std::env::current_dir().unwrap_or_default();
+        let here = cwd.map_or_else(|| parent.clone(), |dir| parent.join(dir));
         match found_in(program, path, &here) {
             Some(Found::Runs(at)) => {
                 let mut cmd = Command::new(at);
                 cmd.arg0(program);
                 cmd
             }
-            // `exec` hands a file the kernel won't start to the shell, under the shell's name.
+            // `exec` hands a file the kernel won't start to the shell: under the program's name on
+            // macOS, which keeps `sh` out of its POSIX mode, and under the shell's elsewhere.
             Some(Found::Script(at)) => {
                 let mut cmd = Command::new("/bin/sh");
-                cmd.arg0("sh").arg(at);
+                cmd.arg0(if crate::os::current() == crate::os::Os::MacOs { program } else { OsStr::new("/bin/sh") }).arg(at);
                 cmd
             }
             None => return Err(std::io::Error::from_raw_os_error(libc::ENOENT)),
@@ -144,13 +147,14 @@ const BINARY: [&[u8]; 7] = [b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed
 /// Where `exec` would find `program` in `path`, as it's run from `here`: the first of its folders
 /// (a relative one, the empty one too, from `here`) with a file of that name this user may run,
 /// passing over one whose `#!` names a program that isn't there, as `exec` does when the kernel
-/// can't start it.
+/// can't start it. The kernel reads the `#!` line from the first 512 bytes (macOS's
+/// `IMG_SHSIZE`), and only a space or a tab ends the program it names.
 fn found_in(program: &OsStr, path: &str, here: &Path) -> Option<Found> {
     path.split(':').map(|dir| here.join(dir).join(program)).find_map(|at| {
         if !std::fs::metadata(&at).is_ok_and(|m| m.is_file()) || !may_run(&at) {
             return None;
         }
-        let mut head = [0u8; 256];
+        let mut head = [0u8; 512];
         // A file this user may run but not read is the kernel's to start, as a binary can be.
         let Ok(n) = std::fs::File::open(&at).and_then(|mut f| f.read(&mut head)) else {
             return Some(Found::Runs(at));
@@ -159,8 +163,8 @@ fn found_in(program: &OsStr, path: &str, here: &Path) -> Option<Found> {
         match head.strip_prefix(b"#!") {
             Some(line) => {
                 let line = line.split(|&b| b == b'\n').next().unwrap_or_default();
-                let interpreter = line.split(|b| b.is_ascii_whitespace()).find(|w| !w.is_empty()).unwrap_or_default();
-                may_run(Path::new(OsStr::from_bytes(interpreter))).then_some(Found::Runs(at))
+                let interpreter = line.split(|&b| b == b' ' || b == b'\t').find(|w| !w.is_empty()).unwrap_or_default();
+                (!interpreter.is_empty() && may_run(&here.join(OsStr::from_bytes(interpreter)))).then_some(Found::Runs(at))
             }
             None if BINARY.iter().any(|magic| head.starts_with(magic)) => Some(Found::Runs(at)),
             None => Some(Found::Script(at)),
@@ -807,13 +811,16 @@ mod tests {
         // Others may run it, but not its owner, who runs Codealong.
         tool("others", "#!/bin/sh\necho others\n", 0o055);
         tool("stale", "#!/nowhere/python3\nprint('stale')\n", 0o755);
-        tool("bare", "echo bare\n", 0o755);
+        // The kernel takes the carriage return for a part of the interpreter's name.
+        tool("crlf", "#!/bin/sh\r\necho crlf\n", 0o755);
+        tool("bare", "/bin/ps -o command= -p $$\n", 0o755);
+        tool("named", "#!sh\necho named\n", 0o755);
         tool("here/bin", "#!/bin/sh\necho here\n", 0o755);
         let at = |folder: &str| dir.join(folder).join("tool");
         let path = |folders: &[&str]| folders.iter().map(|f| if f.starts_with("/") || f.is_empty() { f.to_string() } else { dir.join(f).display().to_string() }).collect::<Vec<_>>().join(":");
         let tool = OsStr::new("tool");
         // A file it may not run, a folder, and a script whose interpreter is gone are passed over.
-        let passed = path(&["/nowhere", "plain", "folder", "others", "stale"]);
+        let passed = path(&["/nowhere", "plain", "folder", "others", "stale", "crlf"]);
         assert_eq!(found_in(tool, &format!("{passed}:{}", path(&["here/bin"])), &dir), Some(Found::Runs(at("here/bin"))));
         // A relative folder is the folder it runs in's, as is the empty one.
         assert_eq!(found_in(tool, &format!("{passed}:bin"), &dir.join("here")), Some(Found::Runs(at("here/bin"))));
@@ -821,11 +828,20 @@ mod tests {
         // A file without a `#!` is the shell's to run.
         assert_eq!(found_in(tool, &format!("{passed}:{}", path(&["bare"])), &dir), Some(Found::Script(at("bare"))));
         assert_eq!(found_in(tool, &passed, &dir), None);
+        // An interpreter named without a folder is the one where it runs.
+        assert_eq!(found_in(tool, &path(&["named"]), Path::new("/bin")), Some(Found::Runs(at("named"))));
+        assert_eq!(found_in(tool, &path(&["named"]), &dir), None);
         // And each starts as it was found, without a fork.
         let ran = |path: &str, cwd: &Path| command("tool", path, Some(cwd)).map(|mut c| String::from_utf8(c.output().unwrap().stdout).unwrap());
         let forks = forks_in(|| {
             assert_eq!(ran(&format!("{passed}:bin"), &dir.join("here")).unwrap(), "here\n");
-            assert_eq!(ran(&format!("{passed}:{}", path(&["bare"])), &dir).unwrap(), "bare\n");
+            // A folder to run in given from Codealong's own.
+            let up = "../".repeat(std::env::current_dir().unwrap().components().count() - 1);
+            let relative = format!("{up}{}", dir.join("here").display().to_string().trim_start_matches('/'));
+            assert_eq!(ran(&format!("{passed}:bin"), Path::new(&relative)).unwrap(), "here\n");
+            // The shell, under the name macOS's `exec` gives it.
+            let shell = if crate::os::current() == crate::os::Os::MacOs { "tool" } else { "/bin/sh" };
+            assert_eq!(ran(&format!("{passed}:{}", path(&["bare"])), &dir).unwrap(), format!("{shell} {}\n", at("bare").display()));
             let e = ran(&passed, &dir).unwrap_err();
             assert_eq!((e.kind(), e.raw_os_error()), (std::io::ErrorKind::NotFound, Some(libc::ENOENT)));
         });
