@@ -340,21 +340,24 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
 }
 
 /// The events before `end` that `later` has no newer copy of: the last turn event (started,
-/// completed or aborted), the last prompt and the last `turn_context` (its model and
-/// permissions), oldest first. Read backwards only as far as needed: a turn's context comes just
-/// after its start.
+/// completed or aborted), the last prompt, the last `turn_context` (its model and permissions)
+/// and a `thread_settings_applied` newer than that (the model and level set since), oldest
+/// first. Read backwards only as far as needed: a turn's context comes just after its start.
 fn earlier_events(path: &Path, floor: u64, end: u64, later: &[Value]) -> Vec<Value> {
     let is_context = |v: &Value| v.get("type").and_then(Value::as_str) == Some("turn_context");
+    let is_settings = |v: &Value| event_payload(v).and_then(|p| p.get("type")).and_then(Value::as_str) == Some("thread_settings_applied");
     let mut need_turn = !later.iter().any(is_turn_event);
     let mut need_prompt = !later.iter().any(|v| event_payload(v).and_then(prompt_of).is_some());
     let mut need_context = !later.iter().any(is_context);
+    // Settings set before the last turn's context are older than what it says.
+    let mut need_settings = need_context && !later.iter().any(is_settings);
     let mut found = Vec::new();
     if !need_turn && !need_prompt && !need_context {
         return found;
     }
     scan_lines_back(path, floor, end, |line| {
         // Cheap checks first: most bytes are tool output that none of these can match.
-        let markers = ["\"task_started\"", "\"task_complete\"", "\"turn_aborted\"", "\"user_message\"", "\"UserMessage\""];
+        let markers = ["\"task_started\"", "\"task_complete\"", "\"turn_aborted\"", "\"user_message\"", "\"UserMessage\"", "\"thread_settings_applied\""];
         let context = need_context && line.contains("\"turn_context\"");
         if !context && (!line.contains("\"event_msg\"") || !markers.iter().any(|m| line.contains(m))) {
             return false;
@@ -362,6 +365,10 @@ fn earlier_events(path: &Path, floor: u64, end: u64, later: &[Value]) -> Vec<Val
         let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
         if need_context && is_context(&v) {
             need_context = false;
+            need_settings = false;
+            found.push(v);
+        } else if need_settings && is_settings(&v) {
+            need_settings = false;
             found.push(v);
         } else if need_turn && is_turn_event(&v) {
             need_turn = false;
@@ -989,6 +996,19 @@ mod tests {
         assert_eq!(info.effort.as_deref(), Some("xhigh"));
         assert_eq!(info.mode.map(|m| m.label).as_deref(), Some("Ask for approval"));
         assert!(info.turn_open);
+        std::fs::remove_dir_all(&dir).unwrap();
+        // A model and level set during that turn, as the app writes them, are what its next
+        // turn runs on; the permissions stay the turn's.
+        let settings = r#"{"timestamp":"2026-09-24T18:04:30.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-6-luna","approval_policy":"on-request","reasoning_effort":"low"}}}"#;
+        let (dir, path) = long_rollout("turn-settings", &[TURN_STARTED, context, PROMPT_ITEM, settings], &[TOKEN_COUNT]);
+        let (info, _) = parse_rollout(&path, 0, None).unwrap();
+        assert_eq!((info.model.as_deref(), info.effort.as_deref()), (Some("gpt-6-luna"), Some("low")));
+        assert_eq!(info.mode.map(|m| m.label).as_deref(), Some("Ask for approval"));
+        std::fs::remove_dir_all(&dir).unwrap();
+        // Settings from before the turn are older than its context.
+        let (dir, path) = long_rollout("old-settings", &[settings, TURN_STARTED, context, PROMPT_ITEM], &[TOKEN_COUNT]);
+        let (info, _) = parse_rollout(&path, 0, None).unwrap();
+        assert_eq!((info.model.as_deref(), info.effort.as_deref()), (Some("gpt-5.5"), Some("xhigh")));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -824,6 +824,13 @@ fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> an
     a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its rollout isn't on this Mac any more."))
 }
 
+/// The model and level a thread's next turn runs on, as its rollout says now (`ipc::InApp`'s
+/// switch): the board's copy can be a switch behind, read before the last one was written.
+fn settings_now(account: &AccountCfg, s: &Session) -> (Option<String>, Option<String>) {
+    use crate::harness::Adapter;
+    Codex.records(account, s).first().and_then(|p| parse_rollout(p, 0, None)).map_or_else(|| (s.model.clone(), s.effort.clone()), |(info, _)| (info.model, info.effort))
+}
+
 fn walk_files(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path)) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {

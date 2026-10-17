@@ -416,16 +416,35 @@ pub fn codex_update_settings(codex_home: &Path, thread: &str, model: Option<&str
     let deadline = Instant::now() + Duration::from_secs(18);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let owner = ipc.owner_opening(codex_home, thread, deadline)?;
-    let id = crate::start::new_session_id();
-    ipc.send(&codex_settings_request(&id, &ipc.client_id.clone(), &owner, thread, model, effort))?;
-    let r = ipc.response(&id, deadline)?;
-    if r.get("resultType").and_then(Value::as_str) != Some("success") {
-        bail!("Codex didn't take it: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
+    ipc.update_settings(&owner, thread, model, effort, deadline)
+}
+
+impl Ipc {
+    /// Sets what `thread`'s next turn runs on, through `owner`, the window that has it.
+    fn update_settings(&mut self, owner: &str, thread: &str, model: Option<&str>, effort: Option<&str>, deadline: Instant) -> Result<()> {
+        let id = crate::start::new_session_id();
+        self.send(&codex_settings_request(&id, &self.client_id.clone(), owner, thread, model, effort))?;
+        let r = self.response(&id, deadline)?;
+        if r.get("resultType").and_then(Value::as_str) != Some("success") {
+            bail!("Codex didn't take it: {}", r.get("error").and_then(Value::as_str).unwrap_or("no reason given"));
+        }
+        if r.pointer("/result/applied") == Some(&json!(false)) {
+            bail!("Codex didn't take it.");
+        }
+        Ok(())
     }
-    if r.pointer("/result/applied") == Some(&json!(false)) {
-        bail!("Codex didn't take it.");
+}
+
+/// The model and level a switch sends a thread in the app (`InApp`'s `switch`): a model with the
+/// level the thread is on, or the nearest one the model takes, and a level, the nearest the
+/// thread's model takes (`models::nearest_effort`), both as its rollout says now.
+fn switch_settings(account: &AccountCfg, session: &Session, to: Switch) -> (Option<String>, Option<String>) {
+    let home = account.home_path();
+    let (model_now, effort_now) = super::settings_now(account, session);
+    match to {
+        Switch::Model(m) => (Some(m.to_string()), effort_now.as_deref().map(|e| models::nearest_effort(&home, m, e).to_string())),
+        Switch::Effort(e) => (None, Some(model_now.as_deref().map_or(e, |m| models::nearest_effort(&home, m, e)).to_string())),
     }
-    Ok(())
 }
 
 /// The way in for a thread the app has: a turn started through the app's own windows, as if
@@ -499,19 +518,13 @@ impl Own for InApp {
         true
     }
 
-    /// The app runs the thread's next turn on it, as a pick in its box does. A model goes with
-    /// the level the thread is on, or the nearest one the model takes, and a level with the
-    /// nearest the thread's model takes (`models::nearest_effort`).
+    /// The app runs the thread's next turn on it, as a pick in its box does (`switch_settings`).
     fn switch(&self, session: &Session, account: &AccountCfg, to: Switch) -> Result<String> {
-        let home = account.home_path();
-        let (model, effort) = match to {
-            Switch::Model(m) => (Some(m), session.effort.as_deref().map(|e| models::nearest_effort(&home, m, e))),
-            Switch::Effort(e) => (None, Some(session.model.as_deref().map_or(e, |m| models::nearest_effort(&home, m, e)))),
-        };
-        codex_update_settings(&home, &session.id, model, effort)?;
+        let (model, effort) = switch_settings(account, session, to);
+        codex_update_settings(&account.home_path(), &session.id, model.as_deref(), effort.as_deref())?;
         Ok(match to {
             Switch::Model(m) => m.to_string(),
-            Switch::Effort(e) => effort.unwrap_or(e).to_string(),
+            Switch::Effort(e) => effort.unwrap_or_else(|| e.to_string()),
         })
     }
 }
@@ -570,11 +583,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// Asks the router for the window that has `t1`, and sets that thread's settings there. Not
+    /// `codex_update_settings`, which on a busy Mac could give up on the router's answer and open
+    /// the thread in the real Codex app.
+    fn set_t1(home: &Path, model: Option<&str>, effort: Option<&str>) -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut ipc = Ipc::connect(home, deadline)?;
+        let owner = ipc.owner("t1", deadline)?.expect("the router names the window");
+        ipc.update_settings(&owner, "t1", model, effort, deadline)
+    }
+
     #[test]
     fn sets_a_codex_threads_next_turn_through_the_window_that_owns_it() {
         let home = scratch("codex-settings");
         let router = window_router(&home, json!({ "applied": true }));
-        codex_update_settings(&home, "t1", Some("gpt-x"), Some("low")).unwrap();
+        set_t1(&home, Some("gpt-x"), Some("low")).unwrap();
         let asked = router.join().unwrap();
         assert_eq!((&asked["method"], &asked["version"], &asked["targetClientId"]), (&json!("thread-follower-update-thread-settings"), &json!(2), &json!("window")));
         // No `activeTurnId`: a running turn's permissions aren't what's changed.
@@ -583,8 +606,33 @@ mod tests {
         // A level alone leaves the model as it is, and a condition that didn't hold is no switch.
         let home = scratch("codex-settings-refused");
         let router = window_router(&home, json!({ "applied": false }));
-        assert_eq!(codex_update_settings(&home, "t1", None, Some("high")).unwrap_err().to_string(), "Codex didn't take it.");
+        assert_eq!(set_t1(&home, None, Some("high")).unwrap_err().to_string(), "Codex didn't take it.");
         assert_eq!(router.join().unwrap()["params"]["threadSettings"], json!({ "effort": "high" }));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A model goes with the level the thread's rollout says now, not the board's: a level
+    /// switched a moment before is written there before the board has read it, and a model
+    /// switch with the board's would put the old level back.
+    #[test]
+    fn a_codex_model_switch_keeps_the_level_set_just_before() {
+        let home = scratch("codex-switch");
+        let day = home.join("sessions/2026/10/17");
+        std::fs::create_dir_all(&day).unwrap();
+        let lines = [
+            r#"{"timestamp":"2026-10-17T10:00:00.000Z","type":"session_meta","payload":{"id":"t1","cwd":"/r","originator":"Codex Desktop"}}"#,
+            r#"{"timestamp":"2026-10-17T10:00:01.000Z","type":"turn_context","payload":{"model":"gpt-x","effort":"xhigh"}}"#,
+            r#"{"timestamp":"2026-10-17T10:05:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-x","reasoning_effort":"low"}}}"#,
+        ];
+        std::fs::write(day.join("rollout-2026-10-17T10-00-00-t1.jsonl"), lines.join("\n") + "\n").unwrap();
+        let account: AccountCfg = serde_json::from_value(json!({ "name": "codex", "harness": "codex", "home": home })).unwrap();
+        let s = Session { surface: Surface::App, model: Some("gpt-x".into()), effort: Some("xhigh".into()), title: "Fix the build".into(), cwd: "/r".into(), ..Session::new(Harness::Codex, "codex", "t1") };
+        let some = |v: &str| Some(v.to_string());
+        assert_eq!(switch_settings(&account, &s, Switch::Model("gpt-y")), (some("gpt-y"), some("low")));
+        assert_eq!(switch_settings(&account, &s, Switch::Effort("high")), (None, some("high")));
+        // Without its rollout, the board's.
+        let gone = Session { id: "t2".into(), key: "codex:codex:t2".into(), ..s };
+        assert_eq!(switch_settings(&account, &gone, Switch::Model("gpt-y")), (some("gpt-y"), some("xhigh")));
         let _ = std::fs::remove_dir_all(&home);
     }
 
