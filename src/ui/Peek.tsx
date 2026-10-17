@@ -27,7 +27,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sideClose } from '../api';
-import { renameAhead } from '../ahead';
+import { renameAhead, sentWorthSaying } from '../ahead';
 import { readDraft } from '../drafts';
 import { followBoard } from '../followBoard';
 import { useLatest } from '../latest';
@@ -455,8 +455,8 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
           onSending={away}
           onSent={(sent) => {
             // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it
-            // went as a message from Codealong because its terminal couldn't be typed into.
-            if (sent.opened || sent.fellBack) void barNote({ key: session.key, message: sent.message, tone: 'info' });
+            // may not have gone in.
+            if (sentWorthSaying(sent)) void barNote({ key: session.key, message: sent.message, tone: 'info' });
           }}
           // It's back in the box for when the peek shows it again.
           onFailed={(why) => void barNote({ key: session.key, message: why, tone: 'error' })}

@@ -1266,6 +1266,10 @@ export interface Sent {
   /** It couldn't be typed into the session's terminal, so it went another way, as `message` says.
    *  Missing from other devices that don't know it yet. */
   fellBack?: boolean;
+  /** The way in failed after it may have put it in the session (its terminal didn't confirm the
+   *  typing, say), so it counts as sent without being sure, and `message` says where to look.
+   *  Missing from other devices that don't know it yet. */
+  uncertain?: boolean;
 }
 
 export type TodoStatus = 'todo' | 'in-progress' | 'done';

@@ -828,6 +828,13 @@ const queued = new Map<string, { id: string; text: string; failed: unknown }[]>(
 /** Each session's last message on its way: the next one waits for it. */
 const tails = new Map<string, Promise<unknown>>();
 
+/** Whether how a send went is worth saying where a sent message usually goes without a word: it
+ *  was put on the clipboard or in its app rather than sent, it went as a message from Codealong
+ *  because its terminal couldn't be typed into, or it may not have gone in. */
+export function sentWorthSaying(sent: Sent): boolean {
+  return sent.opened || !!sent.fellBack || !!sent.uncertain;
+}
+
 /**
  * Sends a message to a session, shown at once. Resolves with what happened once it went. When it
  * doesn't go, it and every message sent after it are back in the session's draft, before

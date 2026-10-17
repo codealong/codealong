@@ -728,6 +728,12 @@ pub struct Sent {
     /// Missing from devices that don't know it yet.
     #[serde(default)]
     pub fell_back: bool,
+    /// The way in failed after it may have put the prompt in the session (its terminal didn't
+    /// confirm the typing, say), so it counts as sent without being sure, and `message` says
+    /// where to look: sent again, the session could have it twice. Missing from devices that
+    /// don't know it yet.
+    #[serde(default)]
+    pub uncertain: bool,
 }
 
 /// An image kept for a prompt (`image-keep`).

@@ -27,7 +27,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepNotchSession, notchKeys, onNotchKeys, sessionAt } from '../api';
-import { renameAhead } from '../ahead';
+import { renameAhead, sentWorthSaying } from '../ahead';
 import { currentRow, notchRows, ROW_READS, waitingRows, type NotchRow } from '../bar';
 import { useSessionHistory } from '../history';
 import { seenable } from '../lanes';
@@ -386,8 +386,8 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         onDone={(done) => onNext(done, session.key)}
         onSent={(sent) => {
           // What you'd want to know goes on the bar: the prompt is on the clipboard, say, or it
-          // went as a message from Codealong because its terminal couldn't be typed into.
-          if (sent.opened || sent.fellBack) report.info(sent.message);
+          // may not have gone in.
+          if (sentWorthSaying(sent)) report.info(sent.message);
         }}
         // It didn't go, after the notch went on from it: the strip of the one shown says why, as
         // the waiting window's does. Where the notch closed on it, the bar says so by its pill.

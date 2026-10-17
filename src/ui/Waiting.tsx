@@ -22,7 +22,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
-import { boardAhead, boardView, observe, renameAhead, useAhead } from '../ahead';
+import { boardAhead, boardView, observe, renameAhead, sentWorthSaying, useAhead } from '../ahead';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import { followBoard } from '../followBoard';
@@ -320,9 +320,9 @@ export function Waiting() {
           }}
           onDone={(done) => went(way.answered(replying.session.key, done))}
           onSent={(sent) => {
-            // What you'd want to know: the prompt is on the clipboard, say, or it went as a
-            // message from Codealong because its terminal couldn't be typed into.
-            if (sent.opened || sent.fellBack) report.info(sent.message);
+            // What you'd want to know: the prompt is on the clipboard, say, or it may not have
+            // gone in.
+            if (sentWorthSaying(sent)) report.info(sent.message);
           }}
           // It didn't go, after the window went on from it: it's back in what's left, and the
           // strip says why.

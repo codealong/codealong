@@ -16,7 +16,7 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { answerAhead, barAhead, boardAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, renameAhead, reviewAhead, sendAhead, settled, type Ahead, type View } from './ahead';
+import { answerAhead, barAhead, boardAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf } from './lanes';
 import * as fx from './testing/fixtures';
@@ -550,5 +550,16 @@ describe('mergeAhead', () => {
     api.mergePr.mockResolvedValueOnce({ note: null, shownAt: null });
     await expect(mergeAhead(pr, 'PR_7', { op: 'ready' })).resolves.toBeNull();
     expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', { op: 'ready' });
+  });
+});
+
+describe('sentWorthSaying', () => {
+  it('says how a send went only when it went otherwise than typed, or may not have gone in', () => {
+    const typed = { message: 'Typed into “Fix it” in Ghostty.', opened: false };
+    expect(sentWorthSaying(typed)).toBe(false);
+    expect(sentWorthSaying({ ...typed, fellBack: false, uncertain: false })).toBe(false);
+    expect(sentWorthSaying({ ...typed, opened: true })).toBe(true);
+    expect(sentWorthSaying({ ...typed, fellBack: true })).toBe(true);
+    expect(sentWorthSaying({ ...typed, uncertain: true })).toBe(true);
   });
 });

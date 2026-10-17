@@ -356,12 +356,12 @@ impl Delivery<'_> {
 
 /// The prompt went, where it lives.
 pub fn sent(message: String) -> Sent {
-    Sent { message, opened: false, fell_back: false }
+    Sent { message, opened: false, fell_back: false, uncertain: false }
 }
 
 /// The prompt is in a window that came forward, for someone to send from there.
 pub fn opened(message: String) -> Sent {
-    Sent { message, opened: true, fell_back: false }
+    Sent { message, opened: true, fell_back: false, uncertain: false }
 }
 
 /// Sends `text` to the session with this key; `now` sends it into the turn the session is
@@ -476,7 +476,8 @@ fn join(key: &str, text: &str, send: impl FnOnce() -> Result<Sent>) -> Result<Se
 }
 
 /// A way in that failed after the prompt may have reached the session, such as typing Ghostty
-/// didn't confirm: no other way is tried, or the session could get it twice.
+/// didn't confirm: no other way is tried, or the session could get it twice, and the send counts
+/// as sent, unsure (`through`).
 #[derive(Debug)]
 pub(crate) struct MayHaveArrived(pub(crate) String);
 
@@ -516,7 +517,7 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
         // Codealong runs it: the prompt goes in over its adapter, after the running turn if
         // there is one, and a question it waits on is answered from its panel.
         let message = crate::acp::send(account, session_key, &attachments::expand(&msg.text, Style::Path))?;
-        return Ok(Sent { message, opened: false, fell_back: false });
+        return Ok(sent(message));
     }
     // One that isn't running goes on when it's sent something, whichever way it goes (a resume,
     // OpenCode's service, the Codex app), which nothing does on an account turned off; one at
@@ -549,20 +550,29 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
             });
         }
     }
+    through(&routes, &session.title, |route, untyped, passes| attempt(route, board, session, account, cfg, &msg, untyped, passes))
+}
+
+/// Tries each way in, best first, until one sends it (`attempt`, given why typing didn't work
+/// and whether a way comes after). One that may have put it in the session ends the send as sent,
+/// unsure, with what it said: a sender told it failed puts it back to send again (the windows'
+/// box, Codealong's own messages trying again later), and the session had it twice (2026-10-17).
+/// Its record says soon enough whether it went in.
+fn through(routes: &[Route], title: &str, mut attempt: impl FnMut(&Route, Option<&str>, bool) -> Result<Tried>) -> Result<Sent> {
     let mut last_err = None;
     // Why typing into its terminal didn't work, for the note on the way it went instead.
     let mut untyped = None;
     let last = routes.len().saturating_sub(1);
-    for (i, route) in routes.into_iter().enumerate() {
-        match attempt(&route, board, session, account, cfg, &msg, untyped.as_deref(), i < last) {
+    for (i, route) in routes.iter().enumerate() {
+        match attempt(route, untyped.as_deref(), i < last) {
             Ok(Tried::Sent(sent)) => return Ok(sent),
             // This way doesn't reach the session; the next one may.
             Ok(Tried::Passed(why)) => untyped = why.or(untyped),
-            Err(e) if e.is::<MayHaveArrived>() => return Err(e),
+            Err(e) if e.is::<MayHaveArrived>() => return Ok(Sent { uncertain: true, ..sent(e.to_string()) }),
             Err(e) => last_err = Some(e),
         }
     }
-    Err(last_err.unwrap_or_else(|| anyhow!("Codealong can't reach {} to send it this. Open it and send it there.", quoted(&session.title))))
+    Err(last_err.unwrap_or_else(|| anyhow!("Codealong can't reach {} to send it this. Open it and send it there.", quoted(title))))
 }
 
 /// Whether it waits on you to answer a prompt (a permission, or a turn stuck on a command), not
@@ -1055,6 +1065,27 @@ mod tests {
         }
     }
 
+    /// A way in that may have put it in the session already is the last one tried, and the send
+    /// counts as sent, unsure, saying what it said; any other failure goes on to the next way.
+    #[test]
+    fn a_way_in_that_may_have_put_it_in_counts_as_sent() {
+        let routes: Vec<Route> = vec![Route::Type { pid: 42 }, Stand(Way::Message).into()];
+        let mut tried = 0;
+        let went = through(&routes, "Fix the build", |_, _, _| {
+            tried += 1;
+            Err(MayHaveArrived("Look there before sending it again.".into()).into())
+        });
+        assert_eq!(went.unwrap(), Sent { message: "Look there before sending it again.".into(), opened: false, fell_back: false, uncertain: true });
+        assert_eq!(tried, 1);
+        let mut tried = 0;
+        let went = through(&routes, "Fix the build", |_, _, _| {
+            tried += 1;
+            Err(anyhow!("Ghostty said no."))
+        });
+        assert_eq!(went.unwrap_err().to_string(), "Ghostty said no.");
+        assert_eq!(tried, 2);
+    }
+
     #[test]
     fn says_the_first_way_in_that_applies() {
         let in_ghostty = |pid: u32| (pid == 42).then_some("Ghostty");
@@ -1426,14 +1457,14 @@ mod tests {
     fn the_same_prompt_sent_again_while_on_its_way_goes_once() {
         use std::sync::atomic::Ordering;
         use std::sync::mpsc;
-        let sent = |m: &str| Ok(Sent { message: m.into(), opened: false, fell_back: false });
+        let sent = |m: &str| Ok(super::sent(m.into()));
         let (started, on_way) = mpsc::channel();
         let (go, wait) = mpsc::channel::<()>();
         let first = std::thread::spawn(move || {
             join("k-once", "hello", || {
                 started.send(()).unwrap();
                 wait.recv().unwrap();
-                Ok(Sent { message: "Typed.".into(), opened: false, fell_back: false })
+                Ok(super::sent("Typed.".into()))
             })
         });
         on_way.recv().unwrap();
