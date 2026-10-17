@@ -776,6 +776,19 @@ pub struct Checks {
     pub failing: Vec<String>,
 }
 
+/// A label on a PR, as its repo on GitHub defines it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrLabel {
+    pub name: String,
+    /// Its color as GitHub keeps it, six hex digits in lowercase without the `#`; empty when
+    /// GitHub gave none that reads as one.
+    pub color: String,
+    /// What it's for, when the repo says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Pr {

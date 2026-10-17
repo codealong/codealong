@@ -2932,6 +2932,9 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
     }
     println!("{} {} ({})", p.key, p.title, lower_debug(&p.state));
     println!("{} → {}  {}", p.head, p.base.as_deref().unwrap_or("?"), p.url);
+    if !p.labels.is_empty() {
+        println!("Labels: {}", p.labels.iter().map(|l| l.name.as_str()).collect::<Vec<_>>().join(", "));
+    }
     for l in &p.lanes {
         println!("Worktree: {}", tilde(Path::new(l)));
     }

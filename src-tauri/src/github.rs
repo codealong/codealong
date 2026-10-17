@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use crate::model::{Checks, Harness, Merge, PrState};
+use crate::model::{Checks, Harness, Merge, PrLabel, PrState};
 use crate::procs;
 use crate::util::{now_ms, parse_rfc3339_ms};
 
@@ -47,6 +47,8 @@ pub struct PrRaw {
     /// Which harness wrote the PR when its head commit or description says so (`Co-Authored-By:`
     /// or `Generated with …`).
     pub authored_by: Option<Harness>,
+    /// Its labels, in the order of their names (`labels_of`).
+    pub labels: Vec<PrLabel>,
 }
 
 /// One repo's PRs, and who `gh` is signed in as.
@@ -95,13 +97,16 @@ fragment asked on PullRequest {
 }
 "#;
 
-/// What's read of each PR, for the board and for a link to one.
+/// What's read of each PR, for the board and for a link to one. Its labels cost a point for a
+/// hundred PRs, as any connection does (a repo's `QUERY` went from 5 to 6, 2026-10-17), and come
+/// in the order of their names, as GitHub lists them.
 const PR_FIELDS: &str = r#"
 fragment pr on PullRequest {
   number title url body state isDraft reviewDecision updatedAt createdAt mergedAt closedAt headRefName headRefOid baseRefName
   additions deletions changedFiles
   author { login }
   headRepositoryOwner { login }
+  labels(first: 20, orderBy: {field: NAME, direction: ASC}) { nodes { name color description } }
   commits(last: 1) { nodes { commit { message statusCheckRollup { contexts(first: 100) { nodes {
     __typename
     ... on CheckRun { name status conclusion }
@@ -411,7 +416,23 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         requested_at: None,
         reviewers_asked: Vec::new(),
         authored_by,
+        labels: labels_of(n),
     })
+}
+
+/// A PR's labels. A color that isn't six hex digits is left empty, since it goes into a window's
+/// styles as it is; a label without a name is left out.
+fn labels_of(n: &Value) -> Vec<PrLabel> {
+    let nodes = n.pointer("/labels/nodes").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    nodes
+        .iter()
+        .filter_map(|l| {
+            let name = l.get("name").and_then(Value::as_str).filter(|s| !s.trim().is_empty())?;
+            let color = l.get("color").and_then(Value::as_str).filter(|c| c.len() == 6 && c.bytes().all(|b| b.is_ascii_hexdigit()));
+            let description = l.get("description").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
+            Some(PrLabel { name: name.to_string(), color: color.unwrap_or_default().to_ascii_lowercase(), description: description.map(String::from) })
+        })
+        .collect()
 }
 
 /// Which harness wrote a commit or PR when a `Co-Authored-By:` trailer or `Generated with …`
@@ -461,10 +482,11 @@ pub fn authored_by(text: &str) -> Option<Harness> {
 // ---- Asking only for what changed ----
 //
 // GitHub gives an account 5,000 GraphQL points an hour, and charges a query for the connections
-// it could return, not for what comes back: a repo's PRs (`QUERY`) are 5 points whether it has a
-// hundred open PRs or none. Asked of seven repos every minute that was 2,200 points an hour
-// from the app alone, and 37 more for every `--snapshot` (each preview takes one), which left
-// none for `gh` itself (2026-10-01). So a poll first takes a glance: one query for every repo,
+// it could return, not for what comes back: a repo's PRs (`QUERY`) are 6 points whether it has a
+// hundred open PRs or none (5 before they carried their labels). Asked of seven repos every
+// minute, at 5, that was 2,200 points an hour from the app alone, and 37 more for every
+// `--snapshot` (each preview takes one), which left none for `gh` itself (2026-10-01). So a
+// poll first takes a glance: one query for every repo,
 // a point for each `GLANCE_REPOS` of them, that reads only what tells a change. A repo's PRs
 // are read in full when its glance isn't the one they were read at, while its checks run, and
 // every `RESYNC_MS`. Each answer is kept on disk with its glance, so the next engine to start
@@ -1796,6 +1818,7 @@ mod tests {
     /// A repo's PRs as GitHub answers: an open one whose checks are running, and a merged one.
     const PRS: &str = r#"{"data":{"viewer":{"login":"gwen"},"requested":{"nodes":[{"number":1037}]},"repository":{
           "open":{"nodes":[{"number":1037,"title":"Let the agent add and caption project photos","url":"https://github.com/sprucehq/spark/pull/1037","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"UNSTABLE","updatedAt":"2026-09-23T20:00:00Z","mergedAt":null,"closedAt":null,"headRefName":"portal","headRefOid":"0ef4ed2","headRepositoryOwner":{"login":"gwen"},
+             "labels":{"nodes":[{"name":"needs-copy","color":"fbca0g","description":""},{"name":"photos","color":"0E8A16","description":"Project photos"},{"name":" ","color":"ffffff","description":null}]},
              "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
                {"__typename":"CheckRun","name":"server:test","status":"COMPLETED","conclusion":"SUCCESS"},
                {"__typename":"CheckRun","name":"docker-smoke","status":"COMPLETED","conclusion":"FAILURE"},
@@ -2075,6 +2098,10 @@ mod tests {
         assert_eq!(repo.login.as_deref(), Some("gwen"));
         assert!(prs[0].review_requested);
         assert!(!prs[1].review_requested);
+        // A color that isn't six hex digits isn't kept, and a label without a name is left out.
+        let label = |name: &str, color: &str, description: Option<&str>| PrLabel { name: name.into(), color: color.into(), description: description.map(String::from) };
+        assert_eq!(prs[0].labels, vec![label("needs-copy", "", None), label("photos", "0e8a16", Some("Project photos"))]);
+        assert!(prs[1].labels.is_empty());
     }
 
     #[test]

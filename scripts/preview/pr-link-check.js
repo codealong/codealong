@@ -1,7 +1,7 @@
 // Checks PR links in a session's conversation (PrLink.tsx). The stub's reply for a session a PR
 // lists links that PR bare and, as a Markdown link, an older one the board doesn't list. The
-// bare one reads `name#N` with the PR's icon; hovering it shows a card with the PR's title and
-// the session; the older one's card asks GitHub (pr_card) once and shows its answer, and its
+// bare one reads `name#N` with the PR's icon; hovering it shows a card with the PR's title, the
+// labels the check gives it, and the session; the older one's card asks GitHub (pr_card) once and shows its answer, and its
 // link then has an icon too; a right-click has the PR's menu; Show in Codealong opens the PR in
 // the PRs view. The PR is made a merged one, whatever it is today: the PRs view lists those under
 // Merged & closed, which is folded until Show in Codealong opens it. It's also made five days
@@ -14,6 +14,7 @@
 (function () {
   var texts = function (items) { return items.map(function (i) { return i.item === 'Separator' ? '-' : i.text; }); };
   var DAY = 86400e3;
+  var LABELS = [{ name: 'bug', color: 'd73a4a', description: 'Something isn’t working' }, { name: 'wontfix', color: 'ffffff' }];
 
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.age', '1d');
@@ -36,7 +37,7 @@
       if (picked) {
         var old = Date.now() - 5 * DAY;
         board.prs.forEach(function (x) {
-          if (x.key === picked.pr.key) Object.assign(x, { state: 'merged', updatedAt: old, mergedAt: old, closedAt: old });
+          if (x.key === picked.pr.key) Object.assign(x, { state: 'merged', updatedAt: old, mergedAt: old, closedAt: old, labels: LABELS });
         });
         board.lanes.forEach(function (l) {
           l.sessions.forEach(function (s) { if (s.key === picked.key) s.lastActivity = Math.max(s.lastActivity, Date.now() - 60e3); });
@@ -80,6 +81,10 @@
       var c = card();
       check('the card names the PR', c.querySelector('.ca-prhover-ref').textContent === picked.pr.repoSlug + '#' + picked.pr.number);
       check('with its title', c.querySelector('.ca-prhover-title').textContent === picked.pr.title);
+      var labels = Array.prototype.slice.call(c.querySelectorAll('.ca-prlabel'));
+      var inside = labels.every(function (l) { var r = l.getBoundingClientRect(), b = c.getBoundingClientRect(); return r.height === 20 && r.left >= b.left && r.right <= b.right; });
+      check('and its labels, each whole in the card', labels.map(function (l) { return l.textContent; }).join(',') === 'bug,wontfix' && inside, labels.map(function (l) { return l.textContent; }).join(','));
+      check('a label says what it’s for on hover', labels[0] && labels[0].title === 'bug: Something isn’t working', labels[0] && labels[0].title);
       var titles = Array.prototype.map.call(c.querySelectorAll('.ca-psess-title'), function (t) { return t.textContent; });
       check('and the session that worked on it', titles.indexOf(picked.title) >= 0, titles.join(' | '));
       check('the board has it, so GitHub is not asked', calls('pr_card').length === 0);

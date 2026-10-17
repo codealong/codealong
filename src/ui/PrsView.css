@@ -6,7 +6,17 @@
 .ca-prrow .ca-seg-main {
   border-left: 0;
 }
+/* The number, the title and its labels (PrLabels.css) on one line, as tall as a chip whether it
+   has labels or not, so every PR row's lines sit alike. */
+.ca-prrow .ca-lane-line1 {
+  display: flex;
+  align-items: center;
+  height: 20px;
+}
 .ca-prrow .ca-lane-headline {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font: var(--type-body-strong);
 }
 /* A row that's your move (see prFlag) gets a colored edge: amber for a review asked of you or

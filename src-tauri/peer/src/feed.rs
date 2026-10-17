@@ -240,6 +240,7 @@ mod tests {
             merged_at: None,
             closed_at: None,
             sessions: Vec::new(),
+            labels: Vec::new(),
             auto_review: None,
         };
         let mut replica = Replica::default();

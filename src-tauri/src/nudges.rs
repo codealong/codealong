@@ -509,6 +509,7 @@ mod tests {
             sessions: sessions.iter().map(|k| PrSession { key: (*k).into(), lane: "/work".into(), pushes: 0 }).collect(),
             head_oid: None,
             authored_by: None,
+            labels: Vec::new(),
             auto_review: None,
         }
     }

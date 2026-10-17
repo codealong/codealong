@@ -2164,6 +2164,7 @@ mod tests {
             sessions: Vec::new(),
             head_oid: Some(head.into()),
             authored_by: None,
+            labels: Vec::new(),
             auto_review: None,
         }
     }

@@ -12,6 +12,7 @@ import { selectHow, type SelectHow } from '../picks';
 import { heldForAgent, prFlag } from '../prStatus';
 import type { GitInfo, Lane, PrItem, Session } from '../types';
 import { PinnedSection } from './PinnedSection';
+import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
 import { cx, HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, Row, WorktreeChip } from './primitives';
 import { SnoozeChip } from './LaneRow';
@@ -154,6 +155,7 @@ function PrRow({ item, domId, now, selected, onSelect, onOpen, onOpenSession, on
           <span className="ca-lane-headline" title={pr.title}>
             {pr.title}
           </span>
+          <PrLabels labels={pr.labels} />
         </div>
         <div className="ca-lane-line2">
           {/* Shows what fits: the agents and the worktree tag drop out whole when there's no

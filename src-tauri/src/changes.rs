@@ -887,6 +887,7 @@ mod tests {
             sessions: Vec::new(),
             head_oid: None,
             authored_by: None,
+            labels: Vec::new(),
             auto_review: None,
         }
     }

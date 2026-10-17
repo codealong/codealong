@@ -1,6 +1,6 @@
 // A PR in the right sidebar: a short header first, as a session's is (SessionHeader.tsx): its
 // number and title with the panel's buttons, one line of where it comes from, its pills and size,
-// and where it lives on this Mac as chips (the worktrees and the sessions that worked on it,
+// its labels (PrLabels.tsx), and where it lives on this Mac as chips (the worktrees and the sessions that worked on it,
 // PanelSession.tsx `PanelPlaces`). Its details, open for every PR once you open them, add the
 // whole title, its times and commits, and the chips as a tree, under the merge box. Then its
 // parts as tabs, one shown at a time, by whose words they are: Description (the author's, as
@@ -38,6 +38,7 @@ import { PrBoxView, usePrBox } from './PrBox';
 import { MergeBox, type MergeGoesOn } from './MergeBox';
 import { DetailsButton, PanelPlaces, useDetailsOpen } from './PanelSession';
 import { PrFiles, type FileOpener, type FilesFinder } from './PrFiles';
+import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
 import { PrReviewers } from './PrReviewers';
 import { BranchLabel, Button, cx, headerMenu, Icon, PanelBack, Tabs, type PanelBackTo } from './primitives';
@@ -388,6 +389,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
             )}
           </span>
         </div>
+        <PrLabels labels={pr.labels} />
         {pr.checks.failing.length > 0 && (
           <div className="ca-prcard-failing">
             {pr.checks.failing.slice(0, 8).map((name) => (

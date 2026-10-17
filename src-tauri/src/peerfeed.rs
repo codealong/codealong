@@ -95,6 +95,7 @@ pub fn pr_cards(board: &Board) -> Vec<PrCard> {
             merged_at: p.merged_at,
             closed_at: p.closed_at,
             sessions: p.sessions.iter().map(|s| s.key.clone()).collect(),
+            labels: p.labels.clone(),
             auto_review: p.auto_review.as_ref().map(auto_review_card),
         })
         .collect()

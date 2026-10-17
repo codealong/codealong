@@ -22,6 +22,7 @@ import { nudgeAboutFor } from '../repoSettings';
 import type { Board, Lane, Pr, PrItem, Session } from '../types';
 import { HoverCard, useHoverCard, type HoverCardState } from './HoverCard';
 import { PanelSession } from './PanelSession';
+import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
 import { Button, cx, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
 
@@ -287,6 +288,7 @@ function PrCard({ card, prRef: ref, url, onFollow }: CardProps) {
       {pr ? (
         <>
           <p className="ca-prhover-title">{pr.title}</p>
+          <PrLabels labels={pr.labels} />
           <p className="ca-hovercard-meta">
             <code className="ca-ic">{pr.head}</code>
             {pr.base && (

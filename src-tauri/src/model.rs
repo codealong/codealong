@@ -307,6 +307,9 @@ pub struct PrItem {
     /// Which harness wrote the PR when its head commit or description says so.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authored_by: Option<Harness>,
+    /// Its labels on GitHub, in the order of their names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<PrLabel>,
     /// Where Codealong's own review of it stands, once it's had one (autoreview.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_review: Option<AutoReview>,

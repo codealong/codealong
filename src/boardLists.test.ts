@@ -113,10 +113,13 @@ describe('searching', () => {
     expect(sessionInQuery(r, 'waiting on')).toBe(false);
   });
 
-  it('finds a PR by its number with or without #, title, author, branch and repo', () => {
-    const p = prRowOf(fx.prItem({ number: 42, title: 'Login page', author: 'sam', head: 'feat/login', repoSlug: 'acme/web' }), new Map(), sessionIndexOf([]));
-    for (const q of ['', '42', '#42', 'LOGIN', 'sam', 'feat/', 'acme/web', 'page login']) expect(prInQuery(p, q)).toBe(true);
+  it('finds a PR by its number with or without #, title, author, branch, repo and labels', () => {
+    const labels = [{ name: 'needs-copy', color: 'fbca04' }, { name: 'dependencies', color: '0366d6', description: 'Pull requests that update a dependency file' }];
+    const p = prRowOf(fx.prItem({ number: 42, title: 'Login page', author: 'sam', head: 'feat/login', repoSlug: 'acme/web', labels }), new Map(), sessionIndexOf([]));
+    for (const q of ['', '42', '#42', 'LOGIN', 'sam', 'feat/', 'acme/web', 'page login', 'Dependencies', 'needs-copy login']) expect(prInQuery(p, q)).toBe(true);
     expect(prInQuery(p, 'docs')).toBe(false);
+    // A label's description isn't searched: only what the row shows.
+    expect(prInQuery(p, 'update')).toBe(false);
   });
 
   it('finds by every word in any order, as the quick panel does, a short one among others only whole', () => {

@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Checks, Merge, PrState};
+use crate::model::{Checks, Merge, PrLabel, PrState};
 
 /// A PR on a device's board, for a linked device's PR list: open ones, and ones merged or closed in
 /// the last day. Only devices that say they know PRs (`proto::PRS`) are sent them (`FeedMsg::prs`).
@@ -74,6 +74,9 @@ pub struct PrCard {
     /// The sessions that worked on it, by their keys on the sending device.
     #[serde(default)]
     pub sessions: Vec<String>,
+    /// Its labels on GitHub, in the order of their names. Missing from Macs before 2026-10-17.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<PrLabel>,
     /// Where Codealong's own review of it stands on the sending device, once it's had one. Missing
     /// from Macs before 2026-10-16.
     #[serde(default, skip_serializing_if = "Option::is_none")]

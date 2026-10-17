@@ -112,12 +112,13 @@ export function sessionIn(r: SessionItem, f: Filter): boolean {
   }
 }
 
-/** Search in the PRs view: number (`#123` or `123`), title, author, branch, repo, or what a
- *  session that worked on it said. */
+/** Search in the PRs view: number (`#123` or `123`), title, author, branch, repo, labels, or what
+ *  a session that worked on it said. */
 export function prInQuery(r: PrRowItem, q: string, said: Said = NO_HITS): boolean {
   if (!q) return true;
   const p = r.pr;
-  return described([`#${p.number}`, p.title, p.author ?? '', p.head, p.repoSlug], q) || r.sessions.some(({ session }) => said.has(session.key));
+  const labels = (p.labels ?? []).map((l) => l.name);
+  return described([`#${p.number}`, p.title, p.author ?? '', p.head, p.repoSlug, ...labels], q) || r.sessions.some(({ session }) => said.has(session.key));
 }
 
 /** Search in the Todo view: the title, the description, labels, and the worktrees and sessions

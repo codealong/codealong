@@ -251,6 +251,15 @@ export interface Checks {
   failing: string[];
 }
 
+/** A label on a PR, as its repo on GitHub defines it. */
+export interface PrLabel {
+  name: string;
+  /** Six hex digits without the `#`, as GitHub keeps it; empty when GitHub gave none that reads. */
+  color: string;
+  /** What it's for, when the repo says. */
+  description?: string;
+}
+
 export interface Pr {
   number: number;
   title: string;
@@ -1404,6 +1413,8 @@ export interface PrItem {
   headOid?: string;
   /** The harness a commit trailer or PR body says wrote it (github.rs `authored_by`). */
   authoredBy?: Harness | null;
+  /** Its labels on GitHub, in the order of their names; left out when it has none. */
+  labels?: PrLabel[];
   /** Where Codealong's own review of it stands, once it's had one (autoreview.rs). */
   autoReview?: AutoReview;
 }

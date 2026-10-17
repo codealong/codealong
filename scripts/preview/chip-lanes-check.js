@@ -1,10 +1,10 @@
-// Checks the lanes of chips on the lists' rows (LaneRow.tsx, PrsView.tsx, TodoView.tsx, and
-// .ca-chips in src/styles/chips.css): every chip is one height and shape, and none is cut off,
-// each showing whole or not at all. In Sessions it also checks that a session's account is on
-// the second line, not the first; that Rows in the bar over the list puts each session on one
-// line and remembers it, and that a point on a one-line row finds that row, in a board that's a
-// stacking context of its own; and in every list that a right-click (or ⌃-click) opens a row's
-// menu without selecting it.
+// Checks the lanes of chips on the lists' rows (LaneRow.tsx, PrsView.tsx with a PR's labels after
+// its title, TodoView.tsx, and .ca-chips in src/styles/chips.css): every chip is one height and
+// shape, and none is cut off, each showing whole or not at all. In Sessions it also checks that a
+// session's account is on the second line, not the first; that Rows in the bar over the list puts
+// each session on one line and remembers it, and that a point on a one-line row finds that row,
+// in a board that's a stacking context of its own; and in every list that a right-click (or
+// ⌃-click) opens a row's menu without selecting it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-lanes-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/chip-lanes-check.js
@@ -18,7 +18,7 @@
   var lanes = function () {
     var cut = [];
     var seen = 0;
-    all('.ca-chips, .ca-prrow-fit').filter(shown).forEach(function (lane) {
+    all('.ca-chips, .ca-prrow-fit, .ca-prrow .ca-prlabels').filter(shown).forEach(function (lane) {
       var box = lane.getBoundingClientRect();
       // The lane's padding is room for a focus ring, not for chips.
       var right = box.right - 4;

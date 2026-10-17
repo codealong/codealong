@@ -873,9 +873,13 @@ conflicts or an out-of-date branch, or one green Ready to merge when GitHub says
 now. The review pill says Review requested while anyone's review is asked for (yours or another's;
 its tooltip names them), Awaiting review while nobody's is, else Draft, Changes requested,
 Approved, or Agent reviewing while Codealong's agent is on it. Rows that are your move are marked at the left edge: amber for a review asked of you or
-something to fix, red for failing checks, green for your PRs that are ready to merge. Selecting a PR
-shows a short header: its number and title, one line of its repo, branch, author and last update,
-its pills and size, and the worktrees and sessions behind it on this Mac as chips (a worktree's
+something to fix, red for failing checks, green for your PRs that are ready to merge. A PR's labels
+on GitHub follow its title on its row, each with a dot in its color there and its description on
+hover, as many as fit in a little under half the line; all of them show in its header and on a link's
+card. The search finds a PR by a label's name. A label added on GitHub shows within ten minutes,
+when the repo's PRs are next read in full. Selecting a PR shows a short header: its number and
+title, one line of its repo, branch, author and last update, its pills and size, its labels, and
+the worktrees and sessions behind it on this Mac as chips (a worktree's
 chip, then its sessions', each named by its title with its account on hover, the PR's primary
 session marked; a click on a session shows it in the panel, on a worktree shows it in Worktrees,
 and a right-click gives either's menu). A PR's row names one of its sessions the same way, its
