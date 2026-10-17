@@ -52,7 +52,7 @@ import { shortOf } from '../devices';
 import { putBack } from '../drafts';
 import { snippet } from '../todos';
 import { absolute, agoPhrase } from '../format';
-import type { HostedStream, Question, Session, Status, TranscriptItem, TranscriptPage } from '../types';
+import type { HostedStream, Question, QueuedMessage, Session, Status, TranscriptItem, TranscriptPage } from '../types';
 import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
@@ -414,19 +414,34 @@ function YourText({ text }: { text: string }) {
   );
 }
 
+/** What a message its harness holds until the turn ends says it is. */
+const QUEUED = 'Queued until this turn ends';
+
+/** A queued message's key among the prompts, by its place in the queue. */
+const queuedKey = (m: QueuedMessage, i: number) => `queued:${i}:${m.at}`;
+
+/** A message of yours the session's record doesn't have yet, faint, saying where it is. */
+function NotYetSaid({ prompt, text, state, className, children }: { prompt: string; text: string; state: string; className?: string; children?: ReactNode }) {
+  return (
+    <div className={cx('ca-thread-said', 'is-you', 'is-ahead', className)} data-prompt={prompt}>
+      <div className="ca-thread-meta">
+        <span>You</span>
+        <span className="ca-meta">{state}</span>
+      </div>
+      <YourText text={text} />
+      {children}
+    </div>
+  );
+}
+
 /** A message of yours on its way, one its harness holds until the turn ends, or one the session
  *  shows no sign of having taken. */
 function Unsaid({ ahead, onOpen }: { ahead: Ahead; onOpen: () => void }) {
   const c = ahead.change;
   if (c.kind !== 'send') return null;
-  const state = ahead.doneAt == null ? 'Sending…' : ahead.queued ? 'Queued until this turn ends' : ahead.unconfirmed ? 'Not in the session yet' : 'Sent';
+  const state = ahead.doneAt == null ? 'Sending…' : ahead.queued ? QUEUED : ahead.unconfirmed ? 'Not in the session yet' : 'Sent';
   return (
-    <div className={cx('ca-thread-said', 'is-you', 'is-ahead', ahead.doneAt == null && 'is-going', ahead.unconfirmed && 'is-unconfirmed')} data-prompt={`ahead:${ahead.id}`}>
-      <div className="ca-thread-meta">
-        <span>You</span>
-        <span className="ca-meta">{state}</span>
-      </div>
-      <YourText text={c.text} />
+    <NotYetSaid prompt={`ahead:${ahead.id}`} text={c.text} state={state} className={cx(ahead.doneAt == null && 'is-going', ahead.unconfirmed && 'is-unconfirmed')}>
       {ahead.unconfirmed && (
         <div className="ca-thread-askrow">
           <span>It went, but the session hasn’t shown it. It may not have reached it.</span>
@@ -439,7 +454,7 @@ function Unsaid({ ahead, onOpen }: { ahead: Ahead; onOpen: () => void }) {
           </button>
         </div>
       )}
-    </div>
+    </NotYetSaid>
   );
 }
 
@@ -806,7 +821,12 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   // Your messages to it still on their way, less the ones its record has now.
   const ahead = useAhead();
   const sends = useMemo(() => ahead.filter((a) => a.change.kind === 'send' && a.change.key === s.key), [ahead, s.key]);
-  const { showing, found } = useMemo(() => inRecord(sends, items), [sends, items]);
+  const { showing: sent, found } = useMemo(() => inRecord(sends, items), [sends, items]);
+  // What its harness holds until the turn ends, as the board lists it (the Codex app's queue),
+  // which has it after a relaunch, and one sent from elsewhere too: one of yours it holds shows
+  // there rather than twice.
+  const queued = useMemo(() => s.queued ?? [], [s.queued]);
+  const showing = useMemo(() => (queued.length > 0 ? sent.filter((a) => !a.queued) : sent), [sent, queued.length]);
   // Your prompts' words by key, for the pin: those read, the one before them, and yours on the way.
   const promptText = useMemo(() => {
     const words = new Map<string, string>();
@@ -815,25 +835,27 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     if (earlier) words.set(keyOf(earlier), of(earlier.text));
     for (const it of items) if (it.kind === 'you') words.set(keyOf(it), of(it.text));
     for (const a of showing) if (a.change.kind === 'send') words.set(`ahead:${a.id}`, of(a.change.text));
+    queued.forEach((m, i) => words.set(queuedKey(m, i), of(m.text)));
     return words;
-  }, [items, earlier, showing]);
+  }, [items, earlier, showing, queued]);
   useLayoutEffect(pin, [items, loaded, promptText, earlier]);
   useEffect(() => {
     for (const id of found) delivered(id);
   }, [found]);
-  // A message you just sent brings the view to the end, wherever you'd scrolled.
+  // A message you just sent, or one queued, brings the view to the end, wherever you'd scrolled.
+  const yours = showing.length + queued.length;
   const shownSends = useRef(0);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && showing.length > shownSends.current) toEnd(el);
-    shownSends.current = showing.length;
-  }, [showing.length, toEnd]);
+    if (el && yours > shownSends.current) toEnd(el);
+    shownSends.current = yours;
+  }, [yours, toEnd]);
   // The latest prompt the session took back goes back in the box below, as Claude Code puts it
   // back in its own, while nothing came after it and nothing of yours is on its way.
   const lastItem = items[items.length - 1];
   useEffect(() => {
-    if (answeredBelow && lastItem?.kind === 'you' && lastItem.withdrawn && showing.length === 0) putBack(s.key, keyOf(lastItem), lastItem.text);
-  }, [answeredBelow, lastItem, showing.length, s.key]);
+    if (answeredBelow && lastItem?.kind === 'you' && lastItem.withdrawn && yours === 0) putBack(s.key, keyOf(lastItem), lastItem.text);
+  }, [answeredBelow, lastItem, yours, s.key]);
   // The last call with no answer yet is what's running, or what the session waits on you for.
   const pending = useMemo(() => {
     const answered = new Set(items.filter((it) => it.kind === 'result' && it.id).map((it) => it.id));
@@ -919,7 +941,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                   <Rich text={`Running \`${streaming.tool.replace(/`/g, '')}\``} now={now} />
                 </div>
               )}
-              {loaded && items.length === 0 && showing.length === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
+              {loaded && items.length === 0 && yours === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
               {s.status === 'needs' && !pending && s.excerpt && (
                 <div className="ca-thread-tool is-asks">
                   <div className="ca-thread-askrow">
@@ -936,6 +958,10 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                   </div>
                 </div>
               )}
+              {/* After the turn that's running, which they wait on. */}
+              {queued.map((m, i) => (
+                <NotYetSaid key={queuedKey(m, i)} prompt={queuedKey(m, i)} text={m.text} state={QUEUED} />
+              ))}
             </div>
           </ThreadFind>
         </ImagesFrom.Provider>

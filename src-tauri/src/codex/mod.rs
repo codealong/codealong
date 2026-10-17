@@ -3,14 +3,16 @@
 //! for an account, and the reader, which keeps the thread names and the rollouts read for the
 //! board. Beside it: rollouts and the thread index (rollout.rs), the conversation a rollout
 //! holds (conversation.rs), its app-server, for what Codex does itself (appserver.rs), the
-//! socket the app's windows talk on (ipc.rs), its terminal UIs (terminals.rs), side
-//! conversations (side.rs), the models an account offers (models.rs), plan usage (usage.rs) and
-//! whether OpenAI may train on the account (training.rs). See .claude/rules/codex.md.
+//! socket the app's windows talk on (ipc.rs), the app's follow-up queue (queue.rs), its terminal
+//! UIs (terminals.rs), side conversations (side.rs), the models an account offers (models.rs),
+//! plan usage (usage.rs) and whether OpenAI may train on the account (training.rs). See
+//! .claude/rules/codex.md.
 
 mod appserver;
 mod conversation;
 pub mod ipc;
 mod models;
+mod queue;
 mod rollout;
 mod side;
 mod terminals;
@@ -25,8 +27,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::config::AccountCfg;
-use crate::harness::{Applied, Look, NewLines};
-use crate::model::{Harness, Session, Usage};
+use crate::harness::{Applied, DatabaseMarks, Look, NewLines};
+use crate::model::{Harness, QueuedMessage, Session, Usage};
 use crate::transcript::Page;
 use crate::util::{mtime_ms, parallel_map, parse_rfc3339_ms, read_first_line};
 
@@ -536,11 +538,15 @@ impl crate::harness::Adapter for Codex {
 /* ---- Reading threads for the board ---- */
 
 /// Codex's threads for the board (`harness::Reader`): each account's thread names, the rollouts
-/// read so far, and the terminals that show threads.
+/// read so far, the messages the app holds for them, and the terminals that show threads.
 #[derive(Default)]
 pub struct Reader {
     /// Thread names by account (`session_index.jsonl`).
     index: HashMap<String, HashMap<String, (String, i64)>>,
+    /// The messages the app holds for each thread until its turn ends, by account
+    /// (`queue::read`), and how each account's queue stood when it was read.
+    queues: HashMap<String, HashMap<String, Vec<QueuedMessage>>>,
+    queue_marks: DatabaseMarks,
     /// Each rollout with its account, what it said, and how far it's been read. `None` marks a
     /// thread that's never shown (a guardian review, a subagent), so its constant writes are
     /// ignored.
@@ -675,9 +681,12 @@ impl crate::harness::Reader for Reader {
     fn scan(&mut self, accounts: &[AccountCfg], look: &Look) {
         self.index.clear();
         self.rollouts.clear();
+        self.queues.clear();
         for a in accounts {
             let home = a.home_path();
             self.index.insert(a.name.clone(), read_index(&home));
+            self.queue_marks.changed(&a.name, &home.join(queue::DB));
+            self.queues.insert(a.name.clone(), queue::read(&home));
             let files = rollout_files(&home, look.since, &look.seen.pinned_ids("codex", &a.name));
             for (path, parsed) in parallel_map(files, |(p, m)| {
                 let parsed = parse_rollout(&p, m, None);
@@ -720,6 +729,22 @@ impl crate::harness::Reader for Reader {
         self.poll_rollouts(accounts, look)
     }
 
+    /// The app's follow-up queue changes without a line in any rollout, and the watcher drops a
+    /// database's writes: it's looked at here, and read again when it changed.
+    fn glance(&mut self, accounts: &[AccountCfg], _look: &Look) -> Applied {
+        let mut out = Applied::default();
+        for a in accounts {
+            let home = a.home_path();
+            if !self.queue_marks.changed(&a.name, &home.join(queue::DB)) && self.queues.contains_key(&a.name) {
+                continue;
+            }
+            let queued = queue::read(&home);
+            out.dirty |= self.queues.get(&a.name).map_or(!queued.is_empty(), |before| *before != queued);
+            self.queues.insert(a.name.clone(), queued);
+        }
+        out
+    }
+
     fn processes(&mut self, accounts: &[AccountCfg], look: &Look) -> Applied {
         let mut out = Applied::default();
         if !accounts.is_empty() {
@@ -750,6 +775,10 @@ impl crate::harness::Reader for Reader {
                 let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
                 let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), look.seen.seen_at(&key), look.now);
                 s.archived = path.starts_with(&archived_dir);
+                if let Some(queued) = self.queues.get(&account.name).and_then(|q| q.get(&th.id)) {
+                    s.queued_at = queued.iter().map(|m| m.at).max();
+                    s.queued = queued.clone();
+                }
                 s
             })
             .collect()
@@ -1018,6 +1047,40 @@ mod tests {
         assert!(!reader.poll_rollouts(accounts, &look).dirty);
         assert!(reader.sessions(&account, &look).is_empty());
         drop(hidden);
+    }
+
+    /// What the app holds for a thread until its turn ends is on its session as the queue
+    /// changes, whoever queued it, and goes as the app takes it out to send it in.
+    #[test]
+    fn a_threads_queued_messages_are_on_its_session_while_the_app_holds_them() {
+        use crate::harness::Reader as _;
+        let home = crate::fixtures::scratch("codex-queued");
+        let dir = home.join("sessions/2026/10/17");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rollout-2026-10-17T15-00-00-01a146ca-bab1-7a31-b58d-61410c87a9ad.jsonl");
+        std::fs::write(&path, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"thread\",\"cwd\":\"/codealong-test-missing-repo\",\"thread_source\":\"user\"}}\n{\"timestamp\":\"2026-10-17T22:03:55.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}\n").unwrap();
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let accounts = std::slice::from_ref(&account);
+        let seen = crate::state::SeenState::default();
+        let now = parse_rfc3339_ms("2026-10-17T22:30:00.000Z").unwrap();
+        let look = Look { seen: &seen, since: now - 14 * crate::util::DAY_MS, now, ps: Default::default() };
+        let mut reader = Reader::default();
+        reader.scan(accounts, &look);
+        let session = |r: &Reader| r.sessions(&account, &look).into_iter().next().unwrap();
+        assert_eq!((session(&reader).queued_at, session(&reader).queued.len()), (None, 0));
+        assert!(!reader.glance(accounts, &look).dirty, "no queue, nothing new");
+
+        let at = now - 60_000;
+        queue::queue_at(&home, &[("thread", 0, at, r#"{"UserInput":{"content":[{"type":"text","text":"Also the docs\n","text_elements":[]}],"client_id":"u1"}}"#)]);
+        assert!(reader.glance(accounts, &look).dirty);
+        let s = session(&reader);
+        assert_eq!(s.queued_at, Some(at));
+        assert_eq!(s.queued, [QueuedMessage { at, text: "Also the docs".into() }]);
+        assert!(!reader.glance(accounts, &look).dirty, "an unchanged queue is the same board");
+
+        rusqlite::Connection::open(home.join(queue::DB)).unwrap().execute("DELETE FROM queued_items", []).unwrap();
+        assert!(reader.glance(accounts, &look).dirty);
+        assert_eq!((session(&reader).queued_at, session(&reader).queued.len()), (None, 0));
     }
 
     /// A thread unarchived from Codealong stays on the board as Codex moves it back under

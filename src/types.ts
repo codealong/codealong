@@ -38,6 +38,15 @@ export interface ConnectionLost {
   continues?: boolean;
 }
 
+/** A message a session's harness holds until the turn it's taking ends (peer/src/model.rs
+ *  `QueuedMessage`). */
+export interface QueuedMessage {
+  /** When it was queued. */
+  at: number;
+  /** What it says, each image in it as `[Image #n]`. */
+  text: string;
+}
+
 export interface SessionLimit {
   /** The limit, as its account's meters key it (`session`, `week`, `model:<name>`), when said. */
   meter: string | null;
@@ -114,8 +123,13 @@ export interface Session {
   stalledSince: number | null;
   /** When the latest of the messages its harness holds until its turn ends came: typed while it
    *  works, one waits there, and its record has it only once the turn ends (Antigravity's
-   *  terminal UI). Missing when it holds none, and from a board an older app sent. */
+   *  terminal UI, the Codex app's follow-up queue). Missing when it holds none, and from a board
+   *  an older app sent. */
   queuedAt?: number;
+  /** The messages it holds, in the order they'll go, where its harness says what they are (the
+   *  Codex app's follow-up queue), whoever sent them: shown at the end of its conversation until
+   *  they go in. Missing when it holds none or its harness doesn't say. */
+  queued?: QueuedMessage[];
   /** A Claude session whose turn left a command running in the background: the command, or ""
    *  when it couldn't be read. Working, it waits on it (`waitsInBackground`). Missing from a
    *  board an older app sent. */

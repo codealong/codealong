@@ -169,7 +169,14 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   app-server's instead: `codex/ipc.rs` (`queues_follow_ups`, `InApp::deliver`),
   `codex/appserver.rs` (`queue`). Only yours is queued: another agent's message, or Codealong's,
   is steered in. Queued in a long turn, agents' messages were recorded in that turn 2.5 to 6.5
-  minutes after they were sent, two of them together (2026-10-13).
+  minutes after they were sent, two of them together (2026-10-13). What's in the queue, and how a
+  row is kept (`queued_items`, its `payload_json`): `codex/queue.rs`, which the reader looks at
+  every glance (`Reader::glance`) for `Session::queued`. The app's windows list the queue again
+  as another process adds to it (`thread/queue/list`, logged in the app's own log), and a queued
+  message's Steer sends `turn/steer` and then `thread/queue/delete`; the steered message reached
+  the rollout 38 seconds later, at the turn's next step (26.930, 2026-10-17). The app-server that
+  makes a thread starts what's queued for it at once while the thread is idle, so a queue to look
+  at needs a second app-server (`thread/queue/list` answered `[]` otherwise).
 - A thread made for the app to run, its first turn started through the window socket:
   `codex/appserver.rs` (`new_thread`), `codex/ipc.rs` (`codex_start_request`), `codex/mod.rs`
   (`start_in_app`). `thread/inject_items` refuses an empty list, and the app can't open a

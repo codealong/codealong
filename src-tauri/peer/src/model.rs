@@ -232,6 +232,11 @@ pub struct Session {
     /// one that may not have reached it. None when it holds none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued_at: Option<i64>,
+    /// The messages it holds, in the order they'll go, where its harness says what they are (the
+    /// Codex app's follow-up queue): a window shows them at the end of its conversation, whoever
+    /// sent them, until they go in. Empty where it holds none or its harness doesn't say.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued: Vec<QueuedMessage>,
     /// How its turn ended, as Jev read it (insights.rs, when `[jev] sessions` is on) or as an
     /// agent tagged it (`codealong session tag`, tags.rs): `by` names the agent's session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -518,6 +523,7 @@ impl Session {
             stalled_since: None,
             background: None,
             queued_at: None,
+            queued: Vec::new(),
             insight: None,
             asks: false,
             hosted: false,
@@ -604,6 +610,16 @@ pub struct ContextUse {
     pub used: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<u64>,
+}
+
+/// A message a session's harness holds until the turn it's taking ends (`Session::queued`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedMessage {
+    /// When it was queued.
+    pub at: i64,
+    /// What it says, each image in it as `[Image #n]`.
+    pub text: String,
 }
 
 /// The usage limit a session's last turn ended on, as its harness recorded it.

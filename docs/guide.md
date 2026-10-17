@@ -430,7 +430,9 @@ A message you send shows faint at the end of the conversation, Sending… and th
 session's record has it. One its harness holds until the turn that's running ends says Queued until
 this turn ends for as long as it waits: Antigravity's command line queues what's typed while it works
 (its `Queued Messages` setting, Queue by default), and its record has the message only once the turn
-is over. One the session shows no sign of having taken, once it's been quiet a while, says Not in the
+is over. The Codex app's queue (when Codex is set to queue follow-ups) shows whole at the end of the
+thread, after the turn that's running, whoever queued it: from Codealong, from the Codex app's own
+box, or from another device, and still there after Codealong restarts. One the session shows no sign of having taken, once it's been quiet a while, says Not in the
 session yet, with Open to check. One that may have gone in without Codealong being able to tell (its
 terminal didn't confirm the typing, say) counts as sent rather than going back in the box, where it
 would invite sending it twice: the box says where to look, and the session's record says whether it
