@@ -21,6 +21,43 @@
   max-height: 40vh;
   overflow: auto;
 }
+/* The box with questions to answer fits the card it's in (SessionReply.css): of its parts, the
+   question with its choices (or, answered elsewhere, the list) gives up what's short and scrolls,
+   as one, so a long question never leaves its choices a scroller of their own, and stops at three
+   fifths of a tall window's height, so the conversation keeps some. The box for your own answer
+   keeps its room. */
+.ca-composer.is-questions > .ca-question > * {
+  flex: none;
+}
+/* The question's parts are rows of the box itself: a box of their own between could shrink past
+   the box for your own answer, which then lay under the buttons. */
+.ca-composer.is-questions > .ca-question {
+  display: contents;
+}
+.ca-composer.is-questions .ca-question-body,
+.ca-composer.is-elsewhere .ca-questions {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+/* Three lines of the question at least, where a choice under it (two, in the list) makes it
+   taller than that anyway. A question without them (an Antigravity one to write your answer to)
+   is only its words, which keep all their room: a floor would leave room unfilled under a short
+   one, and none let a short card squeeze them out of sight. */
+.ca-composer.is-questions .ca-question-body:has(.ca-question-choice),
+.ca-composer.is-elsewhere .ca-questions:has(li + li) {
+  min-height: 54px;
+}
+.ca-composer.is-questions .ca-question-body:not(:has(.ca-question-choice)),
+.ca-composer.is-elsewhere .ca-questions:not(:has(li + li)) {
+  flex-shrink: 0;
+}
+.ca-question-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 60vh;
+  overflow: auto;
+}
 .ca-question-list {
   display: grid;
   gap: var(--space-1);
@@ -63,25 +100,17 @@
 /* Several questions to answer show one at a time, under a strip of their headers that wraps in a
    narrow card rather than running off it. */
 .ca-question-steps {
-  justify-self: start;
+  align-self: flex-start;
   flex-wrap: wrap;
   max-width: 100%;
 }
-/* A long question scrolls, so its choices stay in the panel. */
-.ca-composer.is-questions .ca-approval-label {
-  max-height: 30vh;
-  overflow: auto;
-}
 /* Its choices, a row each as Claude Code's prompt lists them: a mark that says whether it takes
-   one or several, the choice, and what it says about it. Many long ones scroll, so the buttons
-   that answer stay in the panel, and a long word or code span wraps rather than widening the box
-   past a narrow card. */
+   one or several, the choice, and what it says about it. A long word or code span wraps rather
+   than widening the box past a narrow card. */
 .ca-question-choices {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1);
-  max-height: 40vh;
-  overflow: auto;
 }
 .ca-question-choice {
   display: flex;

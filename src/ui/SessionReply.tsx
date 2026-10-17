@@ -1415,49 +1415,53 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, give
         />
       )}
       <div key={q.question} className="ca-question">
-        <div className="ca-approval-label">
-          {/* With several, the strip above names each by its header. */}
-          {q.header && questions.length === 1 && <Chip className="ca-question-header">{q.header}</Chip>}
-          <Rich text={q.question} now={0} />
-        </div>
-        {/* Its choices as Claude Code's own prompt lists them, each with what it says about it.
-            As buttons, a picked one looked like Answer and the strip's question, and the words
-            that say what a choice means were hidden in a tooltip. */}
-        <div className="ca-question-choices" role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.question}>
-          {q.options.map((o) => {
-            const on = chosenFor(q).includes(o.label);
-            // Why it was suggested goes with the first choice suggested: one for each question.
-            const why = offered(q)[0] === o.label ? suggested?.why?.[q.question] : undefined;
-            return (
-              <button key={o.label} type="button" className={cx('ca-question-choice', on && 'is-on')} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} disabled={busy} onClick={() => pick(q, o.label)}>
-                <span className={cx('ca-question-mark', q.multiSelect && 'is-multi')} aria-hidden="true">
-                  {on && q.multiSelect && <Icon name="check" size={10} stroke={2.5} />}
-                </span>
-                <span className="ca-question-choice-text">
-                  <span className="ca-question-choice-label">
-                    <span>
-                      <Rich text={o.label} now={0} />
-                    </span>
-                    {/* The suggested one keeps its chip once you pick another. */}
-                    {offered(q).includes(o.label) && (
-                      <Chip className="ca-suggestedchip" title={suggested?.byTitle ? `Suggested by ${suggested.byTitle}` : 'Suggested'}>
-                        <Icon name="sparkles" size={12} />
-                        Suggested
-                      </Chip>
-                    )}
+        {/* The question and its choices scroll as one where the card is short for them; the box
+            for your own answer and the buttons stay under them (QuestionList.css). */}
+        <div className="ca-question-body">
+          <div className="ca-approval-label">
+            {/* With several, the strip above names each by its header. */}
+            {q.header && questions.length === 1 && <Chip className="ca-question-header">{q.header}</Chip>}
+            <Rich text={q.question} now={0} />
+          </div>
+          {/* Its choices as Claude Code's own prompt lists them, each with what it says about it.
+              As buttons, a picked one looked like Answer and the strip's question, and the words
+              that say what a choice means were hidden in a tooltip. */}
+          <div className="ca-question-choices" role={q.multiSelect ? 'group' : 'radiogroup'} aria-label={q.question}>
+            {q.options.map((o) => {
+              const on = chosenFor(q).includes(o.label);
+              // Why it was suggested goes with the first choice suggested: one for each question.
+              const why = offered(q)[0] === o.label ? suggested?.why?.[q.question] : undefined;
+              return (
+                <button key={o.label} type="button" className={cx('ca-question-choice', on && 'is-on')} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} disabled={busy} onClick={() => pick(q, o.label)}>
+                  <span className={cx('ca-question-mark', q.multiSelect && 'is-multi')} aria-hidden="true">
+                    {on && q.multiSelect && <Icon name="check" size={10} stroke={2.5} />}
                   </span>
-                  {o.description && (
-                    <span className="ca-question-desc">
-                      <Rich text={o.description} now={0} />
+                  <span className="ca-question-choice-text">
+                    <span className="ca-question-choice-label">
+                      <span>
+                        <Rich text={o.label} now={0} />
+                      </span>
+                      {/* The suggested one keeps its chip once you pick another. */}
+                      {offered(q).includes(o.label) && (
+                        <Chip className="ca-suggestedchip" title={suggested?.byTitle ? `Suggested by ${suggested.byTitle}` : 'Suggested'}>
+                          <Icon name="sparkles" size={12} />
+                          Suggested
+                        </Chip>
+                      )}
                     </span>
-                  )}
-                  {why && <QuestionWhy why={why} />}
-                </span>
-              </button>
-            );
-          })}
+                    {o.description && (
+                      <span className="ca-question-desc">
+                        <Rich text={o.description} now={0} />
+                      </span>
+                    )}
+                    {why && <QuestionWhy why={why} />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {suggesting && suggested && onDismissSuggested && <SuggestionHead suggestions={suggested} onDismiss={onDismissSuggested} />}
         </div>
-        {suggesting && suggested && onDismissSuggested && <SuggestionHead suggestions={suggested} onDismiss={onDismissSuggested} />}
         <input
           ref={ownRef}
           className="ca-question-own"

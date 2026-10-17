@@ -3,7 +3,11 @@
 
 /* The conversation (SessionThread.tsx). */
 .ca-thread {
-  flex: 1;
+  /* It gives up its room before what else shrinks beside it (questions to answer,
+     SessionReply.css) does: in a card whose height is only a most (the peek), its basis is its
+     content, and at an equal factor the two shrank by their sizes, which left a long question
+     three lines. */
+  flex: 1 1000000 0%;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;

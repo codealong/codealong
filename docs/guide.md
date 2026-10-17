@@ -479,7 +479,9 @@ are left to its terminal, since they're numbered differently from one prompt to 
 Questions a Claude Code session asks you
 (its `AskUserQuestion`) show the same way through the plugin, one at a time under a strip of their
 headers, each with its choices listed as Claude Code lists them, what each says about itself under it,
-and a box for your own answer, and Answer sends your picks. Claude Code's own prompt stays up all the while, and
+and a box for your own answer, and Answer sends your picks. In a card too short for all of it (the
+peek under a tall header, say), the conversation gives up its room first, then the question and its
+choices scroll together while your own answer's box and the buttons stay in view. Claude Code's own prompt stays up all the while, and
 whichever answer comes first counts. An Antigravity command line conversation's questions (its
 `ask_question`) show the same way while it runs in a Ghostty, iTerm2 or tmux tab: Answer presses
 the keys there that give your picks, typing your own words into its Write-in box, and Decline

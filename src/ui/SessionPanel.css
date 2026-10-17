@@ -36,6 +36,13 @@
 .ca-reply .ca-sessinsp-head {
   padding: 10px 12px 8px;
 }
+/* A card or panel too short for its header, the questions it waits on you to answer and the
+   message box, each as small as it goes (SessionReply.css), scrolls as a whole, rather than
+   cutting the message box off at its foot. */
+.ca-reply:has(> .ca-composer.is-questions),
+.ca-insp.ca-sessinsp:has(> .ca-composer.is-questions) {
+  overflow: hidden auto;
+}
 
 /* Working through what waits on you: how the last one went, and the way on. */
 .ca-reply-queue {

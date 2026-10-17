@@ -224,6 +224,27 @@
 .ca-composer.is-approval {
   background: var(--attn-tint);
 }
+/* Questions to answer fit the card or panel they're in, however short. Caps on their parts as
+   shares of the window's height didn't: in a short card they and the rest came to more than the
+   card, which cut off the buttons that answer. The box's head, the box for your own answer and
+   the buttons keep their room, and the question gives up what's short and scrolls
+   (QuestionList.css), once the conversation above has none left (SessionThread.css). In a card
+   too short even for its other parts and three lines of the question, the box scrolls as a
+   whole, rather than painting them over each other and over the message box, and keeps 112px,
+   where Decline and Answer show whole once it's scrolled to them: less than the least it ever
+   holds (a question without choices comes to 128), so it never adds room of its own. A card too
+   short for that and the rest (a kept card made as small as it goes) scrolls as a whole while it
+   waits (SessionPanel.css). */
+.ca-composer.is-questions {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 1;
+  min-height: 112px;
+  overflow: auto;
+}
+.ca-composer.is-questions > * {
+  flex: none;
+}
 .ca-approval-head {
   display: flex;
   align-items: center;
