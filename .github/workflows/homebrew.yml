@@ -1,0 +1,64 @@
+# Moves the Homebrew cask (codealong/homebrew-tap, Casks/codealong.rb) to a release once it's
+# published, so `brew install --cask codealong/tap/codealong` installs the newest. Installed copies
+# update themselves (the cask says auto_updates), so this is for new installs. Only the version and
+# the disk image's checksum change; the rest of the cask is the tap's.
+#
+# It pushes with a deploy key that can write to the tap alone, the `homebrew` environment's
+# (scripts/release-secrets.sh makes it), which only v* tags may use. To move the cask by hand:
+# gh workflow run homebrew.yml --ref v0.3.0
+name: Homebrew
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: homebrew
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  cask:
+    # Prereleases don't move `latest`, and neither do they move the cask.
+    if: ${{ !github.event.repository.private && !github.event.release.prerelease }}
+    runs-on: ubuntu-24.04
+    environment: homebrew
+    timeout-minutes: 10
+    env:
+      TAG: ${{ github.event.release.tag_name || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: The release's disk image and its checksum
+        run: |
+          version="${TAG#v}"
+          dmg="Codealong_${version}_universal.dmg"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$dmg.sha256" --dir "$RUNNER_TEMP"
+          sha="$(cut -d ' ' -f 1 "$RUNNER_TEMP/$dmg.sha256")"
+          [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "$TAG has no checksum for $dmg." >&2; exit 1; }
+          echo "VERSION=$version" >>"$GITHUB_ENV"
+          echo "SHA256=$sha" >>"$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          repository: codealong/homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_KEY }}
+          path: tap
+      - name: Point the cask at it
+        working-directory: tap
+        run: |
+          sed -i -E "s/^  version \"[^\"]*\"$/  version \"$VERSION\"/; s/^  sha256 \"[0-9a-f]{64}\"$/  sha256 \"$SHA256\"/" Casks/codealong.rb
+          if ! grep -qx "  version \"$VERSION\"" Casks/codealong.rb || ! grep -qx "  sha256 \"$SHA256\"" Casks/codealong.rb; then
+            echo "Casks/codealong.rb no longer has the version and sha256 lines this rewrites." >&2
+            exit 1
+          fi
+          if git diff --quiet; then
+            echo "The cask is at $VERSION already."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "Codealong $VERSION"
+          git push -q
+          echo "The cask is at $VERSION."

@@ -1,0 +1,96 @@
+# Builds a release when a version tag is pushed (scripts/version.sh makes one): the installer and
+# its update, signed with the Developer ID, notarized and attached to a draft GitHub release, by
+# scripts/release.sh, the same script a Mac with the keys runs. Nothing reaches anyone until the
+# draft is published, which is what hands the update to installed copies and moves the Homebrew
+# cask (homebrew.yml); design/plans/releases.md has the routine.
+#
+# The keys are secrets of the `release` environment, which only v* tags may deploy to, so a
+# workflow changed on a branch never sees them; scripts/release-secrets.sh puts them there from
+# 1Password. While the repository is private the job is skipped: environments need a paid plan
+# there, and a Mac builds releases with release.sh instead.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: ${{ !github.event.repository.private }}
+    # The SDK the app links against decides how macOS draws its windows and controls, so it's the
+    # same macOS as the Macs it's built on by hand.
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The release notes are the tag's message, and without it the commits since the last tag.
+          fetch-depth: 0
+      - name: The tag is the version
+        run: |
+          version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          [ "$GITHUB_REF_NAME" = "v$version" ] || { echo "The tag is $GITHUB_REF_NAME but the app's version is $version: tag with scripts/version.sh." >&2; exit 1; }
+          git fetch -q --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      # Writes the crates' licenses that go in the app (src-tauri/about.toml).
+      - run: cargo install cargo-about --version 0.9.2 --locked --features cli
+      # dmgbuild, which draws the disk image's window, needs Python 3.10 or later.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: The Developer ID, in a keychain of its own
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          [ -n "$CERTIFICATE" ] || { echo "The release environment has no APPLE_CERTIFICATE: run scripts/release-secrets.sh." >&2; exit 1; }
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$CERTIFICATE" | base64 --decode >"$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+          # Searched first, before the runner's own keychains, which are one path to a line.
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+      - name: The notary's key
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          printf '%s\n' "$APPLE_API_KEY_P8" >"$RUNNER_TEMP/private_keys/AuthKey_$APPLE_API_KEY.p8"
+      - name: Build, sign, notarize and draft the release
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release.sh --draft
+      - name: Forget the keys
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/release.keychain-db" 2>/dev/null || true
+          rm -rf "$RUNNER_TEMP/private_keys"

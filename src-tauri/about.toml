@@ -1,0 +1,28 @@
+# cargo-about's settings for the licenses of every crate the app is built with, which
+# scripts/release.sh writes into the app as THIRD_PARTY_LICENSES.txt (about.hbs is its layout).
+# A crate under a license not accepted here fails the release, to be looked at before it ships.
+accepted = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unlicense",
+    "CC0-1.0",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]
+# The Macs a release is built for; what only builds elsewhere (Linux, Windows) isn't in the app.
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+# Crates whose license files cargo-about can't read on its own.
+workarounds = ["ring", "rustls"]
+# The workspace's own crates are Codealong's, under its LICENSE.
+private = { ignore = true }

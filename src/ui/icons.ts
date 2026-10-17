@@ -1,4 +1,5 @@
 // Tabler Icons (MIT) outline paths, 24px grid, copied from the Codealong design system (@tabler/icons 3.44.0).
+// Their license is in THIRD_PARTY_NOTICES.md.
 // `notch` is drawn in their style: a screen with the notch at its top, for the bar docked there.
 export const ICONS: Record<string, string[]> = {
  "slash": [

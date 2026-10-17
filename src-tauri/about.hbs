@@ -1,0 +1,9 @@
+Rust crates Codealong is built with, and their licenses
+=======================================================
+{{#each licenses}}
+
+--------------------------------------------------------------------------------
+{{{name}}}, used by: {{#each used_by}}{{{crate.name}}} {{{crate.version}}}{{#unless @last}}, {{/unless}}{{/each}}
+
+{{{text}}}
+{{/each}}

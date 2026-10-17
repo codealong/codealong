@@ -46,6 +46,8 @@
       "app"
     ],
     "resources": {
+      "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE",
       "../skills/codealong": "skills/codealong",
       "../.claude-plugin/marketplace.json": "plugin-marketplace/.claude-plugin/marketplace.json",
       "../plugin/.claude-plugin/plugin.json": "plugin-marketplace/plugin/.claude-plugin/plugin.json",

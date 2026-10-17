@@ -14,7 +14,7 @@ devices is its own crate, codealong-peer (`src-tauri/peer/`), which the
 ## Requirements
 
 - macOS 13 or later, with Xcode's command line tools (`xcode-select --install`)
-- Rust (`rustup`) and Node 20 or later
+- Rust 1.91 or later (`rustup`) and Node 22.12 or later
 - `gh` signed in (`gh auth login`) for PRs
 - A terminal: Ghostty 1.3+, iTerm2 or Terminal (a new config.toml picks the first of those installed)
 
@@ -25,6 +25,7 @@ npm install
 npm run tauri dev         # the app with hot reload
 scripts/relaunch.sh       # build Codealong Dev, then quit it and reopen it from Applications
 scripts/catch-up-main.sh  # fast-forward the main checkout to origin/main (relaunch.sh does too)
+scripts/version.sh 0.3.0  # start a release: the version everywhere, committed and tagged
 scripts/release.sh        # the installer for other Macs (design/plans/releases.md)
 npm run snapshot          # print the board as a table without opening a window
 ```

@@ -5,3 +5,10 @@ src-tauri/gen/schemas/
 .DS_Store
 *.log
 .preview/
+# Keys never belong in the repo: signing certificates, notary and update keys, environments.
+.env
+.env.*
+*.p12
+*.p8
+*.pem
+*.key

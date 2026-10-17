@@ -3,8 +3,26 @@
 Status: phases 1 and 2 are built (2026-09-28). `scripts/release.sh` makes the installer, signed
 with Gordon Hempton's Developer ID and notarized (Gatekeeper accepts the app and the disk image as
 "Notarized Developer ID"), and each release's update; release builds find, install and offer it.
-The decisions below are made. What's next: the release routine's `version.sh`, the first public
-release once the repo is open source, then CI and Homebrew.
+The routine (`scripts/version.sh`), CI's release build and the Homebrew tap are written
+(2026-10-17), and wait on the repo going public to run: see *Going public* below. The decisions
+below are made.
+
+## Going public
+
+In this order, once the history is as it should be (an audit on 2026-10-17 found no secrets, but
+names from the owner's other work in fixtures, since replaced, and in commit messages):
+
+1. Make `codealong/codealong`, `codealong/codealong-ios` and `codealong/homebrew-tap` public, and
+   turn on private vulnerability reporting (Settings, Security) on the first two.
+2. `scripts/release-secrets.sh`: the `release` and `homebrew` environments and their keys, from
+   1Password (environments need a paid plan on a private repo, so this waits for step 1).
+3. From origin/main: `scripts/version.sh 0.2.0 --notes <file> --push`. The plugin is 0.2.0
+   already, and the version never goes back. The tag has GitHub build the draft (release.yml),
+   which waits for your approval in the run's page; about half an hour after that.
+4. Install the draft's `Codealong.dmg` on a Mac or user account that has never had Codealong
+   (*Check before the first public release* below), then publish the draft. Publishing moves
+   `latest`, so installed copies find it and the website's button gets it, and homebrew.yml
+   points the cask at it; then `brew install --cask codealong/tap/codealong` on a clean account.
 
 ## Decided: whose name is on it
 
@@ -162,10 +180,12 @@ In `scripts/release.sh`, after stapling: the app goes into `Codealong_<version>_
 `npx tauri signer sign --app-version <version>`. The script checks the signature is by the key
 the app trusts (their key IDs), and that the archive unpacks to an app of this version that passes
 `codesign --verify --strict`. It writes `latest.json` with the release's platforms pointing at the
-archive and the release notes (`--notes <file>`, or the commit subjects since the last tag), and
-with `--draft` makes the draft release: the image (also as `Codealong.dmg`, so the website can
-link straight to `releases/latest/download/Codealong.dmg`), its checksum, the archive, its
-signature and `latest.json`. `--draft` refuses a version that's already tagged or released.
+archive and the release notes (`--notes <file>`, else the version tag's message, else the commit
+subjects since the tag before), and with `--draft` makes the draft release: the image (also as
+`Codealong.dmg`, so the website can link straight to `releases/latest/download/Codealong.dmg`),
+its checksum, the archive, its signature and `latest.json`. `--draft` refuses a version that's
+already released, a version tagged on another commit, and a tag that isn't on GitHub yet (GitHub
+would make one of its own at publishing and refuse the real one ever after).
 
 `updates::tests::an_update_replaces_the_app` (ignored) installs a release's own update over a
 copy of an app through the updater itself, in Tauri's mock runtime: a local server hands out
@@ -174,36 +194,51 @@ the release's `latest.json` and archive, and the key is `tauri.conf.json`'s.
 ## Versions and the routine
 
 - One version for the app, the command and the Claude Code plugin, kept in `tauri.conf.json`,
-  `Cargo.toml`, `package.json`, `plugin/.claude-plugin/plugin.json` and
-  `.claude-plugin/marketplace.json` (all 0.1.0 today; the release script refuses to build when
-  the first three disagree). 0.x while settings and features move: a minor version for features,
-  a patch for fixes. The updater compares these as semver.
-- `scripts/version.sh <x.y.z>` (to write) sets them all, commits "Release x.y.z" and tags
-  `vx.y.z`.
+  `Cargo.toml` (and its lockfile), `package.json` (and its lockfile),
+  `plugin/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. The release script
+  refuses to build while they disagree (the app is 0.1.0 and the plugin 0.2.0 until the first
+  release). 0.x while settings and features move: a minor version for features, a patch for
+  fixes. The updater compares these as semver.
+- `scripts/version.sh <x.y.z>` sets them all, commits "Release x.y.z" on top of origin/main and
+  tags it `vx.y.z`, with the release notes as the tag's message; `--push` pushes both. It refuses
+  a version that isn't newer than the app's, and a first release without `--notes <file>`.
 - Release notes come from the commit subjects since the last tag, which already read as feature
-  sentences, trimmed by hand. They go in the GitHub release and in `latest.json`, which is what
-  the app shows beside Restart.
-- Each release: `version.sh`, then `release.sh` (phase 3: CI does it on the tag), then install
-  the draft's image on a Mac or user account that has never had Codealong, then publish the
-  draft. The website needs nothing: its button follows `releases/latest`.
+  sentences, trimmed by hand (`--notes`). They go in the GitHub release and in `latest.json`,
+  which is what the app shows beside Restart.
+- Each release: `version.sh --push`, which has CI build the draft (or `release.sh --draft` on a
+  Mac with the keys, after pushing the tag), then install the draft's image on a Mac or user
+  account that has never had Codealong, then publish the draft. The website needs nothing: its
+  button follows `releases/latest`; the Homebrew cask follows it by itself (phase 4).
 
-## Phase 3: building releases on CI
+## Phase 3: building releases on CI (written, not run yet)
 
-A workflow on `v*` tags, on GitHub's arm64 macOS runners, runs the same `scripts/release.sh`: it
-imports the Developer ID certificate (a .p12 in a secret) into a temporary keychain, writes the
-API key file from a secret, and passes `TAURI_SIGNING_PRIVATE_KEY` and its password. The
-secrets live in a `release` environment that needs your approval, so a changed workflow on a
-branch can't read them. On a public repo the runners are free; on a private one macOS minutes
-count ten times against the free plan's 2,000 a month, so about 200, and a universal release is
-likely 20 to 30 minutes. Until the repo is public, releases are built on a Mac with the script.
+`.github/workflows/release.yml`, on `v*` tags, on GitHub's `macos-26` arm64 runners (the SDK the
+app links against decides how macOS draws it, so it's the macOS it's built on by hand), runs the
+same `scripts/release.sh --draft`: it imports the Developer ID certificate (a .p12 in a secret)
+into a keychain of its own, writes the API key file from a secret, and passes
+`TAURI_SIGNING_PRIVATE_KEY` and its password. The secrets live in a `release` environment that
+only `v*` tags may deploy to and that waits for your approval, so neither a changed workflow on a
+branch nor a tag an agent pushed signs anything unseen. `scripts/release-secrets.sh` makes the
+environment and fills it from 1Password, with nothing written to disk but the .p12 for a moment.
+
+Environments need a paid plan on a private repository (the organization's is free), so the job
+is skipped while the repo is private, and releases are built on a Mac with the script until
+then. On a public repo the runners are free. A universal release is likely 30 to 45 minutes
+there. The first run will tell what a runner does differently from this Mac: the tests run
+there first, and Gatekeeper's checks.
 
 ## Phase 4: more ways in
 
-- **Homebrew.** A cask in a `codealong/homebrew-tap` repo (`brew install --cask
-  codealong/tap/codealong`): the image's URL and checksum, `auto_updates true` so `brew upgrade`
-  leaves updating to the app, `depends_on macos: ">= :ventura"`, and a `zap` stanza for
-  `~/Library/Application Support/Codealong`. The release script can bump it. Homebrew's own
-  cask list comes later, once the repo has the stars and forks it asks for.
+- **Homebrew (written).** `codealong/homebrew-tap` (private until the launch) has
+  `Casks/codealong.rb`: `brew install --cask codealong/tap/codealong` installs the release's
+  universal image (the URL and checksum), links the bundle's binary as the `codealong` command,
+  says `auto_updates true` so `brew upgrade` leaves updating to the app, quits the app before
+  uninstalling, and `--zap` removes its folders under ~/Library. `brew style` and `brew audit`
+  pass. `.github/workflows/homebrew.yml` moves its version and checksum when a release is
+  published (not a prerelease), with a deploy key that writes to the tap alone, in a `homebrew`
+  environment of `v*` tags without approval (release-secrets.sh makes it). Not tried yet: an
+  install from it, which needs a public release. Homebrew's own cask list comes later, once the
+  repo has the stars and forks it asks for.
 - **The Claude Code plugin.** `/plugin marketplace add codealong/codealong` reads the repo too,
   so it works for others once the repo is public.
 - **A beta channel.** Prereleases (`v0.3.0-beta.1`) don't move `latest`, so they need a manifest

@@ -8,8 +8,13 @@
 #   scripts/release.sh --arch arm64     one architecture (arm64, x86_64, or the default universal)
 #   scripts/release.sh --no-notarize    signed but not notarized: opens on this Mac only
 #   scripts/release.sh --allow-dirty    builds uncommitted changes too; never ship that
-#   scripts/release.sh --notes <file>   release notes (default: commit subjects since the last tag)
+#   scripts/release.sh --notes <file>   release notes (default: the message of the version's tag,
+#                                       else commit subjects since the last tag)
 #   scripts/release.sh --draft          also makes a draft GitHub release with every file
+#
+# A release starts with scripts/version.sh, which sets the version and tags it. Pushing the tag
+# has GitHub build the release with this script (.github/workflows/release.yml); a Mac with the
+# keys builds the same thing from the tagged commit.
 #
 # Signing uses the release team's "Developer ID Application" certificate from the keychain
 # (below; APPLE_SIGNING_IDENTITY names it exactly). Notarizing needs one of, for that team:
@@ -95,8 +100,19 @@ fi
 version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 cargo_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)"
 npm_version="$(node -p "require('./package.json').version")"
-if [ "$cargo_version" != "$version" ] || [ "$npm_version" != "$version" ]; then
-  fail "The version differs between tauri.conf.json ($version), Cargo.toml ($cargo_version) and package.json ($npm_version)."
+plugin_version="$(node -p "require('./plugin/.claude-plugin/plugin.json').version")"
+marketplace_version="$(node -p "require('./.claude-plugin/marketplace.json').plugins[0].version")"
+for v in "$cargo_version" "$npm_version" "$plugin_version" "$marketplace_version"; do
+  [ "$v" = "$version" ] ||
+    fail "The version differs between tauri.conf.json ($version), Cargo.toml ($cargo_version), package.json ($npm_version), plugin.json ($plugin_version) and marketplace.json ($marketplace_version): scripts/version.sh sets them all."
+done
+# The version's tag, when there is one, is on the commit being built: a tag scripts/version.sh
+# made, which GitHub builds the release from, or one pushed by hand.
+tagged=0
+if tag_commit="$(git rev-parse -q --verify "refs/tags/v$version^{commit}")"; then
+  [ "$tag_commit" = "$(git rev-parse HEAD)" ] ||
+    fail "v$version is tagged on another commit ($(git rev-parse --short "$tag_commit")): build from that commit, or set a new version (scripts/version.sh)."
+  tagged=1
 fi
 
 # Releases are signed by one Apple developer team, Gordon Hempton's own, and never by another
@@ -142,11 +158,17 @@ if [ "$updates" = 0 ] && [ "$notarize" = 1 ]; then
   fail "A release carries its update, signed with the update key: set TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD (see scripts/release.sh --help)."
 fi
 [ -z "$notes_file" ] || [ -f "$notes_file" ] || fail "No release notes at $notes_file."
+command -v cargo-about >/dev/null ||
+  fail "The app carries the licenses of the crates it's built with, which cargo-about writes: cargo install cargo-about --locked --features cli."
 if [ "$draft" = 1 ]; then
   [ "$notarize" = 1 ] || fail "A draft release is for handing out, so it's notarized: drop --no-notarize."
   gh auth status >/dev/null 2>&1 || fail "--draft makes the release with gh, which isn't signed in (gh auth login)."
-  ! git rev-parse -q --verify "refs/tags/v$version" >/dev/null || fail "v$version is tagged already: a release's files never change, so set a new version first."
-  ! gh release view "v$version" >/dev/null 2>&1 || fail "GitHub has a v$version release already: set a new version first."
+  ! gh release view "v$version" >/dev/null 2>&1 || fail "GitHub has a v$version release already: a release's files never change, so set a new version first (scripts/version.sh)."
+  # A tag made here goes to GitHub before the release does, or GitHub would make a tag of its own
+  # at publishing and refuse this one, with its notes, ever after.
+  if [ "$tagged" = 1 ] && ! git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+    fail "v$version is tagged here but not on GitHub: push it first (git push origin v$version)."
+  fi
 fi
 
 # The tests come last of these checks: the ones above take a moment and these a few minutes,
@@ -190,6 +212,25 @@ if ! "$venv/bin/python" -c 'import dmgbuild' 2>/dev/null; then
   "$venv/bin/pip" install --quiet --disable-pip-version-check "dmgbuild==$dmgbuild_version"
 fi
 
+# What the app is built from that others wrote, with their licenses, which their licenses ask to
+# go with every copy: THIRD_PARTY_NOTICES.md, the fonts' licenses, and every crate the app links
+# (cargo-about, from src-tauri/about.toml; a license it doesn't accept stops the release). It goes
+# in the app as THIRD_PARTY_LICENSES.txt, beside LICENSE and NOTICE.
+licenses="$work/THIRD_PARTY_LICENSES.txt"
+{
+  cat THIRD_PARTY_NOTICES.md
+  for f in src/fonts/OFL-*.txt; do
+    printf '\n\n## %s\n\n' "$(basename "$f")"
+    cat "$f"
+  done
+  printf '\n\n'
+  cargo about generate --manifest-path src-tauri/Cargo.toml --locked --fail -c src-tauri/about.toml src-tauri/about.hbs 2>"$work/about.log"
+} >"$licenses" || {
+  cat "$work/about.log" >&2
+  fail "cargo-about couldn't list the crates' licenses (above): a new crate's license may need looking at, and adding to src-tauri/about.toml."
+}
+node -e 'process.stdout.write(JSON.stringify({ bundle: { resources: { [process.argv[1]]: "THIRD_PARTY_LICENSES.txt" } } }))' "$licenses" >"$work/release.conf.json"
+
 echo "Building Codealong $version ($archs), signed as $identity."
 # Tauri signs the app with the hardened runtime and Entitlements.plist. It would notarize it too
 # when it sees Apple's variables, so they're kept from it: this script notarizes, with the
@@ -197,10 +238,13 @@ echo "Building Codealong $version ($archs), signed as $identity."
 env -u APPLE_API_KEY -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID \
   APPLE_SIGNING_IDENTITY="$identity" CARGO_TARGET_DIR="$build" CODEALONG_RELEASE=1 \
   CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_INCREMENTAL=false \
-  npx tauri build --ci --target "$target" --bundles app
+  npx tauri build --ci --target "$target" --bundles app --config "$work/release.conf.json"
 
 app="$build/$target/release/bundle/macos/Codealong.app"
 [ -d "$app" ] || fail "The build finished without $app."
+for f in THIRD_PARTY_LICENSES.txt LICENSE NOTICE; do
+  [ -s "$app/Contents/Resources/$f" ] || fail "The app was built without its $f (Contents/Resources)."
+done
 
 # The checks Gatekeeper makes, before anything goes to Apple.
 codesign --verify --deep --strict "$app" || fail "The app's signature doesn't verify."
@@ -255,10 +299,14 @@ if [ "$updates" = 1 ]; then
   [ "$(plutil -extract CFBundleShortVersionString raw "$work/unpacked/Codealong.app/Contents/Info.plist")" = "$version" ] ||
     fail "The app in the update isn't version $version."
 
-  # The notes go in the GitHub release and in latest.json, which the app shows beside Restart.
+  # The notes go in the GitHub release and in latest.json, which the app shows beside Restart:
+  # the file given, else the version tag's message (scripts/version.sh writes the notes there),
+  # else the commit subjects since the tag before it.
   if [ -n "$notes_file" ]; then
     cp "$notes_file" "$dist/notes.md"
-  elif last="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null)"; then
+  elif [ "$tagged" = 1 ] && [ "$(git cat-file -t "refs/tags/v$version")" = tag ]; then
+    git tag -l --format='%(contents)' "v$version" | sed '/^-----BEGIN PGP SIGNATURE-----/,$d' >"$dist/notes.md"
+  elif last="$(git describe --tags --abbrev=0 --match 'v*' --exclude "v$version" 2>/dev/null)"; then
     git log --no-merges --format='- %s' "$last..HEAD" >"$dist/notes.md"
   else
     : >"$dist/notes.md"
@@ -305,7 +353,9 @@ fi
 if [ "$draft" = 1 ]; then
   mkdir "$work/stable"
   cp "$dmg" "$work/stable/Codealong.dmg"
-  gh release create "v$version" --draft --title "Codealong $version" --notes-file "$dist/notes.md" --target "$(git rev-parse HEAD)" \
+  tag_flag=(--target "$(git rev-parse HEAD)")
+  [ "$tagged" = 0 ] || tag_flag=(--verify-tag)
+  gh release create "v$version" --draft --title "Codealong $version" --notes-file "$dist/notes.md" "${tag_flag[@]}" \
     "$dmg" "$dmg.sha256" "$work/stable/Codealong.dmg" "$archive" "$archive.sig" "$dist/latest.json"
 fi
 
