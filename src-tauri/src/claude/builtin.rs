@@ -34,7 +34,6 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::mpsc::channel;
 use std::sync::{Condvar, LazyLock, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -161,8 +160,8 @@ const LEAVE_WITHIN: Duration = Duration::from_secs(5);
 /// wouldn't take `/color` as its own; the lists go on without them, as they did before Codealong
 /// asked, so nobody is told.
 fn read(home: &Path) -> Option<Vec<Builtin>> {
-    let mut cmd = Command::new("claude");
-    cmd.args(ARGS).current_dir(FOLDER.as_path()).env("PATH", crate::procs::user_path()).env("CLAUDE_CODE_ENTRYPOINT", "claude-desktop");
+    let mut cmd = crate::procs::command("claude", crate::procs::user_path());
+    cmd.args(ARGS).current_dir(FOLDER.as_path()).env("CLAUDE_CODE_ENTRYPOINT", "claude-desktop");
     let (env, unset) = super::headless_env(home);
     for (k, v) in env {
         cmd.env(k, v);

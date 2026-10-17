@@ -35,7 +35,6 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Mutex, OnceLock};
@@ -691,8 +690,8 @@ fn pr_rules(pr: &PrItem, folder: Option<&Path>, holds: bool, reads: &Path) -> St
 }
 
 fn spawn(key: &str, id: u64, recipe: Recipe, cwd: &Path) -> Result<Proc> {
-    let mut cmd = Command::new(&recipe.program);
-    cmd.args(&recipe.args).current_dir(cwd).env("PATH", crate::procs::user_path());
+    let mut cmd = crate::procs::command(&recipe.program, crate::procs::user_path());
+    cmd.args(&recipe.args).current_dir(cwd);
     for (k, v) in &recipe.env {
         cmd.env(k, v);
     }

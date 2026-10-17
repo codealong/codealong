@@ -70,8 +70,8 @@ fn with_server<T>(codex_home: &Path, f: impl FnOnce(&Server) -> Result<T>) -> Re
 }
 
 fn app_server(codex_home: &Path) -> Command {
-    let mut cmd = Command::new(codex_binary());
-    cmd.args(["app-server", "--listen", "stdio://"]).env("CODEX_HOME", codex_home).env("PATH", procs::user_path());
+    let mut cmd = procs::command(codex_binary(), procs::user_path());
+    cmd.args(["app-server", "--listen", "stdio://"]).env("CODEX_HOME", codex_home);
     cmd
 }
 

@@ -2,8 +2,9 @@
 //! runner with a timeout so a stuck `git` or `gh` can never wedge the engine.
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -64,7 +65,8 @@ pub fn login_path() -> Option<&'static str> {
 }
 
 /// The PATH of the user's login shell. Apps launched from Finder get a minimal PATH, so
-/// `git` and `gh` would otherwise not be found.
+/// `git` and `gh` would otherwise not be found. A program run with it is started through
+/// `command`.
 pub fn user_path() -> &'static str {
     static PATH: OnceLock<String> = OnceLock::new();
     PATH.get_or_init(|| {
@@ -85,6 +87,45 @@ pub fn user_path() -> &'static str {
         }
         parts.join(":")
     })
+}
+
+/// A command that runs `program` with `path` as its PATH, started without forking Codealong.
+/// Rust starts a program with `posix_spawn` unless the command changes PATH and names its
+/// program without a folder, or runs code of its own before the program does (`pre_exec`):
+/// then it forks, and the copy, which has all of the app's memory and none of its threads but
+/// the one that forked, runs the program. On macOS 27 the allocator's own check in that copy
+/// sometimes fails and kills it before the program starts (2026-10-16), and macOS reports a
+/// crash of Codealong. So a name without a folder is looked up in `path` here, in the order
+/// `exec` would look, and the program started from where it's found, still named as it was
+/// given (its `argv[0]`). A name `path` doesn't have is looked up in the PATH Codealong was
+/// started with, as a command that leaves PATH alone is, which for the app is a part of
+/// `path`: it fails to start as it did.
+pub fn command(program: impl AsRef<OsStr>, path: &str) -> Command {
+    use std::os::unix::process::CommandExt;
+    let program = program.as_ref();
+    if program.as_encoded_bytes().contains(&b'/') {
+        let mut cmd = Command::new(program);
+        cmd.env("PATH", path);
+        return cmd;
+    }
+    match found_in(program, path) {
+        Some(at) => {
+            let mut cmd = Command::new(at);
+            cmd.arg0(program).env("PATH", path);
+            cmd
+        }
+        None => Command::new(program),
+    }
+}
+
+/// Where `exec` would find `program` in `path`: the first of its folders with an executable
+/// file of that name. Folders named from wherever it runs (`.`, or none) are passed over.
+fn found_in(program: &OsStr, path: &str) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    path.split(':')
+        .filter(|dir| dir.starts_with('/'))
+        .map(|dir| Path::new(dir).join(program))
+        .find(|at| std::fs::metadata(at).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
 }
 
 /// The first child of `pid` whose command line `pick` makes something of, asking for each child's
@@ -232,12 +273,12 @@ pub fn run_without(program: &str, args: &[&str], unset: &[&str], timeout: Durati
     if let Some(answer) = stand_in::run(program, args, None, timeout) {
         return answer;
     }
-    let mut cmd = Command::new(program);
-    cmd.args(args).env("PATH", user_path());
+    let mut cmd = command(program, user_path());
+    cmd.args(args);
     for name in unset {
         cmd.env_remove(name);
     }
-    let o = drive(cmd, program, None, timeout)?;
+    let o = drive(cmd, program, None, timeout, false)?;
     if o.ok {
         Ok(o.out)
     } else {
@@ -274,23 +315,12 @@ fn run_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Dura
 }
 
 fn output_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration, path: &str, background: bool) -> Result<Output> {
-    let mut cmd = Command::new(program);
-    if background {
-        use std::os::unix::process::CommandExt;
-        // SAFETY: runs in the child between fork and exec; setpriority is async-signal-safe
-        // and touches only the child.
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setpriority(libc::PRIO_PROCESS, 0, 10);
-                Ok(())
-            });
-        }
-    }
-    cmd.args(args).env("PATH", path).env("GIT_OPTIONAL_LOCKS", "0").env("GIT_TERMINAL_PROMPT", "0");
+    let mut cmd = command(program, path);
+    cmd.args(args).env("GIT_OPTIONAL_LOCKS", "0").env("GIT_TERMINAL_PROMPT", "0");
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
-    drive(cmd, program, None, timeout)
+    drive(cmd, program, None, timeout, background)
 }
 
 /// Runs a program in `cwd` with `env` added and `input` on stdin, as a repo's hook is run, and
@@ -301,12 +331,12 @@ pub fn run_in(program: &str, args: &[&str], cwd: &Path, env: &[(String, String)]
     if let Some(answer) = stand_in::run(program, args, Some(input), timeout) {
         return answer.map(|out| Output { ok: true, out, err: String::new() });
     }
-    let mut cmd = Command::new(program);
-    cmd.args(args).env("PATH", user_path()).current_dir(cwd);
+    let mut cmd = command(program, user_path());
+    cmd.args(args).current_dir(cwd);
     for (name, value) in env {
         cmd.env(name, value);
     }
-    drive(cmd, program, Some(input.as_bytes()), timeout)
+    drive(cmd, program, Some(input.as_bytes()), timeout, false)
 }
 
 /// Runs a program with input on stdin (used for AppleScript).
@@ -315,9 +345,9 @@ pub fn run_stdin(program: &str, args: &[&str], input: &str, timeout: Duration) -
     if let Some(answer) = stand_in::run(program, args, Some(input), timeout) {
         return answer;
     }
-    let mut cmd = Command::new(program);
-    cmd.args(args).env("PATH", user_path());
-    let o = drive(cmd, program, Some(input.as_bytes()), timeout)?;
+    let mut cmd = command(program, user_path());
+    cmd.args(args);
+    let o = drive(cmd, program, Some(input.as_bytes()), timeout, false)?;
     if o.ok {
         Ok(o.out)
     } else {
@@ -335,9 +365,10 @@ const LINGER: Duration = Duration::from_millis(100);
 /// and stderr are read, all without blocking, so a program that prints more than a pipe holds
 /// before it reads its input, or prints a lot before it exits, never waits on Codealong. The
 /// deadline covers the writing, the reading and the exit; once the program has exited its
-/// pipes get `LINGER` more, whoever else holds them.
-fn drive(cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duration) -> Result<Output> {
-    let raw = drive_raw(cmd, program, input, timeout)?;
+/// pipes get `LINGER` more, whoever else holds them. A `background` program runs at a lower
+/// priority (nice 10), so under load it yields to the agents and to the windows.
+fn drive(cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duration, background: bool) -> Result<Output> {
+    let raw = drive_raw(cmd, program, input, timeout, background)?;
     Ok(Output { ok: raw.ok, out: String::from_utf8_lossy(&raw.out).into_owned(), err: String::from_utf8_lossy(&raw.err).into_owned() })
 }
 
@@ -355,9 +386,9 @@ pub fn run_bytes(program: &str, args: &[&str], timeout: Duration) -> Result<Vec<
     if let Some(answer) = stand_in::run(program, args, None, timeout) {
         return answer.map(String::into_bytes);
     }
-    let mut cmd = Command::new(program);
-    cmd.args(args).env("PATH", user_path());
-    let raw = drive_raw(cmd, program, None, timeout)?;
+    let mut cmd = command(program, user_path());
+    cmd.args(args);
+    let raw = drive_raw(cmd, program, None, timeout, false)?;
     if raw.ok {
         Ok(raw.out)
     } else {
@@ -365,13 +396,21 @@ pub fn run_bytes(program: &str, args: &[&str], timeout: Duration) -> Result<Vec<
     }
 }
 
-fn drive_raw(mut cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duration) -> Result<Raw> {
+fn drive_raw(mut cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duration, background: bool) -> Result<Raw> {
     use std::io::{ErrorKind, Write};
     use std::os::fd::AsRawFd;
 
     let deadline = Instant::now() + timeout;
     cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| anyhow!("couldn't start {program}: {e}"))?;
+    if background {
+        // Lowered once it's started: lowering it in the child, before its program runs, takes a
+        // fork (`command`). The moment between goes to loading the program.
+        // SAFETY: setpriority on the process just started, which fails harmlessly if it's gone.
+        unsafe {
+            libc::setpriority(libc::PRIO_PROCESS, child.id() as libc::id_t, 10);
+        }
+    }
     let mut stdin = child.stdin.take().inspect(|w| nonblocking(w.as_raw_fd()));
     let mut pending = input.unwrap_or_default();
     let mut out = Drain::new(child.stdout.take());
@@ -654,6 +693,74 @@ mod tests {
         assert_eq!(run("/bin/echo", &["hi"], None, Duration::from_secs(2)).unwrap(), "hi\n");
         assert!(run("/bin/sleep", &["3"], None, Duration::from_millis(200)).is_err());
         assert!(run("/usr/bin/false", &[], None, Duration::from_secs(2)).is_err());
+    }
+
+    thread_local! {
+        static FORKS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+
+    /// How many times this thread forks while `f` runs. `pthread_atfork`'s first handler runs in
+    /// the thread that forks, before it does, so other tests' forks aren't counted.
+    fn forks_in(f: impl FnOnce()) -> u32 {
+        static COUNTING: std::sync::Once = std::sync::Once::new();
+        extern "C" fn forking() {
+            FORKS.with(|n| n.set(n.get() + 1));
+        }
+        // SAFETY: registers a handler that only counts, once for the test run.
+        COUNTING.call_once(|| unsafe {
+            libc::pthread_atfork(Some(forking as unsafe extern "C" fn()), None, None);
+        });
+        let before = FORKS.with(|n| n.get());
+        f();
+        FORKS.with(|n| n.get()) - before
+    }
+
+    #[test]
+    fn starts_programs_without_forking() {
+        let forks = forks_in(|| {
+            // Named without a folder, found in the user's PATH, and still called by its name.
+            assert_eq!(run("sh", &["-c", "echo $0"], None, Duration::from_secs(5)).unwrap(), "sh\n");
+            assert_eq!(run_in("sh", &["-c", "echo $0 $X; cat"], Path::new("/"), &[("X".into(), "x".into())], "typed", Duration::from_secs(5)).unwrap().out, "sh x\ntyped");
+            // In the background, at the lower priority it's given once it has started.
+            assert_eq!(run_background("sh", &["-c", "sleep 0.3; ps -o nice= -p $$"], None, Duration::from_secs(5)).unwrap().trim(), "10");
+            // A program that isn't there fails to start as before, which the GitHub view reads.
+            let e = run("codealong-no-such-program", &[], None, Duration::from_secs(5)).unwrap_err().to_string();
+            assert!(e.starts_with("couldn't start codealong-no-such-program: No such file or directory"), "{e}");
+        });
+        assert_eq!(forks, 0);
+        // As a command that does fork is counted.
+        let forked = forks_in(|| {
+            use std::os::unix::process::CommandExt;
+            let mut cmd = Command::new("/usr/bin/true");
+            // SAFETY: nothing runs between the fork and the exec.
+            unsafe {
+                cmd.pre_exec(|| Ok(()));
+            }
+            assert!(cmd.status().unwrap().success());
+        });
+        assert_eq!(forked, 1);
+    }
+
+    #[test]
+    fn finds_a_program_where_exec_would() {
+        let dir = std::env::temp_dir().join(format!("codealong-found-in-{}", std::process::id()));
+        let (plain, folder, runs) = (dir.join("plain"), dir.join("folder"), dir.join("runs"));
+        for d in [&plain, &folder, &runs] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(plain.join("tool"), "").unwrap();
+        std::fs::create_dir_all(folder.join("tool")).unwrap();
+        std::fs::write(runs.join("tool"), "#!/bin/sh\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(runs.join("tool"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // A file it couldn't run and a folder of that name are passed over, as is a folder
+        // named from wherever it runs.
+        let path = format!(".::/nowhere:{}:{}:{}", plain.display(), folder.display(), runs.display());
+        assert_eq!(found_in(OsStr::new("tool"), &path), Some(runs.join("tool")));
+        assert_eq!(found_in(OsStr::new("tool"), &format!("{}:{}", plain.display(), folder.display())), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
