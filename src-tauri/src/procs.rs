@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Read;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, OnceLock};
@@ -89,43 +90,91 @@ pub fn user_path() -> &'static str {
     })
 }
 
-/// A command that runs `program` with `path` as its PATH, started without forking Codealong.
-/// Rust starts a program with `posix_spawn` unless the command changes PATH and names its
-/// program without a folder, or runs code of its own before the program does (`pre_exec`):
-/// then it forks, and the copy, which has all of the app's memory and none of its threads but
-/// the one that forked, runs the program. On macOS 27 the allocator's own check in that copy
-/// sometimes fails and kills it before the program starts (2026-10-16), and macOS reports a
-/// crash of Codealong. So a name without a folder is looked up in `path` here, in the order
-/// `exec` would look, and the program started from where it's found, still named as it was
-/// given (its `argv[0]`). A name `path` doesn't have is looked up in the PATH Codealong was
-/// started with, as a command that leaves PATH alone is, which for the app is a part of
-/// `path`: it fails to start as it did.
-pub fn command(program: impl AsRef<OsStr>, path: &str) -> Command {
+/// A command that runs `program` in `cwd` (Codealong's own folder when None) with `path` as its
+/// PATH, started without forking Codealong. Rust starts a program with `posix_spawn` unless the
+/// command changes PATH and names its program without a folder, or runs code of its own before
+/// the program does (`pre_exec`): then it forks, and the copy, which has all of the app's memory
+/// and none of its threads but the one that forked, runs the program. On macOS 27 the
+/// allocator's own check in that copy sometimes fails and kills it before the program starts
+/// (2026-10-16), and macOS reports a crash of Codealong. So a name without a folder is found in
+/// `path` here as `exec` would find it (`found_in`), and the program started from there, still
+/// named as it was given (its `argv[0]`). A name `path` doesn't have fails as `exec` would have:
+/// No such file or directory.
+pub fn command(program: impl AsRef<OsStr>, path: &str, cwd: Option<&Path>) -> std::io::Result<Command> {
     use std::os::unix::process::CommandExt;
     let program = program.as_ref();
-    if program.as_encoded_bytes().contains(&b'/') {
-        let mut cmd = Command::new(program);
-        cmd.env("PATH", path);
-        return cmd;
-    }
-    match found_in(program, path) {
-        Some(at) => {
-            let mut cmd = Command::new(at);
-            cmd.arg0(program).env("PATH", path);
-            cmd
+    let mut cmd = if program.as_bytes().contains(&b'/') {
+        Command::new(program)
+    } else {
+        let here = cwd.map(Path::to_path_buf).or_else(|| std::env::current_dir().ok()).unwrap_or_default();
+        match found_in(program, path, &here) {
+            Some(Found::Runs(at)) => {
+                let mut cmd = Command::new(at);
+                cmd.arg0(program);
+                cmd
+            }
+            // `exec` hands a file the kernel won't start to the shell, under the shell's name.
+            Some(Found::Script(at)) => {
+                let mut cmd = Command::new("/bin/sh");
+                cmd.arg0("sh").arg(at);
+                cmd
+            }
+            None => return Err(std::io::Error::from_raw_os_error(libc::ENOENT)),
         }
-        None => Command::new(program),
+    };
+    cmd.env("PATH", path);
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
     }
+    Ok(cmd)
 }
 
-/// Where `exec` would find `program` in `path`: the first of its folders with an executable
-/// file of that name. Folders named from wherever it runs (`.`, or none) are passed over.
-fn found_in(program: &OsStr, path: &str) -> Option<PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-    path.split(':')
-        .filter(|dir| dir.starts_with('/'))
-        .map(|dir| Path::new(dir).join(program))
-        .find(|at| std::fs::metadata(at).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
+/// How a program found in a PATH is started.
+#[derive(Debug, PartialEq)]
+enum Found {
+    /// By the kernel: a binary, or a script whose `#!` names a program that runs.
+    Runs(PathBuf),
+    /// By the shell: an executable file the kernel doesn't take for a program.
+    Script(PathBuf),
+}
+
+/// The first bytes of a program the kernel runs itself: Mach-O, thin or fat, and ELF.
+const BINARY: [&[u8]; 7] = [b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce", b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf", b"\x7fELF"];
+
+/// Where `exec` would find `program` in `path`, as it's run from `here`: the first of its folders
+/// (a relative one, the empty one too, from `here`) with a file of that name this user may run,
+/// passing over one whose `#!` names a program that isn't there, as `exec` does when the kernel
+/// can't start it.
+fn found_in(program: &OsStr, path: &str, here: &Path) -> Option<Found> {
+    path.split(':').map(|dir| here.join(dir).join(program)).find_map(|at| {
+        if !std::fs::metadata(&at).is_ok_and(|m| m.is_file()) || !may_run(&at) {
+            return None;
+        }
+        let mut head = [0u8; 256];
+        // A file this user may run but not read is the kernel's to start, as a binary can be.
+        let Ok(n) = std::fs::File::open(&at).and_then(|mut f| f.read(&mut head)) else {
+            return Some(Found::Runs(at));
+        };
+        let head = &head[..n];
+        match head.strip_prefix(b"#!") {
+            Some(line) => {
+                let line = line.split(|&b| b == b'\n').next().unwrap_or_default();
+                let interpreter = line.split(|b| b.is_ascii_whitespace()).find(|w| !w.is_empty()).unwrap_or_default();
+                may_run(Path::new(OsStr::from_bytes(interpreter))).then_some(Found::Runs(at))
+            }
+            None if BINARY.iter().any(|magic| head.starts_with(magic)) => Some(Found::Runs(at)),
+            None => Some(Found::Script(at)),
+        }
+    })
+}
+
+/// Whether this user may run the file at `at`, as the kernel decides it.
+fn may_run(at: &Path) -> bool {
+    let Ok(c) = std::ffi::CString::new(at.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: access reads the NUL-terminated path it's given.
+    unsafe { libc::access(c.as_ptr(), libc::X_OK) == 0 }
 }
 
 /// The first child of `pid` whose command line `pick` makes something of, asking for each child's
@@ -273,7 +322,7 @@ pub fn run_without(program: &str, args: &[&str], unset: &[&str], timeout: Durati
     if let Some(answer) = stand_in::run(program, args, None, timeout) {
         return answer;
     }
-    let mut cmd = command(program, user_path());
+    let mut cmd = command(program, user_path(), None).map_err(|e| not_started(program, e))?;
     cmd.args(args);
     for name in unset {
         cmd.env_remove(name);
@@ -315,11 +364,8 @@ fn run_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Dura
 }
 
 fn output_with_path(program: &str, args: &[&str], cwd: Option<&Path>, timeout: Duration, path: &str, background: bool) -> Result<Output> {
-    let mut cmd = command(program, path);
+    let mut cmd = command(program, path, cwd).map_err(|e| not_started(program, e))?;
     cmd.args(args).env("GIT_OPTIONAL_LOCKS", "0").env("GIT_TERMINAL_PROMPT", "0");
-    if let Some(dir) = cwd {
-        cmd.current_dir(dir);
-    }
     drive(cmd, program, None, timeout, background)
 }
 
@@ -331,8 +377,8 @@ pub fn run_in(program: &str, args: &[&str], cwd: &Path, env: &[(String, String)]
     if let Some(answer) = stand_in::run(program, args, Some(input), timeout) {
         return answer.map(|out| Output { ok: true, out, err: String::new() });
     }
-    let mut cmd = command(program, user_path());
-    cmd.args(args).current_dir(cwd);
+    let mut cmd = command(program, user_path(), Some(cwd)).map_err(|e| not_started(program, e))?;
+    cmd.args(args);
     for (name, value) in env {
         cmd.env(name, value);
     }
@@ -345,7 +391,7 @@ pub fn run_stdin(program: &str, args: &[&str], input: &str, timeout: Duration) -
     if let Some(answer) = stand_in::run(program, args, Some(input), timeout) {
         return answer;
     }
-    let mut cmd = command(program, user_path());
+    let mut cmd = command(program, user_path(), None).map_err(|e| not_started(program, e))?;
     cmd.args(args);
     let o = drive(cmd, program, Some(input.as_bytes()), timeout, false)?;
     if o.ok {
@@ -386,7 +432,7 @@ pub fn run_bytes(program: &str, args: &[&str], timeout: Duration) -> Result<Vec<
     if let Some(answer) = stand_in::run(program, args, None, timeout) {
         return answer.map(String::into_bytes);
     }
-    let mut cmd = command(program, user_path());
+    let mut cmd = command(program, user_path(), None).map_err(|e| not_started(program, e))?;
     cmd.args(args);
     let raw = drive_raw(cmd, program, None, timeout, false)?;
     if raw.ok {
@@ -396,13 +442,18 @@ pub fn run_bytes(program: &str, args: &[&str], timeout: Duration) -> Result<Vec<
     }
 }
 
+/// What a program that didn't start says, which the GitHub view reads for `gh` not being there.
+fn not_started(program: &str, e: std::io::Error) -> anyhow::Error {
+    anyhow!("couldn't start {program}: {e}")
+}
+
 fn drive_raw(mut cmd: Command, program: &str, input: Option<&[u8]>, timeout: Duration, background: bool) -> Result<Raw> {
     use std::io::{ErrorKind, Write};
     use std::os::fd::AsRawFd;
 
     let deadline = Instant::now() + timeout;
     cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| anyhow!("couldn't start {program}: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| not_started(program, e))?;
     if background {
         // Lowered once it's started: lowering it in the child, before its program runs, takes a
         // fork (`command`). The moment between goes to loading the program.
@@ -743,23 +794,42 @@ mod tests {
 
     #[test]
     fn finds_a_program_where_exec_would() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("codealong-found-in-{}", std::process::id()));
-        let (plain, folder, runs) = (dir.join("plain"), dir.join("folder"), dir.join("runs"));
-        for d in [&plain, &folder, &runs] {
-            std::fs::create_dir_all(d).unwrap();
-        }
-        std::fs::write(plain.join("tool"), "").unwrap();
-        std::fs::create_dir_all(folder.join("tool")).unwrap();
-        std::fs::write(runs.join("tool"), "#!/bin/sh\n").unwrap();
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(runs.join("tool"), std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        // A file it couldn't run and a folder of that name are passed over, as is a folder
-        // named from wherever it runs.
-        let path = format!(".::/nowhere:{}:{}:{}", plain.display(), folder.display(), runs.display());
-        assert_eq!(found_in(OsStr::new("tool"), &path), Some(runs.join("tool")));
-        assert_eq!(found_in(OsStr::new("tool"), &format!("{}:{}", plain.display(), folder.display())), None);
+        let _ = std::fs::remove_dir_all(&dir);
+        let tool = |folder: &str, text: &str, mode: u32| {
+            std::fs::create_dir_all(dir.join(folder)).unwrap();
+            std::fs::write(dir.join(folder).join("tool"), text).unwrap();
+            std::fs::set_permissions(dir.join(folder).join("tool"), std::fs::Permissions::from_mode(mode)).unwrap();
+        };
+        tool("plain", "#!/bin/sh\necho plain\n", 0o644);
+        std::fs::create_dir_all(dir.join("folder/tool")).unwrap();
+        // Others may run it, but not its owner, who runs Codealong.
+        tool("others", "#!/bin/sh\necho others\n", 0o055);
+        tool("stale", "#!/nowhere/python3\nprint('stale')\n", 0o755);
+        tool("bare", "echo bare\n", 0o755);
+        tool("here/bin", "#!/bin/sh\necho here\n", 0o755);
+        let at = |folder: &str| dir.join(folder).join("tool");
+        let path = |folders: &[&str]| folders.iter().map(|f| if f.starts_with("/") || f.is_empty() { f.to_string() } else { dir.join(f).display().to_string() }).collect::<Vec<_>>().join(":");
+        let tool = OsStr::new("tool");
+        // A file it may not run, a folder, and a script whose interpreter is gone are passed over.
+        let passed = path(&["/nowhere", "plain", "folder", "others", "stale"]);
+        assert_eq!(found_in(tool, &format!("{passed}:{}", path(&["here/bin"])), &dir), Some(Found::Runs(at("here/bin"))));
+        // A relative folder is the folder it runs in's, as is the empty one.
+        assert_eq!(found_in(tool, &format!("{passed}:bin"), &dir.join("here")), Some(Found::Runs(at("here/bin"))));
+        assert_eq!(found_in(tool, &format!("{passed}::bin"), &dir.join("here/bin")), Some(Found::Runs(at("here/bin"))));
+        // A file without a `#!` is the shell's to run.
+        assert_eq!(found_in(tool, &format!("{passed}:{}", path(&["bare"])), &dir), Some(Found::Script(at("bare"))));
+        assert_eq!(found_in(tool, &passed, &dir), None);
+        // And each starts as it was found, without a fork.
+        let ran = |path: &str, cwd: &Path| command("tool", path, Some(cwd)).map(|mut c| String::from_utf8(c.output().unwrap().stdout).unwrap());
+        let forks = forks_in(|| {
+            assert_eq!(ran(&format!("{passed}:bin"), &dir.join("here")).unwrap(), "here\n");
+            assert_eq!(ran(&format!("{passed}:{}", path(&["bare"])), &dir).unwrap(), "bare\n");
+            let e = ran(&passed, &dir).unwrap_err();
+            assert_eq!((e.kind(), e.raw_os_error()), (std::io::ErrorKind::NotFound, Some(libc::ENOENT)));
+        });
+        assert_eq!(forks, 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

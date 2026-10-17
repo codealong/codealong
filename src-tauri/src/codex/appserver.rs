@@ -66,13 +66,16 @@ impl Server {
 }
 
 fn with_server<T>(codex_home: &Path, f: impl FnOnce(&Server) -> Result<T>) -> Result<T> {
-    serve(app_server(codex_home), f)
+    serve(app_server(codex_home)?, f)
 }
 
-fn app_server(codex_home: &Path) -> Command {
-    let mut cmd = procs::command(codex_binary(), procs::user_path());
+/// What Codex's app-server not starting is called.
+const NOT_STARTED: &str = "Couldn't start Codex. Is the Codex app installed?";
+
+fn app_server(codex_home: &Path) -> Result<Command> {
+    let mut cmd = procs::command(codex_binary(), procs::user_path(), None).context(NOT_STARTED)?;
     cmd.args(["app-server", "--listen", "stdio://"]).env("CODEX_HOME", codex_home);
-    cmd
+    Ok(cmd)
 }
 
 /// Runs `f` against the app-server `cmd` starts, once the handshake is done. The server ends
@@ -84,7 +87,7 @@ fn serve<T>(cmd: Command, f: impl FnOnce(&Server) -> Result<T>) -> Result<T> {
 
 /// `serve`, introduced with `hello` as the `initialize` params.
 fn serve_as<T>(cmd: Command, hello: Value, f: impl FnOnce(&Server) -> Result<T>) -> Result<T> {
-    let client = rpc::Client::spawn(cmd, rpc::Stderr::Tail, rpc::Wire::Bare, |_, _| {}).context("Couldn't start Codex. Is the Codex app installed?")?;
+    let client = rpc::Client::spawn(cmd, rpc::Stderr::Tail, rpc::Wire::Bare, |_, _| {}).context(NOT_STARTED)?;
     let server = Server { client, deadline: Instant::now() + TIMEOUT };
     server.request(INITIALIZE, hello)?;
     server.client.notify(INITIALIZED, Value::Null)?;
@@ -99,7 +102,7 @@ fn serve_as<T>(cmd: Command, hello: Value, f: impl FnOnce(&Server) -> Result<T>)
 /// runs here (two app-servers on one CODEX_HOME, 2026-10-12). Once Codex has the request, no
 /// answer may mean it was queued (`MayHaveArrived`).
 pub fn queue(codex_home: &Path, thread_id: &str, text: &str) -> Result<()> {
-    serve_as(app_server(codex_home), queue_hello(), |s| add_to_queue(s, thread_id, text, &crate::start::new_session_id()))
+    serve_as(app_server(codex_home)?, queue_hello(), |s| add_to_queue(s, thread_id, text, &crate::start::new_session_id()))
 }
 
 fn queue_hello() -> Value {
@@ -287,7 +290,7 @@ mod tests {
         let home = crate::store::test_dir("appserver-real-queue");
         let t = new_thread(&home, &home, None).unwrap();
         queue(&home, &t.id, "and the docs").unwrap();
-        let listed = serve_as(app_server(&home), queue_hello(), |s| s.request("thread/queue/list", json!({ "threadId": t.id }))).unwrap();
+        let listed = serve_as(app_server(&home).unwrap(), queue_hello(), |s| s.request("thread/queue/list", json!({ "threadId": t.id }))).unwrap();
         assert_eq!(listed["data"][0]["input"], json!([{ "type": "text", "text": "and the docs", "text_elements": [] }]), "{listed}");
         let _ = std::fs::remove_dir_all(&home);
     }

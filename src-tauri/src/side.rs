@@ -690,8 +690,9 @@ fn pr_rules(pr: &PrItem, folder: Option<&Path>, holds: bool, reads: &Path) -> St
 }
 
 fn spawn(key: &str, id: u64, recipe: Recipe, cwd: &Path) -> Result<Proc> {
-    let mut cmd = crate::procs::command(&recipe.program, crate::procs::user_path());
-    cmd.args(&recipe.args).current_dir(cwd);
+    let failed = || format!("Couldn't start {} for a side conversation.", recipe.program.display());
+    let mut cmd = crate::procs::command(&recipe.program, crate::procs::user_path(), Some(cwd)).with_context(failed)?;
+    cmd.args(&recipe.args);
     for (k, v) in &recipe.env {
         cmd.env(k, v);
     }
@@ -706,7 +707,7 @@ fn spawn(key: &str, id: u64, recipe: Recipe, cwd: &Path) -> Result<Proc> {
         // What it last complained of, for when it ends without answering.
         rpc::Heard::Closed(said) => stopped(&of, id, said.last().map(String::as_str).unwrap_or("")),
     })
-    .with_context(|| format!("Couldn't start {} for a side conversation.", recipe.program.display()))?;
+    .with_context(failed)?;
     let out = writer(client.link());
     let mut proc = Proc { id, pid: client.pid(), client, dialect: recipe.dialect, out };
     let lines = proc.dialect.open();
