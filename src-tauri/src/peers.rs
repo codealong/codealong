@@ -2197,7 +2197,7 @@ mod tests {
         let mut l = with(Some("SpurHQ/spur"), "spurhq", false);
         project_here(&mut l, &projects, &none);
         assert_eq!(l.project, "Spur");
-        let mut l = with(Some("spurhq/lumen"), "Elsewhere", true);
+        let mut l = with(Some("spurhq/beacon"), "Elsewhere", true);
         project_here(&mut l, &projects, &none);
         assert_eq!((l.project.as_str(), l.hidden), ("Spur", false), "out of Elsewhere, and shown");
         // Its checkout still has the org's old name; GitHub's name for it now is Spruce's.

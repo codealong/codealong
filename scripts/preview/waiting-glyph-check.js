@@ -11,7 +11,7 @@
   // other session in them is idle, and nothing is pinned.
   localStorage.setItem('codealong.project', 'All projects');
   var now = Date.now();
-  var waits = 'gh pr checks 1151 --repo northwindai/atlas --watch --fail-fast --interval 60';
+  var waits = 'gh pr checks 1151 --repo acme/web --watch --fail-fast --interval 60';
   var picked = [];
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {

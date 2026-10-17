@@ -335,7 +335,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   files that weren't checked against a repository (it has none of its own, or a hook manages it).
   They may be unsaved work.") and never runs `WorktreeRemove`, clean or not, and once the folder is
   gone it succeeds ("removed <job>"). `--force-remove-worktree <id>` deletes the folder without the
-  hook, leaking what the hook would take down (atlas's runs `yarn worktree delete`: routes,
+  hook, leaking what the hook would take down (one repo's runs `yarn worktree delete`: routes,
   ports, its own databases). A job's `state.json` names the worktree it made (`worktreePath`,
   `worktreeBranch`) after it ends too. So Codealong removes a worktree itself, by the repo's hook
   (run only where an account trusts the repo, as Claude Code runs a project's hooks) or by git,

@@ -13,9 +13,9 @@ pub struct Checkout {
     /// The main worktree.
     pub root: PathBuf,
     pub git_dir: PathBuf,
-    /// Folder name of the main worktree, e.g. `atlas`.
+    /// Folder name of the main worktree, e.g. `web`.
     pub name: String,
-    /// Normalized `origin` URL, e.g. `github.com/northwindai/atlas`.
+    /// Normalized `origin` URL, e.g. `github.com/acme/web`.
     pub identity: Option<String>,
     /// `(owner, name)` when `origin` is on GitHub.
     pub github: Option<(String, String)>,
@@ -183,7 +183,7 @@ pub fn github_of(identity: &str) -> Option<(String, String)> {
     Some((owner, name))
 }
 
-/// `github.com/northwindai/*` matches every repo of that owner; anything else must match exactly.
+/// `github.com/acme/*` matches every repo of that owner; anything else must match exactly.
 pub fn matches(identity: &str, pattern: &str) -> bool {
     let id = identity.to_lowercase();
     let pat = pattern.trim().to_lowercase();
@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(cs("/Users/me/projects/sparkhq/spark/.claude/worktrees/bold-fermi-1ac421", Some("claude/bold-fermi-1ac421")), "bold-fermi");
         assert_eq!(cs("/Users/me/projects/sparkhq/spark-app4/.claude/worktrees/keen-fox", Some("worktree-keen-fox")), "keen-fox");
         assert_eq!(cs("/private/tmp/spark-fix-vulns-2026-09-21", Some("codex/fix-vulns")), "fix-vulns-2026-09-21");
-        assert_eq!(cs("/Users/me/projects/spurhq/spur-worktrees/lumen-diag", Some("lumen-diag")), "lumen-diag");
+        assert_eq!(cs("/Users/me/projects/spurhq/spur-worktrees/beacon-diag", Some("beacon-diag")), "beacon-diag");
 
         let or = |p: &str| origin(&c, Path::new(p), &home);
         assert_eq!(or("/Users/me/projects/sparkhq/spark"), Origin::Main);

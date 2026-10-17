@@ -1053,8 +1053,8 @@ mod tests {
     fn builds_deep_links() {
         assert_eq!(codex_thread_url("01a0c4a6"), "codex://threads/01a0c4a6");
         assert_eq!(
-            codex_review_url("https://github.com/northwindai/atlas/pull/1037"),
-            "codex://review?pr=https%3A%2F%2Fgithub.com%2Fnorthwindai%2Fatlas%2Fpull%2F1037"
+            codex_review_url("https://github.com/acme/web/pull/1037"),
+            "codex://review?pr=https%3A%2F%2Fgithub.com%2Facme%2Fweb%2Fpull%2F1037"
         );
     }
 
@@ -1690,12 +1690,12 @@ end run
     #[test]
     fn puts_a_new_tab_beside_the_nearest_folder_with_terminals() {
         let t = |id: &str, cwd: &str| Tab { id: id.into(), cwd: cwd.into(), name: String::new() };
-        let tabs = vec![t("a", "/r/app"), t("b", "/r/app-pins/src"), t("c", "/r/kestrel"), t("d", ""), t("e", "/r/app-pins")];
+        let tabs = vec![t("a", "/r/app"), t("b", "/r/app-pins/src"), t("c", "/r/site"), t("d", ""), t("e", "/r/app-pins")];
         let groups = |g: &[&[&str]]| g.iter().map(|g| g.iter().map(|f| f.to_string()).collect()).collect::<Vec<Vec<String>>>();
         assert_eq!(terminals_beside(&tabs, &groups(&[&["/r/app-pins"], &["/r/app"]])), vec!["b", "e"]);
         // Not a folder that merely starts the same way.
         assert_eq!(terminals_beside(&tabs, &groups(&[&["/r/app-p"], &["/r/app"]])), vec!["a"]);
-        assert_eq!(terminals_beside(&tabs, &groups(&[&["/r/none"], &["/r/kestrel", "/r/x"]])), vec!["c"]);
+        assert_eq!(terminals_beside(&tabs, &groups(&[&["/r/none"], &["/r/site", "/r/x"]])), vec!["c"]);
         assert!(terminals_beside(&tabs, &groups(&[&["/r/none"]])).is_empty());
     }
 

@@ -160,7 +160,7 @@ fn lane_card(l: &Lane, now: i64) -> Value {
 
 /// The repos what's typed names, by `<project>/<repo>`: a word that is a repo's name, or a
 /// project's (all its repos). Words split at anything but letters, digits, `-`, `_` and `.`, so
-/// `atlas-infra` doesn't name `atlas`.
+/// `spark-infra` doesn't name `spark`.
 fn named_repos(text: &str, lanes: &[&Lane]) -> Vec<String> {
     let words: HashSet<String> = text
         .split(|c: char| !(c.is_alphanumeric() || matches!(c, '-' | '_' | '.')))
@@ -416,7 +416,7 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
     }
     let repos = ranked(repo_sum.into_iter().map(|(id, p)| Pick { id, p }).collect());
     // A repo named in what's typed, when it's Jev's likeliest, keeps the others out: "in
-    // atlas" leaves no row for a worktree of another repo Jev gave a little to. When Jev
+    // spark" leaves no row for a worktree of another repo Jev gave a little to. When Jev
     // leans elsewhere, the word may not mean the repo, and nothing is left out.
     let named = |repo: &str| req.named.iter().any(|n| n == repo);
     let only_named = repos.first().is_some_and(|top| named(&top.id));

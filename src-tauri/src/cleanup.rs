@@ -41,7 +41,7 @@ const ENDING_WAIT: Duration = Duration::from_secs(15);
 const CHECK_WAIT: Duration = Duration::from_secs(60);
 
 /// The most files and folders looked at for another repository in a worktree's ignored folders:
-/// one with more stays, as it couldn't be looked through. A worktree of atlas's with its
+/// one with more stays, as it couldn't be looked through. A worktree of a large web app with its
 /// dependencies installed has some 420,000 in all, about 220,000 of them in `node_modules`
 /// (2026-10-12), which took 20 s to list on a busy Mac.
 const MOST_LOOKED_AT: usize = 2_000_000;

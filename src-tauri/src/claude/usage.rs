@@ -253,8 +253,8 @@ mod tests {
 
     #[test]
     fn keychain_service_for_a_second_config_folder() {
-        let services = keychain_services(Path::new("/Users/ghempton/.claude2"));
-        assert_eq!(services[0], "Claude Code-credentials-71eb27f7");
+        let services = keychain_services(Path::new("/Users/me/.claude2"));
+        assert_eq!(services[0], "Claude Code-credentials-6e095c18");
         let default = keychain_services(&home().join(".claude"));
         assert_eq!(default[0], "Claude Code-credentials");
     }

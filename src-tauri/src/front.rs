@@ -102,9 +102,9 @@ mod tests {
 
     #[test]
     fn the_shortcut_hides_codealong_or_brings_back_the_board_window_used_last() {
-        let open = |label: &str| ["main", "project-kestrel-6f1c0e2a"].contains(&label);
-        assert_eq!(on_press(true, Some("project-kestrel-6f1c0e2a".into()), open), Press::Hide);
-        assert_eq!(on_press(false, Some("project-kestrel-6f1c0e2a".into()), open), Press::Bring("project-kestrel-6f1c0e2a".into()));
+        let open = |label: &str| ["main", "project-acme-37036cd8"].contains(&label);
+        assert_eq!(on_press(true, Some("project-acme-37036cd8".into()), open), Press::Hide);
+        assert_eq!(on_press(false, Some("project-acme-37036cd8".into()), open), Press::Bring("project-acme-37036cd8".into()));
         // A project's window closed since, or none had the keyboard yet: the main window, which is
         // only ever hidden.
         assert_eq!(on_press(false, Some("project-gone-0a1b2c3d".into()), open), Press::Bring("main".into()));

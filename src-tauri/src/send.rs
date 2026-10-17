@@ -1147,7 +1147,7 @@ mod tests {
         let asks = Session { asks: true, ..s.clone() };
         assert!(ensure_not_waiting(&asks, &Sender::You).is_ok());
         // So does one whose turn ended on a command in the background that waits on a sign-in.
-        let stuck = Session { background: Some("northwind login --device".into()), stalled_since: Some(1), ..s };
+        let stuck = Session { background: Some("acme login --device".into()), stalled_since: Some(1), ..s };
         assert!(ensure_not_waiting(&stuck, &Sender::You).is_ok());
         assert!(ensure_not_waiting(&stuck, &Sender::Agent(None)).is_ok());
     }

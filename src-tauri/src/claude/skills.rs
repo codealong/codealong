@@ -130,9 +130,9 @@ mod tests {
     fn the_plugins_claude_ai_syncs_give_their_skills_unless_turned_off() {
         let bucket = Path::new("/home/plugins/synced/org_me");
         // As 2.1.299 writes it, cut short.
-        let manifest = json!({ "lastUpdated": 1790893702322i64, "plugins": [{ "pluginId": "plugin_01B", "name": "northwind", "version": "0002" }, { "pluginId": "plugin_015", "name": "codex", "version": "0001" }] });
+        let manifest = json!({ "lastUpdated": 1790893702322i64, "plugins": [{ "pluginId": "plugin_01B", "name": "acme", "version": "0002" }, { "pluginId": "plugin_015", "name": "codex", "version": "0001" }] });
         let settings = json!({ "enabledPlugins": { "codex@synced": false } });
-        assert_eq!(synced_plugin_roots(bucket, &manifest, &settings), vec![Root::skills(bucket.join("northwind/skills"), 1).of_plugin("northwind"), Root::commands(bucket.join("northwind/commands")).of_plugin("northwind")]);
+        assert_eq!(synced_plugin_roots(bucket, &manifest, &settings), vec![Root::skills(bucket.join("acme/skills"), 1).of_plugin("acme"), Root::commands(bucket.join("acme/commands")).of_plugin("acme")]);
         assert_eq!(synced_plugin_roots(bucket, &manifest, &json!({ "syncClaudeAiPlugins": false })), vec![]);
         assert_eq!(synced_plugin_roots(bucket, &manifest, &Value::Null).len(), 4);
         assert_eq!(synced_plugin_roots(bucket, &Value::Null, &Value::Null), vec![]);
@@ -144,11 +144,11 @@ mod tests {
         let skills_of = |manifest: Value| -> Vec<(String, PathBuf)> {
             synced_plugin_roots(bucket, &manifest, &Value::Null).into_iter().filter(|r| matches!(r.kind, crate::skills::Kind::Skills { .. })).map(|r| (r.prefix.unwrap(), r.dir)).collect()
         };
-        // Back at the first generation while a session still holds `northwind~g3`: the first's.
-        assert_eq!(skills_of(json!({ "plugins": [{ "name": "northwind" }] })), vec![("northwind".to_string(), bucket.join("northwind/skills"))]);
-        assert_eq!(skills_of(json!({ "plugins": [{ "name": "northwind", "generation": 1 }] })), vec![("northwind".to_string(), bucket.join("northwind/skills"))]);
+        // Back at the first generation while a session still holds `acme~g3`: the first's.
+        assert_eq!(skills_of(json!({ "plugins": [{ "name": "acme" }] })), vec![("acme".to_string(), bucket.join("acme/skills"))]);
+        assert_eq!(skills_of(json!({ "plugins": [{ "name": "acme", "generation": 1 }] })), vec![("acme".to_string(), bucket.join("acme/skills"))]);
         // Another generation, under the plugin's own name.
-        assert_eq!(skills_of(json!({ "plugins": [{ "name": "northwind", "generation": 3 }] })), vec![("northwind".to_string(), bucket.join("northwind~g3/skills"))]);
+        assert_eq!(skills_of(json!({ "plugins": [{ "name": "acme", "generation": 3 }] })), vec![("acme".to_string(), bucket.join("acme~g3/skills"))]);
         // A plugin the manifest doesn't list isn't one, whatever folders are left; nor is a name
         // that would leave the folder.
         assert_eq!(skills_of(json!({ "plugins": [{ "name": "../x" }, { "generation": 2 }] })), vec![]);

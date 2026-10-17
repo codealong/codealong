@@ -21,7 +21,7 @@ describe('improvePrompt', () => {
 });
 
 describe('withCodealongProject', () => {
-  const cfg = { projects: [{ name: 'Kestrel', repos: ['github.com/kestrel/*'], folders: [] }] } as unknown as Config;
+  const cfg = { projects: [{ name: 'Acme', repos: ['github.com/acme/*'], folders: [] }] } as unknown as Config;
 
   it('adds a Codealong project for the source’s repo after the others', () => {
     const out = withCodealongProject(cfg, { root: '/me/projects/codealong', repo: 'github.com/me/codealong' });

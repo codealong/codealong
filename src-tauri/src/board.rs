@@ -1507,7 +1507,7 @@ pub fn reusable(seed: &LaneSeed, marks: &HashMap<String, bool>, git: Option<&Git
 /// A worktree Settings suggests making reusable: marked neither way and not reusable already,
 /// whose branch has carried two or more merged PRs among the repo's recent ones. A branch that
 /// goes on from one merged PR to the next is a worktree taking one piece of work after another
-/// (atlas's `app2`, reset onto `origin/main` after each), though a fresh clone's reflog
+/// (one repo's `app2`, reset onto `origin/main` after each), though a fresh clone's reflog
 /// doesn't show it yet. PRs from anyone's fork count: a teammate's `app2` says the repo's
 /// people name reused worktrees so.
 pub fn looks_reusable(seed: &LaneSeed, marked: bool, git: Option<&GitInfo>, prs: &HashMap<String, Vec<PrRaw>>) -> bool {
@@ -2540,7 +2540,7 @@ mod tests {
         assert_eq!(primary(&["b", "c"], &links).as_deref(), Some("c"));
     }
 
-    /// northwindai/atlas#1203: one session opened a small PR from its worktree, with a quiet
+    /// From a real PR: one session opened a small PR from its worktree, with a quiet
     /// push that left no record, and another, in a worktree on a branch of its own, took the work
     /// over, pushing it to the PR's branch again and again (`git push origin tiers:portal`).
     #[test]

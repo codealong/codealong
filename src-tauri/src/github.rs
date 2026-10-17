@@ -117,7 +117,7 @@ fragment pr on PullRequest {
 }
 "#;
 
-/// An organization's display name on GitHub (`northwindai` → `Northwind`). Personal accounts
+/// An organization's display name on GitHub (`acme` → `Acme Corp`). Personal accounts
 /// keep their login, since a person's name makes an odd project name.
 pub fn display_name(owner: &str) -> Option<String> {
     let jq = r#"if .type == "Organization" then (.name // "") else "" end"#;
@@ -126,7 +126,7 @@ pub fn display_name(owner: &str) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
-/// What GitHub calls a repo now (`atlasai/atlas` → `northwindai/atlas`). A repo that was
+/// What GitHub calls a repo now (`oldorg/app` → `neworg/app`). A repo that was
 /// renamed, or whose owner was renamed or changed, still answers to its old name, which older
 /// checkouts' remotes keep: GitHub redirects it. None when GitHub didn't answer.
 pub fn current_slug(slug: &str) -> Option<String> {
@@ -2116,7 +2116,7 @@ mod tests {
     fn reads_a_request_to_you_from_the_pr() {
         // #1 you've just approved (the search hasn't caught up), #2 was just asked of you (nor
         // has it), #3 waits on a team you're on, #4 on someone else.
-        let open = [(1, r#"[{"requestedReviewer":{"__typename":"User","login":"whather"}}]"#), (2, r#"[{"requestedReviewer":{"__typename":"User","login":"GWen"}}]"#), (3, r#"[{"requestedReviewer":{"__typename":"Team"}}]"#), (4, r#"[{"requestedReviewer":{"__typename":"User","login":"whather"}}]"#)]
+        let open = [(1, r#"[{"requestedReviewer":{"__typename":"User","login":"sam-reviewer"}}]"#), (2, r#"[{"requestedReviewer":{"__typename":"User","login":"GWen"}}]"#), (3, r#"[{"requestedReviewer":{"__typename":"Team"}}]"#), (4, r#"[{"requestedReviewer":{"__typename":"User","login":"sam-reviewer"}}]"#)]
             .map(|(n, asked)| format!(r#"{{"number":{n},"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":null,"updatedAt":"2026-09-30T20:00:00Z","headRefName":"b{n}","commits":{{"nodes":[]}},"reviewRequests":{{"nodes":{asked}}}}}"#))
             .join(",");
         let json = format!(r#"{{"data":{{"viewer":{{"login":"gwen"}},"requested":{{"nodes":[{{"number":1}},{{"number":3}}]}},"repository":{{"open":{{"nodes":[{open}]}},"done":{{"nodes":[]}}}}}}}}"#);

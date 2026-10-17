@@ -2205,7 +2205,7 @@ mod tests {
 
     #[test]
     fn finds_a_folder_from_its_slug() {
-        assert_eq!(slug("/Users/me/projects/atlas-infra/.claude/worktrees/taco"), "Users-me-projects-atlas-infra-claude-worktrees-taco");
+        assert_eq!(slug("/Users/me/projects/spark-infra/.claude/worktrees/taco"), "Users-me-projects-spark-infra-claude-worktrees-taco");
         let root = crate::fixtures::scratch("cursor-slug");
         for d in ["Users/me/my app/src", "Users/me/my-app-two", "Users/me/my"] {
             std::fs::create_dir_all(root.join(d)).unwrap();

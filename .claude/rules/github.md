@@ -37,7 +37,7 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   `.merge_base_commit.sha` (the side before, as GitHub's own diff has it), and
   `contents/<path, each part percent-encoded>?ref=<sha>` with `Accept: application/vnd.github.raw`
   for a file's bytes as they are. `pulls/<n>/files` gives a renamed file's old path as
-  `previous_filename`. Read for real on 2026-10-11 (atlas #1182: its head, its merge base, and a
+  `previous_filename`. Read for real on 2026-10-11 (a private repo's PR #1182: its head, its merge base, and a
   file of 474 lines before and 447 after, matching its +14 −41): `prdiff_reads_github`, an
   ignored test.
 - REST `repos/<owner>/<name>` answers to a repo's old names with the repo as it is now:
@@ -82,7 +82,7 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   into the text. Variables go as JSON on stdin (`gh api graphql --input -`), since a list of
   objects can't be given with `-f`. The documents were checked against GitHub's schema with
   made-up node ids, which it answers `NOT_FOUND` only after checking them, and `commitOID` takes
-  a whole 40-character id (2026-10-09). The first real run (atlas #1182, 2026-10-10) left a
+  a whole 40-character id (2026-10-09). The first real run (that PR #1182, 2026-10-10) left a
   `PENDING` review at the reviewed commit with its text and four comments, each on its line. With `post =
   "comment"` they post with REST `POST repos/<owner>/<name>/issues/<n>/comments` (`comment`). What changed between two commits is REST `repos/<owner>/<name>/compare/
   <a>...<b>` (`changes_since`), whose `status` is `ahead` only when the second follows from the
@@ -97,7 +97,7 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   `your_review`, `review`, `edit_draft`). The query asks the pending review's
   `comments(first: 100) { totalCount nodes { id path line outdated body } }` and the PR's
   `viewerLatestReview { state body submittedAt url }`, which was `null` before any review of
-  yours; it cost 1 point (atlas #1182, 2026-10-10, which read the agent's draft with its four
+  yours; it cost 1 point (PR #1182 again, 2026-10-10, which read the agent's draft with its four
   comments, `line` the file's new version's as drafted). A verdict on a PR you have a draft of is
   `submitPullRequestReview(pullRequestReviewId, event: APPROVE | COMMENT | REQUEST_CHANGES, body)`,
   whose `body` sets the review's text: it's always given, the draft's own when you wrote nothing,

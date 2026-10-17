@@ -124,7 +124,7 @@ use util::words;
 /// scripts/engine.sh knows whose binary it copied.
 pub const CHECKOUT: Option<&str> = option_env!("CODEALONG_CHECKOUT");
 
-/// `Kestrel` → `project-kestrel-6f1c0e2a`. Window labels allow letters, digits, `-`, `/`, `:` and `_`,
+/// `Acme` → `project-acme-37036cd8`. Window labels allow letters, digits, `-`, `/`, `:` and `_`,
 /// so the name is cut down to those, and the start of a hash of the whole name keeps apart two
 /// projects that cut down the same (`Foo Bar` and `Foo-Bar`, or names in a script that leaves
 /// nothing). A long name is cut short, so the label stays short too.
@@ -141,7 +141,7 @@ fn project_window_label(project: &str) -> String {
 }
 
 /// A label for one more window on a project: the project's own if no window has it, else
-/// `project-kestrel:2`, `:3`… A slug has no `:`, so these never take another project's label.
+/// `project-acme-37036cd8:2`, `:3`… A slug has no `:`, so these never take another project's label.
 fn another_window_label(project: &str, taken: impl Fn(&str) -> bool) -> String {
     let own = project_window_label(project);
     std::iter::once(own.clone()).chain((2..).map(|n| format!("{own}:{n}"))).find(|l| !taken(l)).unwrap_or(own)

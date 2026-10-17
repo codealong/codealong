@@ -62,7 +62,7 @@ describe('suggestions', () => {
     const r = route({ action: 'send', actions: [['send', 1]], sessions: [{ id: 's:ask', p: 1 }], lanes: [{ id: '/api', p: 1 }] });
     expect(suggestions(r, asking)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
     // And to one whose turn ended on a command in the background that looks stuck.
-    const stuck = board([lane('/api', [session('s:ask', 'needs', { background: 'northwind login --device' })])]);
+    const stuck = board([lane('/api', [session('s:ask', 'needs', { background: 'acme login --device' })])]);
     expect(suggestions(r, stuck)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
   });
 

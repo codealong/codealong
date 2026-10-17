@@ -748,7 +748,7 @@ mod tests {
             closed_at: None,
             checks: Checks::default(),
             merge: Merge::Clean,
-            author: Some("whather".into()),
+            author: Some("sam-reviewer".into()),
             base_ref: Some("main".into()),
             created_at: 0,
             additions: 0,

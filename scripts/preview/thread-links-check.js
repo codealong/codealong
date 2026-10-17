@@ -9,10 +9,10 @@
 // output showing, for a screenshot.
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
-  var URL = 'https://claude.ai/artifact/VuawMfgy2qCBAFhpc6dC3H';
-  var FILE = '/private/tmp/claude-501/-Users-me-projects-osprey/20898bb3/scratchpad/security-dashboard.html';
+  var URL = 'https://claude.ai/artifact/ExampleArtifactId00001';
+  var FILE = '/private/tmp/claude-501/-Users-me-projects-halyard/20898bb3/scratchpad/security-dashboard.html';
   var PUBLISHED = 'Published ' + FILE + ' at ' + URL + ' (Version 9, version id 1790960406-8f4f)\n\nLive subscription: already connected from earlier in this session.\n\nTo update: publish the same file path here (keeps this URL).';
-  var SENT = ['/Users/me/projects/osprey/tmp/dashboard.png', '/private/tmp/claude-501/-Users-me-projects-osprey/20898bb3/scratchpad/gone/before.png'];
+  var SENT = ['/Users/me/projects/halyard/tmp/dashboard.png', '/private/tmp/claude-501/-Users-me-projects-halyard/20898bb3/scratchpad/gone/before.png'];
   var CAPTION = 'The refreshed dashboard, and the one it replaces';
   var picked = null;
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -29,8 +29,8 @@
         item('result', '', 5, { id: 't2', output: '{"docs":"https://example.com/a_b","next":"https://example.com/c"}' }),
         item('tool', 'Bash · `tail -12 build.log`', 6, { id: 't3', input: 'tail -12 build.log' }),
         item('result', '', 7, { id: 't3', output: 'done' }),
-        item('tool', 'Artifact · `security-dashboard.html`', 8, { id: 't4', input: JSON.stringify({ file_path: FILE, label: 'Osprey current 2 Oct' }, null, 2) }),
-        item('result', '', 9, { id: 't4', output: PUBLISHED, link: { url: URL, title: 'Osprey security dashboard', note: 'Updated · version 9' } }),
+        item('tool', 'Artifact · `security-dashboard.html`', 8, { id: 't4', input: JSON.stringify({ file_path: FILE, label: 'Halyard current 2 Oct' }, null, 2) }),
+        item('result', '', 9, { id: 't4', output: PUBLISHED, link: { url: URL, title: 'Halyard security dashboard', note: 'Updated · version 9' } }),
         item('tool', 'Bash · `git status --short`', 10, { id: 't5', input: 'git status --short' }),
         item('result', '', 11, { id: 't5', output: '' }),
         item('tool', 'SendUserFile · `dashboard.png` and 1 more', 12, { id: 't6', input: JSON.stringify({ files: SENT, caption: CAPTION, status: 'normal', display: 'render' }, null, 2), sent: { files: SENT, caption: CAPTION } }),
@@ -68,7 +68,7 @@
     })
     .then(function () {
       var made = panel('.ca-thread-made');
-      check('the publish says what it made', made.length === 1 && made[0].querySelector('a').textContent.trim() === 'Osprey security dashboard', made.map(function (m) { return m.textContent; }).join('|'));
+      check('the publish says what it made', made.length === 1 && made[0].querySelector('a').textContent.trim() === 'Halyard security dashboard', made.map(function (m) { return m.textContent; }).join('|'));
       check('and what it did with it', /Updated · version 9/.test(made[0].querySelector('.ca-meta').textContent));
       var tool = made[0].closest('.ca-thread-tool');
       check('under its own call’s line', /^Artifact · security-dashboard\.html/.test(tool.querySelector('.ca-thread-toollabel').textContent));
@@ -99,7 +99,7 @@
       check('with what it said of them', sent[0].querySelector('.ca-thread-sentcaption').textContent === CAPTION);
       var files = Array.prototype.slice.call(sent[0].querySelectorAll('button.ca-md-file'));
       var names = files.map(function (f) { return f.querySelector('.ca-md-file-name').textContent + ' in ' + f.querySelector('.ca-md-file-dir').textContent; });
-      check('each by its name and folder', names.join('|') === 'dashboard.png in ~/projects/osprey/tmp|before.png in /private/tmp/claude-501/-Users-me-projects-osprey/20898bb3/scratchpad/gone', names.join('|'));
+      check('each by its name and folder', names.join('|') === 'dashboard.png in ~/projects/halyard/tmp|before.png in /private/tmp/claude-501/-Users-me-projects-halyard/20898bb3/scratchpad/gone', names.join('|'));
       var opens = function () { return window.__calls.filter(function (c) { return c[0] === 'open_file'; }); };
       files[0].click();
       return until(function () { return opens().length === 1; }, 3000).then(function () {

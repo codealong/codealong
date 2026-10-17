@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn windows_are_named_for_the_prompt() {
         assert_eq!(window_name("main", false).as_deref(), Some("Main window"));
-        assert_eq!(window_name("project-kestrel-6f1c0e2a", false).as_deref(), Some("Project window"));
+        assert_eq!(window_name("project-acme-37036cd8", false).as_deref(), Some("Project window"));
         assert_eq!(window_name("bar", false).as_deref(), Some("Floating bar"));
         assert_eq!(window_name("bar", true).as_deref(), Some("Bar in the notch"));
         assert_eq!(window_name("quick", false), None);

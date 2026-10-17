@@ -603,12 +603,12 @@ mod tests {
     #[test]
     fn a_published_artifact_is_a_link_on_its_calls_result() {
         let call = serde_json::json!({ "type": "assistant", "message": { "content": [
-            { "type": "tool_use", "id": "t1", "name": "Artifact", "input": { "file_path": "/private/tmp/claude-501/-x/scratchpad/security-dashboard.html", "label": "Osprey current 2 Oct" } },
+            { "type": "tool_use", "id": "t1", "name": "Artifact", "input": { "file_path": "/private/tmp/claude-501/-x/scratchpad/security-dashboard.html", "label": "Halyard current 2 Oct" } },
             { "type": "tool_use", "id": "t2", "name": "Artifact", "input": { "action": "read", "url": "https://claude.ai/artifact/8ZBq" } },
-            { "type": "tool_use", "id": "t3", "name": "Artifact", "input": { "type_url": "https://claude.ai/code/artifact/2333", "title": "Kestrel Design System" } },
+            { "type": "tool_use", "id": "t3", "name": "Artifact", "input": { "type_url": "https://claude.ai/code/artifact/2333", "title": "Acme Design System" } },
         ] } });
         let labels: Vec<String> = conversation_items(&call, 0).into_iter().map(|i| i.text).collect();
-        assert_eq!(labels, ["Artifact · `security-dashboard.html`", "Artifact · read", "Artifact · Kestrel Design System"]);
+        assert_eq!(labels, ["Artifact · `security-dashboard.html`", "Artifact · read", "Artifact · Acme Design System"]);
 
         let result = |r: Value| {
             let line = serde_json::json!({ "type": "user", "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": "Published … at https://claude.ai/artifact/Vuaw (Version 9)" }] }, "toolUseResult": r });
@@ -622,10 +622,10 @@ mod tests {
         // An older Claude Code kept no version number, and a page can have no title.
         let older = serde_json::json!({ "url": "https://claude.ai/artifact/Vuaw", "artifact_id": "226b", "title": " ", "updated": false, "version": "1790892882-e855" });
         assert_eq!(result(older), link("https://claude.ai/artifact/Vuaw", "Artifact", "Published"));
-        let made = serde_json::json!({ "created_from_type": true, "url": "https://claude.ai/artifact/BKx5", "version": "1790033813-d831", "title": "Kestrel Design System", "type": { "url": "https://claude.ai/artifact/5M7U" } });
-        assert_eq!(result(made), link("https://claude.ai/artifact/BKx5", "Kestrel Design System", "Created"));
-        let opened = serde_json::json!({ "artifact_id": "53a0", "opened": true, "title": "Kestrel Design System", "url": "https://claude.ai/artifact/BKx5" });
-        assert_eq!(result(opened), link("https://claude.ai/artifact/BKx5", "Kestrel Design System", "Opened"));
+        let made = serde_json::json!({ "created_from_type": true, "url": "https://claude.ai/artifact/BKx5", "version": "1790033813-d831", "title": "Acme Design System", "type": { "url": "https://claude.ai/artifact/5M7U" } });
+        assert_eq!(result(made), link("https://claude.ai/artifact/BKx5", "Acme Design System", "Created"));
+        let opened = serde_json::json!({ "artifact_id": "53a0", "opened": true, "title": "Acme Design System", "url": "https://claude.ai/artifact/BKx5" });
+        assert_eq!(result(opened), link("https://claude.ai/artifact/BKx5", "Acme Design System", "Opened"));
         // A read, and a page WebFetch fetched: nothing was made.
         assert_eq!(result(serde_json::json!({ "read": { "url": "https://claude.ai/artifact/8ZBq", "title": "Class C" }, "artifactRead": { "slug": "3d2e" } })), None);
         assert_eq!(result(serde_json::json!({ "bytes": 10, "code": 200, "url": "https://example.com", "result": "" })), None);
@@ -655,8 +655,8 @@ mod tests {
     #[test]
     fn a_pasted_prompt_shows_as_yours() {
         let said = |v: Value| conversation_items(&v, 1).into_iter().map(|i| (i.kind, i.text)).collect::<Vec<_>>();
-        let typed = serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": "\n\n<pasted_content id=\"3c58\">\nI ran these mocks by Gordon.\n</pasted_content id=\"3c58\">\n" } });
-        assert_eq!(said(typed), [("you", "I ran these mocks by Gordon.".to_string())]);
+        let typed = serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": "\n\n<pasted_content id=\"3c58\">\nI went over these mocks again.\n</pasted_content id=\"3c58\">\n" } });
+        assert_eq!(said(typed), [("you", "I went over these mocks again.".to_string())]);
         let queued = serde_json::json!({ "type": "attachment", "attachment": { "type": "queued_command", "prompt": "<pasted_content id=\"9\">\nAlso the docs.\n</pasted_content id=\"9\">" } });
         assert_eq!(said(queued), [("you", "Also the docs.".to_string())]);
         let notified = serde_json::json!({ "type": "attachment", "attachment": { "type": "queued_command", "prompt": "<task-notification>\n<task-id>b1</task-id>\n</task-notification>" } });

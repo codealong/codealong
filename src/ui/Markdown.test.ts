@@ -53,8 +53,8 @@ describe('linked', () => {
   const words = (nodes: ReactNode[]) => nodes.map((n) => (isValidElement<{ url: string }>(n) ? n.props.url : String(n))).join('');
 
   it('makes the web links in a tool’s output clickable and keeps its text as it was', () => {
-    const published = 'Published /private/tmp/x/security-dashboard.html at https://claude.ai/artifact/VuawMfgy2qCBAFhpc6dC3H (Version 9, version id 1790960406-8f4f)\n\nTo update: publish the same file path here.';
-    expect(links(linked(published))).toEqual([['https://claude.ai/artifact/VuawMfgy2qCBAFhpc6dC3H', 'https://claude.ai/artifact/VuawMfgy2qCBAFhpc6dC3H']]);
+    const published = 'Published /private/tmp/x/security-dashboard.html at https://claude.ai/artifact/ExampleArtifactId00001 (Version 9, version id 1790960406-8f4f)\n\nTo update: publish the same file path here.';
+    expect(links(linked(published))).toEqual([['https://claude.ai/artifact/ExampleArtifactId00001', 'https://claude.ai/artifact/ExampleArtifactId00001']]);
     expect(words(linked(published))).toBe(published);
     // A PR's link reads as it was printed, not as GitHub shortens it.
     expect(links(linked('https://github.com/a/b/pull/12\n'))).toEqual([['https://github.com/a/b/pull/12', 'https://github.com/a/b/pull/12']]);
@@ -96,7 +96,7 @@ describe('blocks', () => {
     // A reply that came out flat, its sub-items beside their items and its paragraph out of the
     // list (2026-10-08).
     const src = [
-      '- **For a Northwind review, effort sets how many checks the planner proposes:**',
+      '- **For a code review, effort sets how many checks the planner proposes:**',
       '  - Quick: about 10.',
       '  - Deep: also every interface.',
       '',
@@ -112,7 +112,7 @@ describe('blocks', () => {
         ordered: false,
         items: [
           [
-            { kind: 'para', text: '**For a Northwind review, effort sets how many checks the planner proposes:**' },
+            { kind: 'para', text: '**For a code review, effort sets how many checks the planner proposes:**' },
             { kind: 'list', ordered: false, items: [para('Quick: about 10.'), para('Deep: also every interface.')] },
             { kind: 'para', text: 'The approval card would say what the next level adds.' },
           ],

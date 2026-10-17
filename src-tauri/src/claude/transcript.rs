@@ -1277,9 +1277,9 @@ mod tests {
     fn a_pasted_prompt_is_what_was_pasted() {
         let line = |text: &str| serde_json::json!({ "type": "user", "origin": { "kind": "human" }, "message": { "content": text } });
         // A long message Codealong sends a terminal session comes back wrapped whole, as this one did.
-        let sent = "\n\n<pasted_content id=\"3c58\">\nI ran these mocks by Gordon.\n\n1) Simplify \"Applies to\".\n</pasted_content id=\"3c58\">\n";
-        assert_eq!(typed_text(&line(sent)).as_deref(), Some("I ran these mocks by Gordon.\n\n1) Simplify \"Applies to\"."));
-        assert_eq!(user_prompt(&line(sent)).as_deref(), Some("I ran these mocks by Gordon."));
+        let sent = "\n\n<pasted_content id=\"3c58\">\nI went over these mocks again.\n\n1) Simplify \"Shown to\".\n</pasted_content id=\"3c58\">\n";
+        assert_eq!(typed_text(&line(sent)).as_deref(), Some("I went over these mocks again.\n\n1) Simplify \"Shown to\"."));
+        assert_eq!(user_prompt(&line(sent)).as_deref(), Some("I went over these mocks again."));
         // Pasted around words typed, each stays where it was, a paste that starts with a tag too.
         let mixed = "<pasted_content id=\"a\">\nlog\n</pasted_content id=\"a\">\n\nwhy does this fail? <pasted_content id=\"b\">\n<html>\n</pasted_content id=\"b\">";
         assert_eq!(typed_text(&line(mixed)).as_deref(), Some("log\n\nwhy does this fail? <html>"));

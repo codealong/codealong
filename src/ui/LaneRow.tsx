@@ -58,7 +58,7 @@ interface LaneRowProps {
   onShowTodo?: (todo: Todo) => void;
 }
 
-/** `atlas · quarry`: the repo, and the branch when the worktree's name doesn't already say it. */
+/** `web · billing`: the repo, and the branch when the worktree's name doesn't already say it. */
 function laneSub(lane: Lane): { sub: string; branch: string | null } {
   const branch = branchLabel(lane);
   return { branch, sub: branch && branch !== worktreeName(lane) ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo };

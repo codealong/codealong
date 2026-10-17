@@ -1072,9 +1072,9 @@ impl NewTerminal {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AccountCfg {
-    /// What you type, and what chips show: claude, claude2, codex, opencode, antigravity.
+    /// What you type, and what chips show: claude, claude-work, codex, opencode, antigravity, cursor.
     pub name: String,
-    /// `claude`, `codex`, `opencode` or `antigravity`.
+    /// `claude`, `codex`, `opencode`, `antigravity` or `cursor`.
     pub harness: String,
     pub home: String,
     /// The command that starts this account, used for `<command> --resume <id>`.
@@ -1128,7 +1128,7 @@ impl AccountCfg {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProjectCfg {
     pub name: String,
-    /// Repo patterns such as `github.com/northwindai/*`, or exact `github.com/owner/name`.
+    /// Repo patterns such as `github.com/acme/*`, or exact `github.com/owner/name`.
     #[serde(default)]
     pub repos: Vec<String>,
     /// Folders that aren't repos but belong to the project.

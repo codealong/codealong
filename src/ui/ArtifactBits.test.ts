@@ -9,6 +9,6 @@ describe('artifactWords', () => {
   });
 
   it('leaves out what its record doesn’t say', () => {
-    expect(artifactWords({ url: 'https://claude.ai/artifact/BKx5', title: 'Kestrel Design System', at: 0 }, NOW)).toBe('Kestrel Design System');
+    expect(artifactWords({ url: 'https://claude.ai/artifact/BKx5', title: 'Acme Design System', at: 0 }, NOW)).toBe('Acme Design System');
   });
 });
