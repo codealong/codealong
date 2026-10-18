@@ -78,8 +78,9 @@ says what one needs. Everything Codealong asks of the OS is in `src-tauri/src/os
 makes the OS's own calls has a `macos.rs` and a `linux.rs` giving the same functions, and what
 merely differs, a path or a program to run, goes by `os::current()`. Windows starts with a
 `windows.rs` beside each and a third case there. [Building from source](#building-from-source) and
-[docs/development.md](docs/development.md) have the rest. Open an issue first if you'd like to
-talk a change over.
+[docs/development.md](docs/development.md) have the rest, and
+[CONTRIBUTING.md](CONTRIBUTING.md) what a pull request needs: an issue first for anything bigger
+than a fix, and screenshots of any changed UI.
 
 ## Get started
 

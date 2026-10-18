@@ -132,10 +132,15 @@ Performance work starts from `[debug] perf_log = true` in config.toml: see
 
 Done means: typecheck, lint and tests pass, the engine builds without warnings, UI changes are
 previewed, and the work has landed. Work has landed when it's in `origin/main`
-(github.com/codealong/codealong, private), the main checkout has it, and the app that's running
-was built from it. Take every finished, checked piece of work that far without asking. Other
+(github.com/codealong/codealong), the main checkout has it, and the app that's running was
+built from it. Take every finished, checked piece of work that far without asking. Other
 agents work in this repo at the same time, many of them in the main checkout (the first entry of
 `git worktree list`), and whatever sits uncommitted there goes into their commits and builds.
+
+Without write access to github.com/codealong/codealong (working from a fork), the steps below
+aren't yours: a change lands as a pull request, with what CONTRIBUTING.md asks of one, the
+screenshots of every changed UI among them (`scripts/preview.sh`, light and dark, cropped to
+what changed), and the pull request template filled in.
 
 1. Work in a worktree of your own: `git worktree add ../codealong-<topic> -b <topic>
    origin/main`, or the one your harness made for the session. Before building there, `npm ci`,
