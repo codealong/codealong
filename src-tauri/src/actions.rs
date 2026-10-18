@@ -75,13 +75,15 @@ pub mod params {
         pub on: bool,
     }
 
-    /// `session-run-command`: a command led by `!` you ran for the session, and the folder it runs
-    /// in.
+    /// `session-run-command`: a command you ran for the session, and the folder it runs in. It's
+    /// led by `!` as the session's box takes one, or with `block` it's a shell block from the
+    /// session's conversation, whose own `!` is the shell's.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
     pub struct RunCommand {
         pub text: String,
         pub folder: String,
+        pub block: bool,
     }
 }
 
@@ -258,9 +260,9 @@ const REQUESTS: &[Request] = &[
     // A worktree's preview and reuse mark are kept on its Mac, with its other settings.
     Request { name: PREVIEW, only_here: Some("That worktree is on another device; set its preview there."), here: set_preview, ..ANY },
     Request { name: REUSABLE, only_here: Some("That worktree is on another device; mark it there."), here: set_reusable, ..ANY },
-    // A command led by `!` that you ran for a session runs in a tab of yours on its Mac, as you,
-    // and the session is told what it printed. Not the command's: its agent asks with `codealong
-    // terminal run`, which you allow.
+    // A command you ran for a session (led by `!`, or Run on a block in its conversation) runs in a
+    // tab of yours on its Mac, as you, and the session is told what it printed. Not the command's:
+    // its agent asks with `codealong terminal run`, which you allow.
     Request { name: RUN_COMMAND, only_here: Some("Run it on the Mac the session runs on."), here: run_command, command: run_is_yours, ..ANY },
     // A worktree goes only when nothing in it would be lost, checked again on its Mac, so an
     // agent may clean one up too. Can't be undone, so another device needs remote control. A
@@ -618,23 +620,34 @@ fn answer_call(engine: &Handle, c: &Call) -> Result<Value, String> {
     Ok(said)
 }
 
-/// Runs a command led by `!` that you ran for the session (in its box, or Run on a `!` block) in a
-/// new tab of your terminal, as you, and has the session told what it printed once it ends
-/// (terminal.rs `report_ended`): the `!` means it's for the session to read.
+/// Runs a command you ran for the session (led by `!` in its box, or Run on a shell block in its
+/// conversation) in a new tab of your terminal, as you, and has the session told what it printed
+/// once it ends (terminal.rs `report_ended`): an agent that writes a command for you to run wants
+/// what it prints, whatever its harness.
 fn run_command(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     let p: params::RunCommand = c.read()?;
-    let text = p.text.trim_start();
-    let command = text.strip_prefix('!').unwrap_or(text).trim().to_string();
-    if let Some(why) = crate::terminal::refused(&command) {
-        return Err(why.into());
-    }
+    let command = command_to_run(&p)?;
     let (apps, lanes, title) = engine.read(|b| (b.apps.clone(), b.lanes.clone(), b.session(key).map(|(_, s)| s.title.clone())));
     let title = title.ok_or("Codealong doesn't list that session.")?;
     let (id, at) = crate::terminal::new_id();
     let asked = crate::terminal::Asked { id, ask: crate::terminal::Ask { session: key.to_string(), command, cwd: p.folder.into() }, at };
     let run = crate::terminal::start(&asked, &apps, &lanes, &title, true).map_err(words)?;
     Ok(json!(format!("Running it in a new {} tab. What it prints goes to the session when it ends.", run.terminal)))
+}
+
+/// What `run_command` runs: a block without its comments (runcode.rs), its `!` the shell's; a
+/// command led by `!` as typed, as the box's bash mode runs one.
+fn command_to_run(p: &params::RunCommand) -> Result<String, String> {
+    if p.block {
+        return crate::runcode::command(&p.text).map_err(words);
+    }
+    let text = p.text.trim_start();
+    let command = text.strip_prefix('!').unwrap_or(text).trim().to_string();
+    match crate::terminal::refused(&command) {
+        Some(why) => Err(why.into()),
+        None => Ok(command),
+    }
 }
 
 /// Answers a command the session's agent asks to run in your terminal (terminal.rs): Deny refuses
@@ -1898,5 +1911,20 @@ mod tests {
         assert_eq!(helpers_done_words(1, 2).as_deref(), Some("Its helper is done too; 2 still at work are left to finish."));
         assert_eq!(helpers_done_words(0, 1).as_deref(), Some("Its helper still at work is left to finish."));
         assert_eq!(helpers_done_words(0, 2).as_deref(), Some("Its 2 helpers still at work are left to finish."));
+    }
+
+    #[test]
+    fn a_command_led_by_bang_runs_as_typed_and_a_block_without_its_comments() {
+        let run = |text: &str, block: bool| command_to_run(&params::RunCommand { text: text.into(), folder: "/tmp".into(), block });
+        // The box's, or a `!` block's: the session's `!` comes off and the rest runs as typed, a
+        // `#` in quotes inside `$(…)` included, which the comment scanner would cut.
+        assert_eq!(run(r#"! printf '%s\n' "$(printf "%s" "a # b")""#, false).unwrap(), r#"printf '%s\n' "$(printf "%s" "a # b")""#);
+        assert_eq!(run("  !npm test", false).unwrap(), "npm test");
+        assert_eq!(run("!", false).unwrap_err(), "There's no command to run.");
+        // A reply's block, or a command the agent ran: its comments come off, and a `!` that
+        // leads it is the shell's.
+        assert_eq!(run("# Dry run first\n/w/run_update.sh --dry-run   # changes nothing", true).unwrap(), "/w/run_update.sh --dry-run\n");
+        assert_eq!(run("! false && echo expected", true).unwrap(), "! false && echo expected\n");
+        assert_eq!(run("# only a note", true).unwrap_err(), "There's no command in it to run.");
     }
 }

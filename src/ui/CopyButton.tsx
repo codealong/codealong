@@ -4,7 +4,7 @@
 
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { cx, Icon } from './primitives';
-import { isCommandBlock, RunButton, RunContext, useShellCommands, type RunTarget } from './RunButton';
+import { isCommandBlock, RunButton, RunContext, useShellCommands, type RunPlace } from './RunButton';
 
 export function CopyButton({ text, title = 'Copy', className }: { text: string; title?: string; className?: string }) {
   const [copied, setCopied] = useState<'yes' | 'no' | null>(null);
@@ -34,26 +34,25 @@ export function CopyButton({ text, title = 'Copy', className }: { text: string; 
 }
 
 /** Preformatted text you can select, with a Copy button on hover. `run` marks shell commands,
- *  which get a Run button too in a session on this Mac, run in a new terminal where `run.folder`
- *  says they ran or else where the session works. `run.session` marks a command led by `!`, whose
- *  output is the session's: it runs in a tab of yours and the session is told what it printed
- *  (`RunPlace.own`). `run.ifCommands` marks a block that doesn't say it's shell, which gets Run
- *  only when each of its lines starts with a command (`isCommandBlock`).
+ *  which get a Run button too in a session on this Mac: they run in a tab of yours, where
+ *  `run.folder` says they ran or else where the session works, and the session is told what they
+ *  printed (`RunPlace.run`). `run.session` marks a command led by `!` for the session's shell,
+ *  which runs as `!` in the session's box does, as typed; any other block runs without its
+ *  comments, a `!` in it being the shell's. `run.ifCommands` marks a block that doesn't say it's
+ *  shell, which gets Run only when each of its lines starts with a command (`isCommandBlock`).
  *  `children` is the text as it's drawn, when that's more than the text: a tool's output with
  *  its links. */
 export function CodeBlock({ text, className, run, children }: { text: string; className?: string; run?: { folder?: string; session?: boolean; ifCommands?: boolean }; children?: ReactNode }) {
   const place = useContext(RunContext);
   const commands = useShellCommands(!!run?.ifCommands && !!place);
   const runs = !!run && (!run.ifCommands || (!!commands && isCommandBlock(text, commands)));
-  const target: RunTarget | null = !runs || !place ? null : { folder: run.folder ?? place.folder, terminal: place.terminal, own: run.session ? place.own : undefined };
-  // A block led by `!` goes as it's written: the `!` says it's the session's to read.
-  const command = run?.session && !text.trimStart().startsWith('!') ? `! ${text.trim()}` : text;
+  const target: RunPlace | null = !runs || !place ? null : { ...place, folder: run.folder ?? place.folder };
   const [failed, setFailed] = useState<string | null>(null);
   return (
     <div className="ca-codeblock">
       <pre className={className}>{children ?? text}</pre>
       <div className="ca-codeblock-tools">
-        {target && <RunButton text={command} target={target} onFailed={setFailed} />}
+        {target && <RunButton text={text} block={!run?.session} place={target} onFailed={setFailed} />}
         <CopyButton text={text} title="Copy" />
       </div>
       {failed && (

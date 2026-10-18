@@ -85,9 +85,9 @@ type Block =
    *  number, when it isn't 1. */
   | { kind: 'list'; ordered: boolean; items: Block[][]; start?: number }
   | { kind: 'quote'; text: string }
-  /** `shell`: a finished block of shell commands, which can run in a new terminal. `session`:
-   *  one written for the session's own shell, led by `!` as Claude Code's box takes one (bash
-   *  mode), which runs in the session where it can (CopyButton.tsx). `bare`: a finished block
+  /** `shell`: a finished block of shell commands, which can run in a new terminal for the
+   *  session. `session`: one written for the session's own shell, led by `!` as Claude Code's box
+   *  takes one (bash mode), which runs as the box runs it (CopyButton.tsx). `bare`: a finished block
    *  with no language, which runs as shell if each of its lines starts with a command
    *  (RunButton.tsx `isCommandBlock`). */
   | { kind: 'code'; text: string; shell: boolean; session: boolean; bare: boolean }

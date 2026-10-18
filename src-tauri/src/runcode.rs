@@ -1,7 +1,7 @@
-//! Running a command from a session's conversation in a new terminal: a shell block in an agent's
-//! reply, or a command the agent ran. It runs in a tab of its own as a command an agent asks for
-//! does (terminal.rs), for no session: the tab closes by itself a while after the commands end
-//! unless you take a shell there, and Codealong knows the tabs it opened this way. What runs is
+//! Running a shell block from a session's conversation in a new terminal: one in an agent's reply,
+//! or a command the agent ran. It runs for the session as `!` in its box does (actions.rs
+//! `run_command`), in a tab of its own as a command an agent asks for does (terminal.rs), and the
+//! session is told what it printed once it ends. What runs is
 //! the block without its comments: zsh takes `#` as a comment only with `interactive_comments`
 //! set, which it isn't by default, and the commands run in your interactive shell, so a comment
 //! after a command would reach the command as arguments. A line that starts a command loses its
@@ -9,17 +9,14 @@
 //! here-documents go as they are.
 
 use std::collections::VecDeque;
-use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
 
-use crate::model::{AppNames, Lane};
 use crate::terminal;
 
-/// Runs a block's commands in a new tab in `dir`, placed as `[apps] new_terminal` says, beside
-/// the terminals in its folder's lanes (terminal.rs `start`). A folder that's gone is an error,
-/// not a reason to run it somewhere else.
-pub fn run(apps: &AppNames, lanes: &[Lane], dir: &Path, block: &str) -> Result<terminal::Run> {
+/// What runs for a block, or why it doesn't: its commands (`input`). A `!` that leads it is the
+/// shell's: a block led by the session's `!` runs as the box runs one.
+pub fn command(block: &str) -> Result<String> {
     if unseen(block) {
         bail!("It has characters that don't show here, so it isn't run: what ran wouldn't be what you see.");
     }
@@ -27,9 +24,7 @@ pub fn run(apps: &AppNames, lanes: &[Lane], dir: &Path, block: &str) -> Result<t
     if let Some(why) = terminal::refused(&command) {
         bail!("{why}");
     }
-    let (id, at) = terminal::new_id();
-    let asked = terminal::Asked { id, ask: terminal::Ask { session: String::new(), command, cwd: dir.to_path_buf() }, at };
-    terminal::start(&asked, apps, lanes, "", false)
+    Ok(command)
 }
 
 /// What a line ends inside, for the lines after it.
@@ -355,5 +350,14 @@ mod tests {
         assert!(unseen("rm -rf ~\u{15}ls"));
         assert!(unseen("echo \u{202E}sl"));
         assert!(unseen("x\u{7f}"));
+    }
+
+    #[test]
+    fn a_block_runs_without_its_comments_and_keeps_its_own_bang() {
+        assert_eq!(command("# Dry run first\n/w/scratch/run_update.sh --dry-run\n").unwrap(), "/w/scratch/run_update.sh --dry-run\n");
+        // A command the agent ran that starts with `!` negates it: the `!` isn't the session's.
+        assert_eq!(command("! false && echo expected").unwrap(), "! false && echo expected\n");
+        assert_eq!(command("# nothing\n").unwrap_err().to_string(), "There's no command in it to run.");
+        assert!(command("ls\x1b[2K").unwrap_err().to_string().contains("characters that don't show"));
     }
 }

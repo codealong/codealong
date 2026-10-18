@@ -14,7 +14,7 @@
   var STARTED = 'Running it in a new Ghostty tab. What it prints goes to the session when it ends.';
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
-    if (cmd === 'run_command' || cmd === 'run_in_terminal' || cmd === 'send_to_session') {
+    if (cmd === 'run_command' || cmd === 'send_to_session') {
       window.__calls.push([cmd, args, options]);
       if (cmd !== 'run_command') return Promise.resolve(cmd === 'send_to_session' ? { message: 'Sent.', opened: false } : null);
       return fail ? Promise.reject('Ghostty isn’t installed. Install it, or pick another terminal in Settings.') : Promise.resolve(STARTED);
@@ -83,9 +83,9 @@
       return until(function () { return calls('run_command').length === 1; }, 3000)
         .then(function () {
           var args = calls('run_command')[0][1];
-          check('Run asks to run the block as written, for the session', args.key === picked.key && args.text === text, JSON.stringify(args).slice(0, 160));
+          check('Run asks to run the block as written, for the session', args.block === false && args.key === picked.key && args.text === text, JSON.stringify(args).slice(0, 160));
           check('in the folder the session works in', args.folder === folder(), args.folder + ' vs ' + folder());
-          check('nothing is sent to the session, nor typed into a terminal', calls('send_to_session').length === 0 && calls('run_in_terminal').length === 0);
+          check('nothing is sent to the session', calls('send_to_session').length === 0);
           return until(function () { return runOf(b).classList.contains('is-done'); }, 2000);
         })
         .then(function () {
@@ -127,7 +127,7 @@
         press();
         return until(function () { return calls('run_command').length === before + 1; }, 3000).then(function () {
           var args = calls('run_command')[before][1];
-          check('⏎ in the box asks to run it for the session, in its folder', args.key === picked.key && args.text === '! echo from the box' && args.folder === folder(), JSON.stringify(args).slice(0, 160));
+          check('⏎ in the box asks to run it for the session, in its folder', args.block === false && args.key === picked.key && args.text === '! echo from the box' && args.folder === folder(), JSON.stringify(args).slice(0, 160));
           check('nothing is sent to the session', calls('send_to_session').length === 0);
           check('the box clears', box().value === '');
           return until(function () { return under().indexOf(STARTED) >= 0; }, 3000).then(function () {

@@ -1,7 +1,7 @@
 // Checks Run on code blocks in a session's conversation: a shell block in a reply and a shell
-// command the agent ran get Run beside Copy, other blocks don't, and Run sends the block's text
-// with the folder it runs in (the session's worktree, or where the command ran); a failed Run says
-// why under its block. Needs a session whose newest page has a ```bash block in a reply and a
+// command the agent ran get Run beside Copy, other blocks don't, and Run asks to run the block's
+// text for the session, which is told what it printed, in the folder it runs in (the session's
+// worktree, or where the command ran); a failed Run says why under its block. Needs a session whose newest page has a ```bash block in a reply and a
 // shell call:
 //   PREVIEW_TRANSCRIPT=<key> PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/run-code-check.js
 (function () {
@@ -10,9 +10,9 @@
   var fail = false;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
-    if (cmd === 'run_in_terminal') {
+    if (cmd === 'run_command') {
       window.__calls.push([cmd, args, options]);
-      return fail ? Promise.reject("Codealong isn't allowed to control Ghostty. Turn it on in System Settings → Privacy & Security → Automation.") : Promise.resolve(null);
+      return fail ? Promise.reject("Codealong isn't allowed to control Ghostty. Turn it on in System Settings → Privacy & Security → Automation.") : Promise.resolve('Running it in a new Ghostty tab. What it prints goes to the session when it ends.');
     }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
@@ -32,7 +32,7 @@
   var blocks = function (sel) { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp ' + sel + ' .ca-codeblock')); };
   var runOf = function (b) { return b.querySelector('.ca-codeblock-tools button[aria-label^="Run in"]'); };
   var tick = function (ms) { return new Promise(function (r) { setTimeout(r, ms || 30); }); };
-  var calls = function () { return window.__calls.filter(function (c) { return c[0] === 'run_in_terminal'; }); };
+  var calls = function () { return window.__calls.filter(function (c) { return c[0] === 'run_command'; }); };
 
   say('run check: waiting for the list');
   until(function () { return row(); }, 20000)
@@ -53,12 +53,13 @@
       var want = picked.cwd && (picked.cwd === picked.path || picked.cwd.indexOf(picked.path.replace(/\/$/, '') + '/') === 0) ? picked.cwd : picked.path;
       var b = runs[0];
       check('its title says where it runs', runOf(b).title.indexOf('Run in ') === 0 && runOf(b).title.indexOf(want.replace(/^\/Users\/[^/]+/, '~')) > 0, runOf(b).title);
+      check('and that the session is told what it prints', /as you: the session is told what it prints once it ends$/.test(runOf(b).title), runOf(b).title);
       runOf(b).click();
       return until(function () { return calls().length === 1; }, 3000).then(function () {
         var args = calls()[0][1];
-        check('Run sends the block and the session\'s folder', args.text === b.querySelector('pre').textContent && args.cwd === want, JSON.stringify(args).slice(0, 160));
+        check('Run asks to run the block for the session, in its folder, without its comments', args.block === true && args.key === picked.key && args.text === b.querySelector('pre').textContent && args.folder === want, JSON.stringify(args).slice(0, 160));
         return until(function () { return runOf(b).classList.contains('is-done'); }, 2000).then(function () {
-          check('it says it opened', /Opened/.test(runOf(b).textContent));
+          check('it says it runs', /Running/.test(runOf(b).textContent));
         });
       }).then(function () {
         fail = true;
@@ -74,7 +75,7 @@
     .then(function () {
       // A shell call's command, opened: Run sends the folder it ran in, when its record says.
       var heads = Array.prototype.slice.call(document.querySelectorAll('.ca-sessinsp .ca-thread-toolhead'));
-      var shellHead = heads.filter(function (h) { return /^(Bash|Shell) · /.test(h.textContent.trim()); }).pop();
+      var shellHead = heads.filter(function (h) { return /^(Bash|Shell|Run command) · /.test(h.textContent.trim()); }).pop();
       check('the page has a shell call', !!shellHead);
       if (!shellHead) return;
       shellHead.click();
@@ -87,7 +88,7 @@
         runOf(block).click();
         return until(function () { return calls().length === before + 1; }, 3000).then(function () {
           var args = calls()[before][1];
-          check('Run sends the command with the folder it ran in', args.text === block.querySelector('pre').textContent && typeof args.cwd === 'string' && args.cwd.indexOf('/') === 0, JSON.stringify(args).slice(0, 160));
+          check('Run asks to run the command for the session, in the folder it ran in', args.block === true && args.key === picked.key && args.text === block.querySelector('pre').textContent && typeof args.folder === 'string' && args.folder.indexOf('/') === 0, JSON.stringify(args).slice(0, 160));
         });
       });
     })

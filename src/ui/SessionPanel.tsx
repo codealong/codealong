@@ -225,13 +225,13 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const openIt = () => onOpen(s.openTarget);
   // Sending and marking seen go on to the next only from a session that waits on you itself.
   const goesOn = queue?.waiting !== false && queue?.next;
-  // Its shell blocks run in a terminal here, so not for a session on another device; a block led
-  // by `!` runs in a tab of yours, as one in its box does, and the session is told what it printed.
+  // Its shell blocks run in a tab of yours here, as `!` in its box does, so not for a session on
+  // another device, and the session is told what they printed.
   const folder = shortOf(s.key) ? null : runFolder(lane, s);
   // The box goes under the conversation unless the session's device can't be reached from here.
   const replies = !device || (device.online && device.remoteControl);
   const key = s.key;
-  const run = useMemo(() => (folder === null ? undefined : { folder, terminal, own: (command: string, at: string) => runCommand(key, at, command) }), [folder, terminal, key]);
+  const run = useMemo(() => (folder === null ? undefined : { folder, terminal, run: (command: string, at: string, block: boolean) => runCommand(key, at, command, block) }), [folder, terminal, key]);
   const body = (
     <>
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />

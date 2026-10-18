@@ -1,14 +1,15 @@
 // Running a command from a session's conversation: a button beside a shell block's Copy that runs
-// its commands in a new tab of your terminal (runcode.rs), in the folder the session works in or
-// the one the command ran in, and says for a moment that it did. The tab closes by itself a while
-// after they end (`[apps] close_command_tabs_after`) unless you take a shell there. A block with no language is a shell block
-// when each of its lines starts with a command this Mac has (`isCommandBlock`), as agents often
-// write one for you to run. A block led by `!` is a command whose output is for the session, as an
-// agent writes one for you to run: it runs in a new tab of yours, as you, and the session is told
-// what it printed once it ends (actions.rs `run_command`), as `!` in the session's box does.
+// its commands in a new tab of your terminal, as you, in the folder the session works in or the
+// one the command ran in, says for a moment that it did, and has the session told what they
+// printed once they end (actions.rs `run_command`), as `!` in the session's box does: an agent
+// writes a command for you to run because it wants what it prints, whatever its harness. The tab
+// closes by itself a while after they end (`[apps] close_command_tabs_after`) unless you take a
+// shell there. A block with no language is a shell block when each of its lines starts with a
+// command this Mac has (`isCommandBlock`), as agents often write one for you to run, or when it's
+// led by `!`, as Claude Code's agents write one.
 
 import { createContext, useEffect, useState } from 'react';
-import { runInTerminal, shellCommands } from '../api';
+import { shellCommands } from '../api';
 import { tildePath } from '../format';
 import type { Lane, Session } from '../types';
 import { cx, Icon } from './primitives';
@@ -16,17 +17,14 @@ import { errorText } from '../report';
 
 /** Where a session's commands run: its folder on this Mac, and the terminal that opens there. A
  *  session's thread gives it to its code blocks; a session on another device has none, and its
- *  blocks no Run. `own` runs a command led by `!` for the session in `folder`, the session told
- *  what it printed once it ends (api.ts `runCommand`). */
+ *  blocks no Run. `run` runs a command for the session in `folder`, the session told what it
+ *  printed once it ends (api.ts `runCommand`): a `block`'s commands without their comments, or
+ *  else one led by `!` as the session's box runs it. */
 export interface RunPlace {
   folder: string;
   terminal: string;
-  own: (command: string, folder: string) => Promise<string>;
+  run: (command: string, folder: string, block: boolean) => Promise<string>;
 }
-
-/** Where Run sends a block: typed into a new terminal, or with `own` (a block led by `!`) run in
- *  one for the session to be told what it printed. */
-export type RunTarget = { folder: string; terminal: string; own?: RunPlace['own'] };
 
 export const RunContext = createContext<RunPlace | null>(null);
 
@@ -102,16 +100,17 @@ export function useShellCommands(wanted: boolean): ReadonlySet<string> | null {
   return known;
 }
 
-export function RunButton({ text, target, onFailed }: { text: string; target: RunTarget; onFailed: (why: string | null) => void }) {
+/** Run for a block, in `place`'s folder: the session's, or the one its command ran in. `block`
+ *  as `RunPlace.run` takes it. */
+export function RunButton({ text, block, place, onFailed }: { text: string; block: boolean; place: RunPlace; onFailed: (why: string | null) => void }) {
   const [state, setState] = useState<'going' | 'done' | null>(null);
   useEffect(() => {
     if (state !== 'done') return;
     const id = window.setTimeout(() => setState(null), 1500);
     return () => window.clearTimeout(id);
   }, [state]);
-  const own = target.own;
-  const title = own ? `Run in a new ${target.terminal} tab in ${tildePath(target.folder)}, as you: the session is told what it prints once it ends` : `Run in a new ${target.terminal} tab in ${tildePath(target.folder)}`;
-  const doneTitle = own ? `Running in ${target.terminal}: the session is told what it prints once it ends` : `Opened in ${target.terminal}`;
+  const title = `Run in a new ${place.terminal} tab in ${tildePath(place.folder)}, as you: the session is told what it prints once it ends`;
+  const doneTitle = `Running in ${place.terminal}: the session is told what it prints once it ends`;
   return (
     <button
       type="button"
@@ -123,7 +122,7 @@ export function RunButton({ text, target, onFailed }: { text: string; target: Ru
         e.stopPropagation();
         setState('going');
         onFailed(null);
-        (own ? own(text, target.folder) : runInTerminal(target.folder, text)).then(
+        place.run(text, place.folder, block).then(
           () => setState('done'),
           (err: unknown) => {
             setState(null);
@@ -133,7 +132,7 @@ export function RunButton({ text, target, onFailed }: { text: string; target: Ru
       }}
     >
       <Icon name={state === 'done' ? 'check' : 'player-play'} size={13} stroke={state === 'done' ? 2.25 : 1.75} />
-      {state && <span>{state === 'going' ? (own ? 'Starting…' : 'Opening…') : own ? 'Running' : 'Opened'}</span>}
+      {state && <span>{state === 'going' ? 'Starting…' : 'Running'}</span>}
     </button>
   );
 }

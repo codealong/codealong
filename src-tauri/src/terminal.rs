@@ -144,7 +144,7 @@ pub fn refused(command: &str) -> Option<&'static str> {
 pub struct Run {
     pub id: String,
     /// The session whose agent asked, or that you ran it for, by key, and its title then. Empty
-    /// for a block you ran with Run (runcode.rs), which no session waits on or is told about.
+    /// in a run kept from a build whose Run on a block ran it for no session.
     pub session: String,
     pub session_title: String,
     pub command: String,
@@ -153,9 +153,9 @@ pub struct Run {
     pub terminal: String,
     pub asked_at: i64,
     pub allowed_at: i64,
-    /// You ran it yourself for this session, with `!` in its box or Run on a `!` block (actions.rs
-    /// `run_command`): the session is told what it printed once it ends (`report_ended`). An
-    /// agent's run has none: its agent waits on it.
+    /// You ran it yourself for this session, with `!` in its box or Run on a block in its
+    /// conversation (actions.rs `run_command`): the session is told what it printed once it ends
+    /// (`report_ended`). An agent's run has none: its agent waits on it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reports: bool,
 }
@@ -368,10 +368,10 @@ fn base36(mut n: u64) -> String {
 
 // Starting a run.
 
-/// Opens a tab for an allowed request, a command you ran for a session (`reports`), or one you ran
-/// from a block (no session), and has it run the command there: its folder written, then a line
-/// typed into the new tab's shell that runs the wrapper. The tab goes beside the terminals in its
-/// folder's lanes (`board::terminal_neighbours`), named like a session's, and closes as
+/// Opens a tab for an allowed request or a command you ran for a session (`reports`), and has it
+/// run the command there: its folder written, then a line typed into the new tab's shell that runs
+/// the wrapper. The tab goes beside the terminals in its folder's lanes
+/// (`board::terminal_neighbours`), named like a session's, and closes as
 /// `[apps] close_command_tabs_after` says once the command ends.
 pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str, reports: bool) -> Result<Run> {
     let cwd = &asked.ask.cwd;

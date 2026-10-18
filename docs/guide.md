@@ -415,17 +415,17 @@ has), at the nearest match, the keyboard staying where it was.
 
 A right-click on a message has Copy message, which copies it as it was written, Markdown and all,
 and Copy for what you'd selected in it; in the peek, the notch, the waiting window and a kept
-session, the session's own menu follows. Code blocks have Copy on hover, and a shell block in a reply (`bash`, `sh`, `zsh`…) or a command the
-agent ran has Run beside it: that runs the commands without their comments in a new tab of your
-terminal, where the session works or where the command ran, as a command in your terminal does
-(*Commands in your terminal*): in your login shell, the tab closing by itself a while after they end
-unless you press Return there for a shell. A block with no language counts as shell
-when each of its lines starts with a command on your PATH (`git`, `npm`, `cd`…), so output, a path or
-a config file keeps Copy alone. A block led by `!` is one an agent writes for you to run with what
-it prints coming back to it (a sign-in, a command that needs you): Run runs it as `!` in the
-session's box does (*Replying*), in a tab of yours with the session told what it printed. A command
-you ran with `!` in Claude Code's own terminal shows as yours with its output, and Run runs it
-again the same way.
+session, the session's own menu follows. Code blocks have Copy on hover, and a shell block in a
+reply (`bash`, `sh`, `zsh`…) or a command the agent ran has Run beside it: that runs the commands
+without their comments in a new tab of your terminal, where the session works or where the command
+ran, as `!` in the session's box does (*Replying*), and once they end the session is told what they
+printed, whatever its harness: an agent that writes a command for you to run wants what it prints
+(a sign-in, a script it can't run itself). They run as a command in your terminal does (*Commands
+in your terminal*): in your login shell, the tab closing by itself a while after they end unless
+you press Return there for a shell. A block with no language counts as shell when each of its lines
+starts with a command on your PATH (`git`, `npm`, `cd`…), or when it's led by `!` as Claude Code's
+agents write one, so output, a path or a config file keeps Copy alone. A command you ran with `!`
+in Claude Code's own terminal shows as yours with its output, and Run runs it again the same way.
 
 #### Replying
 
@@ -1641,8 +1641,9 @@ progress lines drawn over themselves resolved; what you type isn't kept, so a pa
 prompt that hides it isn't either. Deny tells the agent no, with what you write in the box when you write something. It's asked
 every time: there's no Always, and only you allow it, on this Mac or from your phone, never the
 agent's command or another Mac. The request goes away if the agent stops waiting for your answer.
-You run commands this way yourself too, with `!` in a session's box or Run on a `!` block
-(*Replying*): no Allow, since you asked for it, and the session is told what it printed once it ends.
+You run commands this way yourself too, with `!` in a session's box (*Replying*) or Run on a block
+in its conversation (*Copy and Run*): no Allow, since you asked for it, and the session is told
+what it printed once it ends.
 A session that couldn't be told leaves a notice saying so, with where to read what it printed: one
 that's gone or waits on you, and one that takes a message only pasted into its app (a Claude app
 session that isn't running, Antigravity's app, Cursor's), which isn't brought forward for it.

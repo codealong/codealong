@@ -475,7 +475,8 @@ interface SessionThreadProps {
   /** The panel's reply area shows what the session waits on (Allow and Deny, or where to answer
    *  it), so the thread only marks the call and doesn't ask again. */
   answeredBelow?: boolean;
-  /** Where its shell commands run, for a session on this Mac: its blocks get a Run button. */
+  /** Where its shell commands run, for a session on this Mac: its blocks get a Run button, which
+   *  tells the session what they printed. */
   run?: RunPlace;
   /** Shows the menu a right-click on a message asks for, the window's way (SessionPanel.tsx
    *  `onThreadMenu`). Without it a message has none. */
