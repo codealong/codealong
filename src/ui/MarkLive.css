@@ -58,7 +58,7 @@
     transform: scale(0.9);
   }
 }
-.ca-lmark[data-status="working"] .ca-lmark-node {
+.ca-lmark[data-status="working"]:not(.is-quiet) .ca-lmark-node {
   animation: ca-mark-breath 3600ms cubic-bezier(0.37, 0, 0.63, 1) infinite;
   will-change: transform, opacity;
 }
@@ -199,53 +199,11 @@
 .ca-lmark.is-run .ca-lmark-arc.is-second {
   animation: ca-mark-run-second 1500ms step-end both;
 }
-/* Quiet, beside a line of text (a working conversation's, Working.tsx): the C in gray, and while
-   agents work the node's color glides round it, faint: Run's turn, slower, then a rest inside the
-   opening before it comes round again, two of the node's breaths to each round. A Run played on
-   it plays as it would on any mark, the glide making way for it. */
+/* Quiet, beside a line of text (a working conversation's, Working.tsx): the C in gray, and nothing
+   moves, the line's ellipsis being its motion, until you point at the line, when it turns as the
+   bar's does. */
 .ca-lmark.is-quiet .ca-lmark-c {
   fill: var(--ink-3);
-}
-.ca-lmark.is-quiet[data-status="working"] .ca-lmark-run {
-  display: block;
-  opacity: 0.55;
-}
-@keyframes ca-mark-glide {
-  0% {
-    transform: rotate(110deg);
-  }
-  45%,
-  100% {
-    transform: rotate(540deg);
-  }
-}
-@keyframes ca-mark-glide-first {
-  0% {
-    opacity: 1;
-  }
-  22.5%,
-  100% {
-    opacity: 0;
-  }
-}
-@keyframes ca-mark-glide-second {
-  0% {
-    opacity: 0;
-  }
-  22.5%,
-  100% {
-    opacity: 1;
-  }
-}
-.ca-lmark.is-quiet[data-status="working"]:not(.is-run) .ca-lmark-arc i {
-  animation: ca-mark-glide 7200ms cubic-bezier(0.3, 0.15, 0.7, 0.85) infinite;
-  will-change: transform;
-}
-.ca-lmark.is-quiet[data-status="working"]:not(.is-run) .ca-lmark-arc.is-first {
-  animation: ca-mark-glide-first 7200ms step-end infinite;
-}
-.ca-lmark.is-quiet[data-status="working"]:not(.is-run) .ca-lmark-arc.is-second {
-  animation: ca-mark-glide-second 7200ms step-end infinite;
 }
 /* Send, as you send a session something: the node pulls back and lets go, and a dot as wide as
    the stem leaves through the C's opening. */
@@ -295,7 +253,8 @@
 /* Pointing at the mark: the C turns once about the node and settles as a spring does, and the
    node grows a little for as long as the pointer stays. It turns back as the pointer leaves, so
    a pointer only passing over turns it part of the way and back, with no jump. Pressing it
-   presses the node in. These are the `rotate` and `scale` properties, which add to a moment's
+   presses the node in. A working conversation's line does the same as you point at it, without the
+   press. These are the `rotate` and `scale` properties, which add to a moment's
    `transform` where the same property would replace it. The color that runs round the C turns
    with it. The spring's curve is a damped one (damping 0.78: 2% past, then settled) in 32 steps. */
 .ca-lmark {
@@ -310,11 +269,13 @@
   transition: scale 240ms ease-out;
 }
 .ca-hud-mark:hover .ca-lmark-c,
-.ca-hud-mark:hover .ca-lmark-run {
+.ca-hud-mark:hover .ca-lmark-run,
+.ca-working-head:hover .ca-lmark-c {
   rotate: 360deg;
   transition: rotate 1100ms var(--mark-spring);
 }
-.ca-hud-mark:hover .ca-lmark-pop {
+.ca-hud-mark:hover .ca-lmark-pop,
+.ca-working-head:hover .ca-lmark-pop {
   scale: 1.15;
   transition: scale 600ms var(--mark-spring);
 }
@@ -332,13 +293,14 @@
   .ca-hud-mark:hover .ca-lmark-c,
   .ca-hud-mark:hover .ca-lmark-run,
   .ca-hud-mark:hover .ca-lmark-pop,
-  .ca-hud-mark:active .ca-lmark-pop {
+  .ca-hud-mark:active .ca-lmark-pop,
+  .ca-working-head:hover .ca-lmark-c,
+  .ca-working-head:hover .ca-lmark-pop {
     rotate: none;
     scale: none;
     transition: none;
   }
-  .ca-lmark.is-run .ca-lmark-run,
-  .ca-lmark.is-quiet[data-status="working"] .ca-lmark-run {
+  .ca-lmark.is-run .ca-lmark-run {
     display: none;
   }
 }

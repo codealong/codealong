@@ -1,6 +1,7 @@
 // The line at the end of a conversation while its agent works (working.ts says what it says, and
-// when a tip comes): the mark, quiet (gray, its color gliding round it), a word for what the agent's up to and how long it has
-// worked on what you last asked, quiet, where its words will come. Now and then a tip, on the
+// when a tip comes): the mark, quiet (gray and still, turning as you point at the line), a word for
+// what the agent's up to, its ellipsis lighting dot by dot, and how long it has worked on what you
+// last asked, quiet, where its words will come. Now and then a tip, on the
 // line's right, out of the way of the agent's words; only in the main window's panel, since a
 // card is read at a glance. A session whose turn is over that only waits on a command it left
 // running in the background has another line in its place (`Waiting`): its clock and the command.
@@ -71,7 +72,12 @@ export function Working({ session: s, tips, onGrow }: { session: Session; tips: 
         <MarkLive size={14} status="working" moment={null} quiet />
         <span className="ca-working-line">
           <span key={word} className="ca-working-word">
-            {word}…
+            {word}
+            <span className="ca-working-dots">
+              <span>.</span>
+              <span>.</span>
+              <span>.</span>
+            </span>
           </span>
           <span className="ca-working-for">{duration(since, now)}</span>
         </span>

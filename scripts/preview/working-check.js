@@ -1,5 +1,6 @@
 // Checks the line at the end of a conversation while its agent works (Working.tsx, working.ts):
-// the mark quiet (its C gray, its color gliding round it) and breathing, a word for what it's up to with an ellipsis, and how long it has worked,
+// the mark quiet (its C gray) and still, turning as the bar's does once pointed at, a word for
+// what it's up to with an ellipsis whose dots light in turn, and how long it has worked, held still,
 // last in the conversation. A turn that has worked a while gets a tip on its right in the main
 // window's panel, its first line level with the word, or under it once the line has no room, kept for the turn in every window; another session's turn soon after gets
 // none. A new word comes round in time. The line goes once the turn ends, and for a session gone
@@ -83,24 +84,51 @@
     })
     .then(function () {
       var l = line();
-      check('the mark breathes beside it', !!l.querySelector('.ca-lmark[data-status="working"]'));
+      check('the mark beside it', !!l.querySelector('.ca-lmark[data-status="working"]'));
       var gray = document.createElement('span');
       gray.style.color = 'var(--ink-3)';
       l.appendChild(gray);
       var fill = getComputedStyle(l.querySelector('.ca-lmark-c')).fill;
       check('quiet, its C gray', !!l.querySelector('.ca-lmark.is-quiet') && fill === getComputedStyle(gray).color, fill + ' vs ' + getComputedStyle(gray).color);
       gray.remove();
-      var arc = l.querySelector('.ca-lmark-arc i');
-      var glide = getComputedStyle(arc).animationName;
-      check('its color gliding round it', glide === 'ca-mark-glide', glide);
-      // A Run played on it (as mark.ts plays one on the bar's) takes the glide's place while it plays.
-      var mark = l.querySelector('.ca-lmark');
-      mark.classList.add('is-run');
-      var run = getComputedStyle(arc).animationName;
-      mark.classList.remove('is-run');
-      check('a Run plays over the glide', run === 'ca-mark-run' && getComputedStyle(arc).animationName === 'ca-mark-glide', run);
-      check('a word with an ellipsis', /^[A-Z][a-z].*…$/.test(word()), word());
+      var moving = l.querySelector('.ca-lmark').getAnimations({ subtree: true });
+      check('and still', moving.length === 0, moving.map(function (a) { return a.animationName || a.transitionProperty; }).join(', '));
+      // Pointed at, it turns as the bar's mark does: the line's rules for pointing, with a class
+      // for :hover, which a page can't put on, and its turn played to the end.
+      var copies = [];
+      Array.prototype.forEach.call(document.styleSheets, function (sheet) {
+        var rules;
+        try { rules = sheet.cssRules; } catch (e) { return; }
+        Array.prototype.forEach.call(rules, function (r) {
+          if (r.selectorText && r.selectorText.indexOf('.ca-working-head:hover') >= 0) copies.push(r.cssText.split('.ca-working-head:hover').join('.ca-working-head.is-pointed'));
+        });
+      });
+      var pointing = document.createElement('style');
+      pointing.textContent = copies.join('\n');
+      document.head.appendChild(pointing);
+      var lead = l.querySelector('.ca-working-head');
+      lead.classList.add('is-pointed');
+      var c = l.querySelector('.ca-lmark-c');
+      var pop = l.querySelector('.ca-lmark-pop');
+      [c, pop].forEach(function (e) { e.getAnimations().forEach(function (a) { a.finish(); }); });
+      var turn = getComputedStyle(c).rotate + ' · ' + getComputedStyle(pop).scale;
+      lead.classList.remove('is-pointed');
+      pointing.remove();
+      check('pointed at, it turns as the bar’s mark does', turn === '360deg · 1.15', copies.length + ' rules · ' + turn);
+      check('a word with an ellipsis', /^[A-Z][a-z].*\.\.\.$/.test(word()), word());
+      // Its dots light in turn, and the time after them holds still.
       var took = q('.ca-sessinsp .ca-working-for');
+      var dots = Array.prototype.slice.call(l.querySelectorAll('.ca-working-dots > span'));
+      var at = function (t) {
+        dots.forEach(function (d) { d.getAnimations().forEach(function (a) { a.pause(); a.currentTime = t; }); });
+        var lit = dots.map(function (d) { return Number(getComputedStyle(d).opacity); });
+        return { lit: lit.indexOf(Math.max.apply(null, lit)), left: took.getBoundingClientRect().left };
+      };
+      var beats = [400, 600, 800, 1400].map(at);
+      dots.forEach(function (d) { d.getAnimations().forEach(function (a) { a.play(); }); });
+      var still = beats.every(function (b) { return b.left === beats[0].left; });
+      check('its dots lighting in turn, the time holding still', beats.slice(0, 3).map(function (b) { return b.lit; }).join(' ') === '0 1 2' && still,
+        beats.map(function (b) { return b.lit + '@' + b.left; }).join(' '));
       check('and how long it has worked', took && took.textContent === '1m', took && took.textContent);
       var thread = q('.ca-sessinsp .ca-thread');
       check('last in the conversation', thread.lastElementChild === l, thread.lastElementChild && thread.lastElementChild.className);
@@ -132,7 +160,7 @@
           return wait(31e3);
         })
         .then(function () {
-          check('another word in time', word() !== first && /…$/.test(word()), first + ' → ' + word());
+          check('another word in time', word() !== first && /\.\.\.$/.test(word()), first + ' → ' + word());
           var off = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
           var under = tip().getBoundingClientRect().top >= l.querySelector('.ca-working-head').getBoundingClientRect().bottom;
           check('a longer word puts the tip under it, the view kept at the end', under && line().getBoundingClientRect().height > tall && thread.scrollHeight > thread.clientHeight && off < 1,
