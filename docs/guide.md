@@ -373,10 +373,10 @@ every Claude Code account that has its copy when you change it.
 #### While it works
 
 While a session's agent works, the end of its conversation says so, wherever the conversation
-shows: the Codealong mark in gray, then a word for what the agent's up to (Tinkering…, Untangling…,
-Sharpening pencils…), the dots of its ellipsis lighting one after another, and how long it has
-worked on what you last asked. The dots are all that moves; pointing at the line turns the mark
-as pointing at the bar's does. The word is for fun, not news; a new one
+shows: the Codealong mark, its C a light gray and its node breathing, then a word for what the
+agent's up to (Tinkering…, Untangling…, Sharpening pencils…), the dots of its ellipsis lighting one
+after another, and how long it has worked on what you last asked. Pointing at the line turns the
+mark as pointing at the bar's does. The word is for fun, not news; a new one
 comes every 30 seconds, each session with its words in an order of its own, the same in every
 window, and a turn past a quarter of an hour gets one that says so now and then (Still at it…).
 A session gone silent mid-turn has no line: its header says how long it's been silent. One whose

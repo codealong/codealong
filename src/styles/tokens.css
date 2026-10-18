@@ -71,6 +71,7 @@
   --neutral-tint: #eceeeb;
   --logo-idle: #b8bcb9;
   --logo-working: #11875a;
+  --logo-quiet: var(--logo-idle);
   --brand: #f0a000;
   --on-brand: #1f1300;
   --focus: var(--ink);
@@ -217,6 +218,7 @@
     --neutral-tint: #22272a;
     --logo-idle: #b8bcb9;
     --logo-working: #34b27c;
+    --logo-quiet: var(--line-strong);
     --brand: #f5a524;
     --on-brand: #1f1300;
     --focus: var(--ink);
@@ -295,6 +297,7 @@
   --neutral-tint: #22272a;
   --logo-idle: #b8bcb9;
   --logo-working: #34b27c;
+  --logo-quiet: var(--line-strong);
   --brand: #f5a524;
   --on-brand: #1f1300;
   --focus: var(--ink);

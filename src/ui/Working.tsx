@@ -1,5 +1,5 @@
 // The line at the end of a conversation while its agent works (working.ts says what it says, and
-// when a tip comes): the mark, quiet (gray and still, turning as you point at the line), a word for
+// when a tip comes): the mark, quiet (a light gray C, its node breathing), a word for
 // what the agent's up to, its ellipsis lighting dot by dot, and how long it has worked on what you
 // last asked, quiet, where its words will come. Now and then a tip, on the
 // line's right, out of the way of the agent's words; only in the main window's panel, since a

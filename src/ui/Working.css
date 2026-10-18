@@ -1,4 +1,4 @@
-/* The line at the end of a conversation while its agent works (Working.tsx): the mark, still,
+/* The line at the end of a conversation while its agent works (Working.tsx): the mark breathing,
    then a word for what it's up to and how long it has gone on, in quiet text where the agent's
    words will come. A tip, now and then, goes on the line's right, quieter still: beside the word
    while the line has room for it, under it, still on the right, once it hasn't. Each word fades in.
@@ -31,8 +31,8 @@
   color: var(--ink-2);
   animation: ca-working-in var(--dur-base) ease-out;
 }
-/* The line's one motion: the ellipsis's dots light in turn, left to right, then rest. Only their
-   opacity changes, so the time after them holds still. */
+/* The ellipsis's dots light in turn, left to right, then rest. Only their opacity changes, so the
+   time after them holds still. */
 .ca-working-dots > span {
   opacity: 0.3;
   animation: ca-working-dot var(--dur-ellipsis) ease-in-out infinite both;

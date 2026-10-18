@@ -58,7 +58,7 @@
     transform: scale(0.9);
   }
 }
-.ca-lmark[data-status="working"]:not(.is-quiet) .ca-lmark-node {
+.ca-lmark[data-status="working"] .ca-lmark-node {
   animation: ca-mark-breath 3600ms cubic-bezier(0.37, 0, 0.63, 1) infinite;
   will-change: transform, opacity;
 }
@@ -199,11 +199,11 @@
 .ca-lmark.is-run .ca-lmark-arc.is-second {
   animation: ca-mark-run-second 1500ms step-end both;
 }
-/* Quiet, beside a line of text (a working conversation's, Working.tsx): the C in gray, and nothing
-   moves, the line's ellipsis being its motion, until you point at the line, when it turns as the
-   bar's does. */
+/* Quiet, beside a line of text (a working conversation's, Working.tsx): the C in a gray quieter
+   than the text, so the node, breathing as the bar's does while agents work, carries the mark.
+   Pointing at the line turns it as pointing at the bar's mark does. */
 .ca-lmark.is-quiet .ca-lmark-c {
-  fill: var(--ink-3);
+  fill: var(--logo-quiet);
 }
 /* Send, as you send a session something: the node pulls back and lets go, and a dot as wide as
    the stem leaves through the C's opening. */

@@ -1,5 +1,5 @@
 // Checks the line at the end of a conversation while its agent works (Working.tsx, working.ts):
-// the mark quiet (its C gray) and still, turning as the bar's does once pointed at, a word for
+// the mark quiet (its C a light gray) and its node breathing, turning as the bar's does once pointed at, a word for
 // what it's up to with an ellipsis whose dots light in turn, and how long it has worked, held still,
 // last in the conversation. A turn that has worked a while gets a tip on its right in the main
 // window's panel, its first line level with the word, or under it once the line has no room, kept for the turn in every window; another session's turn soon after gets
@@ -86,13 +86,15 @@
       var l = line();
       check('the mark beside it', !!l.querySelector('.ca-lmark[data-status="working"]'));
       var gray = document.createElement('span');
-      gray.style.color = 'var(--ink-3)';
+      gray.style.color = 'var(--logo-quiet)';
       l.appendChild(gray);
       var fill = getComputedStyle(l.querySelector('.ca-lmark-c')).fill;
-      check('quiet, its C gray', !!l.querySelector('.ca-lmark.is-quiet') && fill === getComputedStyle(gray).color, fill + ' vs ' + getComputedStyle(gray).color);
+      check('quiet, its C a light gray', !!l.querySelector('.ca-lmark.is-quiet') && fill === getComputedStyle(gray).color, fill + ' vs ' + getComputedStyle(gray).color);
       gray.remove();
+      // Only its node moves, breathing as the bar's does.
       var moving = l.querySelector('.ca-lmark').getAnimations({ subtree: true });
-      check('and still', moving.length === 0, moving.map(function (a) { return a.animationName || a.transitionProperty; }).join(', '));
+      check('its node breathing, nothing else moving', moving.length === 1 && moving[0].animationName === 'ca-mark-breath' && moving[0].effect.target.matches('.ca-lmark-node'),
+        moving.map(function (a) { return a.animationName || a.transitionProperty; }).join(', '));
       // Pointed at, it turns as the bar's mark does: the line's rules for pointing, with a class
       // for :hover, which a page can't put on, and its turn played to the end.
       var copies = [];

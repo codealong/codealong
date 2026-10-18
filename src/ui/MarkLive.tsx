@@ -14,8 +14,8 @@ const C_MASK = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http:/
 /** A moment older than this was played by an earlier drawing of the mark. */
 const NEW_MS = 500;
 
-/** `quiet` is the mark beside a line of text: its C gray, and still while agents work, turning
- *  only as you point at the line (MarkLive.css). */
+/** `quiet` is the mark beside a line of text: its C a quiet gray, the node breathing while agents
+ *  work, and turning as you point at the line (MarkLive.css). */
 export function MarkLive({ size = 16, status = 'idle', moment, quiet = false }: { size?: number; status?: LogoStatus; moment: Moment | null; quiet?: boolean }) {
   const el = useRef<HTMLSpanElement>(null);
   // A moment is a class on the mark for as long as it plays; React never writes the class, so
