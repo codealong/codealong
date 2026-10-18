@@ -74,8 +74,15 @@
       var fill = getComputedStyle(l.querySelector('.ca-lmark-c')).fill;
       check('quiet, its C gray', !!l.querySelector('.ca-lmark.is-quiet') && fill === getComputedStyle(gray).color, fill + ' vs ' + getComputedStyle(gray).color);
       gray.remove();
-      var glide = getComputedStyle(l.querySelector('.ca-lmark-arc i')).animationName;
+      var arc = l.querySelector('.ca-lmark-arc i');
+      var glide = getComputedStyle(arc).animationName;
       check('its color gliding round it', glide === 'ca-mark-glide', glide);
+      // A Run played on it (as mark.ts plays one on the bar's) takes the glide's place while it plays.
+      var mark = l.querySelector('.ca-lmark');
+      mark.classList.add('is-run');
+      var run = getComputedStyle(arc).animationName;
+      mark.classList.remove('is-run');
+      check('a Run plays over the glide', run === 'ca-mark-run' && getComputedStyle(arc).animationName === 'ca-mark-glide', run);
       check('a word with an ellipsis', /^[A-Z][a-z].*…$/.test(word()), word());
       var took = q('.ca-sessinsp .ca-working-for');
       check('and how long it has worked', took && took.textContent === '1m', took && took.textContent);

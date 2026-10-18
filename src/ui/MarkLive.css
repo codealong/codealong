@@ -201,7 +201,8 @@
 }
 /* Quiet, beside a line of text (a working conversation's, Working.tsx): the C in gray, and while
    agents work the node's color glides round it, faint: Run's turn, slower, then a rest inside the
-   opening before it comes round again, two of the node's breaths to each round. */
+   opening before it comes round again, two of the node's breaths to each round. A Run played on
+   it plays as it would on any mark, the glide making way for it. */
 .ca-lmark.is-quiet .ca-lmark-c {
   fill: var(--ink-3);
 }
@@ -236,14 +237,14 @@
     opacity: 1;
   }
 }
-.ca-lmark.is-quiet[data-status="working"] .ca-lmark-arc i {
+.ca-lmark.is-quiet[data-status="working"]:not(.is-run) .ca-lmark-arc i {
   animation: ca-mark-glide 7200ms cubic-bezier(0.3, 0.15, 0.7, 0.85) infinite;
   will-change: transform;
 }
-.ca-lmark.is-quiet[data-status="working"] .ca-lmark-arc.is-first {
+.ca-lmark.is-quiet[data-status="working"]:not(.is-run) .ca-lmark-arc.is-first {
   animation: ca-mark-glide-first 7200ms step-end infinite;
 }
-.ca-lmark.is-quiet[data-status="working"] .ca-lmark-arc.is-second {
+.ca-lmark.is-quiet[data-status="working"]:not(.is-run) .ca-lmark-arc.is-second {
   animation: ca-mark-glide-second 7200ms step-end infinite;
 }
 /* Send, as you send a session something: the node pulls back and lets go, and a dot as wide as
