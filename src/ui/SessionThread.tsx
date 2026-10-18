@@ -61,6 +61,7 @@ import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
 import { FileLink, FollowUpContext, Link, linked, Markdown } from './Markdown';
 import { cx, Icon, Rich, StatusGlyph } from './primitives';
+import { waitsInBackground } from '../lanes';
 import { QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
 import { errorText } from '../report';
@@ -956,8 +957,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                 </div>
               )}
               {loaded && items.length === 0 && yours === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
-              {/* One gone silent says so in its header instead. */}
-              {loaded && s.status === 'working' && !s.stalledSince && <Working session={s} tips={tips} onGrow={follow} />}
+              {/* Not for one gone silent, nor one whose turn is over that waits on a command it left
+                  running in the background: their headers say so, the second with its clock. */}
+              {loaded && s.status === 'working' && !s.stalledSince && !waitsInBackground(s) && <Working session={s} tips={tips} onGrow={follow} />}
               {s.status === 'needs' && !pending && s.excerpt && (
                 <div className="ca-thread-tool is-asks">
                   <div className="ca-thread-askrow">

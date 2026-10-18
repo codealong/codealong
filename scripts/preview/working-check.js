@@ -2,8 +2,9 @@
 // the mark quiet (its C gray, its color gliding round it) and breathing, a word for what it's up to with an ellipsis, and how long it has worked,
 // last in the conversation. A turn that has worked a while gets a tip on its right in the main
 // window's panel, its first line level with the word, or under it once the line has no room, kept for the turn in every window; another session's turn soon after gets
-// none. A new word comes round in time. The line goes once the turn ends, and for a session gone
-// silent mid-turn, which its header speaks for.
+// none. A new word comes round in time. The line goes once the turn ends, for a session gone
+// silent mid-turn, which its header speaks for, and for one whose turn is over that waits on a
+// command it left running in the background, which its clock speaks for.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/working-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -35,6 +36,7 @@
         s.statusSince = started + at * 30e3;
         s.lastPromptAt = started + at * 30e3;
         s.stalledSince = own.stalledSince || null;
+        s.background = own.background;
         s.snoozedUntil = undefined;
         s.queued = undefined;
         s.asks = false;
@@ -147,6 +149,11 @@
     })
     .then(function () {
       check('gone for a session gone silent', !line());
+      shape[picked[0].key] = { background: 'gh pr checks 139 --watch' };
+      return push().then(function () { return until(function () { return !line(); }, 5000, 'the line to go for one waiting in the background'); });
+    })
+    .then(function () {
+      check('and for one waiting on a command in the background', !line());
       shape[picked[0].key] = { status: 'idle' };
       return push().then(function () { return wait(500); });
     })
