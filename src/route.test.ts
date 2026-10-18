@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion, type SuggestionContext } from './route';
+import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type Suggestion, type SuggestionContext } from './route';
 import { agentOptions, autoPick, startHappens, startTitleWords, startWhereWords } from './start';
 import * as fx from './testing/fixtures';
 import type { Board, Lane, Route, Session } from './types';
@@ -64,6 +64,13 @@ describe('suggestions', () => {
     // And to one whose turn ended on a command in the background that looks stuck.
     const stuck = board([lane('/api', [session('s:ask', 'needs', { background: 'acme login --device' })])]);
     expect(suggestions(r, stuck)[0]).toMatchObject({ kind: 'send', key: 'send:s:ask' });
+  });
+
+  it('sends to a session you pick by the same rule (Send to)', () => {
+    const [l] = b.lanes;
+    expect(toSessionSuggestion(l, l.sessions[0], 0.3)).toMatchObject({ kind: 'send', key: 'send:s:fix', p: 0.3 });
+    expect(toSessionSuggestion(l, l.sessions[1], 0)).toMatchObject({ kind: 'open', key: 'open:s:ask' });
+    expect(toSessionSuggestion(l, l.sessions[0], 0, true).kind).toBe('open');
   });
 
   it('starts new work in the likeliest worktree, in a worktree of its own when it wants one', () => {

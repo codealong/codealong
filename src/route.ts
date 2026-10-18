@@ -101,6 +101,14 @@ function findSession(board: Board, key: string): { lane: Lane; session: Session 
   return homeOf(board.lanes, key);
 }
 
+/** What's typed going to a session, as a suggestion's row has it: opened when it waits on you to
+ *  answer a prompt (send.rs `waits_on_you`), since what's typed would answer that prompt, or with
+ *  `find`; sent to otherwise. Send to (Quick.tsx) sends to the session you pick by the same rule. */
+export function toSessionSuggestion(lane: Lane, session: Session, p: number, find = false): Suggestion {
+  const open = find || (session.status === 'needs' && !session.asks && session.background == null);
+  return { kind: open ? 'open' : 'send', key: `${open ? 'open' : 'send'}:${session.key}`, lane, session, p };
+}
+
 /**
  * The rows for an answer. The likeliest action on its likeliest target leads, sureness from
  * both probabilities multiplied. Runners-up follow: another likely session, or starting new
@@ -127,10 +135,7 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
 
   const toSession = (pick: RoutePick | undefined, p: number, find: boolean): Suggestion | null => {
     const found = pick && findSession(board, pick.id);
-    if (!found) return null;
-    // Opened when it waits on you to answer a prompt, as send.rs `waits_on_you` has it.
-    const open = find || (found.session.status === 'needs' && !found.session.asks && found.session.background == null);
-    return { kind: open ? 'open' : 'send', key: `${open ? 'open' : 'send'}:${found.session.key}`, ...found, p };
+    return found ? toSessionSuggestion(found.lane, found.session, p, find) : null;
   };
   const topAgent = route.agents?.[0];
   const agentPick = topAgent ? (topAgent.model ? `${topAgent.account}:${topAgent.model}` : topAgent.account) : undefined;

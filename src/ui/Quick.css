@@ -91,6 +91,38 @@ html.is-quick body {
 .ca-quick-attached {
   padding: 0 14px 10px 14px;
 }
+/* Send to: the prompt it sends, under the box that finds the session it goes to, cut to a line.
+   A click puts it back in the box, as Escape does. */
+.ca-quick-sending {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: calc(100% - 28px);
+  margin: 0 14px 10px;
+  padding: var(--space-1) var(--space-2);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+  font: var(--type-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-quick-sending:hover {
+  background: var(--surface-selected);
+}
+.ca-quick-sending > .ca-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.ca-quick-sending-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* The list takes what the card's height leaves. What was found scrolls in it, and the last row, a
    new session, stays at its foot, in the same place whatever is listed. */
 .ca-quick-list {

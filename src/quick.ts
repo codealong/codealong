@@ -4,7 +4,9 @@
 // todos ready to start, then the rest of the sessions started in the last day, which ↓ reaches
 // past the rest. Typed words find sessions, then todos, then PRs: every word has to be in what
 // describes them, or, for a session, in what was said in it (the engine's text search,
-// search.rs). Kept free of React so the rules have tests.
+// search.rs). Under a prompt, Send to lists every session it could go to, Jev's picks first
+// (`sendTargets`), its own box finding one while the prompt waits. Kept free of React so the
+// rules have tests.
 
 import { agoPhrase, middleTruncate } from './format';
 import { heldForAgent } from './prStatus';
@@ -14,11 +16,13 @@ import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } f
 import { prFlag } from './prStatus';
 import type { Codec } from './stored';
 import { platform } from './platform';
-import type { Board, DeviceFound, DeviceView, Lane, PrItem, PrState, Session, Status, TextHit, Todo } from './types';
+import type { Board, DeviceFound, DeviceView, Lane, PrItem, PrState, RoutePick, Session, Status, TextHit, Todo } from './types';
 
 export const ALL_PROJECTS = 'All projects';
 /** What the panel's empty box says, and the box in the main window's title bar that opens it. */
 export const QUICK_PLACEHOLDER = 'Find a session, or describe new work…';
+/** What the box says in Send to, while it finds the session what's typed goes to. */
+export const SEND_TO_PLACEHOLDER = 'Find the session to send this to…';
 /** Codealong's chats, as the worktree picker offers them: a chat of its own, in no project. */
 export const NO_PROJECT = 'No project';
 const ELSEWHERE = 'Elsewhere';
@@ -31,7 +35,7 @@ export function inProject(lane: Pick<Lane, 'project' | 'hidden'>, project: strin
   return lane.project === project && (project === ELSEWHERE || !lane.hidden);
 }
 
-export type RowGroup = 'suggested' | 'skills' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'todos' | 'prs' | 'ready' | 'recent';
+export type RowGroup = 'suggested' | 'skills' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'sendto' | 'todos' | 'prs' | 'ready' | 'recent';
 
 /** Where a session goes in the empty panel's list by its status, as on the floating bar: errors
  *  wait on you like questions do. A helper or a headless run waits there only while it needs
@@ -54,6 +58,9 @@ export interface SessionRow {
   marks: [number, number][];
   /** Found by what was said rather than what describes it (`saidLine`). */
   said?: SaidLine;
+  /** How likely Jev thinks it is that what's typed is for this session, in Send to
+   *  (`sendTargets`). */
+  p?: number;
 }
 
 /** What a session found by what was said shows under its title: a line of what matched, whether
@@ -266,6 +273,40 @@ export function findSessions(board: Board, project: string, query: string, limit
     )
     .slice(0, limit)
     .map((f) => f.row);
+}
+
+/** How many sessions Send to lists at most; words typed in its box find the rest. */
+export const SEND_TO = 40;
+
+/**
+ * The sessions Send to lists, for sending what's typed to one Jev didn't suggest. With nothing
+ * typed in its box: the ones Jev weighed (`picks`, its answer's sessions with how likely each
+ * is), in Jev's order, then every other session in the project, the one you last prompted first,
+ * so the list holds still while agents work. With words typed: the sessions they find
+ * (`findSessions`, by what was said in them too), Jev's first in its order, the rest in theirs.
+ * Helpers and headless runs are left out while they don't need you, as the empty panel leaves
+ * them out: their agent or script talks to them, not you. Archived ones are left out unless
+ * `archived` asks for them, and come last. `count` is how many there are in all.
+ */
+export function sendTargets(board: Board, project: string, words: string, picks: RoutePick[], said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without', limit = SEND_TO): { rows: SessionRow[]; count: number } {
+  const likely = new Map(picks.map((x) => [x.id, x.p]));
+  const rank = new Map(picks.map((x, i) => [x.id, i]));
+  const at = (r: SessionRow) => rank.get(r.session.key) ?? Infinity;
+  const found =
+    queryWords(words).length > 0
+      ? findSessions(board, project, words, Infinity, said, archived)
+      : sessionsIn(board, project, archived)
+          .sort((a, b) => b.session.lastPromptAt - a.session.lastPromptAt || a.session.key.localeCompare(b.session.key))
+          .map(({ lane, session }): SessionRow => ({ kind: 'session', key: session.key, group: 'sendto', lane, session, marks: [] }));
+  const all = found
+    .filter((r) => !unattended(r.session))
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => Number(a.r.session.archived) - Number(b.r.session.archived) || at(a.r) - at(b.r) || a.i - b.i)
+    .map(({ r }): SessionRow => {
+      const p = likely.get(r.session.key);
+      return { ...r, group: 'sendto', ...(p != null ? { p } : {}) };
+    });
+  return { rows: all.slice(0, limit), count: all.length };
 }
 
 /**

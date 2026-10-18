@@ -64,7 +64,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
@@ -88,7 +88,7 @@ import {
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
-import { alreadyOnWords, duplicateOf, rankedBy, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, worthRouting, type Suggestion } from '../route';
+import { alreadyOnWords, duplicateOf, rankedBy, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
@@ -143,7 +143,7 @@ const HERE = 'here';
 
 type PickerKind = 'project' | 'device' | 'worktree' | 'agent' | 'place';
 
-const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', needs: 'Needs you', reviews: 'Review requested', unread: 'Your turn', working: 'Working', found: 'Sessions', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
+const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', needs: 'Needs you', reviews: 'Review requested', unread: 'Your turn', working: 'Working', found: 'Sessions', sendto: 'Send to', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
 
 /** A suggestion from Jev, as a row. */
 interface SuggestRow {
@@ -161,7 +161,17 @@ interface MoreRow {
   count: number;
 }
 
-type Row = SessionRow | ReviewRow | TodoRow | PrRow | SuggestRow | MoreRow | SkillRow;
+/** Under a prompt's search, the way to send it to any session, not only one Jev suggests: the
+ *  box then finds the session while the prompt waits under it (`sendTo`). */
+interface SendToRow {
+  kind: 'sendto';
+  key: string;
+  group: 'found';
+  /** How many sessions it could go to. */
+  count: number;
+}
+
+type Row = SessionRow | ReviewRow | TodoRow | PrRow | SuggestRow | MoreRow | SendToRow | SkillRow;
 
 /** Jev's suggestions as rows. Jev knows this Mac's worktrees, so it suggests starting only while a
  *  session would start here, not on another Mac. */
@@ -292,6 +302,7 @@ export function Quick() {
   const clearPrompt = () => {
     setText('');
     setAttached([]);
+    setSendTo(null);
   };
   const cachedOptions = useRef<{ at: number; options: StartOptions } | null>(null);
   // Jev's answers by project and text, so going back to what you typed doesn't ask again. Each
@@ -307,6 +318,10 @@ export function Quick() {
   // brought back.
   const [history, setHistory] = useStored<string[]>(HISTORY_KEY, strings, []);
   const [withArchived, setWithArchived] = useStored(ARCHIVED_KEY, flag, false);
+  // Send to: what's typed in the box while it finds the session the prompt goes to, which waits
+  // under it as written; null while the box holds the prompt.
+  const [sendTo, setSendTo] = useState<string | null>(null);
+  const inSendTo = sendTo !== null;
   const [recall, setRecall] = useState<number | null>(null);
   const keepPrompt = (prompt: string) => setHistory((h) => historyWith(h, prompt));
   const todoIdsNow = useLatest(todoIds);
@@ -364,6 +379,7 @@ export function Quick() {
         const typedFor = todoIdsNow.current;
         setDraft((d) => nextDraft(typed, typedFor, d));
         loadPrompt(ctx.prompt ?? '');
+        setSendTo(null);
         setRecall(null);
         setAgent(null);
         setEffort(null);
@@ -485,7 +501,7 @@ export function Quick() {
     if (el.style.height === `${tallest}px` && el.scrollHeight > el.clientHeight) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, tallest)}px`;
-  }, [text, opens]);
+  }, [text, sendTo, opens]);
 
   const refocus = () => window.requestAnimationFrame(() => input.current?.focus());
 
@@ -740,17 +756,27 @@ export function Quick() {
   const recent = useMemo(() => (board && attention ? recentRows(board, current, new Set(attention.rows.map((r) => r.key)), now) : null), [board, current, attention, now]);
   // What was said in sessions is searched in the engine, once typing pauses; its hits join the
   // list below the sessions whose titles and the like match. The panel lists this Mac's sessions
-  // only, so other devices aren't asked.
-  const { found: textFound, said } = useTextSearch(query, { ready: !!board, devices: false });
-  const foundSessions = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said, withArchived ? 'with' : 'without') : []), [board, current, query, said, withArchived]);
+  // only, so other devices aren't asked. In Send to, it's what's typed in the box that's looked
+  // for, and the prompt's own search waits.
+  const { found: textFound, said } = useTextSearch(inSendTo ? sendTo : query, { ready: !!board, devices: false });
+  const searching = !!query && !inSendTo;
+  const archivedMode = withArchived ? 'with' : 'without';
+  const foundSessions = useMemo(() => (board && searching ? findSessions(board, current, query, FOUND_ALL, said, archivedMode) : []), [board, current, query, searching, said, archivedMode]);
   // How many archived sessions match, for the toggle that lists them or leaves them out.
-  const archivedFound = useMemo(() => (board && query ? findSessions(board, current, query, FOUND_ALL, said, 'only').length : 0), [board, current, query, said]);
+  const archivedFound = useMemo(
+    () => (!board || !query ? 0 : inSendTo ? sendTargets(board, current, sendTo, [], said, 'only', 0).count : findSessions(board, current, query, FOUND_ALL, said, 'only').length),
+    [board, current, query, inSendTo, sendTo, said],
+  );
   // A search lists its first few sessions, so todos and PRs fit below; a row under them lists
   // the rest, until what's typed changes.
   const [allFor, setAllFor] = useState<string | null>(null);
   const showAll = allFor === query;
-  const foundTodos = useMemo(() => (board && query ? findTodos(board, current, query) : []), [board, current, query]);
-  const foundPrs = useMemo(() => (board && query ? findPrs(board, current, query) : []), [board, current, query]);
+  const foundTodos = useMemo(() => (board && searching ? findTodos(board, current, query) : []), [board, current, query, searching]);
+  const foundPrs = useMemo(() => (board && searching ? findPrs(board, current, query) : []), [board, current, query, searching]);
+  // What's typed is a prompt rather than a word or two of a search: it can be sent to any of the
+  // project's sessions, by Send to under the sessions found (⌘F), as well as to the ones Jev
+  // suggests. With routing off too.
+  const sendable = useMemo(() => (board && !inSendTo && worthRouting(query) ? sendTargets(board, current, '', [], undefined, archivedMode, 0).count : 0), [board, current, query, inSendTo, archivedMode]);
 
   // With routing on, what you type (and any pictures attached to it) goes to Jev once you pause,
   // and its suggestions lead the list, so ⏎ does the likeliest. A word or two alone is a search
@@ -823,7 +849,19 @@ export function Quick() {
   // put first don't drop back at every key.
   const ranked = rankedBy(foundSessions, route ?? lastRoute);
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
-  const rows: Row[] = slash ? skillsListed : query ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...foundTodos, ...foundPrs] : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
+  const sendToRow: SendToRow[] = sendable > 0 ? [{ kind: 'sendto', key: 'sendto', group: 'found', count: sendable }] : [];
+  // Send to's list: every session the prompt could go to, Jev's picks for it first with how
+  // likely each is (the last answer's while the next is worked out, as the sessions found have
+  // it), found by what's typed in the box.
+  const jevPicks = (route ?? lastRoute)?.sessions;
+  const sendList = useMemo(() => (board && inSendTo ? sendTargets(board, current, sendTo, jevPicks ?? [], said, archivedMode) : null), [board, current, inSendTo, sendTo, jevPicks, said, archivedMode]);
+  const rows: Row[] = inSendTo
+    ? (sendList?.rows ?? [])
+    : slash
+      ? skillsListed
+      : query
+        ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...sendToRow, ...foundTodos, ...foundPrs]
+        : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   /** Lists archived sessions in searches, or leaves them out, from now on (Sessions' heading has
    *  the box, ⇧⌘A presses it). They come after all the others, so turned on, the search lists all
    *  it finds, and the ones just asked for show. */
@@ -831,7 +869,9 @@ export function Quick() {
     if (!withArchived) setAllFor(query);
     setWithArchived(!withArchived);
   };
-  const keys = [...rows.map((r) => r.key), COMPOSE];
+  // Send to sends what's typed to a session: the new session's row and its settings below are
+  // put away until the box holds the prompt again.
+  const keys = [...rows.map((r) => r.key), ...(inSendTo ? [] : [COMPOSE])];
   // Rows that move by themselves end what a scroll of yours aimed at (aim.ts): where each sits in
   // the list, which scrolling doesn't change, is compared once the list and its held heights
   // above are laid out. Rows keep their keys as a heading or a note comes in over them.
@@ -1025,7 +1065,7 @@ export function Quick() {
 
   /** A row's menu: a session's, PR's or todo's as every window has it, a suggestion's own. */
   const rowMenu = (r: Row) => {
-    if (r.kind === 'more' || r.kind === 'skill') return;
+    if (r.kind === 'more' || r.kind === 'sendto' || r.kind === 'skill') return;
     const show = (spec: MenuSpec) => void showContextMenu(spec).catch((e: unknown) => setError(errorText(e)));
     if (r.kind === 'suggest') {
       const sg = r.s;
@@ -1040,7 +1080,9 @@ export function Quick() {
       return;
     }
     if (r.kind === 'session') {
-      show(sessionMenuSpec(r.lane, r.session));
+      // In Send to, what ⏎ does leads, as on a suggestion's menu.
+      const sg = r.group === 'sendto' ? toSessionSuggestion(r.lane, r.session, r.p ?? 0) : null;
+      show([...(sg?.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }, 'separator' as const] : []), ...sessionMenuSpec(r.lane, r.session)]);
       return;
     }
     if (r.kind === 'pr' || r.kind === 'review') {
@@ -1212,6 +1254,28 @@ export function Quick() {
       );
   };
 
+  /** Send to: the box finds the session what's typed goes to, while the prompt waits under it as
+   *  written. */
+  const openSendTo = () => {
+    setSendTo('');
+    setActiveKey(null);
+    setPicker(null);
+    refocus();
+  };
+
+  /** Back from Send to: the prompt is in the box again, with the caret at its end. */
+  const closeSendTo = () => {
+    setSendTo(null);
+    setActiveKey(null);
+    setCaret(textNow.current.length);
+    window.requestAnimationFrame(() => {
+      const el = input.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  };
+
   const suggest = (sg: Suggestion, alt: boolean) => {
     if (sg.kind === 'send') alt ? revealSession(sg.lane, sg.session) : send(sg.session);
     else if (sg.kind === 'open') (alt ? openSession : showSession)(sg.lane, sg.session);
@@ -1241,8 +1305,11 @@ export function Quick() {
 
   const activate = (key: string, alt: boolean) => {
     const row = rows.find((r) => r.key === key);
-    if (!row) start();
-    else if (row.kind === 'suggest') suggest(row.s, alt);
+    // Send to has no new session's row to fall back on.
+    if (!row) {
+      if (!inSendTo) start();
+    } else if (row.kind === 'suggest') suggest(row.s, alt);
+    else if (row.kind === 'sendto') openSendTo();
     else if (row.kind === 'todo') (alt ? revealTodo : openTodo)(row);
     else if (row.kind === 'pr') (alt ? openPr : showPr)(row.pr);
     else if (row.kind === 'review') (alt ? revealPr(row.pr) : answerIn(row.pr.key));
@@ -1251,7 +1318,8 @@ export function Quick() {
       // The first of those it adds takes its place.
       setAllFor(query);
       setActiveKey(ranked[FOUND_SESSIONS]?.key ?? null);
-    } else if (alt) openSession(row.lane, row.session);
+    } else if (row.group === 'sendto') suggest(toSessionSuggestion(row.lane, row.session, row.p ?? 0), alt);
+    else if (alt) openSession(row.lane, row.session);
     else showSession(row.lane, row.session, row.said && findFor(row.said.text, queryWords(query)));
   };
 
@@ -1280,6 +1348,25 @@ export function Quick() {
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
     const el = e.currentTarget;
+    // In Send to the box finds a session: ⏎ (or ⌘⏎) sends to it, ⌫ in the empty box goes back to
+    // the prompt as Escape does, and the arrows move through the list, never back through
+    // earlier prompts. What's typed there is one line.
+    if (inSendTo && e.key !== 'Tab') {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (!e.shiftKey) activate(active, e.altKey);
+      } else if (e.key === 'Backspace' && !el.value && bare(e)) {
+        e.preventDefault();
+        closeSendTo();
+      } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey && !cmd(e) && !e.shiftKey) {
+        e.preventDefault();
+        move(e.key === 'ArrowDown' ? 1 : -1);
+      } else if (!cmd(e) && (emacsCtrl(e, 'n') || emacsCtrl(e, 'p'))) {
+        e.preventDefault();
+        move(e.key === 'n' ? 1 : -1);
+      }
+      return;
+    }
     // ⇥ on a session answers it in the waiting window; elsewhere it moves the focus as usual.
     if (e.key === 'Tab' && bare(e)) {
       const row = rows.find((r) => r.key === active);
@@ -1351,7 +1438,8 @@ export function Quick() {
         if (picker) {
           setPicker(null);
           refocus();
-        } else void hideQuick();
+        } else if (inSendTo) closeSendTo();
+        else void hideQuick();
         return;
       }
       // ⌥⌘ digits switch projects, as in the main window. ⌥ changes the character, so they go by
@@ -1379,7 +1467,16 @@ export function Quick() {
         toggleArchived();
         return;
       }
-      if (k === 'p' || k === 't' || k === 'l' || (k === 'd' && macs.length > 0) || (k === 'o' && places.length > 1)) {
+      // ⌘F, under a prompt: Send to, and back.
+      if (k === 'f' && !e.shiftKey && (inSendTo || sendable > 0)) {
+        e.preventDefault();
+        if (inSendTo) closeSendTo();
+        else openSendTo();
+        return;
+      }
+      // The menus for a new session are put away in Send to, with their keys.
+      const startMenu = !inSendTo && (k === 't' || k === 'l' || (k === 'd' && macs.length > 0) || (k === 'o' && places.length > 1));
+      if (k === 'p' || startMenu) {
         e.preventDefault();
         togglePicker(k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'worktree' : k === 'o' ? 'place' : 'agent');
       } else if (k === 'q' || k === 'h') {
@@ -1389,7 +1486,8 @@ export function Quick() {
         void hideQuick();
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        start();
+        if (inSendTo) activate(active, false);
+        else start();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -1552,12 +1650,15 @@ export function Quick() {
   }
   // While what's typed goes to Jev, Suggested is there before Jev answers and when it has nothing
   // to suggest, so the rows under it don't move as answers come (suggestedStandIn, below).
-  if (routeFor && sections[0]?.group !== 'suggested') sections.unshift({ group: 'suggested', rows: [] });
+  if (routeFor && !inSendTo && sections[0]?.group !== 'suggested') sections.unshift({ group: 'suggested', rows: [] });
   // While there's a search, Sessions' heading is there even with no session found: it has the box
-  // that lists archived sessions too.
-  if (query && !sections.some((x) => x.group === 'found')) sections.splice(sections[0]?.group === 'suggested' ? 1 : 0, 0, { group: 'found', rows: [] });
-  // Whether a search found nothing, Jev's suggestions aside.
-  const foundNothing = !!query && rows.every((r) => r.kind === 'suggest');
+  // that lists archived sessions too. So has Send to's, with no session found in it.
+  if (searching && !sections.some((x) => x.group === 'found')) sections.splice(sections[0]?.group === 'suggested' ? 1 : 0, 0, { group: 'found', rows: [] });
+  if (inSendTo && sections.length === 0) sections.push({ group: 'sendto', rows: [] });
+  // Whether a search found nothing, Jev's suggestions and Send to aside.
+  const foundNothing = searching && rows.every((r) => r.kind === 'suggest' || r.kind === 'sendto');
+  // Send to's rows keep a column for how likely Jev thinks each is, when it weighed any.
+  const sendLikely = !!sendList?.rows.some((r) => r.p != null);
   const nothingWaits = listing && !!attention && attention.counts.needs + attention.counts.reviews + attention.counts.unread === 0;
   /** A group's heading count: all there are of it, when the list shows only some. */
   const groupCount = (g: RowGroup, shown: number): number => {
@@ -1565,6 +1666,7 @@ export function Quick() {
     if (g === 'recent') return recent?.count ?? shown;
     if (g === 'needs' || g === 'reviews' || g === 'unread' || g === 'working') return attention?.counts[g] ?? shown;
     if (g === 'found') return foundSessions.length;
+    if (g === 'sendto') return sendList?.count ?? shown;
     return shown;
   };
   // Another Mac's accounts come a moment after it's picked, or not at all.
@@ -1610,18 +1712,22 @@ export function Quick() {
           </div>
           <textarea
             ref={input}
-            value={text}
+            value={inSendTo ? sendTo : text}
             rows={1}
-            spellCheck
-            aria-label="Find a session, or describe new work"
-            placeholder={improve ? IMPROVE_PLACEHOLDER : draft ? `${QUICK_PLACEHOLDER} ↑ brings back your draft` : history.length ? `${QUICK_PLACEHOLDER} ↑ for earlier prompts` : QUICK_PLACEHOLDER}
+            spellCheck={!inSendTo}
+            aria-label={inSendTo ? SEND_TO_PLACEHOLDER : 'Find a session, or describe new work'}
+            placeholder={inSendTo ? SEND_TO_PLACEHOLDER : improve ? IMPROVE_PLACEHOLDER : draft ? `${QUICK_PLACEHOLDER} ↑ brings back your draft` : history.length ? `${QUICK_PLACEHOLDER} ↑ for earlier prompts` : QUICK_PLACEHOLDER}
             onChange={(e) => {
+              setActiveKey(null);
+              if (inSendTo) {
+                setSendTo(e.target.value);
+                return;
+              }
               setText(e.target.value);
               setCaret(e.target.selectionStart);
               setRecall(null);
-              setActiveKey(null);
             }}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onSelect={(e) => !inSendTo && setCaret(e.currentTarget.selectionStart)}
             onKeyDown={onInputKey}
             onPaste={(e) => {
               const files = filesToAttach(e);
@@ -1632,12 +1738,20 @@ export function Quick() {
                 .catch((err: unknown) => setError(errorText(err)));
             }}
           />
-          {shortcut && !text && (
+          {shortcut && !text && !inSendTo && (
             <span className="ca-quick-hotkey" title="Opens this panel from any app. Change it in Settings.">
               {shortcut}
             </span>
           )}
         </div>
+        {inSendTo && (
+          // The prompt Send to sends, as written; a click puts it back in the box, as Escape does.
+          <button type="button" className="ca-quick-sending" title="Edit the prompt (Esc)" onMouseDown={(e) => e.preventDefault()} onClick={closeSendTo}>
+            <Icon name="send" size={12} />
+            <span className="ca-quick-sending-text">{text.trim()}</span>
+            <Kbd keys={['esc']} />
+          </button>
+        )}
         {attached.length + shots.length > 0 && (
           <div className="ca-quick-attached">
             <AttachmentStrip
@@ -1690,7 +1804,7 @@ export function Quick() {
                           </span>
                         )
                       )}
-                      {s.group === 'found' && (
+                      {(s.group === 'found' || s.group === 'sendto') && (
                         <label
                           className="ca-check ca-quick-archived"
                           title={keysIn(withArchived ? 'Searches list archived sessions after the others. ⇧⌘A leaves them out' : `Searches leave archived sessions out${archivedFound > 0 ? `; ${archivedFound} ${archivedFound === 1 ? 'matches' : 'match'} this one` : ''}. ⇧⌘A lists them`)}
@@ -1818,6 +1932,31 @@ export function Quick() {
                           </div>
                         );
                       }
+                      if (r.kind === 'sendto') {
+                        const another = suggested.some((x) => x.s.kind === 'send' || x.s.kind === 'open');
+                        return (
+                          <div
+                            key={r.key}
+                            role="option"
+                            aria-selected={active === r.key}
+                            className={cx('ca-quick-row', 'is-more', active === r.key && 'is-active', held.extraClass)}
+                            title={keysIn('Lists every session this prompt could go to, Jev’s picks first, and finds one by its title, its worktree or what was said in it (⌘F)')}
+                            {...handlers}
+                          >
+                            <span className="ca-quick-plus">
+                              <Icon name="send" size={13} stroke={2} />
+                            </span>
+                            <span className="ca-quick-row-main">
+                              <span className="ca-quick-row-title">Send to {another ? 'another' : 'a'} session…</span>
+                              <span className="ca-quick-row-why">Find it by its title, its worktree or what was said in it.</span>
+                            </span>
+                            <span className="ca-quick-row-where">
+                              {r.count} {r.count === 1 ? 'session' : 'sessions'}
+                            </span>
+                            <Kbd keys={['⌘', 'F']} />
+                          </div>
+                        );
+                      }
                       if (r.kind === 'pr' || r.kind === 'review') {
                         const pr = r.pr;
                         return (
@@ -1843,13 +1982,21 @@ export function Quick() {
                         );
                       }
                       const s2 = r.session;
+                      // In Send to, ⏎ does what a suggestion of it would (route.ts): it sends
+                      // what's typed, or shows a session that waits on you to answer.
+                      const sendsTo = r.group === 'sendto' ? toSessionSuggestion(r.lane, s2, r.p ?? 0) : null;
+                      const sendWords = sendsTo && describe(sendsTo);
                       return (
                         <div
                           key={r.key}
                           role="option"
                           aria-selected={active === r.key}
                           className={cx('ca-quick-row', active === r.key && 'is-active', held.extraClass, `is-${s2.status}`)}
-                          title={keysIn(`${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`)}
+                          title={keysIn(
+                            sendsTo && sendWords
+                              ? `${sendWords.title}\n${sendWords.why}\n${sendWords.where}${r.p != null ? ` · ${Math.round(r.p * 100)}% likely, from ${(route ?? lastRoute)?.model ?? 'Jev'}` : ''}\n${sendsTo.kind === 'send' ? '⏎ sends it · ⌥⏎ shows the session in Codealong' : '⏎ shows it in Codealong · ⌥⏎ opens it where it lives'} · ⇥ answers it in Waiting on you`
+                              : `${s2.title}\n${s2.account} · ${r.lane.callsign}\n⏎ shows it in Codealong · ⇥ answers it in Waiting on you · ⌥⏎ opens it where it lives`,
+                          )}
                           {...handlers}
                         >
                           <SessionGlyph s={s2} />
@@ -1873,8 +2020,9 @@ export function Quick() {
                           <span className="ca-quick-row-where">
                             {s2.account} · {r.lane.callsign}
                           </span>
+                          {sendLikely && sendsTo && <span className={cx('ca-quick-sure', r.p != null && `is-${sureness(r.p)}`)}>{r.p != null ? `${Math.round(r.p * 100)}%` : ''}</span>}
                           <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
-                          {active === r.key && <span className="ca-quick-row-tab">{keysIn('⇥ Reply')}</span>}
+                          {active === r.key && <span className="ca-quick-row-tab">{keysIn(sendsTo ? (sendsTo.kind === 'send' ? '⏎ Send' : '⏎ Answer') : '⇥ Reply')}</span>}
                           {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                         </div>
                       );
@@ -1882,49 +2030,61 @@ export function Quick() {
                     {s.group === 'suggested' && s.rows.length === 0 && suggestedStandIn}
                     {/* Under Sessions' heading rather than over the list, so they don't move
                         Suggested as they come and go. */}
-                    {s.group === 'found' && foundNothing && (
+                    {s.group === 'found' && foundNothing && (sendToRow.length === 0 || (archivedFound > 0 && !withArchived)) && (
                       <p className="ca-quick-note">
                         {archivedFound > 0 && !withArchived
                           ? keysIn(`No sessions, todos or PRs match, but ${archivedFound} archived ${archivedFound === 1 ? 'session does' : 'sessions do'}: ⇧⌘A lists ${archivedFound === 1 ? 'it' : 'them'}. Or start a session with this prompt below.`)
                           : 'No sessions, todos or PRs match. Start a session with this prompt below.'}
                       </p>
                     )}
-                    {s.group === 'found' && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
+                    {s.group === 'sendto' && s.rows.length === 0 && (
+                      <p className="ca-quick-note">
+                        {archivedFound > 0 && !withArchived
+                          ? keysIn(`No session matches, but ${archivedFound} archived ${archivedFound === 1 ? 'one does' : 'ones do'}: ⇧⌘A lists ${archivedFound === 1 ? 'it' : 'them'}. Esc goes back to your prompt.`)
+                          : 'No session matches. Esc goes back to your prompt.'}
+                      </p>
+                    )}
+                    {s.group === 'sendto' && sendList && sendList.count > sendList.rows.length && (
+                      <p className="ca-quick-note">{sendList.count - sendList.rows.length} more: type more of what you’re looking for to find them.</p>
+                    )}
+                    {(s.group === 'found' || s.group === 'sendto') && textFound?.building && <p className="ca-quick-note">Still reading what recent sessions said, so more may match in a moment.</p>}
                   </div>
                 ))}
               </>
             )}
           </div>
-          <div
-            role="option"
-            aria-selected={active === COMPOSE}
-            className={cx('ca-quick-row', 'ca-quick-compose', active === COMPOSE && 'is-active', !ready && 'is-disabled')}
-            data-row={COMPOSE}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={(e) => clickRow(COMPOSE, e)}
-          >
-            <span className="ca-quick-plus">
-              <Icon name="plus" size={14} stroke={2} />
-            </span>
-            <span className="ca-quick-row-main">
-              <span className="ca-quick-row-title">{startTitle(forTodos.length, lane ? startTitleWords(lane, inNewWorktree) : null)}</span>
-              <span className="ca-quick-row-why">
-                {/* The warning leads: the row's line is cut short when it's long. */}
-                {primaryRunningWords(held, forTodos.length)}
-                {skillNow && (skillNow.lane ? `Runs /${skillNow.skill.name} from ${skillNow.lane.repo}. ` : `Runs /${skillNow.skill.name}. `)}
-                {happens}
-                {skillLeftOut && ` ${skillLeftOut}`}
-                {alreadyOn}
-                {attached.length + shots.length > 0 && attachmentsNote(attached.length + shots.length)}
-                {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
-                {deviceNow && forTodos.length > 0 && todosStayNote(forTodos.length)}
+          {!inSendTo && (
+            <div
+              role="option"
+              aria-selected={active === COMPOSE}
+              className={cx('ca-quick-row', 'ca-quick-compose', active === COMPOSE && 'is-active', !ready && 'is-disabled')}
+              data-row={COMPOSE}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => clickRow(COMPOSE, e)}
+            >
+              <span className="ca-quick-plus">
+                <Icon name="plus" size={14} stroke={2} />
               </span>
-            </span>
-            {lane && <span className="ca-quick-row-where">{startWhereWords(lane)}</span>}
-            {/* Where a suggestion says how likely it is, so the columns line up with theirs. */}
-            <span className="ca-quick-sure" aria-hidden="true" />
-            <Kbd keys={['⌘', '⏎']} />
-          </div>
+              <span className="ca-quick-row-main">
+                <span className="ca-quick-row-title">{startTitle(forTodos.length, lane ? startTitleWords(lane, inNewWorktree) : null)}</span>
+                <span className="ca-quick-row-why">
+                  {/* The warning leads: the row's line is cut short when it's long. */}
+                  {primaryRunningWords(held, forTodos.length)}
+                  {skillNow && (skillNow.lane ? `Runs /${skillNow.skill.name} from ${skillNow.lane.repo}. ` : `Runs /${skillNow.skill.name}. `)}
+                  {happens}
+                  {skillLeftOut && ` ${skillLeftOut}`}
+                  {alreadyOn}
+                  {attached.length + shots.length > 0 && attachmentsNote(attached.length + shots.length)}
+                  {newToCodex && ' Codex adds this folder as a project if it isn’t one yet.'}
+                  {deviceNow && forTodos.length > 0 && todosStayNote(forTodos.length)}
+                </span>
+              </span>
+              {lane && <span className="ca-quick-row-where">{startWhereWords(lane)}</span>}
+              {/* Where a suggestion says how likely it is, so the columns line up with theirs. */}
+              <span className="ca-quick-sure" aria-hidden="true" />
+              <Kbd keys={['⌘', '⏎']} />
+            </div>
+          )}
         </div>
         {todo && (
           <div className="ca-quick-todo">
@@ -1984,55 +2144,57 @@ export function Quick() {
             )}
           </p>
         )}
-        <div className="ca-quick-bar">
-          {macs.length > 0 && (
+        {!inSendTo && (
+          <div className="ca-quick-bar">
+            {macs.length > 0 && (
+              <div className="ca-quick-pick">
+                <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(deviceInfo ? `On ${deviceInfo.name}\nMac (⌘D)` : 'Mac (⌘D)')} aria-haspopup="dialog" aria-expanded={picker === 'device'} onClick={() => togglePicker('device')}>
+                  {deviceInfo ? <i className={`ca-labeldot is-${deviceInfo.color}`} aria-hidden="true" /> : <Icon name="device-desktop" size={14} />}
+                  <span>{deviceInfo ? deviceLabel(deviceInfo.name) : 'This Mac'}</span>
+                  <Icon name="chevron-down" size={12} />
+                </button>
+                {picker === 'device' && <Picker sections={deviceSections} value={deviceNow ?? HERE} placeholder="Mac" onPick={pickDevice} onClose={() => { setPicker(null); refocus(); }} />}
+              </div>
+            )}
             <div className="ca-quick-pick">
-              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(deviceInfo ? `On ${deviceInfo.name}\nMac (⌘D)` : 'Mac (⌘D)')} aria-haspopup="dialog" aria-expanded={picker === 'device'} onClick={() => togglePicker('device')}>
-                {deviceInfo ? <i className={`ca-labeldot is-${deviceInfo.color}`} aria-hidden="true" /> : <Icon name="device-desktop" size={14} />}
-                <span>{deviceInfo ? deviceLabel(deviceInfo.name) : 'This Mac'}</span>
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
+                <Icon name={lane?.startsChats ? 'message-circle' : 'folder'} size={14} />
+                <span>{lane ? (lane.startsChats ? NO_PROJECT : lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
                 <Icon name="chevron-down" size={12} />
               </button>
-              {picker === 'device' && <Picker sections={deviceSections} value={deviceNow ?? HERE} placeholder="Mac" onPick={pickDevice} onClose={() => { setPicker(null); refocus(); }} />}
+              {picker === 'worktree' && <Picker sections={worktreeSections} value={lane?.id ?? null} placeholder="Worktree, branch or repo" onPick={(id) => { setLaneId(id); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
             </div>
-          )}
-          <div className="ca-quick-pick">
-            <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
-              <Icon name={lane?.startsChats ? 'message-circle' : 'folder'} size={14} />
-              <span>{lane ? (lane.startsChats ? NO_PROJECT : lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
-              <Icon name="chevron-down" size={12} />
-            </button>
-            {picker === 'worktree' && <Picker sections={worktreeSections} value={lane?.id ?? null} placeholder="Worktree, branch or repo" onPick={(id) => { setLaneId(id); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
-          </div>
-          <label
-            className={cx('ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled')}
-            title={lane?.startsChats ? 'A chat has no repo to make a worktree of.' : newWorktreeTitle(makesWorktree, placeNow, harness)}
-          >
-            <input type="checkbox" checked={inNewWorktree} disabled={!makesWorktree} onChange={(e) => setNewWorktree(e.target.checked)} />
-            <span className="ca-check-box" aria-hidden="true">
-              <Icon name="check" size={11} stroke={2.5} />
-            </span>
-            New worktree
-          </label>
-          {places.length > 1 && (
-            <div className="ca-quick-pick ca-quick-place">
-              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Opens in (⌘O)')} aria-haspopup="dialog" aria-expanded={picker === 'place'} onClick={() => togglePicker('place')}>
-                {placeShown && <Icon name={placeIcon(placeShown.place)} size={14} />}
-                <span>{placeShown?.label ?? 'Opens in'}</span>
+            <label
+              className={cx('ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled')}
+              title={lane?.startsChats ? 'A chat has no repo to make a worktree of.' : newWorktreeTitle(makesWorktree, placeNow, harness)}
+            >
+              <input type="checkbox" checked={inNewWorktree} disabled={!makesWorktree} onChange={(e) => setNewWorktree(e.target.checked)} />
+              <span className="ca-check-box" aria-hidden="true">
+                <Icon name="check" size={11} stroke={2.5} />
+              </span>
+              New worktree
+            </label>
+            {places.length > 1 && (
+              <div className="ca-quick-pick ca-quick-place">
+                <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Opens in (⌘O)')} aria-haspopup="dialog" aria-expanded={picker === 'place'} onClick={() => togglePicker('place')}>
+                  {placeShown && <Icon name={placeIcon(placeShown.place)} size={14} />}
+                  <span>{placeShown?.label ?? 'Opens in'}</span>
+                  <Icon name="chevron-down" size={12} />
+                </button>
+                {picker === 'place' && <Picker sections={placeSections(places)} value={placeNow} placeholder="Opens in" onPick={(id) => { pickPlace(id as StartPlace); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
+              </div>
+            )}
+            <div className="ca-quick-pick ca-quick-agent">
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Account, model and effort (⌘L)')} disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
+                <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />
+                <span>{agentChip.label}</span>
+                {agentChip.detail && <span className="ca-quick-chip-detail">{agentChip.detail}</span>}
                 <Icon name="chevron-down" size={12} />
               </button>
-              {picker === 'place' && <Picker sections={placeSections(places)} value={placeNow} placeholder="Opens in" onPick={(id) => { pickPlace(id as StartPlace); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
+              {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={effortFoot} onStep={effortFoot ? stepEffort : undefined} />}
             </div>
-          )}
-          <div className="ca-quick-pick ca-quick-agent">
-            <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Account, model and effort (⌘L)')} disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
-              <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />
-              <span>{agentChip.label}</span>
-              {agentChip.detail && <span className="ca-quick-chip-detail">{agentChip.detail}</span>}
-              <Icon name="chevron-down" size={12} />
-            </button>
-            {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={effortFoot} onStep={effortFoot ? stepEffort : undefined} />}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

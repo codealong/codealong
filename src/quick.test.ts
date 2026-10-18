@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, readyTodos, recentRows, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits } from './quick';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits } from './quick';
 import { setPlatform } from './platform';
 import * as fx from './testing/fixtures';
 import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
@@ -184,6 +184,55 @@ describe('findSessions', () => {
       [8, 13],
       [14, 19],
     ]);
+  });
+});
+
+describe('sendTargets', () => {
+  const b = board([
+    lane('app2', [
+      session('old', 'stopped', NOW - 9000, { title: 'Fix the login flake', lastPromptAt: NOW - 9000 }),
+      session('busy', 'working', NOW - 1, { title: 'Login page redesign', lastPromptAt: NOW - 500 }),
+      session('done', 'unread', NOW - 10, { title: 'Upgrade deps', lastPromptAt: NOW - 100 }),
+      session('helper', 'working', NOW, { title: 'Review the login change', lastPromptAt: NOW, helper: { parent: 'busy' } }),
+      session('gone', 'idle', NOW, { title: 'Old login work', lastPromptAt: NOW, archived: true }),
+    ]),
+    lane('other', [session('elsewhere', 'idle', NOW - 50, { title: 'Checkout tests', lastPromptAt: NOW - 50 })], { project: 'Globex' }),
+  ]);
+
+  it('lists Jev’s picks first, in its order with how likely each is, then the rest by your last prompt', () => {
+    const { rows, count } = sendTargets(b, ALL_PROJECTS, '', [
+      { id: 'old', p: 0.6 },
+      { id: 'done', p: 0.2 },
+    ]);
+    expect(rows.map((r) => [r.key, r.p])).toEqual([
+      ['old', 0.6],
+      ['done', 0.2],
+      ['elsewhere', undefined],
+      ['busy', undefined],
+    ]);
+    expect(count).toBe(4);
+    expect(rows.every((r) => r.group === 'sendto')).toBe(true);
+  });
+
+  it('leaves out helpers that don’t need you, and archived sessions unless asked, last', () => {
+    expect(sendTargets(b, ALL_PROJECTS, '', []).rows.map((r) => r.key)).not.toContain('helper');
+    expect(sendTargets(b, ALL_PROJECTS, '', [], new Map(), 'with').rows.map((r) => r.key)).toEqual(['elsewhere', 'done', 'busy', 'old', 'gone']);
+    expect(sendTargets(b, ALL_PROJECTS, '', [], new Map(), 'only').count).toBe(1);
+  });
+
+  it('finds sessions by what’s typed in its box, what was said in them too, Jev’s picks first', () => {
+    const said = new Map([['done', { key: 'done', snippet: 'the login retries', you: false, at: NOW }]]);
+    expect(sendTargets(b, ALL_PROJECTS, 'login', [], said).rows.map((r) => r.key)).toEqual(['busy', 'old', 'done']);
+    const picked = sendTargets(b, ALL_PROJECTS, 'login', [{ id: 'done', p: 0.4 }], said).rows;
+    expect(picked.map((r) => r.key)).toEqual(['done', 'busy', 'old']);
+    expect(picked[0].said?.text).toBe('the login retries');
+  });
+
+  it('keeps to the project, and lists at most the limit while counting them all', () => {
+    expect(sendTargets(b, 'Globex', '', []).rows.map((r) => r.key)).toEqual(['elsewhere']);
+    const few = sendTargets(b, ALL_PROJECTS, '', [], new Map(), 'without', 2);
+    expect(few.rows.length).toBe(2);
+    expect(few.count).toBe(4);
   });
 });
 
