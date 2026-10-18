@@ -657,18 +657,19 @@ fn send_all(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>, mut read: i
     outcomes.notice()
 }
 
-/// What a worker's jobs came to, for the notice it leaves (`Handle::nudged`): each PR and
-/// session's last send, so a retry that went takes back the failure before it, and each copy that
-/// couldn't be made its PRs' primary (`follow`).
+/// What a worker's jobs came to, for the notice it leaves (`Handle::nudged`): each PR's last send,
+/// so a retry that went takes back the failure before it, whichever session it went to (a copy
+/// the PR's primary went on as meanwhile, `Nudger::went_on_as`), and each copy that couldn't be
+/// made its PRs' primary (`follow`).
 #[derive(Default)]
 struct Outcomes {
-    sends: BTreeMap<(String, String), String>,
+    sends: BTreeMap<String, String>,
     follows: Vec<String>,
 }
 
 impl Outcomes {
     fn went(&mut self, job: &Job, failed: Option<String>) {
-        let key = (crate::prlinks::pr_key(&job.pr.key), job.session.clone());
+        let key = crate::prlinks::pr_key(&job.pr.key);
         match failed {
             Some(e) => self.sends.insert(key, e),
             None => self.sends.remove(&key),
@@ -1010,6 +1011,19 @@ mod tests {
         let (went, tries) = run(&|_| NOW);
         assert_eq!(tries.len(), 1);
         assert!(went.unwrap_err().ends_with("its terminal didn't take it Codealong tries again in a few minutes."));
+    }
+
+    /// A PR's failed send is taken back by the one that goes after it, though it went to the copy
+    /// its primary went on as meanwhile; a copy that couldn't be made primary stays said.
+    #[test]
+    fn a_prs_failure_is_taken_back_by_a_send_to_the_copy_its_primary_went_on_as() {
+        let job = |pr: &str, session: &str| Job { pr: self::pr(pr, PrState::Open, &[session]), why: Why::default(), session: session.into(), last: false, about: NudgeAbout::Everything, stopped: true };
+        let mut outcomes = Outcomes::default();
+        outcomes.went(&job("o/r#1", A), Some("o/r#1 couldn't be read.".into()));
+        outcomes.went(&job("o/r#2", A), None);
+        outcomes.followed(Err("B couldn't be made o/r#2's primary.".into()));
+        outcomes.went(&job("o/r#1", B), None);
+        assert_eq!(outcomes.notice(), Err("B couldn't be made o/r#2's primary.".into()));
     }
 
     /// Two PRs whose news is for one session give it one job at a time, so one that isn't running
