@@ -4,7 +4,7 @@
 // have tests.
 
 import { agoPhrase } from './format';
-import { homeOf, sessionWhy } from './lanes';
+import { homeOf, sessionWhy, stuckMidTurn, waitsOnYou } from './lanes';
 import { mainCheckoutOf, newWorkIn } from './reusable';
 import { agentId, autoPick, pickFromGroup, startChoice, startDoes, startTitleWords, startWhereWords, type AgentOption, type AutoPick, type ChosenStart, type ModelOption, type StartPicks } from './start';
 import type { Board, Lane, Route, RoutePick, RoutingGroup, Session, StartAccount, StartPlace, Usage } from './types';
@@ -105,10 +105,11 @@ function findSession(board: Board, key: string): { lane: Lane; session: Session 
 }
 
 /** What's typed going to a session, as a suggestion's row has it: opened when it waits on you to
- *  answer a prompt (send.rs `waits_on_you`), since what's typed would answer that prompt, or with
- *  `find`; sent to otherwise. Send to (Quick.tsx) sends to the session you pick by the same rule. */
+ *  answer a prompt (lanes.ts `waitsOnYou`), since what's typed would answer that prompt, or with
+ *  `find`; sent to otherwise, a stuck one too. Send to (Quick.tsx) sends to the session you pick
+ *  by the same rule. */
 export function toSessionSuggestion(lane: Lane, session: Session, p: number, find = false): Suggestion {
-  const open = find || (session.status === 'needs' && !session.asks && session.background == null);
+  const open = find || waitsOnYou(session);
   return { kind: open ? 'open' : 'send', key: `${open ? 'open' : 'send'}:${session.key}`, lane, session, p };
 }
 
@@ -282,7 +283,7 @@ export function suggestionWords(sg: Suggestion, c: SuggestionContext): { icon: s
     // How old it is leads, so an old session isn't mistaken for the one you started this morning.
     const age = x.startedAt != null ? `Started ${agoPhrase(x.startedAt, c.now)}. ` : '';
     if (sg.kind === 'open') {
-      return x.status === 'needs'
+      return waitsOnYou(x)
         ? { icon: 'external', title: `Answer “${x.title}”`, why: `${age}It’s waiting on you, so Codealong shows it and you answer there.`, where }
         : { icon: 'external', title: `Open “${x.title}”`, why: `${age}${sessionWhy(x.detail, x.headline, c.now)}`, where };
     }
@@ -292,7 +293,9 @@ export function suggestionWords(sg: Suggestion, c: SuggestionContext): { icon: s
         : 'It isn’t running: it opens with this prompt ready to send.'
       : x.status === 'working'
         ? 'It’s working, so this waits for its turn to end.'
-        : x.harness === 'claude' && x.surface === 'app'
+        : stuckMidTurn(x)
+          ? 'It looks stuck, so this waits for the step it’s stuck on to end.'
+          : x.harness === 'claude' && x.surface === 'app'
           ? 'It gets this as a message from another session, in the Claude app.'
           : 'It gets this as its next message.';
     return { icon: 'send', title: `Send to “${x.title}”`, why: `${age}${why}`, where };

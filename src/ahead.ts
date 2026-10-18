@@ -36,7 +36,7 @@ import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quie
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
-import { relaned, sessionHeadline, unreadable } from './lanes';
+import { relaned, sessionHeadline, stuckMidTurn, unreadable } from './lanes';
 import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, MergeOp, PrItem, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
 
 /** A message the board shows no sign of this long after it went stops showing its session as
@@ -84,7 +84,8 @@ export type Change =
       kind: 'send';
       key: string;
       text: string;
-      /** The session was working as it was sent, so it takes the message in as it works. */
+      /** The session was working as it was sent, or stuck mid-turn, so it takes the message in
+       *  as it works. */
       working: boolean;
       /** The message reaches the session itself, rather than opening its app with the text to
        *  paste, so it starts a turn. */
@@ -133,6 +134,9 @@ export interface Shown {
   /** The ids of the messages its harness holds, where the board lists them (`Session.queued`);
    *  undefined where it lists none, or the view can't say. */
   queued?: string[];
+  /** Stuck mid-turn (lanes.ts `stuckMidTurn`), so a message waits for the step it's on, as it
+   *  does while it works. Unknown to the bar. */
+  stuck?: boolean;
 }
 
 /** What a window shows: the time of its board (null with none yet) and its sessions. */
@@ -448,7 +452,7 @@ export function boardView(boardAt: number | null, laneLists: Lane[][]): View {
       for (const lanes of laneLists) {
         for (const l of lanes) {
           const s = l.sessions.find((x) => x.key === key && !x.visitor);
-          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, quiet: !!s.quiet, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id) };
+          if (s) return { title: s.title, status: s.status, statusSince: s.statusSince, lastPromptAt: s.lastPromptAt, archived: s.archived, asks: !!s.asks, snoozedUntil: s.snoozedUntil ?? null, quiet: !!s.quiet, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id), stuck: stuckMidTurn(s) };
         }
       }
       return undefined;
@@ -523,7 +527,7 @@ export function settled(a: Ahead, v: View, now: number): Ahead | null {
   if (now - a.at > SEND_LONGEST_MS) return null;
   if (!next.lapsed && now - a.doneAt >= CONFIRM_MS) next = { ...next, lapsed: true };
   if (next.lapsed) {
-    const quiet = s !== undefined && s.status !== 'working' && now - Math.max(a.doneAt, s.statusSince ?? 0) >= CONFIRM_MS;
+    const quiet = s !== undefined && s.status !== 'working' && !s.stuck && now - Math.max(a.doneAt, s.statusSince ?? 0) >= CONFIRM_MS;
     if (quiet !== !!next.unconfirmed) next = { ...next, unconfirmed: quiet };
   }
   return next;
@@ -856,7 +860,7 @@ export function sentWorthSaying(sent: Sent): boolean {
  */
 export function sendAhead(s: Session, text: string, { toDraft = true, now = false, resume }: { toDraft?: boolean; now?: boolean; resume?: ResumeIn } = {}): Promise<Sent> {
   const key = s.key;
-  const a = made({ kind: 'send', key, text, working: s.status === 'working', starts: startsTurn(s) });
+  const a = made({ kind: 'send', key, text, working: s.status === 'working' || stuckMidTurn(s), starts: startsTurn(s) });
   put(a, true);
   const mine = { id: a.id, text, failed: undefined as unknown };
   queued.set(key, [...(queued.get(key) ?? []), mine]);

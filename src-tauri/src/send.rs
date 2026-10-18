@@ -14,9 +14,9 @@
 //! holds another session's message for its user to allow can't be got past through Codealong
 //! (claude/peer.rs).
 //!
-//! A session that's waiting on you for a permission prompt, or stuck mid-turn, is never typed
-//! into: what's typed would answer the prompt. One whose last reply asks you something is at its
-//! prompt, so what's typed is its answer. Busy sessions are fine; each harness queues the prompt
+//! A session that's waiting on you for a permission prompt is never typed into: what's typed
+//! would answer the prompt. One whose last reply asks you something is at its prompt, so what's
+//! typed is its answer. Busy sessions are fine, stuck ones too; each harness queues the prompt
 //! until the agent can take it.
 //!
 //! A prompt of yours that starts with `!` is a command for the session's own shell, as Claude
@@ -424,8 +424,14 @@ impl Delivery<'_> {
 
     /// The session is in the middle of a turn, and takes the prompt after it.
     pub fn busy(&self) -> bool {
-        self.session.status == Status::Working
+        mid_turn(self.session)
     }
+}
+
+/// Whether a session is in the middle of a turn, stuck in one too, so a prompt goes in once the
+/// step it's on ends.
+fn mid_turn(session: &Session) -> bool {
+    session.status == Status::Working || crate::harness::turn_running(session)
 }
 
 /// The prompt went, where it lives.
@@ -657,18 +663,21 @@ pub(crate) fn sent_unsure(e: anyhow::Error) -> Result<Sent> {
     e.downcast::<MayHaveArrived>().map(|m| Sent { uncertain: true, ..sent(m.0) })
 }
 
-/// Whether it waits on you to answer a prompt (a permission, or a turn stuck on a command), not
-/// only asking you something in its reply, nor stuck only on a command its turn left running in
-/// the background (`Session::background`, which Jev reads as stuck when it waits on a sign-in):
-/// that runs detached from the terminal and the turn is over, so the session sits at its prompt
-/// (board.rs `claude_busy_since`).
+/// Whether it waits on you to answer a prompt (a permission, a question through its harness),
+/// not only asking you something in its reply, nor stuck (`Session::stalled_since`). A stuck
+/// session is at no prompt: its turn has gone quiet on a command, and Claude Code queues what's
+/// typed then as it does while it works, for once the step it's on ends; or its turn ended on a
+/// command left running in the background (`Session::background`, which Jev reads as stuck when
+/// it waits on a sign-in), which runs detached from the terminal, so the session sits at its
+/// prompt (board.rs `claude_busy_since`). Either takes a message in its own terminal, so it
+/// takes one from Codealong too (asked 2026-10-18).
 pub(crate) fn waits_on_you(session: &Session) -> bool {
-    session.status == Status::Needs && !session.asks && session.background.is_none()
+    session.status == Status::Needs && !session.asks && session.stalled_since.is_none()
 }
 
 /// A session waiting on you is never typed into: what's typed would answer its prompt. One that
-/// only asks you something in its reply (`Session::asks`), or is stuck on a command in the
-/// background, takes what you send like any prompt.
+/// only asks you something in its reply (`Session::asks`), or is stuck, takes what you send like
+/// any prompt.
 pub(crate) fn ensure_not_waiting(session: &Session, sender: &Sender) -> Result<()> {
     if waits_on_you(session) {
         match sender {
@@ -925,7 +934,7 @@ pub(crate) fn codealong_routes(session: &Session, routes: Vec<Route>) -> Result<
 #[allow(clippy::too_many_arguments)]
 fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg, cfg: &Config, msg: &Message, untyped: Option<&str>, passes: bool) -> Result<Tried> {
     let text: &str = &msg.text;
-    let busy = session.status == Status::Working;
+    let busy = mid_turn(session);
     let now = msg.now_for(session);
     let adapter = crate::harness::adapter(session.harness);
     let title = quoted(&session.title);
@@ -1231,7 +1240,11 @@ mod tests {
         let asks = Session { asks: true, ..s.clone() };
         assert!(ensure_not_waiting(&asks, &Sender::You).is_ok());
         // So does one whose turn ended on a command in the background that waits on a sign-in.
-        let stuck = Session { background: Some("acme login --device".into()), stalled_since: Some(1), ..s };
+        let stuck = Session { background: Some("acme login --device".into()), stalled_since: Some(1), ..s.clone() };
+        assert!(ensure_not_waiting(&stuck, &Sender::You).is_ok());
+        assert!(ensure_not_waiting(&stuck, &Sender::Agent(None)).is_ok());
+        // And one stuck mid-turn on a command: Claude Code queues what's typed until its step ends.
+        let stuck = Session { stalled_since: Some(1), ..s };
         assert!(ensure_not_waiting(&stuck, &Sender::You).is_ok());
         assert!(ensure_not_waiting(&stuck, &Sender::Agent(None)).is_ok());
     }

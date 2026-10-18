@@ -554,7 +554,9 @@ into the turn, or queued to start once it ends when Codex is set to queue follow
 after the turn), and Send now (the bolt beside Send, or ⌃⏎ as in Claude Code) sends it
 into the turn at once where the session can take it so: Claude Code's send now in its terminal or
 background job, which moves a running command to the background so the agent reads it straight away,
-and Codex's and OpenCode's steer.
+and Codex's and OpenCode's steer. A stuck session takes a message too, as its own terminal would:
+one stuck mid-turn once the step it's stuck on ends, as its placeholder says (no Send now there),
+and one whose turn ended on a command left running, such as a sign-in, as its next prompt.
 
 #### Working through what waits on you
 
@@ -608,10 +610,11 @@ newer ones can't keep an old one down (worktrees that need you only through snoo
 after). Needs you, Working and Your turn are about agents: a worktree whose PR has failing checks or
 changes requested stays in In review, and the sidebar's PR needs work lists it. Within the other
 statuses, the worktree and the agent you last sent a prompt come first, so rows hold still while
-agents work. Stuck agents (busy but silent for 30 minutes) show in Needs you with the command
-they're stuck on. The sidebar's statuses narrow each worktree to the agents they're about. Pin a
-worktree with `p`, the right-click menu of the worktree or one of its agents, or by dragging its row
-up to the top of the board, among the pinned ones; reorder pins by dragging or with ⌃⌘↑ ⌃⌘↓, and
+agents work. Stuck agents (busy but silent for 30 minutes, or left waiting on a command that looks
+stuck, such as a sign-in) show in Needs you with the command they're stuck on, and still take a
+message, as they would in their own terminal. The sidebar's statuses narrow each worktree to the
+agents they're about. Pin a worktree with `p`, the right-click menu of the worktree or one of its
+agents, or by dragging its row up to the top of the board, among the pinned ones; reorder pins by dragging or with ⌃⌘↑ ⌃⌘↓, and
 drag one down to the bays to unpin it. A pinned worktree stays whatever the age filter says. Beside
 its line diff, a row shows how far the worktree has moved from the default branch on the remote
 (`origin/main`), whatever its branch tracks: `↑3` for commits it has that the remote doesn't, `↓42`

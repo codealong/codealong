@@ -231,6 +231,20 @@ export function closable(s: Session): boolean {
   return s.live && s.surface === 'cli' && !s.hosted && !shortOf(s.key) && (s.pid != null || s.attachCommand != null);
 }
 
+/** Whether it waits on you to answer a prompt, where what's typed would answer it (send.rs
+ *  `waits_on_you`): not one whose reply only asks you something, nor one that's stuck, which sits
+ *  at no prompt and takes a message as it would in its own terminal. */
+export function waitsOnYou(s: Pick<Session, 'status' | 'asks' | 'stalledSince'>): boolean {
+  return s.status === 'needs' && !s.asks && s.stalledSince == null;
+}
+
+/** Stuck in the middle of a turn (harness.rs `turn_running`), not on a command its turn left
+ *  running in the background: a message waits for the step it's stuck on, as it does while it
+ *  works. */
+export function stuckMidTurn(s: Pick<Session, 'stalledSince' | 'background'>): boolean {
+  return s.stalledSince != null && s.background == null;
+}
+
 /** Whether Mark as done ends it by its harness's own exit, typed into its terminal, which cleans
  *  up the worktree the harness made for it, rather than closing its tab: idle.rs
  *  `exits_its_own_way` says the same. Not while that exit would be taken for something else: a

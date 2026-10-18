@@ -85,7 +85,7 @@ import { dismissSuggestions, forkSession, runCommand, sessionCancel, sessionPend
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { onDraftChange, readDraft, sideDraft, writeDraft } from '../drafts';
 import { sessionPlace } from '../harness';
-import { stoppable } from '../lanes';
+import { stoppable, stuckMidTurn, waitsOnYou } from '../lanes';
 import { notAsked, showSides, startingSide, useAside, usePopped } from '../side';
 import { COMMANDS, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionAt, mentionsIn, sessionSkills, skillNamed, writtenFor } from '../skills';
@@ -120,9 +120,10 @@ const LINES = 8;
 const STOP_WAIT_MS = 8000;
 
 /** Whether typing reaches the session now: anything but one waiting on you to answer a prompt
- *  (a permission, or a turn stuck on a command). */
+ *  (a permission, a question through its harness). One that's stuck takes it as its own
+ *  terminal does (asked 2026-10-18). */
 export function takesReply(s: Session): boolean {
-  return s.status !== 'needs' || !!s.asks;
+  return !waitsOnYou(s);
 }
 
 /** What the box asks for, and how a message gets there (`way`, once the engine has said): typed
@@ -132,7 +133,7 @@ export function takesReply(s: Session): boolean {
 export function replyPlaceholder(s: Session, terminal: string, way?: Way | null, resuming?: { place: StartPlace; behind: boolean } | null): string {
   const to = s.asks ? `Answer ${s.account}` : `Send to ${s.account}`;
   if (s.hosted) return s.status === 'working' || s.status === 'needs' ? `${to}: it takes this after its current turn` : to;
-  const working = s.status === 'working' ? ': it takes this in as it works' : '';
+  const working = s.status === 'working' ? ': it takes this in as it works' : stuckMidTurn(s) ? ': it takes this once the step it’s stuck on ends' : '';
   switch (way?.kind) {
     case 'typed':
       return `${to} via ${way.app}${working}`;
@@ -155,8 +156,7 @@ export function replyPlaceholder(s: Session, terminal: string, way?: Way | null,
   if (s.harness === 'cursor' && s.surface === 'app') return `${to}: Cursor opens with this on the clipboard`;
   if (!s.live && s.harness === 'claude') return s.surface === 'app' ? `${to}: it isn’t running, so the Claude app opens it with this on the clipboard` : `${to}: it isn’t running, so this resumes it in ${terminal}`;
   if (!s.live && (s.harness === 'codex' || s.harness === 'antigravity' || s.harness === 'cursor') && s.surface === 'cli') return `${to}: it isn’t running, so this resumes it in ${terminal}`;
-  if (s.status === 'working') return `${to}: it takes this in as it works`;
-  return to;
+  return `${to}${working}`;
 }
 
 interface ComposerProps {
@@ -1203,11 +1203,10 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     );
   }
   if (!pending || pending.cannot) {
-    const why = s.stalledSince ? `It looks stuck. Open it in ${where} to see what it’s waiting for.` : `It’s waiting on you. Answer it in ${where}.`;
     return (
       <div className="ca-composer is-waiting">
         <span>
-          {note?.text ?? why}
+          {note?.text ?? `It’s waiting on you. Answer it in ${where}.`}
           {pending?.cannot ? ` ${pending.cannot}` : ''}
         </span>
         <Button size="sm" icon="arrow-up-right" onClick={onOpen}>

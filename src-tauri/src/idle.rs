@@ -401,13 +401,14 @@ pub fn ending(board: &Board, s: &Session, stop: bool) -> Result<Ending, String> 
 /// Whether being done with `s` types its harness's exit command rather than hanging it up: it
 /// holds a worktree its harness made for it (`Session::own_worktree`), which the harness cleans
 /// up only as it exits its own way, and nothing under way would take the command for something
-/// else. A running turn would take it as a prompt once it ends, a command left running in the
-/// background has Claude Code ask about it first, and a prompt waiting on you would take it as
-/// the answer; those hang up as before, and the worktree stays.
+/// else. A running turn, stuck or not, would take it as a prompt once it ends, a command left
+/// running in the background has Claude Code ask about it first, and a prompt waiting on you
+/// would take it as the answer; those hang up as before, and the worktree stays.
 fn exits_its_own_way(s: &Session) -> bool {
     s.own_worktree.is_some()
         && crate::harness::adapter(s.harness).exit_command().is_some()
         && s.status != Status::Working
+        && s.stalled_since.is_none()
         && s.background.is_none()
         && !crate::send::waits_on_you(s)
 }
@@ -691,6 +692,8 @@ mod tests {
         assert_eq!(ending(&b, &prompt, false), Ok(Ending::Terminal(1)));
         let busy = Session { status: Status::Working, ..own.clone() };
         assert_eq!(ending(&b, &busy, true), Ok(Ending::Terminal(1)));
+        let stuck = Session { status: Status::Needs, stalled_since: Some(1), ..own.clone() };
+        assert_eq!(ending(&b, &stuck, true), Ok(Ending::Terminal(1)));
         let left = Session { background: Some("npm run dev".into()), ..own.clone() };
         assert_eq!(ending(&b, &left, true), Ok(Ending::Terminal(1)));
         // A harness with no exit command of its own hangs up.

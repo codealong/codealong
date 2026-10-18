@@ -16,9 +16,9 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { answerAhead, barAhead, boardAhead, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, type Ahead, type View } from './ahead';
+import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
-import { bayOf } from './lanes';
+import { bayOf, stuckMidTurn } from './lanes';
 import * as fx from './testing/fixtures';
 import type { BarFeed, BarItem, BarRecent, BarSnoozed, Lane, Session, TranscriptItem } from './types';
 
@@ -216,7 +216,7 @@ describe('boardAhead', () => {
 describe('settled', () => {
   const view = (boardAt: number | null, s?: Partial<Session> & { status: Session['status'] }): View => ({
     boardAt,
-    find: () => (s ? { title: s.title ?? 'Title', status: s.status, statusSince: s.statusSince ?? null, lastPromptAt: s.lastPromptAt ?? null, archived: s.archived ?? false, asks: false, snoozedUntil: s.snoozedUntil ?? null, quiet: s.quiet ?? false, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id) } : undefined),
+    find: () => (s ? { title: s.title ?? 'Title', status: s.status, statusSince: s.statusSince ?? null, lastPromptAt: s.lastPromptAt ?? null, archived: s.archived ?? false, asks: false, snoozedUntil: s.snoozedUntil ?? null, quiet: s.quiet ?? false, queuedAt: s.queuedAt ?? null, queued: s.queued?.map((m) => m.id), stuck: stuckMidTurn({ stalledSince: s.stalledSince ?? null, background: s.background }) } : undefined),
   });
 
   it('keeps a seen until a board at least as new as the engine’s arrives', () => {
@@ -305,6 +305,14 @@ describe('settled', () => {
     // One sent while it worked is taken in as it works: nothing to say while it does.
     const working = settled(send('b', { doneAt: NOW + 500 }, true), view(NOW, { status: 'working', statusSince: NOW - 90_000 }), NOW + 500 + CONFIRM_MS);
     expect([working?.lapsed, !!working?.unconfirmed]).toEqual([true, false]);
+    // Nor while it's stuck mid-turn, where it waits for the step it's stuck on.
+    const stuck = settled(send('c', { doneAt: NOW + 500 }, true), view(NOW, { status: 'needs', statusSince: NOW - 90_000, stalledSince: NOW - 90_000 }), NOW + 500 + CONFIRM_MS);
+    expect([stuck?.lapsed, !!stuck?.unconfirmed]).toEqual([true, false]);
+    const board = boardView(NOW, [[lane([session('c', 'needs', { statusSince: NOW - 90_000, stalledSince: NOW - 90_000 })])]]);
+    expect(settled(send('c', { doneAt: NOW + 500 }, true), board, NOW + 500 + CONFIRM_MS)?.unconfirmed).toBeFalsy();
+    // One stuck on a command its turn left in the background starts a turn on it, as an idle one does.
+    const left = settled(send('d', { doneAt: NOW + 500 }), view(NOW, { status: 'needs', statusSince: NOW - 90_000, stalledSince: NOW - 90_000, background: 'acme login --device' }), NOW + 500 + CONFIRM_MS);
+    expect([left?.lapsed, left?.unconfirmed]).toEqual([true, true]);
   });
 
   it('keeps a message its harness holds until the turn ends as queued, however long that is', () => {
