@@ -103,9 +103,26 @@
       var c = claim();
       check('kept for the turn', !!c && c.id === tip().getAttribute('data-tip'), JSON.stringify(c));
       var first = word();
-      return wait(31e3).then(function () {
-        check('another word in time', word() !== first && /…$/.test(word()), first + ' → ' + word());
-      });
+      // The next word comes long enough to leave the tip no room beside it: the line grows, and a
+      // conversation read at its end stays there.
+      q('.ca-sessinsp .ca-working-word').setAttribute('data-was', '');
+      var long = document.createElement('style');
+      long.textContent = '.ca-sessinsp .ca-thread { max-height: 200px; } .ca-sessinsp .ca-working-word:not([data-was]) { display: inline-block; min-width: ' + (l.clientWidth - 100) + 'px; }';
+      document.head.appendChild(long);
+      var tall = l.getBoundingClientRect().height;
+      return wait(300)
+        .then(function () {
+          thread.scrollTop = thread.scrollHeight;
+          return wait(31e3);
+        })
+        .then(function () {
+          check('another word in time', word() !== first && /…$/.test(word()), first + ' → ' + word());
+          var off = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+          var under = tip().getBoundingClientRect().top >= l.querySelector('.ca-working-head').getBoundingClientRect().bottom;
+          check('a longer word puts the tip under it, the view kept at the end', under && line().getBoundingClientRect().height > tall && thread.scrollHeight > thread.clientHeight && off < 1,
+            (under ? 'under' : 'beside') + ' · ' + Math.round(tall) + ' → ' + Math.round(line().getBoundingClientRect().height) + 'px · ' + Math.round(off) + 'px from the end');
+          long.remove();
+        });
     })
     .then(function () {
       var kept = claim();

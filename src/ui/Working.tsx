@@ -61,7 +61,8 @@ export function Working({ session: s, tips, onGrow }: { session: Session; tips: 
   // Read again at each beat: another window may have given this turn its tip. A window that can't
   // be seen takes none, so none counts as seen.
   const due = tips ? workingTip(readClaims(), turn, now - since, now) : null;
-  useLayoutEffect(onGrow, [onGrow]);
+  // A longer word can leave the tip no room beside it, and put it under the word.
+  useLayoutEffect(onGrow, [onGrow, word]);
   return (
     <div className="ca-working">
       <span className="ca-working-head">
