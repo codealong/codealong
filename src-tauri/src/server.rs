@@ -199,8 +199,14 @@ pub fn serve(engine: Handle, peers: Peers, app: tauri::AppHandle) {
     std::thread::Builder::new()
         .name("socket".into())
         .spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(stream) = stream else { continue };
+            loop {
+                // Waits for each connection: a nonblocking listener would spin here between
+                // commands, and on macOS give every socket it accepts its mode.
+                if let Err(e) = listener.set_nonblocking(false) {
+                    eprintln!("Couldn't wait for a codealong command: {e}");
+                    break;
+                }
+                let Ok((stream, _)) = listener.accept() else { continue };
                 let (engine, peers, app) = (engine.clone(), peers.clone(), app.clone());
                 let _ = std::thread::Builder::new().name("socket-client".into()).spawn(move || connection(stream, &engine, &peers, &app));
             }
@@ -209,33 +215,47 @@ pub fn serve(engine: Handle, peers: Peers, app: tauri::AppHandle) {
 }
 
 fn connection(stream: UnixStream, engine: &Handle, peers: &Peers, app: &tauri::AppHandle) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(60)));
-    let mut out = match stream.try_clone() {
-        Ok(s) => s,
-        Err(_) => return,
-    };
+    let result = connection_on(stream, |req, out| {
+        match req {
+            Ok(Request::PermissionAsk { hook, pid, home, at, from }) => {
+                hold_permission_ask(engine, &hook, pid, home.as_deref(), at, from, out);
+                None
+            }
+            Ok(Request::TerminalAsk { ask }) => {
+                hold_terminal_ask(engine, ask, out);
+                None
+            }
+            req => Some(handle_request(engine, peers, app, req)),
+        }
+    });
+    if let Err(e) = result {
+        eprintln!("Couldn't answer a codealong command: {e}");
+    }
+}
+
+/// The socket exchange, with the app's actions supplied by `connection`.
+fn connection_on(stream: UnixStream, mut answer: impl FnMut(serde_json::Result<Request>, &mut UnixStream) -> Option<Reply>) -> std::io::Result<()> {
+    // A running app's accepted sockets have come up nonblocking, every one, until it was
+    // restarted (2026-10-18, and 2026-10-20 with its listener blocking, so not from it; what
+    // does it is unknown). Nonblocking, a read with the request not in yet fails at once, and
+    // write_all gives up on WouldBlock after filling one socket buffer (8192 bytes on macOS),
+    // leaving the command half a JSON line. A read timeout doesn't clear it.
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(Duration::from_secs(60)))?;
+    let mut out = stream.try_clone()?;
     let reader = BufReader::new(stream);
     for line in reader.lines() {
-        let Ok(line) = line else { break };
+        let line = line?;
         if line.trim().is_empty() {
             continue;
         }
-        let req = serde_json::from_str::<Request>(&line);
-        if let Ok(Request::PermissionAsk { hook, pid, home, at, from }) = req {
-            hold_permission_ask(engine, &hook, pid, home.as_deref(), at, from, &mut out);
-            break;
-        }
-        if let Ok(Request::TerminalAsk { ask }) = req {
-            hold_terminal_ask(engine, ask, &mut out);
-            break;
-        }
-        let reply = handle_request(engine, peers, app, req);
+        let Some(reply) = answer(serde_json::from_str(&line), &mut out) else { break };
         let mut text = serde_json::to_string(&reply).unwrap_or_else(|_| r#"{"ok":false,"error":"Couldn't encode the reply."}"#.into());
         text.push('\n');
-        if out.write_all(text.as_bytes()).and_then(|_| out.flush()).is_err() {
-            break;
-        }
+        out.write_all(text.as_bytes())?;
+        out.flush()?;
     }
+    Ok(())
 }
 
 fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: serde_json::Result<Request>) -> Reply {
@@ -475,7 +495,10 @@ pub fn ask(req: &Request) -> Option<Result<Value, String>> {
 
 /// `ask`, waiting `wait` for the answer, or for as long as it takes with zero.
 pub fn ask_within(req: &Request, wait: Duration) -> Option<Result<Value, String>> {
-    let mut stream = UnixStream::connect(path()).ok()?;
+    ask_on(UnixStream::connect(path()).ok()?, req, wait)
+}
+
+fn ask_on(mut stream: UnixStream, req: &Request, wait: Duration) -> Option<Result<Value, String>> {
     let _ = stream.set_read_timeout((!wait.is_zero()).then_some(wait));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let mut text = serde_json::to_string(req).ok()?;
@@ -486,6 +509,12 @@ pub fn ask_within(req: &Request, wait: Duration) -> Option<Result<Value, String>
     BufReader::new(stream).read_line(&mut line).ok()?;
     if line.trim().is_empty() {
         return None;
+    }
+    // read_line also succeeds at EOF with an unfinished line. The newline, not a full
+    // buffer or a closed socket, is the end of a reply. Don't parse a truncated response
+    // or retry its request: it may already have changed something in the app.
+    if !line.ends_with('\n') {
+        return Some(Err(format!("The app closed the connection before finishing its reply ({} bytes received).", line.len())));
     }
     let reply: Reply = match serde_json::from_str(&line) {
         Ok(r) => r,
@@ -534,6 +563,81 @@ pub fn take_over(opened_plainly: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_nonblocking_connection_sends_the_whole_large_reply() {
+        use std::sync::mpsc::channel;
+
+        let (app, mut command) = UnixStream::pair().unwrap();
+        app.set_nonblocking(true).unwrap();
+        app.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+        command.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        // Queue the request before the server starts, so the old code reaches the write.
+        command.write_all(b"{\"method\":\"board\"}\n").unwrap();
+        let expected = "x".repeat(1024 * 1024);
+        let reply = Reply::ok(&expected);
+        let (ready, started) = channel();
+        let (finished, result) = channel();
+        let server = std::thread::spawn(move || {
+            let mut reply = Some(reply);
+            let outcome = connection_on(app, |req, _| {
+                assert!(matches!(req, Ok(Request::Board)));
+                ready.send(()).unwrap();
+                reply.take()
+            });
+            finished.send(outcome).unwrap();
+        });
+        started.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Keep the reader idle long enough to fill the socket: on macOS the old writer
+        // stops at 8192 bytes with WouldBlock, closes, and leaves the command a partial JSON.
+        assert!(matches!(result.recv_timeout(Duration::from_millis(100)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)), "the server must wait for the reader");
+        let mut line = String::new();
+        BufReader::new(command).read_line(&mut line).unwrap();
+        assert!(line.ends_with('\n'), "the reply must include its terminator ({} bytes)", line.len());
+        let reply: Reply = serde_json::from_str(&line).unwrap();
+        assert_eq!(reply.result, Some(Value::String(expected)));
+        result.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_reply_split_across_socket_reads_is_read_through_its_newline() {
+        let (mut app, command) = UnixStream::pair().unwrap();
+        let expected = "a\nquoted \"reply\" … ".repeat(8192);
+        let mut text = serde_json::to_string(&Reply::ok(&expected)).unwrap();
+        text.push('\n');
+        let server = std::thread::spawn(move || {
+            let mut request = String::new();
+            BufReader::new(&app).read_line(&mut request).unwrap();
+            assert!(matches!(serde_json::from_str::<Request>(&request), Ok(Request::Board)));
+            for chunk in text.as_bytes().chunks(8192) {
+                app.write_all(chunk).unwrap();
+            }
+            // The reply ends at the newline, without needing the app to close its end.
+            assert_eq!(app.read(&mut [0u8; 1]).unwrap(), 0);
+        });
+        let reply = ask_on(command, &Request::Board, Duration::from_secs(5));
+        assert_eq!(reply, Some(Ok(Value::String(expected))));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_reply_closed_before_its_newline_is_a_transport_error() {
+        let mut partial = serde_json::to_string(&Reply::ok("x".repeat(8192))).unwrap();
+        partial.truncate(8192);
+        for text in [partial, r#"{"ok":true,"result":42}"#.into()] {
+            let (mut app, command) = UnixStream::pair().unwrap();
+            let length = text.len();
+            let server = std::thread::spawn(move || {
+                let mut request = String::new();
+                BufReader::new(&app).read_line(&mut request).unwrap();
+                app.write_all(text.as_bytes()).unwrap();
+            });
+            let reply = ask_on(command, &Request::Board, Duration::from_secs(5));
+            assert_eq!(reply, Some(Err(format!("The app closed the connection before finishing its reply ({length} bytes received)."))));
+            server.join().unwrap();
+        }
+    }
 
     #[test]
     fn only_a_plain_open_takes_over() {
