@@ -87,7 +87,7 @@ export function Working({ session: s, tips, onGrow }: { session: Session; tips: 
  *  of it on hover. */
 export function Waiting({ session: s, onGrow }: { session: Session; onGrow: () => void }) {
   useLayoutEffect(onGrow, [onGrow]);
-  // "" when the engine couldn't read the command.
+  // "" when the engine couldn't read the command. Shown on one line; on hover as it was written.
   const command = s.background?.replace(/\s+/g, ' ').trim();
   return (
     <div className="ca-working is-waiting">
@@ -96,8 +96,8 @@ export function Waiting({ session: s, onGrow }: { session: Session; onGrow: () =
         <span className="ca-working-line">
           {command ? (
             <>
-              <span className="ca-working-word">Waiting on</span>
-              <code className="ca-ic" title={command}>
+              <span className="ca-working-word is-lead">Waiting on</span>
+              <code className="ca-ic" title={s.background}>
                 {command}
               </code>
             </>

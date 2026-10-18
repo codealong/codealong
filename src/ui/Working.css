@@ -39,7 +39,9 @@
   flex: 0 1 auto;
   min-width: 0;
 }
-.ca-working.is-waiting .ca-working-word {
+/* "Waiting on" holds together, and the command gives up its room; without a command the words
+   wrap as any do. */
+.ca-working.is-waiting .ca-working-word.is-lead {
   flex: none;
   white-space: nowrap;
 }

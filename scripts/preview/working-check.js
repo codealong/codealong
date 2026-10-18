@@ -52,6 +52,18 @@
     row(i).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     row(i).click();
   };
+  var COMMAND = 'until gh pr checks 139 | grep -q .;\n  do sleep 10; done; gh pr checks 139 --watch --interval 15 2>&1 | tail -4';
+  // Whether the conversation, its panel made narrow, has nothing that goes past its side.
+  var fitsNarrow = function () {
+    var panel = q('.ca-sessinsp');
+    var thread = q('.ca-sessinsp .ca-thread');
+    var was = panel.style.cssText;
+    panel.style.cssText = was + ';width:200px;min-width:0;max-width:200px;flex:none';
+    var fits = thread.scrollWidth <= thread.clientWidth + 1;
+    var said = thread.scrollWidth + ' in ' + thread.clientWidth;
+    panel.style.cssText = was;
+    return fits || said;
+  };
   var line = function () { return q('.ca-sessinsp .ca-thread .ca-working:not(.is-waiting)'); };
   var waiting = function () { return q('.ca-sessinsp .ca-thread .ca-working.is-waiting'); };
   var word = function () { var w = q('.ca-sessinsp .ca-working-word'); return w ? w.textContent : ''; };
@@ -156,7 +168,7 @@
       return push().then(function () { return until(function () { return line(); }, 5000, 'the line back for a session at work again'); });
     })
     .then(function () {
-      shape[picked[0].key] = { background: 'until gh pr checks 139 | grep -q .;\n  do sleep 10; done; gh pr checks 139 --watch --interval 15 2>&1 | tail -4' };
+      shape[picked[0].key] = { background: COMMAND };
       return push().then(function () { return until(function () { return !line() && waiting(); }, 5000, 'the waiting line in the working line’s place'); });
     })
     .then(function () {
@@ -165,7 +177,9 @@
       check('one waiting on a command in the background says what it waits on', /^Waiting on/.test(w.textContent) && !!cmd && cmd.textContent === 'until gh pr checks 139 | grep -q .; do sleep 10; done; gh pr checks 139 --watch --interval 15 2>&1 | tail -4', w.textContent);
       var said = w.querySelector('.ca-working-word');
       var oneLine = cmd.getClientRects().length === 1 && said.getClientRects().length === 1 && said.getBoundingClientRect().height < 20 && Math.abs(said.getBoundingClientRect().top - cmd.getBoundingClientRect().top) < 6;
-      check('on one line, all of it on hover', oneLine && cmd.getAttribute('title') === cmd.textContent, said.getBoundingClientRect().height + 'px words');
+      check('on one line, all of it on hover as it was written', oneLine && cmd.getAttribute('title') === COMMAND, said.getBoundingClientRect().height + 'px words');
+      var narrow = fitsNarrow();
+      check('fitting a narrow panel', narrow === true, narrow);
       check('with its clock, not the mark or a tip', !!w.querySelector('.ca-glyph--waiting') && !w.querySelector('.ca-lmark') && !tip());
       check('last in the conversation', q('.ca-sessinsp .ca-thread').lastElementChild === w);
       shape[picked[0].key] = { background: '' };
@@ -173,6 +187,8 @@
     })
     .then(function () {
       check('or that it waits on a command, when it couldn’t be read', waiting().textContent === 'Waiting on a command in the background', waiting().textContent);
+      var narrow = fitsNarrow();
+      check('which wraps in a narrow panel rather than going past its side', narrow === true, narrow);
       shape[picked[0].key] = { status: 'idle' };
       return push().then(function () { return until(function () { return !waiting(); }, 5000, 'the waiting line to go'); });
     })
