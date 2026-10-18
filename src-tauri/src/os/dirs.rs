@@ -32,6 +32,13 @@ pub fn cache_dir() -> PathBuf {
     }
 }
 
+/// Where the desktop looks for what to start at login on Linux (XDG autostart): the XDG config
+/// folder's `autostart`. macOS has login items instead (os/login).
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub fn autostart_dir() -> PathBuf {
+    xdg_in(&home(), "XDG_CONFIG_HOME", ".config").join("autostart")
+}
+
 /// Where an app keeps its data in the home `in_home` (yours, or the one an account's folder is
 /// in): its folder in macOS's Application Support, named `macos`, or on Linux in the config
 /// folder, named `linux` (Chrome's are `Google/Chrome` and `google-chrome`).

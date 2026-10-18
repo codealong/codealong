@@ -65,6 +65,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # Improve Codealong's pictures of the windows (improve.rs): WKWebView draws its own page, so no screen-recording permission is asked.
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKSnapshotConfiguration"] }
 block2 = "0.6"
+# Open at login (os/login/macos.rs): the app as a login item, which System Settings › General › Login Items lists.
+objc2-service-management = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService"] }
 
 # The same windows on Linux (os/windows/linux.rs): the screens, the pointer and a window's opacity,
 # which Tauri doesn't expose. The version Tauri itself builds on.

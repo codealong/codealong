@@ -4,7 +4,7 @@
 // in AccountsSection.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getConfig, onQuickShortcut, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setReusable, startOptions, takeTeamSettings, testJev } from '../api';
+import { getConfig, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setOpenAtLogin, setReusable, startOptions, takeTeamSettings, testJev } from '../api';
 import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
@@ -12,7 +12,7 @@ import { REUSE_WORDS } from '../reusable';
 import { reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { agentId, agentOptions, modelName, parseAgent, withLists } from '../start';
-import type { ChromeProfile, Config, ConfigView, GroupMemberCfg, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Training, Usage, Verdict, WhenLimited } from '../types';
+import type { AtLogin, ChromeProfile, Config, ConfigView, GroupMemberCfg, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Training, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
@@ -300,8 +300,59 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
           <Seg className="ca-settings-theme" label="Theme" look="text" options={THEMES} value={theme} onPick={(t) => theme !== t && onPickTheme(t)} />
           <small>Every window follows, and so do the window chrome and menus.</small>
         </div>
+        <OpenAtLoginField />
         <UpdatesFields cfg={cfg} onSave={(next) => void onSave(next)} now={now} />
       </fieldset>
+    </>
+  );
+}
+
+/** Where each OS keeps what opens at login, which can turn it off too (os/login). */
+const AT_LOGIN_SAYS: Record<Platform, string> = {
+  mac: 'Codealong opens when you log in to this Mac, so your other devices can reach it without your opening it. System Settings › General › Login Items lists it, and can turn it off too.',
+  linux: 'Codealong opens when you log in, so your other devices can reach it without your opening it. It’s an entry in ~/.config/autostart, which your desktop starts at login.',
+};
+
+/**
+ * Settings › General's Open at login. It isn't in config.toml: the system's own login items are
+ * where it's kept, and where it can be turned off too, so it's read from there each time Settings
+ * opens.
+ */
+function OpenAtLoginField() {
+  const [state, setState] = useState<AtLogin | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    openAtLogin()
+      .then((s) => live && setState(s))
+      .catch((e: unknown) => live && setError(errorText(e)));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const pick = (on: boolean) => {
+    setBusy(true);
+    setError(null);
+    setOpenAtLogin(on)
+      .then(setState)
+      .catch((e: unknown) => setError(errorText(e)))
+      .finally(() => setBusy(false));
+  };
+  // Outside the app there's no system to ask.
+  if (state === null && !error) return null;
+  return (
+    <>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={state === 'on' || state === 'approve'} disabled={busy || state === null} onChange={(e) => pick(e.target.checked)} />
+        <span>Open at login</span>
+        <small>{state === 'approve' ? 'macOS waits for you to allow Codealong in System Settings › General › Login Items.' : AT_LOGIN_SAYS[platform()]}</small>
+      </label>
+      {error && (
+        <p className="ca-form-error" role="alert">
+          {error}
+        </p>
+      )}
     </>
   );
 }

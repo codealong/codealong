@@ -867,6 +867,10 @@ export type UpdateView = { current: string } & (
   | { state: 'failed'; error: string; at: number }
 );
 
+/** Whether the app opens when you log in (src-tauri/src/os/login): `approve` is registered, with
+ *  macOS waiting for you to allow it in System Settings. */
+export type AtLogin = 'off' | 'on' | 'approve';
+
 /** `[devices]` in config.toml: Codealong on your other devices (src-tauri/src/peers.rs). */
 export interface DevicesCfg {
   enabled: boolean;

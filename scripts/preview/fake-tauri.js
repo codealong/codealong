@@ -559,6 +559,10 @@ window.__TAURI_INTERNALS__ = {
     // shows another state by setting that and pushing it, as the engine would:
     // `window.__emit('update-status', window.__update = {current, state, …})`.
     if (cmd === 'update_status') return Promise.resolve(window.__update || { current: '0.1.0', state: 'upToDate', checkedAt: Date.now() - 2 * 3600e3 });
+    // Open at login: off, as a new install has it, or `window.__atLogin`; turning it on or off
+    // takes, as the system would.
+    if (cmd === 'open_at_login') return Promise.resolve(window.__atLogin || 'off');
+    if (cmd === 'set_open_at_login') return Promise.resolve((window.__atLogin = (args || {}).on ? 'on' : 'off'));
     if (cmd === 'suggest_todo') {
       return optionalJson('./todos-fixture.json').then(function (fx) {
         return fx && fx.jev && fx.jev.suggest ? fx.jev.suggest : Promise.reject(new Error('Todo suggestions are off.'));

@@ -24,6 +24,7 @@ pub mod apps;
 pub mod dirs;
 pub mod exits;
 pub mod files;
+pub mod login;
 pub mod open;
 pub mod outline;
 pub mod procs;

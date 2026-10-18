@@ -1216,7 +1216,10 @@ off.
 *⌘, (comma), the app menu, or the foot of the sidebar*
 
 A form for everything in config.toml. General has the folders searched for repos, the shortcuts
-that work in any app, the terminal and editor, and the theme; Sounds has the sound for each thing that starts to
+that work in any app, the terminal and editor, the theme, and Open at login (off until you turn it
+on; the system keeps it rather than config.toml: on macOS System Settings › General › Login Items
+lists Codealong, and on Linux it's an entry in `~/.config/autostart`, and turning it off there
+shows here); Sounds has the sound for each thing that starts to
 wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the keychain),
 what Jev's requests used and cost (see *What sessions used and cost*), and a switch per feature,
 each saying what it sends; Accounts adds, edits, turns off, removes and
@@ -2283,7 +2286,10 @@ stays on the Mac you attached it on, so a message with one for another device is
 find each other on your tailnet when Tailscale runs, and reach linked devices
 anywhere through iroh; they talk directly, encrypted end to end, with no server of Codealong's in
 between. You link a device once: on your tailnet, both show the same six digits and you say yes on
-the other one; elsewhere, with a link code made on one device and entered on the other. Each
+the other one; elsewhere, with a link code made on one device and entered on the other. A device
+is reached while Codealong runs there, its windows open or closed (closing the main window only
+hides it); once it quits, or the Mac sleeps, it shows as it was when last seen. Open at login, in
+Settings › General, has it running again after a restart without your opening it. Each
 session goes out with its place among its Mac's pins, so the iPhone app lists a Mac's pinned
 sessions first, in that Mac's order, and pins or unpins one there, remote control or not.
 

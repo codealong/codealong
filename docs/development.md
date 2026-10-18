@@ -98,6 +98,7 @@ other with `os::as_if`:
 | `os/apps/`, `os/outline/` | other apps through NSWorkspace, their icons, the Dock icon, the outline round a window | nothing to do: no app is asked to come forward, and editors are listed by name |
 | `os/system/`, `os/exits/` | Mach's memory figures, QoS classes, App Nap, kqueue | `/proc/meminfo`, nice, pidfds and eventfd |
 | `os/sound/` | NSSound, by name | the freedesktop sound theme, through `paplay` |
+| `os/login/` | a login item, through ServiceManagement's `SMAppService` | an XDG autostart entry in `~/.config/autostart` |
 | `os/dirs.rs` | `~/Library/Application Support/Codealong`, `Logs`, `Caches` | `~/.config/codealong`, `~/.local/state/codealong`, `~/.cache/codealong` |
 | `os/open.rs` | `open` | `xdg-open`, and an app's own command started by itself |
 | `os/secrets.rs` | the login keychain (`security`) | the desktop's Secret Service (`secret-tool`) |
