@@ -25,6 +25,8 @@ pub enum AtLogin {
     Off,
     On,
     /// Registered, but macOS waits for you to allow it in System Settings › General › Login Items.
+    /// Linux asks no one.
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     Approve,
 }
 
