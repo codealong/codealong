@@ -7,12 +7,13 @@
 <p align="center"><strong>Every coding agent you run, in one window.</strong></p>
 
 <p align="center">
-  A free, open-source Mac app for people who run more than one coding agent at a time:<br />
+  A free, open-source macOS and Linux app for people who run more than one coding agent at a time:<br />
   Claude Code, Codex, OpenCode, Antigravity and Cursor, on every account you have.
 </p>
 
 <p align="center">
   <a href="https://github.com/codealong/codealong/releases/latest"><strong>Download for macOS</strong></a>
+  &nbsp;·&nbsp; <a href="#on-linux">Build for Linux</a>
   &nbsp;·&nbsp; <a href="#get-started">Get started</a>
   &nbsp;·&nbsp; <a href="#a-tour">Tour</a>
   &nbsp;·&nbsp; <a href="#what-works-with-each-agent">Supported agents</a>
@@ -33,7 +34,7 @@ Running coding agents in parallel gets messy fast: a dozen terminal tabs, the Cl
 apps, two or three accounts, and no way to tell which agent is waiting on you without clicking
 through all of them.
 
-Codealong finds every agent session on your Mac, wherever it started, and puts them all on one
+Codealong finds every agent session on your machine, wherever it started, and puts them all on one
 board, organized the way your work is: **project → repo → worktree → branch → pull request**. It
 shows what each agent is doing, brings the ones that need you to the front, lets you answer them
 without switching apps, and opens any session right where it lives.
@@ -57,7 +58,7 @@ and no server.
   read and work through.
 - **Know where your plan limits stand.** Each account's limits (5-hour and weekly, or monthly
   where the plan counts by the month), always in view, and new work goes to the account with room.
-- **All your Macs on one board.** Link your Macs and see, and if you allow it act on, the sessions
+- **All your machines on one board.** Link them and see, and if you allow it act on, the sessions
   running on any of them. An [iPhone app](https://github.com/codealong/codealong-ios) is on the way.
 
 ## Agents and systems
@@ -66,8 +67,8 @@ and no server.
 and the app), OpenCode, Antigravity and Cursor (new). [What works with each
 agent](#what-works-with-each-agent) says what Codealong can do with every one.
 
-**Systems:** macOS 13 or later, on Apple silicon or Intel. Linux too, under X11, built from
-source for now: sessions run in tmux, shown in your terminal emulator, and a few things are
+**Systems:** macOS 13 or later, on Apple silicon or Intel. Linux too, under X11, [built from
+source](#on-linux) for now: sessions run in tmux, shown in your terminal emulator, and a few things are
 macOS's alone, the notch and the Claude and Codex apps among them ([what
 differs](docs/development.md#linux)). Windows isn't supported yet.
 
@@ -86,6 +87,8 @@ than a fix, and screenshots of any changed UI.
 
 ### Install
 
+#### On macOS
+
 1. Download `Codealong.dmg` from the [latest release](https://github.com/codealong/codealong/releases/latest).
 2. Open it and drag Codealong into Applications.
 3. Open Codealong.
@@ -100,13 +103,33 @@ It runs on Apple silicon and Intel Macs, is signed and notarized by Apple, and k
 date: when a new version is ready, *Restart to update* shows at the foot of the sidebar. Prefer to
 build it yourself? See [Building from source](#building-from-source).
 
+#### On Linux
+
+There's no installer yet: build it from source, under X11. With Rust, Node and the packages Tauri
+needs on Linux (WebKitGTK 4.1 and GTK 3 among them; `scripts/linux/lima.yaml` lists every one for
+Ubuntu):
+
+```bash
+git clone https://github.com/codealong/codealong.git
+cd codealong
+npm install
+npm run tauri build -- --bundles deb   # the binary and a .deb, in ../codealong-target/release
+```
+
+Each session Codealong starts runs in tmux, shown in your terminal emulator: Ghostty, kitty,
+WezTerm, Alacritty, foot, Konsole, GNOME Terminal, Ptyxis, Xfce Terminal or xterm (`$TERMINAL`
+picks one). Keys are Linux's: ⌘ is Ctrl, and ⌥ and ⌃ are Alt. A few things are macOS's alone,
+the notch, the Claude and Codex apps, and Antigravity's and Cursor's usage among them;
+[the development notes](docs/development.md#linux) say what else differs.
+
 **You'll need:**
 
-- macOS 13 or later
+- macOS 13 or later, or Linux under X11
 - At least one coding agent: [Claude Code](https://code.claude.com/docs), the
   [Codex](https://openai.com/codex/) CLI or app, [OpenCode](https://opencode.ai),
   [Antigravity](https://antigravity.google) or [Cursor](https://cursor.com)
-- A terminal: [Ghostty](https://ghostty.org) 1.3 or later (the best supported), iTerm2 or Terminal
+- A terminal: on macOS, [Ghostty](https://ghostty.org) 1.3 or later (the best supported), iTerm2 or
+  Terminal; on Linux, tmux and a terminal emulator
 - For pull requests, the [GitHub CLI](https://cli.github.com) signed in: `gh auth login`
 
 ### Your first five minutes
@@ -124,9 +147,9 @@ build it yourself? See [Building from source](#building-from-source).
    PATH, adds Codealong's plugin to each Claude Code account (so you can answer its permission
    prompts and questions from Codealong), and gives every agent a skill that tells it how to use
    the board.
-5. **Say yes to macOS.** The first time Codealong opens or focuses a terminal tab, macOS asks
-   whether it may control Ghostty, iTerm2 or Terminal. Allow it, so Codealong can bring the right
-   tab forward and type your replies into it.
+5. **On macOS, say yes when it asks.** The first time Codealong opens or focuses a terminal tab,
+   macOS asks whether it may control Ghostty, iTerm2 or Terminal. Allow it, so Codealong can bring
+   the right tab forward and type your replies into it.
 6. **Keep working the way you do.** Start agents in your terminal or their apps as usual. When
    you want something done, press **⌥⌘/** from any app. When agents are waiting on you, press
    **⌥⌘.** to work through them.
@@ -154,7 +177,7 @@ Six views of your work, each in a window of its own if you like (⇧⌘N):
 | **Canvas** | Your work laid out in space: a frame per repo, a column per worktree, cards you arrange. |
 
 Select anything to see it in the panel on the right; right-click anything for its menu. The
-sidebar narrows every view to the Macs, time span and statuses you pick, and saved views bring
+sidebar narrows every view to the machines, time span and statuses you pick, and saved views bring
 a setup back. Plan usage for every account runs across the top.
 
 Every session and worktree has a status:
@@ -248,7 +271,7 @@ typing a prompt and start it, choosing:
 - **the account, model and effort** (⌘L), or leave it on *Auto*;
 - **where it runs** (⌘O): a terminal tab, in the background, the Claude or Codex app, or inside
   Codealong itself;
-- and, with other Macs linked, **which Mac** (⌘D).
+- and, with other machines linked, **which machine** (⌘D).
 
 *Auto* picks the account with room (or from your routing group in Settings › Routing): an
 account at its usage cap (90% by default) has none, and among those with room it picks the one
@@ -356,20 +379,20 @@ IDEs or Android Studio. ⌃` opens a terminal in the folder of whatever you're l
 whose dev server is running shows a green globe: click it to open the app, in the Chrome profile
 you choose.
 
-### All your Macs on one board
+### All your machines on one board
 
-Turn on Settings › Devices on each Mac and link them once: on your
-[Tailscale](https://tailscale.com) network both show the same six digits and you say yes;
-anywhere else, you enter a link code. Each Mac then shows the others' worktrees and sessions
-beside its own, with a badge saying which Mac each one is on. Read any conversation from any Mac.
-Turn on remote control at a Mac, and your other Macs can send its sessions messages, answer their
-approvals and start work there. Macs talk to each other encrypted end to end, through Tailscale or
-[iroh](https://iroh.computer): directly where they can, otherwise through iroh's public relays,
+Turn on Settings › Devices on each machine and link them once: on your
+[Tailscale](https://tailscale.com) network both show the same six digits and you say yes; anywhere
+else, you enter a link code. Each machine then shows the others' worktrees and sessions beside its
+own, with a badge saying which machine each one is on. Read any conversation from any machine. Turn
+on remote control at a machine, and your other machines can send its sessions messages, answer their
+approvals and start work there. Machines talk to each other encrypted end to end, through Tailscale
+or [iroh](https://iroh.computer): directly where they can, otherwise through iroh's public relays,
 which pass along packets they can't read. There's no Codealong server in between.
 
 **On your iPhone**, [Codealong for iPhone](https://github.com/codealong/codealong-ios) links with
-your Macs the same way and lists every session, most urgent first, to read, and where a Mac has
-remote control on, to reply to, approve and start. It's early, and for now you build and install
+your machines the same way and lists every session, most urgent first, to read, and where a machine
+has remote control on, to reply to, approve and start. It's early, and for now you build and install
 it yourself.
 
 ### A board your agents can read too
@@ -464,19 +487,19 @@ In Codealong:
 | ⌘, | Settings |
 
 In the quick panel: **⏎** does the selected row, **⌘⏎** always starts a session, **⌥⏎** opens a
-session where it lives, **⇥** answers a session in the *Waiting on you* window, **⌘1** – **⌘9**
-pick a row, and **⌘P**, **⌘T**, **⌘L**, **⌘O**, **⌘D** choose the project, worktree, agent, place
-and Mac. On a PR waiting on your review, in the notch or the waiting window, **⌘⏎** approves it,
-**⌥⌘⏎** comments, **⌃⌘R** has an agent review it and **⌃⌘G** opens it on GitHub. Right-click
-menus show every action's keys. On Linux, ⌘ is Ctrl, and ⌥ and ⌃ are Alt.
+session where it lives, **⇥** answers a session in the *Waiting on you* window, **⌘1** – **⌘9** pick
+a row, and **⌘P**, **⌘T**, **⌘L**, **⌘O**, **⌘D** choose the project, worktree, agent, place and
+machine. On a PR waiting on your review, in the notch or the waiting window, **⌘⏎** approves it,
+**⌥⌘⏎** comments, **⌃⌘R** has an agent review it and **⌃⌘G** opens it on GitHub. Right-click menus
+show every action's keys. On Linux, ⌘ is Ctrl, and ⌥ and ⌃ are Alt.
 
 ## Settings
 
 Everything is in Settings (⌘,), as a form and as the text of
-`~/Library/Application Support/Codealong/config.toml`. Codealong writes that file on first run
-from what it finds on your Mac, and watches it, so you can edit either. The form saves each change
-in its place, keeping your comments and order, and `codealong config check` checks a file you
-edited by hand.
+`~/Library/Application Support/Codealong/config.toml` (on Linux, `~/.config/codealong/config.toml`).
+Codealong writes that file on first run from what it finds on your machine, and watches it, so you
+can edit either. The form saves each change in its place, keeping your comments and order, and
+`codealong config check` checks a file you edited by hand.
 
 A repo can share settings with everyone who works on it in `.codealong/config.toml`, read from the
 branch its pull requests merge into (so a change goes for the team once it's merged), and
@@ -516,7 +539,7 @@ move_pointer = false           # move the pointer to a terminal brought forward 
 close_command_tabs_after = 10   # minutes after a command Codealong runs in your terminal ends that its tab closes; 0 keeps it (Settings › General)
 
 [appearance]
-theme = "system"               # follows macOS; or "light", "dark"
+theme = "system"               # follows the system; or "light", "dark"
 zoom = 100                     # the windows and the cards in the notch and peek, in percent, 50 to 200 (⌘= ⌘- ⌘0)
 
 [shortcuts]
@@ -539,7 +562,7 @@ days = 14                      # prompts and replies searched this far back; 0 i
 
 [devices]                      # your other devices (Settings › Devices)
 enabled = false
-name = ""                      # this Mac's name on your other devices; "" is the computer's name
+name = ""                      # this machine's name on your other devices; "" is the computer's name
 tailscale = true               # find them on your tailnet
 iroh = true                    # reach linked devices anywhere
 remote_control = false         # let linked devices act on sessions here
@@ -592,7 +615,7 @@ nudge_about = "everything"     # what a nudge tells of: "feedback" only comments
 needs_you = "Pop"              # a session asks you something, waits on a call to allow, or stops with an error
 your_turn = "Tink"             # a session's turn ended
 review_requested = ""          # a PR asks for your review; "" is no sound
-volume = 60                    # in percent of the Mac's own; any sound in /System/Library/Sounds or ~/Library/Sounds
+volume = 60                    # in percent of the system's own; any sound in /System/Library/Sounds or ~/Library/Sounds, or on Linux ~/.local/share/sounds
 
 [repos."github.com/acme/web".reviews]  # yours for one repo, over the above and its team's file (Settings › Automation, the repo picked)
 account = "claude-work"        # any of [reviews] but start, [reviews.own] (as reviews.own) and [pull_requests]; what's left out is as they say
@@ -661,19 +684,20 @@ in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
 
 ## Privacy and safety
 
-- **Nothing of your work leaves your Mac unless you turn it on.** Transcripts stay on the Mac that
-  ran them, and Codealong keeps only titles, statuses and short excerpts in memory. There's no
-  sign-up and no Codealong server. Codealong talks only to your agents' providers, with their own
-  sign-ins, for plan usage and training settings; to GitHub through your own `gh` sign-in; and to
-  this repo's releases to check for updates (`[updates] check = false` turns that off).
+- **Nothing of your work leaves your machine unless you turn it on.** Transcripts stay on the
+  machine that ran them, and Codealong keeps only titles, statuses and short excerpts in memory.
+  There's no sign-up and no Codealong server. Codealong talks only to your agents' providers, with
+  their own sign-ins, for plan usage and training settings; to GitHub through your own `gh` sign-in;
+  and to this repo's releases to check for updates (`[updates] check = false` turns that off).
 - **Jev is opt-in.** Each Jev feature is off until you add your own TypeSafe key and switch it on,
   and Settings › Jev says what each one sends (what you type, and your sessions' titles, branches
-  and latest lines). The key stays in your login keychain.
+  and latest lines). The key stays in your login keychain (on Linux, the desktop's Secret Service).
 - **Linked devices talk to each other**, encrypted end to end (directly, or through relays that
   can't read what they pass along), and read a conversation or search what was said only by
-  asking the Mac it's on. Remote control is off until you turn it on at that Mac;
+  asking the machine it's on. Remote control is off until you turn it on at that machine;
   then your linked devices can send prompts, answer approvals, start sessions and end them there,
-  and each request is written to `~/Library/Logs/Codealong/devices.log`.
+  and each request is written to `~/Library/Logs/Codealong/devices.log` (on Linux,
+  `~/.local/state/codealong/devices.log`).
 - **Git is read-only, but for cleaning up.** Codealong never commits, checks out, fetches or
   resets, and never creates a worktree: when you ask for a new worktree, the agent (Claude Code,
   or `cursor-agent`) makes it. It removes one, and deletes its branch, only when you clean it up
@@ -706,7 +730,7 @@ tier. You pay only for what you already pay for: your agents' subscriptions, and
 you turn on Jev.
 
 **Do I have to start my agents from Codealong?**
-No. Codealong finds every session on your Mac, wherever it started: your terminal tabs, Claude
+No. Codealong finds every session on your machine, wherever it started: your terminal tabs, Claude
 Code's background jobs, the Claude and Codex apps. Keep starting agents the way you do now, and use
 the quick panel when it's quicker.
 
@@ -728,25 +752,30 @@ Only to remove a worktree you clean up, with its branch, and only when nothing i
 no uncommitted file and no commit that isn't on a remote. Otherwise it runs git read-only. When work
 needs a new worktree, the agent makes it, and a pull request is merged only when you press Merge.
 
-**Which Macs, terminals and editors does it support?**
-macOS 13 or later, on Apple silicon or Intel. Ghostty is the best supported terminal; iTerm2,
-Terminal and tmux work too. It opens worktrees in VS Code, Cursor, Windsurf, Kiro, Zed, Sublime
-Text, Nova, BBEdit, Xcode, the JetBrains IDEs and Android Studio, or any editor you name.
+**Which systems, terminals and editors does it support?**
+macOS 13 or later, on Apple silicon or Intel, and Linux under X11. On macOS, Ghostty is the best
+supported terminal; iTerm2, Terminal and tmux work too. On Linux, sessions run in tmux, shown in
+your terminal emulator. It opens worktrees in VS Code, Cursor, Windsurf, Kiro, Zed, Sublime Text,
+Nova, BBEdit, Xcode, the JetBrains IDEs and Android Studio, or any editor you name.
 
 **Does it run on Linux?**
-It builds and runs there, under X11, built from source (there's no installer yet): sessions in
-tmux, shown in your terminal emulator's windows, and editors found by their commands. Some of
-what macOS gives it has no counterpart there, the notch among them;
+Yes, under X11, built from source for now ([On Linux](#on-linux) says how; there's no installer
+yet): sessions in tmux, shown in your terminal emulator's windows, and editors found by their
+commands. Some of what macOS gives it has no counterpart there, the notch among them;
 [the development notes](docs/development.md#linux) say what, and how to try it in a VM.
+
+**And Windows?**
+Not yet, and help is welcome: [Agents and systems](#agents-and-systems) says where Windows support
+starts.
 
 **Can I answer my agents from my phone?**
 Soon: [Codealong for iPhone](https://github.com/codealong/codealong-ios) is early, and for now you
-build and install it yourself. Today you can answer an agent from any of your Macs: link them, and
-turn on remote control on the Mac the agent runs on.
+build and install it yourself. Today you can answer an agent from any of your machines: link them,
+and turn on remote control on the machine the agent runs on.
 
 **How is it different from apps that run agents in their own window?**
 Those apps see only the agents they launched. Codealong reads the agents you already run, across
-harnesses, accounts and Macs, and sends new work to the right one.
+harnesses, accounts and machines, and sends new work to the right one.
 
 ### If something's missing
 
@@ -756,8 +785,8 @@ harnesses, accounts and Macs, and sends new work to the right one.
   three levels deep). Sessions outside your folders are listed under *Elsewhere*.
 - **No pull requests.** Sign in to the GitHub CLI with `gh auth login`. A chip at the end of the
   accounts bar says when GitHub is signed out or out of requests.
-- **Codealong can't bring a terminal tab forward or type into it.** Allow it under System
-  Settings › Privacy & Security › Automation.
+- **Codealong can't bring a terminal tab forward or type into it.** On macOS, allow it under
+  System Settings › Privacy & Security › Automation.
 - **Ghostty answers only once you bring it forward.** macOS naps it while it's behind other
   windows. Run `defaults write com.mitchellh.ghostty NSAppSleepDisabled -bool YES`, then quit and
   reopen Ghostty.
@@ -773,12 +802,12 @@ npm install
 npm run tauri dev
 ```
 
-You'll need Rust 1.91 or later (`rustup`), Node 22.13 or later and Xcode's command line tools.
-Builds go to `codealong-target`, a folder beside the clone, which every checkout and worktree of it
-shares. A development build uses the same settings and todos as an installed Codealong, and quits
-it while it runs. [docs/development.md](docs/development.md) has the rest: building an app bundle,
-running the tests and the UI checks, and a map of the code. [CLAUDE.md](CLAUDE.md) has the notes
-every change follows.
+You'll need Rust 1.91 or later (`rustup`) and Node 22.13 or later, with Xcode's command line tools
+on macOS, or on Linux the packages [On Linux](#on-linux) names. Builds go to `codealong-target`, a
+folder beside the clone, which every checkout and worktree of it shares. A development build uses
+the same settings and todos as an installed Codealong, and quits it while it runs.
+[docs/development.md](docs/development.md) has the rest: building an app bundle, running the tests
+and the UI checks, and a map of the code. [CLAUDE.md](CLAUDE.md) has the notes every change follows.
 
 ## Learn more
 
