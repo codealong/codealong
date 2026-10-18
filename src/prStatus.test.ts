@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { asksFor, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, whenStopped, type PrFacts } from './prStatus';
+import { asksFor, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
-import type { DeviceTag, Lane, PrComment, PrItem, Session } from './types';
+import type { PrComment, PrItem } from './types';
 
 const checks = fx.checks;
 const facts = (f: Partial<PrFacts> = {}): PrFacts => ({ state: 'open', checks: checks({ passed: 12 }), merge: 'blocked', base: 'main', ...f });
@@ -125,24 +125,6 @@ describe('nudgeWords', () => {
     expect(nudgeWords(item({}), true, { ...stopped, stopped: 'resumes' }, 'feedback')).toMatch(/resumed out of sight to be told when someone else asks for changes or comments, never for an approval or a merge\.$/);
     expect(nudgeWords(item({}), true, { ...stopped, stopped: 'beside' })).toBe('On for this PR. “marketing email broadcast”, its primary session, isn’t running here, and another of the PR’s sessions is, so it isn’t resumed beside that one: nobody is told until it runs.');
     expect(nudgeWords(item({}), true, { ...stopped, stopped: 'never' })).toMatch(/isn’t running here, so nobody is told until it is\.$/);
-  });
-});
-
-describe('whenStopped', () => {
-  const at = (s: Partial<Session> = {}, l: Partial<Lane> = {}) => ({ session: fx.session(s), lane: fx.lane(l) });
-  const primary = at({ key: 'claude:claude:p' });
-  const device = (online: boolean): DeviceTag => ({ name: 'Studio', short: 'st', color: 'blue', online, lastSeen: null });
-  it('resumes it unless another of the PR’s sessions runs that isn’t a helper', () => {
-    expect(whenStopped(primary, [primary, at({ key: 'claude:claude:o' })], true)).toBe('resumes');
-    expect(whenStopped(primary, [primary, at({ key: 'claude:claude:o', live: true })], true)).toBe('beside');
-    expect(whenStopped(primary, [primary, at({ key: 'claude:claude:o', live: true, helper: { parent: 'claude:claude:p' } })], true)).toBe('resumes');
-    expect(whenStopped(primary, [at({ key: 'claude:claude:o', live: true }, { device: device(true) })], true)).toBe('beside');
-    expect(whenStopped(primary, [at({ key: 'claude:claude:o', live: true }, { device: device(false) })], true)).toBe('resumes');
-  });
-  it('never with the setting off, for one you archived, or on another device', () => {
-    expect(whenStopped(primary, [primary], false)).toBe('never');
-    expect(whenStopped(at({ archived: true }), [], true)).toBe('never');
-    expect(whenStopped(at({}, { device: device(true) }), [], true)).toBe('never');
   });
 });
 

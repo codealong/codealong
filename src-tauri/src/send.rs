@@ -148,6 +148,14 @@ pub fn tell_waking(engine: &crate::engine::Handle, key: &str, text: &str) -> Res
     }
 }
 
+/// Whether `tell_waking` would reach a session that isn't running, for nudges.rs
+/// `stopped_primaries`.
+pub fn reaches_stopped(cfg: &Config, session: &Session) -> bool {
+    let Some(account) = cfg.accounts.iter().find(|a| a.name == session.account) else { return false };
+    let routes = || crate::harness::adapter(session.harness).routes(account, session);
+    waking(session, account, routes, || crate::start::resume_out_of_sight(account, &crate::util::home())) != Waking::Nowhere
+}
+
 /// How `tell_waking` reaches a session.
 #[derive(Debug, PartialEq)]
 enum Waking {

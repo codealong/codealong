@@ -2118,7 +2118,7 @@ pub fn compose(inp: Inputs) -> Board {
         project_rules: Vec::new(),
         when_limited: Default::default(),
         nudge_about: Default::default(),
-        resume_for_pr_news: false,
+        pr_stopped: Default::default(),
         repos: Default::default(),
         team_files: Vec::new(),
         repo_settings: Default::default(),

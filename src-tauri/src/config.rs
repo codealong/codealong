@@ -362,7 +362,7 @@ pub struct SessionsCfg {
     /// A PR's primary session that isn't running is resumed out of sight to be told what's new on
     /// the PR, when its nudge is on and the news asks for work (someone else's comments and
     /// reviews, changes asked for, failing checks, a conflict), unless another of the PR's sessions
-    /// runs (nudges.rs `resumable`). Files from before it have none: on.
+    /// runs (nudges.rs `stopped_primaries`). Files from before it have none: on.
     #[serde(default = "yes")]
     pub resume_for_pr_news: bool,
     /// Claude Code sessions hand Codealong each batch of a reply as their terminal shows it (the

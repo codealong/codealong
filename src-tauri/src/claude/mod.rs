@@ -213,6 +213,11 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn routes(&self, account: &crate::config::AccountCfg, s: &crate::model::Session) -> Vec<crate::send::Route> {
         let home = account.home_path();
+        // One that isn't running has no registry entry or socket to read: it's resumed, or goes on
+        // in its app. Asked of stopped sessions for every board (nudges.rs `stopped_primaries`).
+        if !s.live {
+            return claude_routes(s, None, &home, None, None);
+        }
         let registry = session_entry(&home, s);
         let mode = permission_mode(registry.as_ref(), &self.records(account, s));
         claude_routes(s, registry.as_ref(), &home, daemon_socket(&home).as_deref(), mode)

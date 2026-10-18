@@ -3373,7 +3373,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;
         board.nudge_about = self.cfg.pull_requests.nudge_about;
-        board.resume_for_pr_news = self.cfg.sessions.resume_for_pr_news;
+        board.pr_stopped = crate::nudges::stopped_primaries(&board, self.cfg.sessions.resume_for_pr_news, |s| crate::send::reaches_stopped(&self.cfg, s));
         board.reviews = self.cfg.reviews.clone();
         board.repos = self.cfg.repos.clone();
         board.repo_settings = repo_settings;
