@@ -551,6 +551,29 @@ mod tests {
     }
 
     #[test]
+    fn slash_commands_run_together_are_one_prompt() {
+        // `/review /tidy the parser`, as 2.1.302's code writes it: each command's tags and what it
+        // expands to, the first holding the line as typed and the second marked an expansion.
+        let ran = |uuid: &str, parent: &str, name: &str, args: &str, extra: Value| {
+            let mut rest = serde_json::json!({ "origin": { "kind": "human" }, "message": { "role": "user", "content": format!("<command-message>{name}</command-message>\n<command-name>/{name}</command-name>\n<command-args>{args}</command-args>") } });
+            rest.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            chained("user", uuid, Some(parent), "2026-10-18T19:10:45.770Z", rest)
+        };
+        let expanded = |uuid: &str, parent: &str| chained("user", uuid, Some(parent), "2026-10-18T19:10:45.770Z", serde_json::json!({ "isMeta": true, "message": { "role": "user", "content": [{ "type": "text", "text": "Base directory for this skill: …" }] } }));
+        let lines = [
+            ran("a", "a0", "review", "/tidy the parser", serde_json::json!({ "stackedOriginalInput": "/review /tidy the parser" })),
+            expanded("a1", "a"),
+            ran("b", "a1", "tidy", "the parser", serde_json::json!({ "stackedExpansion": true })),
+            expanded("b1", "b"),
+        ];
+        let items: Vec<Item> = lines.iter().flat_map(|l| conversation_items(&serde_json::from_str(l).unwrap(), 0)).collect();
+        assert_eq!(items.iter().map(|it| (it.kind, it.text.as_str())).collect::<Vec<_>>(), vec![("you", "/review /tidy the parser")]);
+        // The second command is no prompt that went on without the first.
+        assert_eq!(fate(&lines), Some(Fate::Open));
+        assert_eq!(fate(&[lines.as_slice(), &[reply("x", "b1", "Reviewing it.")]].concat()), Some(Fate::Kept));
+    }
+
+    #[test]
     fn marks_a_prompt_taken_back_in_the_conversation() {
         let dir = crate::fixtures::scratch("taken-back");
         let path = dir.join("t.jsonl");

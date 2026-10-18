@@ -669,7 +669,7 @@ fn str_of(v: &Value, key: &str) -> Option<String> {
 /// A real prompt you typed, not a tool result, command wrapper, compaction summary or meta line.
 fn user_prompt(v: &Value) -> Option<String> {
     let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
-    if flag("isMeta") || flag("isSidechain") || flag("isCompactSummary") {
+    if flag("isMeta") || flag("isSidechain") || flag("isCompactSummary") || flag("stackedExpansion") {
         return None;
     }
     let content = v.pointer("/message/content")?;
@@ -691,13 +691,19 @@ fn user_prompt(v: &Value) -> Option<String> {
 /// plugin's), as you typed it: `/name args`. Claude Code (2.1.302's code) writes only its tags,
 /// `<command-message>name</command-message>\n<command-name>/name</command-name>\n<command-args>args</command-args>`
 /// (no args tag without args), marked typed, with what the command expands to on a meta line
-/// after it. Its own commands that run without a turn (`/model`, `/effort`, `/login`) are written
-/// in tags too, but never marked (2.1.224 to 2.1.299 here, 2026-10-18), nor is a scheduled run
-/// (`turnOrigin: "scheduled"`), so only a marked line is one. Unmarked older transcripts' commands
-/// stay unshown, as there's nothing to tell the two apart by.
+/// after it. Several run at once (`/a /b words`) are a line each, the first holding the whole
+/// line as typed (`stackedOriginalInput`) and the others marked `stackedExpansion`, which aren't
+/// prompts of their own (2.1.302's code). Its own commands that run without a turn (`/model`,
+/// `/effort`, `/login`) were written in tags on `user` lines too, but never marked (2.1.224 to
+/// 2.1.299 here, 2026-10-18), and 2.1.302 writes them as `system` / `local_command` lines; nor is
+/// a scheduled run marked (`turnOrigin: "scheduled"`), so only a marked line is one. Unmarked
+/// older transcripts' commands stay unshown, as there's nothing to tell the two apart by.
 fn command_run(v: &Value, text: &str) -> Option<String> {
     if v.pointer("/origin/kind").and_then(Value::as_str) != Some("human") || !text.trim_start().starts_with("<command-") {
         return None;
+    }
+    if let Some(typed) = v.get("stackedOriginalInput").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()) {
+        return Some(typed.to_string());
     }
     let between = |tag: &str| {
         let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));
@@ -765,7 +771,7 @@ pub(super) fn you_typed(v: &Value) -> bool {
         return false;
     }
     let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
-    if flag("isSidechain") || flag("isCompactSummary") {
+    if flag("isSidechain") || flag("isCompactSummary") || flag("stackedExpansion") {
         return false;
     }
     // Claude Code marks another session's message as meta, yours from Codealong included.
