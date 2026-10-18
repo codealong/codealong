@@ -592,54 +592,97 @@ fn message(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&st
 /// send does; tells `nudger` how each went, then does what it's owed besides (`Nudger::more`)
 /// until nothing is; and tells the engine, which says so in a notice when something didn't go.
 pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
+    let read = |pr: &PrItem| crate::github::detail(&pr.repo_slug, pr.number).map_err(|e| e.to_string());
+    let went = send_all(engine, nudger, jobs, read, |job, text| deliver(engine, job, text), crate::util::now_ms);
+    engine.nudged(went);
+}
+
+/// Sends a job's message as a window's send does, by `send::tell`, or `send::tell_waking` for a
+/// session that isn't running, if that still goes (`still_due`). The copy it went on as, where it
+/// was resumed as one.
+fn deliver(engine: &Handle, job: &Job, text: &str) -> Result<Option<String>, String> {
+    let told = if !job.stopped {
+        crate::send::tell(engine, &job.session, text).map(|_| None)
+    } else if engine.read(|b| still_due(b, job)) {
+        crate::send::tell_waking(engine, &job.session, text).map(|resumed| resumed.and_then(|r| r.key).filter(|k| *k != job.session))
+    } else {
+        return Ok(None);
+    };
+    told.map_err(|e| {
+        let title = engine.read(|b| b.session(&job.session).map(|(_, s)| s.title.clone())).unwrap_or_else(|| job.session.clone());
+        format!("“{title}” wasn't told what's new on {}: {e}", job.pr.key)
+    })
+}
+
+/// `send_now`, reading a PR's detail with `read`, sending with `tell` and telling the time with
+/// `now`, in rounds: the jobs it was handed, then what `Nudger::more` hands out after each round.
+/// What the jobs came to, for the notice it leaves (`Outcomes`).
+fn send_all(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>, mut read: impl FnMut(&PrItem) -> Result<PrDetail, String>, mut tell: impl FnMut(&Job, &str) -> Result<Option<String>, String>, now: impl Fn() -> i64) -> Result<(), String> {
     let login = engine.read(|b| b.github_login.clone());
-    let mut details: HashMap<(String, i64), Result<PrDetail, String>> = HashMap::new();
-    let mut failed = Vec::new();
+    let mut outcomes = Outcomes::default();
     let mut jobs = jobs;
     while !jobs.is_empty() {
+        // Read afresh each round: a retry has news its first try didn't, or GitHub answers now.
+        let mut details: HashMap<(String, i64), Result<PrDetail, String>> = HashMap::new();
         for job in jobs {
             // One that falls over is told as failed, so its session isn't left waiting on a send
             // that never says how it went.
             let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let detail = job.why.since.map(|since| details.entry((job.pr.key.clone(), since)).or_insert_with(|| crate::github::detail(&job.pr.repo_slug, job.pr.number).map_err(|e| e.to_string())).as_ref().map_err(String::as_str));
-                message(&job, detail, login.as_deref()).and_then(|text| {
-                    let Some(text) = text else { return Ok(None) };
-                    let told = if !job.stopped {
-                        crate::send::tell(engine, &job.session, &text).map(|_| None)
-                    } else if engine.read(|b| still_due(b, &job)) {
-                        crate::send::tell_waking(engine, &job.session, &text).map(|resumed| resumed.and_then(|r| r.key).filter(|k| *k != job.session))
-                    } else {
-                        return Ok(None);
-                    };
-                    told.map_err(|e| {
-                        let title = engine.read(|b| b.session(&job.session).map(|(_, s)| s.title.clone())).unwrap_or_else(|| job.session.clone());
-                        format!("“{title}” wasn't told what's new on {}: {e}", job.pr.key)
-                    })
+                let detail = job.why.since.map(|since| details.entry((job.pr.key.clone(), since)).or_insert_with(|| read(&job.pr)).as_ref().map_err(String::as_str));
+                message(&job, detail, login.as_deref()).and_then(|text| match text {
+                    Some(text) => tell(&job, &text),
+                    None => Ok(None),
                 })
             }))
             .unwrap_or_else(|_| Err(format!("Telling a session what's new on {} stopped partway.", job.pr.key)));
             let copy = went.as_ref().ok().cloned().flatten();
             let again = {
                 let mut nudger = nudger.lock().unwrap_or_else(|e| e.into_inner());
-                let now = crate::util::now_ms();
-                let again = nudger.told(&job, went.is_ok(), now);
+                let at = now();
+                let again = nudger.told(&job, went.is_ok(), at);
                 if let Some(copy) = &copy {
-                    nudger.went_on_as(&job.session, copy, now);
+                    nudger.went_on_as(&job.session, copy, at);
                 }
                 again
             };
-            if let Some(Err(e)) = copy.map(|copy| follow(engine, &job.session, &copy)) {
-                failed.push(e);
+            if let Some(copy) = copy {
+                outcomes.followed(follow(engine, &job.session, &copy));
             }
-            if let Err(e) = went {
-                failed.push(if again { format!("{e} Codealong tries again in a few minutes.") } else { e });
-            }
+            outcomes.went(&job, went.err().map(|e| if again { format!("{e} Codealong tries again in a few minutes.") } else { e }));
         }
         // What a session was owed besides, which one job at a time held back, goes now rather than
         // with the next board that changed.
-        jobs = nudger.lock().unwrap_or_else(|e| e.into_inner()).more(&engine.board(), crate::util::now_ms());
+        jobs = nudger.lock().unwrap_or_else(|e| e.into_inner()).more(&engine.board(), now());
     }
-    engine.nudged(if failed.is_empty() { Ok(()) } else { Err(failed.join(" ")) });
+    outcomes.notice()
+}
+
+/// What a worker's jobs came to, for the notice it leaves (`Handle::nudged`): each PR and
+/// session's last send, so a retry that went takes back the failure before it, and each copy that
+/// couldn't be made its PRs' primary (`follow`).
+#[derive(Default)]
+struct Outcomes {
+    sends: BTreeMap<(String, String), String>,
+    follows: Vec<String>,
+}
+
+impl Outcomes {
+    fn went(&mut self, job: &Job, failed: Option<String>) {
+        let key = (crate::prlinks::pr_key(&job.pr.key), job.session.clone());
+        match failed {
+            Some(e) => self.sends.insert(key, e),
+            None => self.sends.remove(&key),
+        };
+    }
+
+    fn followed(&mut self, went: Result<(), String>) {
+        self.follows.extend(went.err());
+    }
+
+    fn notice(self) -> Result<(), String> {
+        let all: Vec<String> = self.sends.into_values().chain(self.follows).collect();
+        if all.is_empty() { Ok(()) } else { Err(all.join(" ")) }
+    }
 }
 
 /// Makes the copy a session was resumed as (Claude Code copies a session a background job had
@@ -927,6 +970,46 @@ mod tests {
         // Long after, A is its own again.
         let later = NOW + COPY_MS;
         assert!(nudger.due(&at(UPDATED + 4), later).iter().all(|j| j.session == A));
+    }
+
+    /// A send that failed and is tried again before the worker ends reads the PR afresh, with what
+    /// came in meanwhile, and once it goes, its failure is no notice; one not tried again yet is.
+    #[test]
+    fn a_retry_in_the_same_worker_reads_afresh_and_takes_back_its_failure() {
+        let at = |updated: i64| board(vec![PrItem { updated_at: updated, ..pr("o/r#1", PrState::Open, &[A]) }], vec![live(A)]);
+        let fix = comment("c1", "ana", "Fix that.", UPDATED + 1, None, false);
+        let more = comment("c2", "ana", "And this.", UPDATED + 3, None, false);
+        let run = |clock: &dyn Fn(i64) -> i64| {
+            let nudger = Mutex::new(Nudger::default());
+            nudger.lock().unwrap().due(&at(UPDATED), NOW);
+            let jobs = nudger.lock().unwrap().due(&at(UPDATED + 5), NOW);
+            let mut reads = vec![detail(vec![], vec![fix.clone(), more.clone()]), detail(vec![], vec![fix.clone()])];
+            let mut tries: Vec<String> = Vec::new();
+            let calls = std::cell::Cell::new(0);
+            let went = send_all(
+                &Handle::over(at(UPDATED + 5)),
+                &nudger,
+                jobs,
+                |_| Ok(reads.pop().unwrap()),
+                |_, text| {
+                    tries.push(text.to_string());
+                    if tries.len() == 1 { Err("its terminal didn't take it".into()) } else { Ok(None) }
+                },
+                || {
+                    calls.set(calls.get() + 1);
+                    clock(calls.get())
+                },
+            );
+            (went, tries)
+        };
+        // The retry is due by the time the round ends.
+        let (went, tries) = run(&|call| if call == 1 { NOW } else { NOW + RETRY_MS });
+        assert_eq!((went, tries.len()), (Ok(()), 2));
+        assert!(!tries[0].contains("And this.") && tries[1].contains("And this."), "{tries:?}");
+        // It isn't: the failure is the notice, saying it's tried again.
+        let (went, tries) = run(&|_| NOW);
+        assert_eq!(tries.len(), 1);
+        assert!(went.unwrap_err().ends_with("its terminal didn't take it Codealong tries again in a few minutes."));
     }
 
     /// Two PRs whose news is for one session give it one job at a time, so one that isn't running
