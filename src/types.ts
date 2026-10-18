@@ -23,6 +23,10 @@ export interface SessionsCfg {
   /** The same for any session's message, the one above being part of it while it's on (send.rs
    *  `wakes`). Files from before it have none: on. */
   resume_for_any_session?: boolean;
+  /** A PR's primary session that isn't running is resumed out of sight to be told what asks for
+   *  work on the PR, unless another of its sessions runs (nudges.rs `resumable`). Files from
+   *  before it have none: on. */
+  resume_for_pr_news?: boolean;
   /** Claude Code sessions hand Codealong a reply as their terminal shows it (the plugin's
    *  `MessageDisplay` hook), so the panel shows it as it's written; their terminals then show a
    *  reply a paragraph at a time. New sessions only. Files from before it have none: off. */
@@ -1155,6 +1159,9 @@ export interface Board {
   /** `[pull_requests] nudge_about`: what a PR's nudge tells its session about. Missing on older
    *  boards: everything. */
   nudgeAbout?: NudgeAbout;
+  /** `[sessions] resume_for_pr_news`: a PR's primary session that isn't running is resumed to be
+   *  told what asks for work on it (nudges.rs `resumable`). Missing on older boards: off. */
+  resumeForPrNews?: boolean;
   /** Your `[repos."github.com/…"]` tables, by key. Missing on older boards. */
   repos?: Record<string, RepoCfg>;
   /** The repos' team files read from their branches. Missing on older boards. */

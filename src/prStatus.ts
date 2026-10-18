@@ -3,7 +3,7 @@
 // they fold into a single "Ready to merge". The PRs view also flags the rows that are your move.
 
 import { count } from './format';
-import type { AutoReview, Checks, Merge, NudgeAbout, PrComment, PrItem, PrState } from './types';
+import type { AutoReview, Checks, Lane, Merge, NudgeAbout, PrComment, PrItem, PrState, Session } from './types';
 
 /** A pill's color: green for approved and passing, amber for what needs you, red for failing. */
 export type PrTone = 'ready' | 'pass' | 'attn' | 'alert' | 'plain' | 'quiet' | 'merged';
@@ -167,12 +167,18 @@ const NUDGED_WHEN: Record<NudgeAbout, { when: string; of: string }> = {
 
 /** What a PR's card says under its nudge switch (nudges.rs): whether it's on and why, and who's
  *  told of what (`about`, `[pull_requests] nudge_about`). `primary` is its primary session's
- *  title and whether it runs on this Mac, when the card has it; only that session is ever told. */
-export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boolean, primary: { title: string; runs: boolean } | null, about: NudgeAbout = 'everything'): string {
+ *  title, whether it runs on this Mac and what becomes of the news while it doesn't
+ *  (`whenStopped`), when the card has it; only that session is ever told. */
+export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boolean, primary: { title: string; runs: boolean; stopped?: Stopped } | null, about: NudgeAbout = 'everything'): string {
   const said = NUDGED_WHEN[about] ?? NUDGED_WHEN.everything;
   if (on) {
     const lead = pr.nudgeByDefault ? 'On for every PR of yours, by Settings.' : 'On for this PR.';
     if (!primary) return `${lead} No session of it is known here, so nobody is told.`;
+    if (!primary.runs && primary.stopped === 'resumes') {
+      const work = NUDGED_WHEN[about === 'everything' ? 'feedback-and-checks' : about] ?? NUDGED_WHEN['feedback-and-checks'];
+      return `${lead} “${primary.title}”, its primary session, isn’t running here, so it’s resumed out of sight to be told ${work.when}.`;
+    }
+    if (!primary.runs && primary.stopped === 'beside') return `${lead} “${primary.title}”, its primary session, isn’t running here, and another of the PR’s sessions is, so it isn’t resumed beside that one: nobody is told until it runs.`;
     if (!primary.runs) return `${lead} “${primary.title}”, its primary session, isn’t running here, so nobody is told until it is.`;
     return `${lead} “${primary.title}”, its primary session, is sent a message as one of yours ${said.when}.`;
   }
@@ -180,6 +186,19 @@ export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boo
   return pr.state === 'approved' && about === 'everything'
     ? `Off for this PR. It’s approved already: turning this on tells ${who} that now, then of what happens on it next.`
     : `Off for this PR. Turned on, ${who} is told of ${said.of}.`;
+}
+
+/** What becomes of a PR's news while its primary session isn't running, as nudges.rs `resumable`
+ *  has it: it's resumed out of sight to be told (`resumes`); not while another of the PR's
+ *  sessions runs on a device that's connected, unless that one's a helper or a review (`beside`);
+ *  or never, with `[sessions] resume_for_pr_news` off (`on`), or a session you archived or one on
+ *  another device, whose own Codealong sees to it. */
+export type Stopped = 'resumes' | 'beside' | 'never';
+
+export function whenStopped(primary: { session: Session; lane: Lane }, sessions: readonly { session: Session; lane: Lane }[], on: boolean): Stopped {
+  if (!on || primary.session.archived || primary.lane.device) return 'never';
+  const runs = (x: { session: Session; lane: Lane }) => x.session.live && !x.session.archived && !x.session.helper && (!x.lane.device || x.lane.device.online);
+  return sessions.some((x) => x.session.key !== primary.session.key && runs(x)) ? 'beside' : 'resumes';
 }
 
 /** What a PR's Primary tag says (board.rs `pr_primary`): what being its primary session means,

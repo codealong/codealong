@@ -6,10 +6,13 @@
 //! or commented on by someone else (read from the PR's detail once its `updatedAt` moves), merged
 //! or closed, with checks that just failed, or with a branch that just came to conflict with its
 //! base (someone merged into the base what it conflicts with). The PR's primary session (`PrItem::primary`: the
-//! one picked, else the one that opened it), when it runs here, is sent one message saying what
-//! happened, as a message of yours from a window is (actions.rs `session-send`: typed into its
-//! terminal, or its harness's own way in), on a thread of its own, since reading GitHub and a send
-//! take a moment. The PR's other sessions (helpers, reviewers, ones that came to its branch) are
+//! one picked, else the one that pushed to it most), when it runs here, is sent one message saying
+//! what happened, as Codealong's own (send.rs `tell`: its harness's way in for other sessions'
+//! messages, else typed into its terminal), on a thread of its own, since reading GitHub and a
+//! send take a moment. One here that isn't running is resumed out of sight with it
+//! (`send::tell_waking`) by `[sessions] resume_for_pr_news`, and told then only what asks for work
+//! (`for_stopped`), unless another of the PR's sessions runs (`resumable`). The PR's other
+//! sessions (helpers, reviewers, ones that came to its branch) are
 //! told nothing. What you did to the PR yourself, which is what its agent did through `gh` too, is
 //! never told back. `[pull_requests] nudge_about` can keep it to what asks for work (`keep`):
 //! comments and reviews that ask for changes or say something, and failing checks and conflicts if
@@ -90,8 +93,32 @@ pub struct Job {
     /// The last try: when the PR's news can't be read from GitHub, what the board knows is told
     /// rather than nothing.
     pub last: bool,
-    /// What it's told of (`[pull_requests] nudge_about`), as the board said when it was due.
+    /// What it's told of (`[pull_requests] nudge_about`), as the board said when it was due, and
+    /// only what asks for work where it isn't running (`for_stopped`).
     pub about: NudgeAbout,
+    /// Its session isn't running, so it's resumed to be told (`resumable`, `send::tell_waking`).
+    pub stopped: bool,
+}
+
+/// What a nudge tells a session that isn't running, which it's resumed for: what asks for work,
+/// as `feedback-and-checks` has it, or less where `about` says less. An approval, a merge or a
+/// close is no reason to start a session that stopped.
+fn for_stopped(about: NudgeAbout) -> NudgeAbout {
+    match about {
+        NudgeAbout::Everything => NudgeAbout::FeedbackAndChecks,
+        about => about,
+    }
+}
+
+/// Whether the PR's primary session `key`, on this Mac and not running, is resumed to be told
+/// what's new on it (`[sessions] resume_for_pr_news`): not one you archived or marked done, nor
+/// while another of the PR's sessions runs, on any device of yours that's connected, unless that
+/// one is a helper or a review (`Session::helper`). The PR's work may have gone on in that one,
+/// and two agents on one branch get in each other's way.
+fn resumable(board: &Board, pr: &PrItem, key: &str) -> bool {
+    let stopped = board.session(key).is_some_and(|(lane, s)| lane.device.is_none() && !s.live && !s.archived);
+    let runs = |k: &str| board.session(k).is_some_and(|(lane, s)| s.live && !s.archived && s.helper.is_none() && lane.device.as_ref().is_none_or(|d| d.online));
+    board.resume_for_pr_news && stopped && !pr.sessions.iter().any(|s| s.key != key && runs(&s.key))
 }
 
 /// What of `why` a nudge tells of, as `[pull_requests] nudge_about` says: everything; or only
@@ -141,8 +168,9 @@ pub struct Nudger {
 
 impl Nudger {
     /// The jobs due now, at `now` (ms). For each PR with its nudge on that the last board showed
-    /// otherwise, what's new is owed to its primary session when that runs on this Mac; then each
-    /// session owed something is sent it, unless it waits on you, a send to it is under way, or a
+    /// otherwise, what's new is owed to its primary session when that runs on this Mac, and what
+    /// asks for work when it's to be resumed for it (`resumable`); then each session owed
+    /// something is sent it, unless it waits on you, a send to it is under way, or a
     /// failed one's wait isn't over. A PR first seen is only noted, so turning the nudge on tells
     /// of what happens from then on (and of an approval it has already, when turned on for that
     /// PR: turning `nudge_by_default` on doesn't tell every approved PR of yours to merge); a PR
@@ -187,21 +215,32 @@ impl Nudger {
                 failed: if was.on && seen.failed && !was.failed { pr.checks.failing.clone() } else { Vec::new() },
                 conflicts: was.on && conflicts && !was.conflicts,
             };
-            let why = keep(board.repo_settings.nudge_about(board.nudge_about, pr), pr.state.is_open(), why);
+            let about = board.repo_settings.nudge_about(board.nudge_about, pr);
+            let why = keep(about, pr.state.is_open(), why);
             if why == Why::default() {
                 continue;
             }
-            if let Some(s) = pr.primary.as_ref().filter(|k| runs_here(k)) {
+            let Some(s) = pr.primary.as_ref() else { continue };
+            // One that isn't running is resumed only for what asks for work.
+            let why = if runs_here(s) {
+                why
+            } else if resumable(board, pr, s) {
+                keep(for_stopped(about), pr.state.is_open(), why)
+            } else {
+                continue;
+            };
+            if why != Why::default() {
                 let owed = self.owed.entry((key.clone(), s.clone())).or_insert_with(|| Owed { pr: pr.clone(), why: Why::default(), sending: None, failures: 0, next_at: 0 });
                 owed.why.add(why);
             }
         }
         self.seen = seen_now;
-        // A session that stopped is told nothing more, nor one whose PR had its nudge turned off,
-        // nor one that's no longer its PR's primary.
+        // A session that stopped is told nothing more unless it's resumed for it, nor one whose PR
+        // had its nudge turned off, nor one that's no longer its PR's primary.
         let off: HashSet<String> = board.prs.iter().filter(|p| p.state.is_open() && !p.nudge).map(|p| crate::prlinks::pr_key(&p.key)).collect();
-        let primary: HashMap<String, Option<&str>> = board.prs.iter().map(|p| (crate::prlinks::pr_key(&p.key), p.primary.as_deref())).collect();
-        self.owed.retain(|(pr, s), o| o.sending.is_some() || (runs_here(s) && !off.contains(pr) && primary.get(pr).map_or(true, |p| *p == Some(s.as_str()))));
+        let listed: HashMap<String, &PrItem> = board.prs.iter().map(|p| (crate::prlinks::pr_key(&p.key), p)).collect();
+        let reached = |pr: &str, s: &str| runs_here(s) || listed.get(pr).is_some_and(|p| resumable(board, p, s));
+        self.owed.retain(|(pr, s), o| o.sending.is_some() || (reached(pr, s) && !off.contains(pr) && listed.get(pr).map_or(true, |p| p.primary.as_deref() == Some(s.as_str()))));
         // A send already under way to a session is let finish first: two typing into one terminal
         // at once would interleave.
         let busy: HashSet<String> = self.owed.iter().filter(|(_, o)| o.sending.is_some()).map(|((_, s), _)| s.clone()).collect();
@@ -213,7 +252,8 @@ impl Nudger {
             }
             let why = std::mem::take(&mut o.why);
             o.sending = Some(why.clone());
-            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: board.repo_settings.nudge_about(board.nudge_about, &o.pr) });
+            let (about, stopped) = (board.repo_settings.nudge_about(board.nudge_about, &o.pr), !runs_here(s));
+            out.push(Job { pr: o.pr.clone(), why, session: s.clone(), last: o.failures + 1 >= TRIES, about: if stopped { for_stopped(about) } else { about }, stopped });
         }
         out.sort_by(|a, b| (&a.pr.key, &a.session).cmp(&(&b.pr.key, &b.session)));
         out
@@ -450,7 +490,16 @@ pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
             let detail = job.why.since.map(|since| details.entry((job.pr.key.clone(), since)).or_insert_with(|| crate::github::detail(&job.pr.repo_slug, job.pr.number).map_err(|e| e.to_string())).as_ref().map_err(String::as_str));
             message(&job, detail, login.as_deref()).and_then(|text| {
                 let Some(text) = text else { return Ok(()) };
-                crate::send::tell(engine, &job.session, &text).map(|_| ()).map_err(|e| {
+                let told = if job.stopped {
+                    crate::send::tell_waking(engine, &job.session, &text).map(|resumed| {
+                        if let Some(copy) = resumed.and_then(|r| r.key).filter(|k| *k != job.session) {
+                            follow(engine, &job.pr, &copy);
+                        }
+                    })
+                } else {
+                    crate::send::tell(engine, &job.session, &text).map(|_| ())
+                };
+                told.map_err(|e| {
                     let title = engine.read(|b| b.session(&job.session).map(|(_, s)| s.title.clone())).unwrap_or_else(|| job.session.clone());
                     format!("“{title}” wasn't told what's new on {}: {e}", job.pr.key)
                 })
@@ -463,6 +512,17 @@ pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
         }
     }
     engine.nudged(if failed.is_empty() { Ok(()) } else { Err(failed.join(" ")) });
+}
+
+/// Makes the copy a PR's primary session was resumed as (Claude Code copies a session a
+/// background job had into a new job) the PR's primary in its place, as Primary session in the
+/// PR's menu does: the copy carries the PR on, and the session it copied, which no longer runs,
+/// would otherwise go on being told, and resumed again beside it.
+fn follow(engine: &Handle, pr: &PrItem, copy: &str) {
+    match crate::prlinks::change(|links| links.set_primary(&pr.key, copy, crate::util::now_ms())) {
+        Ok(_) => engine.pr_links_changed(),
+        Err(e) => eprintln!("codealong: {copy} goes on with {} but couldn't be made its primary session: {e:#}", pr.key),
+    }
 }
 
 #[cfg(test)]
@@ -604,6 +664,91 @@ mod tests {
         assert!(sent(&mut nudger, &board(vec![at(UPDATED + 4, None)], both)).is_empty());
     }
 
+    /// A session on this Mac that isn't running.
+    fn stopped(key: &str) -> Session {
+        Session { live: false, ..crate::fixtures::session(key) }
+    }
+
+    /// `board` with `[sessions] resume_for_pr_news` on.
+    fn resuming(prs: Vec<PrItem>, sessions: Vec<Session>) -> Board {
+        Board { resume_for_pr_news: true, ..board(prs, sessions) }
+    }
+
+    #[test]
+    fn a_primary_that_stopped_is_resumed_for_what_asks_for_work() {
+        let mut nudger = Nudger::default();
+        let gone = stopped(A);
+        let at = |updated: i64, state| PrItem { updated_at: updated, ..pr("o/r#1", state, &[A]) };
+        sent(&mut nudger, &resuming(vec![at(UPDATED, PrState::Open)], vec![gone.clone()]));
+        // Commented on: it's resumed to be told, of what asks for work only.
+        let jobs = sent(&mut nudger, &resuming(vec![at(UPDATED + 1, PrState::Open)], vec![gone.clone()]));
+        assert_eq!(jobs.iter().map(|j| (j.session.as_str(), j.stopped, j.about)).collect::<Vec<_>>(), [(A, true, NudgeAbout::FeedbackAndChecks)]);
+        // An approval, a merge or a close is no reason to start it, nor what the board knows of
+        // them when GitHub can't be read.
+        assert!(sent(&mut nudger, &resuming(vec![at(UPDATED + 1, PrState::Approved)], vec![gone.clone()])).is_empty());
+        assert!(sent(&mut nudger, &resuming(vec![off(at(UPDATED + 1, PrState::Merged))], vec![gone.clone()])).is_empty());
+        let approved = Job { last: true, ..jobs[0].clone() };
+        let read = |why: Why| message(&Job { why, ..approved.clone() }, None, Some("me")).unwrap();
+        assert_eq!(read(Why { since: Some(UPDATED), approved: true, ..Why::default() }), None);
+        let d = detail(vec![PrReview { author: "ken".into(), state: "APPROVED".into(), at: Some(UPDATED + 1), mine: false }], vec![]);
+        assert_eq!(message(&Job { why: Why { since: Some(UPDATED), ..Why::default() }, ..approved.clone() }, Some(Ok(&d)), Some("me")).unwrap(), None, "ken's approval alone");
+        assert!(read(Why { failed: vec!["lint".into()], ..Why::default() }).unwrap().contains("- Its checks failed: lint.\n"));
+        // Running, it's told as before.
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &resuming(vec![at(UPDATED, PrState::Open)], vec![live(A)]));
+        let jobs = sent(&mut nudger, &resuming(vec![at(UPDATED + 1, PrState::Approved)], vec![live(A)]));
+        assert_eq!(jobs.iter().map(|j| (j.stopped, j.about, j.why.approved)).collect::<Vec<_>>(), [(false, NudgeAbout::Everything, true)]);
+    }
+
+    #[test]
+    fn a_stopped_primary_isnt_resumed_beside_another_of_its_prs_sessions_that_runs() {
+        use crate::model::{DeviceTag, Helper};
+        let gone = stopped(A);
+        let told = |b: Board| {
+            let mut nudger = Nudger::default();
+            let first = Board { prs: vec![pr("o/r#1", PrState::Open, &[A, B])], ..b.clone() };
+            sent(&mut nudger, &first);
+            sent(&mut nudger, &Board { prs: vec![PrItem { updated_at: UPDATED + 1, ..pr("o/r#1", PrState::Open, &[A, B]) }], ..b }).len()
+        };
+        assert_eq!(told(resuming(vec![], vec![gone.clone(), stopped(B)])), 1);
+        assert_eq!(told(resuming(vec![], vec![gone.clone(), live(B)])), 0, "the work may have gone on in B");
+        // A helper or a review running for it doesn't take the PR on.
+        let helper = Session { helper: Some(Helper { parent: Some(A.into()), ..Default::default() }), ..live(B) };
+        assert_eq!(told(resuming(vec![], vec![gone.clone(), helper])), 1);
+        // On another device, only while it's connected.
+        let elsewhere = |online: bool| {
+            let mut b = resuming(vec![], vec![gone.clone()]);
+            let mut lane = crate::fixtures::lane("/there", vec![live(B)]);
+            lane.device = Some(DeviceTag { name: "Studio".into(), short: "st".into(), color: "blue".into(), online, last_seen: None });
+            b.lanes.push(lane);
+            b
+        };
+        assert_eq!((told(elsewhere(true)), told(elsewhere(false))), (0, 1));
+        // Not one you archived, nor with the setting off.
+        assert_eq!(told(resuming(vec![], vec![Session { archived: true, ..gone.clone() }])), 0);
+        assert_eq!(told(board(vec![], vec![gone])), 0);
+    }
+
+    #[test]
+    fn what_a_session_was_owed_is_resumed_for_once_it_stops() {
+        use crate::model::Status;
+        let mut nudger = Nudger::default();
+        let waiting = Session { status: Status::Needs, ..live(A) };
+        let at = |updated: i64, state| PrItem { updated_at: updated, ..pr("o/r#1", state, &[A]) };
+        sent(&mut nudger, &resuming(vec![at(UPDATED, PrState::Open)], vec![waiting.clone()]));
+        assert!(sent(&mut nudger, &resuming(vec![at(UPDATED + 1, PrState::Approved)], vec![waiting])).is_empty(), "A waits on you");
+        // It stopped before it could be told: resumed for it, told only what asks for work.
+        let jobs = sent(&mut nudger, &resuming(vec![at(UPDATED + 1, PrState::Approved)], vec![stopped(A)]));
+        assert_eq!(jobs.iter().map(|j| (j.stopped, j.about, j.why.since)).collect::<Vec<_>>(), [(true, NudgeAbout::FeedbackAndChecks, Some(UPDATED))]);
+        // Without the setting, what it was owed goes with it.
+        let mut nudger = Nudger::default();
+        let waiting = Session { status: Status::Needs, ..live(A) };
+        sent(&mut nudger, &board(vec![at(UPDATED, PrState::Open)], vec![waiting.clone()]));
+        sent(&mut nudger, &board(vec![at(UPDATED + 1, PrState::Open)], vec![waiting]));
+        assert!(sent(&mut nudger, &board(vec![at(UPDATED + 1, PrState::Open)], vec![stopped(A)])).is_empty());
+        assert!(sent(&mut nudger, &resuming(vec![at(UPDATED + 1, PrState::Open)], vec![stopped(A)])).is_empty(), "and isn't owed again");
+    }
+
     #[test]
     fn what_a_session_was_owed_goes_when_it_is_no_longer_the_primary() {
         use crate::model::Status;
@@ -701,7 +846,7 @@ mod tests {
     #[test]
     fn news_that_cant_be_read_is_tried_again_before_its_left_out() {
         let p = pr("o/r#1", PrState::Approved, &[A]);
-        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), approved: true, ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::Everything };
+        let job = Job { pr: p.clone(), why: Why { since: Some(UPDATED), approved: true, ..Why::default() }, session: A.into(), last: false, about: NudgeAbout::Everything, stopped: false };
         let e = message(&job, Some(Err("gh timed out after 30s")), Some("me")).unwrap_err();
         assert_eq!(e, "What's new on o/r#1 couldn't be read: gh timed out after 30s");
         // The last try says what the board knows.

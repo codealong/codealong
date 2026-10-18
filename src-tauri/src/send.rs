@@ -117,6 +117,68 @@ pub fn tell(engine: &crate::engine::Handle, key: &str, text: &str) -> Result<Sen
     send_here(engine, key, text, Sender::Codealong, false)
 }
 
+/// The line past Codealong's own (`by_codealong`) that what it tells a session by itself starts
+/// with where it resumed the session to tell it (`tell_waking`).
+pub const RESUMED_TO_TELL: &str = "You had stopped, and Codealong resumed you to tell you this.";
+
+/// Tells a session what Codealong has to tell it by itself, as `tell` does, whether or not it's
+/// running: one that isn't, whose harness goes on by a resume (`Route::Resume`), is resumed out of
+/// sight with it (`start::resume_out_of_sight`, `resume_once`), led by the line that says it had
+/// stopped (`RESUMED_TO_TELL`), as `wake` resumes one for an agent's message; one whose own way
+/// in takes it while it isn't running (the Codex app, OpenCode's service) is sent it that way. For
+/// a PR's news to its primary session (nudges.rs), as `[sessions] resume_for_pr_news` has it. How
+/// it went, with the key it goes on under (a copy's, where its harness copied it); None where it
+/// can't go on without someone at this Mac (a Claude app session goes on in its app), you archived
+/// it or turned its account off: nothing is sent, as nothing was before it could be resumed.
+pub fn tell_waking(engine: &crate::engine::Handle, key: &str, text: &str) -> Result<Option<crate::start::Resumed>> {
+    let cfg = crate::config::current()?;
+    let board = engine.board();
+    let (session, account) = crate::harness::find(&board, &cfg, key)?;
+    let routes = || crate::harness::adapter(session.harness).routes(account, session);
+    match waking(session, account, routes, || crate::start::resume_out_of_sight(account, &crate::util::home())) {
+        Waking::Send => send(&board, &cfg, key, text, Sender::Codealong, false).map(|sent| Some(crate::start::Resumed { key: Some(key.to_string()), sent })),
+        Waking::Nowhere => Ok(None),
+        Waking::Resume(place) => {
+            let prompt = by_codealong(&format!("{RESUMED_TO_TELL}\n\n{}", text.trim()));
+            match resume_once(&board, &cfg, session, place, &prompt)? {
+                Some(resumed) => Ok(Some(resumed)),
+                None => bail!("{} is being resumed for something else just now, so it wasn't told this yet.", quoted(&session.title)),
+            }
+        }
+    }
+}
+
+/// How `tell_waking` reaches a session.
+#[derive(Debug, PartialEq)]
+enum Waking {
+    /// Sent it as `tell` sends: it runs, or a way in of its harness's takes it while it doesn't.
+    Send,
+    /// Resumed with it, out of sight here.
+    Resume(Place),
+    /// Not at all.
+    Nowhere,
+}
+
+/// How `tell_waking` reaches `session`, given its ways in (`Adapter::routes`) and where its
+/// account resumes one out of sight (`start::resume_out_of_sight`), each asked only when it's
+/// needed.
+fn waking(session: &Session, account: &AccountCfg, routes: impl FnOnce() -> Vec<Route>, out_of_sight: impl FnOnce() -> Option<Place>) -> Waking {
+    if session.live || session.hosted {
+        return Waking::Send;
+    }
+    if session.archived || account.ensure_on().is_err() {
+        return Waking::Nowhere;
+    }
+    let routes = routes();
+    if routes.iter().any(|r| matches!(r, Route::Resume)) {
+        return out_of_sight().map_or(Waking::Nowhere, Waking::Resume);
+    }
+    match codealong_routes(session, routes) {
+        Ok(_) => Waking::Send,
+        Err(_) => Waking::Nowhere,
+    }
+}
+
 /// Who an agent's message is from, as the session it goes to reads it.
 #[derive(Debug, Clone, PartialEq)]
 struct Byline {
@@ -716,17 +778,12 @@ fn claim_wake(woken: &mut BTreeMap<String, i64>, key: &str, now: i64) -> bool {
     true
 }
 
-/// Resumes the session `place` on an agent's message, as `wakes` allows: as Codealong resumes
-/// one by itself, the message led by the line that says it had stopped and was resumed for another
-/// session's message, not its user's (`RESUMED_FOR_A_MESSAGE`), then by the agent's byline, which
-/// says whose it is and how to answer. On the account's own model, as a send from its box resumes
-/// it unless you pick another; the agent is told it wasn't running.
-/// It's claimed first (`claim_wake`), so a message sent while another resumes it, or just after,
-/// is told to come again once it runs rather than resuming it twice; the claim is only the file's
-/// lock long, so nothing waits on another session's resume, and what `wakes` found still holds.
-/// Where its harness goes on with a copy, a copy resumed for the session that started it carries
-/// on that start (`origins::carry_start`), so that session can resume the copy in turn.
-fn wake(board: &Board, cfg: &Config, session: &Session, (place, link): (Place, Link), msg: &Message) -> Result<Sent> {
+/// Resumes the session `place` on `prompt` as Codealong does by itself, on the account's own
+/// model, as a send from its box resumes it unless you pick another. It's claimed first
+/// (`claim_wake`), so a message or news sent while another resumes it, or just after, comes again
+/// once it runs rather than resuming it twice: None when it was claimed already. The claim is only
+/// the file's lock long, so nothing waits on another session's resume.
+fn resume_once(board: &Board, cfg: &Config, session: &Session, place: Place, prompt: &str) -> Result<Option<crate::start::Resumed>> {
     let (key, now) = (session.key.as_str(), crate::util::now_ms());
     let mut claimed = false;
     crate::store::change(&woken_path(), WOKEN, |woken: &mut BTreeMap<String, i64>| {
@@ -735,15 +792,30 @@ fn wake(board: &Board, cfg: &Config, session: &Session, (place, link): (Place, L
         *woken != before
     })?;
     if !claimed {
-        bail!("{} is being resumed for another message sent to it just now, so yours wasn't sent: send it again in a minute, once it's running.", quoted(&session.title));
+        return Ok(None);
     }
     let how = crate::start::ResumeIn { place, model: None, effort: None };
-    let prompt = format!("{RESUMED_FOR_A_MESSAGE}\n\n{}", msg.text.trim());
-    let resumed = crate::start::resume(board, cfg, key, &how, &prompt, &Sender::Codealong).inspect_err(|_| {
+    let resumed = crate::start::resume(board, cfg, key, &how, prompt, &Sender::Codealong).inspect_err(|_| {
         // It didn't go on, so the next message may try again. A file that can't be changed now
         // only keeps that one waiting out `WAKING_MS`.
         let _ = crate::store::change(&woken_path(), WOKEN, |woken: &mut BTreeMap<String, i64>| woken.get(key) == Some(&now) && woken.remove(key).is_some());
     })?;
+    Ok(Some(resumed))
+}
+
+/// Resumes the session `place` on an agent's message, as `wakes` allows (`resume_once`): as
+/// Codealong resumes one by itself, the message led by the line that says it had stopped and was
+/// resumed for another session's message, not its user's (`RESUMED_FOR_A_MESSAGE`), then by the
+/// agent's byline, which says whose it is and how to answer; the agent is told it wasn't running.
+/// What `wakes` found still holds once it's claimed. Where its harness goes on with a copy, a copy
+/// resumed for the session that started it carries on that start (`origins::carry_start`), so
+/// that session can resume the copy in turn.
+fn wake(board: &Board, cfg: &Config, session: &Session, (place, link): (Place, Link), msg: &Message) -> Result<Sent> {
+    let key = session.key.as_str();
+    let prompt = format!("{RESUMED_FOR_A_MESSAGE}\n\n{}", msg.text.trim());
+    let Some(resumed) = resume_once(board, cfg, session, place, &prompt)? else {
+        bail!("{} is being resumed for another message sent to it just now, so yours wasn't sent: send it again in a minute, once it's running.", quoted(&session.title));
+    };
     let copied = resumed.key.as_deref().filter(|k| *k != session.key);
     if let (Some(copy), Link::YoursStarted) = (copied, link) {
         crate::origins::carry_start(copy, key);
@@ -1261,6 +1333,21 @@ mod tests {
         assert_eq!(ways.len(), 3, "{ways:?}");
         assert!(ways[0].contains("Socket") && ways[1].contains("Type") && ways[2].contains("Job"), "{ways:?}");
         assert!(codealong_routes(&s, vec![Route::Resume, Stand(Way::ClaudeApp).into()]).is_err());
+
+        // What Codealong tells a session that may have stopped (`tell_waking`): sent where it
+        // runs; resumed out of sight where its harness goes on by a resume; sent by a way of its
+        // harness's that takes it while it doesn't run; else nothing, as for one you archived or
+        // whose account you turned off.
+        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let stopped = Session { live: false, ..s.clone() };
+        let way = |s: &Session, a: &crate::config::AccountCfg, routes: Vec<Route>| waking(s, a, || routes, || Some(Place::Background));
+        assert_eq!(way(&s, &account, vec![]), Waking::Send);
+        assert_eq!(way(&stopped, &account, vec![Route::Resume]), Waking::Resume(Place::Background));
+        assert_eq!(waking(&stopped, &account, || vec![Route::Resume], || None), Waking::Nowhere, "its account can't go on out of sight");
+        assert_eq!(way(&stopped, &account, vec![Socket.into()]), Waking::Send);
+        assert_eq!(way(&stopped, &account, vec![Stand(Way::ClaudeApp).into()]), Waking::Nowhere, "only in its app, in front of you");
+        assert_eq!(way(&Session { archived: true, ..stopped.clone() }, &account, vec![Route::Resume]), Waking::Nowhere);
+        assert_eq!(way(&stopped, &crate::config::AccountCfg { disabled: true, ..account.clone() }, vec![Route::Resume]), Waking::Nowhere);
     }
 
     fn board_with(s: Session) -> Board {

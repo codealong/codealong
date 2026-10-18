@@ -393,18 +393,20 @@ function SoundsPane({ cfg, names, disabled, onSave, onError }: PaneProps & { nam
 /** `[limits] when_hit` and `continue_when_lifted`: what's done about a session its account's
  *  usage limit stopped; `[sessions] continue_after_network_error`, about one a lost connection
  *  stopped; `[sessions] continue_after_restart`, about one Codealong runs that its quitting cut
- *  off; and `[sessions] resume_for_any_session` and `resume_for_sessions_it_started`, about one
- *  that stopped before another session sent it a message. */
+ *  off; `[sessions] resume_for_any_session` and `resume_for_sessions_it_started`, about one
+ *  that stopped before another session sent it a message; and `resume_for_pr_news`, about a PR's
+ *  primary session that stopped before its PR had news for it. */
 function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const limits = { when_hit: 'suggest' as WhenLimited, continue_when_lifted: true, ...cfg.limits };
   const value = limits.when_hit;
   const lifted = limits.continue_when_lifted ?? true;
   const agents = MOVES_ACCOUNTS.map((h) => HARNESS_WORD[h]).join(', ');
-  const sessions: SessionsCfg = { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, ...cfg.sessions };
+  const sessions: SessionsCfg = { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, resume_for_pr_news: true, ...cfg.sessions };
   const continues = sessions.continue_after_network_error;
   const restarts = sessions.continue_after_restart ?? true;
   const resumes = sessions.resume_for_sessions_it_started ?? true;
   const resumesAny = sessions.resume_for_any_session ?? true;
+  const resumesForPrs = sessions.resume_for_pr_news ?? true;
   const saveSessions = (change: Partial<SessionsCfg>) => void onSave({ ...cfg, sessions: { ...sessions, ...change } });
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
@@ -442,6 +444,13 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
         <span>Resume a session for one it started, or the one that started it</span>
         <small>
           The same, only between a session and one its agent started with codealong start: the session that asked for the work hears of it, and the one doing it can be handed more. Part of the one above while that’s on.
+        </small>
+      </label>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={resumesForPrs} onChange={(e) => saveSessions({ resume_for_pr_news: e.target.checked })} />
+        <span>Resume a stopped session for its pull request’s news</span>
+        <small>
+          When a pull request’s nudge (above) has news that asks for work (someone else’s comments or review, changes asked for, failing checks, a conflict) and the session it tells has stopped, Codealong resumes that session out of sight with it. Not for an approval, a merge or a close, nor a session you archived or marked done, nor while another of the pull request’s sessions is running, which may have taken the work on.
         </small>
       </label>
     </fieldset>

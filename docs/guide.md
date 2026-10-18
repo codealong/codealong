@@ -663,18 +663,17 @@ stands (ready to merge, its checks are still running), so it takes it from there
 told once, and again only if it comes back after it was resolved; one resolved before the
 message could go isn't told. The message never asks
 it to merge, an approval included: it says so, and the agent merges only if you asked it to. The
-PR's other sessions (helpers, reviewers, ones that came to its branch) aren't told, nor is anyone
-while the primary isn't running, and what you did to it yourself, which is what its agent did
-through `gh`, isn't told back. Turned on for a PR that's approved already, it's told that at once
-(not when the setting turns it on for every PR); what happened while Codealong wasn't running
-isn't told, and a session that has stopped isn't resumed for it. An agent's review that Codealong
-posted from someone's account (see *Automatic reviews*) never passes for their word, since it comes
-as a message of yours: a comment Codealong posted is told as their agent's, naming it; a review of
-theirs with their agent's review in it (which may hold words of theirs too) is told as having it,
-naming each agent, and its line comments as maybe the agent's. Codealong knows one by its footer
-and unseen mark at the start of their lines, which nothing in a review hides; a footer quoted
-within a line leaves someone's words their own, and one pasted whole at the start of its lines is
-taken for an agent's, the safer mistake.
+PR's other sessions (helpers, reviewers, ones that came to its branch) aren't told, and what you
+did to it yourself, which is what its agent did through `gh`, isn't told back. Turned on for a PR
+that's approved already, it's told that at once (not when the setting turns it on for every PR);
+what happened while Codealong wasn't running isn't told. An agent's review that Codealong posted
+from someone's account (see *Automatic reviews*) never passes for their word, since it comes as a
+message of yours: a comment Codealong posted is told as their agent's, naming it; a review of theirs
+with their agent's review in it (which may hold words of theirs too) is told as having it, naming
+each agent, and its line comments as maybe the agent's. Codealong knows one by its footer and unseen
+mark at the start of their lines, which nothing in a review hides; a footer quoted within a line
+leaves someone's words their own, and one pasted whole at the start of its lines is taken for an
+agent's, the safer mistake.
 
 Settings › Automation › What a nudge tells it about (`[pull_requests] nudge_about`) narrows that,
 for every PR with its nudge on: `"everything"` (the default) is all of the above; `"feedback"` is
@@ -683,6 +682,23 @@ something, so the session can work their feedback in; `"feedback-and-checks"` ad
 and conflicts.
 With either, an approval (its own words with it), a dismissed review, a merge and a close aren't
 told, nor anything once the PR has ended, and the PR's card says so under its switch.
+
+A primary session on this Mac that has stopped (its terminal closed, or Claude Code's background
+service ended it after an hour idle) is resumed out of sight to be told, as a session is resumed
+for another session's message: under its harness's background service, else in Codealong. It
+starts with a line saying it had stopped and Codealong resumed it to tell it this. A Codex app
+thread, which the app takes a message for while it isn't running, is sent it there. Only news
+that asks for work goes to one that isn't running: someone else's comments and reviews that say
+something, changes asked for, failing checks and a conflict, never an approval, a merge or a close,
+whatever the nudge tells of while it runs. It isn't resumed while another of the PR's sessions runs
+on one of your devices that's connected, unless that one is a helper or a review, since the work
+may have gone on there and two agents on one branch get in each other's way; then nobody is told
+until it runs. Nor is one you archived or marked done, or one on an account you turned off, and a
+Claude app session, which goes on only in its app, isn't told until it runs. Resumed as a copy
+(Claude Code copies a session a background job had into a new job), the copy becomes the PR's
+primary session. The PR's card says which of these it is under its switch. Settings › Automation ›
+Resume a stopped session for its pull request's news (`[sessions] resume_for_pr_news`, on unless
+turned off) turns it off.
 
 #### Automatic reviews
 

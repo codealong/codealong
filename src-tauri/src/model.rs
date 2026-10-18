@@ -207,6 +207,10 @@ pub struct Board {
     /// (nudges.rs), which its card says.
     #[serde(default)]
     pub nudge_about: crate::config::NudgeAbout,
+    /// `[sessions] resume_for_pr_news`: a PR's primary session that isn't running is resumed to be
+    /// told what asks for work on it (nudges.rs `resumable`), which its card says.
+    #[serde(default)]
+    pub resume_for_pr_news: bool,
     /// Your `[repos."github.com/…"]` tables from config.toml, by key: your settings for particular
     /// repos' pull requests.
     #[serde(default)]

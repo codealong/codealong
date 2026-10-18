@@ -5,8 +5,11 @@
 // on it too: hovering its chip in the session's header shows the card with the primary session
 // first, tagged with why it's the one, and the switch off, naming it; a click turns it on for that PR alone (set_pr_nudge
 // with its key) and the card says so at once; a board that says the same keeps it on, and one that
-// says it's on by the setting says that; a second click turns it off. A merged PR's card has no
-// switch. Then the setting, off by default, saves `[pull_requests]` as config.toml has it.
+// says it's on by the setting says that; with its primary session stopped, it says it's resumed
+// for what asks for work (`[sessions] resume_for_pr_news`), or not beside another of the PR's
+// sessions that runs, or not at all with that off; a second click turns it off. A merged PR's card
+// has no switch. Then the setting, off by default, saves `[pull_requests]` as config.toml has it,
+// and resuming a stopped primary, on by default, saves `[sessions]`.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-nudge-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -125,6 +128,32 @@
       push({ nudgeByDefault: true });
       await wait(200);
       check('on by the setting, it says that', /^On for every PR of yours, by Settings\. /.test(says()), says());
+      // Its primary stopped: resumed for what asks for work, by `[sessions] resume_for_pr_news`,
+      // unless another of the PR's sessions runs.
+      var running = function (key, live) {
+        board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === key) s.live = live; }); });
+      };
+      var otherLive = !!other && board.lanes.some(function (l) { return l.sessions.some(function (s) { return s.key === other.key && s.live; }); });
+      running(picked.key, false);
+      if (other) running(other.key, false);
+      board.resumeForPrNews = true;
+      push({});
+      await wait(200);
+      check('its primary stopped, it says it’s resumed for what asks for work', /isn’t running here, so it’s resumed out of sight to be told when someone else asks for changes or comments and when its checks fail or its branch conflicts with its base, never for an approval or a merge\.$/.test(says()), says());
+      if (other) {
+        running(other.key, true);
+        push({});
+        await wait(200);
+        check('with another of its sessions running, it says it isn’t resumed beside it', /isn’t running here, and another of the PR’s sessions is, so it isn’t resumed beside that one: nobody is told until it runs\.$/.test(says()), says());
+        running(other.key, otherLive);
+      }
+      board.resumeForPrNews = false;
+      push({});
+      await wait(200);
+      check('with the setting off, nobody is told until it runs', /isn’t running here, so nobody is told until it is\.$/.test(says()), says());
+      running(picked.key, true);
+      push({});
+      await wait(200);
       toggle().click();
       await wait(100);
 
@@ -159,6 +188,16 @@
       await until(function () { return calls('save_config').length > aboutSaves; }, 3000, 'picking what a nudge tells of saved nothing');
       var prsCfg = calls('save_config')[calls('save_config').length - 1][1].config.pull_requests;
       check('picked, it saves [pull_requests] nudge_about beside nudging by default, and says what it does', prsCfg.nudge_about === 'feedback' && prsCfg.nudge_by_default === true && /^Only when someone else comments on it, asks for changes/.test(q('small', aboutField()).textContent), JSON.stringify(prsCfg) + ' / ' + q('small', aboutField()).textContent);
+      // Resuming a primary that stopped: on unless turned off, saved under [sessions].
+      var resume = /Resume a stopped session for its pull request’s news/;
+      await until(function () { return !!box(resume); }, 3000, 'no setting for resuming a stopped session for its pull request’s news');
+      var resumeInput = box(resume).querySelector('input');
+      check('Settings › Automation has resuming a stopped primary, on by default', resumeInput.checked, String(resumeInput.checked));
+      var resumeSaves = calls('save_config').length;
+      resumeInput.click();
+      await until(function () { return calls('save_config').length > resumeSaves; }, 3000, 'turning it off saved nothing');
+      var sessionsCfg = calls('save_config')[calls('save_config').length - 1][1].config.sessions;
+      check('turned off, it saves [sessions] resume_for_pr_news', sessionsCfg && sessionsCfg.resume_for_pr_news === false, JSON.stringify(sessionsCfg));
     } catch (e) {
       return stopped(e);
     }

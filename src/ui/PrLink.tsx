@@ -16,7 +16,7 @@ import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactN
 import { openUrl, prCard, setPrNudge } from '../api';
 import { absolute, agoPhrase, count } from '../format';
 import { prIndex, prRefOf, type PrRef } from '../prLinks';
-import { nudgeWords, primaryWords, reviewersWords } from '../prStatus';
+import { nudgeWords, primaryWords, reviewersWords, whenStopped } from '../prStatus';
 import { errorText } from '../report';
 import { nudgeAboutFor } from '../repoSettings';
 import type { Board, Lane, Pr, PrItem, Session } from '../types';
@@ -51,7 +51,8 @@ const host = {
   index: new Map<string, PrItem>(),
   lanes: [] as readonly Lane[],
   /** What a PR's nudge tells of, which its card says: `[pull_requests] nudge_about`, and what its
-   *  repo's team or your table for it says (repoSettings.ts `nudgeAboutFor`). */
+   *  repo's team or your table for it says (repoSettings.ts `nudgeAboutFor`); and whether its
+   *  primary session is resumed for it when it isn't running (`[sessions] resume_for_pr_news`). */
   nudges: {} as NudgeSettings,
   actions: null as PrLinkActions | null,
   listeners: new Set<() => void>(),
@@ -96,7 +97,7 @@ function fetchCard(ref: PrRef) {
 }
 
 /** What says what a PR's nudge tells of: the board's, each part as it was pushed. */
-type NudgeSettings = Partial<Pick<Board, 'nudgeAbout' | 'repos' | 'teamFiles'>>;
+type NudgeSettings = Partial<Pick<Board, 'nudgeAbout' | 'resumeForPrNews' | 'repos' | 'teamFiles'>>;
 
 /** Gives this window's PR links the board's PRs and lanes, and what the window does with them,
  *  with what a PR's nudge tells of (`nudges`, from the board). Links rendering with it read the
@@ -109,8 +110,8 @@ export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly L
     host.index = prIndex(prs ?? []);
   }
   host.lanes = lanes ?? [];
-  host.nudges = { nudgeAbout: nudges?.nudgeAbout, repos: nudges?.repos, teamFiles: nudges?.teamFiles };
-  useLayoutEffect(notify, [prs, lanes, nudges?.nudgeAbout, nudges?.repos, nudges?.teamFiles]);
+  host.nudges = { nudgeAbout: nudges?.nudgeAbout, resumeForPrNews: nudges?.resumeForPrNews, repos: nudges?.repos, teamFiles: nudges?.teamFiles };
+  useLayoutEffect(notify, [prs, lanes, nudges?.nudgeAbout, nudges?.resumeForPrNews, nudges?.repos, nudges?.teamFiles]);
 }
 
 /** A PR's card for what shows the PR, a link or a chip: the handlers its anchor takes, and the
@@ -348,7 +349,7 @@ function PrCard({ card, prRef: ref, url, onFollow }: CardProps) {
             <span className={cx('ca-switch', nudges && 'is-on')} aria-hidden="true" />
           </button>
           <p className="ca-hovercard-meta">
-            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device } : null, nudgeAboutFor(host.nudges, listed))}
+            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device, stopped: whenStopped(primary, sessions, !!host.nudges.resumeForPrNews) } : null, nudgeAboutFor(host.nudges, listed))}
           </p>
           {nudgeError && <p className="ca-hovercard-error">{nudgeError}</p>}
         </div>
