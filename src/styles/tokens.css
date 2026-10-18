@@ -107,6 +107,7 @@
   --dur-fast: 120ms;
   --dur-base: 180ms;
   --dur-sweep: 1200ms;
+  --dur-ellipsis: 1600ms;
   --z-dropline: 1;
   --z-dragged-chip: 1;
   --z-pinned: 2;

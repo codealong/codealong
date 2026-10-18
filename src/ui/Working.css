@@ -35,13 +35,13 @@
    opacity changes, so the time after them holds still. */
 .ca-working-dots > span {
   opacity: 0.3;
-  animation: ca-working-dot 1600ms ease-in-out infinite both;
+  animation: ca-working-dot var(--dur-ellipsis) ease-in-out infinite both;
 }
 .ca-working-dots > span:nth-child(2) {
-  animation-delay: 200ms;
+  animation-delay: calc(var(--dur-ellipsis) / 8);
 }
 .ca-working-dots > span:nth-child(3) {
-  animation-delay: 400ms;
+  animation-delay: calc(var(--dur-ellipsis) / 4);
 }
 @keyframes ca-working-dot {
   0%,
