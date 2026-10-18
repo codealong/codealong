@@ -1,4 +1,4 @@
-// Checks Send to in the quick panel (Quick.tsx): under a prompt, a row under the sessions found
+// Checks Send to in the quick panel (Quick.tsx): under a prompt, a row under Jev's suggestions
 // (and ⌘F) lists every session the prompt could go to, Jev's pick first with how likely it is,
 // while the prompt waits under the box, as written, and the new session's row and bar are put away. What's
 // typed in the box then finds a session; ⏎ sends the prompt to it and puts the panel away; ⌫ in
@@ -86,7 +86,7 @@
     .then(prompt)
     .then(function () {
       var e = entry();
-      check('the row is under the sessions found', /^Sessions/i.test(e.closest('.ca-quick-group').textContent), e.closest('.ca-quick-group').textContent);
+      check('the row is under Jev’s suggestions', /^Suggested/i.test(e.closest('.ca-quick-group').textContent), e.closest('.ca-quick-group').textContent);
       check('it says how many sessions there are and its key', /\d+ sessions/.test(e.textContent) && !!e.querySelector('.ca-kbds') && /⌘\s*F/.test(e.querySelector('.ca-kbds').textContent), e.textContent);
       cmdF();
       return until(function () { return !!strip() && /^Send to/i.test(heading()); }, 3000, 'Send to');

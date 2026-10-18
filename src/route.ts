@@ -1,4 +1,4 @@
-// What the quick panel suggests from Jev's answer (route.rs): at most three rows above the
+// What the quick panel suggests from Jev's answer (route.rs): at most five rows above the
 // search results, the likeliest first, so ⏎ does it. Jev gives probabilities; how sure a row
 // sounds, and which runners-up are worth a row, is decided here. Kept free of React so the rules
 // have tests.
@@ -79,9 +79,12 @@ export function suggestedChoice(
 }
 
 /** Rows at most. */
-const ROWS = 3;
+const ROWS = 5;
 /** A runner-up gets a row when it's at least this likely. */
 const RUNNER_UP = 0.15;
+/** The rows left after the likeliest go to more of the sessions Jev weighed, each at least this
+ *  likely to be the one meant. */
+const MORE_AT = 0.05;
 /** New work gets its own worktree when Jev is at least this sure it wants one. */
 const OWN_WORKTREE = 0.6;
 /** Typed text shorter than this is a search, not worth asking about. */
@@ -112,7 +115,9 @@ export function toSessionSuggestion(lane: Lane, session: Session, p: number, fin
 /**
  * The rows for an answer. The likeliest action on its likeliest target leads, sureness from
  * both probabilities multiplied. Runners-up follow: another likely session, or starting new
- * work when that's likely too, so a wrong guess is one ↓ away from the right one. A session that
+ * work when that's likely too, so a wrong guess is one ↓ away from the right one; the rows left
+ * go to more of the sessions Jev weighed, in its order, so there's more than one guess to pick
+ * from. A session that
  * waits on you for a prompt is opened, never sent to: what's typed would answer the prompt. One
  * whose reply asks you something is sent to: what's typed is its answer.
  *
@@ -196,7 +201,28 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
       break;
     }
   }
+  // Each as likely as sending to a session at all (opening one, for a search) times this one.
+  const find = route.action === 'find';
+  const moreP = prob(find ? 'find' : 'send');
+  for (const s of route.sessions) if (sessionP(s) >= MORE_AT) add(toSession(s, moreP * sessionP(s), find));
   return out;
+}
+
+/** What a start would start: its worktree, a new one of it or not, and the account, model,
+ *  effort and place it starts on. */
+export interface StartFacts {
+  laneId: string;
+  newWorktree: boolean;
+  account: string | null;
+  model: string | null;
+  effort: string | null;
+  place: StartPlace | null;
+}
+
+/** Whether two starts start the same: a start Jev suggests that's just what the start row would
+ *  do is left out of the suggestions (Quick.tsx), its likelihood shown on the start row. */
+export function sameStart(a: StartFacts, b: StartFacts): boolean {
+  return a.laneId === b.laneId && a.newWorktree === b.newWorktree && a.account === b.account && a.model === b.model && a.effort === b.effort && a.place === b.place;
 }
 
 /** The session that may already be doing what's typed, when Jev thinks one is. */

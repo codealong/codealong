@@ -88,7 +88,7 @@ import {
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
-import { alreadyOnWords, duplicateOf, rankedBy, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type Suggestion } from '../route';
+import { alreadyOnWords, duplicateOf, rankedBy, sameStart, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type StartFacts, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
@@ -161,12 +161,13 @@ interface MoreRow {
   count: number;
 }
 
-/** Under a prompt's search, the way to send it to any session, not only one Jev suggests: the
- *  box then finds the session while the prompt waits under it (`sendTo`). */
+/** Under Jev's suggestions for a prompt (under the sessions found, with routing off), the way to
+ *  send it to any session, not only one Jev suggests: the box then finds the session while the
+ *  prompt waits under it (`sendTo`). */
 interface SendToRow {
   kind: 'sendto';
   key: string;
-  group: 'found';
+  group: 'suggested' | 'found';
   /** How many sessions it could go to. */
   count: number;
 }
@@ -818,8 +819,22 @@ export function Quick() {
   // they are, dimmed and doing nothing: they were for what you'd typed before. Taking them away at
   // every key moved every row under them twice each time typing paused.
   const lastRoute = routing && routed && routed.for.slice(0, routed.for.indexOf('\n')) === current ? routed.route : null;
-  const suggested = useMemo(() => suggestRows(route, board, !!deviceNow), [board, route, deviceNow]);
-  const lastSuggested = useMemo(() => suggestRows(lastRoute, board, !!deviceNow), [board, lastRoute, deviceNow]);
+  const jevSuggested = useMemo(() => suggestRows(route, board, !!deviceNow), [board, route, deviceNow]);
+  const jevLastSuggested = useMemo(() => suggestRows(lastRoute, board, !!deviceNow), [board, lastRoute, deviceNow]);
+  // A start Jev suggests that would start just what the start row does is left out: the start row
+  // says how likely Jev thinks it is, and ⏎ goes to it when that start led. What a suggested
+  // start starts is what `start` makes of it.
+  const startRowFacts: StartFacts | null = lane ? { laneId: lane.id, newWorktree: inNewWorktree, account, model: modelNow, effort: effortNow, place: placeNow } : null;
+  const isStartRow = (sg: Suggestion) => {
+    if (sg.kind !== 'start' || !startRowFacts) return false;
+    const c = sg.agent ? choiceForAgent(sg.agent, sg.newWorktree) : null;
+    const tree = (c ? c.makesWorktree : harnessMakesWorktree) && !sg.lane.startsChats && sg.newWorktree;
+    return sameStart({ laneId: sg.lane.id, newWorktree: tree, account: c ? c.account : account, model: c ? c.modelNow : modelNow, effort: c ? c.effortNow : effortNow, place: c ? c.placeNow : placeNow }, startRowFacts);
+  };
+  const startRowSuggested = jevSuggested.find((r) => isStartRow(r.s))?.s ?? null;
+  const startLeads = !!jevSuggested[0] && isStartRow(jevSuggested[0].s);
+  const suggested = jevSuggested.filter((r) => !isStartRow(r.s));
+  const lastSuggested = jevLastSuggested.filter((r) => !isStartRow(r.s));
 
   // What Jev said beyond where it goes: a session that may already be on it.
   const duplicate = board ? duplicateOf(route, board) : null;
@@ -849,7 +864,9 @@ export function Quick() {
   // put first don't drop back at every key.
   const ranked = rankedBy(foundSessions, route ?? lastRoute);
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
-  const sendToRow: SendToRow[] = sendable > 0 ? [{ kind: 'sendto', key: 'sendto', group: 'found', count: sendable }] : [];
+  // Under Jev's suggestions while what's typed goes to Jev, else under the sessions found.
+  const sendToRow: SendToRow[] = sendable > 0 ? [{ kind: 'sendto', key: 'sendto', group: routeFor ? 'suggested' : 'found', count: sendable }] : [];
+  const sendToIn = sendToRow[0]?.group ?? null;
   // Send to's list: every session the prompt could go to, Jev's picks for it first with how
   // likely each is (the last answer's while the next is worked out, as the sessions found have
   // it), found by what's typed in the box.
@@ -860,7 +877,7 @@ export function Quick() {
     : slash
       ? skillsListed
       : query
-        ? [...suggested, ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...sendToRow, ...foundTodos, ...foundPrs]
+        ? [...suggested, ...(sendToIn === 'suggested' ? sendToRow : []), ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...(sendToIn === 'found' ? sendToRow : []), ...foundTodos, ...foundPrs]
         : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   /** Lists archived sessions in searches, or leaves them out, from now on (Sessions' heading has
    *  the box, ⇧⌘A presses it). They come after all the others, so turned on, the search lists all
@@ -872,6 +889,8 @@ export function Quick() {
   // Send to sends what's typed to a session: the new session's row and its settings below are
   // put away until the box holds the prompt again.
   const keys = [...rows.map((r) => r.key), ...(inSendTo ? [] : [COMPOSE])];
+  // The rows ⌘1 to ⌘9 reach, in order; Send to's row has ⌘F.
+  const numbered: Row[] = rows.filter((r) => r.kind !== 'sendto');
   // Rows that move by themselves end what a scroll of yours aimed at (aim.ts): where each sits in
   // the list, which scrolling doesn't change, is compared once the list and its held heights
   // above are laid out. Rows keep their keys as a heading or a note comes in over them.
@@ -893,7 +912,7 @@ export function Quick() {
   useEffect(() => {
     writeStored(DRAFT_KEY, draftCodec, nextDraft(fullPrompt, todoIds, draft));
   }, [fullPrompt, todoIds, draft]);
-  const active = activeKey && keys.includes(activeKey) ? activeKey : keys[0];
+  const active = activeKey && keys.includes(activeKey) ? activeKey : startLeads && !inSendTo ? COMPOSE : keys[0];
 
   useEffect(() => {
     list.current?.querySelector('.is-active')?.scrollIntoView({ block: 'nearest' });
@@ -1453,7 +1472,7 @@ export function Quick() {
       }
       if (!modsHeld(e, 'Cmd') && !modsHeld(e, 'Shift', 'Cmd')) return;
       if (/^[1-9]$/.test(e.key)) {
-        const row = rows[Number(e.key) - 1];
+        const row = numbered[Number(e.key) - 1];
         if (row) {
           e.preventDefault();
           activate(row.key, false);
@@ -1634,8 +1653,8 @@ export function Quick() {
           <Icon name={routeProblem ? 'alert' : 'sparkles'} size={13} stroke={2} />
         </span>
         <span className="ca-quick-row-main">
-          <span className="ca-quick-row-title">{routing ? 'Working out where this goes…' : routeProblem ? 'Couldn’t suggest where this goes' : 'No suggestion for this'}</span>
-          <span className="ca-quick-row-why">{routing ? 'Jev is reading what you’ve typed.' : (routeProblem ?? 'Start it below, or keep typing.')}</span>
+          <span className="ca-quick-row-title">{routing ? 'Working out where this goes…' : routeProblem ? 'Couldn’t suggest where this goes' : startRowSuggested ? 'Jev suggests the start below' : 'No suggestion for this'}</span>
+          <span className="ca-quick-row-why">{routing ? 'Jev is reading what you’ve typed.' : (routeProblem ?? (startRowSuggested ? keysIn(`It’s just what the new session’s row starts.${startLeads ? ' ⏎ starts it.' : ''}`) : 'Start it below, or keep typing.'))}</span>
         </span>
       </div>
     );
@@ -1794,8 +1813,8 @@ export function Quick() {
                       {GROUP_WORD[s.group]}
                       {s.group !== 'suggested' ? (
                         <span>{groupCount(s.group, s.rows.length)}</span>
-                      ) : s.rows.length > 0 ? (
-                        <span>{s.rows.length}</span>
+                      ) : s.rows.some((r) => r.kind === 'suggest') ? (
+                        <span>{s.rows.filter((r) => r.kind === 'suggest').length}</span>
                       ) : (
                         routing &&
                         lastSuggested.length > 0 && (
@@ -1827,8 +1846,10 @@ export function Quick() {
                         </label>
                       )}
                     </div>
+                    {/* Jev's suggestions, or what stands in for them, come before Send to's row. */}
+                    {s.group === 'suggested' && !s.rows.some((r) => r.kind === 'suggest') && suggestedStandIn}
                     {s.rows.map((r) => {
-                      const n = rows.indexOf(r) + 1;
+                      const n = numbered.indexOf(r) + 1;
                       // What every row does with the pointer: hovering selects (the list's
                       // pointerAt, by the row's data-row), a click does it, a right-click has the
                       // rest, and dragging it out of the panel pins it to the desktop.
@@ -2027,10 +2048,9 @@ export function Quick() {
                         </div>
                       );
                     })}
-                    {s.group === 'suggested' && s.rows.length === 0 && suggestedStandIn}
                     {/* Under Sessions' heading rather than over the list, so they don't move
                         Suggested as they come and go. */}
-                    {s.group === 'found' && foundNothing && (sendToRow.length === 0 || (archivedFound > 0 && !withArchived)) && (
+                    {s.group === 'found' && foundNothing && (sendToIn !== 'found' || (archivedFound > 0 && !withArchived)) && (
                       <p className="ca-quick-note">
                         {archivedFound > 0 && !withArchived
                           ? keysIn(`No sessions, todos or PRs match, but ${archivedFound} archived ${archivedFound === 1 ? 'session does' : 'sessions do'}: ⇧⌘A lists ${archivedFound === 1 ? 'it' : 'them'}. Or start a session with this prompt below.`)
@@ -2080,8 +2100,15 @@ export function Quick() {
                 </span>
               </span>
               {lane && <span className="ca-quick-row-where">{startWhereWords(lane)}</span>}
-              {/* Where a suggestion says how likely it is, so the columns line up with theirs. */}
-              <span className="ca-quick-sure" aria-hidden="true" />
+              {/* Where a suggestion says how likely it is, so the columns line up with theirs:
+                  Jev's, when it suggested just this start. */}
+              {startRowSuggested ? (
+                <span className={`ca-quick-sure is-${sureness(startRowSuggested.p)}`} title={`Jev suggests this start: ${Math.round(startRowSuggested.p * 100)}% likely, from ${route?.model ?? 'Jev'}`}>
+                  {Math.round(startRowSuggested.p * 100)}%
+                </span>
+              ) : (
+                <span className="ca-quick-sure" aria-hidden="true" />
+              )}
               <Kbd keys={['⌘', '⏎']} />
             </div>
           )}

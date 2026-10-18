@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type Suggestion, type SuggestionContext } from './route';
+import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, sameStart, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type Suggestion, type SuggestionContext } from './route';
 import { agentOptions, autoPick, startHappens, startTitleWords, startWhereWords } from './start';
 import * as fx from './testing/fixtures';
 import type { Board, Lane, Route, Session } from './types';
@@ -32,7 +32,7 @@ const route = (r: Partial<Route>): Route => ({
 const rows = (r: Route) => suggestions(r, b).map((s) => [s.key, Math.round(s.p * 100) / 100]);
 
 describe('suggestions', () => {
-  it('sends to the likeliest session, and offers starting new work when that could be meant', () => {
+  it('sends to the likeliest session, offers starting new work when that could be meant, then more sessions', () => {
     const r = route({
       action: 'send',
       actions: [
@@ -49,7 +49,19 @@ describe('suggestions', () => {
     expect(rows(r)).toEqual([
       ['send:s:fix', 0.63],
       ['start:/api', 0.24],
+      ['send:s:copy', 0.03],
     ]);
+  });
+
+  it('fills up to five rows with more of the sessions Jev weighed, in its order, when they’re likely enough', () => {
+    const many = board([lane('/api', ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((k) => session(k, 'idle')))]);
+    const picks = [0.4, 0.2, 0.12, 0.1, 0.08, 0.06, 0.02].map((p, i) => ({ id: 'abcdefg'[i], p }));
+    const r = route({ action: 'send', actions: [['send', 1]], sessions: picks, lanes: [{ id: '/api', p: 1 }] });
+    expect(suggestions(r, many).map((x) => x.key)).toEqual(['send:a', 'send:b', 'send:c', 'send:d', 'send:e']);
+    // Not one Jev gave little chance.
+    expect(suggestions({ ...r, sessions: [picks[0], picks[6]] }, many).map((x) => x.key)).toEqual(['send:a']);
+    // A search's more sessions are opened, as its first is.
+    expect(suggestions({ ...r, action: 'find', actions: [['find', 1]] }, many).every((x) => x.kind === 'open')).toBe(true);
   });
 
   it('opens a session that needs you instead of typing into it', () => {
@@ -89,7 +101,8 @@ describe('suggestions', () => {
       ownWorktree: 0.8,
     });
     const s = suggestions(r, b);
-    expect(s.map((x) => x.key)).toEqual(['start:new:P//web', 'start:new:P//api']);
+    // The session Jev weighed comes after, though sending isn't likely.
+    expect(s.map((x) => x.key)).toEqual(['start:new:P//web', 'start:new:P//api', 'send:s:copy']);
     expect(s[0]).toMatchObject({ kind: 'start', newWorktree: true });
     // Two worktrees of one repo make one new-worktree row.
     const two = board([lane('/api', []), lane('/api-wt', [], '/api')]);
@@ -205,6 +218,19 @@ describe('new work in reusable worktrees', () => {
     const s = suggestions(start([{ id: '/infra-tls', p: 0.9 }]), repo);
     expect(s[0]).toMatchObject({ key: 'start:new:P/infra', newWorktree: true });
     expect(s[0].lane.id).toBe('/infra');
+  });
+});
+
+describe('sameStart', () => {
+  const at = { laneId: '/api', newWorktree: false, account: 'work', model: 'opus', effort: null, place: 'terminal' as const };
+  it('is the same start only in the same worktree, on the same account, model, effort and place', () => {
+    expect(sameStart(at, { ...at })).toBe(true);
+    expect(sameStart(at, { ...at, laneId: '/web' })).toBe(false);
+    expect(sameStart(at, { ...at, newWorktree: true })).toBe(false);
+    expect(sameStart(at, { ...at, account: 'home' })).toBe(false);
+    expect(sameStart(at, { ...at, model: 'sonnet' })).toBe(false);
+    expect(sameStart(at, { ...at, effort: 'high' })).toBe(false);
+    expect(sameStart(at, { ...at, place: 'background' })).toBe(false);
   });
 });
 

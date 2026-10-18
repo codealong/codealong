@@ -1270,8 +1270,8 @@ the picker (⌘T) still goes to a worktree. The shortcuts are yours to change in
 Settings names shortcuts macOS and common launchers already use.
 
 A prompt (a few words, not a word or two of a search) can go to any session, not only one Jev
-suggests: Send to another session…, the row at the end of Sessions, or ⌘F, empties the box to find
-the session it goes to, and what you wrote waits under it, as written. With nothing typed there
+suggests: Send to another session…, the row under Jev's suggestions (at the end of Sessions with
+suggestions off), or ⌘F, empties the box to find the session it goes to, and what you wrote waits under it, as written. With nothing typed there
 it lists every session in the project, the ones Jev weighed first, in its order and with how likely
 each is, then the rest, the one you last prompted first, so the list holds still while agents work;
 words typed there find sessions as a search does, by what was said in them too, Jev's first.
@@ -1290,13 +1290,17 @@ up a new session, are put away meanwhile.
 *Optional; Settings › Jev, `[jev] quick_panel` in config.toml*
 
 Once you pause typing, TypeSafe's Jev reads what you wrote against the project's sessions and
-worktrees and the panel leads with up to three suggestions, each with how likely it is: send it to a
+worktrees and the panel leads with up to five suggestions, each with how likely it is: send it to a
 session that's already going, start new work in a worktree (a new one when it's a change of its own)
 or, for a question that needs none of your repos, in a chat of its own, open a session, or keep it
-as a todo. ⏎ does the first. The same call says whether a running session may already be doing it
-(start rows say so, and sending to it is offered), and puts the sessions it thinks you mean first
-among the search results and in Send to, which lists every one it weighed (up to 20), not only the
-two or three it suggests. A session that's running leads one that isn't when Jev finds them close (a
+as a todo. The rows the likeliest leave go to more of the sessions it weighed, in its order, while
+each is at least 5% likely to be the one meant. ⏎ does the first. A start that would start just
+what the new session's row at the foot does (the same worktree, account, model, effort and place)
+isn't listed again: that row says how likely Jev thinks it is, and ⏎ starts it when it's the
+likeliest. Jev never changes the bar's menus; they stay as you set them. The same call says whether
+a running session may already be doing it (start rows say so, and sending to it is offered), and
+puts the sessions it thinks you mean first among the search results and in Send to, which lists
+every one it weighed (up to 20), not only the ones it suggests. A session that's running leads one that isn't when Jev finds them close (a
 stopped one counts half against running ones), since sending to it doesn't resume anything.
 Suggested is there from the moment what you type goes to Jev (a few words, not a word or two of a
 search), saying it's working until Jev answers. At the next key the last answer's suggestions stay
