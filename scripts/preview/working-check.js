@@ -149,6 +149,11 @@
     })
     .then(function () {
       check('gone for a session gone silent', !line());
+      // At work again, then its turn over with a command left running.
+      shape[picked[0].key] = {};
+      return push().then(function () { return until(function () { return line(); }, 5000, 'the line back for a session at work again'); });
+    })
+    .then(function () {
       shape[picked[0].key] = { background: 'gh pr checks 139 --watch' };
       return push().then(function () { return until(function () { return !line(); }, 5000, 'the line to go for one waiting in the background'); });
     })
