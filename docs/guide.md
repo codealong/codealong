@@ -1572,6 +1572,11 @@ it starts, which spends no usage, and again every hour. OpenCode
 and Antigravity can't be told to run a skill by name in a prompt, so they're offered none, and
 another Mac's skills aren't listed yet.
 
+A skill or command you ran with `/` in a Claude Code session shows in its conversation and on its
+row as you wrote it, `/name` and the words after it, as any prompt does.
+Claude Code's own commands that take no turn, such as `/model`, don't, nor does a run a schedule
+started.
+
 ### Reusable worktrees
 
 A worktree that takes one piece of work after another (its right-click menu's Reuse for new work, or

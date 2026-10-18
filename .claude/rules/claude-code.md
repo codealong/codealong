@@ -37,7 +37,9 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   of 105 sessions' here (2026-10-12).
 - Which `user` lines are prompts you typed (`origin: {kind: "human"}`, not `task-notification`,
   `peer` or `isCompactSummary`; older transcripts have no `origin`), and a prompt far behind the
-  256 KB tail: `claude/transcript.rs` (`you_typed`, `user_prompt`, `parse_transcript`).
+  256 KB tail: `claude/transcript.rs` (`you_typed`, `user_prompt`, `parse_transcript`). A
+  slash command that starts a turn is written as its tags alone, marked typed, and a command
+  of Claude Code's own as tags unmarked (`command_run`).
   `last-prompt` lines repeat the prompt's text but carry no time. In 150 transcripts here
   (2026-10-15) they often came only after the reply had begun, named none of 17 messages sent
   while a session worked, and sometimes went on naming an earlier prompt after a new one (most

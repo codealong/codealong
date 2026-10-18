@@ -684,7 +684,31 @@ fn user_prompt(v: &Value) -> Option<String> {
     if text.trim_start().starts_with("Caveat:") {
         return None;
     }
-    prompt_words(&text).map(|t| one_line(&t, 140))
+    command_run(v, &text).or_else(|| prompt_words(&text)).map(|t| one_line(&t, 140))
+}
+
+/// A slash command you ran that starts a turn (a skill, or a command of the project's or a
+/// plugin's), as you typed it: `/name args`. Claude Code (2.1.302's code) writes only its tags,
+/// `<command-message>name</command-message>\n<command-name>/name</command-name>\n<command-args>args</command-args>`
+/// (no args tag without args), marked typed, with what the command expands to on a meta line
+/// after it. Its own commands that run without a turn (`/model`, `/effort`, `/login`) are written
+/// in tags too, but never marked (2.1.224 to 2.1.299 here, 2026-10-18), nor is a scheduled run
+/// (`turnOrigin: "scheduled"`), so only a marked line is one. Unmarked older transcripts' commands
+/// stay unshown, as there's nothing to tell the two apart by.
+fn command_run(v: &Value, text: &str) -> Option<String> {
+    if v.pointer("/origin/kind").and_then(Value::as_str) != Some("human") || !text.trim_start().starts_with("<command-") {
+        return None;
+    }
+    let between = |tag: &str| {
+        let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));
+        let from = text.find(&open)? + open.len();
+        text[from..].find(&close).map(|len| text[from..from + len].trim())
+    };
+    let name = between("command-name").filter(|n| n.starts_with('/'))?;
+    Some(match between("command-args").filter(|a| !a.is_empty()) {
+        Some(args) => format!("{name} {args}"),
+        None => name.to_string(),
+    })
 }
 
 /// How Claude Code wraps text pasted into a prompt (2.1.28x): the tag, the text on lines of its
@@ -795,7 +819,7 @@ pub fn typed_text(v: &Value) -> Option<String> {
             .join("\n"),
         _ => return None,
     };
-    prompt_words(&text)
+    command_run(v, &text).or_else(|| prompt_words(&text))
 }
 
 /// What an agent said in an assistant line, its text parts joined; tool calls and thinking
@@ -1284,7 +1308,7 @@ mod tests {
         let mixed = "<pasted_content id=\"a\">\nlog\n</pasted_content id=\"a\">\n\nwhy does this fail? <pasted_content id=\"b\">\n<html>\n</pasted_content id=\"b\">";
         assert_eq!(typed_text(&line(mixed)).as_deref(), Some("log\n\nwhy does this fail? <html>"));
         // Claude Code's own tagged lines are still not prompts, nor is an empty paste.
-        assert_eq!(typed_text(&line("<command-name>/cost</command-name>")), None);
+        assert_eq!(typed_text(&line("<local-command-stdout>Total cost: $0.12</local-command-stdout>")), None);
         assert_eq!(typed_text(&line("<pasted_content id=\"c\">\n\n</pasted_content id=\"c\">")), None);
         // A tag that doesn't close on its own line is left as it is.
         assert_eq!(prompt_words("<pasted_content id=\"d\nnot a tag").as_deref(), Some("<pasted_content id=\"d\nnot a tag"));
@@ -1296,7 +1320,39 @@ mod tests {
         let reminder = "<system-reminder>\nThe user started this session without choosing a project folder.\n</system-reminder>\n\n";
         assert_eq!(typed_text(&line(&[reminder, "Give Graham access on GitHub"])).as_deref(), Some("Give Graham access on GitHub"));
         assert_eq!(typed_text(&line(&[reminder])), None);
-        assert_eq!(typed_text(&line(&["<command-name>/clear</command-name>"])), None);
+        assert_eq!(typed_text(&line(&["<local-command-stdout>Cleared</local-command-stdout>"])), None);
+    }
+
+    #[test]
+    fn a_slash_command_you_ran_is_your_prompt() {
+        let line = |origin: Value, text: &str| serde_json::json!({ "type": "user", "timestamp": "2026-10-18T19:10:45.770Z", "origin": origin, "message": { "content": text } });
+        let human = serde_json::json!({ "kind": "human" });
+        // As 2.1.302 wrote a session's first prompt, `/doctor prompt-audit`, and 2.1.290 a skill
+        // run without arguments.
+        let ran = "<command-message>doctor</command-message>\n<command-name>/doctor</command-name>\n<command-args>prompt-audit</command-args>";
+        assert_eq!(typed_text(&line(human.clone(), ran)).as_deref(), Some("/doctor prompt-audit"));
+        assert_eq!(user_prompt(&line(human.clone(), ran)).as_deref(), Some("/doctor prompt-audit"));
+        let bare = "<command-message>fix-vulns</command-message>\n<command-name>/fix-vulns</command-name>";
+        assert_eq!(typed_text(&line(human.clone(), bare)).as_deref(), Some("/fix-vulns"));
+        // Its words come as typed, over several lines too.
+        let long = "<command-message>design</command-message>\n<command-name>/design</command-name>\n<command-args>a teaser\nfor LinkedIn</command-args>";
+        assert_eq!(typed_text(&line(human.clone(), long)).as_deref(), Some("/design a teaser\nfor LinkedIn"));
+        // Claude Code's own commands run without a turn and aren't marked (2.1.299's `/effort`),
+        // a scheduled run isn't yours, and a skill the agent loaded names itself without a slash.
+        let local = "<command-name>/effort</command-name>\n            <command-message>effort</command-message>\n            <command-args>high</command-args>";
+        assert_eq!(typed_text(&line(Value::Null, local)), None);
+        assert_eq!(user_prompt(&line(Value::Null, local)), None);
+        let mut tick = line(Value::Null, "<command-message>codealong:orchestrate</command-message>\n<command-name>/codealong:orchestrate</command-name>\n<command-args>tick</command-args>");
+        tick["turnOrigin"] = "scheduled".into();
+        assert_eq!(typed_text(&tick), None);
+        assert_eq!(typed_text(&line(human.clone(), "<command-message>review</command-message>\n<command-name>review</command-name>")), None);
+
+        // It's what the session's on, and the conversation shows it as yours.
+        let tail = format!("{}\n", line(human, ran));
+        let info = parse_lines(&tail, &tail);
+        assert_eq!((info.first_prompt.as_deref(), info.last_prompt.as_deref()), (Some("/doctor prompt-audit"), Some("/doctor prompt-audit")));
+        let items = crate::claude::conversation::conversation_items(&serde_json::from_str(tail.trim()).unwrap(), 0);
+        assert_eq!(items.iter().map(|it| (it.kind, it.text.as_str())).collect::<Vec<_>>(), vec![("you", "/doctor prompt-audit")]);
     }
 
     #[test]
