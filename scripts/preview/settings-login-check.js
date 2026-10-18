@@ -1,5 +1,6 @@
-// Checks Settings › General's Open at login (os/login): off as a new install has it, and ticking
-// it asks the app to turn it on and shows it on once the system says so.
+// Checks Settings › General's Open at login (os/login): off as a new install has it, ticking
+// it asks the app to turn it on and shows it on once the system says so, and a change made in
+// System Settings meanwhile (turned off, or waiting to be allowed) shows once the window is back.
 //   scripts/preview.sh sessions '' scripts/preview/settings-login-check.js
 (function () {
   var field = function () {
@@ -24,6 +25,19 @@
     })
     .then(function () {
       check('shows it on', box().checked, field().textContent);
+      // Turned off in System Settings meanwhile: coming back to the window shows it.
+      window.__atLogin = 'off';
+      window.dispatchEvent(new Event('focus'));
+      return until(function () { return !box().checked; }, 5000, 'the box unticked after focus');
+    })
+    .then(function () {
+      check('reads the system again on focus', !box().checked, field().textContent);
+      window.__atLogin = 'approve';
+      window.dispatchEvent(new Event('focus'));
+      return until(function () { return /waits for you to allow/.test(field().textContent); }, 5000, 'the ask to allow it');
+    })
+    .then(function () {
+      check('says macOS waits to allow it', box().checked && /System Settings › General › Login Items/.test(field().textContent), field().textContent);
     })
     .then(done)
     .catch(stopped);

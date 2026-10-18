@@ -322,13 +322,19 @@ function OpenAtLoginField() {
   const [state, setState] = useState<AtLogin | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Read again on focus, as config.toml is above: back from allowing it, or turning it off, in
+  // System Settings.
   useEffect(() => {
     let live = true;
-    openAtLogin()
-      .then((s) => live && setState(s))
-      .catch((e: unknown) => live && setError(errorText(e)));
+    const read = () =>
+      openAtLogin()
+        .then((s) => live && setState(s))
+        .catch((e: unknown) => live && setError(errorText(e)));
+    void read();
+    window.addEventListener('focus', read);
     return () => {
       live = false;
+      window.removeEventListener('focus', read);
     };
   }, []);
   const pick = (on: boolean) => {
