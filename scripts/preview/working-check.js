@@ -135,7 +135,7 @@
       var thread = q('.ca-sessinsp .ca-thread');
       check('last in the conversation', thread.lastElementChild === l, thread.lastElementChild && thread.lastElementChild.className);
       check('a tip, as a tip', /^Tip\s/.test(tip().textContent), tip().textContent);
-      // Its words end at the line's right edge, and start beside the word or under it.
+      // Its words end at the line's right edge, and start beside the word, on one line, or under it.
       var head = l.querySelector('.ca-working-head').getBoundingClientRect();
       var box = tip().getBoundingClientRect();
       var words = document.createRange();
@@ -144,16 +144,17 @@
       var right = Math.max.apply(null, lines.map(function (r) { return r.right; }));
       var left = Math.min.apply(null, lines.map(function (r) { return r.left; }));
       var beside = Math.abs(box.top - head.top) < 1 && left > head.right;
-      check('on the line’s right', Math.abs(box.right - l.getBoundingClientRect().right) < 1 && Math.abs(right - box.right) < 2 && (beside || box.top >= head.bottom),
-        (beside ? 'beside' : 'under') + ' · ends ' + Math.round(right) + ' of ' + Math.round(box.right) + ' · ' + lines.length + ' rects');
+      check('on the line’s right', Math.abs(box.right - l.getBoundingClientRect().right) < 1 && Math.abs(right - box.right) < 2 && (beside ? box.height < 1.5 * head.height : box.top >= head.bottom),
+        (beside ? 'beside' : 'under') + ' · ends ' + Math.round(right) + ' of ' + Math.round(box.right) + ' · ' + Math.round(box.height) + 'px high');
       var c = claim();
       check('kept for the turn', !!c && c.id === tip().getAttribute('data-tip'), JSON.stringify(c));
       var first = word();
-      // The next word comes long enough to leave the tip no room beside it: the line grows, and a
-      // conversation read at its end stays there.
+      // The tip, cut to a short line, sits beside the word, and the next word comes long enough to
+      // leave it no room there: the line grows, and a conversation read at its end stays there.
       q('.ca-sessinsp .ca-working-word').setAttribute('data-was', '');
       var long = document.createElement('style');
-      long.textContent = '.ca-sessinsp .ca-thread { max-height: 200px; } .ca-sessinsp .ca-working-word:not([data-was]) { display: inline-block; min-width: ' + (l.clientWidth - 100) + 'px; }';
+      long.textContent = '.ca-sessinsp .ca-thread { max-height: 200px; } .ca-sessinsp .ca-working-tip { max-width: 12em; white-space: nowrap; overflow: hidden; }' +
+        ' .ca-sessinsp .ca-working-word:not([data-was]) { display: inline-block; min-width: ' + (l.clientWidth - 100) + 'px; }';
       document.head.appendChild(long);
       var tall = l.getBoundingClientRect().height;
       return wait(300)

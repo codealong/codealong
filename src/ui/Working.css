@@ -1,7 +1,7 @@
 /* The line at the end of a conversation while its agent works (Working.tsx): the mark breathing,
    then a word for what it's up to and how long it has gone on, in quiet text where the agent's
    words will come. A tip, now and then, goes on the line's right, quieter still: beside the word
-   while the line has room for it, under it, still on the right, once it hasn't. Each word fades in.
+   while all of it fits there on one line, else under it, still on the right. Each word fades in.
    One waiting on a command in the background has its clock and the command in the mark's and the
    word's places, the command cut to the room there is. */
 
@@ -72,10 +72,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Its room is what the line leaves, down to a short sentence's; less, and it goes under. */
+/* Beside the word only as one line, since two there make the line a block: a tip longer than
+   the room beside goes under, where it wraps only if it's longer than the whole line. */
 .ca-working-tip {
-  flex: 1 1 20em;
-  margin: 0;
+  flex: 0 1 auto;
+  margin: 0 0 0 auto;
   text-align: right;
   text-wrap: balance;
   animation: ca-working-in var(--dur-sweep) ease-out;

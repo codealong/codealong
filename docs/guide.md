@@ -385,7 +385,7 @@ says so in the line's place, with the clock the list draws for it: Waiting on an
 all of it on hover.
 
 Now and then, in the main window, a tip on using Codealong sits quietly on the line's right
-(*Tips*), beside the word, or under it on the right when the panel is too narrow for both: only
+(*Tips*): beside the word when all of it fits there on one line, else under it on the right: only
 once a turn has gone on 20 seconds, and no more than one every 20 minutes, wherever the last
 showed. A turn keeps the tip it got until it ends, when you look at another session and come back,
 in another window, and while other turns get theirs.
