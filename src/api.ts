@@ -198,6 +198,13 @@ export async function reviewNow(key: string, account: string | null): Promise<vo
   await invoke('review_pr_now', { key, account });
 }
 
+/** Tries a PR's agent review that didn't get done again (autoreview.rs `again`): posts a review
+ *  that wasn't posted, else reviews the PR again. Resolves with what it did, in a sentence. */
+export async function reviewAgain(key: string): Promise<string> {
+  if (!inTauri) throw new Error('Reviewing needs the app.');
+  return invoke<string>('review_pr_again', { key });
+}
+
 /** Your review of a PR on GitHub: your draft with its comments, and the agent's you submitted. */
 export async function prDraft(repo: string, number: number): Promise<YourReview> {
   if (!inTauri) return { draft: null, submitted: null };

@@ -7,6 +7,22 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
+/// How an error from Go's networking ends when its connection was lost or couldn't be made, as
+/// the Go programs Codealong reads say it: `agy` (antigravity.rs `CONNECTION_LOST`) and `gh`
+/// (github.rs `unreachable`). A refused connection is left out: it doesn't come right by waiting.
+pub const GO_CONNECTION_LOST: &[&str] = &[
+    "broken pipe",
+    "connection reset by peer",
+    "no such host",
+    "network is unreachable",
+    "network is down",
+    "no route to host",
+    "i/o timeout",
+    "TLS handshake timeout",
+    "EOF",
+    "http2: client connection lost",
+];
+
 /// An error as a window, the command or another device is told it: with what caused it, which
 /// `to_string` leaves off an `anyhow` error ("Couldn't open the terminal: osascript timed out",
 /// not "Couldn't open the terminal").

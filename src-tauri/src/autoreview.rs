@@ -37,7 +37,11 @@
 //! (`CARRY_ONS`). One stopped on purpose ends its round without a review.
 //!
 //! A few rounds run at once at most; one whose session waits on you doesn't hold a place. A round
-//! that didn't get done isn't tried again for the same commit; the next push tries again. Until a
+//! that didn't get done isn't tried again for the same commit; the next push tries again, and so
+//! does Try again on the PR's card and on its notice (`again`), which posts a review that was
+//! written but couldn't be posted rather than have it written again (`Reviewer::repost`). A start
+//! that couldn't reach GitHub to read the PR (`github::unreachable`: the network back from sleep,
+//! GitHub struggling) isn't a round yet: it's tried again a few times first (`START_TRIES`). Until a
 //! PR's round is done the PR is out of what waits on you (`apply`, `AutoReview::holds`). Where
 //! each PR stands is kept in reviews.json next to the config (`Store`), which this keeps in memory
 //! and saves whole, and the engine reads for the PRs' cards (`apply`). A round keeps its reviewer's
@@ -99,6 +103,10 @@ const QUIET_MS: i64 = 5 * 60_000;
 const RETRY_MS: i64 = 30_000;
 /// How many times a post is tried before the round is given up on.
 const POST_TRIES: u32 = 4;
+/// How many times a round that couldn't reach GitHub to read its PR is started before it's given
+/// up on, waiting `RETRY_MS` and twice as long each time after: a quarter of an hour, which a
+/// network coming back after a wake, or a blip of GitHub's, is over in.
+const START_TRIES: u32 = 6;
 /// How many times a reviewer whose turn was cut off is told to carry on before the round is
 /// given up on: Codealong restarts often while it's being worked on, and each cuts off the
 /// reviews it runs.
@@ -417,6 +425,9 @@ pub enum Went {
     Started(Vec<Part>),
     /// Nothing was started, and why.
     NotStarted(String),
+    /// Nothing was started because GitHub couldn't be reached to read the PR, and why
+    /// (`github::unreachable`): it's tried again a few times (`START_TRIES`).
+    Unreachable(String),
     /// Nothing was done, and nothing's wrong: the PR moved on since it was due.
     Later,
     /// A turn's review, and who wrote it.
@@ -449,7 +460,8 @@ pub enum Went {
 }
 
 /// What a job that went wrong says as a notice (`Reviewer::told`), and the PR (its key as the
-/// board has it) a review of which didn't start, which the notice offers to start again.
+/// board has it) a review of which didn't start or wasn't posted, which the notice offers to try
+/// again (`again`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Said {
     pub text: String,
@@ -481,7 +493,8 @@ pub struct Reviewer {
     heads: HashMap<String, (String, i64)>,
     /// A PR isn't looked at again before this (ms), by key.
     next_at: HashMap<String, i64>,
-    /// Posts that failed in a row, by key.
+    /// Tries that failed in a row, by key: posts, sends and submits, and starts that couldn't
+    /// reach GitHub (`Went::Unreachable`). A PR has one job at a time, so one count serves them.
     post_failures: HashMap<String, u32>,
 }
 
@@ -834,6 +847,23 @@ impl Reviewer {
         Ok(())
     }
 
+    /// Puts PR `key`'s latest round back under way when all it missed was being posted: its agent
+    /// wrote a review of `head`, the commit the PR is at now. `due` then posts it (`next`), tried a
+    /// few times as any post is, rather than a new review being written; it goes on as one asked
+    /// for by hand does. False for any other round.
+    fn repost(&mut self, key: &str, head: &str) -> bool {
+        let Some(r) = self.store.prs.get_mut(key).and_then(|t| t.rounds.last_mut()) else { return false };
+        if r.stage != ReviewStage::Failed || r.head != head || !r.parts.iter().any(|p| p.state == PartState::Done) {
+            return false;
+        }
+        r.stage = ReviewStage::Reviewing;
+        r.ended_at = None;
+        r.note = None;
+        r.by_hand = true;
+        self.save();
+        true
+    }
+
     /// The send due for a PR of yours at `head` (`to_send`): to the session that opened it, once
     /// that runs here and doesn't wait on you, while sending is on and the PR is open.
     fn send_due(&self, board: &Board, cfg: &ReviewsCfg, pr: &PrItem, head: &str) -> Option<Job> {
@@ -849,12 +879,18 @@ impl Reviewer {
 
     /// How a job went, at `now` (ms): kept, and saved. What should be said as a notice, for a
     /// review that couldn't be started or posted; one that didn't get done for its own reasons is
-    /// said on its PR's card. A review that didn't start can be started again from the notice:
-    /// nothing else would review that commit.
+    /// said on its PR's card. A review that didn't start, or wasn't posted, can be tried again from
+    /// the notice (`again`): nothing else would review that commit, or post its review.
     pub fn told(&mut self, job: &Job, went: Went, now: i64) -> Result<(), Said> {
         let pr = job.pr();
         let key = pr_key(&pr.key);
         self.busy.remove(&key);
+        // A start that couldn't reach GitHub is tried again a few times before it's given up on;
+        // one that got further, or found nothing to do, counts its tries afresh.
+        let unreachable = matches!(went, Went::Unreachable(_));
+        if matches!(job, Job::Review { .. }) && !unreachable {
+            self.post_failures.remove(&key);
+        }
         if went == Went::Later {
             return Ok(());
         }
@@ -879,7 +915,17 @@ impl Reviewer {
                 r.by_hand = *by_hand;
                 t.rounds.push(r);
             }
-            (Job::Review { head, .. }, Went::NotStarted(why)) => {
+            (Job::Review { head, .. }, Went::NotStarted(why) | Went::Unreachable(why)) => {
+                if unreachable {
+                    let failures = self.post_failures.entry(key.clone()).or_default();
+                    *failures += 1;
+                    if *failures < START_TRIES {
+                        // No round yet: `due` starts it again once the wait is over.
+                        self.next_at.insert(key, now + (RETRY_MS << (*failures - 1)));
+                        return Err(again(format!("Codealong couldn't start a review of {}: {why} It tries again in a few minutes.", pr.key)));
+                    }
+                    self.post_failures.remove(&key);
+                }
                 let mut r = Round::new(head, ReviewStage::Failed, now);
                 r.note = Some(why.clone());
                 t.rounds.push(r);
@@ -995,7 +1041,8 @@ impl Reviewer {
                 if let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) {
                     end(r, ReviewStage::Failed, Some(format!("It couldn't be posted: {why}")), now);
                 }
-                said = Err(Said::from(format!("Codealong couldn't post its review of {}: {why}", pr.key)));
+                // Its Try again posts the review it has (`again`): nothing else would.
+                said = Err(again(format!("Codealong couldn't post its review of {}: {why}", pr.key)));
             }
             (Job::Post { .. }, went) => {
                 self.post_failures.remove(&key);
@@ -1689,7 +1736,10 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
     let login = board.github_login.clone().unwrap_or_else(|| "you".into());
     let (md, diff, detail) = match crate::github::for_reading(pr) {
         Ok(r) => r,
-        Err(e) => return Went::NotStarted(format!("{e:#}")),
+        Err(e) => {
+            let why = crate::util::words(e);
+            return if crate::github::unreachable(&why) { Went::Unreachable(why) } else { Went::NotStarted(why) };
+        }
     };
     // Reviewed already, from another Mac or before a restart.
     let mark = marker(&pr.key, head);
@@ -2035,7 +2085,7 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
     let Job::Review { head, since, seat, .. } = &job else { unreachable!() };
     let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| review(engine, pr, head, since.as_deref(), seat, true))).unwrap_or_else(|_| Went::NotStarted("It stopped partway.".into()));
     let failed = match &went {
-        Went::NotStarted(why) => Some(why.clone()),
+        Went::NotStarted(why) | Went::Unreachable(why) => Some(why.clone()),
         Went::Later => Some("It moved on as it was asked: try again.".into()),
         Went::Started(parts) if parts.iter().all(|p| p.state == PartState::Failed) => Some(parts.iter().filter_map(|p| p.note.as_deref()).collect::<Vec<_>>().join(" ")),
         _ => None,
@@ -2054,6 +2104,29 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
             Ok(())
         }
     }
+}
+
+/// Tries PR `key`'s review again, as Try again on its card and on its notice asks, and says what
+/// it did: a review its agent wrote of the commit the PR is at, which wasn't posted, is posted
+/// (`Reviewer::repost`) rather than written again; else the PR is reviewed again as Review with…
+/// does on the reviewer config.toml names (`review_now`), in that reviewer's session for the PR
+/// while it can go on.
+pub fn again(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str) -> Result<String, String> {
+    let board = engine.board();
+    let cfg = crate::config::current().map_err(|e| format!("{e:#}"))?;
+    let pr = board.prs.iter().find(|p| p.key.eq_ignore_ascii_case(key)).ok_or("Codealong reviews only the pull requests it lists, and it doesn't list this one.")?;
+    let head = pr.head_oid.clone().ok_or("GitHub hasn't said which commit it's at yet.")?;
+    let k = pr_key(&pr.key);
+    let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
+    r.clear_for_hand(&k, on(&board.repo_settings.reviews(&cfg.reviews, pr)), now_ms())?;
+    if r.repost(&k, &head) {
+        drop(r);
+        engine.reviewed(Ok(()));
+        return Ok(format!("Posting the agent's review of #{} again: its card says how it goes.", pr.number));
+    }
+    drop(r);
+    review_now(engine, reviewer, key, None)?;
+    Ok(format!("Reviewing #{} again: its card says how it goes.", pr.number))
 }
 
 /// Hands a PR of yours' latest review to the session that opened it now, as its Review tab's Send
@@ -2836,10 +2909,73 @@ mod tests {
         let job = r.due(&done, &on(), when).pop().unwrap();
         let said = r.told(&job, Went::PostFailed("gh: Not Found".into()), when).unwrap_err();
         assert!(said.text.contains("Not Found"));
-        // The review was done: a new one isn't what that wants.
-        assert_eq!(said.again, None);
+        // Its Try again posts the review there is (`again`): nothing else would.
+        assert_eq!(said.again.as_deref(), Some("o/r#7"));
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
         assert!(r.due(&done, &on(), when + 10 * QUIET_MS).is_empty());
+    }
+
+    /// A start that couldn't reach GitHub to read the PR (the network coming back after a wake,
+    /// GitHub struggling) isn't a round yet: it's started again, waiting longer each time, its
+    /// notice saying so and offering Try again, and only after a quarter of an hour is it a round
+    /// that didn't start. One that gets through counts its tries afresh.
+    #[test]
+    fn a_start_that_couldnt_reach_github_is_tried_again_a_few_times() {
+        let b = board(vec![pr(7, HEAD)], vec![]);
+        let offline = || Went::Unreachable("GitHub: gh error connecting to api.github.com".into());
+        let mut r = Reviewer::default();
+        let mut when = NOW;
+        let mut waits = Vec::new();
+        for _ in 1..START_TRIES {
+            let job = r.due(&b, &on(), when).pop().expect("a start");
+            let said = r.told(&job, offline(), when).unwrap_err();
+            assert!(said.text.ends_with("It tries again in a few minutes."), "{}", said.text);
+            assert_eq!(said.again.as_deref(), Some("o/r#7"));
+            assert!(r.store.prs.get("o/r#7").is_none_or(|t| t.rounds.is_empty()), "no round yet");
+            let next = (when..).step_by(1000).find(|&t| !r.due(&b, &on(), t).is_empty()).unwrap();
+            waits.push((next - when) / 1000);
+            // That due started a job: say it's still failing.
+            r.busy.clear();
+            when = next;
+        }
+        assert_eq!(waits, [30, 60, 120, 240, 480]);
+        let job = r.due(&b, &on(), when).pop().unwrap();
+        let said = r.told(&job, offline(), when).unwrap_err();
+        assert!(!said.text.contains("tries again"), "{}", said.text);
+        assert_eq!(said.again.as_deref(), Some("o/r#7"));
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.parts.len(), round.note.as_deref()), (ReviewStage::Failed, 0, Some("GitHub: gh error connecting to api.github.com")));
+        assert!(r.due(&b, &on(), when + 10 * QUIET_MS).is_empty(), "the next push tries again");
+
+        let mut r = Reviewer::default();
+        let job = r.due(&b, &on(), NOW).pop().unwrap();
+        r.told(&job, offline(), NOW).unwrap_err();
+        let job = r.due(&b, &on(), NOW + RETRY_MS).pop().unwrap();
+        r.told(&job, Went::Started(vec![started(AUTO, S, NOW + RETRY_MS)]), NOW + RETRY_MS).unwrap();
+        assert!(r.post_failures.is_empty());
+    }
+
+    /// Try again on a round whose agent wrote its review but couldn't post it posts that review,
+    /// reviews off or on, rather than have it written again; a round with no review, or of a
+    /// commit the PR has moved on from, is left for a review instead.
+    #[test]
+    fn try_again_posts_a_review_that_wasnt_posted() {
+        let mut failed = Round::new(HEAD, ReviewStage::Failed, NOW);
+        failed.note = Some("It couldn't be posted: gh: HTTP 422".into());
+        failed.parts = vec![Part { state: PartState::Done, review: Some("A.".into()), agent: Some("Claude Code".into()), ..started(AUTO, S, NOW) }];
+        let with = |round: Round| {
+            let mut r = Reviewer::default();
+            r.store.prs.insert("o/r#7".into(), Tracked { rounds: vec![round], ..Tracked::default() });
+            r
+        };
+        let mut r = with(failed.clone());
+        assert!(!r.repost("o/r#7", NEXT), "the PR moved on");
+        assert!(r.repost("o/r#7", HEAD));
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.note.as_deref(), round.ended_at, round.by_hand), (ReviewStage::Reviewing, None, None, true));
+        assert_eq!(kinds(&r.due(&board(vec![pr(7, HEAD)], vec![]), &ReviewsCfg::default(), NOW + 1)), ["post 7 \"A.\" by Claude Code"]);
+        assert!(!with(Round { parts: Vec::new(), ..failed.clone() }).repost("o/r#7", HEAD), "nothing to post");
+        assert!(!with(Round { stage: ReviewStage::Drafted, ..failed }).repost("o/r#7", HEAD), "posted already");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 // The top of a PR's Reviews tab (PrInspector.tsx `PrDetails`), in its panel and its cards: your
 // review of it, over everyone's (PrReviewers.tsx), under a heading of its own when theirs follow;
 // a PR of yours shows here only the agent's review of it, and nothing when it has none. First where Codealong's own review of it stands (autoreview.rs, `[reviews]`), with the session
-// that wrote it a click away. Then your draft review on GitHub, when you have one (prDraft.ts),
+// that wrote it a click away, and Try again for one that didn't get done (review.ts `againFor`). Then your draft review on GitHub, when you have one (prDraft.ts),
 // the agent's or one you began there, as it will go: its text and each comment on a line of the
 // code, with the lines around it from the PR's diff, its file and line opening that line on
 // GitHub. The text and each comment can be changed and a comment taken out, on GitHub at once,
@@ -21,7 +21,7 @@ import { changeDraft, commentsWord, draftShown, readAgain, submittedWord, type H
 import { splitPath } from '../prFiles';
 import { errorText } from '../report';
 import { offerFor, offerKey, offerWords, teamInstructions } from '../repoSettings';
-import { autoReviewWords, suggestWords } from '../review';
+import { againFor, againTitle, autoReviewWords, suggestWords, tryAgain } from '../review';
 import { strings, useStored } from '../stored';
 import type { AutoReview, Draft, DraftComment, Lane, LineComment, PrDetail, PrItem, Session, TeamFile, WrittenReview } from '../types';
 import { Markdown } from './Markdown';
@@ -112,6 +112,7 @@ function Standing({ pr, review, now, onGitHub, sessions, onShowSession, teamFile
   // Said on hover only: the team's words are in Settings for whoever wants them.
   const team = teamInstructions(teamFiles, pr) ? ` Its reviewer is told what ${pr.repoSlug}’s team asks of every review there too (.codealong/config.toml).` : '';
   const [sending, setSending] = useState(false);
+  const [trying, setTrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const to = review.own && review.stage === 'kept' && !review.sent ? review.sendable : null;
   const send = () => {
@@ -120,6 +121,16 @@ function Standing({ pr, review, now, onGitHub, sessions, onShowSession, teamFile
     sendAgentReview(pr.key)
       .catch((e: unknown) => setError(errorText(e)))
       .finally(() => setSending(false));
+  };
+  // What it does shows here as the round goes, so only a failure is said.
+  const again = againFor(pr);
+  const retry = () => {
+    setError(null);
+    const busy = <T,>(_label: string, work: Promise<T>) => {
+      setTrying(true);
+      return work.finally(() => setTrying(false));
+    };
+    tryAgain(pr, { error: setError, info: () => {}, busy });
   };
   return (
     <div className={cx('ca-prinsp-auto', `is-${review.stage}`)}>
@@ -134,6 +145,11 @@ function Standing({ pr, review, now, onGitHub, sessions, onShowSession, teamFile
         {/* A draft read from GitHub has its own way there, or is gone. */}
         {review.suggests && !review.submitted && <span className={cx('ca-prbox-suggests', `is-${review.suggests}`)}>{suggestWords(review.suggests)}</span>}
         <Links link={review.stage === 'drafted' && onGitHub ? null : review.comment} session={review.parts?.find((p) => p.session)?.session} sessions={sessions} onShowSession={onShowSession} />
+        {again && (
+          <button type="button" className="ca-linkbtn" disabled={trying} title={againTitle(again)} onClick={retry}>
+            {trying ? 'Trying again…' : 'Try again'}
+          </button>
+        )}
         {to && (
           <button type="button" className="ca-linkbtn" disabled={sending} title="Hand the review to the session that opened the pull request, as a file it reads, to fix what holds up" onClick={send}>
             {sending ? 'Sending…' : `Send to “${middleTruncate(titleOf(to) ?? 'its session', 32)}”`}

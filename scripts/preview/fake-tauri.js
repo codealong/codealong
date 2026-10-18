@@ -379,6 +379,8 @@ window.__TAURI_INTERNALS__ = {
         };
       });
     }
+    // Try again on an agent review that didn't get done says what the engine did.
+    if (cmd === 'review_pr_again') return Promise.resolve('Reviewing #' + String((args || {}).key).split('#')[1] + ' again: its card says how it goes.');
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);
     // A listener's id is where its call sits in __calls, counted from 1, so an unlisten can
     // find it again.

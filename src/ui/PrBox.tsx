@@ -34,7 +34,7 @@ import { below, showContextMenu, type MenuSpec } from '../contextMenu';
 import { commentsWord, readAgain, reviewedWords, saysSomething, useYourReview, verdictWords } from '../prDraft';
 import { mayApprove } from '../prStatus';
 import { errorText, type Report } from '../report';
-import { askAccount, askAccounts, reviewLineWords, suggestWords } from '../review';
+import { againFor, againTitle, askAccount, askAccounts, reviewLineWords, suggestWords, tryAgain } from '../review';
 import { notAsked, showSides, startingSide, useKept, useSide, useSideView, type SideView } from '../side';
 import { useStartAccounts, useStartGroups } from '../startAccounts';
 import { asText, readStored, writeStored } from '../stored';
@@ -104,6 +104,8 @@ export interface PrBox {
   review: (verdict: Verdict) => void;
   ask: (question: string) => void;
   pickAnswerer: (el: Element) => void;
+  /** Tries the agent's review that didn't get done again (review.ts `tryAgain`). */
+  tryAgain: () => void;
 }
 
 export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, autoFocus }: PrBoxHost): PrBox {
@@ -237,23 +239,33 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     void showContextMenu(items, below(el)).catch((e: unknown) => report.error(errorText(e)));
   };
 
-  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, sending, agents, accounts, groups, switchTo, review, ask, pickAnswerer };
+  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, sending, agents, accounts, groups, switchTo, review, ask, pickAnswerer, tryAgain: () => tryAgain(pr, report) };
 }
 
-/** Where the PR's review stands, over its box: a click shows its Reviews tab. */
-function ReviewLine({ pr, draft, onShowReview }: { pr: PrItem; draft: Draft | null; onShowReview: () => void }) {
+/** Where the PR's review stands, over its box: a click shows its Reviews tab. An agent review
+ *  that didn't get done says why on hover, and has Try again beside it (`againFor`). */
+function ReviewLine({ pr, draft, onShowReview, onTryAgain }: { pr: PrItem; draft: Draft | null; onShowReview: () => void; onTryAgain: () => void }) {
   const { icon, says, busy } = reviewLineWords(pr, draft);
   const suggests = pr.autoReview?.suggests;
+  const again = againFor(pr);
+  const why = again ? pr.autoReview?.note : null;
   return (
-    <button type="button" className={cx('ca-prbox-line', busy && 'is-busy')} title="Show its Reviews tab" onClick={onShowReview}>
-      <Icon name={icon} size={12} />
-      <span className="ca-prbox-line-says">{says}</span>
-      {suggests && !pr.autoReview?.submitted && <span className={cx('ca-prbox-suggests', `is-${suggests}`)}>{suggestWords(suggests)}</span>}
-      <span className="ca-prbox-line-go">
-        Review
-        <Icon name="chevron-right" size={11} />
-      </span>
-    </button>
+    <div className="ca-prbox-standing">
+      <button type="button" className={cx('ca-prbox-line', busy && 'is-busy')} title={why ? `${why}\n\nShow its Reviews tab` : 'Show its Reviews tab'} onClick={onShowReview}>
+        <Icon name={icon} size={12} />
+        <span className="ca-prbox-line-says">{says}</span>
+        {suggests && !pr.autoReview?.submitted && <span className={cx('ca-prbox-suggests', `is-${suggests}`)}>{suggestWords(suggests)}</span>}
+        <span className="ca-prbox-line-go">
+          Review
+          <Icon name="chevron-right" size={11} />
+        </span>
+      </button>
+      {again && (
+        <button type="button" className="ca-linkbtn ca-prbox-again" title={againTitle(again)} onClick={onTryAgain}>
+          Try again
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -316,7 +328,7 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
     <>
       {asking && <SideStrip key={`side:${pr.key}`} sideKey={pr.key} words={prSides(pr, answerer)} />}
       <div className={cx('ca-composer', 'ca-prreview-box', asking && 'is-aside', className)}>
-        <ReviewLine pr={pr} draft={draft} onShowReview={onShowReview} />
+        <ReviewLine pr={pr} draft={draft} onShowReview={onShowReview} onTryAgain={b.tryAgain} />
         <div
           className="ca-composer-field"
           onMouseDown={(e) => {

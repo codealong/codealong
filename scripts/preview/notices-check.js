@@ -1,5 +1,5 @@
 // Checks the notices in the accounts bar (ui/Notices.tsx): several are one chip that says how
-// many, its card lists each, a review that didn't start is started again from its Try again, a
+// many, its card lists each, a review that didn't start is tried again from its Try again, a
 // notice dismissed there leaves the others, config.toml's opens Settings on the file, and the
 // chip's own button dismisses what's left. Dismissals are kept.
 //   PREVIEW_NOTICES=scripts/preview/notices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/notices-check.js
@@ -26,13 +26,13 @@
       var again = all('.ca-notice-item').filter(function (s) { return all('button', s).some(function (b) { return b.textContent === 'Try again'; }); });
       check('only the review that did not start offers Try again', again.length === 1 && /wasn't reviewed/.test(again[0].textContent), again.length);
       button('Try again').click();
-      return until(function () { return calls('review_pr_now').length > 0; }, 3000);
+      return until(function () { return calls('review_pr_again').length > 0; }, 3000);
     })
     .then(function () {
-      var asked = sent('review_pr_now')[0];
-      check('Try again starts its review on the reviewer Settings names', asked.key === 'acme/web#1238' && asked.account === null, JSON.stringify(asked));
+      var asked = sent('review_pr_again')[0];
+      check('Try again tries its review again', asked.key === 'acme/web#1238', JSON.stringify(asked));
       check('and closes the card', !q('.ca-notice-card'));
-      return until(function () { return /Reviewing #1238/.test(document.body.textContent); }, 3000, 'the toast');
+      return until(function () { return /Reviewing #1238 again/.test(document.body.textContent); }, 3000, 'the toast saying what the engine did');
     })
     .then(function () {
       return openCard();

@@ -422,20 +422,10 @@ const TERMINATED: &str = "Agent execution terminated due to error.";
 /// seven minutes on 2026-10-14, each sent after the agent had waited minutes on a permission
 /// prompt or a command, on a connection the network had dropped meanwhile. "dial tcp: lookup …:
 /// no such host" was seen too, which `agy` tried again itself; the rest are Go's words for the
-/// same kinds of loss. A refused connection is left out, as Claude Code's is
-/// (claude/transcript.rs `CONNECTION_LOST`): it doesn't come right by waiting.
-const CONNECTION_LOST: &[&str] = &[
-    "broken pipe",
-    "connection reset by peer",
-    "no such host",
-    "network is unreachable",
-    "network is down",
-    "no route to host",
-    "i/o timeout",
-    "TLS handshake timeout",
-    "EOF",
-    "http2: client connection lost",
-];
+/// same kinds of loss (`util::GO_CONNECTION_LOST`, which `gh` says too). A refused connection is
+/// left out, as Claude Code's is (claude/transcript.rs `CONNECTION_LOST`): it doesn't come right
+/// by waiting.
+const CONNECTION_LOST: &[&str] = crate::util::GO_CONNECTION_LOST;
 
 /// Why a turn ended on an error.
 #[derive(Debug, Clone, PartialEq)]

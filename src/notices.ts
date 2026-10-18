@@ -45,7 +45,8 @@ export function untilPhrase(n: Notice, now: number): string | null {
   return n.until && n.until > now ? `Until ${clock(n.until)}, in ${duration(now, n.until)}` : null;
 }
 
-/** What a notice offers: a file to open, or a review that didn't start to start again. */
+/** What a notice offers: a file to open, or a review that didn't start or wasn't posted to try
+ *  again. */
 export type NoticeAction = { label: string; opens: 'settings-file' } | { label: string; reviews: { key: string; number: number } };
 
 /** What a notice offers, by what it's about. */

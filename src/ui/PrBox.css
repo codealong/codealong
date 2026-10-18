@@ -1,6 +1,22 @@
 /* A PR's box (PrBox.tsx), at the foot of its panel and its cards: the line over it saying where
-   the PR's review stands, which shows its Reviews tab, and the agent's suggestion there and in the
-   Reviews tab. The box itself is a reply box (SessionReply.css), its buttons PrCard.css's. */
+   the PR's review stands, which shows its Reviews tab, with Try again beside it for an agent
+   review that didn't get done, and the agent's suggestion there and in the Reviews tab. The box
+   itself is a reply box (SessionReply.css), its buttons PrCard.css's. */
+
+.ca-prbox-standing {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ca-prbox-standing > .ca-prbox-line {
+  flex: 1 1 auto;
+}
+.ca-prbox-again {
+  flex: none;
+  padding: 2px 4px;
+  color: var(--ink-2);
+}
 
 .ca-prbox-line {
   display: flex;

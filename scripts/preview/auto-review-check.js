@@ -19,7 +19,9 @@
 // latest three commits a click away, each with its age, and a `+` for the rest, which wrap, an
 // earlier one saying whose and when.
 // The file count goes to Changes. The next
-// PR's review didn't finish: it opens on Description, and its Reviews tab says why in red. The
+// PR's review didn't start: it opens on Description, and its Reviews tab says why in red with
+// Try again beside it, as the line over its box does, saying why on hover; each tries it again
+// (review_pr_again). The
 // third is still being reviewed, so it's held out of what waits on you (prStatus.ts
 // `heldForAgent`): its row says Agent reviewing in place of Review requested, its Reviews tab has a
 // dot, and says it waits on you once that's done. A fourth is made a PR of yours an agent
@@ -90,6 +92,7 @@
   var yoursKey = null;
   var posted = null;
   var failed = null;
+  var failedKey = null;
   var held = null;
   var session = null;
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -157,6 +160,7 @@
         Object.assign(open[1], { state: 'open', mine: false, reviewRequested: true, snoozedUntil: null });
         open[1].autoReview = { stage: 'failed', head: '4444444dddd', at: now - 60000, note: 'claude can’t start a session in the background.', rounds: 1 };
         failed = '#' + open[1].number;
+        failedKey = open[1].key;
       }
       if (open[2]) {
         Object.assign(open[2], { state: 'open', mine: false, reviewRequested: true, snoozedUntil: null, merge: 'blocked' });
@@ -267,6 +271,7 @@
       check('the panel has the box at its foot, out of what scrolls', !!verdict && !verdict.closest('.ca-prpanel-body') && !!q('.ca-prpanel-body .ca-prinsp-title, .ca-prpanel-body .ca-insp-call'), '');
       var line = q('.ca-prbox-line', verdict);
       check('over it, where the review stands, with your draft and what the agent suggests', !!line && /^Agent drafted a review of 309811a: your draft review, 1 comment/.test(q('.ca-prbox-line-says', line).textContent) && (q('.ca-prbox-suggests', line) || {}).textContent === 'Suggests changes', line ? line.textContent : 'no line');
+      check('a review that got done has nothing to try again', !q('.ca-prbox-again', verdict), '');
       check('the button the agent suggests says so', /^The agent suggests this\./.test(button('Request changes', verdict).title) && !/suggests/.test(button('Approve', verdict).title), button('Request changes', verdict).title);
       check('and a verdict submits the draft', /submitting your draft review and its 1 comment/.test(button('Approve', verdict).title), button('Approve', verdict).title);
       press(tab('Description'));
@@ -310,14 +315,27 @@
       if (failed && row(failed)) {
         press(row(failed));
         await until(function () { return !!tab('Reviews') && q('.ca-prinsp .ca-insp-call').textContent === failed; }, 5000, 'the second PR never showed');
-        check('a PR whose review didn’t finish opens on its description', shownTab() === 'Description', shownTab());
+        check('a PR whose review didn’t get done opens on its description', shownTab() === 'Description', shownTab());
         press(tab('Reviews'));
-        await until(function () { return auto() && /didn’t finish/.test(auto().textContent); }, 5000, 'the second PR shows no failed review');
+        await until(function () { return auto() && /didn’t start/.test(auto().textContent); }, 5000, 'the second PR shows no review that didn’t start');
         var red = getComputedStyle(q('.ca-prinsp-auto-says')).color;
         var alert = getComputedStyle(document.documentElement).getPropertyValue('--alert').trim();
-        check('a round that didn’t finish says why', q('.ca-prinsp-auto-note').textContent === 'claude can’t start a session in the background.', q('.ca-prinsp-auto-note').textContent);
+        check('a round no session began for says it didn’t start, and why', /^Agent’s review of 4444444 didn’t start$/.test(q('.ca-prinsp-auto-says').textContent) && q('.ca-prinsp-auto-note').textContent === 'claude can’t start a session in the background.', q('.ca-prinsp-auto-note').textContent);
         check('in the alert colour', !!red && red !== getComputedStyle(q('.ca-prinsp-auto-head .ca-meta')).color, red + ' vs ' + alert);
-        check('with no Comment or Session to go to', all('.ca-prinsp-auto .ca-linkbtn').length === 0, '');
+        var links = all('.ca-prinsp-auto .ca-linkbtn').map(function (b) { return b.textContent; });
+        check('with no Comment or Session to go to, only Try again', links.join(', ') === 'Try again', links.join(', '));
+        var standing = q('.ca-prpanel > .ca-prreview-box .ca-prbox-standing');
+        var says = standing ? q('.ca-prbox-line', standing) : null;
+        check('the line over its box says so, why on hover, with Try again beside it', !!says && /didn’t start/.test(says.textContent) && /^claude can’t start a session in the background\./.test(says.title) && !!q('.ca-prbox-again', standing), standing ? standing.textContent + ' | ' + (says && says.title) : 'no line');
+        if (standing && q('.ca-prbox-again', standing)) {
+          press(q('.ca-prbox-again', standing));
+          await until(function () { return calls('review_pr_again').length === 1; }, 3000, 'the line’s Try again tried nothing');
+          check('its Try again tries its review again', calls('review_pr_again')[0][1].key === failedKey, JSON.stringify(calls('review_pr_again')[0][1]));
+          await until(function () { return /Reviewing #\d+ again/.test(document.body.textContent); }, 3000, 'no toast said what it did');
+          press(q('.ca-prinsp-auto .ca-linkbtn'));
+          await until(function () { return calls('review_pr_again').length === 2; }, 3000, 'the Reviews tab’s Try again tried nothing');
+          check('and so does the Reviews tab’s', calls('review_pr_again')[1][1].key === failedKey, JSON.stringify(calls('review_pr_again')[1][1]));
+        }
       }
       if (held && row(held)) {
         var pills = all('.ca-prpill-text', row(held)).map(function (p) { return p.textContent.trim(); });

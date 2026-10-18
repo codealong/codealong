@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { askAccount, askAccounts, autoReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewsRunIn, suggestWords } from './review';
+import { againFor, askAccount, askAccounts, autoReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewsRunIn, suggestWords } from './review';
 import * as fx from './testing/fixtures';
-import type { AutoReview, Lane, StartAccount } from './types';
+import type { AutoReview, Lane, PrItem, StartAccount } from './types';
 
 describe('autoReviewWords', () => {
   const r = (stage: AutoReview['stage'], more: Partial<AutoReview> = {}): AutoReview => ({ stage, head: '309811aaaabbbb', at: 0, rounds: 1, ...more });
@@ -9,7 +9,10 @@ describe('autoReviewWords', () => {
     expect(autoReviewWords(r('reviewing'))).toEqual({ icon: 'eye', says: 'Agent reviewing 309811a', note: null });
     expect(autoReviewWords(r('posted', { comment: 'https://github.com/o/r/pull/7#issuecomment-1' })).says).toBe('Agent reviewed 309811a and commented');
     expect(autoReviewWords(r('skipped', { note: 'The diff is generated code.' }))).toEqual({ icon: 'circle-dashed', says: 'Agent passed on 309811a', note: 'The diff is generated code.' });
-    expect(autoReviewWords(r('failed', { note: 'Its session is gone.' })).says).toBe('Agent’s review of 309811a didn’t finish');
+    expect(autoReviewWords(r('failed', { note: 'Its session is gone.', parts: [{ who: 'auto', session: 'codex:codex:x', state: 'failed' }] })).says).toBe('Agent’s review of 309811a didn’t finish');
+    // No session ever began: GitHub couldn't be read, or no account could start one.
+    expect(autoReviewWords(r('failed', { note: 'GitHub: gh error connecting to api.github.com' })).says).toBe('Agent’s review of 309811a didn’t start');
+    expect(autoReviewWords(r('failed', { parts: [{ who: 'auto', state: 'failed', note: 'Its session never showed up.' }] })).says).toBe('Agent’s review of 309811a didn’t start');
     expect(autoReviewWords(r('drafted'))).toEqual({ icon: 'note', says: 'Agent drafted a review of 309811a', note: 'Only you see it until you submit it.' });
   });
   it('says where a review of a PR of yours went back to, or why it hasn’t', () => {
@@ -25,6 +28,21 @@ describe('autoReviewWords', () => {
     expect(autoReviewWords(r('posted', { submitted: 'comment', suggests: 'request-changes' })).says).toBe('Agent commented on 309811a for you');
     expect(autoReviewWords(r('kept', { submitted: 'approve' })).note).toBe('Its review is in its session: posting is off.');
     expect(suggestWords('request-changes')).toBe('Suggests changes');
+  });
+  it('offers to try a review that didn’t get done again: posting what was written, else reviewing', () => {
+    const pr = (autoReview: AutoReview | undefined, more: Partial<PrItem> = {}) => ({ autoReview, headOid: '309811aaaabbbb', state: 'open' as PrItem['state'], ...more });
+    const wrote = [{ who: 'auto', session: 'k', state: 'done' as const }];
+    expect(againFor(pr(r('failed')))).toBe('review');
+    expect(againFor(pr(r('failed', { parts: [{ who: 'auto', session: 'k', state: 'failed' }] })))).toBe('review');
+    expect(againFor(pr(r('failed', { parts: wrote, note: 'It couldn’t be posted: gh: HTTP 422' })))).toBe('post');
+    // A review of a commit the PR has moved on from isn't worth posting: it's reviewed again.
+    expect(againFor(pr(r('failed', { parts: wrote }), { headOid: '4444444cccc' }))).toBe('review');
+    // Nothing to try again: done, under way, closed, or the next round coming by itself.
+    expect(againFor(pr(r('drafted')))).toBeNull();
+    expect(againFor(pr(r('reviewing')))).toBeNull();
+    expect(againFor(pr(undefined))).toBeNull();
+    expect(againFor(pr(r('failed'), { state: 'merged' }))).toBeNull();
+    expect(againFor(pr(r('failed', { behind: true })))).toBeNull();
   });
   it('says over the box where the review stands, with your draft', () => {
     const draft = { id: 'R', body: 'x', commit: null, url: null, comments: [], count: 3 };

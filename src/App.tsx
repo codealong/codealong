@@ -21,7 +21,7 @@ import { prRefOf } from './prLinks';
 import { archiveAhead, boardView, lanesAhead, observe, reviewAhead, seenAhead } from './ahead';
 import { reuse } from './reuse';
 import { usePins } from './pins';
-import { reviewItems as reviewItemsFor, startReview } from './review';
+import { reviewItems as reviewItemsFor, tryAgain } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { itemPrimaryHolds, todoAgent, todoInFilter, todoPrompt, useTodoStore, type TodoItem } from './todos';
 import { repoReviews } from './repoSettings';
@@ -1677,7 +1677,7 @@ export function App() {
             notices={notices}
             now={now}
             onDismiss={(n) => setDismissed((d) => [...d, noticeId(n)])}
-            onAction={(a) => ('opens' in a ? openSettings('file') : startReview(a.reviews, null, { error: setToast, info: setToast, busy: track }))}
+            onAction={(a) => ('opens' in a ? openSettings('file') : tryAgain(a.reviews, { error: setToast, info: setToast, busy: track }))}
           />
         }
       />

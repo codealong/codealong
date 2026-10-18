@@ -757,7 +757,14 @@ minutes, told what changed since and asked what of its findings is fixed (a sess
 running goes on where `[reviews] start` lets it, else a new one starts). A review whose turn is cut
 off partway (see *Cut off*: Codealong restarting cuts off the reviews it runs) is told to carry on
 the same way, four times at most before its round is given up on; one you stop ends its round
-without a review. Two run at once at most;
+without a review. A start that couldn't reach GitHub to read the PR (the network still coming back
+after a wake, GitHub struggling) is tried again by itself, waiting longer each time, for about a
+quarter of an hour; a post that doesn't go through is tried a few times too. A round that still
+didn't get done says so on the line over the PR's box, "didn't start" when no session ever began
+and "didn't finish" when one did, why on hover, and isn't tried again for that commit by itself:
+Try again beside it, and in its Reviews tab, does. It posts the review the agent wrote when only
+posting failed, and otherwise reviews the PR again as Review with… does on the reviewer Settings
+names, in its session for the PR while that can go on. Two run at once at most;
 a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
 or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
 notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;
@@ -1152,9 +1159,10 @@ What stops working in the background (config.toml that doesn't read, GitHub sign
 requests, a folder macOS is asking about) is a chip at the end of the accounts bar, in a few words.
 A click shows the whole of it, when it ends where that's known (GitHub's rate limit says until
 when), and what to open to fix it; its button dismisses it until it happens again. Several are one
-chip that says how many. An automatic review that couldn't start (`gh` timing out, say) isn't tried
-again for that commit by itself, so its notice has Try again, which starts it as Review with… does
-on the reviewer Settings names; the notice goes once a review starts.
+chip that says how many. An automatic review that couldn't start, or whose review couldn't be
+posted, has Try again on its notice, as on its PR's card (see *Automatic reviews*); while a start
+that couldn't reach GitHub is still being tried again by itself, the notice says so. The notice goes
+once a review starts.
 
 ### Tips
 

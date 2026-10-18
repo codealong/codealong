@@ -223,6 +223,21 @@ fn failed(e: &anyhow::Error, what: &str) -> Failure {
     }
 }
 
+/// What a `gh` that couldn't reach GitHub says, which a try a few minutes later may get past: its
+/// own words for a name that didn't look up ("error connecting to api.github.com" over "check your
+/// internet connection or https://githubstatus.com", seen on 2026-10-17 starting a review just
+/// after a wake), `procs::run`'s for one that took too long, and the gateway errors GitHub answers
+/// with while it's struggling, in gh's `HTTP <code>: <reason>`.
+const UNREACHABLE: &[&str] = &["error connecting to", "timed out after", "HTTP 502", "HTTP 503", "HTTP 504"];
+
+/// Whether a `gh` call failed for want of reaching GitHub, not because of what it asked: gh's
+/// words for it (`UNREACHABLE`), or a line ending in Go's for a connection lost or never made
+/// (`util::GO_CONNECTION_LOST`). What's tried again later rather than given up on. `said` is the
+/// error as `util::words` has it, lines and all.
+pub fn unreachable(said: &str) -> bool {
+    UNREACHABLE.iter().any(|w| said.contains(w)) || said.lines().any(|l| crate::util::GO_CONNECTION_LOST.iter().any(|w| l.trim_end().ends_with(w)))
+}
+
 /// One PR, as the board reads PRs, for a link to one the board doesn't list; and who `gh` is
 /// signed in as.
 pub fn one(slug: &str, number: u64) -> Result<(PrRaw, Option<String>)> {
@@ -1903,6 +1918,21 @@ mod tests {
         assert_eq!(said("gh timed out after 30s").to_string(), "GitHub: couldn't load PRs for a/b");
         // Sign-in is looked at before the rate limit, as it was.
         assert_eq!(said("gh HTTP 401: rate limit"), Failure::SignedOut);
+    }
+
+    /// A call that didn't reach GitHub is told from one GitHub turned down: only the first is
+    /// worth trying again in a few minutes.
+    #[test]
+    fn a_call_that_didnt_reach_github_is_told_from_one_it_refused() {
+        assert!(unreachable("GitHub: gh error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com"));
+        assert!(unreachable("GitHub: gh timed out after 30s"));
+        assert!(unreachable("GitHub: gh Post \"https://api.github.com/graphql\": read tcp 10.0.0.2:50000->140.82.112.6:443: read: connection reset by peer"));
+        assert!(unreachable("GitHub: gh Post \"https://api.github.com/graphql\": EOF\n"));
+        assert!(unreachable("GitHub: gh HTTP 502: Bad Gateway (https://api.github.com/repos/o/r/pulls/7/files?per_page=100)"));
+        assert!(!unreachable("GitHub: gh GraphQL: Could not resolve to a PullRequest with the number of 7. (repository.pullRequest)"));
+        assert!(!unreachable("GitHub: gh HTTP 404: Not Found (https://api.github.com/repos/o/r/pulls/7/files?per_page=100)"));
+        assert!(!unreachable("GitHub: gh HTTP 401: Bad credentials"));
+        assert!(!unreachable("its diff couldn't be kept for it to read: No space left on device"));
     }
 
     #[test]

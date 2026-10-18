@@ -5,7 +5,7 @@
 // offered beside it. And the account that answers questions about a PR in its card's box (Ask,
 // PrCard.tsx): the one picked there, else Auto's.
 
-import { reviewInCodex, reviewNow } from './api';
+import { reviewAgain, reviewInCodex, reviewNow } from './api';
 import type { MenuAction } from './contextMenu';
 import { FRESH_SIDES } from './harness';
 import { commentsWord, submittedWord } from './prDraft';
@@ -124,16 +124,45 @@ export function reviewItems(pr: Pick<PrItem, 'number' | 'url' | 'repoSlug' | 'la
 }
 
 /** Starts a round of Codealong's own reviews of a PR now (autoreview.rs `review_now`), on
- *  `account`, else on the reviewer Settings names, and says how it went the window's way: Review
- *  with…'s items, and a notice's Try again for a review that didn't start. */
+ *  `account`, else on the reviewer Settings names, and says how it went the window's way, as
+ *  Review with…'s items do. */
 export function startReview(pr: { key: string; number: number }, account: string | null, report: Report, started?: () => void): void {
-  const work = reviewNow(pr.key, account);
-  (report.busy ? report.busy(`Starting a review of #${pr.number}…`, work) : work)
-    .then(() => {
-      report.info(`Reviewing #${pr.number}: its card says how it goes.`);
+  const work = reviewNow(pr.key, account).then(() => `Reviewing #${pr.number}: its card says how it goes.`);
+  sayHowItGoes(work, `Starting a review of #${pr.number}…`, report, started);
+}
+
+/** Tries a PR's agent review that didn't get done again (autoreview.rs `again`), as Try again on
+ *  its line over the box, in its Reviews tab and on its notice does: posts a review its agent
+ *  wrote that wasn't posted, else reviews it again. Says what the engine did, the window's way. */
+export function tryAgain(pr: { key: string; number: number }, report: Report, started?: () => void): void {
+  sayHowItGoes(reviewAgain(pr.key), `Trying #${pr.number}’s review again…`, report, started);
+}
+
+/** Says how a review asked for goes, the window's way: under way through `report.busy`, where the
+ *  window shows one, then what was done, which `started` hears too. */
+function sayHowItGoes(work: Promise<string>, busy: string, report: Report, started?: () => void): void {
+  (report.busy ? report.busy(busy, work) : work)
+    .then((said) => {
+      report.info(said);
       started?.();
     })
     .catch((e: unknown) => report.error(errorText(e)));
+}
+
+/** What Try again does for a PR whose agent review didn't get done (autoreview.rs `again`): posts
+ *  the review its agent wrote, when that was of the commit the PR is at and only posting failed
+ *  (`Reviewer::repost`); else reviews the PR again. Null while there's nothing to try again: its
+ *  latest round got done or is under way, the PR is closed, or new commits have the next round
+ *  coming by itself (`behind`). */
+export function againFor(pr: Pick<PrItem, 'autoReview' | 'headOid' | 'state'>): 'post' | 'review' | null {
+  const r = pr.autoReview;
+  if (!r || r.stage !== 'failed' || r.behind || pr.state === 'merged' || pr.state === 'closed') return null;
+  return r.head === pr.headOid && r.parts?.some((p) => p.state === 'done') ? 'post' : 'review';
+}
+
+/** What Try again says it does on hover, as `againFor` has it. */
+export function againTitle(kind: 'post' | 'review'): string {
+  return kind === 'post' ? 'Post the review the agent wrote, which didn’t go through' : 'Review it again: in the session that reviewed it before while that can go on, else a new one';
 }
 
 /** The accounts that can answer questions about a PR: those whose harness holds a conversation
@@ -165,7 +194,9 @@ export function autoReviewWords(r: AutoReview, onGitHub?: { draft: boolean; subm
     drafted: ['note', `Agent drafted a review of ${at}`],
     kept: ['check', `Agent reviewed ${at}`],
     skipped: ['circle-dashed', `Agent passed on ${at}`],
-    failed: ['alert', `Agent’s review of ${at} didn’t finish`],
+    // One whose session never began (GitHub couldn't be read, no account could start it) didn't
+    // start, rather than stop partway.
+    failed: ['alert', `Agent’s review of ${at} ${r.parts?.some((p) => p.session) ? 'didn’t finish' : 'didn’t start'}`],
   }[r.stage];
   const kept = r.stage === 'kept' && !r.own ? 'Its review is in its session: posting is off.' : null;
   const back = r.own && r.sent ? `It went back to ${sentTo ? `“${sentTo}”` : 'the session that opened the PR'}.` : null;
