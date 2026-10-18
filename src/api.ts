@@ -357,6 +357,26 @@ export function onUsageMenu(cb: () => void): () => void {
   };
 }
 
+/** Codealong's website, which Help › Codealong Website opens. */
+export const WEBSITE = 'https://www.codealong.com';
+
+/** Help › Codealong Website, sent to the front board window (lib.rs `add_help_menu`). */
+export function onWebsiteMenu(cb: () => void): () => void {
+  if (!inTauri) return () => {};
+  let cancelled = false;
+  let unlisten: (() => void) | undefined;
+  void getCurrentWebviewWindow()
+    .listen('website', () => cb())
+    .then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
+
 /** Which sessions have sat idle for `afterMs` with nothing asked of you, and which stay open;
  *  with `archive`, the ones that can't close are listed to be archived only. */
 /** What sessions used and cost in the last `days` days, for one account or all (ledger.rs). */

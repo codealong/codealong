@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="design/app-icon.svg" alt="" width="112" height="112" />
+  <img src="src-tauri/icons/128x128@2x.png" alt="" width="112" height="112" />
 </p>
 
 <h1 align="center">Codealong</h1>
@@ -12,7 +12,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/codealong/codealong/releases/latest"><strong>Download for macOS</strong></a>
+  <a href="https://www.codealong.com"><strong>codealong.com</strong></a>
+  &nbsp;·&nbsp; <a href="https://github.com/codealong/codealong/releases/latest"><strong>Download for macOS</strong></a>
   &nbsp;·&nbsp; <a href="#on-linux">Build for Linux</a>
   &nbsp;·&nbsp; <a href="#get-started">Get started</a>
   &nbsp;·&nbsp; <a href="#a-tour">Tour</a>
@@ -811,6 +812,8 @@ and the UI checks, and a map of the code. [CLAUDE.md](CLAUDE.md) has the notes e
 
 ## Learn more
 
+- **[codealong.com](https://www.codealong.com)**: the website, with what Codealong does, how it
+  compares with the other tools, and what it costs.
 - **[The guide](docs/guide.md)**: every feature in detail, view by view and window by window.
 - **[Developing Codealong](docs/development.md)**: building, testing and the code map.
 - **[Codealong for iPhone](https://github.com/codealong/codealong-ios)**: your sessions on your

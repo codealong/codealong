@@ -1796,6 +1796,37 @@ fn add_new_window_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Puts Codealong Website in the Help menu, which is empty on macOS (Tauri makes no menu on
+/// Linux): the front board window opens the website (src/App.tsx), or the main window when none
+/// is open, so a browser that won't open is a toast there.
+fn add_help_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{MenuItem, MenuItemKind, HELP_SUBMENU_ID};
+    let Some(menu) = app.menu() else { return Ok(()) };
+    let help = menu.items()?.into_iter().find_map(|item| match item {
+        MenuItemKind::Submenu(s) if s.id().as_ref() == HELP_SUBMENU_ID => Some(s),
+        _ => None,
+    });
+    let Some(help) = help else { return Ok(()) };
+    help.append(&MenuItem::with_id(app, WEBSITE_MENU_ID, "Codealong Website", true, None::<&str>)?)?;
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() != WEBSITE_MENU_ID {
+            return;
+        }
+        match front_window(app) {
+            Some(w) => {
+                let _ = app.emit_to(w.label(), WEBSITE_MENU_ID, ());
+            }
+            None => {
+                let _ = front::show_main(app, None);
+                let _ = app.emit_to("main", WEBSITE_MENU_ID, ());
+            }
+        }
+    });
+    Ok(())
+}
+
+const WEBSITE_MENU_ID: &str = "website";
+
 const NEW_WINDOW_MENU_ID: &str = "new-window";
 const CLOSE_IDLE_MENU_ID: &str = "close-idle";
 
@@ -2116,6 +2147,9 @@ pub fn run() {
             }
             if let Err(e) = add_usage_menu(app.handle()) {
                 eprintln!("Couldn't add Usage to the menu: {e:#}");
+            }
+            if let Err(e) = add_help_menu(app.handle()) {
+                eprintln!("Couldn't add the website to the Help menu: {e:#}");
             }
             updates::setup(app.handle());
             watch_main_thread(app.handle().clone());

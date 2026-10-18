@@ -14,7 +14,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, rowItems, runsShownKey, sidesShownKey, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -289,6 +289,8 @@ export function App() {
   // View › Usage… and the usage bar (ui/UsageDialog.tsx), for one account or all of them.
   const [usageOf, setUsageOf] = useState<{ account: string | null } | null>(null);
   useEffect(() => onUsageMenu(() => setUsageOf({ account: null })), []);
+  // Help › Codealong Website opens the website in the browser.
+  useEffect(() => onWebsiteMenu(() => void openUrl(WEBSITE).catch((e: unknown) => setToast(errorText(e)))), [setToast]);
   // The worktree whose preview URL is being set (ui/PreviewBits.tsx), by id.
   const [previewFor, setPreviewFor] = useState<string | null>(null);
   // The session being renamed (ui/RenameDialog.tsx), by key.
