@@ -1,15 +1,23 @@
 /* The line at the end of a conversation while its agent works (Working.tsx): the mark breathing,
    then a word for what it's up to and how long it has gone on, in quiet text where the agent's
-   words will come. A tip, now and then, goes under the word, quieter still. Each word fades in. */
+   words will come. A tip, now and then, goes on the line's right, quieter still: beside the word
+   while the line has room for it, under it, still on the right, once it hasn't. Each word fades in. */
 
 .ca-working {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  column-gap: var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: var(--space-6);
   row-gap: var(--space-1);
   color: var(--ink-3);
   font: var(--type-meta);
+}
+/* One line high, so a tip's first line sits level with the word. */
+.ca-working-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
 }
 .ca-working-line {
   display: flex;
@@ -24,10 +32,12 @@
 .ca-working-for {
   font-variant-numeric: tabular-nums;
 }
+/* Its room is what the line leaves, down to a short sentence's; less, and it goes under. */
 .ca-working-tip {
-  grid-column: 2;
+  flex: 1 1 20em;
   margin: 0;
-  text-wrap: pretty;
+  text-align: right;
+  text-wrap: balance;
   animation: ca-working-in var(--dur-sweep) ease-out;
 }
 .ca-working-tip .ca-label {

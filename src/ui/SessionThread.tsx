@@ -25,7 +25,7 @@
 // (transcript.rs), so they show as an image in a todo's description does; a click opens one.
 //
 // While its agent works, a line at the end says so, with a word for what it's up to and, now and
-// then in the main window, a tip under it (Working.tsx).
+// then in the main window, a tip on its right (Working.tsx).
 //
 // A message you sent shows at the end as it goes (ahead.ts): sending, then sent, until the
 // session's record has it and it shows from there. One that went but that the session shows no
@@ -482,7 +482,7 @@ interface SessionThreadProps {
   /** What the find bar opens on: the words a search found it by in what was said
    *  (ThreadFind.tsx `asked`). */
   find?: FindAsk | null;
-  /** While its agent works, a tip comes under the line that says so now and then (Working.tsx). */
+  /** While its agent works, a tip comes on the right of the line that says so now and then (Working.tsx). */
   tips?: boolean;
 }
 

@@ -379,8 +379,9 @@ comes every 30 seconds, each session with its words in an order of its own, the 
 window, and a turn past a quarter of an hour gets one that says so now and then (Still at it…).
 A session gone silent mid-turn has no line: its header says how long it's been silent.
 
-Now and then, in the main window, a tip on using Codealong sits quietly under the word (*Tips*):
-only once a turn has gone on 20 seconds, and no more than one every 20 minutes, wherever the last
+Now and then, in the main window, a tip on using Codealong sits quietly on the line's right
+(*Tips*), beside the word, or under it on the right when the panel is too narrow for both: only
+once a turn has gone on 20 seconds, and no more than one every 20 minutes, wherever the last
 showed. A turn keeps the tip it got until it ends, when you look at another session and come back,
 in another window, and while other turns get theirs.
 

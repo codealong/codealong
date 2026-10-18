@@ -1,7 +1,7 @@
 // Checks the line at the end of a conversation while its agent works (Working.tsx, working.ts):
 // the mark quiet (its C gray, its color gliding round it) and breathing, a word for what it's up to with an ellipsis, and how long it has worked,
-// last in the conversation. A turn that has worked a while gets a tip under it in the main
-// window's panel, kept for the turn in every window; another session's turn soon after gets
+// last in the conversation. A turn that has worked a while gets a tip on its right in the main
+// window's panel, its first line level with the word, or under it once the line has no room, kept for the turn in every window; another session's turn soon after gets
 // none. A new word comes round in time. The line goes once the turn ends, and for a session gone
 // silent mid-turn, which its header speaks for.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/working-check.js
@@ -88,7 +88,18 @@
       check('and how long it has worked', took && took.textContent === '1m', took && took.textContent);
       var thread = q('.ca-sessinsp .ca-thread');
       check('last in the conversation', thread.lastElementChild === l, thread.lastElementChild && thread.lastElementChild.className);
-      check('a tip under it, as a tip', /^Tip\s/.test(tip().textContent), tip().textContent);
+      check('a tip, as a tip', /^Tip\s/.test(tip().textContent), tip().textContent);
+      // Its words end at the line's right edge, and start beside the word or under it.
+      var head = l.querySelector('.ca-working-head').getBoundingClientRect();
+      var box = tip().getBoundingClientRect();
+      var words = document.createRange();
+      words.selectNodeContents(tip());
+      var lines = Array.prototype.slice.call(words.getClientRects());
+      var right = Math.max.apply(null, lines.map(function (r) { return r.right; }));
+      var left = Math.min.apply(null, lines.map(function (r) { return r.left; }));
+      var beside = Math.abs(box.top - head.top) < 1 && left > head.right;
+      check('on the line’s right', Math.abs(box.right - l.getBoundingClientRect().right) < 1 && Math.abs(right - box.right) < 2 && (beside || box.top >= head.bottom),
+        (beside ? 'beside' : 'under') + ' · ends ' + Math.round(right) + ' of ' + Math.round(box.right) + ' · ' + lines.length + ' rects');
       var c = claim();
       check('kept for the turn', !!c && c.id === tip().getAttribute('data-tip'), JSON.stringify(c));
       var first = word();
