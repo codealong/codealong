@@ -1,5 +1,5 @@
 // Checks the line at the end of a conversation while its agent works (Working.tsx, working.ts):
-// the mark breathing, a word for what it's up to with an ellipsis, and how long it has worked,
+// the mark quiet (its C gray, its color gliding round it) and breathing, a word for what it's up to with an ellipsis, and how long it has worked,
 // last in the conversation. A turn that has worked a while gets a tip under it in the main
 // window's panel, kept for the turn in every window; another session's turn soon after gets
 // none. A new word comes round in time. The line goes once the turn ends, and for a session gone
@@ -68,6 +68,14 @@
     .then(function () {
       var l = line();
       check('the mark breathes beside it', !!l.querySelector('.ca-lmark[data-status="working"]'));
+      var gray = document.createElement('span');
+      gray.style.color = 'var(--ink-3)';
+      l.appendChild(gray);
+      var fill = getComputedStyle(l.querySelector('.ca-lmark-c')).fill;
+      check('quiet, its C gray', !!l.querySelector('.ca-lmark.is-quiet') && fill === getComputedStyle(gray).color, fill + ' vs ' + getComputedStyle(gray).color);
+      gray.remove();
+      var glide = getComputedStyle(l.querySelector('.ca-lmark-arc i')).animationName;
+      check('its color gliding round it', glide === 'ca-mark-glide', glide);
       check('a word with an ellipsis', /^[A-Z][a-z].*…$/.test(word()), word());
       var took = q('.ca-sessinsp .ca-working-for');
       check('and how long it has worked', took && took.textContent === '1m', took && took.textContent);

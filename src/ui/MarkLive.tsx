@@ -14,7 +14,9 @@ const C_MASK = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http:/
 /** A moment older than this was played by an earlier drawing of the mark. */
 const NEW_MS = 500;
 
-export function MarkLive({ size = 16, status = 'idle', moment }: { size?: number; status?: LogoStatus; moment: Moment | null }) {
+/** `quiet` is the mark beside a line of text: its C gray, and while agents work the node's color
+ *  glides round it, faint (MarkLive.css). */
+export function MarkLive({ size = 16, status = 'idle', moment, quiet = false }: { size?: number; status?: LogoStatus; moment: Moment | null; quiet?: boolean }) {
   const el = useRef<HTMLSpanElement>(null);
   // A moment is a class on the mark for as long as it plays; React never writes the class, so
   // drawing the bar again leaves it. Taking it off and reading the layout starts one over.
@@ -29,7 +31,7 @@ export function MarkLive({ size = 16, status = 'idle', moment }: { size?: number
     return () => window.clearTimeout(id);
   }, [moment]);
   return (
-    <span ref={el} className="ca-lmark" data-status={status} role="img" aria-label={`Codealong · ${LOGO_LABEL[status]}`} style={{ width: size, height: size, '--s': `${size}px` } as CSSProperties}>
+    <span ref={el} className={quiet ? 'ca-lmark is-quiet' : 'ca-lmark'} data-status={status} role="img" aria-label={`Codealong · ${LOGO_LABEL[status]}`} style={{ width: size, height: size, '--s': `${size}px` } as CSSProperties}>
       <span className="ca-lmark-c">
         <svg viewBox={MARK_VIEW_BOX} aria-hidden="true" focusable="false">
           <path d={MARK_PATHS[0]} />

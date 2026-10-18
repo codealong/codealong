@@ -199,6 +199,53 @@
 .ca-lmark.is-run .ca-lmark-arc.is-second {
   animation: ca-mark-run-second 1500ms step-end both;
 }
+/* Quiet, beside a line of text (a working conversation's, Working.tsx): the C in gray, and while
+   agents work the node's color glides round it, faint: Run's turn, slower, then a rest inside the
+   opening before it comes round again, two of the node's breaths to each round. */
+.ca-lmark.is-quiet .ca-lmark-c {
+  fill: var(--ink-3);
+}
+.ca-lmark.is-quiet[data-status="working"] .ca-lmark-run {
+  display: block;
+  opacity: 0.55;
+}
+@keyframes ca-mark-glide {
+  0% {
+    transform: rotate(110deg);
+  }
+  45%,
+  100% {
+    transform: rotate(540deg);
+  }
+}
+@keyframes ca-mark-glide-first {
+  0% {
+    opacity: 1;
+  }
+  22.5%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes ca-mark-glide-second {
+  0% {
+    opacity: 0;
+  }
+  22.5%,
+  100% {
+    opacity: 1;
+  }
+}
+.ca-lmark.is-quiet[data-status="working"] .ca-lmark-arc i {
+  animation: ca-mark-glide 7200ms cubic-bezier(0.3, 0.15, 0.7, 0.85) infinite;
+  will-change: transform;
+}
+.ca-lmark.is-quiet[data-status="working"] .ca-lmark-arc.is-first {
+  animation: ca-mark-glide-first 7200ms step-end infinite;
+}
+.ca-lmark.is-quiet[data-status="working"] .ca-lmark-arc.is-second {
+  animation: ca-mark-glide-second 7200ms step-end infinite;
+}
 /* Send, as you send a session something: the node pulls back and lets go, and a dot as wide as
    the stem leaves through the C's opening. */
 .ca-lmark > .ca-lmark-dot {
@@ -289,7 +336,8 @@
     scale: none;
     transition: none;
   }
-  .ca-lmark.is-run .ca-lmark-run {
+  .ca-lmark.is-run .ca-lmark-run,
+  .ca-lmark.is-quiet[data-status="working"] .ca-lmark-run {
     display: none;
   }
 }

@@ -1,5 +1,5 @@
 // The line at the end of a conversation while its agent works (working.ts says what it says, and
-// when a tip comes): the mark breathing, a word for what the agent's up to and how long it has
+// when a tip comes): the mark, quiet (gray, its color gliding round it), a word for what the agent's up to and how long it has
 // worked on what you last asked, quiet, where its words will come. Under the word, now and then, a
 // tip; only in the main window's panel, since a card is read at a glance.
 
@@ -63,7 +63,7 @@ export function Working({ session: s, tips, onGrow }: { session: Session; tips: 
   useLayoutEffect(onGrow, [onGrow]);
   return (
     <div className="ca-working">
-      <MarkLive size={14} status="working" moment={null} />
+      <MarkLive size={14} status="working" moment={null} quiet />
       <span className="ca-working-line">
         <span key={word} className="ca-working-word">
           {word}…

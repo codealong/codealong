@@ -373,7 +373,7 @@ every Claude Code account that has its copy when you change it.
 #### While it works
 
 While a session's agent works, the end of its conversation says so, wherever the conversation
-shows: the Codealong mark, breathing, then a word for what the agent's up to (Tinkering…, Untangling…,
+shows: the Codealong mark in gray, its color gliding slowly round it, then a word for what the agent's up to (Tinkering…, Untangling…,
 Sharpening pencils…) and how long it has worked on what you last asked. The word is for fun, not news; a new one
 comes every 30 seconds, each session with its words in an order of its own, the same in every
 window, and a turn past a quarter of an hour gets one that says so now and then (Still at it…).
