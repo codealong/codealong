@@ -27,13 +27,13 @@
 //! told once it isn't; a send that fails, or a PR whose news can't be read from GitHub, is tried
 //! again a little later, each time later than the last, a few times before it's given up on.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Mutex;
 
 use crate::config::NudgeAbout;
 use crate::engine::Handle;
 use crate::github::PrDetail;
-use crate::model::{Board, Merge, PrItem, PrState, Session};
+use crate::model::{Board, Lane, Merge, PrItem, PrState, Session};
 use serde::{Deserialize, Serialize};
 
 /// What a PR on the board stood at when last seen, for telling only what's new.
@@ -129,20 +129,20 @@ pub enum Stopped {
 /// What becomes of each nudged PR's news while its primary session, on this Mac, isn't running,
 /// by the PR's key (`Board::pr_stopped`). It's resumed for it (`[sessions] resume_for_pr_news`,
 /// `on`), or reached where its harness takes a message while it doesn't run (`reaches`, send.rs
-/// `reaches_stopped`); but not while another of the PR's sessions runs, on a device of yours
-/// that's connected, unless that one is a helper or a review (`Session::helper`), since the PR's
-/// work may have gone on there and two agents on one branch get in each other's way; and never
-/// with the setting off, for one you archived or marked done, or one that goes on only with
-/// someone at this Mac (a Claude app session). `reaches` is asked only where nothing else rules it
-/// out.
-pub fn stopped_primaries(board: &Board, on: bool, reaches: impl Fn(&Session) -> bool) -> BTreeMap<String, Stopped> {
-    let runs = |k: &str| board.session(k).is_some_and(|(lane, s)| s.live && !s.archived && s.helper.is_none() && lane.device.as_ref().is_none_or(|d| d.online));
+/// `reaches_stopped`); but not while another of the PR's sessions runs here, or a session runs on
+/// its branch on another device of yours that's connected (`elsewhere`, `running_elsewhere`),
+/// unless that one is a helper or a review (`Session::helper`), since the PR's work may have gone
+/// on there and two agents on one branch get in each other's way; and never with the setting off,
+/// for one you archived or marked done, or one that goes on only with someone at this Mac (a
+/// Claude app session). `reaches` is asked only where nothing else rules it out.
+pub fn stopped_primaries(board: &Board, elsewhere: &BTreeSet<String>, on: bool, reaches: impl Fn(&Session) -> bool) -> BTreeMap<String, Stopped> {
+    let runs = |k: &str| board.session(k).is_some_and(|(_, s)| s.live && !s.archived && s.helper.is_none());
     let stopped = |pr: &PrItem| {
         let key = pr.primary.as_deref()?;
         let (_, s) = board.session(key).filter(|(lane, s)| lane.device.is_none() && !s.live)?;
         Some(if !on || s.archived {
             Stopped::Never
-        } else if pr.sessions.iter().any(|o| o.key != key && runs(&o.key)) {
+        } else if elsewhere.contains(&crate::prlinks::pr_key(&pr.key)) || pr.sessions.iter().any(|o| o.key != key && runs(&o.key)) {
             Stopped::Beside
         } else if reaches(s) {
             Stopped::Resumes
@@ -153,12 +153,37 @@ pub fn stopped_primaries(board: &Board, on: bool, reaches: impl Fn(&Session) -> 
     board.prs.iter().filter(|pr| pr.nudge).filter_map(|pr| Some((pr.key.clone(), stopped(pr)?))).collect()
 }
 
+/// The PRs another of your devices runs a session on, by `prlinks::pr_key`: a worktree there on
+/// the PR's branch (its lane's PR) with a session running that isn't a helper or a review, while
+/// that device is connected. This Mac's board doesn't list another device's sessions (the windows
+/// get them as peers.rs `DevicesView::lanes`), so the engine is handed these (`stopped_primaries`).
+pub fn running_elsewhere(lanes: &[Lane]) -> BTreeSet<String> {
+    let runs = |l: &&Lane| l.device.as_ref().is_some_and(|d| d.online) && l.sessions.iter().any(|s| s.live && !s.archived && s.helper.is_none());
+    lanes
+        .iter()
+        .filter(runs)
+        .filter_map(|l| Some((l, l.pr.as_ref()?.number)))
+        .flat_map(|(l, number)| [&l.repo_slug, &l.repo_slug_now].into_iter().flatten().map(move |slug| crate::prlinks::pr_key(&format!("{slug}#{number}"))))
+        .collect()
+}
+
 /// Whether a job for a session that wasn't running still goes, by the board as it is now: what
 /// `due` found may have changed while GitHub was read and earlier jobs went (another of the PR's
 /// sessions started, `resume_for_pr_news` went off). One that runs again is told as any is.
 fn still_due(board: &Board, job: &Job) -> bool {
     let runs = board.session(&job.session).is_some_and(|(lane, s)| lane.device.is_none() && s.live);
     runs || board.prs.iter().any(|p| p.key == job.pr.key && p.primary.as_deref() == Some(job.session.as_str()) && board.pr_stopped.get(&p.key) == Some(&Stopped::Resumes))
+}
+
+/// Whether the session `key` runs on this Mac, which you haven't archived.
+fn runs_here(board: &Board, key: &str) -> bool {
+    board.session(key).is_some_and(|(lane, s)| lane.device.is_none() && s.live && !s.archived)
+}
+
+/// The session a PR's primary `key` is told as: the copy it went on as, a while after it was
+/// resumed as one (`Nudger::went_on_as`), else itself.
+fn goes_to(copies: &HashMap<String, (String, i64)>, key: &str) -> String {
+    copies.get(key).map_or(key, |(copy, _)| copy.as_str()).to_string()
 }
 
 /// How long news for a primary session resumed as a copy goes to the copy (`went_on_as`): long
@@ -223,11 +248,8 @@ impl Nudger {
     /// PR: turning `nudge_by_default` on doesn't tell every approved PR of yours to merge); a PR
     /// the board no longer lists is forgotten, though what's owed for it is still told.
     pub fn due(&mut self, board: &Board, now: i64) -> Vec<Job> {
-        let runs_here = |k: &str| board.session(k).is_some_and(|(lane, s)| lane.device.is_none() && s.live && !s.archived);
         let resumes = |pr: &PrItem| board.pr_stopped.get(&pr.key) == Some(&Stopped::Resumes);
         self.copies.retain(|_, (_, at)| now - *at < COPY_MS);
-        let copies = &self.copies;
-        let goes_to = |k: &str| copies.get(k).map_or(k, |(copy, _)| copy.as_str()).to_string();
         let mut seen_now = HashMap::with_capacity(board.prs.len());
         for pr in &board.prs {
             let key = crate::prlinks::pr_key(&pr.key);
@@ -272,10 +294,10 @@ impl Nudger {
                 continue;
             }
             let Some(primary) = pr.primary.as_deref() else { continue };
-            let s = goes_to(primary);
+            let s = goes_to(&self.copies, primary);
             // One that isn't running is resumed only for what asks for work; the copy one went on
             // as is told as it runs, once the board has it.
-            let why = if runs_here(&s) || s != primary {
+            let why = if runs_here(board, &s) || s != primary {
                 why
             } else if resumes(pr) {
                 keep(for_stopped(about), pr.state.is_open(), why)
@@ -288,6 +310,17 @@ impl Nudger {
             }
         }
         self.seen = seen_now;
+        self.more(board, now)
+    }
+
+    /// The jobs due now of what's owed (`due`), by `board`, without looking for what's new on it:
+    /// what one job at a time held back, which the thread that sent the last ones asks for as it
+    /// ends (`send_now`) rather than waiting for a board that changed.
+    pub fn more(&mut self, board: &Board, now: i64) -> Vec<Job> {
+        let resumes = |pr: &PrItem| board.pr_stopped.get(&pr.key) == Some(&Stopped::Resumes);
+        self.copies.retain(|_, (_, at)| now - *at < COPY_MS);
+        let copies = &self.copies;
+        let runs_here = |k: &str| runs_here(board, k);
         // A session that stopped is told nothing more unless it's resumed for it, nor one whose PR
         // had its nudge turned off, nor one that's no longer its PR's primary. A copy a primary
         // went on as is waited for while the board doesn't have it.
@@ -295,7 +328,7 @@ impl Nudger {
         let listed: HashMap<String, &PrItem> = board.prs.iter().map(|p| (crate::prlinks::pr_key(&p.key), p)).collect();
         let waited_for = |s: &str| copies.values().any(|(copy, _)| copy == s) && board.session(s).is_none();
         let reached = |p: Option<&&PrItem>, s: &str| runs_here(s) || waited_for(s) || p.is_some_and(|p| p.primary.as_deref() == Some(s) && resumes(p));
-        let primary = |p: &PrItem, s: &str| p.primary.as_deref().map(goes_to).as_deref() == Some(s);
+        let primary = |p: &PrItem, s: &str| p.primary.as_deref().map(|k| goes_to(copies, k)).as_deref() == Some(s);
         self.owed.retain(|(pr, s), o| {
             let p = listed.get(pr);
             o.sending.is_some() || (reached(p, s) && !off.contains(pr) && p.is_none_or(|p| primary(p, s)))
@@ -556,49 +589,55 @@ fn message(job: &Job, detail: Option<Result<&PrDetail, &str>>, login: Option<&st
 
 /// Does each job in turn: reads the PR's detail from GitHub where its `updatedAt` moved (once
 /// for the jobs that share it), works out the message, and sends it to the session as a window's
-/// send does; tells `nudger` how each went, and the engine, which says so in a notice when
-/// something didn't go.
+/// send does; tells `nudger` how each went, then does what it's owed besides (`Nudger::more`)
+/// until nothing is; and tells the engine, which says so in a notice when something didn't go.
 pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
     let login = engine.read(|b| b.github_login.clone());
     let mut details: HashMap<(String, i64), Result<PrDetail, String>> = HashMap::new();
     let mut failed = Vec::new();
-    for job in jobs {
-        // One that falls over is told as failed, so its session isn't left waiting on a send
-        // that never says how it went.
-        let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let detail = job.why.since.map(|since| details.entry((job.pr.key.clone(), since)).or_insert_with(|| crate::github::detail(&job.pr.repo_slug, job.pr.number).map_err(|e| e.to_string())).as_ref().map_err(String::as_str));
-            message(&job, detail, login.as_deref()).and_then(|text| {
-                let Some(text) = text else { return Ok(None) };
-                let told = if !job.stopped {
-                    crate::send::tell(engine, &job.session, &text).map(|_| None)
-                } else if engine.read(|b| still_due(b, &job)) {
-                    crate::send::tell_waking(engine, &job.session, &text).map(|resumed| resumed.and_then(|r| r.key).filter(|k| *k != job.session))
-                } else {
-                    return Ok(None);
-                };
-                told.map_err(|e| {
-                    let title = engine.read(|b| b.session(&job.session).map(|(_, s)| s.title.clone())).unwrap_or_else(|| job.session.clone());
-                    format!("“{title}” wasn't told what's new on {}: {e}", job.pr.key)
+    let mut jobs = jobs;
+    while !jobs.is_empty() {
+        for job in jobs {
+            // One that falls over is told as failed, so its session isn't left waiting on a send
+            // that never says how it went.
+            let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let detail = job.why.since.map(|since| details.entry((job.pr.key.clone(), since)).or_insert_with(|| crate::github::detail(&job.pr.repo_slug, job.pr.number).map_err(|e| e.to_string())).as_ref().map_err(String::as_str));
+                message(&job, detail, login.as_deref()).and_then(|text| {
+                    let Some(text) = text else { return Ok(None) };
+                    let told = if !job.stopped {
+                        crate::send::tell(engine, &job.session, &text).map(|_| None)
+                    } else if engine.read(|b| still_due(b, &job)) {
+                        crate::send::tell_waking(engine, &job.session, &text).map(|resumed| resumed.and_then(|r| r.key).filter(|k| *k != job.session))
+                    } else {
+                        return Ok(None);
+                    };
+                    told.map_err(|e| {
+                        let title = engine.read(|b| b.session(&job.session).map(|(_, s)| s.title.clone())).unwrap_or_else(|| job.session.clone());
+                        format!("“{title}” wasn't told what's new on {}: {e}", job.pr.key)
+                    })
                 })
-            })
-        }))
-        .unwrap_or_else(|_| Err(format!("Telling a session what's new on {} stopped partway.", job.pr.key)));
-        let copy = went.as_ref().ok().cloned().flatten();
-        let again = {
-            let mut nudger = nudger.lock().unwrap_or_else(|e| e.into_inner());
-            let now = crate::util::now_ms();
-            let again = nudger.told(&job, went.is_ok(), now);
-            if let Some(copy) = &copy {
-                nudger.went_on_as(&job.session, copy, now);
+            }))
+            .unwrap_or_else(|_| Err(format!("Telling a session what's new on {} stopped partway.", job.pr.key)));
+            let copy = went.as_ref().ok().cloned().flatten();
+            let again = {
+                let mut nudger = nudger.lock().unwrap_or_else(|e| e.into_inner());
+                let now = crate::util::now_ms();
+                let again = nudger.told(&job, went.is_ok(), now);
+                if let Some(copy) = &copy {
+                    nudger.went_on_as(&job.session, copy, now);
+                }
+                again
+            };
+            if let Some(Err(e)) = copy.map(|copy| follow(engine, &job.session, &copy)) {
+                failed.push(e);
             }
-            again
-        };
-        if let Some(Err(e)) = copy.map(|copy| follow(engine, &job.session, &copy)) {
-            failed.push(e);
+            if let Err(e) = went {
+                failed.push(if again { format!("{e} Codealong tries again in a few minutes.") } else { e });
+            }
         }
-        if let Err(e) = went {
-            failed.push(if again { format!("{e} Codealong tries again in a few minutes.") } else { e });
-        }
+        // What a session was owed besides, which one job at a time held back, goes now rather than
+        // with the next board that changed.
+        jobs = nudger.lock().unwrap_or_else(|e| e.into_inner()).more(&engine.board(), crate::util::now_ms());
     }
     engine.nudged(if failed.is_empty() { Ok(()) } else { Err(failed.join(" ")) });
 }
@@ -764,7 +803,7 @@ mod tests {
     /// isn't running one Codealong can reach.
     fn resuming(prs: Vec<PrItem>, sessions: Vec<Session>) -> Board {
         let mut b = board(prs, sessions);
-        b.pr_stopped = stopped_primaries(&b, true, |_| true);
+        b.pr_stopped = stopped_primaries(&b, &BTreeSet::new(), true, |_| true);
         b
     }
 
@@ -798,23 +837,17 @@ mod tests {
     /// out for each board.
     #[test]
     fn a_stopped_primary_is_resumed_unless_another_of_its_prs_sessions_runs() {
-        use crate::model::{DeviceTag, Helper};
-        let of = |b: &Board, on: bool, reaches: bool| stopped_primaries(b, on, |_| reaches).get("o/r#1").copied();
+        use crate::model::Helper;
+        let of = |b: &Board, on: bool, reaches: bool| stopped_primaries(b, &BTreeSet::new(), on, |_| reaches).get("o/r#1").copied();
         let with = |sessions: Vec<Session>| board(vec![pr("o/r#1", PrState::Open, &[A, B])], sessions);
         assert_eq!(of(&with(vec![stopped(A), stopped(B)]), true, true), Some(Stopped::Resumes));
         assert_eq!(of(&with(vec![stopped(A), live(B)]), true, true), Some(Stopped::Beside), "the work may have gone on in B");
         // A helper or a review running for it doesn't take the PR on.
         let helper = Session { helper: Some(Helper { parent: Some(A.into()), ..Default::default() }), ..live(B) };
         assert_eq!(of(&with(vec![stopped(A), helper]), true, true), Some(Stopped::Resumes));
-        // On another device, only while it's connected.
-        let elsewhere = |online: bool| {
-            let mut b = with(vec![stopped(A)]);
-            let mut lane = crate::fixtures::lane("/there", vec![live(B)]);
-            lane.device = Some(DeviceTag { name: "Studio".into(), short: "st".into(), color: "blue".into(), online, last_seen: None });
-            b.lanes.push(lane);
-            b
-        };
-        assert_eq!((of(&elsewhere(true), true, true), of(&elsewhere(false), true, true)), (Some(Stopped::Beside), Some(Stopped::Resumes)));
+        // A session on its branch on another device, which this Mac's board doesn't list.
+        let elsewhere = BTreeSet::from(["o/r#1".to_string()]);
+        assert_eq!(stopped_primaries(&with(vec![stopped(A)]), &elsewhere, true, |_| true).get("o/r#1"), Some(&Stopped::Beside));
         // Never with the setting off, for one you archived, or one Codealong can't reach.
         assert_eq!(of(&with(vec![stopped(A)]), false, true), Some(Stopped::Never));
         assert_eq!(of(&with(vec![Session { archived: true, ..stopped(A) }]), true, true), Some(Stopped::Never));
@@ -833,6 +866,30 @@ mod tests {
         assert_eq!(told(resuming(vec![pr("o/r#1", PrState::Open, &[A, B])], vec![stopped(A), stopped(B)])), 1);
         assert_eq!(told(resuming(vec![pr("o/r#1", PrState::Open, &[A, B])], vec![stopped(A), live(B)])), 0);
         assert_eq!(told(board(vec![pr("o/r#1", PrState::Open, &[A, B])], vec![stopped(A), stopped(B)])), 0);
+    }
+
+    /// What another device runs that a PR's primary here isn't resumed beside: a session running
+    /// on the PR's branch there, not a helper's, while the device is connected, under the repo's
+    /// name then and now.
+    #[test]
+    fn what_another_device_runs_on_a_prs_branch() {
+        use crate::model::{DeviceTag, Helper, Pr};
+        let lane = |online: bool, number: Option<u64>, sessions: Vec<Session>| {
+            let mut l = crate::fixtures::lane("/there", sessions);
+            l.device = Some(DeviceTag { name: "Studio".into(), short: "st".into(), color: "blue".into(), online, last_seen: None });
+            (l.repo_slug, l.repo_slug_now) = (Some("O/R".into()), Some("o/renamed".into()));
+            l.pr = number.map(|number| Pr { number, title: String::new(), url: String::new(), state: PrState::Open, checks: Checks::default(), merge: Merge::Unknown, updated_at: 0, merged_at: None, closed_at: None });
+            l
+        };
+        assert_eq!(running_elsewhere(&[lane(true, Some(7), vec![live(B)])]), BTreeSet::from(["o/r#7".to_string(), "o/renamed#7".to_string()]));
+        let helper = Session { helper: Some(Helper { parent: Some(A.into()), ..Default::default() }), ..live(B) };
+        for quiet in [lane(false, Some(7), vec![live(B)]), lane(true, None, vec![live(B)]), lane(true, Some(7), vec![stopped(B)]), lane(true, Some(7), vec![helper])] {
+            assert!(running_elsewhere(&[quiet]).is_empty());
+        }
+        // This Mac's own lanes aren't another device's.
+        let mut here = lane(true, Some(7), vec![live(B)]);
+        here.device = None;
+        assert!(running_elsewhere(&[here]).is_empty());
     }
 
     /// A resume is checked again on the board as it is when its turn comes, after GitHub was read
@@ -881,10 +938,14 @@ mod tests {
         sent(&mut nudger, &at(UPDATED));
         let first = nudger.due(&at(UPDATED + 1), NOW);
         assert_eq!(first.len(), 1);
+        assert!(nudger.more(&at(UPDATED + 1), NOW).is_empty(), "while the first is under way");
         assert!(!nudger.told(&first[0], true, NOW));
-        let second = nudger.due(&at(UPDATED + 1), NOW);
+        // The rest is handed out as the first is done, on the same board, without news.
+        let second = nudger.more(&at(UPDATED + 1), NOW);
         assert_eq!(second.len(), 1);
         assert_ne!(first[0].pr.key, second[0].pr.key);
+        assert!(!nudger.told(&second[0], true, NOW));
+        assert!(nudger.more(&at(UPDATED + 1), NOW).is_empty());
     }
 
     #[test]

@@ -171,11 +171,15 @@ enum Waking {
 /// account resumes one out of sight (`start::resume_out_of_sight`), each asked only when it's
 /// needed.
 fn waking(session: &Session, account: &AccountCfg, routes: impl FnOnce() -> Vec<Route>, out_of_sight: impl FnOnce() -> Option<Place>) -> Waking {
-    if session.live || session.hosted {
+    if session.live {
         return Waking::Send;
     }
     if session.archived || account.ensure_on().is_err() {
         return Waking::Nowhere;
+    }
+    // Codealong ran it, and goes on with it when it's sent something (acp.rs `send`).
+    if session.hosted {
+        return Waking::Send;
     }
     let routes = routes();
     if routes.iter().any(|r| matches!(r, Route::Resume)) {
@@ -1356,6 +1360,10 @@ mod tests {
         assert_eq!(way(&stopped, &account, vec![Stand(Way::ClaudeApp).into()]), Waking::Nowhere, "only in its app, in front of you");
         assert_eq!(way(&Session { archived: true, ..stopped.clone() }, &account, vec![Route::Resume]), Waking::Nowhere);
         assert_eq!(way(&stopped, &crate::config::AccountCfg { disabled: true, ..account.clone() }, vec![Route::Resume]), Waking::Nowhere);
+        // One Codealong ran goes on there when it's sent something, but not on an account turned off.
+        let hosted = Session { hosted: true, ..stopped.clone() };
+        assert_eq!(way(&hosted, &account, vec![]), Waking::Send);
+        assert_eq!(way(&hosted, &crate::config::AccountCfg { disabled: true, ..account.clone() }, vec![]), Waking::Nowhere);
     }
 
     fn board_with(s: Session) -> Board {

@@ -691,9 +691,9 @@ thread, which the app takes a message for while it isn't running, is sent it the
 that asks for work goes to one that isn't running: someone else's comments and reviews that say
 something, changes asked for, failing checks and a conflict, never an approval, a merge or a close,
 whatever the nudge tells of while it runs. It isn't resumed while another of the PR's sessions runs
-on one of your devices that's connected, unless that one is a helper or a review, since the work
-may have gone on there and two agents on one branch get in each other's way; then nobody is told
-until it runs. Nor is one you archived or marked done, or one on an account you turned off, and a
+on this Mac, or a session runs in a worktree on the PR's branch on another of your devices that's
+connected, unless that one is a helper or a review, since the work may have gone on there and two
+agents on one branch get in each other's way; then nobody is told until it runs. Nor is one you archived or marked done, or one on an account you turned off, and a
 Claude app session, which goes on only in its app, isn't told until it runs. Resumed as a copy
 (Claude Code copies a session a background job had into a new job), the copy becomes the PR's
 primary session. The PR's card says which of these it is under its switch. Settings › Automation ›

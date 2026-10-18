@@ -1884,7 +1884,7 @@ pub fn run() {
             // and ask it for the board and for answers once it's there.
             let engine_slot: std::sync::Arc<std::sync::OnceLock<engine::Handle>> = Default::default();
             let peers = {
-                let (boards, answers, emits) = (engine_slot.clone(), engine_slot.clone(), app.handle().clone());
+                let (boards, answers, emits, runs) = (engine_slot.clone(), engine_slot.clone(), app.handle().clone(), engine_slot.clone());
                 peers::Peers::new(
                     config::support_dir(),
                     peers::Hooks {
@@ -1894,6 +1894,10 @@ pub fn run() {
                             None => Err("Codealong is still starting on that device.".into()),
                         }),
                         emit: Box::new(move |view| {
+                            // The engine goes by what they run too (nudges.rs `running_elsewhere`).
+                            if let Some(engine) = runs.get() {
+                                engine.peer_lanes(&view.lanes);
+                            }
                             let _ = emits.emit("devices", view);
                         }),
                     },

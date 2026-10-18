@@ -127,6 +127,8 @@ pub enum Msg {
     LimitMoved(Option<String>),
     /// Sessions told their PR was approved (nudges.rs), and which weren't and why if any.
     Nudged(Option<String>),
+    /// The PRs another of your devices runs a session on (nudges.rs `running_elsewhere`).
+    RunningElsewhere(std::collections::BTreeSet<String>),
     /// A session told what a command you ran for it printed (terminal.rs `report_ended`), and why
     /// it wasn't if it wasn't.
     RunReported(Option<String>),
@@ -368,6 +370,13 @@ impl Handle {
     /// a later nudge works.
     pub fn nudged(&self, result: std::result::Result<(), String>) {
         let _ = self.tx.send(Msg::Nudged(result.err()));
+    }
+
+    /// What your other devices run, as their latest boards say (peers.rs): the PRs a session runs
+    /// on there, which a PR's primary session here isn't resumed beside (nudges.rs
+    /// `stopped_primaries`).
+    pub fn peer_lanes(&self, lanes: &[Lane]) {
+        let _ = self.tx.send(Msg::RunningElsewhere(crate::nudges::running_elsewhere(lanes)));
     }
 
     /// How telling a session what a command you ran for it printed went (terminal.rs
@@ -1124,6 +1133,8 @@ struct Engine {
     limit_move_warning: Option<String>,
     /// Why a session wasn't told its PR was approved, when Codealong sends that itself.
     nudge_warning: Option<String>,
+    /// The PRs another of your devices runs a session on (`Handle::peer_lanes`).
+    running_elsewhere: std::collections::BTreeSet<String>,
     /// Why a session wasn't told what a command you ran for it printed.
     run_report_warning: Option<String>,
     continue_warning: Option<String>,
@@ -1259,6 +1270,7 @@ impl Engine {
             reusable_warning: None,
             limit_move_warning: None,
             nudge_warning: None,
+            running_elsewhere: Default::default(),
             run_report_warning: None,
             continue_warning: None,
             report_warning: None,
@@ -2062,6 +2074,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.nudge_warning = why;
                     self.dirty = true;
                 }
+                // Another device's board comes often; only what it runs on PRs is looked at.
+                Ok(Msg::RunningElsewhere(prs)) if prs != self.running_elsewhere => {
+                    self.running_elsewhere = prs;
+                    self.dirty = true;
+                }
+                Ok(Msg::RunningElsewhere(_)) => {}
                 Ok(Msg::RunReported(why)) => {
                     self.run_report_warning = why;
                     self.dirty = true;
@@ -3373,7 +3391,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;
         board.nudge_about = self.cfg.pull_requests.nudge_about;
-        board.pr_stopped = crate::nudges::stopped_primaries(&board, self.cfg.sessions.resume_for_pr_news, |s| crate::send::reaches_stopped(&self.cfg, s));
+        board.pr_stopped = crate::nudges::stopped_primaries(&board, &self.running_elsewhere, self.cfg.sessions.resume_for_pr_news, |s| crate::send::reaches_stopped(&self.cfg, s));
         board.reviews = self.cfg.reviews.clone();
         board.repos = self.cfg.repos.clone();
         board.repo_settings = repo_settings;
