@@ -377,9 +377,10 @@ shows: the Codealong mark in gray, its color gliding slowly round it, then a wor
 Sharpening pencils…) and how long it has worked on what you last asked. The word is for fun, not news; a new one
 comes every 30 seconds, each session with its words in an order of its own, the same in every
 window, and a turn past a quarter of an hour gets one that says so now and then (Still at it…).
-A session gone silent mid-turn has no line: its header says how long it's been silent. Nor has
-one whose turn is over that waits on a command it left running in the background (a CI watch,
-say), which its clock says.
+A session gone silent mid-turn has no line: its header says how long it's been silent. One whose
+turn is over but that waits on a command it left running in the background (a CI watch, say)
+says so in the line's place, with the clock the list draws for it: Waiting on and the command,
+all of it on hover.
 
 Now and then, in the main window, a tip on using Codealong sits quietly on the line's right
 (*Tips*), beside the word, or under it on the right when the panel is too narrow for both: only

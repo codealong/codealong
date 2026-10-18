@@ -70,7 +70,7 @@ import { says, shownText } from '../threadFind';
 import { scaleOf } from '../zoom';
 import { FindContext, ThreadFind, type FindAsk } from './ThreadFind';
 import { Reading } from './Tip';
-import { Working } from './Working';
+import { Waiting, Working } from './Working';
 import { held, keysIn } from '../platform';
 
 /** Loads the page before once you're this close to the top. */
@@ -957,9 +957,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                 </div>
               )}
               {loaded && items.length === 0 && yours === 0 && !streaming?.text && <p className="ca-empty">Nothing said yet.</p>}
-              {/* Not for one gone silent, nor one whose turn is over that waits on a command it left
-                  running in the background: their headers say so, the second with its clock. */}
-              {loaded && s.status === 'working' && !s.stalledSince && !waitsInBackground(s) && <Working session={s} tips={tips} onGrow={follow} />}
+              {/* Not for one gone silent, which its header speaks for. One whose turn is over that
+                  waits on a command it left running in the background says what it waits on. */}
+              {loaded && s.status === 'working' && !s.stalledSince && (waitsInBackground(s) ? <Waiting session={s} onGrow={follow} /> : <Working session={s} tips={tips} onGrow={follow} />)}
               {s.status === 'needs' && !pending && s.excerpt && (
                 <div className="ca-thread-tool is-asks">
                   <div className="ca-thread-askrow">

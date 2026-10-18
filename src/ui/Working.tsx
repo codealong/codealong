@@ -2,7 +2,8 @@
 // when a tip comes): the mark, quiet (gray, its color gliding round it), a word for what the agent's up to and how long it has
 // worked on what you last asked, quiet, where its words will come. Now and then a tip, on the
 // line's right, out of the way of the agent's words; only in the main window's panel, since a
-// card is read at a glance.
+// card is read at a glance. A session whose turn is over that only waits on a command it left
+// running in the background has another line in its place (`Waiting`): its clock and the command.
 
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { duration } from '../format';
@@ -12,6 +13,7 @@ import { TIPS, tipShows } from '../tips';
 import type { Session } from '../types';
 import { claimed, turnOf, workingTip, workingWord, type TipClaim } from '../working';
 import { MarkLive } from './MarkLive';
+import { SessionGlyph } from './primitives';
 import { takeTip, TipWords, useTipShortcuts } from './Tip';
 
 /** The tips turns got, the latest last, for every window (working.ts `workingTip`). */
@@ -75,6 +77,35 @@ export function Working({ session: s, tips, onGrow }: { session: Session; tips: 
         </span>
       </span>
       {due && (due !== 'take' || !document.hidden) && <WorkingTip kept={due === 'take' ? null : due.keep} turn={turn} since={since} onGrow={onGrow} />}
+    </div>
+  );
+}
+
+/** In the working line's place, for a session whose turn is over that waits on a command it left
+ *  running in the background (lanes.ts `waitsInBackground`): the clock the list and its header
+ *  draw, and what it waits on, in the engine's words for its excerpt; the command on one line, all
+ *  of it on hover. */
+export function Waiting({ session: s, onGrow }: { session: Session; onGrow: () => void }) {
+  useLayoutEffect(onGrow, [onGrow]);
+  // "" when the engine couldn't read the command.
+  const command = s.background?.replace(/\s+/g, ' ').trim();
+  return (
+    <div className="ca-working is-waiting">
+      <span className="ca-working-head">
+        <SessionGlyph s={s} size={14} />
+        <span className="ca-working-line">
+          {command ? (
+            <>
+              <span className="ca-working-word">Waiting on</span>
+              <code className="ca-ic" title={command}>
+                {command}
+              </code>
+            </>
+          ) : (
+            <span className="ca-working-word">Waiting on a command in the background</span>
+          )}
+        </span>
+      </span>
     </div>
   );
 }

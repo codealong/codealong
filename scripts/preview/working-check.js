@@ -2,9 +2,10 @@
 // the mark quiet (its C gray, its color gliding round it) and breathing, a word for what it's up to with an ellipsis, and how long it has worked,
 // last in the conversation. A turn that has worked a while gets a tip on its right in the main
 // window's panel, its first line level with the word, or under it once the line has no room, kept for the turn in every window; another session's turn soon after gets
-// none. A new word comes round in time. The line goes once the turn ends, for a session gone
-// silent mid-turn, which its header speaks for, and for one whose turn is over that waits on a
-// command it left running in the background, which its clock speaks for.
+// none. A new word comes round in time. The line goes once the turn ends, and for a session gone
+// silent mid-turn, which its header speaks for. One whose turn is over that waits on a command it
+// left running in the background says what it waits on in the line's place, with its clock, or
+// that it waits on a command when the command couldn't be read.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/working-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -51,7 +52,8 @@
     row(i).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     row(i).click();
   };
-  var line = function () { return q('.ca-sessinsp .ca-thread .ca-working'); };
+  var line = function () { return q('.ca-sessinsp .ca-thread .ca-working:not(.is-waiting)'); };
+  var waiting = function () { return q('.ca-sessinsp .ca-thread .ca-working.is-waiting'); };
   var word = function () { var w = q('.ca-sessinsp .ca-working-word'); return w ? w.textContent : ''; };
   var tip = function () { return q('.ca-sessinsp .ca-working-tip'); };
   // The tip the first turn got, as kept for every window.
@@ -148,22 +150,34 @@
       return push().then(function () { return until(function () { return !line(); }, 5000, 'the line to go for a silent session'); });
     })
     .then(function () {
-      check('gone for a session gone silent', !line());
+      check('gone for a session gone silent', !line() && !waiting());
       // At work again, then its turn over with a command left running.
       shape[picked[0].key] = {};
       return push().then(function () { return until(function () { return line(); }, 5000, 'the line back for a session at work again'); });
     })
     .then(function () {
-      shape[picked[0].key] = { background: 'gh pr checks 139 --watch' };
-      return push().then(function () { return until(function () { return !line(); }, 5000, 'the line to go for one waiting in the background'); });
+      shape[picked[0].key] = { background: 'until gh pr checks 139 | grep -q .;\n  do sleep 10; done; gh pr checks 139 --watch --interval 15 2>&1 | tail -4' };
+      return push().then(function () { return until(function () { return !line() && waiting(); }, 5000, 'the waiting line in the working line’s place'); });
     })
     .then(function () {
-      check('and for one waiting on a command in the background', !line());
+      var w = waiting();
+      var cmd = w.querySelector('code');
+      check('one waiting on a command in the background says what it waits on', /^Waiting on/.test(w.textContent) && !!cmd && cmd.textContent === 'until gh pr checks 139 | grep -q .; do sleep 10; done; gh pr checks 139 --watch --interval 15 2>&1 | tail -4', w.textContent);
+      var said = w.querySelector('.ca-working-word');
+      var oneLine = cmd.getClientRects().length === 1 && said.getClientRects().length === 1 && said.getBoundingClientRect().height < 20 && Math.abs(said.getBoundingClientRect().top - cmd.getBoundingClientRect().top) < 6;
+      check('on one line, all of it on hover', oneLine && cmd.getAttribute('title') === cmd.textContent, said.getBoundingClientRect().height + 'px words');
+      check('with its clock, not the mark or a tip', !!w.querySelector('.ca-glyph--waiting') && !w.querySelector('.ca-lmark') && !tip());
+      check('last in the conversation', q('.ca-sessinsp .ca-thread').lastElementChild === w);
+      shape[picked[0].key] = { background: '' };
+      return push().then(function () { return until(function () { return waiting() && !waiting().querySelector('code'); }, 5000, 'the waiting line without a command'); });
+    })
+    .then(function () {
+      check('or that it waits on a command, when it couldn’t be read', waiting().textContent === 'Waiting on a command in the background', waiting().textContent);
       shape[picked[0].key] = { status: 'idle' };
-      return push().then(function () { return wait(500); });
+      return push().then(function () { return until(function () { return !waiting(); }, 5000, 'the waiting line to go'); });
     })
     .then(function () {
-      check('and once its turn ends', !line());
+      check('and once its turn ends, neither', !line() && !waiting());
     })
     .then(done, stopped);
 })();
