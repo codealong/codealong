@@ -60,6 +60,27 @@ and no server.
 - **All your Macs on one board.** Link your Macs and see, and if you allow it act on, the sessions
   running on any of them. An [iPhone app](https://github.com/codealong/codealong-ios) is on the way.
 
+## Agents and systems
+
+**Agents:** Claude Code (in a terminal, as background jobs and in the Claude app), Codex (the CLI
+and the app), OpenCode, Antigravity and Cursor (new). [What works with each
+agent](#what-works-with-each-agent) says what Codealong can do with every one.
+
+**Systems:** macOS 13 or later, on Apple silicon or Intel. Linux too, under X11, built from
+source for now: sessions run in tmux, shown in your terminal emulator, and a few things are
+macOS's alone, the notch and the Claude and Codex apps among them ([what
+differs](docs/development.md#linux)). Windows isn't supported yet.
+
+**Contributions are welcome**, most of all another harness (Gemini CLI, Copilot CLI, Amp, Pi, or
+whichever one you run) and Windows support. A harness is one module behind the `Adapter` and
+`Reader` in `src-tauri/src/harness.rs`, and [adding a harness](.claude/rules/adding-a-harness.md)
+says what one needs. Everything Codealong asks of the OS is in `src-tauri/src/os/`: each area that
+makes the OS's own calls has a `macos.rs` and a `linux.rs` giving the same functions, and what
+merely differs, a path or a program to run, goes by `os::current()`. Windows starts with a
+`windows.rs` beside each and a third case there. [Building from source](#building-from-source) and
+[docs/development.md](docs/development.md) have the rest. Open an issue first if you'd like to
+talk a change over.
+
 ## Get started
 
 ### Install
