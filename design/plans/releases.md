@@ -9,8 +9,10 @@ below are made.
 
 ## Going public
 
-In this order, once the history is as it should be (an audit on 2026-10-17 found no secrets, but
-names from the owner's other work in fixtures, since replaced, and in commit messages):
+The history is ready: an audit on 2026-10-17 found no secrets, and the names from the owner's
+other work that were in files and commit messages were rewritten out of both repos' histories
+that day, after which both repos were recreated on GitHub so it keeps nothing of the old one
+(`.git/rewrite-2026-10-17` holds the rules and the old-to-new commit map). Then, in this order:
 
 1. Make `codealong/codealong`, `codealong/codealong-ios` and `codealong/homebrew-tap` public, and
    turn on private vulnerability reporting (Settings, Security) on the first two.
