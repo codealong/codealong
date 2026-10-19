@@ -213,7 +213,8 @@ fn tokens(args: &Args, rest: &[String]) -> Done {
 /// questions with their answers.
 /// `codealong --snapshot --start-options`: where each account can start a session.
 /// `codealong --snapshot --start-plan <folder> <account> <place> [prompt] [--model <model>]
-/// [--effort <level>] [--worktree]`: what starting one would do, without doing it.
+/// [--effort <level>] [--worktree]`: what starting one would do, without doing it: where it would
+/// go now, and for a terminal whether it would run in tmux (`start::plan_now`).
 pub fn cli(args: &[String]) -> i32 {
     let args = Args(args);
     let Some(mode) = MODES.iter().find(|m| args.has(m.flag)) else {
@@ -475,7 +476,7 @@ fn start_plan(args: &Args, rest: &[String]) -> Done {
         return Err(Stop::Failed(format!("There's no account named {name}.")));
     };
     let prompt = more.first().filter(|p| !p.starts_with("--")).cloned().unwrap_or_default();
-    let plan = start::plan(account, place, &util::expand(folder), &prompt, &start::new_session_id(), args.option("--model"), args.option("--effort"), args.has("--worktree"));
+    let plan = start::plan_now(&cfg, account, place, &util::expand(folder), &prompt, args.option("--model"), args.option("--effort"), args.has("--worktree")).map_err(|e| Stop::Failed(format!("{e:#}")))?;
     Ok(pretty(&plan))
 }
 

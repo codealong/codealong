@@ -130,7 +130,8 @@ the notch, the Claude and Codex apps, and Antigravity's and Cursor's usage among
   [Codex](https://openai.com/codex/) CLI or app, [OpenCode](https://opencode.ai),
   [Antigravity](https://antigravity.google) or [Cursor](https://cursor.com)
 - A terminal: on macOS, [Ghostty](https://ghostty.org) 1.3 or later (the best supported), iTerm2 or
-  Terminal; on Linux, tmux and a terminal emulator
+  Terminal, and [tmux](https://github.com/tmux/tmux) (`brew install tmux`) to start sessions while
+  the screen is locked; on Linux, tmux and a terminal emulator
 - For pull requests, the [GitHub CLI](https://cli.github.com) signed in: `gh auth login`
 
 ### Your first five minutes
@@ -538,6 +539,7 @@ editor = "cursor"              # or "vscode", "zed", "xcode"… (Settings lists 
 new_terminal = "project"       # a tab beside the same worktree, repo or project; or "tab", "window"
 move_pointer = false           # move the pointer to a terminal brought forward on another screen
 close_command_tabs_after = 10   # minutes after a command Codealong runs in your terminal ends that its tab closes; 0 keeps it (Settings › General)
+tmux = "when-locked"           # sessions Codealong starts run in tmux, shown in your terminal: "always"; "when-locked", only while the screen is locked, when Ghostty can't start one; "never" (Settings › General)
 
 [appearance]
 theme = "system"               # follows the system; or "light", "dark"
@@ -755,8 +757,9 @@ needs a new worktree, the agent makes it, and a pull request is merged only when
 
 **Which systems, terminals and editors does it support?**
 macOS 13 or later, on Apple silicon or Intel, and Linux under X11. On macOS, Ghostty is the best
-supported terminal; iTerm2, Terminal and tmux work too. On Linux, sessions run in tmux, shown in
-your terminal emulator. It opens worktrees in VS Code, Cursor, Windsurf, Kiro, Zed, Sublime Text,
+supported terminal; iTerm2, Terminal and tmux work too, and sessions Codealong starts can run in
+tmux shown in your terminal, always or only while the screen is locked. On Linux, sessions run in
+tmux, shown in your terminal emulator. It opens worktrees in VS Code, Cursor, Windsurf, Kiro, Zed, Sublime Text,
 Nova, BBEdit, Xcode, the JetBrains IDEs and Android Studio, or any editor you name.
 
 **Does it run on Linux?**

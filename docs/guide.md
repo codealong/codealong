@@ -1477,7 +1477,8 @@ hasn't trusted). Background starts it the same way under Claude Code's backgroun
 --bg`), with no terminal: it shows on the board like any other, takes prompts from Codealong, and
 Attach opens a terminal on it when you want one. The other agents have no background service of
 their own, so for them Background opens the terminal behind your windows instead (nothing is asked
-to come forward, so you stay where you are). The Claude app opens a new session with the prompt
+to come forward, so you stay where you are), or with no window at all where they run in tmux
+([In tmux](#in-tmux-and-while-the-screen-is-locked)). The Claude app opens a new session with the prompt
 filled in, and you send it there (its own model and worktree choices included). The Codex app runs
 the new thread on your prompt: Codealong makes the thread, opens it in the app and has the app send
 the prompt, on the model and effort you picked, else the account's own; without a prompt it opens
@@ -1517,6 +1518,33 @@ next prompt (queued while a turn runs), answers what it asks to run with Allow a
 ends a turn, as it does for sessions running elsewhere. The agent keeps the session in its usual
 records, so it can be resumed in a terminal too, and after Codealong restarts, sending to it picks
 it up again.
+
+#### In tmux, and while the screen is locked
+
+*Settings › General › Run sessions in tmux*
+
+A session Codealong starts in a terminal can run in tmux instead, in a tmux server of Codealong's
+own, with a tab of your terminal attached to it. tmux stays out of sight there: there's no prefix
+key, so every key reaches the agent, and no status line; the mouse wheel scrolls back through what
+the session printed; and closing the tab ends the session, as it would without tmux. Codealong
+types into it, presses keys in it and closes it through tmux, which needs neither the terminal app
+nor an unlocked screen.
+
+- **While locked** (the default): sessions open in your terminal as before. While the screen is
+  locked, Ghostty can't start a terminal (iTerm2 and Terminal are taken to be the same), so a
+  start, a resume, a fork, a move or a command Codealong runs for you goes to tmux, and its tab
+  opens in your terminal once you unlock. One that ended meanwhile, or that Show in opened
+  already, gets none. A Background start opens no tab at all: Show in opens one, and closing that
+  leaves the session running.
+- **Always**: every one of those runs in tmux, shown in a tab of your terminal, and a Background
+  start opens no window at all.
+- **Never**: sessions open in your terminal only. While the screen is locked a start goes where no
+  window is needed instead, saying why: Claude Code's background service, else Codealong itself,
+  where the account can start there. Otherwise it can't start until you unlock.
+
+tmux has to be installed (`brew install tmux`); without it, While locked works as Never does.
+Sessions you start yourself in a terminal stay where they are. On Linux every terminal is a tmux
+session already ([On Linux](#on-linux)).
 
 #### Auto and routing groups
 
@@ -1943,11 +1971,12 @@ remembers.
 ### On Linux
 
 Codealong runs on Linux too, under X11, where a terminal emulator takes no scripts. So there
-`terminal = "terminal"` means the desktop's terminal: each new terminal is a tmux session, which
-Codealong types into and presses keys in, shown in a window of the first emulator found
-(`$TERMINAL` when it names one, else Ghostty, kitty, WezTerm, Alacritty, foot, Konsole, GNOME
-Terminal, Ptyxis, Xfce Terminal or xterm). A Background start opens no window, and Show in later
-opens one attached to it. Show in raises a session's window with `xdotool`. A session started by
+`terminal = "terminal"` means the desktop's terminal: each new terminal is a session in
+Codealong's own tmux server ([In tmux](#in-tmux-and-while-the-screen-is-locked)), which Codealong
+types into and presses keys in, shown in a window of the first emulator found (`$TERMINAL` when it
+names one, else Ghostty, kitty, WezTerm, Alacritty, foot, Konsole, GNOME Terminal, Ptyxis, Xfce
+Terminal or xterm), and closing that window ends it. A Background start opens no window, and Show
+in later opens one attached to it. Show in raises a session's window with `xdotool`. A session started by
 hand in an emulator's own tab, outside tmux, can be opened but not typed into or found. Editors
 are found by their commands on your PATH (`code`, `cursor`, `zed`, `subl`, `idea` and the rest),
 and `editor` in config.toml can name any other command. Links open with `xdg-open`, a Chrome
@@ -2279,10 +2308,10 @@ a period that reaches back past that.
 Lists the sessions that sat idle for a day or more (12 hours to a week, you choose) and asked you
 nothing in their last reply, by Jev's read where it has one, else by it not ending in a question. It
 says why for each and what closing does to it, and closes the ones you leave ticked: a Ghostty,
-iTerm2 or Terminal tab closes, which ends the agent's process, and a Claude Code background job is
-stopped. Nothing closes by itself, and the conversation stays and resumes. With **Also archive
-them** (remembered), each is marked seen and archived too, as Mark as done does, and the sessions
-Codealong can't close (in the Claude or Codex app, run by Codealong, in tmux) are listed to be
+iTerm2 or Terminal tab, or a tmux pane, closes, which ends the agent's process, and a Claude Code
+background job is stopped. Nothing closes by itself, and the conversation stays and resumes. With
+**Also archive them** (remembered), each is marked seen and archived too, as Mark as done does,
+and the sessions Codealong can't close (in the Claude or Codex app, run by Codealong) are listed to be
 archived only, staying open where they are. `codealong sessions close-idle --dry-run [--archive]`
 lists the same from the command line.
 

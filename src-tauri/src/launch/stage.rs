@@ -26,13 +26,22 @@ pub struct Setup {
     pub ghostty_naps: bool,
     /// The OS it plays as if on: macOS, whose terminals most tests are of.
     pub os: crate::os::Os,
+    /// The `TMUX` in processes' environments, for those in a server other than yours; empty for
+    /// one whose environment can't be read.
+    pub tmux_vars: &'static [(u32, &'static str)],
+    /// Whether the screen is locked.
+    pub locked: bool,
 }
 
 impl Default for Setup {
     fn default() -> Self {
-        Setup { procs: &[], installed: true, shell_ready: true, stays: &[], ghostty_naps: false, os: crate::os::Os::MacOs }
+        Setup { procs: &[], installed: true, shell_ready: true, stays: &[], ghostty_naps: false, os: crate::os::Os::MacOs, tmux_vars: &[], locked: false }
     }
 }
+
+/// Codealong's own tmux server's socket and settings, on the stage.
+pub const HOSTED_SOCKET: &str = "/support/Codealong/tmux.sock";
+pub const HOSTED_CONFIG: &str = "/support/Codealong/tmux.conf";
 
 /// Something a program was sent: an AppleScript by its name in `SCRIPTS` (or `script#<hash>` for
 /// one that isn't there), or another program by its path, with the arguments as they were, and
@@ -212,6 +221,23 @@ pub fn tmux_bin() -> Option<PathBuf> {
     staged(|_| PathBuf::from("/opt/homebrew/bin/tmux"))
 }
 
+pub fn tmux_var(pid: u32) -> Option<Option<String>> {
+    staged(|s| s.setup.tmux_vars.iter().find(|(p, _)| *p == pid).map(|(_, v)| v.to_string()))
+}
+
+pub fn hosted_socket() -> Option<PathBuf> {
+    staged(|_| PathBuf::from(HOSTED_SOCKET))
+}
+
+/// The settings' file isn't written on the stage.
+pub fn hosted_config() -> Option<PathBuf> {
+    staged(|_| PathBuf::from(HOSTED_CONFIG))
+}
+
+pub fn screen_locked() -> Option<bool> {
+    staged(|s| s.setup.locked)
+}
+
 /// Every app is the active one, so no focus waits on a thread of its own to raise a tab again.
 pub fn app_active(_app: &str) -> Option<bool> {
     staged(|_| true)
@@ -255,7 +281,7 @@ mod tests {
 
     use super::super::*;
     use super::{marks, play, Played, Proc, Sent, Setup};
-    use crate::config::NewTerminal;
+    use crate::config::{NewTerminal, TmuxUse};
 
     /// Sessions in each terminal, one in the background and one in a terminal Codealong doesn't
     /// know. The pids are past the highest macOS gives out, so none is a real process.
@@ -934,24 +960,119 @@ mod tests {
         assert_eq!(p.log.len(), 1);
     }
 
+    /// A session started in tmux: a session of Codealong's own server, the line typed once its
+    /// shell is up, and a tab of the terminal attached to it that ends it as it closes. Behind
+    /// your windows there's no tab; while the screen is locked, the tab opens once it isn't.
+    #[test]
+    fn a_session_started_in_tmux_shows_in_a_tab_attached_to_it() {
+        use super::super::stage::{HOSTED_CONFIG, HOSTED_SOCKET};
+        let answer = |s: &Sent| {
+            Ok(match () {
+                _ if s.args.iter().any(|a| a == "new-session") => "$4 %9 /dev/ttys409\n".to_string(),
+                // Nothing shows it yet.
+                _ if s.args.iter().any(|a| a == "display-message") => "0\n".to_string(),
+                _ => "ok\n".to_string(),
+            })
+        };
+        let tmux = "/opt/homebrew/bin/tmux";
+        let started = [
+            format!(r##"{tmux} ["-S", "{HOSTED_SOCKET}", "-f", "{HOSTED_CONFIG}", "new-session", "-d", "-P", "-F", "#{{session_id}} #{{pane_id}} #{{pane_tty}}", "-s", "NAME", "-n", "app · fix", "-c", "/r/app", "/bin/sh 'LAUNCHER'"] (10s)"##),
+            "wait for shell /dev/ttys409 after LAUNCHER".to_string(),
+            format!(r#"{tmux} ["-S", "{HOSTED_SOCKET}", "send-keys", "-t", "%9", "-l", "\u{{15}}claude"] (5s)"#),
+            format!(r#"{tmux} ["-S", "{HOSTED_SOCKET}", "send-keys", "-t", "%9", "Enter"] (5s)"#),
+        ];
+        // The session's name differs from start to start.
+        let named = |log: Vec<String>| {
+            log.into_iter()
+                .map(|l| match l.find("\"codealong-") {
+                    Some(at) => {
+                        let end = l[at + 1..].find('"').map_or(l.len(), |n| at + 1 + n);
+                        format!("{}\"NAME{}", &l[..at], &l[end..])
+                    }
+                    None => l,
+                })
+                .collect::<Vec<_>>()
+        };
+        let tab = |label: &str| format!("GHOSTTY_NEW {:?}", ["window", "", "/r/app", &format!("exec {tmux} -S '{HOSTED_SOCKET}' attach -t '%9' ';' set-option -t '$4' destroy-unattached on\n"), "front", label]);
+        let named_tab = Placement { label: Some("app · fix"), ..window() };
+
+        let p = played(answer, || session_run("ghostty", TmuxUse::Always, named_tab, Path::new("/r/app"), "claude\n", &[]));
+        assert_eq!(p.got.unwrap(), Ran::InTmux(Shown::Now));
+        assert_eq!(named(p.log), [&started[..], &[tab("app · fix")]].concat());
+        // Behind your windows nothing shows it: Show in attaches a tab later.
+        let p = played(answer, || session_run("ghostty", TmuxUse::Always, Placement { behind: true, ..named_tab }, Path::new("/r/app"), "claude\n", &[]));
+        assert_eq!(p.got.unwrap(), Ran::InTmux(Shown::OnShowIn));
+        assert_eq!(named(p.log), started);
+        // Only while the screen is locked, where the setting says so; the tab waits for the unlock.
+        let p = played(answer, || session_run("ghostty", TmuxUse::WhenLocked, named_tab, Path::new("/r/app"), "claude\n", &[]));
+        assert_eq!(p.got.unwrap(), Ran::InApp);
+        assert_eq!(p.log, [format!("GHOSTTY_NEW {:?}", ["window", "", "/r/app", "claude\n", "front", "app · fix"])]);
+        let locked = || Setup { locked: true, ..setup() };
+        let p = play(locked(), answer, || (session_run("ghostty", TmuxUse::WhenLocked, named_tab, Path::new("/r/app"), "claude\n", &[]), unlocked_with_sessions_to_show()));
+        assert_eq!(p.got.0.unwrap(), Ran::InTmux(Shown::OnUnlock));
+        assert!(!p.got.1, "not while it's locked");
+        assert_eq!(named(p.log), started);
+        let p = played(answer, || (unlocked_with_sessions_to_show(), show_unlocked(), unlocked_with_sessions_to_show()));
+        assert_eq!(p.got, (true, Vec::<String>::new(), false));
+        assert_eq!(p.log, [format!(r##"{tmux} ["-S", "{HOSTED_SOCKET}", "display-message", "-p", "-t", "%9", "#{{session_attached}}"] (5s)"##), tab("app · fix")]);
+        // One that ended meanwhile, or that Show in opened already, gets no tab.
+        for gone in [Err("can't find pane: %9".to_string()), Ok("1\n".to_string())] {
+            let p = play(locked(), answer, || session_run("ghostty", TmuxUse::Always, named_tab, Path::new("/r/app"), "", &[]));
+            assert_eq!(p.got.unwrap(), Ran::InTmux(Shown::OnUnlock));
+            let p = played(move |s| if s.args.iter().any(|a| a == "display-message") { gone.clone() } else { Ok(String::new()) }, show_unlocked);
+            assert_eq!(p.got, Vec::<String>::new());
+            assert_eq!(p.log.len(), 1, "{:?}", p.log);
+        }
+        // Told never to, a start while the screen is locked says why it can't.
+        let p = play(locked(), answer, || session_run("ghostty", TmuxUse::Never, named_tab, Path::new("/r/app"), "claude\n", &[]));
+        assert!(err(p.got).starts_with("The screen is locked, and Ghostty can't open a terminal until you unlock it."));
+        assert!(p.log.is_empty());
+        // A tab that doesn't open leaves the session running in tmux, for Show in.
+        let p = played(move |s| if s.what == "GHOSTTY_NEW" { Err(NOT_ALLOWED.into()) } else { answer(s) }, || session_run("ghostty", TmuxUse::Always, named_tab, Path::new("/r/app"), "claude\n", &[]));
+        let ran = p.got.unwrap();
+        assert!(matches!(&ran, Ran::InTmux(Shown::Not(why)) if why.contains("isn't allowed to control Ghostty")), "{ran:?}");
+        assert!(ran.note("Ghostty").unwrap().ends_with("Show in opens it."));
+    }
+
     #[test]
     fn typing_into_a_session_in_tmux_pastes_into_its_pane() {
-        let answer = |s: &Sent| Ok(if s.args[0] == "list-panes" { "/dev/ttys400 %1 @1 1 other\n/dev/ttys401 %3 @2 1 my agents\n".to_string() } else { String::new() });
+        let answer = |s: &Sent| Ok(if s.args.iter().any(|a| a == "list-panes") { "/dev/ttys400 %1 @1 1 other\n/dev/ttys401 %3 @2 1 my agents\n".to_string() } else { String::new() });
         let p = played(answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it\nand that", false, Submit::Return, false));
         assert_eq!(p.got.unwrap(), Typed::Into("tmux"));
+        // Each paste has a buffer of its own, which goes with it.
+        let buffer = p.log[1].split('"').nth(5).expect("the buffer").to_string();
+        assert!(buffer.starts_with(&format!("codealong-{}-", std::process::id())), "{buffer}");
         assert_eq!(
             p.log,
             [
-                TMUX_PANES,
-                r#"/opt/homebrew/bin/tmux ["load-buffer", "-b", "codealong", "-"] < "Fix it\nand that" (5s)"#,
-                r#"/opt/homebrew/bin/tmux ["paste-buffer", "-p", "-d", "-b", "codealong", "-t", "%3"] (5s)"#,
-                r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "Enter"] (5s)"#,
+                TMUX_PANES.to_string(),
+                format!(r#"/opt/homebrew/bin/tmux ["load-buffer", "-b", "{buffer}", "-"] < "Fix it\nand that" (5s)"#),
+                format!(r#"/opt/homebrew/bin/tmux ["paste-buffer", "-p", "-d", "-b", "{buffer}", "-t", "%3"] (5s)"#),
+                r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "Enter"] (5s)"#.to_string(),
             ]
         );
         let p = played(answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", true, Submit::Return, false));
         assert_eq!(p.got.unwrap(), Typed::Into("tmux"));
         assert_eq!(p.log[1], r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "C-c"] (5s)"#);
         assert_eq!(p.log.len(), 5);
+        assert!(!p.log[2].contains(&format!("\"{buffer}\"")), "another send, another buffer: {}", p.log[2]);
+        // A pane in another server, Codealong's own say, is asked of that server, as its `TMUX` says.
+        let elsewhere = Setup { tmux_vars: &[(IN_TMUX, "/support/Codealong/tmux.sock,4242,0")], ..setup() };
+        let p = play(elsewhere, answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", false, Submit::Return, false));
+        assert_eq!(p.got.unwrap(), Typed::Into("tmux"));
+        assert!(p.log.iter().all(|l| l.starts_with(r#"/opt/homebrew/bin/tmux ["-S", "/support/Codealong/tmux.sock", "#)), "{:?}", p.log);
+        // Where its environment can't be read, Codealong's server is asked, then yours.
+        let unread = Setup { tmux_vars: &[(IN_TMUX, "")], ..setup() };
+        let mine_then_yours = move |s: &Sent| if s.args.first().is_some_and(|a| a == "-S") { Ok(String::new()) } else { answer(s) };
+        let p = play(unread, mine_then_yours, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", false, Submit::Return, false));
+        assert_eq!(p.got.unwrap(), Typed::Into("tmux"));
+        assert_eq!(p.log[..2], [format!(r##"/opt/homebrew/bin/tmux ["-S", "{}", "list-panes", "-a", "-F", "#{{pane_tty}} #{{pane_id}} #{{window_id}} #{{session_attached}} #{{session_name}}"] (5s)"##, super::HOSTED_SOCKET), TMUX_PANES.to_string()]);
+        assert!(p.log[2..].iter().all(|l| !l.contains("-S")), "{:?}", p.log);
+        // Its keys go there too, the server travelling with the pane.
+        let elsewhere = Setup { tmux_vars: &[(IN_TMUX, "/support/Codealong/tmux.sock,4242,0")], ..setup() };
+        let p = play(elsewhere, answer, || terminal_host(IN_TMUX, Path::new("/r/app")).and_then(|h| press_key(&h.expect("its pane"), Key::Digit(1))));
+        p.got.unwrap();
+        assert_eq!(p.log.last().map(String::as_str), Some(r#"/opt/homebrew/bin/tmux ["-S", "/support/Codealong/tmux.sock", "send-keys", "-t", "%3", "1"] (5s)"#));
         // Sent with keys in place of Return: each by its code, so a control character goes as
         // the key it is.
         let p = played(answer, || terminal_type_session(IN_TMUX, Path::new("/r/app"), "Fix it", false, Submit::Keys("\x18\x13"), false));
@@ -1077,6 +1198,9 @@ mod tests {
                 "TERMINAL_TTYS" => "/dev/ttys301\n".to_string(),
                 "TERMINAL_IN_FRONT" => "/dev/ttys301\n".to_string(),
                 "GHOSTTY_CLOSE" | "ITERM_CLOSE+SESSION_ON" | "TERMINAL_CLOSE+TAB_ON" => "ok\n".to_string(),
+                // A pane in tmux is killed where it is.
+                "/opt/homebrew/bin/tmux" if s.args[0] == "list-panes" => "/dev/ttys401 %3 @2 1 my agents\n".to_string(),
+                "/opt/homebrew/bin/tmux" if s.args[0] == "kill-pane" => String::new(),
                 _ => panic!("unexpected {} {:?}", s.what, s.args),
             })
         };
@@ -1086,14 +1210,14 @@ mod tests {
         assert_eq!(
             p.got.iter().map(|r| r.as_ref().map_err(|e| e.to_string()).err().unwrap_or_else(|| "closed".into())).collect::<Vec<_>>(),
             [
-                "It isn't in a Ghostty, iTerm2 or Terminal tab.",
+                "closed",
                 "It's the tab you're in.",
                 "Couldn't find its iTerm2 tab.",
                 "closed",
-                "It isn't in a Ghostty, iTerm2 or Terminal tab.",
+                "It isn't in a Ghostty, iTerm2, Terminal or tmux tab.",
                 "closed",
                 "It's the tab you're in.",
-                "It isn't in a Ghostty, iTerm2 or Terminal tab.",
+                "It isn't in a Ghostty, iTerm2, Terminal or tmux tab.",
             ]
         );
         assert_eq!(
@@ -1115,6 +1239,8 @@ mod tests {
                 "TERMINAL_TTYS []",
                 "TERMINAL_IN_FRONT []",
                 "hang up []",
+                TMUX_PANES,
+                r#"/opt/homebrew/bin/tmux ["kill-pane", "-t", "%3"] (5s)"#,
             ]
         );
     }
@@ -1171,8 +1297,8 @@ mod tests {
         let p = played(refuses, move || close_session_terminals(&[(IN_GHOSTTY, dir)]));
         assert_eq!(said(&p.got), ["Its process ended, but the tab didn't close: Ghostty didn't respond: boom"]);
         let p = played(|_| Err("boom".into()), move || close_session_terminals(&[(IN_GHOSTTY, dir), (IN_TMUX, dir)]));
-        assert_eq!(said(&p.got), ["Ghostty didn't respond: boom", "It isn't in a Ghostty, iTerm2 or Terminal tab."]);
-        assert_eq!(p.log, ["GHOSTTY_LIST []"]);
+        assert_eq!(said(&p.got), ["Ghostty didn't respond: boom", "Couldn't find its tmux pane."]);
+        assert_eq!(p.log, ["GHOSTTY_LIST []", TMUX_PANES]);
     }
 
     /// A Finder alias named as a document is a plain file that `open` follows all the same,

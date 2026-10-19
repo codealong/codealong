@@ -675,6 +675,11 @@ pub fn options_for(cfg: &Config) -> StartOptions {
     let on: Vec<AccountCfg> = cfg.accounts.iter().filter(|a| !a.disabled).cloned().collect();
     let projects = on.iter().flat_map(|a| crate::harness::of(a).map(|h| h.app_projects(a)).unwrap_or_default()).collect();
     let mut out = options(&on, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)));
+    // Where every start runs in tmux, a Background start opens no window, behind yours or not:
+    // Show in opens one, as for a background job.
+    if cfg.apps.tmux == config::TmuxUse::Always && launch::host_for(cfg.apps.tmux) == Ok(launch::Host::Tmux) {
+        out.accounts.iter_mut().flat_map(|a| a.places.iter_mut()).for_each(|p| p.behind = false);
+    }
     out.auto_group = cfg.routing.auto.trim().to_string();
     out.groups = cfg
         .routing
@@ -808,6 +813,70 @@ fn make_chat_folder(folder: &Path) -> Result<()> {
     std::fs::create_dir_all(folder).map_err(|e| anyhow!("Couldn't make a folder for it in {}: {e}", tilde(folder.parent().unwrap_or(folder))))
 }
 
+/// Opens a new terminal in `cwd` for a start, a resume, a fork or a move, where `[apps]` says
+/// (`launch::session_run`: a tab of the terminal, or tmux shown in it), beside the terminals of
+/// the worktrees near it and named `label`; `behind` your windows for a Background start.
+fn in_terminal(board: &Board, cfg: &Config, cwd: &Path, label: Option<&str>, behind: bool, input: &str, env: &[(String, String)]) -> Result<launch::Ran> {
+    let near = crate::board::terminal_neighbours(&board.lanes, cwd);
+    launch::session_run(&cfg.apps.terminal, cfg.apps.tmux, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind, label }, cwd, input, env)
+}
+
+/// What a start in a terminal says: `said`, with where it runs added when that isn't a tab of
+/// the terminal now (`launch::Ran::note`); only the note where `said` is None.
+fn with_note(said: Option<String>, ran: &launch::Ran, cfg: &Config) -> Option<String> {
+    match (said, ran.note(&launch::terminal_name(&cfg.apps.terminal))) {
+        (Some(said), Some(note)) => Some(format!("{said} {note}")),
+        (said, note) => said.or(note),
+    }
+}
+
+/// Where a start or a resume at `place` goes: there, unless it would open a terminal (Terminal,
+/// or Background for a harness with no background service of its own, `service`) while the screen
+/// is locked and nothing can (`hosted`, from `launch::host_for`). Then it goes out of sight where
+/// the account can (`offered`): under the harness's background service, else in Codealong, saying
+/// why; with neither, the start fails saying why. `terminal` is the app config.toml names.
+fn locked_place(place: Place, offered: &[Place], service: bool, hosted: std::result::Result<launch::Host, launch::Unhosted>, terminal: &str) -> Result<(Place, Option<String>)> {
+    let opens_terminal = place == Place::Terminal || (place == Place::Background && !service);
+    match hosted {
+        Err(why) if opens_terminal => {
+            let instead = match why {
+                launch::Unhosted::Locked { .. } => OUT_OF_SIGHT.into_iter().find(|p| offered.contains(p) && (*p != Place::Background || service)),
+                launch::Unhosted::NoTmux => None,
+            };
+            let Some(instead) = instead else { bail!(why.words(terminal)) };
+            let there = if instead == Place::Background { "in the background" } else { "in Codealong" };
+            Ok((instead, Some(format!("The screen is locked, and {terminal} can't open a terminal until you unlock it, so it goes on {there} instead."))))
+        }
+        _ => Ok((place, None)),
+    }
+}
+
+/// Where one of `account`'s starts at `place` goes now (`locked_place`), of the places it
+/// starts sessions in (`offered`), and why where that isn't `place`.
+fn place_now(account: &AccountCfg, place: Place, offered: &[Place], cfg: &Config) -> Result<(Place, Option<String>)> {
+    locked_place(place, offered, adapter_of(account).runs_in_background(), launch::host_for(cfg.apps.tmux), &launch::terminal_name(&cfg.apps.terminal))
+}
+
+/// What a start would run (`plan`) at the place it would go now (`place_now`): with `host`, where
+/// a terminal start runs (`tmux`, or the terminal's name), and `instead`, why it went elsewhere.
+/// `--snapshot --start-plan` and `codealong start --dry-run` print it.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_now(cfg: &Config, account: &AccountCfg, place: Place, folder: &Path, prompt: &str, model: Option<&str>, effort: Option<&str>, worktree: bool) -> Result<serde_json::Value> {
+    let (place, instead) = place_now(account, place, &ordered_places(account, &home()).unwrap_or_default(), cfg)?;
+    let planned = plan(account, place, folder, prompt, &new_session_id(), model, effort, worktree);
+    let mut out = serde_json::to_value(&planned)?;
+    if let Plan::Terminal { .. } = planned {
+        out["host"] = match launch::host_for(cfg.apps.tmux) {
+            Ok(launch::Host::Tmux) => "tmux".into(),
+            _ => launch::terminal_name(&cfg.apps.terminal).into(),
+        };
+    }
+    if let Some(why) = instead {
+        out["instead"] = why.into();
+    }
+    Ok(out)
+}
+
 /// Starts a session: checks the choice against the board and the config, then hands it to the
 /// terminal or the app, the way the account's harness starts one.
 pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
@@ -818,6 +887,21 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     if !offered.as_ref().is_ok_and(|ps| ps.contains(&spec.place)) {
         bail!(offered.err().unwrap_or_else(|| format!("{} can't start a session there.", account.name)));
     }
+    let (place, instead) = place_now(account, spec.place, offered.as_deref().unwrap_or_default(), cfg)?;
+    let started = start_at(board, cfg, spec, lane, account, place)?;
+    Ok(Started { message: with_instead(started.message, instead), ..started })
+}
+
+/// `message` with why the start went where it did put first, where there's a why.
+fn with_instead(message: Option<String>, instead: Option<String>) -> Option<String> {
+    match (instead, message) {
+        (Some(why), Some(m)) => Some(format!("{why} {m}")),
+        (why, m) => why.or(m),
+    }
+}
+
+/// `start` at `place`, the place it goes now.
+fn start_at(board: &Board, cfg: &Config, spec: &StartSpec, lane: &Lane, account: &AccountCfg, place: Place) -> Result<Started> {
     // A session in no project gets a folder of its own among Codealong's chats, made once the
     // start is known to be good.
     let chat = lane.starts_chats.then(|| chat_folder_in(Path::new(&lane.path)));
@@ -827,9 +911,9 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     }
     let adapter = adapter_of(account);
     let word = adapter.harness().word();
-    let (model, effort) = tuning(adapter, spec.place, false, spec.model.as_deref(), spec.effort.as_deref())?;
+    let (model, effort) = tuning(adapter, place, false, spec.model.as_deref(), spec.effort.as_deref())?;
     // A new worktree goes where the harness's command line takes it.
-    let on_command_line = matches!(spec.place, Place::Terminal | Place::Background);
+    let on_command_line = matches!(place, Place::Terminal | Place::Background);
     let worktree = spec.worktree && on_command_line && chat.is_none();
     if chat.is_some() {
         make_chat_folder(folder)?;
@@ -840,26 +924,25 @@ pub fn start(board: &Board, cfg: &Config, spec: &StartSpec) -> Result<Started> {
     let id = new_session_id();
     let dirs = (attachments::images_dir(), attachments::files_dir());
     let ask = asked(adapter, account, &spec.prompt, &id, model, None, effort, worktree, (&dirs.0, &dirs.1));
-    match spec.place {
+    match place {
         Place::Background if adapter.runs_in_background() => adapter.start_in_background(account, folder, &adapter.background_command(account, &ask)),
         // A harness with no background service of its own starts in its terminal, behind your
         // windows, so you stay where you are.
         Place::Terminal | Place::Background => {
-            let behind = spec.place == Place::Background;
+            let behind = place == Place::Background;
             let typed = adapter.start_in_terminal(account, &ask);
-            let near = crate::board::terminal_neighbours(&board.lanes, folder);
             // It has no title yet, so its tab goes by what it was asked.
             let label = crate::board::tab_label(&board.lanes, folder, &spec.prompt);
-            launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind, label: label.as_deref() }, folder, &typed.input, &typed.env)?;
+            let ran = in_terminal(board, cfg, folder, label.as_deref(), behind, &typed.input, &typed.env)?;
             // A harness that names its own sessions shows one on the board once it's written.
-            let message = typed.key.is_none().then(|| {
-                if behind {
+            let said = typed.key.is_none().then(|| {
+                if behind && ran == launch::Ran::InApp {
                     format!("{word} is starting in {}, in {} behind your windows.", lane.callsign, launch::terminal_name(&cfg.apps.terminal))
                 } else {
                     format!("{word} is starting in {}.", lane.callsign)
                 }
             });
-            Ok(Started { key: typed.key, message })
+            Ok(Started { key: typed.key, message: with_note(said, &ran, cfg) })
         }
         Place::ClaudeApp | Place::CodexApp => {
             let link = adapter.app_link(folder, &ask).ok_or_else(|| anyhow!("{} can't start a session there.", account.name))?;
@@ -937,9 +1020,21 @@ pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &s
         bail!("{title} is running already; send it a message instead.");
     }
     let adapter = crate::harness::adapter(s.harness);
-    if !resume_places(account, &home()).contains(&how.place) {
+    let offered = resume_places(account, &home());
+    if !offered.contains(&how.place) {
         bail!("{title} can't go on {} from here.", place_words(how.place, cfg));
     }
+    let (place, instead) = locked_place(how.place, &offered, adapter.runs_in_background(), launch::host_for(cfg.apps.tmux), &launch::terminal_name(&cfg.apps.terminal))?;
+    let resumed = resume_at(board, cfg, key, &ResumeIn { place, ..how.clone() }, prompt, (s, account, &cwd))?;
+    let sent = crate::send::Sent { message: with_instead(Some(resumed.sent.message), instead).unwrap_or_default(), ..resumed.sent };
+    Ok(Resumed { sent, ..resumed })
+}
+
+/// `resume` at `how.place`, the place it goes on in now, of the session as `to_fork` found it.
+fn resume_at(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &str, (s, account, cwd): (&crate::model::Session, &AccountCfg, &Path)) -> Result<Resumed> {
+    let title = format!("“{}”", s.title);
+    let adapter = crate::harness::adapter(s.harness);
+    let cwd = cwd.to_path_buf();
     let (model, effort) = tuning(adapter, how.place, true, how.model.as_deref(), how.effort.as_deref())?;
     let (prompt, carries_on) = resume_prompt(prompt, s);
     let dirs = (attachments::images_dir(), attachments::files_dir());
@@ -965,17 +1060,20 @@ pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &s
         Place::Terminal | Place::Background => {
             let behind = how.place == Place::Background;
             let (input, env) = adapter.resume(account, s, &ask)?;
-            let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
             let label = crate::board::tab_label(&board.lanes, &cwd, &s.title);
-            launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind, label: label.as_deref() }, &cwd, &input, &env)?;
+            let ran = in_terminal(board, cfg, &cwd, label.as_deref(), behind, &input, &env)?;
             let terminal = launch::terminal_name(&cfg.apps.terminal);
-            let behind = if behind { " behind your windows" } else { "" };
+            let in_terminal = match &ran {
+                launch::Ran::InApp if behind => format!(" in {terminal} behind your windows"),
+                launch::Ran::InApp | launch::Ran::InTmux(launch::Shown::Now) => format!(" in {terminal}"),
+                launch::Ran::InTmux(_) => String::new(),
+            };
             let with = match (carries_on, prompted) {
                 (true, _) => ", told to carry on the turn that was cut off",
                 (false, true) => " with this prompt",
                 (false, false) => "",
             };
-            (Some(key.to_string()), format!("Resumed {title} in {terminal}{behind}{on}{with}."))
+            (Some(key.to_string()), with_note(Some(format!("Resumed {title}{in_terminal}{on}{with}.")), &ran, cfg).unwrap_or_default())
         }
         Place::ClaudeApp | Place::CodexApp => {
             let Some(crate::send::Route::Own(app)) = adapter.app_way() else { bail!("{title} can't go on in {} from here.", adapter.app()) };
@@ -1107,11 +1205,11 @@ fn to_fork<'a>(board: &'a Board, cfg: &'a Config, key: &str) -> Result<(&'a crat
 pub fn fork(board: &Board, cfg: &Config, key: &str) -> Result<Started> {
     let (s, account, lane, cwd) = to_fork(board, cfg, key)?;
     let fork = crate::harness::adapter(s.harness).fork(&crate::harness::Ctx { account }, s)?;
-    let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
     let label = crate::board::tab_label(&board.lanes, &cwd, &s.title);
-    launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false, label: label.as_deref() }, &cwd, &fork.input, &fork.env)?;
+    let ran = in_terminal(board, cfg, &cwd, label.as_deref(), false, &fork.input, &fork.env)?;
     // One whose harness names the copy shows on the board once it's written.
-    let message = fork.key.is_none().then(|| format!("{} is opening a fork of {} in {}.", s.harness.word(), s.title, lane.callsign));
+    let said = fork.key.is_none().then(|| format!("{} is opening a fork of {} in {}.", s.harness.word(), s.title, lane.callsign));
+    let message = with_note(said, &ran, cfg);
     // Claude Code's transcript doesn't say what a fork into a terminal copied.
     if let Some(copy) = &fork.key {
         crate::origins::record(copy, key, crate::model::OriginHow::Fork);
@@ -1157,6 +1255,8 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
     // board to go on with however its terminal ends (`claude::Reader::closed_copies`), so the
     // session is closed only once it's written.
     let note = |copy: &str| crate::origins::write(copy, key, crate::model::OriginHow::Fork);
+    // Where a copy in a terminal runs, when that isn't a tab of it now.
+    let mut runs = None;
     let copy = if in_background {
         adapter.before_start(target, &cwd);
         let copy = adapter.move_to_background(&ctx, s, target, &cwd, prompt)?;
@@ -1171,14 +1271,16 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
             note(copy).map_err(|e| anyhow!("Couldn't note the move, so “{}” stays where it is: {e:#}", s.title))?;
         }
         adapter.before_start(target, &cwd);
-        let near = crate::board::terminal_neighbours(&board.lanes, &cwd);
         let label = crate::board::tab_label(&board.lanes, &cwd, &s.title);
-        if let Err(e) = launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false, label: label.as_deref() }, &cwd, &copy.input, &copy.env) {
-            // No copy started, so there's none to keep.
-            if let Some(Err(forgot)) = copy.key.as_deref().map(crate::origins::forget) {
-                eprintln!("The move's terminal didn't open, and its note couldn't be taken back, so its copy shows stopped: {forgot:#}");
+        match in_terminal(board, cfg, &cwd, label.as_deref(), false, &copy.input, &copy.env) {
+            Ok(ran) => runs = with_note(None, &ran, cfg),
+            Err(e) => {
+                // No copy started, so there's none to keep.
+                if let Some(Err(forgot)) = copy.key.as_deref().map(crate::origins::forget) {
+                    eprintln!("The move's terminal didn't open, and its note couldn't be taken back, so its copy shows stopped: {forgot:#}");
+                }
+                return Err(e);
             }
-            return Err(e);
         }
         copy.key
     };
@@ -1197,7 +1299,8 @@ pub fn move_to(board: &Board, cfg: &Config, key: &str, to: &str, prompt: &str) -
     }
     let place = if in_background { "as a background job".to_string() } else { format!("in a new terminal in {}", lane.callsign) };
     let goes = if prompt.trim().is_empty() { format!("it goes on {place}") } else { format!("it carries on {place}") };
-    let message = format!("Moved “{}” to {to}: {goes}.{left}", s.title);
+    let runs = runs.map(|r| format!(" {r}")).unwrap_or_default();
+    let message = format!("Moved “{}” to {to}: {goes}.{runs}{left}", s.title);
     Ok(Started { key: copy, message: Some(message) })
 }
 
@@ -1255,21 +1358,21 @@ pub fn move_to_folder(board: &Board, cfg: &Config, key: &str, lane_id: &str) -> 
         }
     }
     let there = if to.starts_chats { "a chat of its own".to_string() } else { to.callsign.clone() };
-    let (goes_on, how) = if in_background {
-        (adapter.move_folder_background(&ctx, s, &folder, keep, &prompt)?, "in the background")
+    let (goes_on, how, runs) = if in_background {
+        (adapter.move_folder_background(&ctx, s, &folder, keep, &prompt)?, "in the background", None)
     } else {
-        let near = crate::board::terminal_neighbours(&board.lanes, &folder);
         let label = crate::board::tab_label(&board.lanes, &folder, &s.title);
-        launch::terminal_run(&cfg.apps.terminal, launch::Placement { new_terminal: cfg.apps.new_terminal, near: &near, behind: false, label: label.as_deref() }, &folder, &typed.input, &typed.env)
+        let ran = in_terminal(board, cfg, &folder, label.as_deref(), false, &typed.input, &typed.env)
             .map_err(|e| anyhow!("“{}” is closed, but a terminal didn't open in {there}, so it hasn't moved; resume it from its menu: {e:#}", s.title))?;
-        (typed.key, "in a new terminal")
+        (typed.key, "in a new terminal", with_note(None, &ran, cfg))
     };
     let copied = goes_on.as_deref().is_some_and(|k| k != key);
     if let Some(copy) = goes_on.as_deref().filter(|_| copied) {
         crate::origins::record(copy, key, crate::model::OriginHow::Fork);
     }
     let copy_note = if copied { " Claude Code copies a background job's conversation into a new job rather than move it, so the copy takes its place." } else { "" };
-    let message = format!("Moved “{}” to {there}: it goes on there {how}.{copy_note}", s.title);
+    let runs = runs.map(|r| format!(" {r}")).unwrap_or_default();
+    let message = format!("Moved “{}” to {there}: it goes on there {how}.{runs}{copy_note}", s.title);
     Ok(Started { key: goes_on, message: Some(message) })
 }
 
@@ -1309,6 +1412,43 @@ fn move_target<'a>(cfg: &'a Config, s: &crate::model::Session, account: &Account
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// While the screen is locked a start that would open a terminal goes out of sight where the
+    /// account can: under its harness's background service, else in Codealong, saying why; with
+    /// neither, it fails saying why. A start that opens no terminal, or one a terminal can take,
+    /// goes where it was asked.
+    #[test]
+    fn a_terminal_start_while_the_screen_is_locked_goes_out_of_sight() {
+        use launch::{Host, Unhosted};
+        let all = [Place::Terminal, Place::Background, Place::Codealong];
+        for locked in [Err(Unhosted::Locked { tmux_installed: false }), Err(Unhosted::Locked { tmux_installed: true })] {
+            // Claude Code goes under its background service.
+            let (place, why) = locked_place(Place::Terminal, &all, true, locked, "Ghostty").unwrap();
+            assert_eq!(place, Place::Background);
+            assert_eq!(why.as_deref(), Some("The screen is locked, and Ghostty can't open a terminal until you unlock it, so it goes on in the background instead."));
+            assert_eq!(locked_place(Place::Background, &all, true, locked, "Ghostty").unwrap(), (Place::Background, None));
+            // A harness with no service of its own: its Background is a terminal behind your
+            // windows, so it goes on in Codealong.
+            for asked in [Place::Terminal, Place::Background] {
+                let (place, why) = locked_place(asked, &all, false, locked, "Ghostty").unwrap();
+                assert_eq!(place, Place::Codealong);
+                assert!(why.unwrap().ends_with("so it goes on in Codealong instead."));
+            }
+            // With nowhere else, the start says why it can't.
+            let refused = locked_place(Place::Terminal, &[Place::Terminal, Place::Background], false, locked, "Ghostty").unwrap_err().to_string();
+            assert!(refused.starts_with("The screen is locked, and Ghostty can't open a terminal until you unlock it."), "{refused}");
+            // Places that open no terminal stay as they are.
+            assert_eq!(locked_place(Place::Codealong, &all, false, locked, "Ghostty").unwrap(), (Place::Codealong, None));
+            assert_eq!(locked_place(Place::ClaudeApp, &all, true, locked, "Ghostty").unwrap(), (Place::ClaudeApp, None));
+        }
+        // tmux missing where the setting says always is a setting to fix, not a place to go round.
+        let refused = locked_place(Place::Terminal, &all, true, Err(Unhosted::NoTmux), "Ghostty").unwrap_err().to_string();
+        assert!(refused.contains("tmux isn't installed"), "{refused}");
+        // A terminal can take it, in its app or in tmux: it goes where it was asked.
+        for hosted in [Ok(Host::App), Ok(Host::Tmux)] {
+            assert_eq!(locked_place(Place::Terminal, &all, false, hosted, "Ghostty").unwrap(), (Place::Terminal, None));
+        }
+    }
 
     #[test]
     fn tells_a_moved_session_where_it_is_now() {

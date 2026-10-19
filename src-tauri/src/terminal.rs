@@ -391,13 +391,17 @@ pub fn start(asked: &Asked, apps: &AppNames, lanes: &[Lane], session_title: &str
         reports,
     };
     let d = dir(&run.id);
-    let minutes = crate::config::current().map_or(crate::config::CLOSE_COMMAND_TABS_AFTER, |c| c.apps.close_command_tabs_after);
+    let cfg = crate::config::current();
+    let minutes = cfg.as_ref().map_or(crate::config::CLOSE_COMMAND_TABS_AFTER, |c| c.apps.close_command_tabs_after);
+    let use_tmux = cfg.as_ref().map_or(crate::config::TmuxUse::default(), |c| c.apps.tmux);
     write_folder(&d, &run, Duration::from_secs(u64::from(minutes) * 60)).with_context(|| format!("writing {}", d.display()))?;
     let near = crate::board::terminal_neighbours(lanes, cwd);
     let label = crate::board::tab_label(lanes, cwd, &format!("Run {}", one_line(&run.command, 60)));
     let place = crate::launch::Placement { new_terminal: apps.new_terminal, near: &near, behind: false, label: label.as_deref() };
     let env = [(ENV.to_string(), d.to_string_lossy().into_owned())];
-    if let Err(e) = crate::launch::terminal_run(&apps.terminal_id, place, cwd, TYPED, &env) {
+    // While the screen is locked, or where `[apps] tmux` says, it runs in tmux, as a session does
+    // (`launch::session_run`), and what it prints comes back all the same.
+    if let Err(e) = crate::launch::session_run(&apps.terminal_id, use_tmux, place, cwd, TYPED, &env) {
         // A terminal can open the tab and run the line without answering in time (a napping
         // Ghostty took over a minute): once the wrapper has noted itself the command runs, and the
         // wrapper notes its end and closes the tab through this folder. Otherwise the folder goes,

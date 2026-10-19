@@ -1,7 +1,8 @@
 //! Closing the sessions that sat idle a long while and want nothing from you. It's a one-off
 //! action: `plan` says what would close and why, and `close` closes the ones you kept ticked,
 //! checking each again first. A session in a Ghostty, iTerm2 or Terminal tab closes with its tab,
-//! which ends the agent's process; a background job is stopped by its harness. Either way its
+//! and one in tmux with its pane, which ends the agent's process; a background job is stopped by
+//! its harness. Either way its
 //! conversation stays on disk and resumes like any other.
 //!
 //! A session closes only when it's idle or unread, has been quiet for the whole wait, left

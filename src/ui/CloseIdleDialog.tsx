@@ -1,8 +1,8 @@
 // File › Close idle sessions…: the sessions that sat idle and want nothing from you, each with
-// why and what closing does to it, ticked to close. A Ghostty, iTerm2 or Terminal tab closes,
-// ending the agent's process; a background job is stopped. With Also archive them, each is
-// archived too, as Mark as done does, and the ones Codealong can't close (an app's, one it runs
-// itself, one in tmux) are listed to be archived only. It says first what would happen and does
+// why and what closing does to it, ticked to close. A Ghostty, iTerm2 or Terminal tab, or a tmux
+// pane, closes, ending the agent's process; a background job is stopped. With Also archive them,
+// each is archived too, as Mark as done does, and the ones Codealong can't close (an app's, one it
+// runs itself) are listed to be archived only. It says first what would happen and does
 // it only when you press the button; the engine checks each one again first (idle.rs). The
 // conversations stay to resume.
 
@@ -180,7 +180,7 @@ export function CloseIdleDialog({ onClose, onDone }: Props) {
     <Dialog
       className="ca-idle"
       title="Close idle sessions"
-      lede="Sessions that are idle and whose last reply asks you nothing. A Ghostty, iTerm2 or Terminal tab closes, which ends the agent’s process, and a background job is stopped; the conversation stays and resumes like any other."
+      lede="Sessions that are idle and whose last reply asks you nothing. A Ghostty, iTerm2 or Terminal tab, or a tmux pane, closes, which ends the agent’s process, and a background job is stopped; the conversation stays and resumes like any other."
       busy={closing}
       onClose={onClose}
       aside={<span className="ca-idle-count">{!failed && plan && plan.close.length > 0 ? `${chosen.length} of ${plan.close.length} ticked` : ''}</span>}
@@ -205,7 +205,7 @@ export function CloseIdleDialog({ onClose, onDone }: Props) {
         <div className="ca-idle-wait">
           <span>Idle for at least</span>
           <Seg label="Idle for at least" options={WAITS.map((w) => ({ id: w.ms, label: w.label }))} value={after} disabled={closing} onPick={setAfter} />
-          <label className={cx('ca-check', 'ca-idle-archive', closing && 'is-disabled')} title="Each is marked seen and archived too, as Mark as done does, so it leaves every list but Archived. Sessions Codealong can’t close (in the Claude or Codex app, run by Codealong, in tmux) are archived only and stay open where they are.">
+          <label className={cx('ca-check', 'ca-idle-archive', closing && 'is-disabled')} title="Each is marked seen and archived too, as Mark as done does, so it leaves every list but Archived. Sessions Codealong can’t close (in the Claude or Codex app, run by Codealong) are archived only and stay open where they are.">
             <input type="checkbox" checked={archive} disabled={closing} onChange={(e) => setArchive(e.target.checked)} />
             <span className="ca-check-box" aria-hidden="true">
               <Icon name="check" size={11} stroke={2.5} />

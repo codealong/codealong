@@ -49,6 +49,12 @@ pub fn user_initiated_thread() {}
 /// Linux has no App Nap.
 pub fn no_app_nap() {}
 
+/// Never locked, as far as Codealong goes: each desktop's locker says so in its own way, and a
+/// terminal there is a tmux session already (launch/linux.rs), which a locked screen doesn't stop.
+pub fn screen_locked() -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

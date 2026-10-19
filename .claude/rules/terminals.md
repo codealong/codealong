@@ -66,8 +66,13 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   `text_action`). Not said there: `send key "<name>"` takes the Swift names of Ghostty's keys
   (`digit1`, `escape`, `enter`; `digit_1` and `1` error with "Unknown key name"). Checked on
   1.3.1 (2026-09-27); `cargo test ghostty_presses_keys -- --ignored` repeats it.
-- While the screen is locked Ghostty doesn't start new terminals ("Terminal surface model is not
-  available"), so nothing can be typed into one opened then.
+- While the screen is locked Ghostty doesn't start new terminals: `new window` answers a window
+  whose terminal never started (`ghostty_surface_new` returned NULL; this Mac's log has
+  `[embedded_window] error initializing surface err=error.OutOfMemory` at 2026-10-12 12:55:44,
+  during a lock, the error Ghostty's macOS bindings give for a NULL from a CoreText, CoreGraphics or
+  IOSurface call), and `input text` into it says "Terminal surface model is not available". So
+  starts go to tmux then (below). By 1.3.1's source, `input text` and `send key` into a terminal
+  made before the lock reach its pty without the display; not checked live.
 - Where a new tab goes and its name (`window-new-tab-position`, `move_tab`, `set_tab_title`):
   `launch/ghostty.rs` (`GHOSTTY_NEW`), the name from `board::tab_label`. Not said there: `new
   tab in window id <w>` answers the tab, whose `id` and `index` can be read and which `tab id
@@ -127,6 +132,30 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   you can see count: `launch/terminal_app.rs` (`TAB_ON`). The profile's setting is
   `shellExitAction = 2` ("When the shell exits: Don't close the window"). In AppleScript
   `contents of <tab>` is the tab itself (the keyword wins); `history of <tab>` is its text.
+
+## Codealong's tmux server
+
+- When a start runs in tmux (`[apps] tmux`, the screen locked), and how a tab shows it and ends
+  it: `launch.rs` (`host_for`, `session_run`, `show_unlocked`), `launch/tmux.rs` (module header,
+  `hosted`, `CONFIG`, `start`, `attach_line`). The lock is the window server's
+  `CGSSessionScreenIsLocked`, there only while locked: `os/system/macos.rs` (`screen_locked`); it
+  read true with the screen locked and the display asleep (2026-10-18), and `ioreg -n Root -d1 -a`
+  shows it too. iTerm2's and Terminal's new windows while locked are unchecked, and taken to fail
+  as Ghostty's do.
+- Not said there (tmux 3.7c, 2026-10-18): `destroy-unattached on` set on a session no client has
+  attached to ends it at once (its server exited with it), so it's set as a tab attaches; a client
+  hung up after that ends the session, and a plain attach's leaves it running.
+  `set-option -t '=<name>'` refuses ("no such session") where `display-message -t '=<name>:'`
+  takes it, so sessions are held by the ids `new-session -P -F '#{session_id} #{pane_id}'` prints.
+  `TMUX` is `<socket>,<server's pid>,<session>`. `default-size` sizes a session started detached,
+  and `default-terminal` is `tmux-256color`, which macOS 26's terminfo has.
+- macOS shows no other process the environment of its own programs: a pane's `/bin/zsh` read
+  empty through `KERN_PROCARGS2`, where a `claude`'s reads, so a pane whose `TMUX` can't be read is
+  looked for in Codealong's server and then yours (`launch/tmux.rs` `Server::of`, `pane_of`).
+- `paste-buffer` without `-r` turns each newline into a Return, as terminals do with a paste; a
+  program that asked for bracketed pastes gets the text whole (left so).
+- `cargo test a_session_runs_in_codealongs_own_tmux_server -- --ignored` starts a real session in a
+  scratch server of its own, types into it, attaches and hangs up a client, with nothing on screen.
 
 ## Starting a session in iTerm2 or Terminal
 
@@ -193,6 +222,12 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   closes there, on windows of its own; don't type on the Mac while it runs.
 
 ## Unchecked
+
+- tmux, 2026-10-18: a start while locked going to tmux and its Ghostty tab opening once unlocked,
+  seen end to end (each step was, apart); and which app macOS's privacy prompts name for an agent
+  under Codealong's tmux server, which Codealong starts (Codealong, as for a background agent whose
+  daemon it started, would be the guess), and so whether access granted to the terminal app
+  (Full Disk Access, say) reaches it.
 
 - Ghostty, 2026-10-03: whether macOS lets Ghostty's own ask to be the active app through while
   another app is active, which would bring it forward on a Background start anyway.

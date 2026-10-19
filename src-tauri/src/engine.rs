@@ -135,6 +135,9 @@ pub enum Msg {
     /// Sessions told to carry on after a lost connection (reconnect.rs), and which weren't and
     /// why if any.
     Continued(Option<String>),
+    /// Sessions started in tmux while the screen was locked shown in your terminal once it
+    /// wasn't (launch.rs `show_unlocked`), and which weren't and why if any.
+    ShownUnlocked(Option<String>),
     /// Sessions told what their helpers did (helpers.rs), and which weren't and why if any.
     Reported(Option<String>),
     /// A job of the automatic reviews went (autoreview.rs), and why it didn't if it didn't:
@@ -717,7 +720,10 @@ fn open_with(board: &Board, cfg: &config::Config, lane_id: &str, target_id: &str
                     let cmd = harness::adapter(s.harness).resume_typed(account, s).ok_or_else(|| anyhow!("This session can't be resumed in a terminal."))?;
                     // Going on starts it again, which nothing does on an account turned off.
                     account.ensure_on()?;
-                    launch::terminal_open(&apps.terminal_id, named, &cwd, Some(&format!("{cmd}\n")))?;
+                    // A click opens it in front, so the one thing to say is a tab that didn't open.
+                    if let ran @ launch::Ran::InTmux(launch::Shown::Not(_)) = launch::session_run(&apps.terminal_id, cfg.apps.tmux, named, &cwd, &format!("{cmd}\n"), &[])? {
+                        bail!(ran.note(&apps.terminal).unwrap_or_default());
+                    }
                 }
                 // A new terminal in the folder it works in, beside the terminals already there
                 // (`place`). Nothing about the session itself was looked at.
@@ -1138,6 +1144,9 @@ struct Engine {
     /// Why a session wasn't told what a command you ran for it printed.
     run_report_warning: Option<String>,
     continue_warning: Option<String>,
+    /// Why a session started while the screen was locked didn't open in your terminal once it
+    /// wasn't.
+    show_warning: Option<String>,
     report_warning: Option<String>,
     /// The files changed in the background whose last change couldn't be made, by name with
     /// why (`store::problems`), as of the last board.
@@ -1273,6 +1282,7 @@ impl Engine {
             running_elsewhere: Default::default(),
             run_report_warning: None,
             continue_warning: None,
+            show_warning: None,
             report_warning: None,
             store_warnings: Vec::new(),
             servers: None,
@@ -2088,6 +2098,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.continue_warning = why;
                     self.dirty = true;
                 }
+                Ok(Msg::ShownUnlocked(why)) => {
+                    self.show_warning = why;
+                    self.dirty = true;
+                }
                 Ok(Msg::Reported(why)) => {
                     self.report_warning = why;
                     self.dirty = true;
@@ -2606,6 +2620,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             said("nudges", "A session wasn't told its PR was approved", self.nudge_warning.as_ref()),
             said("terminal-runs", "A session wasn't told what a command printed", self.run_report_warning.as_ref()),
             said("reconnect", "A session wasn't told to carry on", self.continue_warning.as_ref()),
+            said("unlocked", "A session didn't open in your terminal", self.show_warning.as_ref()),
             said("helpers", "A session wasn't told what its helper did", self.report_warning.as_ref()),
             said("reviews", "A pull request wasn't reviewed", review.map(|s| &s.text)).map(|n| Notice { review_again: review.and_then(|s| s.again.clone()), ..n }),
             said("team-files", "A repo's team settings aren't used", team_files.as_ref()),
@@ -2632,6 +2647,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         self.read_team_files();
         self.read_training();
+        // Sessions started in tmux while the screen was locked open in your terminal once it isn't.
+        if launch::unlocked_with_sessions_to_show() {
+            let tx = self.tx.clone();
+            throttle::background("codealong-show-unlocked", launch::show_unlocked, move |failed| {
+                let why = failed.filter(|f| !f.is_empty()).map(|f| format!("{} It still runs in tmux; Show in opens it.", f.join("; ")));
+                let _ = tx.send(Msg::ShownUnlocked(why));
+            });
+        }
         // A new account's folder appears when it first signs in; start reading it.
         if self.missing_homes.iter().any(|p| p.exists()) {
             self.reload();

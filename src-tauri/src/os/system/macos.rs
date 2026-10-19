@@ -78,6 +78,30 @@ pub fn no_app_nap() {
     std::mem::forget(activity);
 }
 
+/// Whether the screen is locked, as the window server's login session says. Programs carry on
+/// then, but an app can't make a working window: Ghostty's new terminals fail to start
+/// (".claude/rules/terminals.md"). False for a process outside a login session (over SSH), which
+/// has no session to ask.
+pub fn screen_locked() -> bool {
+    use objc2::msg_send;
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::NSString;
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGSessionCopyCurrentDictionary() -> *mut AnyObject;
+    }
+    // SAFETY: the copy is ours (+1), or null outside a login session; a CFDictionary is toll-free
+    // bridged to NSDictionary.
+    let Some(session) = (unsafe { Retained::from_raw(CGSessionCopyCurrentDictionary()) }) else { return false };
+    let key = NSString::from_str("CGSSessionScreenIsLocked");
+    // SAFETY: NSDictionary's `objectForKey:`, which answers nil for a key it hasn't: the key is
+    // there only while the screen is locked.
+    let locked: Option<Retained<AnyObject>> = unsafe { msg_send![&*session, objectForKey: &*key] };
+    // SAFETY: the value is a CFBoolean, toll-free bridged to NSNumber, which answers `boolValue`.
+    locked.is_some_and(|v| unsafe { msg_send![&*v, boolValue] })
+}
+
 /// Fills `buf` with random bytes from the kernel.
 pub fn random_bytes(buf: &mut [u8]) {
     // SAFETY: it writes the length it's given into the buffer.

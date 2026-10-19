@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 
-use crate::config::NewTerminal;
+use crate::config::{NewTerminal, TmuxUse};
 use crate::os::{self, open::App, Os};
 use crate::procs;
 use crate::util::{home, sh_quote};
@@ -362,6 +362,175 @@ pub fn terminal_open(profile: &str, place: Placement, path: &Path, input: Option
 /// plus return). The shell expands variables in `input` from `env`.
 pub fn terminal_run(profile: &str, place: Placement, path: &Path, input: &str, env: &[(String, String)]) -> Result<()> {
     opens_in(profile)?.run(place, path, input, env)
+}
+
+/// Where a session Codealong starts in a terminal runs (`session_run`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Host {
+    /// In a tab of the terminal app.
+    App,
+    /// In Codealong's own tmux server (tmux.rs `hosted`), which the terminal app shows by
+    /// attaching to it.
+    Tmux,
+}
+
+/// Why a session can't start in a terminal now.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Unhosted {
+    /// The screen is locked, so the terminal app can't start one, and tmux doesn't either:
+    /// `[apps] tmux` says never, or it isn't installed.
+    Locked { tmux_installed: bool },
+    /// `[apps] tmux` says always, and it isn't installed.
+    NoTmux,
+}
+
+impl Unhosted {
+    /// What a start says of it, in the words of `terminal`, the app config.toml names.
+    pub fn words(self, terminal: &str) -> String {
+        match self {
+            Unhosted::Locked { tmux_installed: false } => format!("The screen is locked, and {terminal} can't open a terminal until you unlock it. With tmux installed (brew install tmux), Codealong starts sessions in it meanwhile."),
+            Unhosted::Locked { tmux_installed: true } => format!("The screen is locked, and {terminal} can't open a terminal until you unlock it. Settings › General › Run sessions in tmux can have Codealong start them in tmux meanwhile."),
+            Unhosted::NoTmux => "Settings › General says to run sessions in tmux, but tmux isn't installed where Codealong looks for it (brew install tmux).".into(),
+        }
+    }
+}
+
+/// Where a session Codealong starts in a terminal runs, as `[apps] tmux` says, the screen is,
+/// and tmux is installed. While the screen is locked a terminal app can't be counted on to start
+/// one: Ghostty's terminals don't start then, and iTerm2's and Terminal's are unchecked. Linux's
+/// terminal is a tmux session already.
+pub fn host_for(use_tmux: TmuxUse) -> std::result::Result<Host, Unhosted> {
+    host_rule(os::current(), use_tmux, screen_locked(), tmux::bin().is_some())
+}
+
+fn host_rule(on: Os, use_tmux: TmuxUse, locked: bool, has_tmux: bool) -> std::result::Result<Host, Unhosted> {
+    match (on, use_tmux, locked, has_tmux) {
+        (Os::Linux, ..) => Ok(Host::App),
+        (_, TmuxUse::Always, _, true) | (_, TmuxUse::WhenLocked, true, true) => Ok(Host::Tmux),
+        (_, TmuxUse::Always, _, false) => Err(Unhosted::NoTmux),
+        (_, _, false, _) => Ok(Host::App),
+        (_, _, true, tmux_installed) => Err(Unhosted::Locked { tmux_installed }),
+    }
+}
+
+/// Whether tmux is where Codealong looks for it.
+pub fn tmux_installed() -> bool {
+    tmux::bin().is_some()
+}
+
+/// Whether the screen is locked (os/system `screen_locked`).
+pub fn screen_locked() -> bool {
+    #[cfg(test)]
+    if let Some(staged) = stage::screen_locked() {
+        return staged;
+    }
+    os::system::screen_locked()
+}
+
+/// How a session Codealong started in a terminal went (`session_run`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Ran {
+    /// In a tab of the terminal app.
+    InApp,
+    /// In Codealong's tmux server, which the terminal shows as `Shown` says.
+    InTmux(Shown),
+}
+
+/// When a terminal shows a session started in tmux.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Shown {
+    /// It does now.
+    Now,
+    /// Once the screen is unlocked (`show_unlocked`).
+    OnUnlock,
+    /// When Show in asks: it started behind your windows.
+    OnShowIn,
+    /// When Show in asks, since the terminal didn't open, for this reason.
+    Not(String),
+}
+
+impl Ran {
+    /// What a start adds to what it says, for `terminal`, where the session isn't in a tab of it
+    /// now.
+    pub fn note(&self, terminal: &str) -> Option<String> {
+        match self {
+            Ran::InApp | Ran::InTmux(Shown::Now) => None,
+            Ran::InTmux(Shown::OnUnlock) => Some(format!("The screen is locked, so it runs in tmux, and {terminal} shows it once you unlock.")),
+            Ran::InTmux(Shown::OnShowIn) => Some("It runs in tmux; Show in opens it.".into()),
+            Ran::InTmux(Shown::Not(why)) => Some(format!("It runs in tmux, but {terminal} didn't open it ({why}); Show in opens it.")),
+        }
+    }
+}
+
+/// Starts a session, or a command, in a new terminal as `terminal_run` does, where `host_for`
+/// says: a tab of the terminal app, or a session in Codealong's tmux server with a tab of the
+/// app attached to it, which ends it as it closes, as a tab's own session ends. A start behind
+/// your windows opens no tab; one while the screen is locked opens it once it isn't. A host of
+/// Codealong's own would take tmux's place here.
+pub fn session_run(profile: &str, use_tmux: TmuxUse, place: Placement, path: &Path, input: &str, env: &[(String, String)]) -> Result<Ran> {
+    let app = opens_in(profile)?;
+    match host_for(use_tmux).map_err(|why| anyhow!(why.words(app.name())))? {
+        Host::App => terminal_run(profile, place, path, input, env).map(|_| Ran::InApp),
+        Host::Tmux => {
+            let hosted = tmux::start(path, input, env, place.label)?;
+            let line = hosted.attach_line(true).ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?;
+            if place.behind {
+                return Ok(Ran::InTmux(Shown::OnShowIn));
+            }
+            if screen_locked() {
+                show_once_unlocked(profile, place, path, line, hosted.pane);
+                return Ok(Ran::InTmux(Shown::OnUnlock));
+            }
+            // The session runs whether or not a tab shows it: Show in opens one later.
+            Ok(Ran::InTmux(match app.run(place, path, &format!("exec {line}\n"), &[]) {
+                Ok(()) => Shown::Now,
+                Err(e) => Shown::Not(e.to_string()),
+            }))
+        }
+    }
+}
+
+/// A session started in tmux while the screen was locked, for a tab of its terminal to show once
+/// it isn't: where the tab goes, and what it runs.
+struct ToShow {
+    profile: String,
+    new_terminal: NewTerminal,
+    near: Vec<Vec<String>>,
+    label: Option<String>,
+    dir: PathBuf,
+    line: String,
+    pane: String,
+}
+
+static TO_SHOW: Mutex<Vec<ToShow>> = Mutex::new(Vec::new());
+
+fn show_once_unlocked(profile: &str, place: Placement, dir: &Path, line: String, pane: String) {
+    let to_show = ToShow { profile: profile.to_string(), new_terminal: place.new_terminal, near: place.near.to_vec(), label: place.label.map(String::from), dir: dir.to_path_buf(), line, pane };
+    TO_SHOW.lock().unwrap_or_else(|e| e.into_inner()).push(to_show);
+}
+
+/// Whether sessions started while the screen was locked wait for it to be unlocked to show, and
+/// it is: the engine's tick asks, and shows them (`show_unlocked`) off its thread.
+pub fn unlocked_with_sessions_to_show() -> bool {
+    !TO_SHOW.lock().unwrap_or_else(|e| e.into_inner()).is_empty() && !screen_locked()
+}
+
+/// Opens a tab for each session started while the screen was locked, as its start would have,
+/// but for one that ended meanwhile or that a terminal shows already (Show in attached one). A
+/// tab that doesn't open is said, and its session goes on in tmux for Show in to open.
+pub fn show_unlocked() -> Vec<String> {
+    let waiting = std::mem::take(&mut *TO_SHOW.lock().unwrap_or_else(|e| e.into_inner()));
+    let mut failed = Vec::new();
+    for s in waiting {
+        if tmux::shown(&s.pane) != Some(false) {
+            continue;
+        }
+        let place = Placement { new_terminal: s.new_terminal, near: &s.near, behind: false, label: s.label.as_deref() };
+        if let Err(e) = opens_in(&s.profile).and_then(|app| app.run(place, &s.dir, &format!("exec {}\n", s.line), &[])) {
+            failed.push(format!("{}: {e}", s.label.as_deref().unwrap_or("A session")));
+        }
+    }
+    failed
 }
 
 /// The terminal a profile names, to open something in. Says so when its app isn't here, rather
@@ -1021,7 +1190,7 @@ pub fn codex_review_url(pr_url: &str) -> String {
 mod tests {
     use super::ghostty::{osascript, terminal_of as ghostty_terminal_of, terminals as ghostty_terminals};
     use super::ghostty::GHOSTTY_FOCUS;
-    use super::tmux::{client_for as tmux_client_for, pane_for as tmux_pane_for, Client as TmuxClient, Pane as TmuxPane};
+    use super::tmux::{client_for as tmux_client_for, pane_for as tmux_pane_for, socket_in as tmux_socket_in, Client as TmuxClient, Pane as TmuxPane, Server as TmuxServer};
     use super::*;
 
     /// A send waits its turn only as long as it has; a key press, or a send once the turn is
@@ -1756,13 +1925,54 @@ end run
     #[test]
     fn a_tmux_pane_is_found_by_its_tty() {
         let list = "/dev/ttys003 %0 @0 1 main\n/dev/ttys012 %4 @3 0 my agents\n";
-        assert_eq!(tmux_pane_for(list, "/dev/ttys012"), Some(TmuxPane { id: "%4".into(), window: "@3".into(), shown_in: vec![] }));
-        assert_eq!(tmux_pane_for(list, "/dev/ttys003"), Some(TmuxPane { id: "%0".into(), window: "@0".into(), shown_in: vec!["main".into()] }));
-        assert_eq!(tmux_pane_for(list, "/dev/ttys01"), None);
+        let pane = |id: &str, window: &str, shown_in: &[&str]| TmuxPane { id: id.into(), window: window.into(), shown_in: shown_in.iter().map(|s| s.to_string()).collect(), server: TmuxServer::Yours };
+        assert_eq!(tmux_pane_for(list, "/dev/ttys012", TmuxServer::Yours), Some(pane("%4", "@3", &[])));
+        assert_eq!(tmux_pane_for(list, "/dev/ttys003", TmuxServer::Yours), Some(pane("%0", "@0", &["main"])));
+        assert_eq!(tmux_pane_for(list, "/dev/ttys01", TmuxServer::Yours), None);
         // A window in several sessions (a group's, or linked) is listed once in each: it shows
         // wherever any of them is attached, whichever comes first.
         let grouped = "/dev/ttys025 %0 @0 0 agents\n/dev/ttys029 %1 @1 0 agents\n/dev/ttys025 %0 @0 1 view\n/dev/ttys025 %0 @0 2 also\n";
-        assert_eq!(tmux_pane_for(grouped, "/dev/ttys025"), Some(TmuxPane { id: "%0".into(), window: "@0".into(), shown_in: vec!["view".into(), "also".into()] }));
+        assert_eq!(tmux_pane_for(grouped, "/dev/ttys025", TmuxServer::Yours), Some(pane("%0", "@0", &["view", "also"])));
+        // A pane in another server is that server's.
+        let theirs = TmuxServer::Socket(PathBuf::from("/s/tmux.sock"));
+        assert_eq!(tmux_pane_for(list, "/dev/ttys012", theirs.clone()).map(|p| p.server), Some(theirs));
+    }
+
+    #[test]
+    fn a_panes_server_is_the_one_its_tmux_variable_names() {
+        assert_eq!(tmux_socket_in("/private/tmp/tmux-501/default,1234,0"), Some(PathBuf::from("/private/tmp/tmux-501/default")));
+        // A socket's path may have commas and spaces of its own.
+        assert_eq!(tmux_socket_in("/Users/a,b/Library/Application Support/Codealong/tmux.sock,98760,3"), Some(PathBuf::from("/Users/a,b/Library/Application Support/Codealong/tmux.sock")));
+        assert_eq!(tmux_socket_in("nonsense"), None);
+        assert_eq!(tmux_socket_in(",1,2"), None);
+    }
+
+    /// Where a session Codealong starts in a terminal runs: in tmux where `[apps] tmux` says,
+    /// and while the screen is locked when it may and can; otherwise in the terminal app, unless
+    /// the screen is locked, when nothing can run it. Linux's terminal is tmux already.
+    #[test]
+    fn a_session_runs_in_tmux_as_the_setting_and_the_screen_say() {
+        use TmuxUse::{Always, Never, WhenLocked};
+        let locked = |tmux_installed| Err(Unhosted::Locked { tmux_installed });
+        for (use_tmux, locked_now, has_tmux, want) in [
+            (Always, false, true, Ok(Host::Tmux)),
+            (Always, true, true, Ok(Host::Tmux)),
+            (Always, false, false, Err(Unhosted::NoTmux)),
+            (WhenLocked, false, true, Ok(Host::App)),
+            (WhenLocked, true, true, Ok(Host::Tmux)),
+            (WhenLocked, false, false, Ok(Host::App)),
+            (WhenLocked, true, false, locked(false)),
+            (Never, false, true, Ok(Host::App)),
+            (Never, true, true, locked(true)),
+            (Never, true, false, locked(false)),
+        ] {
+            assert_eq!(host_rule(Os::MacOs, use_tmux, locked_now, has_tmux), want, "{use_tmux:?}, locked {locked_now}, tmux {has_tmux}");
+            assert_eq!(host_rule(Os::Linux, use_tmux, locked_now, has_tmux), Ok(Host::App));
+        }
+        // What a start says of each, in the terminal's words.
+        assert!(Unhosted::Locked { tmux_installed: false }.words("Ghostty").contains("brew install tmux"));
+        assert!(Unhosted::Locked { tmux_installed: true }.words("Ghostty").contains("Run sessions in tmux"));
+        assert!(Unhosted::NoTmux.words("Ghostty").starts_with("Settings › General says to run sessions in tmux"));
     }
 
     #[test]

@@ -680,7 +680,7 @@ export interface ProjectCfg {
 /** config.toml, as the engine parses it (src-tauri/src/config.rs). Keys are the file's own. */
 export interface Config {
   scan: string[];
-  apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean; close_command_tabs_after?: number };
+  apps: { terminal: string; editor: string; new_terminal?: NewTerminal; move_pointer?: boolean; close_command_tabs_after?: number; tmux?: TmuxUse };
   /** `zoom` is a percent; Settings leaves it as config.toml has it. */
   appearance: { theme: Theme; zoom?: number };
   /** Shortcuts that work in any app, as config.toml writes them (`Option+Cmd+/`); empty is off. */
@@ -975,6 +975,10 @@ export interface DeviceFound {
  *  beside the same worktree, repo or project. */
 export type NewTerminal = 'window' | 'tab' | 'project';
 
+/** When sessions Codealong starts run in tmux, shown in the terminal (`[apps] tmux`, config.rs
+ *  `TmuxUse`). */
+export type TmuxUse = 'always' | 'when-locked' | 'never';
+
 /** A terminal or editor profile `[apps]` can name. */
 export interface Profile {
   id: string;
@@ -1008,6 +1012,8 @@ export interface ConfigView {
   /** The shortcuts a new config.toml has on this OS (config.rs `default_shortcuts`), which
    *  Settings offers to put back. Missing from older engines. */
   defaultShortcuts?: Config['shortcuts'];
+  /** Whether tmux is where Codealong looks for it, for `[apps] tmux`. Missing from older engines. */
+  tmuxInstalled?: boolean;
 }
 
 /** A Chrome profile (src-tauri/src/chrome.rs). */

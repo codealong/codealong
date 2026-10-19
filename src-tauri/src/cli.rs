@@ -4600,7 +4600,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     if a.dry_run {
         let cfg = c.cfg()?.clone();
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
-        let plan = start::plan(account, spec.place, Path::new(&spec.lane_id), &spec.prompt, &start::new_session_id(), spec.model.as_deref(), spec.effort.as_deref(), spec.worktree);
+        let plan = start::plan_now(&cfg, account, spec.place, Path::new(&spec.lane_id), &spec.prompt, spec.model.as_deref(), spec.effort.as_deref(), spec.worktree)?;
         if json {
             return print_json(&serde_json::json!({ "spec": spec, "plan": plan }));
         }

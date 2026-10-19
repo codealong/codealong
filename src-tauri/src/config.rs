@@ -1038,11 +1038,38 @@ pub struct AppsCfg {
     /// closes by itself, unless you took a shell there (terminal.rs `wrapper`); 0 keeps it open.
     #[serde(default = "default_close_command_tabs_after")]
     pub close_command_tabs_after: u32,
+    /// When the sessions Codealong starts in a terminal run in tmux, shown in the terminal, rather
+    /// than in the terminal itself (launch.rs `host_for`).
+    #[serde(default)]
+    pub tmux: TmuxUse,
 }
 
 impl Default for AppsCfg {
     fn default() -> Self {
-        AppsCfg { terminal: default_terminal(), editor: default_editor(), new_terminal: NewTerminal::default(), move_pointer: false, close_command_tabs_after: default_close_command_tabs_after() }
+        AppsCfg { terminal: default_terminal(), editor: default_editor(), new_terminal: NewTerminal::default(), move_pointer: false, close_command_tabs_after: default_close_command_tabs_after(), tmux: TmuxUse::default() }
+    }
+}
+
+/// When a session Codealong starts in a terminal runs in tmux, in a server of Codealong's own,
+/// with the terminal showing it: for every start, only while the screen is locked (when Ghostty
+/// can't start a terminal, and a start would fail), or never. Linux's terminals are tmux
+/// sessions whatever this says.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TmuxUse {
+    Always,
+    #[default]
+    WhenLocked,
+    Never,
+}
+
+impl TmuxUse {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TmuxUse::Always => "always",
+            TmuxUse::WhenLocked => "when-locked",
+            TmuxUse::Never => "never",
+        }
     }
 }
 
@@ -1508,7 +1535,7 @@ fn set_accounts(doc: &mut toml_edit::DocumentMut, accounts: &[AccountCfg]) {
     set_tables(doc, "accounts", rows);
 }
 
-const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\" or \"terminal\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n";
+const APPS_COMMENT: &str = "# Where Codealong opens things. terminal: \"ghostty\", \"iterm2\" or \"terminal\". editor: \"vscode\", \"cursor\", \"zed\", \"xcode\" and the others\n# Settings lists, or any app's name. Picking another editor from an Open in menu sets it here.\n# new_terminal: \"window\", \"tab\" (in the front window), or \"project\" (a tab beside the same repo or project).\n# move_pointer: move the pointer to a terminal Codealong brings forward on another screen.\n# close_command_tabs_after: minutes after a command Codealong runs in your terminal ends that its tab\n# closes, unless you pressed Return for a shell there; 0 keeps it open.\n# tmux: when the sessions Codealong starts run in tmux, shown in your terminal: \"always\", \"when-locked\"\n# (only while the screen is locked, when Ghostty can't start a terminal) or \"never\".\n";
 const APPEARANCE_COMMENT: &str = "# Light or dark. \"system\" follows macOS. The buttons at the foot of the sidebar set this too.\n# zoom: how big the windows draw, in percent, 50 to 200. View › Zoom in and Zoom out (⌘= and ⌘-) set it.\n";
 const JEV_COMMENT: &str = "# What Codealong asks TypeSafe's Jev, feature by feature (Settings › Jev says what each one sends).\n# The API key is kept in the login keychain; set it in Settings.\n";
 const SEARCH_COMMENT: &str = "# The quick panel, the main window's filter and `codealong sessions find` search what was said in\n# sessions active in the last `days` days, not just their titles. 0 turns it off; 14, the board's\n# reach, is the most.\n";
@@ -1709,6 +1736,8 @@ pub struct ConfigView {
     pub sounds: Vec<String>,
     /// The shortcuts a new config.toml has on this OS, which Settings offers to put back.
     pub default_shortcuts: ShortcutsCfg,
+    /// Whether tmux is where Codealong looks for it, for `[apps] tmux`.
+    pub tmux_installed: bool,
 }
 
 pub fn view() -> ConfigView {
@@ -1722,7 +1751,7 @@ fn view_of(text: &str, path: &str) -> ConfigView {
         Ok(c) => (c, None),
         Err(e) => (Config::default(), Some(e.to_string().trim().to_string())),
     };
-    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles(), review_prompt: crate::autoreview::INSTRUCTIONS.to_string(), sounds: crate::sounds::names(), default_shortcuts: ShortcutsCfg::default() }
+    ConfigView { config, text: text.to_string(), path: path.to_string(), error, terminals: terminal_profiles(), editors: editor_profiles(), chrome_profiles: crate::chrome::profiles(), review_prompt: crate::autoreview::INSTRUCTIONS.to_string(), sounds: crate::sounds::names(), default_shortcuts: ShortcutsCfg::default(), tmux_installed: crate::launch::tmux_installed() }
 }
 
 /// Why a list of projects can't be saved, in words.
@@ -1856,6 +1885,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     }
     if cfg.apps.close_command_tabs_after != CLOSE_COMMAND_TABS_AFTER || doc["apps"].get("close_command_tabs_after").is_some() {
         set_value(&mut doc["apps"]["close_command_tabs_after"], Value::from(i64::from(cfg.apps.close_command_tabs_after)));
+    }
+    if cfg.apps.tmux != TmuxUse::default() || doc["apps"].get("tmux").is_some() {
+        set_value(&mut doc["apps"]["tmux"], Value::from(cfg.apps.tmux.as_str()));
     }
 
     set_theme(&mut doc, cfg.appearance.theme);
@@ -2306,6 +2338,9 @@ pub fn render(cfg: &Config) -> String {
     }
     if cfg.apps.close_command_tabs_after != CLOSE_COMMAND_TABS_AFTER {
         s.push_str(&format!("close_command_tabs_after = {}\n", cfg.apps.close_command_tabs_after));
+    }
+    if cfg.apps.tmux != TmuxUse::default() {
+        s.push_str(&format!("tmux = {}\n", q(cfg.apps.tmux.as_str())));
     }
     s.push('\n');
     s.push_str(APPEARANCE_COMMENT);
@@ -3017,6 +3052,27 @@ mod tests {
         assert_eq!(parse(&render(&never)).unwrap(), never);
         // Set back to the default, the line stays, saying so.
         assert!(with_config(&out, &full()).unwrap().contains(&format!("close_command_tabs_after = {CLOSE_COMMAND_TABS_AFTER}")));
+    }
+
+    #[test]
+    fn sessions_run_in_tmux_only_while_locked_unless_the_file_says_otherwise() {
+        assert_eq!(toml::from_str::<Config>("").unwrap().apps.tmux, TmuxUse::WhenLocked);
+        let old = render(&full());
+        assert!(!old.contains("tmux ="), "the default isn't written: {old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("tmux ="));
+        for tmux in [TmuxUse::Always, TmuxUse::Never] {
+            let mut cfg = full();
+            cfg.apps.tmux = tmux;
+            let out = with_config(&old, &cfg).unwrap();
+            assert!(out.contains(&format!("tmux = \"{}\"", tmux.as_str())), "{out}");
+            assert_eq!(parse(&out).unwrap(), cfg);
+            assert_eq!(parse(&render(&cfg)).unwrap(), cfg);
+        }
+        // Set back to the default, the line stays, saying so.
+        let mut always = full();
+        always.apps.tmux = TmuxUse::Always;
+        let out = with_config(&old, &always).unwrap();
+        assert!(with_config(&out, &full()).unwrap().contains("tmux = \"when-locked\""));
     }
 
     #[test]

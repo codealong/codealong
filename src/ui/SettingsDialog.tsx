@@ -12,7 +12,7 @@ import { REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { agentId, agentOptions, modelName, parseAgent, withLists } from '../start';
-import type { AtLogin, ChromeProfile, Config, ConfigView, GroupMemberCfg, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Training, Usage, Verdict, WhenLimited } from '../types';
+import type { AtLogin, ChromeProfile, Config, ConfigView, GroupMemberCfg, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
 import { AgentsSection } from './AgentsSection';
@@ -46,6 +46,14 @@ const NEW_TERMINALS: { id: NewTerminal; label: string; says: string }[] = [
   { id: 'project', label: 'Tab beside its project', says: 'A tab in the window already showing that worktree, repo or project, or a new window when none does.' },
   { id: 'tab', label: 'Tab in front window', says: 'A tab in the terminal window in front.' },
   { id: 'window', label: 'New window', says: 'A window of its own every time.' },
+];
+
+/** When sessions Codealong starts run in tmux, shown in the terminal (`[apps] tmux`), and what
+ *  each choice comes to, in the terminal's name. */
+const TMUX_USES: { id: TmuxUse; label: string; says: (terminal: string) => string }[] = [
+  { id: 'when-locked', label: 'While locked', says: (t) => `Sessions open in ${t}. While the screen is locked, when ${t} can’t open a terminal, one Codealong starts runs in tmux instead and opens in ${t} once you unlock.` },
+  { id: 'always', label: 'Always', says: (t) => `Every session Codealong starts runs in tmux, shown in a tab of ${t}, even while the screen is locked. Closing its tab ends it, as before.` },
+  { id: 'never', label: 'Never', says: (t) => `Sessions open in ${t} only. While the screen is locked, a start goes to the background or to Codealong where its account can, and otherwise can’t start until you unlock.` },
 ];
 
 /** How long a command's tab stays once the command ends, in minutes (`[apps]
@@ -222,6 +230,8 @@ interface PaneProps {
 function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: PaneProps & { view: ConfigView; theme: Theme; onPickTheme: (t: Theme) => void; now: number }) {
   const searchDays = cfg.search?.days ?? MAX_SEARCH_DAYS;
   const closeCommandTabs = cfg.apps.close_command_tabs_after ?? CLOSE_COMMAND_TABS_AFTER;
+  const tmuxUse = cfg.apps.tmux ?? 'when-locked';
+  const terminalName = view.terminals.find((t) => t.id === cfg.apps.terminal)?.name ?? 'your terminal';
   return (
     <>
       <div className="ca-settings-intro">
@@ -274,6 +284,25 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
               : NEW_TERMINALS.find((t) => t.id === (cfg.apps.new_terminal ?? 'project'))?.says}
           </small>
         </div>
+        {platform() === 'mac' && (
+          <div className="ca-field">
+            <span>Run sessions in tmux</span>
+            {view.tmuxInstalled !== false && (
+              <Seg
+                className="ca-settings-theme"
+                label="Run sessions in tmux"
+                options={TMUX_USES}
+                value={tmuxUse}
+                onPick={(id) => id !== tmuxUse && void onSave({ ...cfg, apps: { ...cfg.apps, tmux: id } })}
+              />
+            )}
+            <small>
+              {view.tmuxInstalled === false
+                ? `tmux isn’t installed (brew install tmux), so sessions open in ${terminalName} only. While the screen is locked, a start goes to the background or to Codealong where its account can.`
+                : TMUX_USES.find((u) => u.id === tmuxUse)?.says(terminalName)}
+            </small>
+          </div>
+        )}
         <div className="ca-field">
           <span>Close a command's tab once it ends</span>
           <Seg
