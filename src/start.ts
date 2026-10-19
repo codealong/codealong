@@ -28,7 +28,6 @@ export function keepPlaceFailed(e: unknown): Notice {
 export type Choice = string;
 
 export const AUTO: Choice = 'auto';
-const REMEMBER_KEY = 'codealong.start';
 /** An account this close to any limit could stall a new session. */
 const NEAR_LIMIT = 90;
 /** The room below an account's cap that Auto leaves on the account whose week resets soonest,
@@ -873,30 +872,6 @@ export function newWorktreeTitle(makesWorktree: boolean, place: StartPlace | nul
   const who = harness ? HARNESS_WORD[harness] : 'It';
   if (makesWorktree) return `${who} makes the worktree: its folder, branch and base.`;
   return place && onCommandLine(place) ? `${who} can’t start in a new worktree from here.` : 'The app has its own worktree choice; pick it there before you send.';
-}
-
-interface Remembered {
-  choice?: Choice;
-  /** The last place each choice opened in. */
-  places?: Record<Choice, StartPlace>;
-}
-
-export function remembered(): Remembered {
-  try {
-    return JSON.parse(window.localStorage.getItem(REMEMBER_KEY) ?? '{}') as Remembered;
-  } catch {
-    return {};
-  }
-}
-
-/** Keeps the choice you started with, and where, for next time. */
-export function remember(choice: Choice, place: StartPlace): void {
-  const r = remembered();
-  try {
-    window.localStorage.setItem(REMEMBER_KEY, JSON.stringify({ choice, places: { ...r.places, [choice]: place } }));
-  } catch {
-    // Storage can be unavailable; the sheet just won't remember.
-  }
 }
 
 /** The effort one step along from `effort` (null is the account's own), among `efforts`, kept

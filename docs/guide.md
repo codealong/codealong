@@ -1542,10 +1542,13 @@ app thread.
 Codealong: a worktree, a session's, a PR's, or for a PR with none here its repo's main checkout;
 pinned ones first), the account and model in one menu (⌘L, every account on every model it can start
 on, with its limits, and the effort under them: Default, Low, Medium, High, Extra or Max, for Codex
-Extra high and Ultra too, ← → to change it), and where it runs (⌘O, a chip beside the agent menu that says the place, with a line on
-each in its menu). Where a start on this Mac runs becomes the account's `start` in config.toml (with
-Auto, of every account Auto picks among), so the next start opens there, and so does `codealong
-start` without `--in`; the places keep their order whichever it is. With other Macs linked, ⌘D picks
+Extra high and Ultra too, ← → to change it), and where it runs, a row under the effort (⌘O opens
+the same menu; the chip says the place after the account and model, and each place says what it
+is on hover). Each account has a place its sessions start in, its `start` in config.toml (Settings
+› Accounts, *New sessions start in*; its harness's usual place when none is set), which the quick
+panel and `codealong start` without `--in` go by. Another place picked runs that start alone, and
+the next opens where the account says; *Make default* beside the places keeps the one picked as
+the account's `start` (with Auto or a routing group, of every account it picks among). With other Macs linked, ⌘D picks
 the Mac too: its worktrees and accounts are listed, and the session starts there (it needs remote
 control on over there).
 

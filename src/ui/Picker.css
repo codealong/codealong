@@ -25,14 +25,9 @@
   top: auto;
   bottom: calc(100% + 8px + 6px);
 }
-.ca-quick-agent .ca-picker,
-.ca-quick-place .ca-picker {
+.ca-quick-agent .ca-picker {
   right: 0;
   left: auto;
-}
-/* The places are a few short lines. */
-.ca-quick-place .ca-picker {
-  width: 300px;
 }
 .ca-picker-filter {
   flex: none;
@@ -125,6 +120,23 @@
 .ca-picker-foot-label {
   font: var(--type-meta-strong);
   color: var(--ink-2);
+}
+/* Several rows under the lines (AgentMenu.tsx `AgentFoot`): the effort, then where it runs, their
+   labels as wide as the widest so the controls line up. */
+.ca-picker-foot-rows {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+}
+.ca-picker-foot-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ca-picker-foot-rows .ca-picker-foot-label {
+  min-width: 52px;
 }
 .ca-picker-foot .ca-segctl button {
   height: 22px;

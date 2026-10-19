@@ -4,7 +4,7 @@
 // what the picks come to is start.ts `startChoice`.
 
 import { useMemo, useState } from 'react';
-import { agentId, agentOptions, autoPick, effortStep, initialChoice, OWN_EFFORT, parseAgent, placeTakesModel, remembered, settledPlace, startChoice, withLists } from './start';
+import { agentId, agentOptions, autoPick, effortStep, initialChoice, OWN_EFFORT, parseAgent, placeTakesModel, settledPlace, startChoice, withLists } from './start';
 import type { Lane, StartOptions, StartPlace, Usage } from './types';
 
 /** What's picked, with its setters. The quick panel keeps these from one open to the next only
@@ -35,7 +35,7 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
   const pick = useMemo(() => autoPick(accounts, usage, now, null, autoGroup, lanes), [accounts, usage, now, autoGroup, lanes]);
   const agents = useMemo(() => agentOptions(accounts, models, pick, groups, usage, now, lanes), [accounts, models, pick, groups, usage, now, lanes]);
   const first = useMemo(() => initialChoice(accounts, pick, undefined, groups, usage, now, lanes), [accounts, pick, groups, usage, now, lanes]);
-  const chosen = startChoice(accounts, models, anyEfforts, usage, pick, agents, first, { agent, effort, place, newWorktree }, (c) => remembered().places?.[c], groups, now, lanes);
+  const chosen = startChoice(accounts, models, anyEfforts, usage, pick, agents, first, { agent, effort, place, newWorktree }, () => undefined, groups, now, lanes);
   const { choice, chosenModel } = chosen;
 
   /** Picks a line of the agent menu. A model is asked for on the command line or of Codealong's
@@ -44,7 +44,7 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
   const pickAgent = (id: string) => {
     const { choice: c, model } = parseAgent(id);
     setAgent(id);
-    const settled = c ? (settledPlace(c, accounts, pick, groups, usage, now, lanes) ?? remembered().places?.[c] ?? null) : null;
+    const settled = c ? settledPlace(c, accounts, pick, groups, usage, now, lanes) : null;
     setPlace((p) => (model && p && placeTakesModel(p) ? p : settled));
   };
 

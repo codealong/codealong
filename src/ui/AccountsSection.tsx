@@ -395,8 +395,9 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
       {draftPlaces.length > 1 && (
         <div className="ca-field">
           <span id="ca-acct-start">New sessions start in</span>
-          <Seg labelledBy="ca-acct-start" options={[null, ...draftPlaces].map((p) => ({ id: p, label: p ? placeName(p, terminal) : 'Last used' }))} value={draftStart} onPick={(p) => setDraft({ ...draft, start: p })} />
-          <small>Where the quick panel and codealong start open a new session on this account. You can still pick another place there.</small>
+          {/* With none set, its harness's usual place, the first. */}
+          <Seg labelledBy="ca-acct-start" options={draftPlaces.map((p) => ({ id: p, label: placeName(p, terminal) }))} value={draftStart ?? draftPlaces[0]} onPick={(p) => setDraft({ ...draft, start: p })} />
+          <small>Where the quick panel and codealong start open a new session on this account. A start can run somewhere else, picked in the quick panel’s agent menu for that start alone, and Make default there changes this.</small>
         </div>
       )}
       <div className="ca-field">
@@ -498,7 +499,7 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
               {startPlaces(a.harness, a.home).length > 1 && (
                 <>
                   <dt>Starts in</dt>
-                  <dd>{a.start ? placeName(a.start, terminal) : 'Last used'}</dd>
+                  <dd>{placeName(a.start ?? startPlaces(a.harness, a.home)[0], terminal)}</dd>
                 </>
               )}
               {t && (

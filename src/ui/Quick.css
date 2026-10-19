@@ -472,6 +472,14 @@ html.is-quick body {
   font: var(--type-meta);
   color: var(--ink-3);
 }
+/* Where it runs, after the account, model and effort: a row of the same menu (⌘O). */
+.ca-quick-chip-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
 .ca-quick-chip:hover,
 .ca-quick-chip[aria-expanded='true'] {
   background: var(--surface-hover);
@@ -480,13 +488,9 @@ html.is-quick body {
   color: var(--ink-3);
   cursor: default;
 }
-/* The place and the agent at the right of the bar, the agent last. */
-.ca-quick-agent,
-.ca-quick-place {
+/* The agent, with where it runs, at the right of the bar. */
+.ca-quick-agent {
   margin-left: auto;
-}
-.ca-quick-place + .ca-quick-agent {
-  margin-left: 0;
 }
 .ca-quick-counts {
   display: inline-flex;

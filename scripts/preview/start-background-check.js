@@ -2,22 +2,25 @@
 // starts in the terminal offers it; for an agent with no background service of its own (Codex,
 // OpenCode, Antigravity) the start row says its terminal opens behind your windows, and for
 // Claude Code that it runs in the background, a terminal attached later; either way ⌘⏎ asks for
-// the background place and keeps it as the account's start (`keep_start_place`), and picking a
-// model then leaves Background picked. The places are a menu on a chip in the bar (⌘O), each
-// saying what it is.
+// the background place, for that start alone (no `keep_start_place`), and picking a model then
+// leaves Background picked. The places are the Runs in row under the agent menu's lines (⌘O opens
+// that menu, AgentMenu.tsx `AgentFoot`), each saying what it is on hover, and the agent chip says
+// the place; Make default there keeps the one picked as the account's start.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-background-check.js
 // It needs a Claude Code account and one of another agent in config.toml; a missing one is
 // noted and its steps are skipped.
 (function () {
   var agentChip = function () { return q('.ca-quick-agent .ca-quick-chip'); };
   var why = function () { var el = q('.ca-quick-compose .ca-quick-row-why'); return el ? el.textContent : ''; };
-  var placeChip = function () { return q('.ca-quick-place .ca-quick-chip'); };
-  var placeNow = function () { return placeChip() ? placeChip().textContent.trim() : ''; };
-  var titleOf = function (o) { return q('.ca-picker-title', o).textContent.trim(); };
-  // Opens the menu of places with ⌘O, for its options.
+  var placeRow = function () { return all('.ca-quick-agent .ca-picker-foot-row').filter(function (r) { var l = q('.ca-picker-foot-label', r); return l && l.textContent === 'Runs in'; })[0]; };
+  // What the agent chip says of the place.
+  var makeDefault = function () { return all('button', placeRow()).filter(function (x) { return x.textContent.trim() === 'Make default'; })[0]; };
+  var placeNow = function () { var p = q('.ca-quick-agent .ca-quick-chip-place'); return p ? p.textContent.trim() : ''; };
+  var titleOf = function (o) { return o.textContent.trim(); };
+  // Opens the agent menu with ⌘O, for its place row's options.
   var placeOptions = function () {
     key(window, { key: 'o', metaKey: true });
-    return until(function () { return all('.ca-quick-place .ca-picker-opt').length > 0; }, 3000, 'no menu of places on ⌘O').then(function () { return all('.ca-quick-place .ca-picker-opt'); });
+    return until(function () { return placeRow(); }, 3000, 'no Runs in row on ⌘O').then(function () { return all('button', placeRow()); });
   };
   var box = function () { return q('.ca-quick-input textarea'); };
   var listed = null;
@@ -41,10 +44,16 @@
       .then(function (opts) {
         var b = opts.find(function (o) { return titleOf(o) === 'Background'; });
         check(account.name + ' offers Background', !!b, opts.map(titleOf).join(', '));
-        check(account.name + ': each place says what it is', opts.every(function (o) { return !!q('.ca-picker-detail', o); }), opts.map(function (o) { return o.textContent; }).join(' | '));
+        check(account.name + ': each place says what it is', opts.every(function (o) { return !!o.title; }), opts.map(function (o) { return o.textContent + ': ' + o.title; }).join(' | '));
         if (!b) return null;
         b.click();
-        return until(function () { return placeNow() === 'Background' && !q('.ca-quick-place .ca-picker'); }, 2000, 'the chip doesn’t say Background');
+        return until(function () { return placeNow() === 'Background'; }, 2000, 'the chip doesn’t say Background').then(function () {
+          // Make default is offered where the place picked isn't the account's own.
+          var own = new RegExp(account.name + '’s default').test(placeRow().textContent);
+          check(account.name + ': Make default is offered unless Background is its own place already', own !== !!makeDefault(), placeRow().textContent);
+          key(q('.ca-quick-agent .ca-picker-filter'), { key: 'Escape' });
+          return wait(200);
+        });
       })
       .then(function () {
         check(account.name + ': the start row says ' + words, why().indexOf(words) >= 0, why());
@@ -60,12 +69,10 @@
       .then(function () {
         var spec = calls('start_from_quick').pop()[1].spec;
         check(account.name + ': ⌘⏎ starts it in the background', spec.account === account.name && spec.place === 'background', JSON.stringify({ account: spec.account, place: spec.place }));
-        return until(function () { return calls('keep_start_place').length > 0; }, 2000).catch(function () {});
+        return wait(500);
       })
       .then(function () {
-        var kept = calls('keep_start_place').pop();
-        var asked = kept && kept[1];
-        check(account.name + ': the start keeps Background as its start in config.toml', !!asked && asked.place === 'background' && asked.accounts.join() === account.name, JSON.stringify(asked));
+        check(account.name + ': the start leaves its own place as it was', calls('keep_start_place').length === 0, JSON.stringify(calls('keep_start_place')));
         // A start puts the panel away; the stub keeps the page, so open it afresh for the next.
         return wait(300);
       });
@@ -81,6 +88,21 @@
       model.click();
       return wait(300).then(function () {
         check(account.name + ': picking a model keeps Background', placeNow() === 'Background', placeNow());
+        return placeOptions();
+      }).then(function (opts) {
+        // A place that isn't its own, for Make default: Background, else the first other.
+        var picked = makeDefault() ? 'Background' : titleOf(opts.filter(function (o) { return o.getAttribute('aria-checked') !== 'true'; })[0]);
+        var button = opts.filter(function (o) { return titleOf(o) === picked; })[0];
+        button.click();
+        return until(function () { return makeDefault(); }, 2000, 'no Make default for ' + picked).then(function () {
+          makeDefault().click();
+          return until(function () { return calls('keep_start_place').length > 0; }, 2000, 'Make default kept nothing');
+        }).then(function () {
+          var asked = calls('keep_start_place').pop()[1];
+          var want = (account.places.find(function (p) { return p.label === picked; }) || {}).place;
+          check(account.name + ': Make default keeps ' + picked + ' as its start in config.toml', asked.place === want && asked.accounts.join() === account.name, JSON.stringify(asked) + ' wanted ' + want);
+          return until(function () { return !makeDefault() && /default/.test(placeRow().textContent); }, 2000, 'the row doesn’t say it’s the default now');
+        });
       });
     });
   };

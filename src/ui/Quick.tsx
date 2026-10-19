@@ -76,8 +76,7 @@ import {
   newWorktreeTitle,
   onModelWords,
   ownModels,
-  remember,
-  remembered,
+  settledPlace,
   START_OPTIONS_NOTICE,
   startHappens,
   startingLabel,
@@ -96,7 +95,8 @@ import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttac
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { agentMenuSections, EffortFoot, placeIcon, placeSections } from './StartControls';
+import { AgentFoot } from './AgentMenu';
+import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
 import { SnoozeChip } from './LaneRow';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
@@ -142,7 +142,7 @@ const RETRY_MS = 5_000;
 /** The device menu's id for this Mac; the others go by their short ids, which are hex. */
 const HERE = 'here';
 
-type PickerKind = 'project' | 'device' | 'worktree' | 'agent' | 'place';
+type PickerKind = 'project' | 'device' | 'worktree' | 'agent';
 
 const GROUP_WORD: Record<RowGroup, string> = { suggested: 'Suggested', skills: 'Skills', needs: 'Needs you', reviews: 'Review requested', unread: 'Your turn', working: 'Working', found: 'Sessions', sendto: 'Send to', todos: 'Todos', prs: 'PRs', ready: 'Ready todos', recent: 'Last 24 hours' };
 
@@ -670,7 +670,7 @@ export function Quick() {
       agents,
       first,
       { agent: startPicks.agent, effort: startPicks.effort, place: placeNow, newWorktree: overWorktree },
-      (c) => remembered().places?.[c],
+      () => undefined,
       routingGroups,
       now,
       allLanes,
@@ -1149,9 +1149,10 @@ export function Quick() {
   // shows under the app's Recents.
   const newToCodex = placeNow === 'codex-app' && !prompted && !!lane && !!startOptionsNow && !startOptionsNow.codexProjects.includes(lane.path);
 
-  /** Keeps where a start on this Mac opened as its accounts' `start` in config.toml
-   *  (`keepPlaceFor`), so the next start opens there, from here or from `codealong start`; and in
-   *  the copy of where accounts can start, so the next open goes by it without reading again. */
+  /** Keeps a place as its accounts' `start` in config.toml (`keepPlaceFor`), so their next
+   *  starts open there, from here or from `codealong start`; and in the copy of where accounts can
+   *  start, so the next open goes by it without reading again. Only Make default does it: a place
+   *  picked for a start is for that start alone (asked 2026-10-19). */
   const keepPlace = (names: string[], p: StartPlace) => {
     if (names.length === 0) return;
     keepStartPlace(names, p)
@@ -1176,10 +1177,6 @@ export function Quick() {
     const targetMakesWorktree = sgChoice ? sgChoice.makesWorktree : harnessMakesWorktree;
     if (!where || !targetAccount || !targetPlace) return;
     const newTree = targetMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
-    if (!sgChoice && choice && placeNow) {
-      remember(choice, placeNow);
-      if (!deviceNow) keepPlace(keepPlaceFor(choice, accounts, placeNow, routingGroups, optionsForStart?.autoGroup), placeNow);
-    }
     // The skill that starts the prompt goes as the account's agent takes it.
     const base = skillNow && harness && !over ? writtenFor(text, [skillNow.skill], harness) : text;
     const written = withAttachments(base, attached);
@@ -1500,7 +1497,8 @@ export function Quick() {
       const startMenu = !inSendTo && (k === 't' || k === 'l' || (k === 'd' && macs.length > 0) || (k === 'o' && places.length > 1));
       if (k === 'p' || startMenu) {
         e.preventDefault();
-        togglePicker(k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'worktree' : k === 'o' ? 'place' : 'agent');
+        // ⌘O opens the agent menu too: where it runs is a row under its lines (AgentMenu.tsx).
+        togglePicker(k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'worktree' : 'agent');
       } else if (k === 'q' || k === 'h') {
         // The menu bar is the other app's while the panel is up, so ⌘Q and ⌘H mean that app,
         // not Codealong: they close the panel instead of quitting or hiding Codealong.
@@ -1566,7 +1564,20 @@ export function Quick() {
     refocus();
   };
 
-  const effortFoot = efforts.length > 0 ? <EffortFoot efforts={efforts} value={effortShown} onPick={pickEffort} harness={harness} model={effortModel} takesEffort={(accountInfo?.efforts?.length ?? 0) > 0} /> : null;
+  // Where it runs is for this start alone; Make default keeps it as its accounts' own (on this Mac).
+  const keepers = choice && placeNow && !deviceNow ? keepPlaceFor(choice, accounts, placeNow, routingGroups, optionsForStart?.autoGroup) : [];
+  const usualPlace = choice ? (settledPlace(choice, accounts, pick, routingGroups, usage, now, allLanes) ?? places[0]?.place ?? null) : null;
+  const agentFoot = (
+    <AgentFoot
+      effort={{ efforts, value: effortShown, onPick: pickEffort, harness, model: effortModel, takesEffort: (accountInfo?.efforts?.length ?? 0) > 0 }}
+      place={{
+        places,
+        value: placeNow,
+        onPick: pickPlace,
+        usual: keepers.length > 0 ? { place: usualPlace, whose: keepers.length === 1 ? keepers[0] : 'their', onKeep: () => placeNow && keepPlace(keepers, placeNow) } : undefined,
+      }}
+    />
+  );
 
   const deviceSections: PickerSection[] = useMemo(() => {
     if (!devices) return [];
@@ -2204,24 +2215,20 @@ export function Quick() {
               </span>
               New worktree
             </label>
-            {places.length > 1 && (
-              <div className="ca-quick-pick ca-quick-place">
-                <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Opens in (⌘O)')} aria-haspopup="dialog" aria-expanded={picker === 'place'} onClick={() => togglePicker('place')}>
-                  {placeShown && <Icon name={placeIcon(placeShown.place)} size={14} />}
-                  <span>{placeShown?.label ?? 'Opens in'}</span>
-                  <Icon name="chevron-down" size={12} />
-                </button>
-                {picker === 'place' && <Picker sections={placeSections(places)} value={placeNow} placeholder="Opens in" onPick={(id) => { pickPlace(id as StartPlace); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
-              </div>
-            )}
             <div className="ca-quick-pick ca-quick-agent">
-              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Account, model and effort (⌘L)')} disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Account, model, effort (⌘L) and where it runs (⌘O)')} disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
                 <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />
                 <span>{agentChip.label}</span>
                 {agentChip.detail && <span className="ca-quick-chip-detail">{agentChip.detail}</span>}
+                {placeShown && places.length > 1 && (
+                  <span className="ca-quick-chip-place">
+                    <Icon name={placeIcon(placeShown.place)} size={13} />
+                    {placeShown.label}
+                  </span>
+                )}
                 <Icon name="chevron-down" size={12} />
               </button>
-              {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={effortFoot} onStep={effortFoot ? stepEffort : undefined} />}
+              {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={agentFoot} onStep={efforts.length > 0 ? stepEffort : undefined} />}
             </div>
           </div>
         )}

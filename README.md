@@ -270,8 +270,9 @@ typing a prompt and start it, choosing:
 
 - **the worktree** (⌘T), or tick *New worktree* for a fresh one;
 - **the account, model and effort** (⌘L), or leave it on *Auto*;
-- **where it runs** (⌘O): a terminal tab, in the background, the Claude or Codex app, or inside
-  Codealong itself;
+- **where it runs** (⌘O, in the same menu): a terminal tab, in the background, the Claude or Codex
+  app, or inside Codealong itself. Each account starts where Settings › Accounts says unless you
+  pick another for that start; *Make default* there changes it;
 - and, with other machines linked, **which machine** (⌘D).
 
 *Auto* picks the account with room (or from your routing group in Settings › Routing): an
