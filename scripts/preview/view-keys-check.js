@@ -8,7 +8,8 @@
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
-  localStorage.removeItem('codealong.sidebarCollapsed');
+  // The sidebar open, as it starts folded: its rows name the views and their keys.
+  localStorage.setItem('codealong.sidebarCollapsed', '0');
   var copied = [];
   navigator.clipboard.writeText = function (text) { copied.push(text); return Promise.resolve(); };
 

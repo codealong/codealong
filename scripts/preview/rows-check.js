@@ -3,13 +3,16 @@
 // in Sessions, either way with the id `row-<lane id>::<session key>`, where a worktree without
 // agent lines has its lane id alone. A push that changes the session shows on its row and renders
 // that worktree's rows again while every other row, in the list and the sidebar, skips rendering,
-// another worktree's that the check gave an archived session included;
-// a todo linked later appears; a double-click opens where the latest push says the session lives;
-// the arrow keys move the selection (in Sessions once Escape has taken the keyboard from the box a
-// click puts it in); and a hidden window catches up when it's shown.
+// another worktree's that the check gave an archived session included; a todo linked later
+// appears (Sessions on two lines, where a row shows it); a double-click opens where the latest
+// push says the session lives; the arrow keys move the selection (in Sessions once Escape has
+// taken the keyboard from the box a click puts it in); and a hidden window catches up when it's
+// shown.
 //   PREVIEW_WAIT=120000 scripts/preview.sh worktrees '' scripts/preview/rows-check.js
 //   PREVIEW_WAIT=120000 scripts/preview.sh sessions '' scripts/preview/rows-check.js
 (function () {
+  // Sessions on two lines, where a session's row shows its todo.
+  localStorage.setItem('codealong.sessionRows', 'two');
   var hidden = false;
   Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return hidden; } });
 
