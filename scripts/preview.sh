@@ -57,8 +57,9 @@
 # scripts/preview/todos-jev-sample.json has the same todos with Jev's todo features on: one
 # looks done, and the panel gets suggestions.
 #
-# PREVIEW_CANVAS=<file> opens the Canvas view on the document in it (one project's, as
-# canvas.json keeps it under canvases.<project>) in place of a fresh tidy.
+# PREVIEW_CANVAS=<file> opens the Canvas view on the document in it (one board's, as
+# boards.json keeps it under a board's canvas) in place of a fresh tidy. PREVIEW_BOARDS=<file>
+# lists the boards in it (scripts/preview/boards-sample.json has some) beside each project's own.
 # PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in
 # place of the snapshot's, which has no Claude numbers: reading them rate-limits.
 #
@@ -172,6 +173,7 @@ fixture todos "${PREVIEW_TODOS:-}"
 fixture insights "${PREVIEW_INSIGHTS:-}"
 fixture route "${PREVIEW_ROUTE:-}"
 fixture canvas "${PREVIEW_CANVAS:-}"
+fixture boards "${PREVIEW_BOARDS:-}"
 fixture usage "${PREVIEW_USAGE:-}"
 fixture devices "${PREVIEW_DEVICES:-}"
 fixture notices "${PREVIEW_NOTICES:-}"

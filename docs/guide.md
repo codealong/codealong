@@ -21,13 +21,15 @@ it is, how to install it and how to get going. The settings file is annotated in
 
 ## The main window
 
-**Six views** of the current project, each in a window of its own if you like (⌘⇧N). The project
+**Five views** of the current project, each in a window of its own if you like (⌘⇧N): Sessions,
+Worktrees, PRs, Todo, and its boards, each shown as Kanban or as Canvas. The project
 switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them all. Add
 project… at its foot opens Settings › Projects with a new project's form, and Edit projects… the
 list. ⇧⌘S, ⇧⌘W,
-⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go straight to Sessions, Worktrees, PRs, Todo, Kanban and Canvas (B for
-board: ⇧⌘C is often a clipboard manager's), from a text field too, and a view in the sidebar shows its keys while
-you point at it (the folded rail says them); ⌃Tab and ⌃⇧Tab go through
+⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go straight to Sessions, Worktrees, PRs, Todo, and the board as Kanban and as
+Canvas (B for board: ⇧⌘C is often a clipboard manager's), from a text field too, and a view in the
+sidebar shows its keys while you point at it (the folded rail says them; the Board's are those of
+the layout a click on it shows); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder
 what's pinned. ⌘F finds where you are, as VS Code's does: from a session's panel (the keyboard in
 it, or a click in it last) the words in its conversation, from a PR's panel its files, and from
@@ -1088,37 +1090,6 @@ Delete act on all of them. A todo's row is its title and the start of its descri
 due, its labels, what it waits on, the sessions on it, its worktrees and its PR: on one line they
 follow at the line's end as they fit, its PR always; on two lines they're under it.
 
-### Kanban
-
-The project's todos and sessions as cards in four columns, by how far the work has got: To do,
-In progress, In review and Done. A card is a todo, with the sessions on it listed under its two
-lines, the most urgent first, or a session on no open todo the board shows, while it's running or
-waits on you, or its PR is in review: one that ended and that you've seen leaves the board, as do
-helpers and headless runs that don't need you, which work for another session. Its face is the one cards on
-the canvas and the desktop have. A todo is in the column its Todo section says (Ready and Waiting
-are To do, with a line where Waiting begins); a session is In review while the PR it worked on is
-open and not a draft, Done once that PR merged or its turn ended saying its work landed, unless
-it's working or waits on you, and In progress otherwise. A card moves only when its work does
-(started, a PR opened, merged, done), never with each turn: whose move it is shows in its stripe,
-amber when it needs you, and in its place. To do keeps your order (drag, or ⌃⌘↑ ⌃⌘↓); In
-progress and In review list what needs you first, the longest wait first, then your turns, then
-what's working, then the rest, the one you last sent a prompt first; Done, the latest first, is
-folded to a rail with its count until you open it. Done's todos go back as far as the age filter
-does (two weeks under All), which narrows the sessions too; the list's find, the statuses and
-the devices narrow it as they do the other views, and a label shows only todos.
-
-Select a card for its panel: a todo's, or a session's with its conversation and its box. The
-arrows go up and down a column and across to the next one that has cards; Return opens a card
-where it lives, and a card has its row's menu, letters and chords (`x`, `w`, `r` and `d` on a
-todo, the session's on a session, ⇧⌘E Mark as done). ⌘-click and ⇧-click pick several todos. `n`
-adds a todo in the box at the top of To do. Dragged to another column, a card does what the
-column stands for, which the drag says as it goes: a todo goes back to To do, starts a session
-(the quick panel, as ⌘N does) from To do to In progress, is marked ready for review, is sent back
-from In review to In progress, or is marked done, and the toast can undo what it did; a session
-dropped on Done is marked done as its menu marks it, and one dropped on a todo's card joins that
-todo. A todo In review because of its PR stays there, and a session's PR keeps it where it is.
-A card dragged out of the window is pinned to the desktop.
-
 #### Linking
 
 Link worktrees and sessions you already have from the todo, or from a session's or worktree's
@@ -1146,64 +1117,154 @@ something moves on); and a todo's panel suggests its project, labels and the tod
 chips you click, reading the screenshots in the todo's description too. Nothing is asked twice:
 what was asked is kept in `jev-todos.json`.
 
-### Canvas
+### Boards
 
-The project's work laid out in space, to remember by where it is. Worktrees, sessions, todos and PRs
+A board is a named set of work in a project: a release, a fix, an investigation. The Board view
+shows one, as Kanban (its todos and sessions in columns) or as Canvas (its work laid out in
+space); the toggle at the top switches between them, and ⇧⌘K and ⇧⌘B go straight to each. Every
+project has a board of its own, named after it, that holds everything in the project, so the
+Board view starts as the Kanban and Canvas of the whole project. The sidebar lists the project's
+boards under Boards; New board makes one, and a board's right-click (or the menu on its name at
+the top) changes what it takes in, renames it, puts its Kanban back on the stages, or deletes it,
+which leaves what was on it as it was.
+
+A board holds what its rule takes in, as the work moves on, and what you add by hand, less what
+you take off. A rule picks by kind (todos, sessions, worktrees, PRs), stage (To do, In progress, In
+review, Done), status (Needs you, Your turn, Working; a todo or a worktree by its sessions), todo
+label (the todos with it and the sessions and worktrees on them), repo, account, how recently the
+work moved on, and words in the title: each part picked must hold, and within one any pick does.
+Everything takes in the whole project; Only what you add takes in nothing by itself. Add to board ›
+in any session's, worktree's, todo's or PR's right-click menu puts it on a board (checked where
+it's on one already: pick it again to take it off), or on a new one; Remove from board on a card in
+Kanban, or on the canvas, takes it off, and it stays off whatever the rule says until it's added
+again. A worktree or a PR on a board brings its sessions onto the board's Kanban, and a todo made
+from a board's Kanban is put on the board. What's at the top says what the board takes in, and how
+many cards were added and taken off by hand. Boards are kept per Mac, in `boards.json`.
+
+#### Kanban
+
+A board's todos and sessions as cards in columns, by default four by how far the work has got: To
+do, In progress, In review and Done. A card is a todo, with the sessions on it listed under its two
+lines, the most urgent first, or a session on no open todo the board shows, while it's running or
+waits on you, or its PR is in review, or you put it on the board: one that ended and that you've
+seen leaves the board, unless you added it, as do helpers and headless runs that don't need you,
+which work for another session. Its face is the one cards on the canvas and the desktop have. A
+todo is in the column its Todo section says (Ready and Waiting are To do, with a line where Waiting
+begins); a session is In review while the PR it worked on is open and not a draft, Done once that
+PR merged or its turn ended saying its work landed, unless it's working or waits on you, and In
+progress otherwise. A card moves only when its work does (started, a PR opened, merged, done) or
+you move it, never with each turn: whose move it is shows in its stripe, amber when it needs you,
+and in its place. To do keeps your order (drag, or ⌃⌘↑ ⌃⌘↓ on a project's own board); In progress
+and In review list what needs you first, the longest wait first, then your turns, then what's
+working, then the rest, the one you last sent a prompt first; Done, the latest first, is folded to
+a rail with its count until you open it. Done's todos go back as far as the age filter does (two
+weeks under All), which narrows the sessions too; the list's find, the statuses and the devices
+narrow it as they do the other views, and a label shows only todos.
+
+Select a card for its panel: a todo's, or a session's with its conversation and its box. The
+arrows go up and down a column and across to the next one that has cards; Return opens a card
+where it lives, and a card has its row's menu, letters and chords (`x`, `w`, `r` and `d` on a
+todo, the session's on a session, ⇧⌘E Mark as done). ⌘-click and ⇧-click pick several todos. `n`
+adds a todo in the box at the top of the column a new todo goes in. Dragged to another column, a
+card does what lands it there, which the drag says as it goes, and nothing where nothing would: in
+the stages, a todo goes back to To do, starts a session (the quick panel, as ⌘N does) from To do to
+In progress, is marked ready for review, is sent back from In review to In progress, or is marked
+done, and the toast can undo what it did; a session dropped on Done is marked done as its menu
+marks it, and one dropped on a todo's card joins that todo. A todo In review because of its PR
+stays there, and a session's PR keeps it where it is. A card dragged out of the window is pinned to
+the desktop.
+
+#### Columns of your own
+
+A board's Kanban can have columns of its own: + after the last column adds one, and a column's
+right-click changes it (its name, what it holds and its order), folds it at first, moves it left or
+right, or deletes it. A new board starts on the stages, one column per label and Other, or one
+column, Inbox, to make your own beside. A column holds what its rule takes in (the same parts a
+board's rule has), or with no rule, the cards you put in it. A card goes in the first column whose
+rule takes it, else in the column you put it in, else in the first column without a rule; a card
+no column takes goes in No column, after the rest, until one does. So with Next and Later of your
+own before In progress, In review and Done, you sort the todos not started into Next and Later, and
+they still move on to In progress, In review and Done as the work does.
+
+A card dropped on a column does what lands it there: a stage column does what the stages do, a
+label column gives a todo its label (and one it leaves takes its label away), and a column of your
+own puts it there, sending work under way or done back to To do first where a stage column holds
+it. A column orders its cards as you put them (drag one to its place), by whose move it is, or the
+latest first. On a project's own board To do keeps the Todo view's order; another board keeps its
+own.
+
+#### Canvas
+
+A board's work laid out in space, to remember by where it is. Worktrees, sessions, todos and PRs
 are compact cards (status, title, where it stands); rest the pointer on one for a popover with the
 rest (move onto it to select its text, click its PR chip to select the PR's card, or show the PR in
 PRs when the canvas has no card of it, and double-click the chip to open it on GitHub, click a
-session in it to go
-to that session, right-click one for its menu), select one for its panel on the right (a session's
-shows its whole conversation and takes messages; the rest are the ones their own views show), find
-(⌘F) or pick a status in the sidebar to fade what doesn't match (a status, or Return in the find,
-also zooms to what does), double-click to open it where it lives, right-click
+session in it to go to that session, right-click one for its menu), select one for its panel on the
+right (a session's shows its whole conversation and takes messages; the rest are the ones their own
+views show), find (⌘F) or pick a status in the sidebar to fade what doesn't match (a status, or
+Return in the find, also zooms to what does), double-click to open it where it lives, right-click
 for its usual menu.
 
-#### What's on it
+##### What's on it
 
-What's on it is set in two places. Tidy (its panel, or Tidy up in a right-click) lays the canvas out
-once, holding what its own settings say, each kind on or off: sessions active in the last 1h to 7d
-or all (24h at first) and any that's working or needs you; open todos changed or worked on in the
-last 7 or 30 days, or all of them; recent worktrees even with nothing on them (off, a worktree comes
-on only to head what's there); and PRs, yours and ones waiting on your review, or every open one. It
-lays the cards out in columns, one per worktree, in a frame per repo or per day, takes off cards
-older than that, kept or not, which is how the sessions you never archived leave, and says first
-what would come off and on. Frames you drew or renamed stay, with what's in them. Bring in (the gear
-in the toolbar) has the same choices for new work: what moves on after the last tidy (a new prompt,
-a finished turn, a question for you, a changed todo) comes on by itself and lands in its frame
-beside what it belongs to (a session under its worktree, a worktree in the next free column of its
-repo's or the latest day's frame, else in one column beside the frames); the frame grows to hold it,
-and what's below or beside moves along whole. Nothing comes off by itself, and what you take off
-doesn't come back by itself. Add older things from Add in the toolbar, a right-click on the canvas,
-or Add to canvas in any row's menu. Notes (`n`) and frames (`f`) organize it; a frame carries what's
-in it, and grows to hold a card dropped over its edge. Clear canvas (in Tidy, or a right-click on
-the canvas) takes everything off; Bring in adds work back as it moves on, and a tidy brings back
-what its settings hold.
+What's on a board's canvas is what the board holds, set in two places. Tidy (its panel, or Tidy up
+in a right-click) lays the canvas out once, holding what its own settings say, each kind on or off:
+sessions active in the last 1h to 7d or all (24h at first) and any that's working or needs you;
+open todos changed or worked on in the last 7 or 30 days, or all of them; recent worktrees even
+with nothing on them (off, a worktree comes on only to head what's there); and PRs, yours and ones
+waiting on your review, or every open one. It lays the cards out in columns, one per worktree, in a
+frame per repo or per day, takes off cards older than that, kept or not, which is how the sessions
+you never archived leave, and says first what would come off and on. Frames you drew or renamed
+stay, with what's in them, and so does whatever you added to the board by hand, whatever its age.
+Bring in (the gear in the toolbar) has the same choices for new work: what moves on after the last
+tidy (a new prompt, a finished turn, a question for you, a changed todo) comes on by itself and
+lands in its frame beside what it belongs to (a session under its worktree, a worktree in the next
+free column of its repo's or the latest day's frame, else in one column beside the frames); the
+frame grows to hold it, and what's below or beside moves along whole. Nothing comes off by itself
+but what's taken off the board. Add older things from Add in the toolbar or a right-click on the
+canvas, which puts them on the board too. Remove from board takes a card off the board, its Kanban
+too, and it doesn't come back by itself. Notes (`n`) and frames (`f`) organize it; a frame carries
+what's in it, and grows to hold a card dropped over its edge. Clear canvas (in Tidy, or a
+right-click on the canvas) takes everything off the canvas, though not off the board; Bring in adds
+work back as it moves on, and a tidy brings back what its settings hold.
 
-#### Arranged by an agent
+##### Arranged by an agent
 
-An agent can lay the canvas out by what the work is for, which Tidy's repos and days can't:
-`codealong canvas arrange` takes frames it names (a release, a fix, an investigation), each with
-the worktrees, sessions, todos and PRs that belong to it and a note saying where that work stands,
-and lays them out in that order, each frame's cards in columns by worktree and its note across its
-top. In Claude Code, `/codealong:visualize` has an agent do it for your recent and running
-sessions. Frames you drew and notes stay where they are, with what's in them, unless the agent
-names a card that's in one; the cards no frame names go below, laid out by worktree, or come off
-when it asks. Tidy leaves arranged frames and their notes as if you drew them; the next arrange
-replaces them, unless you renamed the frame or edited the note, which makes it yours. With
-`--show`, the main window comes forward on the canvas with the new frames in view.
-`codealong canvas show` lists a canvas's frames and what's in each. Both need the app running,
-and work on any project's canvas, whichever one the main window shows; a second window showing
-the same project's canvas follows the change.
+An agent can lay a board's canvas out by what the work is for, which Tidy's repos and days can't:
+`codealong board arrange` takes frames it names (a release, a fix, an investigation), each with the
+worktrees, sessions, todos and PRs that belong to it and a note saying where that work stands, and
+lays them out in that order, each frame's cards in columns by worktree and its note across its top;
+a card it names that isn't on the board is put on it. In Claude Code, `/codealong:visualize` has an
+agent do it for your recent and running sessions. Frames you drew and notes stay where they are,
+with what's in them, unless the agent names a card that's in one; the cards no frame names go
+below, laid out by worktree, or come off when it asks. Tidy leaves arranged frames and their notes
+as if you drew them; the next arrange replaces them, unless you renamed the frame or edited the
+note, which makes it yours. With `--show`, the main window comes forward on the canvas with the new
+frames in view. A second window showing the same board follows the change.
 
-#### Controls
+##### Controls
 
 Controls follow Figma: scroll or Space-drag to pan, pinch or ⌘-scroll to zoom, ⇧1 fit all, ⇧2 the
 selection, ⇧0 100%. Zoomed out, cards become blocks in their status color drawn by the GPU (WebGL2).
 
+#### From the command
+
+`codealong board` does to boards what the app does, for agents and people: `list` a project's
+boards, `new` one (taking in only what's added, what rule options say, or `--everything`, on the
+stages, by label or a column of your own), `add` and `remove` cards (`--session me` puts the
+session running it on a board), change its `rule`, `set` its rule and columns from JSON as `show
+--json` prints them, `rename` and `delete` it. `show` prints its Kanban's columns and their cards,
+or with `--as canvas` its canvas's frames and what's in each; `move` moves a card to a column as a
+drag does (`--dry-run` says what that would do; starting a todo is the quick panel's, so it's
+turned down there); `arrange` lays its canvas out; `open` brings the main window forward on it. A
+board goes by its id or its name, in the project of the folder it's run in or `--project`, or a name
+only one project has. Changes work with the app closed; `show`, `move`, `arrange` and `open` need it
+running, as its main window works boards out. `codealong canvas show` and `arrange` still work, on
+a project's own board.
+
 ### Sidebar
 
-Picks the view (Sessions, Worktrees, PRs, Todo, Kanban, Canvas) and narrows it: to the devices you
+Picks the view (Sessions, Worktrees, PRs, Todo, Board) and the board it shows, and narrows it: to the devices you
 pick, to what was active in the last 24h, 3d or 7d, and to the statuses you pick (Needs you, Your
 turn, Working, In review, PR needs work; any of them). Some views have more to narrow by, each pick
 with its count: Sessions its agents (the accounts sessions run on), PRs their repos, their labels
@@ -1277,7 +1338,7 @@ is saved in config.toml, and every window follows it.
 ⌘= (or ⌘+) makes the main window and the project windows bigger, ⌘- smaller and ⌘0 puts them back,
 as in VS Code and a browser, from anywhere in them, a text field too; View has the same as Zoom in,
 Zoom out and Actual size. It goes in steps from 50% to 200%, is saved in config.toml (`[appearance]
-zoom`), and every board window follows it. In the Canvas view the keys zoom the canvas, unless
+zoom`), and every board window follows it. On a canvas the keys zoom the canvas, unless
 you're typing in it. The session or PR shown in the notch, the peek, a kept session and the waiting
 window draws at the same zoom, and the keys work there too; the notch and the peek open as much
 bigger, while the notch's shape and the bar's pills stay at actual size.
@@ -1976,7 +2037,7 @@ off, as do Window › Floating bar and Bar in the notch and the bar's own right-
 out of its window: a row out of the Sessions, Worktrees, PRs or Todo list, a result out of the quick
 panel, a session's pill off the bar*
 
-Puts its card, the one the Canvas view shows, on the desktop, floating over every window, on every
+Puts its card, the one a board's canvas shows, on the desktop, floating over every window, on every
 Space and over full-screen apps as the floating bar does. A dragged card follows the pointer from
 where it leaves the window and stays where you let go; back over the window, the drag pins nothing.
 A pinned row dragged to the desktop leaves its list's pins: it moves there. A worktree's card lists
@@ -2516,7 +2577,9 @@ for you to read, and a session it started, never one working or waiting on you, 
 window says which session did it, with an Undo; `codealong start --todo <id>` starts a session the
 way New session does (`--todo` again for several todos in one session), and `codealong start
 --helper --prompt …` a helper of the session running it (see *Helpers*), whose reply `codealong
-session wait <key>` waits for, or which `--report` has Codealong tell the session of; `codealong config
+session wait <key>` waits for, or which `--report` has Codealong tell the session of; `codealong
+board add|remove|show|move|arrange|new` put work on your boards and lay them out (see *Boards*);
+`codealong config
 show|check` prints the settings and checks an edited config.toml. With the app running, answers come
 from it over a socket and todo changes go through its engine; with it closed, the command reads the
 files (sessions then show without git or PRs). Output is JSON when piped, tables in a terminal.
@@ -2579,7 +2642,8 @@ What you've seen (for Your turn), what you've pinned, snoozed and archived in Co
 `state.json` next to it; whether the bar is on, floating or in the notch, and where you left it
 floating, in `bar.json`; what's pinned to the desktop, and where each card was left, in
 `desktop.json`; the sessions kept there from the peek, and their windows' frames, in `kept.json`;
-each project's canvas in `canvas.json`; which session started or was forked into which (and which
+the boards, with each one's canvas, in `boards.json` (until there was a change to them, each
+project's canvas came from `canvas.json`, which is left as it was); which session started or was forked into which (and which
 started ones are its helpers), where the harness doesn't say, in `origins.json`; whether your
 latest quick-panel starts in each repo went into a new worktree, in `starts.json`; sessions linked to PRs or unlinked from them by hand, the
 PRs nudged or not and the sessions picked as their primary, in `pr-links.json`; worktrees marked

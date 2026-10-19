@@ -32,3 +32,7 @@
 .ca-rule-text input {
   width: 100%;
 }
+.ca-rule-more {
+  height: 24px;
+  padding: 0 var(--space-1);
+}

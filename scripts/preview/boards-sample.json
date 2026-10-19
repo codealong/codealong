@@ -1,0 +1,31 @@
+[
+  {
+    "id": "b-sample-week",
+    "name": "This week",
+    "project": "$project",
+    "rule": { "kinds": ["todo", "session"], "active": "7d" },
+    "added": [],
+    "removed": [],
+    "columns": [
+      { "id": "next", "name": "Next", "sort": "hand" },
+      { "id": "progress", "name": "In progress", "rule": { "stages": ["progress"] }, "sort": "move" },
+      { "id": "review", "name": "In review", "rule": { "stages": ["review"] }, "sort": "move" },
+      { "id": "done", "name": "Done", "rule": { "stages": ["done"] }, "sort": "latest", "folded": true }
+    ],
+    "createdAt": 1
+  },
+  {
+    "id": "b-sample-waits",
+    "name": "Waits on me",
+    "project": "$project",
+    "rule": { "statuses": ["needs", "unread"] },
+    "added": [],
+    "removed": [],
+    "columns": [
+      { "id": "needs", "name": "Needs you", "rule": { "statuses": ["needs"] }, "sort": "move" },
+      { "id": "unread", "name": "Your turn", "rule": { "statuses": ["unread"] }, "sort": "move" },
+      { "id": "rest", "name": "The rest", "sort": "hand" }
+    ],
+    "createdAt": 2
+  }
+]

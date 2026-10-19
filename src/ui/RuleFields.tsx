@@ -3,6 +3,7 @@
 // Every part picked must hold, and within one any pick does. The board dialog takes in what a
 // rule says (BoardDialog.tsx), and a column holds what its rule says (ColumnDialog.tsx).
 
+import { useState, type ReactNode } from 'react';
 import { ACTIVES, KINDS, KIND_WORD, STAGES, STAGE_WORD, STATUS_PICKS, STATUS_WORD, type Active, type Rule } from '../boards/model';
 import type { Label } from '../types';
 import { PickChip, Seg } from './primitives';
@@ -25,10 +26,29 @@ const ACTIVE_OPTIONS: { id: Active | 'any'; label: string; title: string }[] = [
   ...ACTIVES.map((a) => ({ id: a, label: a === '1d' ? '24h' : a, title: `Moved on in the last ${a === '1d' ? '24 hours' : a}` })),
 ];
 
+/** How many of a long list's picks show before "more", as the sidebar's facets show theirs. */
+const SHOWN = 8;
+
 /** Picks one, or unpicks it. */
 function toggled<T>(list: T[] | undefined, x: T): T[] {
   const l = list ?? [];
   return l.includes(x) ? l.filter((y) => y !== x) : [...l, x];
+}
+
+/** A long list's picks: the first few and the ones picked, then "more" for the rest. */
+function LongPicks<T>({ items, picked, children }: { items: T[]; picked: (item: T) => boolean; children: (item: T) => ReactNode }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? items : items.filter((x, i) => i < SHOWN || picked(x));
+  return (
+    <div className="ca-rule-picks">
+      {shown.map(children)}
+      {(all || shown.length < items.length) && (
+        <button type="button" className="ca-linkbtn ca-rule-more" onClick={() => setAll(!all)}>
+          {all ? 'Fewer' : `${items.length - shown.length} more`}
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function RuleFields({ rule, onChange, labels, repos, accounts }: RuleFieldsProps) {
@@ -62,26 +82,26 @@ export function RuleFields({ rule, onChange, labels, repos, accounts }: RuleFiel
       {labels.length > 0 && (
         <>
           <span className="ca-rule-label">Labels</span>
-          <div className="ca-rule-picks">
-            {labels.map((l) => (
+          <LongPicks items={labels} picked={(l) => !!rule.labels?.includes(l.id)}>
+            {(l) => (
               <PickChip key={l.id} on={!!rule.labels?.includes(l.id)} title="Todos with the label, and the sessions and worktrees on them" onPick={() => set({ labels: toggled(rule.labels, l.id) })}>
                 <LabelDot label={l} />
                 <span>{l.name}</span>
               </PickChip>
-            ))}
-          </div>
+            )}
+          </LongPicks>
         </>
       )}
       {repos.length > 1 && (
         <>
           <span className="ca-rule-label">Repos</span>
-          <div className="ca-rule-picks">
-            {repos.map((r) => (
+          <LongPicks items={repos} picked={(r) => !!rule.repos?.includes(r.id)}>
+            {(r) => (
               <PickChip key={r.id} on={!!rule.repos?.includes(r.id)} title={r.id} onPick={() => set({ repos: toggled(rule.repos, r.id) })}>
                 {r.label}
               </PickChip>
-            ))}
-          </div>
+            )}
+          </LongPicks>
         </>
       )}
       {accounts.length > 1 && (

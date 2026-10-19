@@ -1,6 +1,6 @@
 ---
 name: codealong
-description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies or to run as their orchestrator, when asked to visualize or lay out their sessions on Codealong's canvas, or when choosing which account to start something on.
+description: Codealong todos, sessions and accounts on this Mac, through the `codealong` command. Use when the user asks for something done with a Codealong todo (adding, starting, changing or finishing one) or the session was started on one, when you need to know what other agents or sessions did in this repo or to message one (on any account or harness), when you'd have another account, harness or model (Codex, say) review, check or take on part of your work (a helper, started here rather than with its own CLI or plugin), when asked to go over the sessions that wait on the user and suggest replies or to run as their orchestrator, when asked to visualize or lay out their sessions on Codealong's canvas, or to make a board of some work or put work on one, or when choosing which account to start something on.
 ---
 
 # Codealong
@@ -270,14 +270,29 @@ since the last look (sessions, PRs, todos, worktrees two agents share) with what
 user now, and `codealong hygiene` lists the processes left over from old sessions, with this
 Mac's load, memory and swap (`--kill` ends them).
 
-## The canvas
+## Boards
 
-The app's Canvas view lays a project's work out in space: worktrees, sessions, todos and PRs as
-cards, in frames. `codealong canvas show` says what a project's canvas holds, and `codealong
-canvas arrange <plan.json>` lays it out in frames you name, each with the cards that belong to it
-and a note: grouping by what the work is for, which the app's own Tidy can't. When your user asks
-you to visualize, map or lay out their sessions or the work in progress (in Claude Code,
-`/codealong:visualize`), read `references/visualize.md` and follow it.
+A board is a named set of work in a project (a release, a fix, an investigation), shown in the
+app as Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in
+frames). Every project has a board of its own, named after it, that holds everything in the
+project. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how
+recent, words in titles) and what's added by hand, less what's taken off.
+
+- `codealong board list` lists the project's boards; `board show <board>` prints its Kanban
+  columns and their cards, or with `--as canvas` its canvas's frames.
+- When you work on something your user keeps a board for, put yourself on it:
+  `codealong board add <board> --session me`, and the todo you're on with `--todo`. Take off
+  what doesn't belong with `board remove`; adding something back undoes that.
+- `codealong board new <name>` makes a board: only what's added, or what rule options take in
+  (`--label release --stage review`), or `--everything`. Make one only when your user asks.
+- `codealong board move <board> --todo <id> --to <column>` does what dragging the card there
+  does in the app (marks it done, gives it a label, puts it in a column of the user's), and
+  `--dry-run` says what that would be first. `board set` changes a board's rule and columns
+  from JSON.
+- `codealong board arrange <plan.json>` lays a board's canvas out in frames you name, each with
+  the cards that belong to it and a note: grouping by what the work is for, which the app's own
+  Tidy can't. When your user asks you to visualize, map or lay out their sessions or the work in
+  progress (in Claude Code, `/codealong:visualize`), read `references/visualize.md` and follow it.
 
 ## PRs
 

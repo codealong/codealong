@@ -1,8 +1,9 @@
 // Checks the views' keys (mainKeys.ts `VIEW_CHORDS`): ⇧⌘S, ⇧⌘W, ⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go to
-// Sessions, Worktrees, PRs, Todo, Kanban and Canvas from the list, the search field and a
-// session's box, and ⇧⌘C, which clipboard managers take, goes nowhere; ⌥⌘C copies the selected worktree's path. The
-// sidebar shows each view's keys in its count's place while the pointer is on it, and the rail it
-// folds to says them.
+// Sessions, Worktrees, PRs, Todo, and the Board view as Kanban and as Canvas, from the list, the
+// search field and a session's box, and ⇧⌘C, which clipboard managers take, goes nowhere; ⌥⌘C
+// copies the selected worktree's path. The sidebar lists the Board view once, with the keys of the
+// layout a click on it shows, and shows each view's keys in its count's place while the pointer is
+// on it, and the rail it folds to says them.
 //   scripts/preview.sh sessions '' scripts/preview/view-keys-check.js
 //   PREVIEW_SCHEME=dark scripts/preview.sh sessions '' scripts/preview/view-keys-check.js
 (function () {
@@ -13,8 +14,8 @@
   var copied = [];
   navigator.clipboard.writeText = function (text) { copied.push(text); return Promise.resolve(); };
 
-  var VIEWS = ['Sessions', 'Worktrees', 'PRs', 'Todo', 'Kanban', 'Canvas'];
-  var LETTERS = ['S', 'W', 'P', 'T', 'K', 'B'];
+  var VIEWS = ['Sessions', 'Worktrees', 'PRs', 'Todo', 'Board'];
+  var LETTERS = ['S', 'W', 'P', 'T', 'K'];
   var shown = function () { var m = document.querySelector('main.ca-board'); return m ? m.getAttribute('aria-label') : null; };
   var navs = function () { return all('.ca-side .ca-nav.has-kbd'); };
   var key = function (el, init) { (el || document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
@@ -113,6 +114,8 @@
     })
     .then(function () {
       check('⇧⌘B goes to Canvas', shown() === 'Canvas', shown());
+      var board = navs().filter(function (r) { return r.querySelector('.ca-nav-label').textContent === 'Board'; })[0];
+      check('the sidebar’s Board says the keys of the layout it shows', !!board && board.querySelector('.ca-kbds').textContent === '⇧⌘B', board && board.querySelector('.ca-kbds').textContent);
       // The list's find (ListBar.tsx), as ⌘F opens it from the board.
       key(document.body, { key: 'f', code: 'KeyF', metaKey: true });
       return until(function () { return document.activeElement === document.querySelector('.ca-listfind input'); }, 2000, 'the list’s find');
@@ -158,7 +161,9 @@
     })
     .then(function () {
       var titles = all('.ca-rail .ca-rail-btn').slice(0, VIEWS.length).map(function (b) { return b.title; });
-      check('the rail says each view’s keys', titles.every(function (t, i) { return t.indexOf(VIEWS[i] + ' (⇧⌘' + LETTERS[i] + ')') === 0; }), titles.join(' | '));
+      // The Board shows Canvas, the layout it showed last, by now.
+      var letters = LETTERS.slice(0, 4).concat(['B']);
+      check('the rail says each view’s keys', titles.every(function (t, i) { return t.indexOf(VIEWS[i] + ' (⇧⌘' + letters[i] + ')') === 0; }), titles.join(' | '));
       key(document.body, { key: 's', code: 'KeyS', ctrlKey: true, metaKey: true });
       return until(function () { return navs().length === VIEWS.length; }, 3000, 'the sidebar again');
     })

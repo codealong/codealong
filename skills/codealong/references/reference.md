@@ -135,10 +135,19 @@ Commands:
              conversation and resumes as usual. It judges nothing, and kills nothing,
              when the app doesn't answer or is still reading after a start: without its
              board, every session would look old
-  canvas     A project's canvas, the app's Canvas view: what its frames hold (`show`),
-             and laying it out in frames by what the work is for (`arrange`), so your
-             user sees the work in progress as you sum it up. Needs the app running: its
-             main window holds the canvas
+  board      Boards, the app's Kanban and Canvas: named sets of work in a project, each
+             shown as Kanban (todos and sessions in columns) or as Canvas (the work laid
+             out in space, in frames). Every project has a board of its own, named after
+             it, that holds everything in the project; make more for a release, a fix,
+             an investigation. A board holds what its rule takes in (labels, stages,
+             statuses, repos, accounts, how recent, words) and what's added by hand,
+             less what's taken off, so add the session you're in to your user's board
+             for the work you're on (`board add <board> --session me`). Name a board by
+             its id or its name: a name in the project of the folder you're in or
+             --project, or one only one project has. `list`, `new`, `add`, `remove`,
+             `rule`, `set`, `rename` and `delete` work with or without the app; `show`,
+             `move`, `arrange` and `open` need it running, since its main window works
+             boards out
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3150,31 +3159,83 @@ Options:
           Print help
 ```
 
-## codealong canvas
+## codealong board
 
 ```
-A project's canvas, the app's Canvas view: what its frames hold (`show`), and laying it
-out in frames by what the work is for (`arrange`), so your user sees the work in
-progress as you sum it up. Needs the app running: its main window holds the canvas
+Boards, the app's Kanban and Canvas: named sets of work in a project, each shown as
+Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in
+frames). Every project has a board of its own, named after it, that holds everything in
+the project; make more for a release, a fix, an investigation. A board holds what its
+rule takes in (labels, stages, statuses, repos, accounts, how recent, words) and what's
+added by hand, less what's taken off, so add the session you're in to your user's board
+for the work you're on (`board add <board> --session me`). Name a board by its id or its
+name: a name in the project of the folder you're in or --project, or one only one
+project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work
+with or without the app; `show`, `move`, `arrange` and `open` need it running, since its
+main window works boards out
 
-Usage: codealong canvas [OPTIONS] <COMMAND>
+Usage: codealong board [OPTIONS] <COMMAND>
 
 Commands:
-  show     What a project's canvas holds: its frames in reading order, each with who
-           made it (`by`: `you` drew it, a `tidy` made it, or `arrange` did), the cards
-           (`ref`: worktree, session, todo or pr, with its key and title, `gone` once
-           the board no longer has it) and the notes. `frame` is the id of the frame a
-           card, note or frame sits in, null for none. `exists` is false for a project
-           whose canvas was never shown or arranged
-  arrange  Lay a project's canvas out in frames you name, by what the work is for: a
-           goal, a release, what waits on your user. Each frame's cards go in columns by
+  list     A project's boards: its own first, then the rest as they were made, each with
+           its id, its name, what its rule takes in, and how many cards were added and
+           taken off by hand
+  new      Make a board. Given no rule options it holds only what's added (`board add`);
+           with them, what they take in too (as `board rule` says), and with
+           --everything, everything in the project. Its Kanban starts with the four
+           stage columns (To do, In progress, In review, Done), or with --columns labels
+           one column per label its rule names (every label, for a rule that names none)
+           and Other, or with --columns blank one column, Inbox, to make your own
+           beside. Prints its id
+  show     What a board holds, as its user sees it: its Kanban columns, each with its
+           cards in their order (a todo with the sessions on it, or a session on no todo
+           the board shows), or with --as canvas its canvas's frames in reading order,
+           each with who made it (`by`: `you` drew it, a `tidy` made it, or `arrange`
+           did), the cards in it (`gone` once the board no longer has one) and its
+           notes. Without a board, the project's own
+  add      Put cards on a board by hand. They stay on it whatever its rule says, until
+           they're taken off, and come back if they were taken off
+  remove   Take cards off a board. They stay off whatever its rule says, until they're
+           added again
+  rule     Change what comes onto a board by itself. Each option given must hold, and
+           one holds when a card has any of what it names: --label release --stage
+           review takes in the todos labelled release that are in review, and the
+           sessions on them. --everything takes in everything in the project;
+           --hand-only nothing but what's added
+  set      Set a board's rule and its Kanban columns from JSON, in the shape `board show
+           --json` prints them: {"rule": {…} | null, "columns": [{"id": "next", "name":
+           "Next", "rule": {…}, "sort": "hand", "folded": false}] | null}. A field left
+           out stays as it is; a rule of null takes in nothing but what's added, and
+           columns of null are the four stages. A rule is {"kinds": ["worktree",
+           "session", "todo", "pr"], "stages": ["todo", "progress", "review", "done"],
+           "statuses": ["needs", "unread", "working"], "labels": [names or ids],
+           "repos": ["owner/name"], "accounts": [names], "active": "1d" | "3d" | "7d" |
+           "30d", "text": "words in the title"}, each part optional, every part given
+           holding; {} takes in everything. A card goes in the first column whose rule
+           takes it, else in the column it was put in by hand, else in the first column
+           without a rule; `sort` is `hand` (as they're put), `move` (what needs your
+           user first) or `latest`
+  move     Move a card on a board's Kanban to a column, doing what dragging it there
+           does in the app: in a stage column a todo is marked ready for review, done,
+           or reopened, and a session marked done; in a label column a todo gets the
+           label; in a column of your own the card is put there. Starting a todo from To
+           do starts a session in the app, so it's turned down here: run `codealong todo
+           start` in the session that takes it on. --dry-run says what it would do
+           without doing it
+  arrange  Lay a board's canvas out in frames you name, by what the work is for: a goal,
+           a release, what waits on your user. Each frame's cards go in columns by
            worktree, in the order you give, its note across its top, and the frames go
            in rows in the order you give. Frames your user drew and notes stay where
            they are, with what's in them, unless a frame of yours names it. The frames
            and notes the last arrange made are replaced; a tidy leaves them as if your
            user drew them, and once they rename one it's theirs. The cards no frame
-           names go below your frames, laid out by worktree, or come off with `--rest
-           off`
+           names go below your frames, laid out by worktree, or come off the canvas with
+           `--rest off`. A card you name that isn't on the board is put on it
+  open     Bring Codealong's main window forward on a board, as Kanban, or with --as
+           canvas as Canvas
+  rename   Rename a board. A project's own board can be renamed too
+  delete   Delete a board, and its canvas. What was on it stays as it is everywhere
+           else. A project's own board can't be deleted
   help     Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3191,25 +3252,21 @@ Options:
           Print help
 ```
 
-## codealong canvas show
+## codealong board list
 
 ```
-What a project's canvas holds: its frames in reading order, each with who made it (`by`:
-`you` drew it, a `tidy` made it, or `arrange` did), the cards (`ref`: worktree, session,
-todo or pr, with its key and title, `gone` once the board no longer has it) and the
-notes. `frame` is the id of the frame a card, note or frame sits in, null for none.
-`exists` is false for a project whose canvas was never shown or arranged
+A project's boards: its own first, then the rest as they were made, each with its id,
+its name, what its rule takes in, and how many cards were added and taken off by hand
 
-Usage: codealong canvas show [OPTIONS]
+Usage: codealong board list [OPTIONS]
 
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for every project's canvas. Without
-          it, the project of the worktree the current folder is in, else the one the
-          main window shows
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
 
       --table
           Tables, even when piped
@@ -3221,17 +3278,388 @@ Options:
           Print help
 ```
 
-## codealong canvas arrange
+## codealong board new
 
 ```
-Lay a project's canvas out in frames you name, by what the work is for: a goal, a
-release, what waits on your user. Each frame's cards go in columns by worktree, in the
-order you give, its note across its top, and the frames go in rows in the order you
-give. Frames your user drew and notes stay where they are, with what's in them, unless a
-frame of yours names it. The frames and notes the last arrange made are replaced; a tidy
-leaves them as if your user drew them, and once they rename one it's theirs. The cards
-no frame names go below your frames, laid out by worktree, or come off with `--rest
-off`.
+Make a board. Given no rule options it holds only what's added (`board add`); with them,
+what they take in too (as `board rule` says), and with --everything, everything in the
+project. Its Kanban starts with the four stage columns (To do, In progress, In review,
+Done), or with --columns labels one column per label its rule names (every label, for a
+rule that names none) and Other, or with --columns blank one column, Inbox, to make your
+own beside. Prints its id
+
+Usage: codealong board new [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+      --everything
+          Everything in the project
+
+      --table
+          Tables, even when piped
+
+      --kind <KINDS>
+          Cards of a kind
+          
+          [possible values: worktree, session, todo, pr]
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --stage <STAGES>
+          Work at a stage: todo (not started), progress, review, done
+          
+          [possible values: todo, progress, review, done]
+
+      --status <STATUSES>
+          Agents in a status: needs (needs you), unread (your turn), working; a todo or
+          a worktree by its sessions
+          
+          [possible values: needs, unread, working]
+
+      --label <LABELS>
+          A todo label's name: todos with it, and the sessions and worktrees on them
+
+      --repo <REPOS>
+          A repo, as owner/name
+
+      --account <ACCOUNTS>
+          An account's sessions, and the todos and worktrees they're on
+
+      --active <ACTIVE>
+          Work that moved on in the last 1d, 3d, 7d or 30d
+          
+          [possible values: 1d, 3d, 7d, 30d]
+
+      --text <TEXT>
+          Words in the title
+
+      --columns <COLUMNS>
+          The Kanban columns it starts with
+
+          Possible values:
+          - stages: To do, In progress, In review and Done, which follow the work
+          - labels: One column per label, and Other
+          - blank:  One column, Inbox
+          
+          [default: stages]
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## codealong board show
+
+```
+What a board holds, as its user sees it: its Kanban columns, each with its cards in
+their order (a todo with the sessions on it, or a session on no todo the board shows),
+or with --as canvas its canvas's frames in reading order, each with who made it (`by`:
+`you` drew it, a `tidy` made it, or `arrange` did), the cards in it (`gone` once the
+board no longer has one) and its notes. Without a board, the project's own
+
+Usage: codealong board show [OPTIONS] [BOARD]
+
+Arguments:
+  [BOARD]
+          The board: its id or its name. Without it, the project's own board
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+      --as <LAYOUT>
+          As Kanban or as Canvas
+          
+          [default: kanban]
+          [possible values: kanban, canvas]
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong board add
+
+```
+Put cards on a board by hand. They stay on it whatever its rule says, until they're
+taken off, and come back if they were taken off
+
+Usage: codealong board add [OPTIONS] <BOARD>
+
+Arguments:
+  <BOARD>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --todo <TODOS>
+          A todo's id, or a unique start of it
+
+      --session <SESSIONS>
+          A session's key or id, a unique start of its id, or `me`
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --worktree <WORKTREES>
+          A worktree's folder, or `.` for the one the current folder is in
+
+      --pr <PRS>
+          A PR's URL or owner/name#number, or #number in this folder's repo
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+  -h, --help
+          Print help
+```
+
+## codealong board remove
+
+```
+Take cards off a board. They stay off whatever its rule says, until they're added again
+
+Usage: codealong board remove [OPTIONS] <BOARD>
+
+Arguments:
+  <BOARD>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --todo <TODOS>
+          A todo's id, or a unique start of it
+
+      --session <SESSIONS>
+          A session's key or id, a unique start of its id, or `me`
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --worktree <WORKTREES>
+          A worktree's folder, or `.` for the one the current folder is in
+
+      --pr <PRS>
+          A PR's URL or owner/name#number, or #number in this folder's repo
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+  -h, --help
+          Print help
+```
+
+## codealong board rule
+
+```
+Change what comes onto a board by itself. Each option given must hold, and one holds
+when a card has any of what it names: --label release --stage review takes in the todos
+labelled release that are in review, and the sessions on them. --everything takes in
+everything in the project; --hand-only nothing but what's added
+
+Usage: codealong board rule [OPTIONS] <BOARD>
+
+Arguments:
+  <BOARD>
+          
+
+Options:
+      --everything
+          Everything in the project
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --kind <KINDS>
+          Cards of a kind
+          
+          [possible values: worktree, session, todo, pr]
+
+      --table
+          Tables, even when piped
+
+      --stage <STAGES>
+          Work at a stage: todo (not started), progress, review, done
+          
+          [possible values: todo, progress, review, done]
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --status <STATUSES>
+          Agents in a status: needs (needs you), unread (your turn), working; a todo or
+          a worktree by its sessions
+          
+          [possible values: needs, unread, working]
+
+      --label <LABELS>
+          A todo label's name: todos with it, and the sessions and worktrees on them
+
+      --repo <REPOS>
+          A repo, as owner/name
+
+      --account <ACCOUNTS>
+          An account's sessions, and the todos and worktrees they're on
+
+      --active <ACTIVE>
+          Work that moved on in the last 1d, 3d, 7d or 30d
+          
+          [possible values: 1d, 3d, 7d, 30d]
+
+      --text <TEXT>
+          Words in the title
+
+      --hand-only
+          Nothing but what's added by hand
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+  -h, --help
+          Print help
+```
+
+## codealong board set
+
+```
+Set a board's rule and its Kanban columns from JSON, in the shape `board show --json`
+prints them: {"rule": {…} | null, "columns": [{"id": "next", "name": "Next", "rule":
+{…}, "sort": "hand", "folded": false}] | null}. A field left out stays as it is; a rule
+of null takes in nothing but what's added, and columns of null are the four stages. A
+rule is {"kinds": ["worktree", "session", "todo", "pr"], "stages": ["todo", "progress",
+"review", "done"], "statuses": ["needs", "unread", "working"], "labels": [names or ids],
+"repos": ["owner/name"], "accounts": [names], "active": "1d" | "3d" | "7d" | "30d",
+"text": "words in the title"}, each part optional, every part given holding; {} takes in
+everything. A card goes in the first column whose rule takes it, else in the column it
+was put in by hand, else in the first column without a rule; `sort` is `hand` (as
+they're put), `move` (what needs your user first) or `latest`
+
+Usage: codealong board set [OPTIONS] <BOARD> <SPEC>
+
+Arguments:
+  <BOARD>
+          
+
+  <SPEC>
+          The JSON: a file, or `-` to read it from stdin
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong board move
+
+```
+Move a card on a board's Kanban to a column, doing what dragging it there does in the
+app: in a stage column a todo is marked ready for review, done, or reopened, and a
+session marked done; in a label column a todo gets the label; in a column of your own
+the card is put there. Starting a todo from To do starts a session in the app, so it's
+turned down here: run `codealong todo start` in the session that takes it on. --dry-run
+says what it would do without doing it
+
+Usage: codealong board move [OPTIONS] --to <TO> <BOARD>
+
+Arguments:
+  <BOARD>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --todo <TODOS>
+          A todo's id, or a unique start of it
+
+      --session <SESSIONS>
+          A session's key or id, a unique start of its id, or `me`
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --worktree <WORKTREES>
+          A worktree's folder, or `.` for the one the current folder is in
+
+      --pr <PRS>
+          A PR's URL or owner/name#number, or #number in this folder's repo
+
+      --to <TO>
+          The column, by its id or its name
+
+      --before <BEFORE>
+          Put it before this card in the column, as `board show` names it (todo:<id>,
+          session:<key>), in a column in your order
+
+      --dry-run
+          Say what it would do, and don't
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+  -h, --help
+          Print help
+```
+
+## codealong board arrange
+
+```
+Lay a board's canvas out in frames you name, by what the work is for: a goal, a release,
+what waits on your user. Each frame's cards go in columns by worktree, in the order you
+give, its note across its top, and the frames go in rows in the order you give. Frames
+your user drew and notes stay where they are, with what's in them, unless a frame of
+yours names it. The frames and notes the last arrange made are replaced; a tidy leaves
+them as if your user drew them, and once they rename one it's theirs. The cards no frame
+names go below your frames, laid out by worktree, or come off the canvas with `--rest
+off`. A card you name that isn't on the board is put on it.
 
 The plan is JSON: {"frames": [{"title": "Release 0.8", "color": "blue", "note": "Two PRs
 open; the docs one waits on review.", "worktrees": ["~/src/app-release"], "sessions":
@@ -3240,28 +3668,34 @@ title and at least one card or a note; color is optional (gray, red, pink, purpl
 indigo, blue, teal, green). Name a worktree by its path, a session by its key or id, a
 todo by its id, a PR by its URL or owner/name#number; ids take a unique prefix. A
 worktree you list heads its sessions' column. A card named twice goes in the first frame
-that names it; one the board doesn't have in the project is left out and listed under
+that names it; one the board's project doesn't have is left out and listed under
 `missing`. Prints each frame made with how many cards it holds (`frames`, with each
 frame's id) and how many other cards went below or came off (`rest`).
 
-Usage: codealong canvas arrange [OPTIONS] <PLAN>
+Usage: codealong board arrange [OPTIONS] <PLAN>
 
 Arguments:
   <PLAN>
           The plan: a JSON file, or `-` to read it from stdin
 
 Options:
+      --board <BOARD>
+          The board: its id or its name. Without it, the project's own board
+
       --json
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for every project's canvas. Without
-          it, the project of the worktree the current folder is in, else the one the
-          main window shows
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+      --table
+          Tables, even when piped
 
       --rest <REST>
           What becomes of the cards on the canvas no frame names: laid out by worktree
-          below your frames, or taken off (Bring in puts one back once it moves on)
+          below your frames, or taken off the canvas (Bring in puts one back once it
+          moves on)
 
           Possible values:
           - keep: Laid out below the frames, as a tidy lays them out
@@ -3269,16 +3703,111 @@ Options:
           
           [default: keep]
 
-      --table
-          Tables, even when piped
+      --verbose
+          Say on stderr whether the app or the files answered
 
       --show
           Bring Codealong's main window forward on the canvas, with your frames in view
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## codealong board open
+
+```
+Bring Codealong's main window forward on a board, as Kanban, or with --as canvas as
+Canvas
+
+Usage: codealong board open [OPTIONS] [BOARD]
+
+Arguments:
+  [BOARD]
+          The board: its id or its name. Without it, the project's own board
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+      --as <LAYOUT>
+          As Kanban or as Canvas
+          
+          [default: kanban]
+          [possible values: kanban, canvas]
+
+      --table
+          Tables, even when piped
 
       --verbose
           Say on stderr whether the app or the files answered
 
   -h, --help
-          Print help (see a summary with '-h')
+          Print help
+```
+
+## codealong board rename
+
+```
+Rename a board. A project's own board can be renamed too
+
+Usage: codealong board rename [OPTIONS] <BOARD> <NAME>
+
+Arguments:
+  <BOARD>
+          
+
+  <NAME>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong board delete
+
+```
+Delete a board, and its canvas. What was on it stays as it is everywhere else. A
+project's own board can't be deleted
+
+Usage: codealong board delete [OPTIONS] <BOARD>
+
+Arguments:
+  <BOARD>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
 ```
 

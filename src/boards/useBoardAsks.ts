@@ -16,7 +16,7 @@ import { arrange, emptyDoc, entitiesOf, outline, refId, type ArrangeFrame, type 
 import type { CanvasHandle } from '../canvas/useCanvas';
 import { readCanvas, saveCanvas, seed } from '../canvas/useCanvas';
 import { withDevices, type DeviceFilter } from '../devices';
-import { boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanDrop, type KanbanMove } from '../kanban';
+import { boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanDrop, orderedIds, type KanbanMove } from '../kanban';
 import { useLatest } from '../latest';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { errorText } from '../report';
@@ -153,12 +153,15 @@ async function move(op: Extract<Ask, { kind: 'move' }>, doc: BoardDoc, board: Bo
   const want = op.to.trim().toLowerCase();
   const to = columns.find((c) => c.id !== NO_COLUMN && (c.id.toLowerCase() === want || c.label.toLowerCase() === want));
   if (!to) throw new Error(`${doc.name} has no column ${op.to}. Its columns are ${columns.filter((c) => c.id !== NO_COLUMN).map((c) => c.label).join(', ')}.`);
-  const before = op.before ? to.cards.findIndex((x) => kanbanCardId(x) === op.before) : -1;
-  if (op.before && before < 0) throw new Error(`${op.before} isn't in ${to.label}.`);
-  // A place in the column is yours to give only where the column keeps your order.
-  const ordered = to.column?.sort === 'hand';
-  const index = op.before && ordered ? before : null;
-  const drop = kanbanDrop(card, from, to, null, index ?? (from.id === to.id && ordered ? to.cards.length : null), { columns: columns.flatMap((c) => c.column ?? []), placed: doc.placed, subjects, todos: board.todos, now });
+  // A place in the column is yours to give only where the column keeps your order, and among
+  // the cards that keep one (kanban.ts `orderedIds`).
+  const places = orderedIds(to.cards, isProjects(doc));
+  const keepsPlace = to.column?.sort === 'hand' && (!isProjects(doc) || card.kind === 'todo');
+  const before = op.before ? places.indexOf(op.before) : -1;
+  if (op.before && (!keepsPlace || before < 0)) throw new Error(`${op.before} isn't in ${to.label}, or ${to.label} keeps no order of yours for it.`);
+  // Within its column a card needs a place to go to; into another it goes after the rest there.
+  const index = !keepsPlace ? null : op.before ? before : from.id === to.id ? null : places.length;
+  const drop = kanbanDrop(card, from, to, null, index, { columns: columns.flatMap((c) => c.column ?? []), placed: doc.placed, subjects, todos: board.todos, now });
   if (!drop || drop.moves.length === 0) throw new Error(from.id === to.id ? `It's in ${to.label} already.` : `Moving it to ${to.label} does nothing: no change would put it there.`);
   if (drop.moves.some((m) => m.kind === 'start')) throw new Error('Moving a todo from To do to In progress starts a session, which the command doesn’t do: run `codealong todo start` in the session that takes it on.');
   const title = (card.kind === 'todo' ? card.todo.title : card.session.title) || 'Untitled';
@@ -179,7 +182,7 @@ async function doMoves(card: KanbanCard, moves: KanbanMove[], to: KanbanColumn, 
     else if (m.kind === 'labels') acts.run({ op: 'update', id: card.todo.id, patch: { labels: [...card.todo.labels.filter((l) => !m.remove.includes(l)), ...m.add.filter((l) => !card.todo.labels.includes(l))] } });
     if (m.kind === 'place') await acts.apply({ op: 'place', id: doc.id, card: id, column: m.column });
     if (m.kind === 'order') {
-      const seq = columnWith(to.cards.map(kanbanCardId), id, m.index);
+      const seq = columnWith(orderedIds(to.cards, isProjects(doc)), id, m.index);
       // A project's own board keeps the Todo view's order.
       if (isProjects(doc)) {
         if (card.kind === 'todo') acts.run({ op: 'order', ids: inSlots(board.todos.map((t) => t.id), seq.flatMap((c) => (c.startsWith('todo:') ? [c.slice(5)] : []))) });

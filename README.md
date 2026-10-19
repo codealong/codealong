@@ -174,8 +174,7 @@ Six views of your work, each in a window of its own if you like (⇧⌘N):
 | **Worktrees** | Each worktree once: its branch, its PR, how far it is from main, and the agents working in it. |
 | **PRs** | Every pull request in your repos, with its review, checks and the sessions that worked on it. Reviews asked of you come first. |
 | **Todo** | Work you mean to hand an agent, with notes, screenshots, labels and what each todo waits on. |
-| **Kanban** | Your todos and sessions as cards in To do, In progress, In review and Done, what needs you first in each. |
-| **Canvas** | Your work laid out in space: a frame per repo, a column per worktree, cards you arrange. |
+| **Board** | Your work as a board, the whole project's or one you make for a release or a fix: as **Kanban**, todos and sessions as cards in To do, In progress, In review and Done (or columns of your own), what needs you first in each; as **Canvas**, laid out in space, a frame per repo, a column per worktree, cards you arrange. |
 
 Select anything to see it in the panel on the right; right-click anything for its menu. The
 sidebar, a rail of the views until you open it, narrows every view to the machines, time span and
@@ -358,7 +357,7 @@ to *In progress*, and the first session on it owns it, so a second agent started
 is told to send its findings to the first instead of redoing the work. Agents can read and update
 the list themselves with the `codealong` command.
 
-### The canvas
+### Boards and the canvas
 
 <p align="center">
   <picture>
@@ -370,7 +369,10 @@ the list themselves with the `codealong` command.
 Your project laid out in space, to remember work by where it is. *Tidy* lays it out in a frame per
 repo and a column per worktree, and new work comes in by itself beside what it belongs to. Add
 notes and frames, pan and zoom as in Figma, and zoomed out, every card becomes a block in its
-status color.
+status color. The canvas and the Kanban are two ways of showing a board: the whole project's, or
+one you make for a release, a fix or an investigation, holding what its rule takes in (a label, a
+stage, a repo, what needs you) and what you add from any row's menu. A board's Kanban can have
+columns of your own, and agents can put their work on a board with `codealong board add`.
 
 ### Open anything where it lives
 
@@ -460,7 +462,7 @@ In Codealong:
 
 | Keys | What they do |
 | --- | --- |
-| ⇧⌘S · ⇧⌘W · ⇧⌘P · ⇧⌘T · ⇧⌘K · ⇧⌘B | Sessions, Worktrees, PRs, Todo, Kanban, Canvas |
+| ⇧⌘S · ⇧⌘W · ⇧⌘P · ⇧⌘T · ⇧⌘K · ⇧⌘B | Sessions, Worktrees, PRs, Todo, the board as Kanban, as Canvas |
 | ⌘P | Switch project (⌥⌘1 – ⌥⌘9 jump to one, ⌥⌘0 shows them all) |
 | ⌘K | The quick panel, in this window's project |
 | ⌘N / ⇧⌘N | New session / new window |

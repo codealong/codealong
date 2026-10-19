@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { KanbanCard, KanbanColumn } from './boardLists';
 import { STAGE_COLUMNS, stageOfColumn, type BoardColumn } from './boards/model';
 import { sessionSubject, todoSubject, type Subject } from './boards/rules';
-import { applyKanbanDrop, boardOrderWith, columnWith, insertionAt, inSlots, kanbanDrop, kanbanStep, type DropContext, type KanbanActs } from './kanban';
+import { applyKanbanDrop, boardOrderWith, columnWith, insertionAt, inSlots, kanbanDrop, kanbanStep, orderedIds, type DropContext, type KanbanActs } from './kanban';
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import { todoItem, type TodoOp } from './todos';
@@ -192,6 +192,12 @@ describe('keeping your order', () => {
     expect(inSlots(['t1', 'o1', 't2', 't3'], ['t3', 't1'])).toEqual(['t3', 'o1', 't2', 't1']);
     expect(inSlots(['t1', 't2'], ['gone', 't2', 't1'])).toEqual(['t2', 't1']);
     expect(boardOrderWith(['x', 'a', 'y'], ['a', 'b'])).toEqual(['a', 'b', 'x', 'y']);
+  });
+
+  it('counts places among the todos on a project’s own board, and every card on another', () => {
+    const cards: KanbanCard[] = [todoCard({ id: 'a' }), sessionCard('claude:claude:s'), todoCard({ id: 'b' })];
+    expect(orderedIds(cards, true)).toEqual(['todo:a', 'todo:b']);
+    expect(orderedIds(cards, false)).toEqual(['todo:a', 'session:claude:claude:s', 'todo:b']);
   });
 });
 

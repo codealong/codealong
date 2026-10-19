@@ -115,6 +115,40 @@ function withEmblems(board) {
 function optionalJson(file) {
   return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
 }
+// Boards: boards-fixture.json's (PREVIEW_BOARDS) beside each project's own, a board whose project
+// is `$project` in every project, changed as the engine changes them (boards.rs `apply_to`).
+// `window.__boards` holds them once read.
+function boardsRead() {
+  if (window.__boards) return Promise.resolve(window.__boards);
+  return optionalJson('./boards-fixture.json').then(function (list) {
+    return (window.__boards = window.__boards || (list || []));
+  });
+}
+function boardsFor(project) {
+  return boardsRead().then(function (all) {
+    return all.filter(function (b) { return b.project === project || b.project === '$project'; }).map(function (b) { return Object.assign({}, b, { project: project }); });
+  });
+}
+function boardOp(op) {
+  return boardsRead().then(function (all) {
+    var id = op.op === 'create' ? op.board.id : op.id;
+    if (op.op === 'create') all.push(Object.assign({}, op.board, { createdAt: Date.now() }));
+    if (op.op === 'delete') window.__boards = all = all.filter(function (b) { return b.id !== id; });
+    var b = all.filter(function (x) { return x.id === id; })[0];
+    if (!b && op.op !== 'delete' && id.indexOf('p:') === 0) all.push((b = { id: id, name: id.slice(2), project: id.slice(2), rule: {}, added: [], removed: [] }));
+    if (b) {
+      var gone = function (list) { return (list || []).filter(function (c) { return op.cards.indexOf(c) < 0; }); };
+      if (op.op === 'rename') b.name = op.name;
+      if (op.op === 'rule') b.rule = op.rule;
+      if (op.op === 'columns') b.columns = op.columns;
+      if (op.op === 'order') b.order = op.order;
+      if (op.op === 'place') { b.placed = Object.assign({}, b.placed); if (op.column) b.placed[op.card] = op.column; else delete b.placed[op.card]; }
+      if (op.op === 'add') { b.removed = gone(b.removed); b.added = gone(b.added).concat(op.cards); }
+      if (op.op === 'remove') { b.added = gone(b.added); b.removed = gone(b.removed).concat(op.cards); b.order = gone(b.order); }
+    }
+    return { board: b || null, id: id, project: b ? b.project : '' };
+  });
+}
 // What the token ledger would report (ledger.rs `Report`), for the Usage window: the report in
 // tokens-fixture.json (PREVIEW_TOKENS; `--snapshot --tokens` prints a real one), else one made up
 // from the board, the same every time: its accounts, the worktrees' folders and sessions, a cost
@@ -557,8 +591,10 @@ window.__TAURI_INTERNALS__ = {
       ((args || {}).comments || []).forEach(function (c, i) { out[c.id] = i % 2 === 0 ? 0.85 : 0.1; });
       return Promise.resolve(out);
     }
-    // PREVIEW_CANVAS's document for any project, else none: the view tidies a fresh one.
+    // PREVIEW_CANVAS's document for any board, else none: the view tidies a fresh one.
     if (cmd === 'canvas_load') return optionalJson('./canvas-fixture.json');
+    if (cmd === 'boards_list') return boardsFor((args || {}).project);
+    if (cmd === 'board_op') return boardOp((args || {}).op);
     // Updates: a release build that checked two hours ago, or `window.__update`. A check script
     // shows another state by setting that and pushing it, as the engine would:
     // `window.__emit('update-status', window.__update = {current, state, …})`.

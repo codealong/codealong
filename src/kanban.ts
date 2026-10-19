@@ -183,6 +183,13 @@ export function kanbanStep(columns: KanbanColumn[], key: string | null, dir: 'up
   return next ? next.cards[Math.min(ri, next.cards.length - 1)].key : key;
 }
 
+/** The cards of a column that keep a place you give them, by id: on a project's own board only
+ *  todos, which keep the Todo view's order; on another, every card. An insertion point a drop or
+ *  the command gives counts these. */
+export function orderedIds(cards: readonly KanbanCard[], projects: boolean): string[] {
+  return cards.filter((c) => !projects || c.kind === 'todo').map(kanbanCardId);
+}
+
 /** A column's cards, by id, with `card` put at insertion point `index` among them as they're shown
  *  (where `card` may be already). */
 export function columnWith(column: readonly string[], card: string, index: number): string[] {

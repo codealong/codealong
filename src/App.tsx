@@ -4,8 +4,9 @@
 // pinned ones first in your order; Worktrees lists pinned worktrees in your order, then every
 // other worktree once, in Needs you, Working, Your turn, In review, Idle or Merged, with a line
 // for each agent that needs you, is working or just finished; PRs lists the project's pull
-// requests; Todo lists work you mean to hand an agent, and the sessions on it;
-// Canvas lays the project's work out in space, to be remembered by where it is (CanvasView.tsx).
+// requests; Todo lists work you mean to hand an agent, and the sessions on it; the Board view
+// shows one of the project's boards (boards/model.ts) as Kanban, in columns (KanbanView.tsx), or
+// as Canvas, laid out in space to be remembered by where it is (CanvasView.tsx).
 // The box in the middle of the title bar opens the quick panel, the way into finding and starting
 // anything; ⌘F finds in the view's list (ui/ListBar.tsx).
 // Keyboard map: the design system's Surfaces page.
@@ -51,7 +52,7 @@ import { SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionIte
 import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
 import { TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { KanbanView } from './ui/KanbanView';
-import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanStep, type KanbanActs } from './kanban';
+import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanStep, orderedIds, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type OnBoard, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
@@ -1416,7 +1417,7 @@ export function App() {
     markDone: markSessionDone,
     // A project's own board keeps the Todo view's order; another board keeps its own.
     order: (card, column, index) => {
-      const seq = columnWith((kanbanCols.find((c) => c.id === column)?.cards ?? []).map(kanbanCardId), kanbanCardId(card), index);
+      const seq = columnWith(orderedIds(kanbanCols.find((c) => c.id === column)?.cards ?? [], isProjects(shownBoard)), kanbanCardId(card), index);
       if (!isProjects(shownBoard)) void applyBoard({ op: 'order', id: shownBoard.id, order: boardOrderWith(shownBoard.order ?? [], seq) });
       else if (card.kind === 'todo') todoStore.run({ op: 'order', ids: inSlots(todoStore.todos.map((t) => t.id), seq.flatMap((c) => (c.startsWith('todo:') ? [c.slice(5)] : []))) });
     },
@@ -1723,7 +1724,8 @@ export function App() {
       id: board ? 'board' : v.id,
       label: board ? 'Board' : v.label,
       icon: v.icon,
-      kbd: menus.chordKeys(VIEW_CHORDS[board ? boardLayout : v.id]),
+      // The Board's keys are those of the layout a click on it shows: the one showing, else the last.
+      kbd: menus.chordKeys(VIEW_CHORDS[board ? (view === 'kanban' || view === 'canvas' ? view : lastLayout) : v.id]),
       count:
         v.id === 'worktrees'
           ? recentLanes.length
@@ -2124,7 +2126,7 @@ export function App() {
                 onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
                 onDrop={(c, drop) => applyKanbanDrop(c, drop, kanbanActs, shownBoard.placed?.[kanbanCardId(c)] ?? null)}
                 dropContext={{ columns: columnsOf(shownBoard), placed: shownBoard.placed, subjects, todos: todoStore.todos, now }}
-                canReorder={!query.trim() && bayFilter.length === 0}
+                canReorder
                 orderable={(c) => !isProjects(shownBoard) || c.kind === 'todo'}
                 composerColumn={composerColumn}
                 hints={board.jev?.todos ? board.todoHints : undefined}

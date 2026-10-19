@@ -5,8 +5,8 @@ description: Lay the user's recent and running agent sessions out on Codealong's
 
 # Visualizing the work in progress
 
-You lay out your user's recent and running sessions on the canvas, Codealong's Canvas view, in
-frames by what the work is for: a feature, a fix, a release, an investigation. Each frame gets a
+You lay out your user's recent and running sessions on a board's canvas (a board shown as Canvas
+in Codealong), in frames by what the work is for: a feature, a fix, a release, an investigation. Each frame gets a
 short note saying where that work stands. Tidy can only group by worktree or by day. You can
 group by goal, and that is the point of this skill.
 
@@ -25,10 +25,12 @@ command's help). Everything here needs the Codealong app running.
 
 ## Steps
 
-1. **The project.** By default it's the project of the worktree you run in. Otherwise use
-   the one your user names, or `--project all` for everything. Run `codealong canvas show`
-   (with `--project` if you need one) to see what's on the canvas now: its frames, who made
-   each (`by`), and the cards and notes in them.
+1. **The project and the board.** By default it's the project of the worktree you run in, and
+   its own board, which holds everything in it. Otherwise use the project your user names, or
+   `--project all` for everything, and the board they name (`codealong board list` lists a
+   project's boards). Run `codealong board show --as canvas` (with `--project`, and the board's
+   name, if you need them) to see what's on its canvas now: its frames, who made each (`by`),
+   and the cards and notes in them.
 2. **What's in progress.** Run `codealong sessions --since 24h --project <name>`, or a
    longer `--since` if your user asks. That gives the sessions, each with its status,
    worktree, branch, PR and title. Running ones (`working`, `needs`, `unread`) always go
@@ -59,7 +61,8 @@ command's help). Everything here needs the Codealong app running.
 
    No keys or ids. A frame can be a note alone, such as a summary at the top.
 6. **Arrange.** Write the plan to a file in your scratch folder (not the repo), and run
-   `codealong canvas arrange <plan.json> --show`:
+   `codealong board arrange <plan.json> --show` (with `--board <name>` for a board of the
+   project's other than its own):
 
    ```json
    {"frames": [
@@ -75,8 +78,8 @@ command's help). Everything here needs the Codealong app running.
    laid out by worktree. With `--rest off` they come off the canvas instead. Use that only
    when your user wants just your picture, since it takes off cards they placed outside
    their own frames. A plan with a card the CLI can't find fails with every such card
-   named. Fix those and run it again. Cards the board doesn't have in the project come back
-   under `missing`.
+   named. Fix those and run it again. Cards the project doesn't have come back under
+   `missing`. A card you name that isn't on the board is put on it.
 7. **Reply.** Give a line per frame (its title and its note's gist) and what you left out
    and why. The canvas is up in Codealong; ⇧1 there fits everything in view.
 
