@@ -58,9 +58,11 @@ export function accountsAfter(view: SetupView, listed: AccountCfg[], picked: str
   return [...kept, ...added];
 }
 
-/** config.toml's settings with the folders and apps picked; the folders in the wizard's order. */
-export function configAfter(cfg: Config, picks: SetupPicks): Config {
-  return { ...cfg, scan: picks.folders, apps: { ...cfg.apps, terminal: picks.terminal, editor: picks.editor } };
+/** config.toml's settings with what was picked: the accounts (`accountsAfter`), the folders in
+ *  the wizard's order, and the apps. One save writes them all: saving the settings writes the
+ *  accounts too (config.rs `with_config`), so a save of the accounts alone would be undone. */
+export function configAfter(cfg: Config, picks: SetupPicks, accounts: AccountCfg[]): Config {
+  return { ...cfg, accounts, scan: picks.folders, apps: { ...cfg.apps, terminal: picks.terminal, editor: picks.editor } };
 }
 
 /** What a folder's row says of it. */

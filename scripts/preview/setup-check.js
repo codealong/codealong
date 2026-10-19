@@ -1,6 +1,6 @@
 // Checks Set up Codealong (ui/SetupDialog.tsx) on a new Mac's accounts and folders
 // (setup-sample.json): it starts with the listed accounts ticked and an idle one not, the folders
-// searched or worked in ticked, a typed folder added ticked; Done saves the accounts kept and the
+// searched or worked in ticked, a typed folder added ticked; Done saves, in one go, the accounts kept and the
 // one added, the folders in order, the apps, puts Codealong in the accounts, opens at login when
 // ticked and says setup is finished. Skip setup saves nothing and says it's finished too. A first
 // run (`setup_needed`) opens it by itself. config.toml's accounts are the sample's listed ones,
@@ -75,11 +75,12 @@
       button('Done').click();
 
       await until(function () { return !dialog(); }, 5000, 'Done didn’t close the wizard');
-      var saved = last('save_accounts');
-      var names = saved ? saved.accounts.map(function (a) { return a.name; }) : [];
-      check('Done saves the accounts kept and the one added', names.join(',') === 'claude,claude-work', names.join(','));
-      check('a kept account as config.toml has it', saved && saved.accounts[0].home === '~/.claude');
+      // One save: saving the settings writes the accounts too, so a separate one would be undone.
+      check('Done saves once', calls('save_config').length === 1 && calls('save_accounts').length === 0, calls('save_config').length + ' + ' + calls('save_accounts').length);
       var cfg = last('save_config');
+      var names = cfg ? cfg.config.accounts.map(function (a) { return a.name; }) : [];
+      check('with the accounts kept and the one added', names.join(',') === 'claude,claude-work', names.join(','));
+      check('a kept account as config.toml has it', cfg && cfg.config.accounts[0].home === '~/.claude');
       check('and the folders, in order', cfg && cfg.config.scan.join(',') === '~/code,~/work,~/src', cfg && cfg.config.scan.join(','));
       var put = last('install_agents');
       check('it puts Codealong in those accounts', put && put.accounts.join(',') === 'claude,claude-work', JSON.stringify(put));

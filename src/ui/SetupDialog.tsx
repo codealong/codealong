@@ -6,7 +6,7 @@
 // the first run wrote. Either way it doesn't show by itself again (`finishSetup`).
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { agentsStatus, finishSetup, getConfig, installAgents, saveAccounts, saveConfig, setOpenAtLogin, setupView } from '../api';
+import { agentsStatus, finishSetup, getConfig, installAgents, saveConfig, setOpenAtLogin, setupView } from '../api';
 import { HARNESS_WORD } from '../harness';
 import { shortcutKeys } from '../quick';
 import { errorText } from '../report';
@@ -86,8 +86,7 @@ export function SetupDialog({ onClose, onDone, now }: { onClose: () => void; onD
     setError(null);
     try {
       const accounts = accountsAfter(view, cfg.config.accounts, picks.accounts);
-      if (JSON.stringify(accounts) !== JSON.stringify(cfg.config.accounts)) await saveAccounts(accounts);
-      const next = configAfter(cfg.config, picks);
+      const next = configAfter(cfg.config, picks, accounts);
       if (JSON.stringify(next) !== JSON.stringify(cfg.config)) await saveConfig(next);
       const troubles: string[] = [];
       if (picks.agents && accounts.length > 0) {

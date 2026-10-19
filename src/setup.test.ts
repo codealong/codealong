@@ -52,9 +52,10 @@ describe('the setup wizard', () => {
     expect(after[1]).toMatchObject({ harness: 'claude', home: '~/.claude', command: 'claude', disabled: false });
   });
 
-  it('writes the folders and apps picked into the settings', () => {
-    const next = configAfter(cfg([]), { accounts: [], folders: ['~/code', '~/work'], terminal: 'iterm2', editor: 'zed', agents: true, atLogin: false });
-    expect([next.scan, next.apps.terminal, next.apps.editor]).toEqual([['~/code', '~/work'], 'iterm2', 'zed']);
+  it('writes the accounts, folders and apps picked into the settings at once', () => {
+    const kept: AccountCfg[] = [{ name: 'claude', harness: 'claude', home: '~/.claude', command: null }];
+    const next = configAfter(cfg([{ name: 'gone', harness: 'codex', home: '~/.codex', command: null }]), { accounts: [], folders: ['~/code', '~/work'], terminal: 'iterm2', editor: 'zed', agents: true, atLogin: false }, kept);
+    expect([next.accounts, next.scan, next.apps.terminal, next.apps.editor]).toEqual([kept, ['~/code', '~/work'], 'iterm2', 'zed']);
   });
 
   it('says what each folder holds', () => {

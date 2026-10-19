@@ -81,6 +81,13 @@ pub fn view() -> anyhow::Result<View> {
     Ok(View { accounts, folders: folders_of(&paths, &cfg.scan, &repos, &worked, &h, &|p: &Path| p.is_dir()) })
 }
 
+/// Whether the main window shows the wizard by itself: state.json hasn't been through it, or
+/// there's no state.json yet. Read from the file rather than asked of the engine, which a first
+/// run's scan can keep busy for many seconds. A state.json that doesn't read isn't a first run's.
+pub fn needed() -> bool {
+    crate::state::SeenState::load().is_ok_and(|s| !s.setup_done)
+}
+
 /// The repos your agents worked in lately, by main checkout, with how many of their sessions did.
 pub fn worked_repos(accounts: &[AccountCfg]) -> BTreeMap<PathBuf, usize> {
     let since = now_ms() - WORKED_DAYS * DAY_MS;
@@ -107,19 +114,26 @@ pub fn worked_repos(accounts: &[AccountCfg]) -> BTreeMap<PathBuf, usize> {
 /// its repos is left out: the search goes three levels deep. Repos outside your home folder or
 /// in a hidden folder (an agent's scratch clone in `~/.claude`, say) aren't where you keep code.
 pub fn scan_folders<'a>(repos: impl IntoIterator<Item = &'a Path>, home: &Path) -> Vec<PathBuf> {
-    let yours = |repo: &Path| repo.strip_prefix(home).is_ok_and(|rest| !rest.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.')));
+    // A repo of your home folder itself (dotfiles) is left out with the rest of what's outside it.
+    let yours = |repo: &Path| repo.strip_prefix(home).is_ok_and(|rest| rest.components().next().is_some() && !rest.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.')));
     let mut counts: BTreeMap<PathBuf, usize> = BTreeMap::new();
     for repo in repos.into_iter().filter(|r| yours(r)) {
         let folder = match repo.parent() {
-            Some(p) if p != home && p.parent().is_some() => p.to_path_buf(),
+            Some(p) if p != home => p.to_path_buf(),
             _ => repo.to_path_buf(),
         };
         *counts.entry(folder).or_default() += 1;
     }
-    let all: Vec<PathBuf> = counts.keys().cloned().collect();
-    // Its repos are one level below it, so an outer folder finds them if it's at most two above.
-    let covered = |f: &Path| all.iter().any(|o| o.as_path() != f && f.strip_prefix(o).is_ok_and(|rest| rest.components().count() <= 2));
-    let mut kept: Vec<(PathBuf, usize)> = counts.into_iter().filter(|(f, _)| !covered(f)).collect();
+    // Shallowest first, each kept unless one kept already finds its repos: they're one level
+    // below it, so a folder at most two above it does, three levels deep.
+    let mut by_depth: Vec<(PathBuf, usize)> = counts.into_iter().collect();
+    by_depth.sort_by_key(|(f, _)| f.components().count());
+    let mut kept: Vec<(PathBuf, usize)> = Vec::new();
+    for (f, n) in by_depth {
+        if !kept.iter().any(|(o, _)| f.strip_prefix(o).is_ok_and(|rest| rest.components().count() <= 2)) {
+            kept.push((f, n));
+        }
+    }
     kept.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     kept.into_iter().map(|(f, _)| f).collect()
 }
@@ -210,9 +224,9 @@ mod tests {
     #[test]
     fn folders_to_search_are_the_repos_parents() {
         let h = p("/Users/me");
-        let repos = [p("/Users/me/projects/a"), p("/Users/me/projects/b"), p("/Users/me/work/c"), p("/Users/me/dotfiles"), p("/Users/me/.claude/jobs/1/tmp/x"), p("/tmp/scratch/y")];
+        let repos = [p("/Users/me/projects/a"), p("/Users/me/projects/b"), p("/Users/me/work/c"), p("/Users/me/dotfiles"), p("/Users/me/.claude/jobs/1/tmp/x"), p("/tmp/scratch/y"), p("/Users/me")];
         let got = scan_folders(repos.iter().map(PathBuf::as_path), &h);
-        assert_eq!(got, [p("/Users/me/projects"), p("/Users/me/dotfiles"), p("/Users/me/work")], "most repos first, a repo right in the home folder searched itself, and none hidden or outside it");
+        assert_eq!(got, [p("/Users/me/projects"), p("/Users/me/dotfiles"), p("/Users/me/work")], "most repos first, a repo right in the home folder searched itself, and none hidden, outside it or of it");
     }
 
     #[test]
@@ -221,6 +235,10 @@ mod tests {
         let repos = [p("/Users/me/code/a"), p("/Users/me/code/clients/b"), p("/Users/me/code/x/y/z/deep")];
         let got = scan_folders(repos.iter().map(PathBuf::as_path), &h);
         assert_eq!(got, [p("/Users/me/code"), p("/Users/me/code/x/y/z")], "clients is two levels in and found from code; x/y/z is too deep to be");
+        // Left out only for one that's kept: code finds a/b's repos, not a/b/c/d's.
+        let chain = [p("/Users/me/code/r"), p("/Users/me/code/a/b/r"), p("/Users/me/code/a/b/c/d/r")];
+        let got = scan_folders(chain.iter().map(PathBuf::as_path), &h);
+        assert_eq!(got, [p("/Users/me/code"), p("/Users/me/code/a/b/c/d")]);
     }
 
     fn found(name: &str, harness: &str, home: &str) -> Found {

@@ -105,9 +105,8 @@ pub enum Msg {
     /// Helpers made sessions of your own. The reply is the time of the board that shows it,
     /// published at once.
     Own(Vec<String>, Sender<i64>),
-    /// Whether the setup wizard has yet to show by itself, after marking it finished when told
-    /// to (setup.rs).
-    Setup(bool, Sender<bool>),
+    /// The setup wizard was finished or skipped (setup.rs).
+    SetupDone,
     /// suggestions.json just changed at a request here: the board is published again at once.
     /// The reply is the time of the board that shows it.
     Suggested(Sender<i64>),
@@ -340,21 +339,10 @@ impl Handle {
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
-    /// Whether the main window shows the setup wizard by itself: a first run's, until it's
-    /// finished or skipped. No when the engine is too busy to say: a wizard that shows late
-    /// would cover a window already in use.
-    pub fn setup_needed(&self) -> bool {
-        self.setup(false)
-    }
-
-    /// The setup wizard was finished or skipped: it shows again only when asked for.
+    /// The setup wizard was finished or skipped: it shows again only when asked for. Whether it
+    /// shows by itself is read from state.json (`setup::needed`).
     pub fn finish_setup(&self) {
-        self.setup(true);
-    }
-
-    fn setup(&self, done: bool) -> bool {
-        let (tx, rx) = channel();
-        self.tx.send(Msg::Setup(done, tx)).is_ok() && rx.recv_timeout(SHOWN_WAIT).unwrap_or(false)
+        let _ = self.tx.send(Msg::SetupDone);
     }
 
     /// suggestions.json or tags.json was just changed here (suggestions.rs, tags.rs): the board
@@ -2306,13 +2294,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     }
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
-                Ok(Msg::Setup(done, reply)) => {
-                    if done && !self.seen.setup_done {
+                Ok(Msg::SetupDone) => {
+                    if !self.seen.setup_done {
                         self.seen.setup_done = true;
                         self.save_state();
                     }
-                    // A state.json that didn't read isn't a first run's: it's yours, set up already.
-                    let _ = reply.send(!self.seen.setup_done && !self.state_unreadable);
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,

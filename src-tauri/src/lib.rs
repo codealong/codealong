@@ -1312,8 +1312,8 @@ async fn setup_view() -> Result<setup::View, String> {
 /// Whether the main window shows the setup wizard by itself: a first run's, until it's finished
 /// or skipped.
 #[tauri::command(async)]
-fn setup_needed(engine: State<'_, engine::Handle>) -> bool {
-    engine.setup_needed()
+fn setup_needed() -> bool {
+    setup::needed()
 }
 
 /// The setup wizard was finished or skipped: it shows again only from the app menu.
