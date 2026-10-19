@@ -1015,20 +1015,22 @@ mod tests {
             assert_eq!(p.got.unwrap(), Ran::InTmux(Shown::OnUnlock));
             assert_eq!(named(p.log), [&started[..], &[format!(r#"{tmux} ["-S", "{HOSTED_SOCKET}", "set-option", "-t", "$4", "@codealong-tab", "{mark}"] (5s)"#)]].concat());
         }
-        // Once it's unlocked, what tmux says waits gets its tab, and waits no longer.
+        // Once it's unlocked, what tmux says waits gets its tab, and only then waits no longer, so
+        // a restart partway leaves the rest marked.
         let listed = format!(r##"{tmux} ["-S", "{HOSTED_SOCKET}", "list-panes", "-a", "-F", "#{{session_id}}\t#{{pane_id}}\t#{{session_attached}}\t#{{@codealong-tab}}\t#{{session_path}}\t#{{window_name}}"] (5s)"##);
         let unmarked = format!(r#"{tmux} ["-S", "{HOSTED_SOCKET}", "set-option", "-u", "-t", "$4", "@codealong-tab"] (5s)"#);
         let p = played(answer, || show_unlocked("ghostty", NewTerminal::Window, &[]));
         assert_eq!(p.got, Vec::<String>::new());
-        assert_eq!(p.log, [listed.clone(), unmarked.clone(), tab("front")]);
+        assert_eq!(p.log, [listed.clone(), tab("front"), unmarked.clone()]);
         // One that Show in opened already gets none, and one that ended meanwhile isn't listed.
         let p = played(|s| Ok(if s.args.iter().any(|a| a == "list-panes") { WAITS.replace("\t0\t", "\t1\t") } else { String::new() }), || show_unlocked("ghostty", NewTerminal::Window, &[]));
-        assert_eq!(p.log, [listed.clone(), unmarked]);
+        assert_eq!(p.log, [listed.clone(), unmarked.clone()]);
         let p = played(|s| if s.args.iter().any(|a| a == "list-panes") { Err("no server running".to_string()) } else { Ok(String::new()) }, || show_unlocked("ghostty", NewTerminal::Window, &[]));
         assert_eq!(p.log, [listed]);
-        // A tab that doesn't open is said.
+        // A tab that doesn't open is said, and not tried again at every look.
         let p = played(move |s| if s.what == "GHOSTTY_NEW" { Err(NOT_ALLOWED.into()) } else { answer(s) }, || show_unlocked("ghostty", NewTerminal::Window, &[]));
         assert!(p.got.len() == 1 && p.got[0].starts_with("app · fix: Codealong isn't allowed to control Ghostty"), "{:?}", p.got);
+        assert_eq!(p.log.last(), Some(&unmarked));
         // Told never to, a start while the screen is locked says why it can't.
         let p = play(locked(), answer, || session_run("ghostty", TmuxUse::Never, named_tab, Path::new("/r/app"), "claude\n", &[]));
         assert!(err(p.got).starts_with("The screen is locked, and Ghostty can't open a terminal until you unlock it."));

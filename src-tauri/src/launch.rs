@@ -16,7 +16,7 @@ mod terminal_app;
 mod tmux;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
@@ -472,7 +472,10 @@ pub fn session_run(profile: &str, use_tmux: TmuxUse, place: Placement, path: &Pa
             let hosted = tmux::start(path, input, env, place.label)?;
             if screen_locked() {
                 return Ok(Ran::InTmux(match hosted.wait_for_tab(place.behind) {
-                    Ok(()) => Shown::OnUnlock,
+                    Ok(()) => {
+                        MARKED.store(true, Ordering::SeqCst);
+                        Shown::OnUnlock
+                    }
                     Err(e) => Shown::Not(e.to_string()),
                 }));
             }
@@ -486,27 +489,65 @@ pub fn session_run(profile: &str, use_tmux: TmuxUse, place: Placement, path: &Pa
     }
 }
 
-/// Whether the screen was just unlocked, or has been since Codealong began looking (`before`
-/// None), as the engine's tick sees it: then sessions that started in tmux while it was locked
-/// get their tabs (`show_unlocked`).
-pub fn just_unlocked(before: Option<bool>, locked: bool) -> bool {
-    !locked && before != Some(false)
+/// A session was marked as waiting for a tab in this process since the engine last asked
+/// (`take_marked`).
+static MARKED: AtomicBool = AtomicBool::new(false);
+
+/// Whether a session was marked as waiting for a tab since this was last asked.
+pub fn take_marked() -> bool {
+    MARKED.swap(false, Ordering::SeqCst)
+}
+
+/// When the engine's tick looks for sessions that wait for a tab (`show_unlocked`): as the screen
+/// is unlocked, on its first look when it isn't (after a restart, or a start the command made with
+/// the app closed), and once a session was marked since (`take_marked`: a start between two ticks
+/// that saw the lock, or one that saw it just before a look), never while a look is under way and
+/// never while the screen is locked. What's due waits for that.
+#[derive(Debug, Default)]
+pub struct TabLooks {
+    was_locked: Option<bool>,
+    due: bool,
+    looking: bool,
+}
+
+impl TabLooks {
+    /// A tick, the screen `locked` and `marked` what `take_marked` said: whether to look now.
+    pub fn on_tick(&mut self, locked: bool, marked: bool) -> bool {
+        self.due |= marked || (!locked && self.was_locked != Some(false));
+        self.was_locked = Some(locked);
+        if locked || self.looking || !self.due {
+            return false;
+        }
+        self.due = false;
+        self.looking = true;
+        true
+    }
+
+    /// The look ended, however it went.
+    pub fn on_looked(&mut self) {
+        self.looking = false;
+    }
 }
 
 /// Opens a tab of the terminal `profile` names for each session that started in tmux while the
-/// screen was locked and waits for one (tmux.rs `waiting_for_tabs`), as its start would have:
-/// beside the terminals of the worktrees near it in `lanes`, in front or behind your windows. A
-/// session that ended meanwhile, or that Show in opened, gets none. Says each that didn't open,
-/// whose session goes on in tmux for Show in to open.
+/// screen was locked and waits for one (tmux.rs `waiting_tabs`), as its start would have: beside
+/// the terminals of the worktrees near it in `lanes`, in front or behind your windows. Each waits
+/// no longer only once it's handled, so a restart partway leaves the rest for the next look. A
+/// session that ended meanwhile, or that a terminal shows already (Show in opened it, or a look
+/// cut short opened it), gets none. Says each that didn't open, whose session goes on in tmux for
+/// Show in to open.
 pub fn show_unlocked(profile: &str, new_terminal: NewTerminal, lanes: &[crate::model::Lane]) -> Vec<String> {
     let mut failed = Vec::new();
-    for w in tmux::waiting_for_tabs() {
-        let near = crate::board::terminal_neighbours(lanes, &w.dir);
-        let place = Placement { new_terminal, near: &near, behind: w.behind, label: Some(w.label.as_str()) };
-        let opened = w.hosted.attach_line(true).ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it.")).and_then(|line| opens_in(profile)?.run(place, &w.dir, &format!("exec {line}\n"), &[]));
-        if let Err(e) = opened {
-            failed.push(format!("{}: {e}", w.label));
+    for (w, shown) in tmux::waiting_tabs() {
+        if !shown {
+            let near = crate::board::terminal_neighbours(lanes, &w.dir);
+            let place = Placement { new_terminal, near: &near, behind: w.behind, label: Some(w.label.as_str()) };
+            let opened = w.hosted.attach_line(true).ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it.")).and_then(|line| opens_in(profile)?.run(place, &w.dir, &format!("exec {line}\n"), &[]));
+            if let Err(e) = opened {
+                failed.push(format!("{}: {e}", w.label));
+            }
         }
+        w.hosted.handled();
     }
     failed
 }
@@ -1925,17 +1966,37 @@ end run
         assert_eq!(tmux_socket_in(",1,2"), None);
     }
 
-    /// The tick shows what waits for a tab as the screen is unlocked, and on its first look when
-    /// it isn't locked (after a restart, or a start the command made with the app closed); not
-    /// again until it's locked and unlocked once more.
+    /// The tick looks for what waits for a tab as the screen is unlocked, on its first look when
+    /// it isn't locked (after a restart, or a start the command made with the app closed), and
+    /// once a session was marked since; never while it's locked or a look is under way, what's
+    /// due waiting for that.
     #[test]
-    fn tabs_open_as_the_screen_is_unlocked() {
-        assert!(just_unlocked(None, false));
-        assert!(just_unlocked(Some(true), false));
-        assert!(!just_unlocked(Some(false), false));
-        assert!(!just_unlocked(None, true));
-        assert!(!just_unlocked(Some(true), true));
-        assert!(!just_unlocked(Some(false), true));
+    fn tabs_are_looked_for_as_the_screen_is_unlocked_and_once_one_is_marked() {
+        // `(locked, marked, looks)` tick by tick, with a look's end after each look.
+        let ticks = |steps: &[(bool, bool, bool)], ends: bool| {
+            let mut looks = TabLooks::default();
+            for (i, &(locked, marked, want)) in steps.iter().enumerate() {
+                assert_eq!(looks.on_tick(locked, marked), want, "tick {i}: locked {locked}, marked {marked}");
+                if want && ends {
+                    looks.on_looked();
+                }
+            }
+        };
+        // Its first look, unlocked; then nothing new until a lock and an unlock.
+        ticks(&[(false, false, true), (false, false, false), (true, false, false), (true, false, false), (false, false, true), (false, false, false)], true);
+        // Started locked: nothing while locked, the look as it's unlocked.
+        ticks(&[(true, false, false), (true, true, false), (false, false, true)], true);
+        // A lock between two ticks, a session marked in it: the mark alone brings the look.
+        ticks(&[(false, false, true), (false, true, true), (false, false, false)], true);
+        // A look under way: nothing more until it ends, and then what came due meanwhile.
+        let mut looks = TabLooks::default();
+        assert!(looks.on_tick(false, false));
+        assert!(!looks.on_tick(false, true), "one look at a time");
+        assert!(!looks.on_tick(true, false));
+        assert!(!looks.on_tick(false, false), "still looking");
+        looks.on_looked();
+        assert!(looks.on_tick(false, false), "the mark and the unlock that came meanwhile");
+        assert!(!looks.on_tick(false, false));
     }
 
     #[test]

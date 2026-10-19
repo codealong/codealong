@@ -136,7 +136,7 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
 ## Codealong's tmux server
 
 - When a start runs in tmux (`[apps] tmux`, the screen locked), and how a tab shows it and ends
-  it: `launch.rs` (`host_for`, `session_run`, `just_unlocked`, `show_unlocked`), `launch/tmux.rs`
+  it: `launch.rs` (`host_for`, `session_run`, `TabLooks`, `show_unlocked`), `launch/tmux.rs`
   (module header, `hosted`, `CONFIG`, `start`, `attach_line`, `WAITS_FOR_TAB`). A session option
   (`@codealong-tab`) marks what waits for a tab, read back with `#{@codealong-tab}` in `list-panes`
   and cleared with `set-option -u`. The lock is the window server's

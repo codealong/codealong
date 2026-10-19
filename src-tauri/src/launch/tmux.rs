@@ -447,6 +447,12 @@ impl Hosted {
     pub fn wait_for_tab(&self, behind: bool) -> Result<()> {
         hosted().run(&["set-option", "-t", &self.session, WAITS_FOR_TAB, if behind { "behind" } else { "front" }]).map(|_| ())
     }
+
+    /// It waits for a tab no longer: it has one, or one was tried. A session that ended meanwhile
+    /// has nothing to take back.
+    pub fn handled(&self) {
+        let _ = hosted().run(&["set-option", "-u", "-t", &self.session, WAITS_FOR_TAB]);
+    }
 }
 
 /// The session option that marks a session started while the screen was locked as waiting for a
@@ -485,18 +491,10 @@ pub(super) fn waiting_in(list: &str) -> Vec<(Waiting, bool)> {
     out
 }
 
-/// The sessions of Codealong's server that wait for a tab and that no terminal shows yet, each
-/// waiting no longer once listed: one Show in opened meanwhile needs none.
-pub fn waiting_for_tabs() -> Vec<Waiting> {
-    let server = hosted();
-    let Ok(list) = server.run(&["list-panes", "-a", "-F", WAITING]) else { return Vec::new() };
-    let mut out = Vec::new();
-    for (waiting, shown) in waiting_in(&list) {
-        if server.run(&["set-option", "-u", "-t", &waiting.hosted.session, WAITS_FOR_TAB]).is_ok() && !shown {
-            out.push(waiting);
-        }
-    }
-    out
+/// The sessions of Codealong's server that wait for a tab, and whether a terminal shows each
+/// already. Each waits until it's handled (`Hosted::handled`).
+pub fn waiting_tabs() -> Vec<(Waiting, bool)> {
+    hosted().run(&["list-panes", "-a", "-F", WAITING]).map(|list| waiting_in(&list)).unwrap_or_default()
 }
 
 /// What a terminal runs to show a pane: attaching to it. With `ends`, the session ends once no
@@ -613,12 +611,15 @@ mod tests {
         assert_eq!(pane_of(shell).map(|p| (p.id, p.server)), Some((hosted.pane.clone(), server.clone())));
         assert_eq!(Tmux.type_session(shell, &scratch, "hello there", false, Submit::Return, false).unwrap(), Typed::Into("tmux"));
         until("the send arrived", &|| std::fs::read_to_string(&typed).is_ok_and(|t| t == "hello there\n"));
-        // Marked as waiting for a tab, it's listed once, with its folder and its window's name.
+        // Marked as waiting for a tab, it's listed once, with its folder and its window's name,
+        // until it's handled.
         hosted.wait_for_tab(true).unwrap();
-        let waiting = waiting_for_tabs();
-        assert_eq!(waiting.iter().map(|w| (&w.hosted, w.label.as_str(), w.behind)).collect::<Vec<_>>(), [(&hosted, "a test", true)]);
-        assert_eq!(waiting[0].dir.canonicalize().unwrap(), scratch.canonicalize().unwrap());
-        assert!(waiting_for_tabs().is_empty(), "it waits no longer once listed");
+        let waiting = waiting_tabs();
+        assert_eq!(waiting.iter().map(|(w, shown)| (&w.hosted, w.label.as_str(), w.behind, *shown)).collect::<Vec<_>>(), [(&hosted, "a test", true, false)]);
+        assert_eq!(waiting[0].0.dir.canonicalize().unwrap(), scratch.canonicalize().unwrap());
+        assert_eq!(waiting_tabs().len(), 1, "listing takes nothing");
+        hosted.handled();
+        assert!(waiting_tabs().is_empty(), "it waits no longer once handled");
         // A tab that ends it, opened and closed.
         let shown = || server.run(&["display-message", "-p", "-t", &hosted.pane, "#{session_attached}"]).ok().map(|n| n.trim() != "0");
         let attach = hosted.attach_line(true).unwrap();
