@@ -851,23 +851,24 @@ impl Reviewer {
             }
             let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) else { continue };
             for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
+                if let Some(pending) = p.pending.clone() {
+                    if let Some(s) = pr.and_then(|pr| found(board, &pending, pr)) {
+                        t.sessions.insert(p.who.clone(), s.clone());
+                        p.session = Some(s);
+                        p.pending = None;
+                        changed = true;
+                    } else if now - pending.at > SHOW_MS {
+                        // Where to look is kept: it may show yet.
+                        fail(p, NEVER_SHOWED);
+                        changed = true;
+                    }
+                }
                 // A board from before it was asked says nothing of that turn.
                 if let Some(k) = &p.session {
                     if !p.begun() && now >= p.last_asked() && board.session(k).is_some_and(|(_, s)| at_work(s)) {
                         p.began = Some(now);
                         changed = true;
                     }
-                }
-                let Some(pending) = p.pending.clone() else { continue };
-                if let Some(s) = pr.and_then(|pr| found(board, &pending, pr)) {
-                    t.sessions.insert(p.who.clone(), s.clone());
-                    p.session = Some(s);
-                    p.pending = None;
-                    changed = true;
-                } else if now - pending.at > SHOW_MS {
-                    // Where to look is kept: it may show yet.
-                    fail(p, NEVER_SHOWED);
-                    changed = true;
                 }
             }
         }
@@ -3032,6 +3033,8 @@ mod tests {
         r.due(&board(vec![pr(7, HEAD)], vec![other, mine]), &on(), NOW + 4);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].parts[0].session.as_deref(), Some("codex:codex:y"));
         assert_eq!(r.store.prs["o/r#7"].sessions[AUTO], "codex:codex:y");
+        // Found at work: its turn has begun, should it end before the next board.
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].parts[0].began, Some(NOW + 4));
         // One that never shows fails its part, and so the round.
         let mut r = Reviewer::default();
         let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
