@@ -5,8 +5,9 @@
 // link then has an icon too; a right-click has the PR's menu. A ⌘-click on the listed one opens it
 // on GitHub, and so does a click on the older one, which has no panel here; a click on the listed
 // one shows its panel in the session's place, with the way back, and the link to its files in the
-// tool's output, which keeps its words, shows it on its Changes tab. Show in Codealong opens the
-// PR in the PRs view. The PR is made a merged one, whatever it is today: the PRs view lists those under
+// tool's output, which keeps its words, shows it on its Changes tab; with Description picked
+// there, a link to its files in its own description switches that open panel to Changes. Show in
+// Codealong opens the PR in the PRs view. The PR is made a merged one, whatever it is today: the PRs view lists those under
 // Merged & closed, which is folded until Show in Codealong opens it. It's also made five days
 // old, with the age filter at 24 hours, so Show in Codealong has to widen the filter to list it;
 // the session stays active in the last minute, so its row shows under that filter. Then the
@@ -27,6 +28,11 @@
   var linksPr = function (text) { return /github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/i.test(text || ''); };
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    // The PR's description links to its own files.
+    if (cmd === 'pr_detail' && picked) {
+      real(cmd, args, options);
+      return Promise.resolve({ bodyHtml: '<p>Fixes it. See <a href="' + picked.pr.url + '/files">its files</a>.</p>', mergeable: 'MERGEABLE', commits: 1, reviews: [], requested: [], comments: [], files: [], moreFiles: false });
+    }
     var p = real(cmd, args, options);
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
@@ -168,6 +174,17 @@
       return until(function () { return document.querySelector('.ca-prinsp [role="tab"][aria-selected="true"]'); }, 3000, 'the PR’s panel, from its files’ link').then(function () {
         var tab = document.querySelector('.ca-prinsp [role="tab"][aria-selected="true"]').textContent;
         check('a link to its files shows the PR on its Changes tab', /^Changes/.test(tab), tab);
+        var description = Array.prototype.filter.call(document.querySelectorAll('.ca-prinsp [role="tab"]'), function (t) { return /^Description/.test(t.textContent); })[0];
+        description.click();
+        return until(function () { return document.querySelector('.ca-prinsp .ca-prbody a'); }, 3000, 'its description, with the link to its files');
+      });
+    })
+    .then(function () {
+      var opens = calls('open_url').length;
+      document.querySelector('.ca-prinsp .ca-prbody a').click();
+      return until(function () { var t = document.querySelector('.ca-prinsp [role="tab"][aria-selected="true"]'); return t && /^Changes/.test(t.textContent); }, 3000, 'its Changes tab, from the link in its description').then(function () {
+        check('a link to its files in its own description switches its open panel to Changes', true);
+        check('without opening it on GitHub', calls('open_url').length === opens, JSON.stringify(last('open_url')));
         document.querySelector('.ca-panelback').click();
         return until(function () { return !document.querySelector('.ca-prinsp') && title() === picked.title && links().length === 2; }, 3000, 'the session’s panel again');
       });

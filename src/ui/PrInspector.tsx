@@ -21,7 +21,7 @@
 // content security policy blocks scripts on top of that. Links in it open in the browser, but
 // for one to a PR the board lists, which shows here.
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { agentsVerdict, openingTab, type PrTab } from '../agentReview';
 import { below, showContextMenu } from '../contextMenu';
 import { openPrFile, openUrl, prCommentAsks, prDetail } from '../api';
@@ -61,18 +61,26 @@ const cache = new Map<string, PrDetail>();
 /** Jev's word on comments already asked about, by comment id, across PRs. */
 const askCache = new Map<string, Record<string, number>>();
 
-/** The tab each PR showed last, kept while the window goes from one PR to the next. */
+/** The tab each PR showed last, kept while the window goes from one PR to the next, and the
+ *  panels that show it, which hear when it changes. */
 const tabsShown = new Map<string, PrTab>();
+const tabWatchers = new Set<() => void>();
 
-/** Has a PR's panel show `tab` when it next opens: a link to its files or to what was written on
- *  it (PrLink.tsx). */
-export function showPrTab(key: string, tab: PrTab) {
-  tabsShown.set(key, tab);
+function watchTabs(cb: () => void): () => void {
+  tabWatchers.add(cb);
+  return () => void tabWatchers.delete(cb);
 }
 
-/** Which of a PR's tabs shows, for its details and what's beside them: the one picked for it,
- *  else the one it showed last, else where it opens. `show` brings a tab into view from outside
- *  the tab bar (the line over the box), `shown` counting those. */
+/** Has a PR's panel show `tab`, open already or when it opens: a pick in its tab bar, or a link
+ *  to its files or to what was written on it (PrLink.tsx). */
+export function showPrTab(key: string, tab: PrTab) {
+  tabsShown.set(key, tab);
+  for (const cb of tabWatchers) cb();
+}
+
+/** Which of a PR's tabs shows, for its details and what's beside them: the one it showed last,
+ *  else where it opens. `show` brings a tab into view from outside the tab bar (the line over the
+ *  box), `shown` counting those. */
 export interface PrTabs {
   tab: PrTab;
   pick: (to: PrTab) => void;
@@ -81,13 +89,10 @@ export interface PrTabs {
 }
 
 export function usePrTab(pr: PrItem): PrTabs {
-  const [picked, setPicked] = useState<{ key: string; tab: PrTab } | null>(null);
+  const kept = useSyncExternalStore(watchTabs, () => tabsShown.get(pr.key));
   const [shown, setShown] = useState(0);
-  const tab = picked?.key === pr.key ? picked.tab : (tabsShown.get(pr.key) ?? openingTab(pr));
-  const pick = (to: PrTab) => {
-    tabsShown.set(pr.key, to);
-    setPicked({ key: pr.key, tab: to });
-  };
+  const tab = kept ?? openingTab(pr);
+  const pick = (to: PrTab) => showPrTab(pr.key, to);
   return { tab, pick, show: (to) => (pick(to), setShown((n) => n + 1)), shown };
 }
 
