@@ -768,12 +768,17 @@ off partway (see *Cut off*: Codealong restarting cuts off the reviews it runs) i
 the same way, four times at most before its round is given up on; one you stop ends its round
 without a review. A start that couldn't reach GitHub to read the PR (the network still coming back
 after a wake, GitHub struggling) is tried again by itself, waiting longer each time, for about a
-quarter of an hour; a post that doesn't go through is tried a few times too. A round that still
+quarter of an hour; a post that doesn't go through is tried a few times too. A harness that names
+its sessions itself (Antigravity, OpenCode, Codex in a terminal) has ten minutes for the review's
+session to show; one
+that shows later, the PR still at that commit, is taken up all the same, and its review read and
+posted. A round that still
 didn't get done says so on the line over the PR's box, "didn't start" when no session ever began
 and "didn't finish" when one did, why on hover, and isn't tried again for that commit by itself:
 Try again beside it, and in its Reviews tab, does. It posts the review the agent wrote when only
-posting failed, and otherwise reviews the PR again as Review with… does on the reviewer Settings
-names, in its session for the PR while that can go on. Two run at once at most;
+posting failed, takes the review from a session that showed after its round gave up on it, and
+otherwise reviews the PR again as Review with… does on the reviewer Settings names, in its session
+for the PR while that can go on. Two run at once at most;
 a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
 or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
 notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;

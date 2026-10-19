@@ -37,10 +37,17 @@
 //! another round's prompt is handed to it (`hand`, `Job::CarryOn`), a few times at most
 //! (`CARRY_ONS`). One stopped on purpose ends its round without a review.
 //!
+//! A start whose harness names its session itself (Antigravity, OpenCode, Codex in a terminal)
+//! leaves where to look (`Pending`): the session is the next there whose first prompt opens as a
+//! review's of the PR (`found`, `opening`). One that hasn't shown in ten minutes fails its round,
+//! which is taken up again should it show later with the PR still at that commit
+//! (`Tracked::take_up`), so a review it wrote is still read and posted.
+//!
 //! A few rounds run at once at most; one whose session waits on you doesn't hold a place. A round
 //! that didn't get done isn't tried again for the same commit; the next push tries again, and so
 //! does Try again on the PR's card and on its notice (`again`), which posts a review that was
-//! written but couldn't be posted rather than have it written again (`Reviewer::repost`). A start
+//! written but couldn't be posted rather than have it written again (`Reviewer::repost`), and takes
+//! up a round in the session it never found, wherever that showed (`Reviewer::take_up`). A start
 //! that couldn't reach GitHub to read the PR (`github::unreachable`: the network back from sleep,
 //! GitHub struggling) isn't a round yet: it's tried again a few times first (`START_TRIES`). Until a
 //! PR's round is done the PR is out of what waits on you (`apply`, `AutoReview::holds`). Where
@@ -222,6 +229,10 @@ fn fail(p: &mut Part, why: &str) {
     p.note = Some(why.to_string());
 }
 
+/// Why a part whose start named no session failed when its session didn't show in time
+/// (`SHOW_MS`), which `Tracked::take_up` goes by.
+const NEVER_SHOWED: &str = "Its session never showed up.";
+
 /// A round: the review of one commit of a PR.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -306,6 +317,41 @@ impl Tracked {
     /// The commit its last review that got done was of, for what changed since.
     fn done_head(&self) -> Option<&str> {
         self.rounds.iter().rev().find(|r| matches!(r.stage, ReviewStage::Posted | ReviewStage::Drafted | ReviewStage::Kept)).map(|r| r.head.as_str())
+    }
+
+    /// Takes its latest round up again in the session it gave up looking for (`NEVER_SHOWED`),
+    /// which has shown since: the round failed for that alone, of the commit open PR `pr` is at.
+    /// Its review is then read once its turn ends, and posted, as if it had shown in time. A part
+    /// is looked for where its start was (`Pending`); with `wide`, as Try again asks, one from
+    /// before that was kept is looked for in every worktree here, on every account. True when
+    /// it was.
+    fn take_up(&mut self, board: &Board, pr: &PrItem, wide: bool) -> bool {
+        let Some(r) = self.rounds.last_mut().filter(|r| r.stage == ReviewStage::Failed && pr.state.is_open() && pr.head_oid.as_deref() == Some(r.head.as_str())) else { return false };
+        if r.parts.is_empty() || !r.parts.iter().all(|p| p.state == PartState::Failed && p.session.is_none() && p.note.as_deref() == Some(NEVER_SHOWED)) {
+            return false;
+        }
+        let here = || board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| &l.sessions);
+        let mut took = false;
+        for p in r.parts.iter_mut() {
+            let shown = match &p.pending {
+                Some(pending) => found(board, pending, pr),
+                None if wide => first_naming(here(), pr, p.at),
+                None => None,
+            };
+            let Some(s) = shown else { continue };
+            self.sessions.insert(p.who.clone(), s.clone());
+            p.session = Some(s);
+            p.pending = None;
+            p.state = PartState::Reviewing;
+            p.note = None;
+            took = true;
+        }
+        if took {
+            r.stage = ReviewStage::Reviewing;
+            r.ended_at = None;
+            r.note = None;
+        }
+        took
     }
 }
 
@@ -652,15 +698,29 @@ fn turn_ended(s: &Session, at: i64) -> bool {
     ended && s.last_activity >= at && s.limit.is_none() && s.connection_lost.is_none() && s.cut_off.is_none()
 }
 
-/// The session a start that named none made: the first of its account in its worktree started
-/// since, whose first prompt has the PR's link.
-fn found(board: &Board, p: &Pending, url: &str) -> Option<String> {
-    let lane = board.lanes.iter().find(|l| l.id == p.lane && l.device.is_none())?;
-    lane.sessions
-        .iter()
-        .filter(|s| s.visitor.is_none() && s.account == p.account && s.started_at.unwrap_or(s.last_activity) >= p.at - 60_000 && s.first_prompt.as_deref().is_some_and(|f| f.contains(url)))
+/// How a review's first prompt opens (`first_prompt`), naming its PR. A harness's reader keeps
+/// only a prompt's first words (`util::one_line`'s 140 characters), which a PR with a long title
+/// cuts before its link, so this is what a review's session is known by.
+fn opening(pr: &PrItem) -> String {
+    format!("Review pull request #{} in {},", pr.number, pr.repo_slug)
+}
+
+/// The first session among `sessions` started since `at` (a minute's leeway) whose first prompt
+/// is a review of `pr`: it opens as one does, or has the PR's link in brackets as one does (a
+/// bare link to #7 would match #70's too).
+fn first_naming<'a>(sessions: impl Iterator<Item = &'a Session>, pr: &PrItem, at: i64) -> Option<String> {
+    let (opening, link) = (opening(pr), format!("({})", pr.url));
+    sessions
+        .filter(|s| s.visitor.is_none() && s.started_at.unwrap_or(s.last_activity) >= at - 60_000 && s.first_prompt.as_deref().is_some_and(|f| f.starts_with(&opening) || f.contains(&link)))
         .min_by_key(|s| s.started_at.unwrap_or(s.last_activity))
         .map(|s| s.key.clone())
+}
+
+/// The session a start that named none made: the first of its account in its worktree started
+/// since, whose first prompt is a review of `pr`.
+fn found(board: &Board, p: &Pending, pr: &PrItem) -> Option<String> {
+    let lane = board.lanes.iter().find(|l| l.id == p.lane && l.device.is_none())?;
+    first_naming(lane.sessions.iter().filter(|s| s.account == p.account), pr, p.at)
 }
 
 /// What's next for a round under way on PR `pr`, which is at `head` now. The reviewer's turn is
@@ -736,22 +796,25 @@ impl Reviewer {
         let on_for = |pr: Option<&PrItem>| pr.map_or(cfg.auto || cfg.own.auto, |p| on(&settings.reviews(cfg, p)));
         let mut changed = false;
         let listed: HashMap<String, &PrItem> = board.prs.iter().map(|p| (pr_key(&p.key), p)).collect();
-        // Sessions from starts that didn't name them, once they show; one that never does fails
-        // its part.
+        // Sessions from starts that didn't name them, once they show; one that doesn't in time
+        // fails its part, and its round is taken up again should it show later (`take_up`).
         for (key, t) in self.store.prs.iter_mut() {
-            let url = listed.get(key).map(|pr| pr.url.as_str()).unwrap_or_default();
-            let on = on_for(listed.get(key).copied());
+            let pr = listed.get(key).copied();
+            let on = on_for(pr);
+            if let Some(pr) = pr.filter(|pr| t.rounds.last().is_some_and(|r| r.by_hand) || (on && wanted(&settings.reviews(cfg, pr), &board.lanes, pr))) {
+                changed |= t.take_up(board, pr, false);
+            }
             let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) else { continue };
             for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
                 let Some(pending) = p.pending.clone() else { continue };
-                if let Some(s) = found(board, &pending, url).filter(|_| !url.is_empty()) {
+                if let Some(s) = pr.and_then(|pr| found(board, &pending, pr)) {
                     t.sessions.insert(p.who.clone(), s.clone());
                     p.session = Some(s);
                     p.pending = None;
                     changed = true;
                 } else if now - pending.at > SHOW_MS {
-                    p.pending = None;
-                    fail(p, "Its session never showed up.");
+                    // Where to look is kept: it may show yet.
+                    fail(p, NEVER_SHOWED);
                     changed = true;
                 }
             }
@@ -861,6 +924,21 @@ impl Reviewer {
         r.ended_at = None;
         r.note = None;
         r.by_hand = true;
+        self.save();
+        true
+    }
+
+    /// Takes PR `key`'s latest round up again in its session, which it never found in time and
+    /// has shown since (`Tracked::take_up`, looking everywhere here), as Try again asks, rather
+    /// than have the review written again. It goes on as one asked for by hand does.
+    fn take_up(&mut self, key: &str, board: &Board, pr: &PrItem) -> bool {
+        let Some(t) = self.store.prs.get_mut(key) else { return false };
+        if !t.take_up(board, pr, true) {
+            return false;
+        }
+        if let Some(r) = t.rounds.last_mut() {
+            r.by_hand = true;
+        }
         self.save();
         true
     }
@@ -1303,15 +1381,7 @@ pub fn first_prompt(pr: &PrItem, head: &str, since: Option<&str>, holds: bool, l
         Goes::Post(_) if pr.review_requested => format!("Codealong started you to review it for {login}, whose review it waits on."),
         Goes::Post(_) => format!("Codealong started you to review it for {login}, who asked for a review of it."),
     };
-    let mut out = format!(
-        "Review pull request #{} in {}, “{}” ({}){by}: it merges {} into {base}, and is at commit {}. {why}\n\n",
-        pr.number,
-        pr.repo_slug,
-        pr.title.trim(),
-        pr.url,
-        pr.head,
-        short(head)
-    );
+    let mut out = format!("{} “{}” ({}){by}: it merges {} into {base}, and is at commit {}. {why}\n\n", opening(pr), pr.title.trim(), pr.url, pr.head, short(head));
     out += &format!("Its description, reviews, comments and changed files are in {}, and its whole diff is in {}. {NUMBERED} ", files.md, files.diff);
     out += if holds {
         "This folder has its branch checked out, so the code here is the PR's.\n\n".to_string()
@@ -2118,9 +2188,10 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
 
 /// Tries PR `key`'s review again, as Try again on its card and on its notice asks, and says what
 /// it did: a review its agent wrote of the commit the PR is at, which wasn't posted, is posted
-/// (`Reviewer::repost`) rather than written again; else the PR is reviewed again as Review with…
-/// does on the reviewer config.toml names (`review_now`), in that reviewer's session for the PR
-/// while it can go on.
+/// (`Reviewer::repost`) rather than written again, and so is one written in a session the round
+/// gave up looking for, which showed later (`Reviewer::take_up`); else the PR is reviewed again
+/// as Review with… does on the reviewer config.toml names (`review_now`), in that reviewer's
+/// session for the PR while it can go on.
 pub fn again(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str) -> Result<String, String> {
     let board = engine.board();
     let cfg = crate::config::current().map_err(|e| format!("{e:#}"))?;
@@ -2133,6 +2204,11 @@ pub fn again(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str) -> Result<S
         drop(r);
         engine.reviewed(Ok(()));
         return Ok(format!("Posting the agent's review of #{} again: its card says how it goes.", pr.number));
+    }
+    if r.take_up(&k, &board, pr) {
+        drop(r);
+        engine.reviewed(Ok(()));
+        return Ok(format!("The session that reviewed #{} showed up after all: Codealong takes its review from there, and its card says how it goes.", pr.number));
     }
     drop(r);
     review_now(engine, reviewer, key, None)?;
@@ -2881,6 +2957,73 @@ mod tests {
         r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW + SHOW_MS + 2);
         let round = &r.store.prs["o/r#7"].rounds[0];
         assert_eq!((round.stage, round.note.as_deref()), (ReviewStage::Failed, Some("Its session never showed up.")));
+    }
+
+    /// A reader keeps a prompt's first words only, which a long title cuts before the PR's link
+    /// (an Antigravity review of a real PR, 2026-10-18): the session is known by how a review's
+    /// prompt opens. One that shows only after its round gave up on it is still read and
+    /// posted, and a round from before where to look was kept is taken up by Try again.
+    #[test]
+    fn a_review_session_is_found_by_its_opening_however_late_it_shows() {
+        let long = PrItem { title: "Replace CMMC Level 2 and CUI marketing with the Level 1 status line, on every page".into(), ..pr(7, HEAD) };
+        let files = Reading { md: "m".into(), diff: "d".into(), changes: None };
+        let asked = crate::util::one_line(&first_prompt(&long, HEAD, None, false, "gwen", &Goes::Post(ReviewPost::Draft), INSTRUCTIONS, &files), 140);
+        assert!(!asked.contains(&long.url), "the link is cut: {asked}");
+        let agy = |key: &str, first: &str, activity: i64| Session { account: "antigravity".into(), status: Status::Unread, last_activity: activity, first_prompt: Some(first.into()), ..fixtures::session(key) };
+        let mine = agy("antigravity:antigravity:late", &asked, NOW + SHOW_MS + 60_000);
+        // Another PR's review, whose number starts the same, isn't it.
+        let other = agy("antigravity:antigravity:other", "Review pull request #70 in o/r, “Something else” (https://github.com/o/r/pull/70)", NOW + 5);
+        let pending = Pending { lane: "/r".into(), account: "antigravity".into(), at: NOW };
+        let start = |r: &mut Reviewer| {
+            let jobs = r.due(&board(vec![long.clone()], vec![]), &on(), NOW);
+            r.told(&jobs[0], Went::Started(vec![Part::asked(AUTO, None, Some(pending.clone()), NOW)]), NOW).unwrap();
+        };
+
+        let mut r = Reviewer::default();
+        start(&mut r);
+        r.due(&board(vec![long.clone()], vec![other.clone(), Session { status: Status::Working, ..mine.clone() }]), &on(), NOW + 3);
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].parts[0].session.as_deref(), Some("antigravity:antigravity:late"));
+
+        // It doesn't show in time: the round fails, keeping where to look.
+        let mut r = Reviewer::default();
+        start(&mut r);
+        let none = board(vec![long.clone()], vec![other.clone()]);
+        r.due(&none, &on(), NOW + SHOW_MS + 1);
+        r.due(&none, &on(), NOW + SHOW_MS + 2);
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+        // It shows, its review written: the round is under way again, and its review is read and
+        // posted.
+        let shown = board(vec![long.clone()], vec![other.clone(), mine.clone()]);
+        let jobs = r.due(&shown, &on(), NOW + SHOW_MS + 70_000);
+        assert_eq!(kinds(&jobs), ["read 7 part 0 in antigravity:antigravity:late"]);
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.parts[0].state, round.ended_at, round.note.as_deref()), (ReviewStage::Reviewing, PartState::Reviewing, None, None));
+        assert_eq!(r.store.prs["o/r#7"].sessions[AUTO], "antigravity:antigravity:late");
+        r.told(&jobs[0], Went::Read { review: "Two problems.".into(), agent: "Antigravity".into() }, NOW + SHOW_MS + 80_000).unwrap();
+        assert_eq!(kinds(&r.due(&shown, &on(), NOW + SHOW_MS + 90_000)), ["post 7 \"Two problems.\" by Antigravity"]);
+
+        // Not once the PR has moved on, or with reviews off.
+        for (pr, cfg) in [(PrItem { head_oid: Some(NEXT.into()), ..long.clone() }, on()), (long.clone(), ReviewsCfg::default())] {
+            let mut r = Reviewer::default();
+            start(&mut r);
+            r.due(&none, &on(), NOW + SHOW_MS + 1);
+            r.due(&board(vec![pr.clone()], vec![mine.clone()]), &cfg, NOW + SHOW_MS + 70_000);
+            assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed, "{pr:?}");
+        }
+
+        // A round failed before where to look was kept goes on only by hand, found anywhere here.
+        let mut r = Reviewer::default();
+        start(&mut r);
+        r.due(&none, &on(), NOW + SHOW_MS + 1);
+        r.store.prs.get_mut("o/r#7").unwrap().rounds[0].parts[0].pending = None;
+        r.due(&shown, &on(), NOW + SHOW_MS + 70_000);
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+        let elsewhere = Board { lanes: vec![fixtures::lane("/r", vec![other]), fixtures::lane("/r-wt", vec![mine])], ..shown };
+        assert!(r.take_up("o/r#7", &elsewhere, &long));
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.by_hand, round.parts[0].session.as_deref()), (ReviewStage::Reviewing, true, Some("antigravity:antigravity:late")));
+        // Nothing else is taken up: a round under way, or one that failed for another reason.
+        assert!(!r.take_up("o/r#7", &elsewhere, &long));
     }
 
     #[test]

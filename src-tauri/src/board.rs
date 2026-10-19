@@ -620,8 +620,8 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         work: c.tail.work.clone(),
         reply_tail: c.tail.last_text_tail.clone(),
         reply_head: c.tail.last_text.clone(),
-        // The preview is the conversation's opening, as the app lists it.
-        first_prompt: c.preview.clone(),
+        // From its record: the preview is the conversation's title from agy 1.4 on.
+        first_prompt: c.asked.clone().or_else(|| c.preview.clone()),
         status_since: if status == Status::Working { c.last_input } else { Some(active) },
         last_prompt_at: c.last_input.unwrap_or(active),
         last_activity: active,

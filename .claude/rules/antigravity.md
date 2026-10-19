@@ -25,8 +25,13 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   command line can't go on with one of the app's conversations ("trajectory not found").
 - `conversation_summaries.db` (SQLite in WAL mode, written by gorm), its columns, statuses and
   times, and each folder's table listing the other's conversations: `antigravity.rs`
-  (`read_from`, `Conversation`, `timestamp`). `title` was empty in every row seen, and
-  `raw_summary` is a protobuf. No status says error or waiting. `workspace_uris` doesn't keep
+  (`read_from`, `Conversation`, `timestamp`). `title` was empty in every row seen until `agy`
+  1.4.2, which gives a conversation a title of its own ("Review Pull Request 56") and writes it as
+  the `preview` too, where rows before had an empty preview (every row of 2026-10-18), so what a
+  conversation was first asked is read from its transcript (`first_request`, `Conversation::asked`).
+  How soon the title lands isn't known: one review's session was found by the full prompt in its
+  row and another's, started two minutes before in the same folder, never was. `raw_summary` is a
+  protobuf. No status says error or waiting. `workspace_uris` doesn't keep
   the order `agy` took its folders in, so its first isn't always the folder it ran in
   (`work_folder`).
 - Opening a WAL database whose harness has quit: `harness.rs` (`open_database`).

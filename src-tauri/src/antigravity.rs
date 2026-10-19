@@ -180,8 +180,12 @@ fn has_cli(account: &AccountCfg, home: &Path) -> bool {
 pub struct Conversation {
     pub id: String,
     pub title: Option<String>,
-    /// The summary's preview text: the conversation's opening, as the app lists it.
+    /// The summary's preview text: the conversation's opening as the app lists it, or, from
+    /// `agy` 1.4, the title it gives the conversation once it's written one.
     pub preview: Option<String>,
+    /// What it was first asked, from the start of its record (`first_request`), which the
+    /// preview no longer says.
+    pub asked: Option<String>,
     pub step_count: i64,
     /// The workspace folder it works in, as a path (`work_folder`).
     pub cwd: Option<String>,
@@ -965,7 +969,8 @@ fn started(dirs: &[Folder], p: &Process, now: i64) -> Option<Conversation> {
     let tail = record.as_deref().map(|p| tail(p, cwd.as_deref())).unwrap_or_default();
     Some(Conversation {
         id: id.clone(),
-        preview: asked,
+        preview: asked.clone(),
+        asked,
         workspaces: cwd.iter().cloned().collect(),
         cwd,
         status: "cascade_run_status_running".into(),
@@ -1523,13 +1528,19 @@ impl Reader {
             match before.get(&c.id) {
                 Some(old) if !held && old.last_modified == c.last_modified && old.step_count == c.step_count => {
                     c.tail = old.tail.clone();
+                    c.asked = old.asked.clone();
                     c.mode = old.mode.clone();
                     c.failed = old.failed.clone();
                     c.model = old.model.clone();
                 }
                 old => {
                     added |= old.is_none();
-                    c.tail = transcript_file(&c.dir, &c.id).map(|p| tail(&p, c.cwd.as_deref())).unwrap_or_default();
+                    let record = transcript_file(&c.dir, &c.id);
+                    c.tail = record.as_deref().map(|p| tail(p, c.cwd.as_deref())).unwrap_or_default();
+                    // What it was first asked doesn't change once it's written.
+                    if c.asked.is_none() {
+                        c.asked = old.and_then(|o| o.asked.clone()).or_else(|| record.as_deref().and_then(first_request).map(|(asked, _)| asked));
+                    }
                     c.mode = turn_mode(&c.dir, &c.id);
                     // The note a failed turn ends with never reaches the transcript.
                     c.failed = turn_failed(&c.dir, &c.id, c.last_modified);
@@ -2427,11 +2438,12 @@ mod tests {
         std::fs::create_dir_all(&logs).unwrap();
         std::fs::create_dir_all(dir.join("conversations")).unwrap();
         std::fs::write(logs.join("transcript_full.jsonl"), LINES[..6].join("\n") + "\n").unwrap();
+        // As agy 1.4.2 writes a row: its preview is the title it gave the conversation.
         let db = Connection::open(dir.join(SUMMARIES)).unwrap();
         db.execute_batch(&format!(
             "{SCHEMA}\
-             INSERT INTO conversation_summaries (conversation_id, preview, step_count, last_modified_time, workspace_uris, status, not_fully_idle, last_user_input_time, app_data_dir) VALUES \
-             ('c1', 'Count the lines, then fix notes.txt', 6, '2026-10-01 16:55:24+00:00', '[\"file:///Users/me/app\"]', 'CASCADE_RUN_STATUS_RUNNING', 1, '2026-10-01 16:55:10+00:00', 'antigravity-cli');"
+             INSERT INTO conversation_summaries (conversation_id, title, preview, step_count, last_modified_time, workspace_uris, status, not_fully_idle, last_user_input_time, app_data_dir) VALUES \
+             ('c1', 'Fix Notes File', 'Fix Notes File', 6, '2026-10-01 16:55:24+00:00', '[\"file:///Users/me/app\"]', 'CASCADE_RUN_STATUS_RUNNING', 1, '2026-10-01 16:55:10+00:00', 'antigravity-cli');"
         ))
         .unwrap();
         drop(db);
@@ -2451,6 +2463,8 @@ mod tests {
 
         // The panel reads its record, and what it waits on is the call with no result.
         let session = Session { surface: Surface::Cli, ..crate::board::antigravity_session(&account, c, None, false, 0, look.now) };
+        // What it was first asked comes from its record, the title from its row.
+        assert_eq!((session.first_prompt.as_deref(), session.title.as_str()), (Some("Count the lines, then fix notes.txt"), "Fix Notes File"));
         let ctx = Ctx { account: &account };
         use crate::harness::Adapter as _;
         let page = Antigravity.conversation(&ctx, &session, None, 50).unwrap();
@@ -2495,6 +2509,7 @@ mod tests {
         reader.reread(&account, &look);
         let c = &reader.conversations["antigravity"][0];
         assert!(!c.idled_by_another && !c.step_under_way && !c.waiting);
+        assert_eq!(c.asked.as_deref(), Some("Count the lines, then fix notes.txt"), "kept from the row before");
         assert_eq!(crate::board::antigravity_session(&account, c, reader.processes.first(), false, 0, look.now).status, crate::model::Status::Unread);
     }
 
