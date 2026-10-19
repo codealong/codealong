@@ -3,11 +3,12 @@
 //! for an account, and the reader, which keeps the thread names and the rollouts read for the
 //! board. Beside it: rollouts and the thread index (rollout.rs), the conversation a rollout
 //! holds (conversation.rs), its app-server, for what Codex does itself (appserver.rs), the
-//! socket the app's windows talk on (ipc.rs), the app's follow-up queue (queue.rs), its terminal
-//! UIs (terminals.rs), side conversations (side.rs), the models an account offers (models.rs),
-//! plan usage (usage.rs) and whether OpenAI may train on the account (training.rs). See
-//! .claude/rules/codex.md.
+//! socket the app's windows talk on (ipc.rs), the app's logs (applog.rs), its follow-up queue
+//! (queue.rs), its terminal UIs (terminals.rs), side conversations (side.rs), the models an
+//! account offers (models.rs), plan usage (usage.rs) and whether OpenAI may train on the account
+//! (training.rs). See .claude/rules/codex.md.
 
+mod applog;
 mod appserver;
 mod conversation;
 pub mod ipc;
@@ -558,6 +559,11 @@ pub struct Reader {
     let_go: Option<(i64, HashSet<OsString>)>,
     /// How long each open turn's rollout was at that look.
     open_lens: HashMap<PathBuf, u64>,
+    /// When the app's processes ended, for the turns stopped (`applog`).
+    quits: applog::Quits,
+    /// The rollouts whose last turn was stopped as the app quit rather than by you, as of the
+    /// last look at the processes (`stopped_by_quit_now`).
+    stopped_by_quit: HashSet<PathBuf>,
 }
 
 impl Reader {
@@ -578,6 +584,14 @@ impl Reader {
         // As of the processes' listing, which can be older than the look (the engine lists them
         // off its thread): a rollout written since may be a process it didn't list (`held`).
         Some((look.ps.at().unwrap_or(look.now), gone?))
+    }
+
+    /// The rollouts whose last turn was stopped as the app quit (`applog::Quits`), as of this look.
+    fn stopped_by_quit_now(&mut self, look: &Look) -> HashSet<PathBuf> {
+        self.quits.look(look.ps.all());
+        let dir = applog::dir();
+        let stopped: Vec<(PathBuf, i64)> = self.rollouts.iter().filter_map(|(path, (_, parsed))| Some((path.clone(), parsed.as_ref()?.0.interrupted_at?))).collect();
+        stopped.into_iter().filter(|(_, at)| self.quits.quit_at(&dir, *at)).map(|(path, _)| path).collect()
     }
 
     /// Whether a Codex process held a thread's rollout when last looked, None when that isn't
@@ -698,6 +712,7 @@ impl crate::harness::Reader for Reader {
         if !accounts.is_empty() {
             self.terminals = terminals(look.ps.all());
             self.let_go = self.let_go_now(look);
+            self.stopped_by_quit = self.stopped_by_quit_now(look);
         }
         self.refresh_archived(accounts, look);
     }
@@ -754,6 +769,11 @@ impl crate::harness::Reader for Reader {
             let let_go = self.let_go_now(look);
             out.dirty |= self.let_go_differs(&let_go);
             self.let_go = let_go;
+            // The app writes the turns it stops as it quits before it's gone, so they're told from
+            // yours once a look finds it gone.
+            let stopped = self.stopped_by_quit_now(look);
+            out.dirty |= stopped != self.stopped_by_quit;
+            self.stopped_by_quit = stopped;
         }
         out
     }
@@ -773,7 +793,7 @@ impl crate::harness::Reader for Reader {
             .map(|(path, th)| {
                 let key = Session::key_for(Harness::Codex, &account.name, &th.id);
                 let name = index.and_then(|i| i.get(&th.id)).map(|(n, _)| n.as_str());
-                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), look.seen.seen_at(&key), look.now);
+                let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now);
                 s.archived = path.starts_with(&archived_dir);
                 if let Some(queued) = self.queues.get(&account.name).and_then(|q| q.get(&th.id)) {
                     s.queued_at = queued.iter().map(|m| m.at).max();

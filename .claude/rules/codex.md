@@ -27,6 +27,15 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   Experimental feature request failed", offering "Run without daemon this time"), so whether the
   daemon finishes a turn whose terminal UI died is unchecked; it holds the rollout while it runs
   one, so it isn't taken as cut off meanwhile.
+- A turn the app stopped as it quit: the app-server's `shutdown` aborts every running turn as a
+  Stop does (`turn_aborted`, `reason: "interrupted"`, the same `<turn_aborted>` developer
+  message), so the rollout can't tell the two apart, and only the app's logs say when its process
+  ended. On the restart of 2026-10-19 the app logged `[mac-system-shutdown] macOS system shutdown
+  requested; allowing app quit` (nothing is logged for a Stop, nor for Cmd-Q), its last line came
+  0.36 s later, and its three running turns were aborted 0.12 to 0.18 s after that last line:
+  `codex/applog.rs` (module header, `Quits`), `codex/rollout.rs` (`ThreadInfo::interrupted_at`),
+  `board.rs` (`codex_session`'s `quit`). Not checked: the terminal UI or the CLI's daemon as the
+  Mac shuts down, which may abort their turns the same way, with no log of the app to show it.
 - One process writes a thread: whatever loads it holds `<CODEX_HOME>/thread-writer-locks/<thread>.lock`
   open with a lock on it (`lsof` shows the holder), and another is refused ("thread … already has
   an active writer"). A 0.162.1 terminal UI in tmux held its thread's lock itself, not through the

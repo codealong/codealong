@@ -22,6 +22,10 @@ pub struct ThreadInfo {
     pub turn_open: bool,
     pub turn_started_at: Option<i64>,
     pub last_complete_at: Option<i64>,
+    /// When its last turn was stopped (`turn_aborted` with `interrupted`) with none started
+    /// since: by you, or by what ran it as it shut down, which Codex records the same way
+    /// (applog.rs).
+    pub interrupted_at: Option<i64>,
     pub last_agent_message: Option<String>,
     /// The end of that message, for Jev.
     pub last_agent_tail: Option<String>,
@@ -679,11 +683,13 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
             info.turn_open = true;
             info.turn_started_at = ts;
             info.pending_approval = None;
+            info.interrupted_at = None;
         }
         "task_complete" => {
             info.turn_open = false;
             info.last_complete_at = ts;
             info.pending_approval = None;
+            info.interrupted_at = None;
             if let Some(m) = payload.get("last_agent_message").and_then(Value::as_str).filter(|m| !m.trim().is_empty()) {
                 info.last_agent_message = Some(one_line(m, 140));
                 info.last_agent_tail = Some(crate::jev::tail(m, 600));
@@ -693,6 +699,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
             info.turn_open = false;
             info.last_complete_at = ts;
             info.pending_approval = None;
+            info.interrupted_at = ts.filter(|_| payload.get("reason").and_then(Value::as_str) == Some("interrupted"));
         }
         // The model and level the thread's next turn runs on, written as they're set: by the
         // app before each turn, and between turns by a pick in its box or a switch from
@@ -981,6 +988,24 @@ mod tests {
         assert_eq!(calls, vec![("call_b", "cua_repl · js", 60_000), ("call_c", "exec", 240_000)]);
         apply_events(&mut info, r#"{"timestamp":"2026-09-25T17:34:00.000Z","type":"event_msg","payload":{"type":"turn_aborted"}}"#);
         assert!(info.pending_calls.is_empty());
+    }
+
+    #[test]
+    fn keeps_when_a_turn_was_interrupted_until_another_starts() {
+        let mut info = ThreadInfo::default();
+        apply_events(&mut info, TURN_STARTED);
+        apply_events(&mut info, r#"{"timestamp":"2026-10-19T21:50:50.554Z","ordinal":1159,"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"u","reason":"interrupted","started_at":1792446437,"completed_at":1792446650,"duration_ms":213451}}"#);
+        assert_eq!((info.turn_open, info.interrupted_at), (false, parse_rfc3339_ms("2026-10-19T21:50:50.554Z")));
+        // The app opening it again writes its settings, which changes nothing.
+        apply_events(&mut info, r#"{"timestamp":"2026-10-19T22:02:16.297Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-6-astra"}}}"#);
+        assert_eq!(info.interrupted_at, parse_rfc3339_ms("2026-10-19T21:50:50.554Z"));
+        apply_events(&mut info, TURN_STARTED);
+        assert_eq!(info.interrupted_at, None);
+        // A turn ended for another reason, or by a Codex that doesn't say why.
+        for reason in [r#","reason":"replaced""#, ""] {
+            apply_events(&mut info, &format!(r#"{{"timestamp":"2026-10-19T22:10:00.000Z","type":"event_msg","payload":{{"type":"turn_aborted"{reason}}}}}"#));
+            assert_eq!(info.interrupted_at, None, "{reason}");
+        }
     }
 
     #[test]

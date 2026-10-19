@@ -252,10 +252,13 @@ in a terminal, and tells it to carry on, checking first what its last step did, 
 ran may have been stopped partway. Resume in, in its menu, says Carry on in and does the same
 anywhere it can go on; sending it something resumes it with what you send. A Claude Code session is
 read so in a terminal or a background job (its transcript ends partway through a turn, with no
-process running it); a Codex thread when its turn is open and no Codex process has it loaded; and
-a session Codealong runs itself whose turn was under way when Codealong quit or its agent's process
-ended, which its agent's own record ends as stopped (Codealong notes each such turn while it runs,
-in hosted.json).
+process running it); a Codex thread when its turn is open and no Codex process has it loaded, or
+when the Codex app stopped its turn as it quit (the Mac shutting down or restarting, an update),
+which Codex records as it does a Stop you press, so Codealong goes by the app's own logs: the
+turn ended within seconds of the last line its process logged; and a session Codealong runs
+itself whose turn was under way when Codealong quit or its agent's process ended, which its
+agent's own record ends as stopped (Codealong notes each such turn while it runs, in
+hosted.json).
 
 A session Codealong runs itself is its agent's, and its agent is a process of Codealong's, so
 Codealong quitting (an update, or a new build relaunched) ends the turns it was taking. Once

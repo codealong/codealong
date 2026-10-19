@@ -420,15 +420,18 @@ fn codex_origin(account: &AccountCfg, th: &ThreadInfo) -> Option<SessionOrigin> 
 
 /// A Codex thread. Threads have no process of their own, so they are never Stopped. `held` is
 /// whether a Codex process has its rollout open (`codex/terminals.rs` `held_rollouts`), None
-/// when that isn't known.
-pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, terminal: Option<u32>, held: Option<bool>, seen_at: i64, now: i64) -> Session {
+/// when that isn't known, and `quit` whether its last turn was stopped as the app quit
+/// (`codex/applog.rs`) rather than by you.
+pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, terminal: Option<u32>, held: Option<bool>, quit: bool, seen_at: i64, now: i64) -> Session {
     let fresh = now - th.last_ts < CODEX_STALE_MS;
     // A turn left open in a rollout no Codex process holds was cut off: the terminal UI, the app
-    // or the agent running it went away partway through, and nothing will close it.
-    let cut_off = (th.turn_open && terminal.is_none() && held == Some(false)).then_some(th.last_ts);
+    // or the agent running it went away partway through, and nothing will close it. So was one
+    // the app stopped as it quit (the Mac shutting down or restarting, an update), though Codex
+    // closes it as it closes one you stop.
+    let cut_off = if th.turn_open && terminal.is_none() && held == Some(false) { Some(th.last_ts) } else { th.interrupted_at.filter(|_| quit) };
     let unanswered = codex_unanswered(th, now).filter(|_| cut_off.is_none());
-    let status = if cut_off.is_some() {
-        if th.last_ts > seen_at { Status::Error } else { Status::Idle }
+    let status = if let Some(at) = cut_off {
+        if at > seen_at { Status::Error } else { Status::Idle }
     } else if th.pending_approval.is_some() || unanswered.is_some() {
         Status::Needs
     } else if th.turn_open && fresh {
@@ -3541,19 +3544,19 @@ mod tests {
     fn maps_codex_statuses() {
         let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let mut th = ThreadInfo { id: "01a0c4a6".into(), cwd: "/r".into(), last_ts: NOW - 1_000, turn_open: true, turn_started_at: Some(NOW - 5_000), ..Default::default() };
-        assert_eq!(codex_session(&a, &th, Some("Photo tools"), None, None, 0, NOW).status, Status::Working);
-        assert_eq!(codex_session(&a, &th, None, None, None, 0, NOW).open_target, "s|codex:codex:01a0c4a6|codex");
-        assert!(!codex_session(&a, &th, None, None, None, 0, NOW).headless);
-        assert!(codex_session(&a, &ThreadInfo { exec: true, ..th.clone() }, None, None, None, 0, NOW).headless, "a `codex exec` run");
-        assert!(!codex_session(&a, &ThreadInfo { exec: true, ..th.clone() }, None, Some(42), None, 0, NOW).headless, "resumed in a terminal");
+        assert_eq!(codex_session(&a, &th, Some("Photo tools"), None, None, false, 0, NOW).status, Status::Working);
+        assert_eq!(codex_session(&a, &th, None, None, None, false, 0, NOW).open_target, "s|codex:codex:01a0c4a6|codex");
+        assert!(!codex_session(&a, &th, None, None, None, false, 0, NOW).headless);
+        assert!(codex_session(&a, &ThreadInfo { exec: true, ..th.clone() }, None, None, None, false, 0, NOW).headless, "a `codex exec` run");
+        assert!(!codex_session(&a, &ThreadInfo { exec: true, ..th.clone() }, None, Some(42), None, false, 0, NOW).headless, "resumed in a terminal");
         th.last_ts = NOW - CODEX_STALE_MS - 1;
-        assert_eq!(codex_session(&a, &th, None, None, None, 0, NOW).status, Status::Idle);
+        assert_eq!(codex_session(&a, &th, None, None, None, false, 0, NOW).status, Status::Idle);
         th.turn_open = false;
         th.last_complete_at = Some(NOW - 1_000);
-        assert_eq!(codex_session(&a, &th, None, None, None, NOW - 2_000, NOW).status, Status::Unread);
-        assert_eq!(codex_session(&a, &th, None, None, None, NOW, NOW).status, Status::Idle);
+        assert_eq!(codex_session(&a, &th, None, None, None, false, NOW - 2_000, NOW).status, Status::Unread);
+        assert_eq!(codex_session(&a, &th, None, None, None, false, NOW, NOW).status, Status::Idle);
         th.pending_approval = Some("Run · `yarn install`".into());
-        let asks = codex_session(&a, &th, None, None, None, 0, NOW);
+        let asks = codex_session(&a, &th, None, None, None, false, 0, NOW);
         // It waits from its request, not from the turn before it.
         assert_eq!((asks.status, asks.status_since), (Status::Needs, Some(th.last_ts)));
         // A computer-use call that hasn't answered in a minute is waiting for approval.
@@ -3561,9 +3564,9 @@ mod tests {
         th.turn_open = true;
         th.last_ts = NOW - 30_000;
         th.pending_calls = vec![crate::codex::PendingCall { call_id: "c".into(), at: NOW - 30_000, what: "Inspect the Dock".into(), limit_ms: 60_000 }];
-        assert_eq!(codex_session(&a, &th, None, None, None, 0, NOW).status, Status::Working);
+        assert_eq!(codex_session(&a, &th, None, None, None, false, 0, NOW).status, Status::Working);
         th.pending_calls[0].at = NOW - 61_000;
-        let waiting = codex_session(&a, &th, None, None, None, 0, NOW);
+        let waiting = codex_session(&a, &th, None, None, None, false, 0, NOW);
         assert_eq!((waiting.status, waiting.status_since), (Status::Needs, Some(NOW - 61_000)));
         assert_eq!(waiting.excerpt.as_deref(), Some("Waiting for approval? · Inspect the Dock"));
     }
@@ -3583,20 +3586,48 @@ mod tests {
             pending_calls: vec![crate::codex::PendingCall { call_id: "c".into(), at: NOW - 30_000, what: "Run · `sleep 120`".into(), limit_ms: 1_000 }],
             ..Default::default()
         };
-        let cut = codex_session(&a, &th, None, None, Some(false), 0, NOW);
+        let cut = codex_session(&a, &th, None, None, Some(false), false, 0, NOW);
         assert_eq!((cut.cut_off, cut.status, cut.live, cut.status_since), (Some(NOW - 30_000), Status::Error, false, Some(NOW - 30_000)));
         // What it was on, and no guess that it waits for an approval.
         assert_eq!(cut.excerpt.as_deref(), Some("Run the slow test"));
         // Seen since: it stays cut off, as news no longer.
-        let seen = codex_session(&a, &th, None, None, Some(false), NOW, NOW);
+        let seen = codex_session(&a, &th, None, None, Some(false), false, NOW, NOW);
         assert_eq!((seen.cut_off, seen.status), (Some(NOW - 30_000), Status::Idle));
         // Held open, in a terminal, or not known: it may still be going.
         for (terminal, held) in [(None, Some(true)), (Some(42), Some(false)), (None, None)] {
-            assert_eq!(codex_session(&a, &th, None, terminal, held, 0, NOW).cut_off, None, "{terminal:?} {held:?}");
+            assert_eq!(codex_session(&a, &th, None, terminal, held, false, 0, NOW).cut_off, None, "{terminal:?} {held:?}");
         }
         // A turn that ended isn't cut off, held or not.
         let ended = ThreadInfo { turn_open: false, pending_calls: Vec::new(), ..th };
-        assert_eq!(codex_session(&a, &ended, None, None, Some(false), 0, NOW).cut_off, None);
+        assert_eq!(codex_session(&a, &ended, None, None, Some(false), false, 0, NOW).cut_off, None);
+    }
+
+    #[test]
+    fn a_codex_turn_the_app_stopped_as_it_quit_was_cut_off() {
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        // Stopped as the Mac restarted, and written to by the app opening it again after.
+        let th = ThreadInfo {
+            id: "01a0f3c7".into(),
+            cwd: "/r".into(),
+            last_ts: NOW - 60_000,
+            turn_started_at: Some(NOW - 600_000),
+            last_complete_at: Some(NOW - 400_000),
+            interrupted_at: Some(NOW - 400_000),
+            last_user_message: Some("Export the kestrel report".into()),
+            last_agent_message: Some("The export runs now.".into()),
+            ..Default::default()
+        };
+        let cut = codex_session(&a, &th, None, None, Some(true), true, NOW - 500_000, NOW);
+        assert_eq!((cut.cut_off, cut.status, cut.live, cut.status_since), (Some(NOW - 400_000), Status::Error, false, Some(NOW - 400_000)));
+        assert_eq!(session_headline(&cut), ("`codex` was cut off · Export the kestrel report".to_string(), Some("Export the kestrel report".to_string())));
+        // Seen since it was stopped, though the app wrote to it after: news no longer.
+        assert_eq!(codex_session(&a, &th, None, None, Some(true), true, NOW - 200_000, NOW).status, Status::Idle);
+        // Stopped by you, its turn just ended.
+        let stopped = codex_session(&a, &th, None, None, Some(true), false, NOW - 500_000, NOW);
+        assert_eq!((stopped.cut_off, stopped.status), (None, Status::Unread));
+        // A turn started since is the thread's news.
+        let again = ThreadInfo { turn_open: true, interrupted_at: None, last_ts: NOW - 1_000, ..th };
+        assert_eq!(codex_session(&a, &again, None, None, Some(true), true, 0, NOW).cut_off, None);
     }
 
     /// A thread Codex hasn't named goes by its first prompt, not its latest, which may be a message
@@ -3612,28 +3643,28 @@ mod tests {
             last_user_message: Some("On your PR #7: ken approved it.".into()),
             ..Default::default()
         };
-        let s = codex_session(&a, &th, None, None, None, 0, NOW);
+        let s = codex_session(&a, &th, None, None, None, false, 0, NOW);
         assert_eq!((s.title.as_str(), s.first_prompt.as_deref(), s.last_prompt.as_deref()), ("Tidy the photo uploader", Some("Tidy the photo uploader"), Some("On your PR #7: ken approved it.")));
-        assert_eq!(codex_session(&a, &th, Some("Photo uploader"), None, None, 0, NOW).title, "Photo uploader");
+        assert_eq!(codex_session(&a, &th, Some("Photo uploader"), None, None, false, 0, NOW).title, "Photo uploader");
         // Its first not known (too far from its start), its latest.
         let far = ThreadInfo { first_prompt: None, first_prompt_unread: true, ..th };
-        assert_eq!(codex_session(&a, &far, None, None, None, 0, NOW).title, "On your PR #7: ken approved it.");
+        assert_eq!(codex_session(&a, &far, None, None, None, false, 0, NOW).title, "On your PR #7: ken approved it.");
     }
 
     #[test]
     fn a_codex_cli_thread_opens_in_its_terminal() {
         let a = AccountCfg { name: "codex2".into(), harness: "codex".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
         let th = ThreadInfo { id: "01a0e375".into(), cwd: "/r".into(), last_ts: NOW - 1_000, cli: true, ..Default::default() };
-        let open = codex_session(&a, &th, None, Some(42), None, 0, NOW);
+        let open = codex_session(&a, &th, None, Some(42), None, false, 0, NOW);
         assert_eq!((open.surface, open.live, open.pid, open.open_target.as_str()), (Surface::Cli, true, Some(42), "s|codex:codex2:01a0e375|focus"));
-        let closed = codex_session(&a, &th, None, None, None, 0, NOW);
+        let closed = codex_session(&a, &th, None, None, None, false, 0, NOW);
         assert_eq!((closed.surface, closed.live, closed.open_target.as_str()), (Surface::Cli, false, "s|codex:codex2:01a0e375|resume"));
         assert_eq!(closed.resume_command.as_deref(), Some("CODEX_HOME=~/.codex2 codex resume 01a0e375"));
         assert!(!closed.app_account, "the Codex app runs ~/.codex only");
         // An app thread resumed in a terminal shows there while it's open.
         let app = ThreadInfo { cli: false, ..th };
-        assert_eq!(codex_session(&a, &app, None, Some(7), None, 0, NOW).surface, Surface::Cli);
-        assert_eq!(codex_session(&a, &app, None, None, None, 0, NOW).surface, Surface::App);
+        assert_eq!(codex_session(&a, &app, None, Some(7), None, false, 0, NOW).surface, Surface::Cli);
+        assert_eq!(codex_session(&a, &app, None, None, None, false, 0, NOW).surface, Surface::App);
     }
 
     #[test]

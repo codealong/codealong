@@ -5,14 +5,14 @@
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 
 use crate::attachments::{self, Style};
-use crate::codex::{appserver, models};
+use crate::codex::{applog, appserver, models};
 use crate::config::AccountCfg;
 use crate::harness::Switch;
 use crate::launch;
@@ -166,7 +166,7 @@ impl Ipc {
                 }
                 return Ok(owner);
             }
-            if !split && *routers.get_or_insert_with(|| routers_split(codex_home)) && taken_in_log(&app_logs(), thread) {
+            if !split && *routers.get_or_insert_with(|| routers_split(codex_home)) && taken_in_log(&applog::dir(), thread) {
                 split = true;
                 by = (Instant::now() + Duration::from_secs(3)).min(deadline);
             }
@@ -208,16 +208,10 @@ fn routers_split(codex_home: &Path) -> bool {
     procs::run("/usr/sbin/netstat", &["-an", "-f", "unix"], None, Duration::from_secs(3)).is_ok_and(|out| routers_at(&out, &codex_home.join("ipc/ipc.sock")) > 1)
 }
 
-/// Where the Codex app logs: a folder a day (`<year>/<month>/<day>`), and in it a file a day for
-/// each of the app's processes, named with its pid (`codex-desktop-<launch>-<pid>-t0-…`).
-fn app_logs() -> PathBuf {
-    crate::util::home().join("Library/Logs/com.openai.codex")
-}
-
-/// Whether a window of the running Codex app has taken `thread`, by the app's log in `logs`: a
-/// window logs `thread_stream_role_changed conversationId=<thread> … role=owner` as it takes a
-/// thread it loads (26.930), and nothing as it lets one go. Only the running app's files count,
-/// so a thread a window had before the app was reopened doesn't.
+/// Whether a window of the running Codex app has taken `thread`, by the app's logs in `logs`
+/// (applog.rs): a window logs `thread_stream_role_changed conversationId=<thread> … role=owner`
+/// as it takes a thread it loads (26.930), and nothing as it lets one go. Only the running app's
+/// files count, so a thread a window had before the app was reopened doesn't.
 fn taken_in_log(logs: &Path, thread: &str) -> bool {
     if thread.is_empty() || !thread.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return false;
@@ -330,7 +324,7 @@ pub fn codex_steer_turn(codex_home: &Path, thread: &str, text: &str, cwd: &str) 
 /// running there is loaded in some window, so none claiming it means it isn't, unless the one
 /// that took it can't be reached.
 fn not_running(codex_home: &Path, thread: &str) -> &'static str {
-    if routers_split(codex_home) && taken_in_log(&app_logs(), thread) {
+    if routers_split(codex_home) && taken_in_log(&applog::dir(), thread) {
         SPLIT
     } else {
         "No Codex window has this thread open, so it isn't running in the app."
@@ -542,6 +536,7 @@ impl Own for InApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use crate::model::{Harness, Status, Surface};
 
     /// A folder of its own under the system's temporary one, short enough for a socket path.
