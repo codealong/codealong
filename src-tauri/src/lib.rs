@@ -1306,7 +1306,7 @@ fn keep_start_place(accounts: Vec<String>, place: start::Place) -> Result<(), St
 /// search for repos (setup.rs).
 #[tauri::command]
 async fn setup_view() -> Result<setup::View, String> {
-    blocking(move || setup::view().map_err(words)).await?
+    blocking(move || setup::view_once_read().map_err(words)).await?
 }
 
 /// Whether the main window shows the setup wizard by itself: a first run's, until it's finished

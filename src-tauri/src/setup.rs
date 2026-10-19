@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -22,6 +22,9 @@ const WORKED_DAYS: i64 = 30;
 /// How long the wizard waits on a folder's repos being counted: a folder macOS holds for a
 /// privacy prompt shows without a count rather than keep the wizard waiting.
 const COUNT_WAIT: Duration = Duration::from_secs(5);
+
+/// How long the wizard waits for a first run to write config.toml (`view_once_read`).
+const FIRST_RUN_WAIT: Duration = Duration::from_secs(120);
 
 /// Folders people keep code in, right in their home folder, matched whatever their case. None
 /// that macOS guards with a privacy prompt (Documents, Desktop): looking in one would ask.
@@ -61,6 +64,18 @@ pub struct Folder {
     pub worked: usize,
     /// config.toml's `scan` lists it.
     pub scanned: bool,
+}
+
+/// What the setup wizard offers, once the app's engine has read config.toml or written a first
+/// run's. Offered before, it would start from the defaults, and Done would save them over what
+/// the first run found (its projects). A first run's reads take seconds; the wizard says it's
+/// looking meanwhile, and after a couple of minutes goes on with what there is.
+pub fn view_once_read() -> anyhow::Result<View> {
+    let start = Instant::now();
+    while !config::read_by_the_app() && start.elapsed() < FIRST_RUN_WAIT {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    view()
 }
 
 /// What the setup wizard offers. An error when config.toml doesn't parse: every account on this

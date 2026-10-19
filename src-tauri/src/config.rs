@@ -1322,12 +1322,32 @@ fn update_at<R>(path: &Path, mut change: impl FnMut(&str) -> Result<(String, R)>
         let (changed, answer) = change(&text)?;
         let now = text_to_change(path)?;
         if now == text {
-            crate::store::write(path, changed)?;
+            crate::store::write(path, &changed)?;
+            runs_on_written(path, &changed);
             return Ok(answer);
         }
         text = now;
     }
     Err(anyhow!("{} kept changing while Codealong saved it, so this change wasn't saved; try it again.", crate::util::tilde(path)))
+}
+
+/// What Codealong itself writes to config.toml is what the app runs on from then: a command that
+/// acts on it (an install for an account just added) goes by it at once, not once the engine's
+/// watcher has read the file again, which it still does to apply it. Only in the app, where the
+/// engine said what it runs on (`running_on`), and only for config.toml itself.
+fn runs_on_written(path: &Path, text: &str) {
+    let mut running = RUNNING.write().unwrap_or_else(|e| e.into_inner());
+    if running.is_some() && path == config_path() {
+        if let Ok(cfg) = load_text(text) {
+            *running = Some(cfg);
+        }
+    }
+}
+
+/// Whether the app's engine has read config.toml, or written a first run's: until then the
+/// settings are the defaults, which a first run is about to replace.
+pub fn read_by_the_app() -> bool {
+    RUNNING.read().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
 pub const HARNESSES: [&str; 5] = ["claude", "codex", "opencode", "antigravity", "cursor"];

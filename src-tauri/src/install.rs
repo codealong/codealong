@@ -798,11 +798,8 @@ pub fn run(ask: &Ask) -> Done {
             Err(e) => done.errors.push(format!("The command wasn't linked: {e:#}")),
         }
     }
-    // The accounts as config.toml has them now, not as the engine last read it: an install is
-    // asked for right after an account is saved (Settings' Add, Set up Codealong), before the
-    // engine's watcher has read the file again.
-    let cfg = match config::load() {
-        Ok(cfg) => cfg.unwrap_or_default(),
+    let cfg = match config::current() {
+        Ok(cfg) => cfg,
         Err(e) => {
             done.errors.push(format!("{e:#}"));
             return done;

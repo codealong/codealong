@@ -59,7 +59,10 @@ export function SetupDialog({ onClose, onDone, now }: { onClose: () => void; onD
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([setupView(), getConfig()])
+    // The settings once the view is in: it waits for a first run to write config.toml, and
+    // settings read before would be the defaults, which Done would save over the first run's.
+    setupView()
+      .then((v) => getConfig().then((c) => [v, c] as const))
       .then(([v, c]) => {
         setView(v);
         setCfg(c);
