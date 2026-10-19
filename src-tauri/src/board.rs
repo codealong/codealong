@@ -424,11 +424,14 @@ fn codex_origin(account: &AccountCfg, th: &ThreadInfo) -> Option<SessionOrigin> 
 /// (`codex/applog.rs`) rather than by you.
 pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, terminal: Option<u32>, held: Option<bool>, quit: bool, seen_at: i64, now: i64) -> Session {
     let fresh = now - th.last_ts < CODEX_STALE_MS;
+    // The app runs the threads of `~/.codex` only.
+    let app_account = account.home_path() == crate::util::home().join(".codex");
     // A turn left open in a rollout no Codex process holds was cut off: the terminal UI, the app
     // or the agent running it went away partway through, and nothing will close it. So was one
     // the app stopped as it quit (the Mac shutting down or restarting, an update), though Codex
-    // closes it as it closes one you stop.
-    let cut_off = if th.turn_open && terminal.is_none() && held == Some(false) { Some(th.last_ts) } else { th.interrupted_at.filter(|_| quit) };
+    // closes it as it closes one you stop; a thread a terminal UI has open isn't the app's.
+    let by_the_app = quit && app_account && terminal.is_none();
+    let cut_off = if th.turn_open && terminal.is_none() && held == Some(false) { Some(th.last_ts) } else { th.interrupted_at.filter(|_| by_the_app) };
     let unanswered = codex_unanswered(th, now).filter(|_| cut_off.is_none());
     let status = if let Some(at) = cut_off {
         if at > seen_at { Status::Error } else { Status::Idle }
@@ -491,7 +494,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         last_activity: th.last_ts,
         excerpt,
         resume_command: Some(format!("{} resume {}", account.command(), th.id)),
-        app_account: account.home_path() == crate::util::home().join(".codex"),
+        app_account,
         branch: th.branch.clone(),
         origin: codex_origin(account, th),
         model: th.model.clone(),
@@ -3625,6 +3628,11 @@ mod tests {
         // Stopped by you, its turn just ended.
         let stopped = codex_session(&a, &th, None, None, Some(true), false, NOW - 500_000, NOW);
         assert_eq!((stopped.cut_off, stopped.status), (None, Status::Unread));
+        // Another account's, which the app doesn't run, or one a terminal UI has open: stopped
+        // there as the app happened to quit.
+        let other = AccountCfg { name: "codex2".into(), home: "~/.codex2".into(), command: Some("CODEX_HOME=~/.codex2 codex".into()), ..a.clone() };
+        assert_eq!(codex_session(&other, &th, None, None, Some(true), true, NOW - 500_000, NOW).status, Status::Unread);
+        assert_eq!(codex_session(&a, &th, None, Some(42), Some(true), true, NOW - 500_000, NOW).cut_off, None);
         // A turn started since is the thread's news.
         let again = ThreadInfo { turn_open: true, interrupted_at: None, last_ts: NOW - 1_000, ..th };
         assert_eq!(codex_session(&a, &again, None, None, Some(true), true, 0, NOW).cut_off, None);

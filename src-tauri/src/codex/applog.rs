@@ -77,24 +77,25 @@ fn day_dir(dir: &Path, at: i64) -> PathBuf {
     dir.join(format!("{y:04}/{m:02}/{d:02}"))
 }
 
-/// When each of the app's processes that logged on the day starting at `day` and isn't one of
-/// `running` logged last. One that ran on into the next day has files in that day's folder too,
-/// which are read with it: its last line on the day can be a turn's time though it didn't quit
-/// then.
+/// When each of the app's processes that logged on the day starting at `day` or the next, and
+/// isn't one of `running`, logged last on them. The two days are read together: a process that
+/// ran on into the next day can have a last line on the first at a turn's time though it didn't
+/// quit then, and one started just after midnight has none on the first. One that ran on into a
+/// third day has its last line on the second near that midnight, far from any turn the two days
+/// are read for.
 fn ended_in(dir: &Path, day: i64, running: &HashSet<u32>) -> Vec<i64> {
-    let mut last: HashMap<String, (u32, i64, bool)> = HashMap::new();
-    for (folder, on_the_day) in [(day_dir(dir, day), true), (day_dir(dir, day + DAY_MS), false)] {
+    let mut last: HashMap<String, (u32, i64)> = HashMap::new();
+    for folder in [day_dir(dir, day), day_dir(dir, day + DAY_MS)] {
         let Ok(entries) = std::fs::read_dir(folder) else { continue };
         for entry in entries.flatten() {
             let name = entry.file_name();
             let Some((process, pid)) = name.to_str().and_then(process_of) else { continue };
             let Some(at) = last_line_at(&entry.path()) else { continue };
-            let slot = last.entry(process.to_string()).or_insert((pid, at, false));
+            let slot = last.entry(process.to_string()).or_insert((pid, at));
             slot.1 = slot.1.max(at);
-            slot.2 |= on_the_day;
         }
     }
-    last.into_values().filter(|(pid, _, on_the_day)| *on_the_day && !running.contains(pid)).map(|(_, at, _)| at).collect()
+    last.into_values().filter(|(pid, _)| !running.contains(pid)).map(|(_, at)| at).collect()
 }
 
 /// The process a log file is of, as `<launch>-<pid>`, and its pid.
@@ -195,6 +196,15 @@ mod tests {
         quits.look(&ps(&[]));
         quits.look(&ps(&[6469]));
         assert!(quits.quit_at(&logs, stop));
+        let _ = std::fs::remove_dir_all(&logs);
+        // One started just after midnight that quit seconds later, with nothing the day before.
+        let logs = scratch("midnight");
+        let late = "codex-desktop-7e2d9a14-c3b8-4f06-8d5e-91a7c4f0e2b3-7001-t0-i1-000001-0.log";
+        write(&logs, "2026/10/19", late, &["2026-10-19T00:00:01.000Z info [x] up", "2026-10-19T00:00:05.000Z info [x] quitting"]);
+        let mut quits = Quits::default();
+        quits.look(&ps(&[6469]));
+        assert!(quits.quit_at(&logs, at("2026-10-19T00:00:06.000Z")));
+        assert!(!quits.quit_at(&logs, at("2026-10-19T00:01:00.000Z")));
         let _ = std::fs::remove_dir_all(&logs);
     }
 
