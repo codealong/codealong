@@ -2969,12 +2969,34 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
         println!("Its primary session is told of what happens on it while it runs ({why}`codealong pr nudge {} --off` stops that).", p.key);
     }
     if let Some(r) = &p.auto_review {
-        let who: Vec<String> = r.parts.iter().map(|x| x.session.as_ref().map_or_else(|| x.who.clone(), |s| format!("{} in {s}", x.who))).collect();
-        let who = if who.is_empty() { String::new() } else { format!(", {}", who.join(", ")) };
-        let note = r.note.as_deref().map(|n| format!(": {n}")).unwrap_or_default();
-        println!("Review: {} at {}{who}{note}", lower_debug(&r.stage), r.head.get(..7).unwrap_or(&r.head));
+        println!("Review: {}", review_line(r));
     }
     Ok(())
+}
+
+/// Where a PR's agent review stands, in the words its card has (review.ts `autoReviewWords`):
+/// what was submitted for you first, since a submitted draft keeps its stage; then its reviewers'
+/// sessions and why it went as it did.
+fn review_line(r: &crate::model::AutoReview) -> String {
+    use crate::github::Verdict;
+    use crate::model::ReviewStage;
+    let at = r.head.get(..7).unwrap_or(&r.head);
+    let says = match (r.submitted, r.stage) {
+        (Some(Verdict::Approve), _) => format!("Agent approved {at} for you"),
+        (Some(Verdict::RequestChanges), _) => format!("Agent requested changes on {at} for you"),
+        (Some(Verdict::Comment), _) => format!("Agent commented on {at} for you"),
+        (None, ReviewStage::Queued) => format!("Agent review of {at} to come"),
+        (None, ReviewStage::Reviewing) => format!("Agent reviewing {at}"),
+        (None, ReviewStage::Posted) => format!("Agent reviewed {at} and commented"),
+        (None, ReviewStage::Drafted) => format!("Agent drafted a review of {at}"),
+        (None, ReviewStage::Kept) => format!("Agent reviewed {at}"),
+        (None, ReviewStage::Skipped) => format!("Agent passed on {at}"),
+        (None, ReviewStage::Failed) if r.parts.iter().any(|p| p.session.is_some()) => format!("Agent's review of {at} didn't finish"),
+        (None, ReviewStage::Failed) => format!("Agent's review of {at} didn't start"),
+    };
+    let who: String = r.parts.iter().map(|x| x.session.as_ref().map_or_else(|| format!(", {}", x.who), |s| format!(", {} in {s}", x.who))).collect();
+    let note = r.note.as_deref().map(|n| format!(": {n}")).unwrap_or_default();
+    format!("{says}{who}{note}")
 }
 
 /// Why a PR's primary session is the one it is, as `pr show` says it.
@@ -3033,7 +3055,9 @@ fn pr_review(c: &mut Client, a: &PrReviewArgs, json: bool) -> Result<()> {
     if c.app.is_none() {
         bail!("Codealong isn't running, and reviews run in it.");
     }
-    let round: Option<crate::autoreview::Begun> = match server::ask(&Request::PrReview { pr: key.clone(), account: a.account.clone() }) {
+    // Before its session starts, a review reads the PR from GitHub, and what changed since the
+    // last review of it, each of which may take a minute or more before it gives up.
+    let round: Option<crate::autoreview::Begun> = match server::ask_within(&Request::PrReview { pr: key.clone(), account: a.account.clone() }, std::time::Duration::from_secs(600)) {
         Some(Ok(v)) => serde_json::from_value(v).context("reading the app's reply")?,
         Some(Err(e)) if e.starts_with(server::UNKNOWN_REQUEST) => bail!("The Codealong that's running is older than this command and can't start a review for it. Update it, or quit it and open it again."),
         Some(Err(e)) => bail!("{e}"),
@@ -5985,6 +6009,20 @@ mod tests {
         assert!(!runs_command("codealong todo start t-abc", &done));
         assert!(!runs_command("codealong whoamix", &args("whoami")));
         assert!(!runs_command("anything", &[]));
+    }
+
+    #[test]
+    fn says_where_a_prs_agent_review_stands_as_its_card_does() {
+        use crate::model::{AutoReview, PartState, ReviewPart, ReviewStage};
+        let part = ReviewPart { who: "reviewers".into(), session: Some("cursor:cursor:c1".into()), state: PartState::Done, note: None };
+        let r = AutoReview { stage: ReviewStage::Drafted, head: "1c1706be2657c978".into(), parts: vec![part], at: 0, comment: None, note: None, rounds: 1, behind: false, holds: false, own: false, sent: None, sent_at: None, sendable: None, suggests: None, submitted: None, submitted_at: None };
+        assert_eq!(review_line(&r), "Agent drafted a review of 1c1706b, reviewers in cursor:cursor:c1");
+        // A draft submitted for you keeps its stage, and says what it went as.
+        let submitted = AutoReview { submitted: Some(crate::github::Verdict::Approve), ..r.clone() };
+        assert_eq!(review_line(&submitted), "Agent approved 1c1706b for you, reviewers in cursor:cursor:c1");
+        // One whose session never began didn't start, and says why.
+        let failed = AutoReview { stage: ReviewStage::Failed, parts: vec![ReviewPart { session: None, state: PartState::Failed, ..r.parts[0].clone() }], note: Some("Its session never showed up.".into()), ..r };
+        assert_eq!(review_line(&failed), "Agent's review of 1c1706b didn't start, reviewers: Its session never showed up.");
     }
 
     #[test]
