@@ -1,7 +1,7 @@
 // Checks Settings › Routing's groups and buffer (`[routing] buffer`): Room kept for running
 // sessions starts at 5% and saves the percent picked. A new group's accounts are added from the
 // agent menu, each an account on a model (its own line said as Auto's) at an effort set in the
-// menu's effort row; on Fallback they're numbered in the order they're tried, Later moves one
+// menu's effort row (← → step it); on Fallback they're numbered in the order they're tried, Later moves one
 // down, and the group saves with its members in that order, each with its model and effort, its
 // card listing them with arrows. Use this group for says it's the same setting as Auto routing
 // and Automation's reviewers.
@@ -64,10 +64,13 @@
       // An effort for the first, from its menu's effort row, where its account takes one.
       chip(rows(form)[0]).click();
       var level = await until(function () { return q('.ca-picker-foot') ? (all('.ca-picker-foot button').filter(function (b) { return b.textContent.trim() === 'High'; })[0] || 'none') : null; }, 5000, 'the menu');
-      var effort = level === 'none' ? '' : 'high';
+      var effort = level === 'none' ? '' : 'xhigh';
       if (level !== 'none') {
         level.click();
         await until(function () { return /High effort/.test(chip(rows(form)[0]).textContent); }, 5000, 'the effort on its chip');
+        // → steps it, as the row's keys say.
+        key(q('.ca-picker-filter'), { key: 'ArrowRight' });
+        await until(function () { return /Extra/.test(chip(rows(form)[0]).textContent); }, 5000, 'the effort a step up');
       }
       chip(rows(form)[0]).click();
       var use = field(/^Use this group for/, form);

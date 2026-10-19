@@ -262,7 +262,7 @@ export function Quick() {
   // The account or Auto, model, effort and place picked for a new session, and whether it gets a
   // new worktree (useStartChoice.ts).
   const startPicks = useStartPicks();
-  const { effort, setEffort, newWorktree, setNewWorktree, setAgent, setPlace } = startPicks;
+  const { setEffort, newWorktree, setNewWorktree, setAgent, setPlace } = startPicks;
   // The Mac a new session starts on, by its short id; null is this one.
   const [device, setDevice] = useState<string | null>(null);
   const [devices, setDevices] = useState<DevicesView | null>(null);
@@ -656,6 +656,8 @@ export function Quick() {
     pickAgent: pickAgentLine,
     pickPlace,
     stepEffort,
+    pickEffort,
+    effortShown,
   } = useStartChoice(startPicks, optionsForStart, usage, now, allLanes);
   const choiceForAgent = (suggestedAgent: string | undefined, overWorktree: boolean) =>
     suggestedChoice(
@@ -1564,7 +1566,7 @@ export function Quick() {
     refocus();
   };
 
-  const effortFoot = efforts.length > 0 ? <EffortFoot efforts={efforts} value={effort} onPick={setEffort} harness={harness} model={effortModel} takesEffort={(accountInfo?.efforts?.length ?? 0) > 0} /> : null;
+  const effortFoot = efforts.length > 0 ? <EffortFoot efforts={efforts} value={effortShown} onPick={pickEffort} harness={harness} model={effortModel} takesEffort={(accountInfo?.efforts?.length ?? 0) > 0} /> : null;
 
   const deviceSections: PickerSection[] = useMemo(() => {
     if (!devices) return [];

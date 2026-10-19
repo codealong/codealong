@@ -26,6 +26,7 @@ import {
   newWorktreeTitle,
   onCommandLine,
   onModelWords,
+  OWN_EFFORT,
   parseAgent,
   pickFromGroup,
   placeNote,
@@ -833,8 +834,10 @@ describe('usageCap and routing groups', () => {
     const opts = agentOptions(accounts, [], null, groups);
     const started = (effort: string | null) => startChoice(accounts, [], efforts, [], null, opts, 'deep', { agent: 'deep', effort, place: null, newWorktree: false }, () => undefined, groups, NOW);
     // An effort keeps it to the places that take one.
-    expect([started(null).effortNow, started(null).effortWord, started(null).placeNow]).toEqual(['max', 'Max', 'terminal']);
+    expect([started(null).effortNow, started(null).effortWord, started(null).placeNow, started(null).effortShown]).toEqual(['max', 'Max', 'terminal', 'max']);
     expect(started('high').effortNow).toBe('high');
+    // Default picked is the account's own, not the member's.
+    expect([started(OWN_EFFORT).effortNow, started(OWN_EFFORT).effortShown]).toEqual([null, null]);
   });
 });
 

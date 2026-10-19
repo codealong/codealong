@@ -4,7 +4,7 @@
 // what the picks come to is start.ts `startChoice`.
 
 import { useMemo, useState } from 'react';
-import { agentId, agentOptions, autoPick, effortStep, initialChoice, parseAgent, placeTakesModel, remembered, settledPlace, startChoice, withLists } from './start';
+import { agentId, agentOptions, autoPick, effortStep, initialChoice, OWN_EFFORT, parseAgent, placeTakesModel, remembered, settledPlace, startChoice, withLists } from './start';
 import type { Lane, StartOptions, StartPlace, Usage } from './types';
 
 /** What's picked, with its setters. The quick panel keeps these from one open to the next only
@@ -59,7 +59,9 @@ export function useStartChoice(picks: ReturnType<typeof useStartPicks>, options:
   // while you look through them, among the chosen account's levels. It goes to a harness that
   // takes one, and not to Haiku. From the effort as it is, not as last drawn: a held key can
   // repeat before the menu redraws.
-  const stepEffort = (delta: -1 | 1) => setEffort((e) => effortStep(chosen.efforts, e, delta));
+  // Default, picked or stepped to, is the account's own, over a group member's (`OWN_EFFORT`).
+  const stepEffort = (delta: -1 | 1) => setEffort((e) => effortStep(chosen.efforts, e === OWN_EFFORT ? null : (e ?? chosen.effortShown), delta) ?? OWN_EFFORT);
+  const pickEffort = (e: string | null) => setEffort(e ?? OWN_EFFORT);
 
-  return { ...chosen, accounts, groups, models, pick, agents, first, pickAgent, pickPlace, stepEffort };
+  return { ...chosen, accounts, groups, models, pick, agents, first, pickAgent, pickPlace, stepEffort, pickEffort };
 }

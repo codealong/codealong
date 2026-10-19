@@ -982,11 +982,17 @@ function bufferOptions(current: number): Profile[] {
 function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage: Usage[]; now: number }) {
   const [all, setAll] = useState<StartAccount[]>([]);
   useEffect(() => {
-    // Without them, accounts fall back to Default model and config.toml's model choices stay intact.
+    // Without them, members are added from config.toml's accounts, on Auto's model (`offered`).
     startOptions()
       .then((o) => setAll(withLists(o)))
       .catch(() => {});
   }, []);
+  // The accounts a member is added from: the start options' (where each starts, its models and
+  // efforts), else config.toml's that are on, with none of those.
+  const offered = useMemo<StartAccount[]>(
+    () => (all.length > 0 ? all : cfg.accounts.filter((a) => !a.disabled).map((a) => ({ name: a.name, harness: a.harness, chosen: null, defaultModel: null, places: [{ place: 'terminal', label: 'Terminal' }], unavailable: null }))),
+    [all, cfg.accounts],
+  );
   const routing: RoutingCfg = cfg.routing ?? {};
   const groups: RoutingGroupCfg[] = routing.groups ?? [];
   const buffer = routing.buffer ?? BUFFER;
@@ -1143,7 +1149,7 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
                     <div className="ca-routing-member-start">
                       {fallback && <span className="ca-routing-member-at">{i + 1}.</span>}
                       <AgentMenu
-                        accounts={all}
+                        accounts={offered}
                         usage={usage}
                         now={now}
                         value={{ account: m.account, model: m.model?.trim() || null, effort: m.effort?.trim() || null }}
@@ -1165,7 +1171,7 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
                   </div>
                 ))}
                 <div className="ca-routing-member">
-                  <AgentMenu accounts={all} usage={usage} now={now} value={null} label="Add account" icon="plus" title="Add an account to the group, on a model" disabled={disabled || all.length === 0} down onPick={(p) => setDraft({ ...draft, members: [...draft.members, memberOf(p)] })} />
+                  <AgentMenu accounts={offered} usage={usage} now={now} value={null} label="Add account" icon="plus" title="Add an account to the group, on a model" disabled={disabled || offered.length === 0} down onPick={(p) => setDraft({ ...draft, members: [...draft.members, memberOf(p)] })} />
                 </div>
               </div>
               <div className="ca-field">

@@ -535,9 +535,14 @@ export function placeNote(place: StartPlace, behind = false, resuming = false): 
 }
 
 /** What's picked in the quick panel's agent menu and its places, null for nothing picked. */
+/** The effort row's Default, picked: the account's own level, over the one a routing group's
+ *  member names, which an effort not picked (null) takes. */
+export const OWN_EFFORT = 'own';
+
 export interface StartPicks {
   /** An agent menu id (`agentId`). */
   agent: string | null;
+  /** A level picked, `OWN_EFFORT`, or null for none picked. */
   effort: string | null;
   place: StartPlace | null;
   newWorktree: boolean;
@@ -572,6 +577,9 @@ export interface ChosenStart {
   effortModel: string | null;
   /** The levels the effort row offers: its account's. */
   efforts: { id: string; label: string }[];
+  /** The level the effort row has checked: the one picked, else the one a group's member names;
+   *  null for Default. */
+  effortShown: string | null;
   effortNow: string | null;
   effortWord: string | null;
   /** What the agent chip says of the model (`modelWords`). */
@@ -625,7 +633,7 @@ export function startChoice(
   const levels = accountInfo?.efforts?.length ? accountInfo.efforts : efforts;
   const takesEffort = (accountInfo?.efforts?.length ?? 0) > 0;
   // The effort picked, else the one the group's member names.
-  const wanted = effort ?? (autoFor ? (activePick?.effort ?? null) : null);
+  const wanted = effort === OWN_EFFORT ? null : (effort ?? (autoFor ? (activePick?.effort ?? null) : null));
   const tuned = (!!chosenModel || !!activePick?.model || (!!wanted && takesEffort)) && allPlaces.some((p) => placeTakesModel(p.place, resuming));
   const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place, resuming)) : allPlaces;
   const placeNow = [place, choice ? (settledPlace(choice, accounts, pick, groups, usage, now, lanes) ?? lastPlace(choice)) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
@@ -659,6 +667,7 @@ export function startChoice(
     startsOn,
     effortModel: (autoFor ? autoModelPick?.model : chosenModel) ?? defaultModel,
     efforts: levels,
+    effortShown: wanted,
     effortNow,
     effortWord: levels.find((e) => e.id === effortNow)?.label ?? null,
     modelShown: modelWords(takesAModel, placeNow, harness, modelNow, defaultModel, ownModels(accountInfo, models)),

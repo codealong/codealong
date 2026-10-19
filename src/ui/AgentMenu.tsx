@@ -9,7 +9,7 @@
 // nearly used (start.ts `autoModel`, start.rs `auto_model`), so its line says Auto.
 
 import { useMemo } from 'react';
-import { agentChipWords, agentId, agentOptions, modelName, ownModels, parseAgent, takesModel } from '../start';
+import { agentChipWords, agentId, agentOptions, effortStep, modelName, ownModels, parseAgent, takesModel } from '../start';
 import type { StartAccount, Usage } from '../types';
 import { BoxMenu } from './ModelMenu';
 import type { PickerSection } from './Picker';
@@ -84,6 +84,7 @@ export function AgentMenu({ accounts, usage, now, value, label = 'Account or mod
       disabled={disabled}
       placeholder="Account or model"
       foot={foot}
+      onStep={foot && value ? (delta) => onPick({ ...value, effort: effortStep(efforts, value.effort, delta) }) : undefined}
       onPick={(id) => {
         const { choice, model } = parseAgent(id);
         // Another account takes its own effort; another model of the same keeps the one set.
