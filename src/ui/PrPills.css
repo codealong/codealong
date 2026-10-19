@@ -53,3 +53,13 @@
     display: inline;
   }
 }
+/* On a PR's one line the pills keep their words while the title has room; on a narrow board the
+   line drops the PR's size first (PrsView.css), then they say less as above. */
+@container board (max-width: 520px) {
+  .ca-prrow.is-slim .ca-prpills > .has-short > .ca-prpill-text {
+    display: none;
+  }
+  .ca-prrow.is-slim .ca-prpill-short {
+    display: inline;
+  }
+}

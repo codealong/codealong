@@ -1,8 +1,8 @@
 // Checks the Sessions list (SessionsView.tsx, App.tsx): Pinned first, and a
 // drag still reorders them; the rest under the headings the other views have, by status or by
 // the day they started. Sort by, icon buttons in the bar over the list, switches between status
-// and start and remembers it. The bar stays at the top as the list scrolls, and shows only in
-// Sessions; the sidebar has no Sort by.
+// and start and remembers it. The bar stays at the top as the list scrolls; Sort by shows only in
+// Sessions, and Worktrees has no tools there; the sidebar has no Sort by.
 //   scripts/preview.sh sessions '' scripts/preview/session-sort-check.js
 // It pins three of the shown project's latest sessions itself, in place of yours.
 (function () {
@@ -28,7 +28,7 @@
   var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-sessionlist .ca-lane')); };
   var ids = function () { return rows().map(function (r) { return r.id; }).join(','); };
   var sortButton = function (label) {
-    return document.querySelector('.ca-sessionbar button[aria-label="' + label + '"]');
+    return document.querySelector('.ca-listtools button[aria-label="' + label + '"]');
   };
   // Each heading's words without its count, in the list's order.
   var headings = function () {
@@ -52,7 +52,7 @@
     .then(function () {
       // Sessions' tools, in the strip over the list (ListBar.tsx).
       var bar = document.querySelector('.ca-listbar');
-      check('the bar is over the list, outside it', !!bar && !!bar.querySelector('.ca-sessionbar') && !bar.closest('[role="listbox"]') && bar.getBoundingClientRect().bottom <= rows()[0].getBoundingClientRect().top + 1);
+      check('the bar is over the list, outside it', !!bar && !!bar.querySelector('.ca-listtools') && !bar.closest('[role="listbox"]') && bar.getBoundingClientRect().bottom <= rows()[0].getBoundingClientRect().top + 1);
       var sideLabels = Array.prototype.map.call(document.querySelectorAll('.ca-side .ca-side-label'), function (l) { return l.textContent; });
       check('the sidebar has no Sort by or Rows', sideLabels.indexOf('Sort by') < 0 && sideLabels.indexOf('Rows') < 0, sideLabels.join(' | '));
       // Stuck to the top of the board as the list scrolls: layout places it, so no frame is needed.
@@ -67,7 +67,7 @@
         check('a row scrolled to shows under the bar, not behind it', second.getBoundingClientRect().top >= bar.getBoundingClientRect().bottom - 1, 'row ' + Math.round(second.getBoundingClientRect().top) + ', bar ends ' + Math.round(bar.getBoundingClientRect().bottom));
       }
       board.scrollTop = 0;
-      var sortIcons = Array.prototype.map.call(document.querySelectorAll('.ca-sessionbar button'), function (b) { return !!b.querySelector('svg') && !b.textContent.trim() && !!b.getAttribute('aria-label') && !!b.title; });
+      var sortIcons = Array.prototype.map.call(document.querySelectorAll('.ca-listtools button'), function (b) { return !!b.querySelector('svg') && !b.textContent.trim() && !!b.getAttribute('aria-label') && !!b.title; });
       check('the bar’s buttons are icons, each named and with a tooltip', sortIcons.length === 4 && sortIcons.every(Boolean), sortIcons.join(','));
       check('headings by status, Pinned first, as the other views head them', headings()[0] === 'Pinned' && inOrderOf(headings(), STATUS_HEADS), headings().join(' | '));
       var counts = Array.prototype.map.call(document.querySelectorAll('.ca-sessionlist .ca-bayblock'), function (b) { return Number(b.querySelector('.ca-bay-count').textContent) === b.querySelectorAll('.ca-lane').length; });
@@ -120,7 +120,7 @@
       return until(function () { return !document.querySelector('.ca-sessionlist'); }, 2000);
     })
     .then(function () {
-      check('the bar shows only in Sessions', !document.querySelector('.ca-sessionbar'));
+      check('Worktrees has no tools in the bar', !document.querySelector('.ca-listtools'));
     })
     .then(done)
     .catch(stopped);

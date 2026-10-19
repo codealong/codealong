@@ -1,4 +1,4 @@
-/* The strip over the main window's list (ListBar.tsx): Sessions' tools and the list's find. */
+/* The strip over the main window's list (ListBar.tsx): the view's tools and the list's find. */
 
 /* Drawn as the strip over a session's panel is, on sunken ground, and stays at the top of the
    board while the list scrolls under it. As tall as that strip (31px with its line), so the two
@@ -24,7 +24,21 @@
   scroll-padding-top: 31px;
 }
 
-/* The find takes the rest of the strip, after Sessions' tools. Its field is the conversation
+/* A view's tools (`ListTools`): how Sessions is sorted, and how much a row says in Sessions, PRs
+   and Todo, groups of icon buttons. */
+.ca-listtools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.ca-listtools .ca-segctl button {
+  justify-content: center;
+  width: 28px;
+  height: 20px;
+  padding: 0;
+}
+
+/* The find takes the rest of the strip, after the view's tools. Its field is the conversation
    find's (ThreadFind.css) on the strip's sunken ground: raised, with a line. */
 .ca-listfind {
   flex: 1 1 200px;

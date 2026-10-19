@@ -4,14 +4,8 @@
   max-width: 190px;
 }
 
-/* Todo rows: no worktree column; the worktree shows on the right of the second line. */
-.ca-lane.ca-todorow {
-  grid-template-columns: 32px minmax(0, 1fr) 52px;
-}
-.ca-todorow .ca-seg-main {
-  border-left: 0;
-  padding-left: 0;
-}
+/* Todo rows: laid out as session and PR rows are, on two lines or one (rows.css .is-item), with
+   their worktrees and PR on the right. */
 .ca-todorow-title {
   color: var(--ink);
   font: var(--type-body-strong);

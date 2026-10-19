@@ -186,7 +186,9 @@ if [ -d "$images" ]; then
 fi
 cp "${PREVIEW_FOUND:-$dir/found-here.json}" "$dir/found.json"
 
-setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');"
+# The sidebar opens, though it starts folded in the app: the checks find the views and filters
+# by their labels there (sidebar-check.js folds it).
+setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');localStorage.setItem('codealong.sidebarCollapsed','0');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
 [ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
 [ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__=true;"

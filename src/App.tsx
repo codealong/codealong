@@ -44,11 +44,11 @@ import { useLogo } from './logo';
 import { usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
-import { PrsView, type PrRowItem } from './ui/PrsView';
+import { PR_ROWS, PrsView, type PrRowItem } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionItem, type SessionRows, type SessionSort } from './ui/SessionsView';
-import { ListBar, ListFind } from './ui/ListBar';
-import { TodoComposer, TodoView } from './ui/TodoView';
+import { SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionItem, type SessionSort } from './ui/SessionsView';
+import { ListBar, ListFind, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
+import { TODO_ROWS, TodoComposer, TodoView } from './ui/TodoView';
 import { KanbanView } from './ui/KanbanView';
 import { applyKanbanDrop, kanbanStep, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
@@ -106,6 +106,8 @@ const AGE_KEY = 'codealong.age';
 const DISMISSED_KEY = 'codealong.dismissedNotices';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
 const SESSION_ROWS_KEY = 'codealong.sessionRows';
+const PR_ROWS_KEY = 'codealong.prRows';
+const TODO_ROWS_KEY = 'codealong.todoRows';
 const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
 const SIDEBAR_COLLAPSED_KEY = 'codealong.sidebarCollapsed';
 const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
@@ -212,8 +214,9 @@ export function App() {
   const [age, setAge] = useStored<Age>(AGE_KEY, AGE_STORED, 'all');
   // Panel widths as you last dragged them. The PR panel has its own: it starts out wider.
   const [sidebarWidth, setSidebarWidth] = usePanelWidth(SIDEBAR_WIDTH_KEY);
-  // The sidebar folds to a rail of the views and devices (⌃⌘S), and stays as you left it.
-  const [sideCollapsed, setSideCollapsed] = useStored(SIDEBAR_COLLAPSED_KEY, flag, false);
+  // The sidebar folds to a rail of the views and devices (⌃⌘S), and stays as you left it. It
+  // starts folded: the list gets the room, and the filters are a click away.
+  const [sideCollapsed, setSideCollapsed] = useStored(SIDEBAR_COLLAPSED_KEY, flag, true);
   const toggleSidebar = useCallback(() => setSideCollapsed((c) => !c), [setSideCollapsed]);
   // A session's panel in Sessions can take the whole window (⇧⌘F), for working through sessions one
   // after another with the list out of the way; it stays as you left it.
@@ -379,8 +382,10 @@ export function App() {
   const prPins = usePins(board?.pinnedPrs, setPinnedPrs, setToast);
   // How Sessions orders the sessions that aren't pinned: by status, or the newest start first.
   const [sessionSort, setSessionSort] = useStored<SessionSort>(SESSION_SORT_KEY, SORT_STORED, 'status');
-  // How much each session's row says: two lines, or one.
-  const [sessionLines, setSessionLines] = useStored<SessionRows>(SESSION_ROWS_KEY, ROWS_STORED, 'two');
+  // How much each row says in Sessions, PRs and Todo, each as you left it: two lines, or one.
+  const [sessionLines, setSessionLines] = useStored<RowLines>(SESSION_ROWS_KEY, ROWS_STORED, 'one');
+  const [prLines, setPrLines] = useStored<RowLines>(PR_ROWS_KEY, ROWS_STORED, 'one');
+  const [todoLines, setTodoLines] = useStored<RowLines>(TODO_ROWS_KEY, ROWS_STORED, 'one');
 
   // The age filter: worktrees and sessions active since the cutoff. Pinned worktrees always
   // show on the board and in the sidebar, and pinned sessions in Sessions.
@@ -1733,9 +1738,19 @@ export function App() {
         {/* ⌘F from the board opens its find (findKeys.ts), but not while a panel takes the whole window. */}
         <main ref={boardRef} className={cx('ca-board', view === 'canvas' && 'is-canvas', view === 'kanban' && 'is-kanban')} aria-label={VIEWS.find((v) => v.id === view)?.label} data-find={maxed ? undefined : 'window'}>
           {/* One strip in every view, so the find keeps the keyboard as the view changes under it. */}
-          {!loading && (view === 'sessions' || findShown) && (
+          {!loading && (view === 'sessions' || view === 'prs' || view === 'todo' || findShown) && (
             <ListBar>
               {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
+              {view === 'prs' && (
+                <ListTools label="How PRs are listed">
+                  <RowsSeg options={PR_ROWS} value={prLines} onPick={setPrLines} />
+                </ListTools>
+              )}
+              {view === 'todo' && (
+                <ListTools label="How Todo is listed">
+                  <RowsSeg options={TODO_ROWS} value={todoLines} onPick={setTodoLines} />
+                </ListTools>
+              )}
               {findShown && (
                 <ListFind
                   inputRef={searchRef}
@@ -1877,6 +1892,7 @@ export function App() {
               <TodoView
                 sections={todoSecs}
                 todos={todoStore.todos}
+                lines={todoLines}
                 now={now}
                 selectedKey={selected?.key ?? null}
                 picked={pickedKeys}
@@ -1921,6 +1937,7 @@ export function App() {
                 onPlacePinned={(key, index) => prPins.place(pinnedPrRows.map((r) => r.pr.key), key, index)}
                 onUnpin={prPins.remove}
                 sections={prSecs}
+                lines={prLines}
                 now={now}
                 selectedKey={selected?.key ?? null}
                 picked={picks.prs.keys}

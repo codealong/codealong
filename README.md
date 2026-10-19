@@ -178,8 +178,8 @@ Six views of your work, each in a window of its own if you like (⇧⌘N):
 | **Canvas** | Your work laid out in space: a frame per repo, a column per worktree, cards you arrange. |
 
 Select anything to see it in the panel on the right; right-click anything for its menu. The
-sidebar narrows every view to the machines, time span and statuses you pick, and saved views bring
-a setup back. Plan usage for every account runs across the top.
+sidebar, a rail of the views until you open it, narrows every view to the machines, time span and
+statuses you pick, and saved views bring a setup back. Plan usage for every account runs across the top.
 
 Every session and worktree has a status:
 
@@ -482,7 +482,7 @@ In Codealong:
 | ⌃` | A new terminal in the folder of what's shown |
 | ⌘C / ⌥⌘C | Copy the selected worktree's branch / path |
 | ⇧⌘F | Expand the session panel (in Sessions) or the PR panel (in PRs) to the whole window |
-| ⌃⌘S | Fold the sidebar |
+| ⌃⌘S | Open or fold the sidebar |
 | ⌘= · ⌘- · ⌘0 | Zoom in, out, actual size |
 | ⇧⌘U | Usage: what sessions used and cost, at API prices and paid |
 | ⌘, | Settings |

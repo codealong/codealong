@@ -5,12 +5,13 @@
 // worked on the PR. Drag a PR up among the pinned ones to pin it there, a pinned one down to the
 // list to unpin it, and any out of the window to pin it to the desktop (useRowDrag.tsx).
 // ⌘-click and ⇧-click (or ⇧↑ ⇧↓, ⌘A) pick several, to open, approve, snooze, pin or copy together
-// (picks.ts, PrPickPanel.tsx).
+// (picks.ts, PrPickPanel.tsx). Rows, in the bar over the list, puts each PR on one line (`PR_ROWS`).
 
 import { absolute, ago, count } from '../format';
 import { selectHow, type SelectHow } from '../picks';
 import { heldForAgent, prFlag } from '../prStatus';
 import type { GitInfo, Lane, PrItem, Session } from '../types';
+import { rowsOptions, type RowLines } from './ListBar';
 import { PinnedSection } from './PinnedSection';
 import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
@@ -66,6 +67,10 @@ export function syncWords(g: GitInfo | null): string | null {
   return g.upstream ? 'pushed · clean' : 'clean';
 }
 
+/** How much each PR's row says: its repo, branch, author, sessions and worktree on a second line,
+ *  or one line with its standing and size at the end. */
+export const PR_ROWS = rowsOptions('under each PR, its standing, repo, branch, author, sessions, worktree and size', 'each PR with its standing and size at the end');
+
 export interface PrSection {
   id: 'requested' | 'mine' | 'others' | 'snoozed' | 'done';
   label: string;
@@ -115,6 +120,8 @@ interface PrRowProps {
   item: PrRowItem;
   domId: string;
   now: number;
+  /** On one line: its number, title and labels, then its standing and size at the end. */
+  slim: boolean;
   selected: boolean;
   /** A press: alone, or with ⌘ or ⇧ held, picking it with others (picks.ts). */
   onSelect: (how: SelectHow) => void;
@@ -125,7 +132,10 @@ interface PrRowProps {
   drag?: DragProps;
 }
 
-function PrRow({ item, domId, now, selected, onSelect, onOpen, onOpenSession, onContextMenu, drag }: PrRowProps) {
+/** A PR in the list: its number, title and labels, then its standing (pills), its repo, branch and
+ *  author, a session that worked on it and its worktree, and its size. On one line (`slim`): its
+ *  number and title, then its labels as they fit and its standing and size at the line's end. */
+function PrRow({ item, domId, now, slim, selected, onSelect, onOpen, onOpenSession, onContextMenu, drag }: PrRowProps) {
   const { pr } = item;
   const requested = waitsOnReview(pr);
   const flag = prFlag(pr);
@@ -133,11 +143,17 @@ function PrRow({ item, domId, now, selected, onSelect, onOpen, onOpenSession, on
   // leave neither readable on a row's line; the +n names the rest, and the PR panel lists them all.
   const sessions = [...item.sessions].sort((a, b) => Number(b.session.key === pr.primary) - Number(a.session.key === pr.primary));
   const shown = sessions.slice(0, 1);
+  const snooze = reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away="out of Review requested and off the floating bar" />;
+  const diff = (
+    <span className="ca-diff">
+      +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')}
+    </span>
+  );
   return (
     <Row
       id={domId}
       selected={selected}
-      className={cx('ca-lane', 'ca-prrow', requested && 'is-requested', flag && `is-flag-${flag}`, drag?.pinIndex != null && 'is-pinned')}
+      className={cx('ca-lane', 'is-item', 'ca-prrow', slim && 'is-slim', requested && 'is-requested', flag && `is-flag-${flag}`, drag?.pinIndex != null && 'is-pinned')}
       drag={drag}
       // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it.
       onSelect={(e) => onSelect(selectHow(e))}
@@ -155,35 +171,48 @@ function PrRow({ item, domId, now, selected, onSelect, onOpen, onOpenSession, on
           <span className="ca-lane-headline" title={pr.title}>
             {pr.title}
           </span>
-          <PrLabels labels={pr.labels} />
+          {slim ? (
+            <>
+              <span className="ca-chips ca-lane-tags">
+                {snooze}
+                <PrLabels labels={pr.labels} />
+              </span>
+              <span className="ca-prrow-end">
+                <PrPills pr={pr} />
+                {diff}
+              </span>
+            </>
+          ) : (
+            <PrLabels labels={pr.labels} />
+          )}
         </div>
-        <div className="ca-lane-line2">
-          {/* Shows what fits: the agents and the worktree tag drop out whole when there's no
-              room (see .ca-prrow-fit), and the PR panel lists them all. */}
-          <div className="ca-prrow-fit">
-            {/* The repo · branch · author line comes after the pills, so it's the one that
-                drops out of the lead. */}
-            <span className="ca-prrow-lead">
-              {reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away="out of Review requested and off the floating bar" />}
-              <PrPills pr={pr} />
-              <span className="ca-prrow-meta" title={`${pr.repoSlug} · ${pr.head}${pr.base ? ` → ${pr.base}` : ''}`}>
-                {pr.repo} · {pr.head} · {pr.mine ? 'you' : (pr.author ?? 'unknown')}
+        {!slim && (
+          <div className="ca-lane-line2">
+            {/* Shows what fits: the agents and the worktree tag drop out whole when there's no
+                room (see .ca-prrow-fit), and the PR panel lists them all. */}
+            <div className="ca-prrow-fit">
+              {/* The repo · branch · author line comes after the pills, so it's the one that
+                  drops out of the lead. */}
+              <span className="ca-prrow-lead">
+                {snooze}
+                <PrPills pr={pr} />
+                <span className="ca-prrow-meta" title={`${pr.repoSlug} · ${pr.head}${pr.base ? ` → ${pr.base}` : ''}`}>
+                  {pr.repo} · {pr.head} · {pr.mine ? 'you' : (pr.author ?? 'unknown')}
+                </span>
               </span>
-            </span>
-            {shown.length > 0 && (
-              <span className="ca-prrow-agents">
-                {shown.map(({ lane, session }) => (
-                  <HarnessChip key={session.key} session={session} named onOpen={() => onOpenSession(lane, session)} inRow />
-                ))}
-                <MoreChip names={sessions.slice(shown.length).map(({ session }) => `${session.title} · ${session.account}`)} />
-              </span>
-            )}
-            {item.lane && <WorktreeChip lane={item.lane} short />}
+              {shown.length > 0 && (
+                <span className="ca-prrow-agents">
+                  {shown.map(({ lane, session }) => (
+                    <HarnessChip key={session.key} session={session} named onOpen={() => onOpenSession(lane, session)} inRow />
+                  ))}
+                  <MoreChip names={sessions.slice(shown.length).map(({ session }) => `${session.title} · ${session.account}`)} />
+                </span>
+              )}
+              {item.lane && <WorktreeChip lane={item.lane} short />}
+            </div>
+            <span className="ca-lane-right">{diff}</span>
           </div>
-          <span className="ca-lane-right ca-diff">
-            +{pr.additions.toLocaleString('en-US')} −{pr.deletions.toLocaleString('en-US')}
-          </span>
-        </div>
+        )}
       </div>
       <div className="ca-seg ca-seg-age" title={`Updated ${absolute(pr.updatedAt)}`}>
         {ago(pr.updatedAt, now)}
@@ -196,6 +225,8 @@ interface PrsViewProps {
   /** The PRs you pinned, in your order; they're left out of the sections. */
   pinned: PrRowItem[];
   sections: PrSection[];
+  /** Two lines a PR, or one. */
+  lines: RowLines;
   now: number;
   selectedKey: string | null;
   /** The rows picked together with the selected one, when there are several. */
@@ -218,7 +249,7 @@ interface PrsViewProps {
 const SECTION_ICON: Record<PrSection['id'], string> = { requested: 'eye', mine: 'user', others: 'pr', snoozed: 'zzz', done: 'merge' };
 
 export function PrsView(props: PrsViewProps) {
-  const { pinned, sections, now, selectedKey, picked, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
+  const { pinned, sections, lines, now, selectedKey, picked, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
   const byKey = (key: string) => pinned.find((r) => r.pr.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.pr.key === key);
   const drag = useRowDrag({
     onPlace: onPlacePinned,
@@ -237,6 +268,7 @@ export function PrsView(props: PrsViewProps) {
       item={r}
       domId={domId(r)}
       now={now}
+      slim={lines === 'one'}
       selected={r.key === selectedKey || picked.has(r.key)}
       onSelect={(how) => onSelect(r, how)}
       onOpen={() => onOpen(r)}

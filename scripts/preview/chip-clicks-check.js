@@ -7,8 +7,10 @@
 // they were (what a click does, showing it in PRs, is pr-chip-check.js's).
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-clicks-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-clicks-check.js
-// A chip no row has is noted and skipped.
+// A chip no row has is noted and skipped. Sessions is on two lines, where its agent and todo
+// chips are.
 (function () {
+  localStorage.setItem('codealong.sessionRows', 'two');
   var list = function () { return document.querySelector('[role="listbox"]'); };
   var fire = function (el, type, detail) { el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, detail: detail })); };
   var click = function (el) { fire(el, 'mousedown', 1); fire(el, 'mouseup', 1); fire(el, 'click', 1); };

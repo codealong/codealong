@@ -36,8 +36,19 @@
   flex: none;
   max-width: 45%;
   height: 20px;
-  margin: -4px -4px -4px var(--space-1);
+  margin: -4px;
   padding: var(--space-1);
   row-gap: var(--space-2);
   overflow: clip;
+}
+/* On a PR's one line they're chips in the lane at the line's end (rows.css .ca-lane-tags), like
+   any other: each shows whole or not at all, and gives way before the title. A long one counts as
+   about ten characters when that's decided, as a worktree's chip does (TodoBits.css), then grows
+   into the room that's left and shortens inside itself. */
+.ca-prrow.is-slim .ca-prlabels {
+  display: contents;
+}
+.ca-prrow.is-slim .ca-labelchip.ca-prlabel {
+  flex: 1000 1 100px;
+  max-width: max-content;
 }

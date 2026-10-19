@@ -1,5 +1,5 @@
 /* Worktree and session rows (LaneRow.tsx): the delta, agent lines, reuse marks, and
-   the slim one-line session row. */
+   the slim one-line session row (the layout it shares with PRs' and todos' is rows.css's). */
 
 /* Each row as high as the name's line and the repo's beside it, so it sits level with them. */
 .ca-delta-row {
@@ -16,22 +16,6 @@
 /* What only this branch has reads stronger than what it lacks. */
 .ca-delta-row > .is-gain {
   color: var(--ink-2);
-}
-
-/* On a session's one line (Sessions' One line), what it's doing or said last gives way first (it
-   only takes the room that's left), then its lane (its status and helper chips, Jev's read, its
-   worktree), then its title. The text's own box would count what it's doing as room the title
-   needs, so its pieces sit on the line itself. The lane gives way a million times as fast as the
-   title (at a hundred the title still lost a pixel or two of a shortfall, enough to end in an
-   ellipsis beside room the lane had left) and packs its chips to the right, so the status chips
-   stay at the line's end after the worktree wraps away. */
-.ca-agentline-tags {
-  flex: 0 1000000 auto;
-  justify-content: flex-end;
-  margin-left: auto;
-}
-.ca-agentline-tags:empty {
-  display: none;
 }
 
 /* An agent on its worktree's row: its status, its two lines as Sessions has them, and its age,
@@ -108,7 +92,6 @@
   width: 52px;
   box-sizing: border-box;
   padding: var(--space-2) var(--space-3) 0;
-  border-left: 1px solid var(--line);
   font: var(--type-meta);
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
@@ -258,12 +241,6 @@
 }
 .ca-lane.is-agent.is-slim .ca-agentrow-line1 {
   font: var(--type-body);
-}
-.ca-lane.is-agent.is-slim .ca-agentrow-line1 > .ca-pr {
-  margin-left: auto;
-}
-.ca-lane.is-agent.is-slim .ca-agentline-tags:not(:empty) + .ca-pr {
-  margin-left: calc(var(--chip-gap) - var(--space-2));
 }
 
 /* The line of what was said that a search found the session by, under its first line: one

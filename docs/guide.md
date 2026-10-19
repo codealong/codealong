@@ -67,6 +67,12 @@ the menu for all of them, the keys act on all of them, and Esc goes back to one.
 and size in every list, and none is cut off: on a row short of room a long name shortens inside its
 chip, and the last chips drop out whole.
 
+Sessions, PRs and Todo list their rows alike: each row's status at the left, what it is, and its
+age at the right, with no lines between them. Rows, icon buttons in the bar over each of those
+lists, puts each row on one line, as they start, or on two, and each list keeps its own choice. On
+one line a row leads with its title, then what it's doing or says while there's room, then its
+chips at the line's end, the last of them giving way first, then the title.
+
 ### Sessions
 
 Every session, under headings as the other views have them. Pinned ones come first in your order
@@ -79,9 +85,9 @@ first. Started puts the newest session first, under the day it started, and each
 says when it started. A row leads with the session's title, then what it's doing or said last; one
 that needs you has a label beside its title for what it waits on (Asks you, Needs approval,
 Message, Stuck, Error). Its second line says where and why: its worktree, its todo and Jev's read,
-then its account, with the worktree's PR and diff at the right. Rows, after Sort by, puts each
-session on one line instead (its title, then its status, worktree and PR chips at the line's end);
-there its status says its account when you point at it. A snoozed session's row says how long until it's
+then its account, with the worktree's PR and diff at the right: that's on two lines (Rows, after
+Sort by). On one line, as it starts, a row is its title, then its status, worktree and PR chips at
+the line's end, and its status says its account when you point at it. A snoozed session's row says how long until it's
 back, and a quiet one's says Quiet. Here letters alone do nothing, so a word typed on the list by
 mistake doesn't pin, archive or rename: the keys are the chords, and they work from the panel's box
 too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their pins show only here.
@@ -939,18 +945,21 @@ copies its PR's link too. Colored pills say where each PR stands: its review, it
 conflicts or an out-of-date branch, or one green Ready to merge when GitHub says it can be merged
 now. The review pill says Review requested while anyone's review is asked for (yours or another's;
 its tooltip names them), Awaiting review while nobody's is, else Draft, Changes requested,
-Approved, or Agent reviewing while Codealong's agent is on it. Rows that are your move are marked at the left edge: amber for a review asked of you or
-something to fix, red for failing checks, green for your PRs that are ready to merge. A PR's labels
-on GitHub follow its title on its row, each with a dot in its color there and its description on
-hover, as many as fit in a little under half the line; all of them show in its header and on a link's
-card. The search finds a PR by a label's name. A label added on GitHub shows within ten minutes,
+Approved, or Agent reviewing while Codealong's agent is on it. Rows that are your move are marked at the left edge, as a session that needs you is: amber for a review asked of you or
+something to fix, red for failing checks, green for your PRs that are ready to merge. On one line a
+PR's row is its number and title, its labels as they fit, then its pills and size at the line's end
+(on a narrow list the size gives way, then the pills say less); on two lines its labels follow its
+title, and under it are its pills, its repo, branch and author, one of its sessions, its worktree
+and its size. A label shows with a dot in its color on GitHub and its description on hover; on two
+lines as many as fit in a little under half the line. All of them show in its header and on a
+link's card. The search finds a PR by a label's name. A label added on GitHub shows within ten minutes,
 when the repo's PRs are next read in full. Selecting a PR shows a short header: its number and
 title, one line of its repo, branch, author and last update, its pills and size, its labels, and
 the worktrees and sessions behind it on this Mac as chips (a worktree's
 chip, then its sessions', each named by its title with its account on hover, the PR's primary
 session marked; a click on a session shows it in the panel, on a worktree shows it in Worktrees,
-and a right-click gives either's menu). A PR's row names one of its sessions the same way, its
-primary one first, and how many more; a todo's row names up to three. The chevron
+and a right-click gives either's menu). A PR's row on two lines names one of its sessions the same
+way, its primary one first, and how many more; a todo's row names up to three. The chevron
 beside the title opens its details, and they stay open for the next PR until you close them: the
 whole title, its repo, branch, author, when it was opened and its commits, and the chips as a tree.
 ⇧⌘F (or the button beside the chevron) expands the panel to the whole window, as a session's does
@@ -1025,7 +1034,9 @@ can undo it. Start session (⌘N) opens the quick panel with the todo as the pro
 it starts is linked to the todo, which moves to In progress; one started in the Claude app is linked
 when it shows up. ⌘-click (or ⇧-click, ⇧↑ ⇧↓) picks several todos: Start one session (⌘N) starts a
 single session on a prompt that numbers each of them, linked to all of them, and `x`, `w`, `r` and
-Delete act on all of them.
+Delete act on all of them. A todo's row is its title and the start of its description, then when it's
+due, its labels, what it waits on, the sessions on it, its worktrees and its PR: on one line they
+follow at the line's end as they fit, its PR always; on two lines they're under it.
 
 ### Kanban
 
@@ -1147,9 +1158,9 @@ what was active in the last 24h, 3d or 7d, and to the statuses you pick (Needs y
 Working, In review, PR needs work; any of them). In Sessions it also sorts, by status or by when
 sessions started. Devices and statuses toggle; none picked shows all, and Clear unpicks them. Save
 the view as it is under a name to come back to it; right-click a saved view to update or delete it
-(they're kept per Mac, not in config.toml). ⌃⌘S, or the button beside the traffic lights, folds it
-to a rail of the views and devices whose filter button carries a badge while a filter narrows the
-view.
+(they're kept per Mac, not in config.toml). It starts folded to a rail of the views and devices,
+whose filter button opens it and carries a badge while a filter narrows the view; ⌃⌘S, or the
+button beside the traffic lights, opens and folds it, and it stays as you left it.
 
 ### Find in the list
 

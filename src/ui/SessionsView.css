@@ -1,20 +1,6 @@
-/* The Sessions view (SessionsView.tsx): its tools in the bar over the list, and archived rows.
-   Its headings are the other views' (`.ca-bay`, `.ca-bayblock` in styles/rows.css). */
+/* The Sessions view (SessionsView.tsx): archived rows. Its tools in the bar over the list are
+   ListBar.css's, its headings the other views' (`.ca-bay`, `.ca-bayblock` in styles/rows.css). */
 
 .ca-archived .ca-lane {
   opacity: 0.8;
-}
-
-/* Its tools in the bar over the list (`SessionsBar`, in ListBar.tsx's strip): how it's sorted and
-   how much a row says, two groups of icon buttons. */
-.ca-sessionbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.ca-sessionbar .ca-segctl button {
-  justify-content: center;
-  width: 28px;
-  height: 20px;
-  padding: 0;
 }

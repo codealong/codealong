@@ -30,8 +30,8 @@ describe('Seg', () => {
   const html = (props: object) => renderToStaticMarkup(createElement(Seg<string>, { options, value: 'b', onPick: () => {}, label: 'Order', ...props }));
 
   it('is a group of radios that says which is on', () => {
-    const out = html({ className: 'ca-sessionbar-seg' });
-    expect(out).toMatch(/^<div class="ca-segctl ca-sessionbar-seg" role="radiogroup" aria-label="Order">/);
+    const out = html({ className: 'ca-listtools-seg' });
+    expect(out).toMatch(/^<div class="ca-segctl ca-listtools-seg" role="radiogroup" aria-label="Order">/);
     expect(out).toContain('<button type="button" role="radio" aria-checked="false" title="The first one">First</button>');
     expect(out).toMatch(/<button type="button" role="radio" aria-checked="true" class="is-on"><svg[^>]*>.*<\/svg>Second<\/button>/);
   });

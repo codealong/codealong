@@ -21,7 +21,8 @@ import type { Bay, DesktopPinned, Lane, Session, SideGlance, Status, Todo } from
 import type { HelperActions } from './HelpersCard';
 import { AgentRow, FoldRow, SideRow } from './LaneRow';
 import { PinnedSection } from './PinnedSection';
-import { BAY_WORD, BayHeader, SectionHeader, Seg } from './primitives';
+import { ListSeg, ListTools, RowsSeg, rowsOptions, type RowLines } from './ListBar';
+import { BAY_WORD, BayHeader, SectionHeader } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface SessionItem {
@@ -45,12 +46,7 @@ export const SESSION_SORTS: { id: SessionSort; label: string; icon: string; titl
 
 /** How much each session's row says: where it runs, its todo and its account on a second line,
  *  or one line with its worktree and PR at the end. */
-export type SessionRows = 'two' | 'one';
-
-export const SESSION_ROWS: { id: SessionRows; label: string; icon: string; title: string }[] = [
-  { id: 'two', label: 'Two lines', icon: 'baseline-density-medium', title: 'Two lines: under each session, its worktree, todo, account, PR and diff' },
-  { id: 'one', label: 'One line', icon: 'baseline-density-small', title: 'One line: each session with its worktree and PR at the end' },
-];
+export const SESSION_ROWS = rowsOptions('under each session, its worktree, todo, account, PR and diff', 'each session with its worktree and PR at the end');
 
 /** A heading in the list and the sessions under it. The ones for what wants you or is running
  *  head as the Worktrees view's bays do; the rest as its other sections. */
@@ -211,14 +207,14 @@ export function sortSessions(rows: SessionItem[], sort: SessionSort, now: number
   return sessionSections(rows, sort, now).flatMap((s) => s.rows);
 }
 
-/** Sessions' tools in the bar over the list (ListBar.tsx), outside its listbox: how the list is
- *  sorted and how much each row says, as two groups of icon buttons, each named by its tooltip. */
-export function SessionsBar({ sort, onSort, lines, onLines }: { sort: SessionSort; onSort: (sort: SessionSort) => void; lines: SessionRows; onLines: (lines: SessionRows) => void }) {
+/** Sessions' tools in the bar over the list (ListBar.tsx): how the list is sorted and how much
+ *  each row says. */
+export function SessionsBar({ sort, onSort, lines, onLines }: { sort: SessionSort; onSort: (sort: SessionSort) => void; lines: RowLines; onLines: (lines: RowLines) => void }) {
   return (
-    <div className="ca-sessionbar" role="toolbar" aria-label="How Sessions is listed">
-      <Seg className="ca-sessionbar-seg" label="Sort by" look="icon" iconSize={16} options={SESSION_SORTS} value={sort} onPick={onSort} />
-      <Seg className="ca-sessionbar-seg" label="Rows" look="icon" iconSize={16} options={SESSION_ROWS} value={lines} onPick={onLines} />
-    </div>
+    <ListTools label="How Sessions is listed">
+      <ListSeg label="Sort by" options={SESSION_SORTS} value={sort} onPick={onSort} />
+      <RowsSeg options={SESSION_ROWS} value={lines} onPick={onLines} />
+    </ListTools>
   );
 }
 
@@ -231,7 +227,7 @@ interface SessionsViewProps {
   /** Sorted by start, the rows show when each started where they'd show when it was last active. */
   sort: SessionSort;
   /** Two lines a session, or one. */
-  lines: SessionRows;
+  lines: RowLines;
   now: number;
   selectedKey: string | null;
   /** The rows picked together with the selected one, when there are several. */

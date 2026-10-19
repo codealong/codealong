@@ -640,7 +640,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
     <Row
       id={domId}
       selected={selected}
-      className={cx('ca-lane', 'is-agent', oneLine && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away', nested && 'is-nested')}
+      className={cx('ca-lane', 'is-item', 'is-agent', oneLine && 'is-slim', `is-${s.status === 'error' ? 'needs' : s.status}`, s.snoozedUntil != null && 'is-snoozed', pinned && 'is-pinned', away(lane) && 'is-away', nested && 'is-nested')}
       drag={drag}
       // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it.
       onSelect={(e) => onSelect(selectHow(e))}
@@ -657,7 +657,7 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
         <div className="ca-seg ca-seg-main">
           <div className="ca-agentrow-line1">
             <SessionText s={s} now={now} flag={false} />
-            <span className="ca-chips ca-agentline-tags">
+            <span className="ca-chips ca-lane-tags">
               <FlagChip session={s} />
               <HelperChip session={s} nested={nested} />
               <HelpersChip helpers={helpers} now={now} shown={helpersShown} onToggle={onToggleHelpers} actions={helperActions} />
@@ -737,7 +737,7 @@ function SideRowView({ sessionKey, side: g, now, onShow }: SideRowProps) {
   return (
     <Row
       label={`On the side: ${sideTitle(g)}`}
-      className={cx('ca-lane', 'is-agent', 'is-slim', 'is-nested', 'is-side', g.running ? 'is-working' : 'is-idle')}
+      className={cx('ca-lane', 'is-item', 'is-agent', 'is-slim', 'is-nested', 'is-side', g.running ? 'is-working' : 'is-idle')}
       onSelect={(e) => {
         if (!cmd(e) && !e.shiftKey) onShow(sessionKey, g);
       }}
@@ -767,7 +767,7 @@ export const SideRow = memoRow(SideRowView);
  *  family's head, which needs no name. */
 export function FoldRow({ fold, head, onFold }: { fold: Fold; head: boolean; onFold: (fold: Fold) => void }) {
   return (
-    <div className="ca-lane is-agent is-slim is-nested is-fold" role="presentation">
+    <div className="ca-lane is-item is-agent is-slim is-nested is-fold" role="presentation">
       <div className="ca-seg ca-seg-glyph" aria-hidden="true">
         <Icon name="chevron-up" size={12} />
       </div>

@@ -1,41 +1,23 @@
-/* PR rows in the PRs view (PrsView.tsx). */
+/* PR rows in the PRs view (PrsView.tsx). How they're laid out, on two lines or one, is rows.css's
+   (.is-item), as session and todo rows are. */
 
-.ca-lane.ca-prrow {
-  grid-template-columns: 32px minmax(0, 1fr) 52px;
-}
-.ca-prrow .ca-seg-main {
-  border-left: 0;
-}
-/* The number, the title and its labels (PrLabels.css) on one line, as tall as a chip whether it
-   has labels or not, so every PR row's lines sit alike. */
-.ca-prrow .ca-lane-line1 {
-  display: flex;
-  align-items: center;
-  height: 20px;
-}
 .ca-prrow .ca-lane-headline {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font: var(--type-body-strong);
 }
-/* A row that's your move (see prFlag) gets a colored edge: amber for a review asked of you or
-   something to fix, red for failing checks, green for your PRs that GitHub would merge. */
+/* A row that's your move (see prFlag) is marked at its left edge, as a session that needs you
+   is: amber for a review asked of you or something to fix, red for failing checks, green for
+   your PRs that GitHub would merge. */
 .ca-prrow.is-flag-attn .ca-seg-glyph {
-  box-shadow: inset 3px 0 0 var(--attn-solid);
-  background: var(--attn-tint);
+  box-shadow: inset 2px 0 0 var(--attn-solid);
 }
 .ca-prrow.is-flag-alert .ca-seg-glyph {
-  box-shadow: inset 3px 0 0 var(--alert-solid);
-  background: var(--alert-tint);
+  box-shadow: inset 2px 0 0 var(--alert-solid);
 }
 .ca-prrow.is-flag-ready .ca-seg-glyph {
-  box-shadow: inset 3px 0 0 var(--pr-open-solid);
-  background: var(--pr-open-tint);
+  box-shadow: inset 2px 0 0 var(--pr-open-solid);
 }
 .ca-prrow-num {
   flex: none;
-  margin-right: 6px;
   font: var(--type-code-heading);
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
@@ -106,7 +88,18 @@
 .ca-prrow-agents > .ca-sesschip .ca-sesschip-title {
   max-width: 156px;
 }
-/* The diff keeps to the right edge, as in the Worktrees view. */
-.ca-prrow .ca-diff {
-  justify-content: flex-end;
+/* On one line, its standing and size at the line's end, whole, after its labels (rows.css
+   .ca-lane-tags, PrLabels.css), which give way first, then its title. */
+.ca-prrow-end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--chip-gap);
+}
+/* A narrow board gives a one-line PR's title the room its size took: the panel and Two lines
+   still say it. Narrower, its pills say less (PrPills.css). */
+@container board (max-width: 640px) {
+  .ca-prrow.is-slim .ca-prrow-end > .ca-diff {
+    display: none;
+  }
 }

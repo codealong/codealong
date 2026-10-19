@@ -111,7 +111,7 @@ const backdrop = 'linear-gradient(135deg,rgb(93,111,134),rgb(169,182,196))';
 function setupFor(scene, data) {
   const view = scene.view;
   const size = (scene.size || { bar: '1100,64', notch: '1512,320', quick: '760,640', desktop: '360,300', lineage: '1440,420', peek: '520,640', kept: '640,720' }[view] || '1440,900').split(',').map(Number);
-  let js = `localStorage.setItem('codealong.view',${JSON.stringify(view)});localStorage.setItem('codealong.age','all');`;
+  let js = `localStorage.setItem('codealong.view',${JSON.stringify(view)});localStorage.setItem('codealong.age','all');localStorage.setItem('codealong.sidebarCollapsed','0');`;
   let css = '';
   let scripts = '';
   if (scene.project) js += `localStorage.setItem('codealong.project',${JSON.stringify(scene.project)});`;

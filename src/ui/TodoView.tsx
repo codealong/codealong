@@ -6,7 +6,7 @@
 // is due, its labels, what it waits on, the sessions on it with their status, and the worktree
 // it's in.
 // Type in the box at the top and press Return to add one. ⌘-click and ⇧-click pick several, to
-// start in one session.
+// start in one session. Rows, in the bar over the list, puts each todo on one line (`TODO_ROWS`).
 
 import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
@@ -14,9 +14,14 @@ import { selectHow, type SelectHow } from '../picks';
 import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
 import type { Label, Lane, Pr, Session, Todo, TodoHint, TodoStatus } from '../types';
 import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, ReorderHint, Row, WorktreeChip } from './primitives';
+import { rowsOptions, type RowLines } from './ListBar';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
 import { cmd } from '../platform';
+
+/** How much each todo's row says: when it's due, its labels, sessions, worktree and PR on a second
+ *  line, or one line with them at the end, as many as fit. */
+export const TODO_ROWS = rowsOptions('under each todo, when it’s due, its labels, sessions, worktree and PR', 'each todo with its chips at the end, as many as fit, and its PR');
 
 /** Where a new todo will be linked, when it's made from a worktree or a session. */
 export interface ComposerContext {
@@ -82,6 +87,8 @@ interface TodoRowProps {
   section: TodoSectionId;
   domId: string;
   now: number;
+  /** On one line: its title and description, then its chips at the end. */
+  slim: boolean;
   selected: boolean;
   /** Show the project: the view spans all of them. */
   showProject: boolean;
@@ -103,7 +110,10 @@ interface TodoRowProps {
 
 const CHIPS_SHOWN = 3;
 
-function TodoRow({ item, section, domId, now, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, blocked, hint, drag }: TodoRowProps) {
+/** A todo in the list: its title and the start of its description, then when it's due, its labels,
+ *  what it waits on, the sessions on it and the worktrees and PR it's in. On one line (`slim`)
+ *  they follow its title at the line's end, the last giving way first, its PR always shown. */
+function TodoRow({ item, section, domId, now, slim, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, blocked, hint, drag }: TodoRowProps) {
   const { todo } = item;
   const pr = todoPr(item);
   const detail = snippet(todo.description);
@@ -111,11 +121,69 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
   const lanes = item.places.map((p) => p.lane);
   const waiting = todo.pending.length > 0;
   const attached = attachmentsIn(todo.description);
+  const chips = (
+    <>
+      {showProject && todo.project && <span className="ca-tag">{todo.project}</span>}
+      <DueChip todo={todo} now={now} />
+      {item.labels.map((l) => (
+        <LabelChip key={l.id} label={l} title={`Double-click to show only “${l.name}”`} onClick={() => onFilterLabel(l)} inRow />
+      ))}
+      {todo.waiting && todo.status !== 'done' && (
+        <Chip className="ca-todorow-blocked" title={`Marked as waiting${todo.waiting.since > 0 ? ` ${ago(todo.waiting.since, now)} ago` : ''}${todo.waiting.note ? `: ${todo.waiting.note}` : '.'}`}>
+          <Icon name="hourglass" size={12} />
+          <span className="ca-todorow-blocked-text">{todo.waiting.note ? `Waiting for ${todo.waiting.note}` : 'Marked as waiting'}</span>
+        </Chip>
+      )}
+      {blocked.length > 0 && todo.status !== 'done' && (
+        <Chip className="ca-todorow-blocked" title={`Waits on ${blocked.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}, not done yet.`}>
+          <Icon name="lock" size={12} />
+          <span className="ca-todorow-blocked-text">{blocked.length === 1 ? `Waiting on ${blocked[0].title || 'Untitled'}` : `Waiting on ${blocked.length} todos`}</span>
+        </Chip>
+      )}
+      {todo.review && todo.status !== 'done' && (
+        <Chip className="ca-todorow-review" title={`Marked as ready for review${todo.review.since > 0 ? ` ${ago(todo.review.since, now)} ago` : ''}${todo.review.note ? `: ${todo.review.note}` : '.'}`}>
+          <Icon name="eye" size={12} />
+          <span className="ca-todorow-blocked-text">{todo.review.note ? `Review ${todo.review.note}` : 'Ready for review'}</span>
+        </Chip>
+      )}
+      {hint && todo.status !== 'done' && (
+        <Chip className="ca-todorow-done" title={`Looks done: ${hint.why}. Mark it done, or say not yet, in the panel.`}>
+          <Icon name="check" size={12} />
+          Looks done
+        </Chip>
+      )}
+      {attached.length > 0 && (
+        <Chip className="ca-todorow-attached" title={attached.map((a) => (a.kind === 'image' ? 'Image' : a.name)).join('\n')}>
+          <Icon name="paperclip" size={12} />
+          {attached.length}
+        </Chip>
+      )}
+      {sessions.map(({ lane, session }) => (
+        <HarnessChip key={session.key} session={session} named onOpen={() => onOpenSession(lane, session)} />
+      ))}
+      <MoreChip names={item.sessions.slice(CHIPS_SHOWN).map(({ session }) => `${session.title} · ${session.account}`)} />
+      {waiting && (
+        <Chip className="ca-todorow-waiting" title="Started in an app. The session is linked when it shows up.">
+          <Icon name="clock" size={12} />
+          Waiting for the session
+        </Chip>
+      )}
+    </>
+  );
+  const places = (
+    <>
+      {lanes.slice(0, 2).map((l) => (
+        <WorktreeChip key={l.id} lane={l} short />
+      ))}
+      <MoreChip names={lanes.slice(2).map((l) => l.callsign)} />
+    </>
+  );
+  const prChip = pr && <PrChip pr={pr} compact onShow={() => onShowPr(pr)} onOpen={() => onOpenPr(pr)} inRow />;
   return (
     <Row
       id={domId}
       selected={selected}
-      className={cx('ca-lane', 'ca-todorow', `is-${todo.status}`)}
+      className={cx('ca-lane', 'is-item', 'ca-todorow', slim && 'is-slim', `is-${todo.status}`)}
       drag={drag}
       // ⌘ adds it to the ones picked or leaves it out, ⇧ picks the rows up to it. A right-click
       // leaves the selection alone: on a picked row, the menu is for all of them.
@@ -130,65 +198,27 @@ function TodoRow({ item, section, domId, now, selected, showProject, onSelect, o
       </div>
       <div className="ca-seg ca-seg-main">
         <div className="ca-lane-line1">
-          <span className="ca-todorow-title">{todo.title || 'Untitled'}</span>
+          <span className="ca-lane-headline ca-todorow-title">{todo.title || 'Untitled'}</span>
           {detail && <span className="ca-lane-detail">{detail}</span>}
+          {slim && (
+            <>
+              <span className="ca-chips ca-lane-tags">
+                {chips}
+                {places}
+              </span>
+              {prChip}
+            </>
+          )}
         </div>
-        <div className="ca-lane-line2">
-          <span className="ca-chips ca-lane-lead">
-            {showProject && todo.project && <span className="ca-tag">{todo.project}</span>}
-            <DueChip todo={todo} now={now} />
-            {item.labels.map((l) => (
-              <LabelChip key={l.id} label={l} title={`Double-click to show only “${l.name}”`} onClick={() => onFilterLabel(l)} inRow />
-            ))}
-            {todo.waiting && todo.status !== 'done' && (
-              <Chip className="ca-todorow-blocked" title={`Marked as waiting${todo.waiting.since > 0 ? ` ${ago(todo.waiting.since, now)} ago` : ''}${todo.waiting.note ? `: ${todo.waiting.note}` : '.'}`}>
-                <Icon name="hourglass" size={12} />
-                <span className="ca-todorow-blocked-text">{todo.waiting.note ? `Waiting for ${todo.waiting.note}` : 'Marked as waiting'}</span>
-              </Chip>
-            )}
-            {blocked.length > 0 && todo.status !== 'done' && (
-              <Chip className="ca-todorow-blocked" title={`Waits on ${blocked.map((t) => `“${t.title || 'Untitled'}”`).join(', ')}, not done yet.`}>
-                <Icon name="lock" size={12} />
-                <span className="ca-todorow-blocked-text">{blocked.length === 1 ? `Waiting on ${blocked[0].title || 'Untitled'}` : `Waiting on ${blocked.length} todos`}</span>
-              </Chip>
-            )}
-            {todo.review && todo.status !== 'done' && (
-              <Chip className="ca-todorow-review" title={`Marked as ready for review${todo.review.since > 0 ? ` ${ago(todo.review.since, now)} ago` : ''}${todo.review.note ? `: ${todo.review.note}` : '.'}`}>
-                <Icon name="eye" size={12} />
-                <span className="ca-todorow-blocked-text">{todo.review.note ? `Review ${todo.review.note}` : 'Ready for review'}</span>
-              </Chip>
-            )}
-            {hint && todo.status !== 'done' && (
-              <Chip className="ca-todorow-done" title={`Looks done: ${hint.why}. Mark it done, or say not yet, in the panel.`}>
-                <Icon name="check" size={12} />
-                Looks done
-              </Chip>
-            )}
-            {attached.length > 0 && (
-              <Chip className="ca-todorow-attached" title={attached.map((a) => (a.kind === 'image' ? 'Image' : a.name)).join('\n')}>
-                <Icon name="paperclip" size={12} />
-                {attached.length}
-              </Chip>
-            )}
-            {sessions.map(({ lane, session }) => (
-              <HarnessChip key={session.key} session={session} named onOpen={() => onOpenSession(lane, session)} />
-            ))}
-            <MoreChip names={item.sessions.slice(CHIPS_SHOWN).map(({ session }) => `${session.title} · ${session.account}`)} />
-            {waiting && (
-              <Chip className="ca-todorow-waiting" title="Started in an app. The session is linked when it shows up.">
-                <Icon name="clock" size={12} />
-                Waiting for the session
-              </Chip>
-            )}
-          </span>
-          <span className="ca-lane-right">
-            {lanes.slice(0, 2).map((l) => (
-              <WorktreeChip key={l.id} lane={l} short />
-            ))}
-            <MoreChip names={lanes.slice(2).map((l) => l.callsign)} />
-            {pr && <PrChip pr={pr} compact onShow={() => onShowPr(pr)} onOpen={() => onOpenPr(pr)} inRow />}
-          </span>
-        </div>
+        {!slim && (
+          <div className="ca-lane-line2">
+            <span className="ca-chips ca-lane-lead">{chips}</span>
+            <span className="ca-lane-right">
+              {places}
+              {prChip}
+            </span>
+          </div>
+        )}
       </div>
       <div className="ca-seg ca-seg-age" title={absolute(item.lastActivity)}>
         {ago(item.lastActivity, now)}
@@ -201,6 +231,8 @@ interface TodoViewProps {
   sections: TodoSection[];
   /** Every todo, in any project: what a row waits on can be anywhere. */
   todos: Todo[];
+  /** Two lines a todo, or one. */
+  lines: RowLines;
   now: number;
   selectedKey: string | null;
   /** The rows picked together with the selected one, when there are several. */
@@ -244,7 +276,7 @@ function SectionHead({ id, count, hint }: { id: TodoSectionId; count: number; hi
 }
 
 function Section({ section, props }: { section: TodoSection; props: TodoViewProps }) {
-  const { todos, now, selectedKey, picked, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, onMove } = props;
+  const { todos, lines, now, selectedKey, picked, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, onMove } = props;
   const drag = useTodoDrag(section.rows, (id, index) => onMove(section.id, id, index));
   const draggable = canReorder && section.rows.length > 1;
   return (
@@ -262,6 +294,7 @@ function Section({ section, props }: { section: TodoSection; props: TodoViewProp
             section={section.id}
             domId={domId(r)}
             now={now}
+            slim={lines === 'one'}
             selected={r.key === selectedKey || picked.has(r.key)}
             showProject={showProject}
             onSelect={(how) => onSelect(r, how)}
@@ -293,7 +326,7 @@ function useTodoDrag(rows: TodoItem[], onMove?: (id: string, index: number) => v
 }
 
 export function TodoView(props: TodoViewProps) {
-  const { sections, todos, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
+  const { sections, todos, lines, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
   const open = sections.filter((s) => s.id !== 'done');
   const done = sections.find((s) => s.id === 'done');
   // Done todos keep no order of yours; they can still go to the desktop.
@@ -325,6 +358,7 @@ export function TodoView(props: TodoViewProps) {
                   section="done"
                   domId={domId(r)}
                   now={now}
+                  slim={lines === 'one'}
                   selected={r.key === selectedKey || picked.has(r.key)}
                   showProject={showProject}
                   onSelect={(how) => onSelect(r, how)}

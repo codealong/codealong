@@ -4,13 +4,16 @@
 // details, which list them as a tree, with a row for each session, and stay open for the next PR
 // until it's pressed again; the button beside it, and ⇧⌘F, expand the panel to the whole window
 // and back. In Todo: the todo's are chips too, and its chevron beside Link makes them a tree.
-// A session's chip, there and on the PR's or todo's row, says its title, with its account on hover.
+// A session's chip, there and on the PR's or todo's row (on two lines), says its title, with its
+// account on hover.
 //   scripts/preview.sh prs '' scripts/preview/panel-places-check.js
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/panel-places-check.js
 (function () {
   localStorage.removeItem('codealong.prDetailsOpen');
   localStorage.removeItem('codealong.prPanelMax');
   localStorage.removeItem('codealong.todoPlacesOpen');
+  localStorage.setItem('codealong.prRows', 'two');
+  localStorage.setItem('codealong.todoRows', 'two');
   var press = function (el) {
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
     el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));

@@ -172,27 +172,30 @@
   pointer-events: none;
 }
 
-/* Session rows: no worktree column. The first line says who and what (the agent's chip, its
-   sentence); the second where and why, starting with the worktree as a chip. */
-.ca-lane.is-agent {
+/* Rows of one thing each (.is-item): a session, a PR or a todo, in Sessions, PRs and Todo. Its
+   status, what it is, and its age, with no lines between them: the ground is one, and the row's
+   hairline below parts it from the next. On two lines the first says what it is (its title, then
+   what it's doing or says) and the second where and why, its status and age level with the first.
+   A worktree's row (.is-worktree) is a block of its own, beside its agents. */
+.ca-lane.is-item {
   grid-template-columns: 32px minmax(0, 1fr) 52px;
 }
-.ca-lane.is-agent .ca-seg-main {
+.ca-lane.is-item .ca-seg-main {
   gap: 5px;
   padding-top: 7px;
   padding-bottom: 7px;
   border-left: 0;
   padding-left: 0;
 }
-/* The glyph and the age sit on the first line, with the agent and its sentence. */
-.ca-lane.is-agent .ca-seg-glyph {
+.ca-lane.is-item .ca-seg-glyph {
   justify-content: flex-start;
   padding-top: 11px;
 }
-.ca-lane.is-agent .ca-seg-age {
+.ca-lane.is-item .ca-seg-age {
   padding-top: var(--space-2);
   border-left: 0;
 }
+/* A session that needs you is marked at its left edge, as a PR that's your move is (PrsView.css). */
 .ca-lane.is-agent.is-needs .ca-seg-glyph {
   box-shadow: inset 2px 0 0 var(--attn-solid);
 }
@@ -201,24 +204,68 @@
   box-shadow: none;
 }
 
-/* On one line (Rows, over the list): what it's about, then its lane and PR at the line's end,
-   and its age (44px) right next to that without the main column's right padding. What it's doing
-   gives way first, then the lane, then the title, as on an agent's line in Worktrees. */
-.ca-lane.is-agent.is-slim {
+/* A PR's or a todo's first line, as tall as a chip, as a session's is (LaneRow.css
+   .ca-agentrow-line1): its title, then what else it says, which gives way first. */
+.ca-lane.is-item .ca-lane-line1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 20px;
+}
+.ca-lane-line1 > .ca-lane-headline {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-lane-line1 > .ca-lane-detail {
+  flex: 1 1 0;
+  min-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* On one line (Rows, over the list): what it is, then its chips at the line's end (.ca-lane-tags),
+   then what always shows there (a session's PR, a todo's PR, a PR's standing and size), and its
+   age (44px) right next to that without the main column's right padding. */
+.ca-lane.is-item.is-slim {
   grid-template-columns: 32px minmax(0, 1fr) 44px;
   min-height: 32px;
 }
-.ca-lane.is-agent.is-slim .ca-seg-glyph {
+.ca-lane.is-item.is-slim .ca-seg-glyph {
   justify-content: center;
   padding-top: 0;
 }
-.ca-lane.is-agent.is-slim .ca-seg-main {
+.ca-lane.is-item.is-slim .ca-seg-main {
   padding: 0;
 }
-
-.ca-lane.is-agent.is-slim .ca-seg-age {
+.ca-lane.is-item.is-slim .ca-seg-age {
   justify-content: center;
   padding: 0 var(--space-3) 0 0;
+}
+
+/* A one-line row's chips: what it's doing or says gives way first (it only takes the room that's
+   left), then these, then its title. The text's own box would count what it's doing as room the
+   title needs, so its pieces sit on the line itself. The lane gives way a million times as fast
+   as the title (at a hundred the title still lost a pixel or two of a shortfall, enough to end in
+   an ellipsis beside room the lane had left) and packs its chips to the right, so the first of
+   them stay at the line's end after the last wrap away. */
+.ca-lane-tags {
+  flex: 0 1000000 auto;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+.ca-lane-tags:empty {
+  display: none;
+}
+/* What always shows at the line's end (a PR's chip, a PR's standing) follows the chips, or takes
+   their place at the end when there are none. */
+.ca-lane.is-slim .ca-lane-tags + * {
+  margin-left: calc(var(--chip-gap) - var(--space-2));
+}
+.ca-lane.is-slim .ca-lane-tags:empty + * {
+  margin-left: auto;
 }
 
 /* A line of what was said, for a session a search found by its conversation (`SaidText`): the

@@ -1,10 +1,12 @@
 // Checks the lanes of chips on the lists' rows (LaneRow.tsx, PrsView.tsx with a PR's labels after
 // its title, TodoView.tsx, and .ca-chips in src/styles/chips.css): every chip is one height and
-// shape, and none is cut off, each showing whole or not at all. In Sessions it also checks that a
-// session's account is on the second line, not the first; that Rows in the bar over the list puts
-// each session on one line and remembers it, and that a point on a one-line row finds that row,
-// in a board that's a stacking context of its own; and in every list that a right-click (or
-// ⌃-click) opens a row's menu without selecting it.
+// shape, and none is cut off, each showing whole or not at all. In Sessions, PRs and Todo it also
+// checks that Rows in the bar over the list starts on one line and puts each row back on two and
+// remembers it, both ways with no lines between a row's parts (nor between an agent's line and its
+// age in Worktrees); that on one line a title gives way only after the chips, which sit at the
+// line's end, and a point on a row finds that row, in a board that's a stacking context of its own;
+// that a session's account is on its status on one line and on the second line on two; and in
+// every list that a right-click (or ⌃-click) opens a row's menu without selecting it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-lanes-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/chip-lanes-check.js
@@ -14,16 +16,28 @@
   var CHIPS = '.ca-chip, .ca-pr, .ca-tag, .ca-pill, .ca-labelchip';
   var shown = function (el) { var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
 
-  // A lane's pieces: on its line and inside it, or wrapped onto the line that's cut off.
+  // What a lane lays out: its children, and theirs where a child lays out none of its own
+  // (display: contents, as a PR's labels are on its one line).
+  var pieces = function (el) {
+    return Array.prototype.reduce.call(el.children, function (out, c) {
+      return out.concat(getComputedStyle(c).display === 'contents' ? pieces(c) : [c]);
+    }, []);
+  };
+  // A lane's pieces: on its line and inside it, or wrapped onto the line that's cut off. A PR's
+  // pills and size at the end of its one line count as a lane too.
   var lanes = function () {
     var cut = [];
     var seen = 0;
-    all('.ca-chips, .ca-prrow-fit, .ca-prrow .ca-prlabels').filter(shown).forEach(function (lane) {
+    all('.ca-chips, .ca-prrow-fit, .ca-prrow .ca-prlabels, .ca-prrow-end').filter(shown).forEach(function (lane) {
       var box = lane.getBoundingClientRect();
+      var st = getComputedStyle(lane);
       // The lane's padding is room for a focus ring, not for chips.
-      var right = box.right - 4;
-      var top = box.top + 4;
-      Array.prototype.forEach.call(lane.children, function (c) {
+      var right = box.right - parseFloat(st.paddingRight);
+      var top = box.top + parseFloat(st.paddingTop);
+      // A lane on a row that doesn't fit its line is cut off whole.
+      var line = lane.parentElement.getBoundingClientRect();
+      if (lane.closest('.ca-lane') && right > line.right + 0.5) cut.push(lane.className + ' past its line +' + Math.round(right - line.right));
+      pieces(lane).forEach(function (c) {
         var r = c.getBoundingClientRect();
         if (r.width === 0) return;
         seen++;
@@ -92,72 +106,102 @@
     });
   };
 
-  var rowsButton = function (label) { return document.querySelector('.ca-sessionbar button[aria-label="' + label + '"]'); };
-  var sessionRows = function () { return all('.ca-sessionlist .ca-lane.is-agent').filter(shown); };
-  var sessions = function () {
-    var rows = sessionRows();
-    var account = function (row) { return all('.ca-chip', row).filter(function (c) { return /Double-click to open in/.test(c.title); })[0]; };
-    check('a session’s first line has no chip but what it waits on you for', rows.every(function (r) { return all('.ca-agentrow-line1 .ca-chip', r).every(function (c) { return c.classList.contains('ca-insight'); }); }));
-    check('its account is on the second line, after its worktree', rows.every(function (r) {
+  // The lists with Rows, each with its rows and where it remembers the choice.
+  var LISTS = {
+    Sessions: { rows: '.ca-sessionlist .ca-lane.is-agent', key: 'codealong.sessionRows' },
+    'Pull requests': { rows: '.ca-prrow', key: 'codealong.prRows' },
+    Todos: { rows: '.ca-todorow', key: 'codealong.todoRows' },
+  };
+  var rowsButton = function (label) { return document.querySelector('.ca-listtools button[aria-label="' + label + '"]'); };
+  // No line between a row's parts: its status, what it is and its age share one ground.
+  var ruled = function (rows) {
+    return rows.filter(function (r) {
+      return all('.ca-seg-main, .ca-seg-age, .ca-agentline-age', r).some(function (seg) { return parseFloat(getComputedStyle(seg).borderLeftWidth) > 0; });
+    });
+  };
+  var account = function (row) { return all('.ca-chip', row).filter(function (c) { return /Double-click to open in/.test(c.title); })[0]; };
+
+  var oneLine = function (name, rows) {
+    // A row a helper's or side conversation's is on one line either way.
+    var heights = rows.map(function (r) { return Math.round(r.getBoundingClientRect().height); });
+    // A row's hairline is part of its height.
+    check(name + ': Rows starts on one line, each row one line high', rowsButton('One line') && rowsButton('One line').classList.contains('is-on') && rows.every(function (r) { return r.classList.contains('is-slim'); }) && heights.every(function (h) { return h <= 34; }), 'up to ' + Math.max.apply(null, heights));
+    var lined = ruled(rows);
+    check(name + ': no line between a row’s parts', lined.length === 0, lined.length + ' rows');
+    // A chip that wrapped away is still in the page, below its lane's one line.
+    var onLine = function (r) {
+      var lane = r.querySelector('.ca-lane-tags');
+      return lane ? all(CHIPS, lane).filter(function (c) { return shown(c) && c.getBoundingClientRect().top < lane.getBoundingClientRect().top + 14; }) : [];
+    };
+    var titles = rows.filter(function (r) { var t = r.querySelector('.ca-lane-headline'); return t && t.scrollWidth > t.clientWidth + 1 && onLine(r).length > 0; });
+    check(name + ': a title gives way only after the chips have', titles.length === 0, titles.length + ' rows');
+    var leftAligned = rows.filter(function (r) {
+      var chips = onLine(r);
+      if (chips.length === 0) return false;
+      var lane = r.querySelector('.ca-lane-tags').getBoundingClientRect();
+      return lane.right - 4 - chips[chips.length - 1].getBoundingClientRect().right > 1;
+    });
+    check(name + ': the chips sit at the right end of the line', leftAligned.length === 0, leftAligned.length + ' rows');
+    var crampedAge = rows.filter(function (r) {
+      var age = r.querySelector('.ca-seg-age');
+      return age && age.scrollWidth > age.clientWidth + 1;
+    });
+    check(name + ': the age fits its column', crampedAge.length === 0, crampedAge.length + ' rows');
+    if (name === 'Sessions') check('with no account chip, and its account on its status', rows.every(function (r) { return !account(r) && /·/.test(r.querySelector('.ca-seg-glyph').title); }));
+    // Rows hit where they're drawn: the board is a stacking context, so WebKit draws its
+    // positioned rows in its scroller's layer, not each in a layer of its own (App.css).
+    var board = document.querySelector('.ca-board');
+    check('the board is a stacking context of its own', board && getComputedStyle(board).isolation === 'isolate');
+    var hits = 0;
+    var off = [];
+    rows.forEach(function (r) {
+      var b = r.getBoundingClientRect();
+      if (b.top < 0 || b.bottom > innerHeight) return;
+      [b.top + 2, (b.top + b.bottom) / 2, b.bottom - 2].forEach(function (y) {
+        var el = document.elementFromPoint((b.left + b.right) / 2, y);
+        var row = el && el.closest('.ca-lane');
+        if (!row) return;
+        hits++;
+        if (row !== r) off.push(r.querySelector('.ca-lane-headline').textContent.slice(0, 20) + ' @' + Math.round(y - b.top));
+      });
+    });
+    check(name + ': a point in a row finds that row', hits > 0 && off.length === 0, hits + ' points' + (off.length ? ', ' + off.slice(0, 4).join(' | ') : ''));
+  };
+
+  var twoLines = function (name, rows) {
+    var heights = rows.filter(function (r) { return !r.classList.contains('is-nested'); }).map(function (r) { return Math.round(r.getBoundingClientRect().height); });
+    check(name + ': Two lines puts each row on two', heights.length > 0 && heights.every(function (h) { return h > 50; }), 'from ' + Math.min.apply(null, heights));
+    check('and it’s remembered', localStorage.getItem(LISTS[name].key) === 'two');
+    var lined = ruled(rows);
+    check(name + ': still no line between a row’s parts', lined.length === 0, lined.length + ' rows');
+    if (name !== 'Sessions') return;
+    var tops = rows.filter(function (r) { return !r.classList.contains('is-nested'); });
+    check('a session’s first line has no chip but what it waits on you for', tops.every(function (r) { return all('.ca-agentrow-line1 .ca-chip', r).every(function (c) { return c.classList.contains('ca-insight'); }); }));
+    check('its account is on the second line, after its worktree', tops.every(function (r) {
       var a = account(r);
       var lane = r.querySelector('.ca-agentrow-chips');
       return a && lane && a.parentElement === lane && lane.firstElementChild.classList.contains('ca-wtchip') && lane.lastElementChild === a;
     }));
-    check('Rows starts on two lines', rowsButton('Two lines') && rowsButton('Two lines').classList.contains('is-on'));
-    var tall = rows[0].getBoundingClientRect().height;
-    rowsButton('One line').click();
-    return until(function () { return sessionRows().length > 0 && sessionRows().every(function (r) { return r.classList.contains('is-slim'); }); }, 3000)
-      .then(function () { return wait(200); })
-      .then(function () {
-        var slim = sessionRows();
-        var heights = slim.map(function (r) { return Math.round(r.getBoundingClientRect().height); });
-        // A row's hairline is part of its height.
-        check('One line: each session is one line high', heights.every(function (h) { return h <= 34; }) && tall > 50, 'from ' + Math.round(tall) + ' to ' + Math.max.apply(null, heights));
-        check('and it’s remembered', localStorage.getItem('codealong.sessionRows') === 'one');
-        check('with no account chip, and its account on its status', slim.every(function (r) { return !account(r) && /·/.test(r.querySelector('.ca-seg-glyph').title); }));
-        // A chip that wrapped away is still in the page, below its lane's one line.
-        var onLine = function (r) {
-          var lane = r.querySelector('.ca-agentline-tags');
-          return lane ? all('.ca-chip', lane).filter(function (c) { return c.getBoundingClientRect().top < lane.getBoundingClientRect().top + 14; }) : [];
-        };
-        var titles = slim.filter(function (r) { var t = r.querySelector('.ca-agentline-title'); return t.scrollWidth > t.clientWidth + 1 && onLine(r).length > 0; });
-        check('a title gives way only after the chips have', titles.length === 0, titles.length + ' rows');
-        var leftAligned = slim.filter(function (r) {
-          var chips = onLine(r);
-          if (chips.length === 0) return false;
-          var lane = r.querySelector('.ca-agentline-tags').getBoundingClientRect();
-          return lane.right - 4 - chips[chips.length - 1].getBoundingClientRect().right > 1;
-        });
-        check('the chips sit at the right end of the line', leftAligned.length === 0, leftAligned.length + ' rows');
-        var crampedAge = slim.filter(function (r) {
-          var age = r.querySelector('.ca-seg-age');
-          return age && age.scrollWidth > age.clientWidth + 1;
-        });
-        check('the age fits its column', crampedAge.length === 0, crampedAge.length + ' rows');
-        // Rows hit where they're drawn: the board is a stacking context, so WebKit draws its
-        // positioned rows in its scroller's layer, not each in a layer of its own (App.css).
-        var board = document.querySelector('.ca-board');
-        check('the board is a stacking context of its own', board && getComputedStyle(board).isolation === 'isolate');
-        var hits = 0;
-        var off = [];
-        slim.forEach(function (r) {
-          var b = r.getBoundingClientRect();
-          if (b.top < 0 || b.bottom > innerHeight) return;
-          [b.top + 2, (b.top + b.bottom) / 2, b.bottom - 2].forEach(function (y) {
-            var el = document.elementFromPoint((b.left + b.right) / 2, y);
-            var row = el && el.closest('.ca-lane');
-            if (!row) return;
-            hits++;
-            if (row !== r) off.push(r.querySelector('.ca-agentline-title').textContent.slice(0, 20) + ' @' + Math.round(y - b.top));
-          });
-        });
-        check('a point in a row finds that row', hits > 0 && off.length === 0, hits + ' points' + (off.length ? ', ' + off.slice(0, 4).join(' | ') : ''));
-        report('one line');
-        return rightClicks();
-      })
+  };
+
+  var rowsOf = function (name) {
+    return function () { return all(LISTS[name].rows).filter(shown); };
+  };
+  var rows = function (name) {
+    var list = rowsOf(name);
+    oneLine(name, list());
+    report('one line');
+    return Promise.resolve(rightClicks())
       .then(function () {
         rowsButton('Two lines').click();
-        return until(function () { return localStorage.getItem('codealong.sessionRows') === 'two'; }, 3000);
+        return until(function () { return list().length > 0 && list().every(function (r) { return r.classList.contains('is-nested') || !r.classList.contains('is-slim'); }); }, 3000, 'two lines');
+      })
+      .then(function () { return wait(200); })
+      .then(function () {
+        twoLines(name, list());
+        report('two lines');
+        rowsButton('One line').click();
+        return until(function () { return localStorage.getItem(LISTS[name].key) === 'one'; }, 3000);
       });
   };
 
@@ -166,9 +210,12 @@
     .then(function () { return wait(800); })
     .then(function () {
       var label = document.querySelector('[role="listbox"]').getAttribute('aria-label');
+      check('Rows shows in Sessions, PRs and Todo', !!rowsButton('One line') === !!LISTS[label], label);
+      if (LISTS[label]) return rows(label);
       report(label);
-      check('Rows shows only in Sessions', !!document.querySelector('.ca-sessionbar') === (label === 'Sessions'));
-      return label === 'Sessions' ? sessions() : rightClicks();
+      var lined = ruled(all('.ca-lane').filter(shown));
+      check(label + ': no line between an agent’s line and its age', lined.length === 0, lined.length + ' rows');
+      return rightClicks();
     })
     .catch(function (e) { check('ran', false, String(e)); })
     .then(done);
