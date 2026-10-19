@@ -647,7 +647,9 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
 /// it's seen.
 pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Option<&crate::cursor::Process>, app_running: bool, seen_at: i64, now: i64) -> Session {
     let under_way = match (c.cli, process) {
-        (true, Some(p)) => c.tail.turn_open || !p.terminal || c.unwritten,
+        // Its database comes a few seconds before its transcript has the prompt it was started
+        // on, which it's taking a turn on all the same: for as long as a start takes, at most.
+        (true, Some(p)) => c.tail.turn_open || !p.terminal || c.unwritten || (p.prompt.is_some() && c.tail.first_prompt.is_none() && now - c.created_at < CURSOR_STARTING_MS),
         (true, None) => false,
         (false, _) => c.generating() && app_running && now - c.last_updated < CURSOR_STALE_MS,
     };
@@ -3861,6 +3863,13 @@ mod tests {
         // A print run asks nothing: it works until it writes its chat.
         let s = cursor_session(&a, &review, Some(&Process { terminal: false, ..ui.clone() }), false, 0, NOW + CURSOR_STARTING_MS);
         assert_eq!(s.status, Status::Working);
+        // Written, before its transcript has the prompt it was started on: at work on it. Started
+        // with none, it waits at its box.
+        let written = Chat { unwritten: false, ..review.clone() };
+        assert_eq!(cursor_session(&a, &written, Some(&ui), false, 0, NOW).status, Status::Working);
+        assert_eq!(cursor_session(&a, &written, Some(&Process { prompt: None, ..ui.clone() }), false, NOW, NOW).status, Status::Idle);
+        // A transcript that never gets it doesn't keep it at work for good.
+        assert_eq!(cursor_session(&a, &written, Some(&ui), false, NOW, NOW + CURSOR_STARTING_MS).status, Status::Idle);
     }
 
     #[test]
