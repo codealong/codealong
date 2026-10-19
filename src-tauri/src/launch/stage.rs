@@ -961,16 +961,18 @@ mod tests {
     }
 
     /// A session started in tmux: a session of Codealong's own server, the line typed once its
-    /// shell is up, and a tab of the terminal attached to it that ends it as it closes. Behind
-    /// your windows there's no tab; while the screen is locked, the tab opens once it isn't.
+    /// shell is up, and a tab of the terminal attached to it that ends it as it closes, in front
+    /// or behind your windows. While the screen is locked the session is marked in tmux as
+    /// waiting for its tab, which opens once it's unlocked, by whichever process sees that.
     #[test]
     fn a_session_started_in_tmux_shows_in_a_tab_attached_to_it() {
         use super::super::stage::{HOSTED_CONFIG, HOSTED_SOCKET};
+        // Waiting for its tab, in front of your windows, as `list-panes` says.
+        const WAITS: &str = "$4\t%9\t0\tfront\t/r/app\tapp · fix\n";
         let answer = |s: &Sent| {
             Ok(match () {
                 _ if s.args.iter().any(|a| a == "new-session") => "$4 %9 /dev/ttys409\n".to_string(),
-                // Nothing shows it yet.
-                _ if s.args.iter().any(|a| a == "display-message") => "0\n".to_string(),
+                _ if s.args.iter().any(|a| a == "list-panes") => WAITS.to_string(),
                 _ => "ok\n".to_string(),
             })
         };
@@ -993,36 +995,40 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         };
-        let tab = |label: &str| format!("GHOSTTY_NEW {:?}", ["window", "", "/r/app", &format!("exec {tmux} -S '{HOSTED_SOCKET}' attach -t '%9' ';' set-option -t '$4' destroy-unattached on\n"), "front", label]);
+        let tab = |forward: &str| format!("GHOSTTY_NEW {:?}", ["window", "", "/r/app", &format!("exec {tmux} -S '{HOSTED_SOCKET}' attach -t '%9' ';' set-option -t '$4' destroy-unattached on\n"), forward, "app · fix"]);
         let named_tab = Placement { label: Some("app · fix"), ..window() };
 
         let p = played(answer, || session_run("ghostty", TmuxUse::Always, named_tab, Path::new("/r/app"), "claude\n", &[]));
         assert_eq!(p.got.unwrap(), Ran::InTmux(Shown::Now));
-        assert_eq!(named(p.log), [&started[..], &[tab("app · fix")]].concat());
-        // Behind your windows nothing shows it: Show in attaches a tab later.
+        assert_eq!(named(p.log), [&started[..], &[tab("front")]].concat());
+        // Behind your windows, as a Background start of a harness with no service of its own.
         let p = played(answer, || session_run("ghostty", TmuxUse::Always, Placement { behind: true, ..named_tab }, Path::new("/r/app"), "claude\n", &[]));
-        assert_eq!(p.got.unwrap(), Ran::InTmux(Shown::OnShowIn));
-        assert_eq!(named(p.log), started);
+        assert_eq!(p.got.unwrap(), Ran::InTmux(Shown::Now));
+        assert_eq!(named(p.log), [&started[..], &[tab("behind")]].concat());
         // Only while the screen is locked, where the setting says so; the tab waits for the unlock.
         let p = played(answer, || session_run("ghostty", TmuxUse::WhenLocked, named_tab, Path::new("/r/app"), "claude\n", &[]));
         assert_eq!(p.got.unwrap(), Ran::InApp);
         assert_eq!(p.log, [format!("GHOSTTY_NEW {:?}", ["window", "", "/r/app", "claude\n", "front", "app · fix"])]);
         let locked = || Setup { locked: true, ..setup() };
-        let p = play(locked(), answer, || (session_run("ghostty", TmuxUse::WhenLocked, named_tab, Path::new("/r/app"), "claude\n", &[]), unlocked_with_sessions_to_show()));
-        assert_eq!(p.got.0.unwrap(), Ran::InTmux(Shown::OnUnlock));
-        assert!(!p.got.1, "not while it's locked");
-        assert_eq!(named(p.log), started);
-        let p = played(answer, || (unlocked_with_sessions_to_show(), show_unlocked(), unlocked_with_sessions_to_show()));
-        assert_eq!(p.got, (true, Vec::<String>::new(), false));
-        assert_eq!(p.log, [format!(r##"{tmux} ["-S", "{HOSTED_SOCKET}", "display-message", "-p", "-t", "%9", "#{{session_attached}}"] (5s)"##), tab("app · fix")]);
-        // One that ended meanwhile, or that Show in opened already, gets no tab.
-        for gone in [Err("can't find pane: %9".to_string()), Ok("1\n".to_string())] {
-            let p = play(locked(), answer, || session_run("ghostty", TmuxUse::Always, named_tab, Path::new("/r/app"), "", &[]));
+        for (behind, mark) in [(false, "front"), (true, "behind")] {
+            let p = play(locked(), answer, || session_run("ghostty", TmuxUse::WhenLocked, Placement { behind, ..named_tab }, Path::new("/r/app"), "claude\n", &[]));
             assert_eq!(p.got.unwrap(), Ran::InTmux(Shown::OnUnlock));
-            let p = played(move |s| if s.args.iter().any(|a| a == "display-message") { gone.clone() } else { Ok(String::new()) }, show_unlocked);
-            assert_eq!(p.got, Vec::<String>::new());
-            assert_eq!(p.log.len(), 1, "{:?}", p.log);
+            assert_eq!(named(p.log), [&started[..], &[format!(r#"{tmux} ["-S", "{HOSTED_SOCKET}", "set-option", "-t", "$4", "@codealong-tab", "{mark}"] (5s)"#)]].concat());
         }
+        // Once it's unlocked, what tmux says waits gets its tab, and waits no longer.
+        let listed = format!(r##"{tmux} ["-S", "{HOSTED_SOCKET}", "list-panes", "-a", "-F", "#{{session_id}}\t#{{pane_id}}\t#{{session_attached}}\t#{{@codealong-tab}}\t#{{session_path}}\t#{{window_name}}"] (5s)"##);
+        let unmarked = format!(r#"{tmux} ["-S", "{HOSTED_SOCKET}", "set-option", "-u", "-t", "$4", "@codealong-tab"] (5s)"#);
+        let p = played(answer, || show_unlocked("ghostty", NewTerminal::Window, &[]));
+        assert_eq!(p.got, Vec::<String>::new());
+        assert_eq!(p.log, [listed.clone(), unmarked.clone(), tab("front")]);
+        // One that Show in opened already gets none, and one that ended meanwhile isn't listed.
+        let p = played(|s| Ok(if s.args.iter().any(|a| a == "list-panes") { WAITS.replace("\t0\t", "\t1\t") } else { String::new() }), || show_unlocked("ghostty", NewTerminal::Window, &[]));
+        assert_eq!(p.log, [listed.clone(), unmarked]);
+        let p = played(|s| if s.args.iter().any(|a| a == "list-panes") { Err("no server running".to_string()) } else { Ok(String::new()) }, || show_unlocked("ghostty", NewTerminal::Window, &[]));
+        assert_eq!(p.log, [listed]);
+        // A tab that doesn't open is said.
+        let p = played(move |s| if s.what == "GHOSTTY_NEW" { Err(NOT_ALLOWED.into()) } else { answer(s) }, || show_unlocked("ghostty", NewTerminal::Window, &[]));
+        assert!(p.got.len() == 1 && p.got[0].starts_with("app · fix: Codealong isn't allowed to control Ghostty"), "{:?}", p.got);
         // Told never to, a start while the screen is locked says why it can't.
         let p = play(locked(), answer, || session_run("ghostty", TmuxUse::Never, named_tab, Path::new("/r/app"), "claude\n", &[]));
         assert!(err(p.got).starts_with("The screen is locked, and Ghostty can't open a terminal until you unlock it."));

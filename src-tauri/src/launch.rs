@@ -439,12 +439,10 @@ pub enum Ran {
 /// When a terminal shows a session started in tmux.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Shown {
-    /// It does now.
+    /// It does now: a tab, in front or behind your windows as the start asked.
     Now,
     /// Once the screen is unlocked (`show_unlocked`).
     OnUnlock,
-    /// When Show in asks: it started behind your windows.
-    OnShowIn,
     /// When Show in asks, since the terminal didn't open, for this reason.
     Not(String),
 }
@@ -456,7 +454,6 @@ impl Ran {
         match self {
             Ran::InApp | Ran::InTmux(Shown::Now) => None,
             Ran::InTmux(Shown::OnUnlock) => Some(format!("The screen is locked, so it runs in tmux, and {terminal} shows it once you unlock.")),
-            Ran::InTmux(Shown::OnShowIn) => Some("It runs in tmux; Show in opens it.".into()),
             Ran::InTmux(Shown::Not(why)) => Some(format!("It runs in tmux, but {terminal} didn't open it ({why}); Show in opens it.")),
         }
     }
@@ -464,23 +461,22 @@ impl Ran {
 
 /// Starts a session, or a command, in a new terminal as `terminal_run` does, where `host_for`
 /// says: a tab of the terminal app, or a session in Codealong's tmux server with a tab of the
-/// app attached to it, which ends it as it closes, as a tab's own session ends. A start behind
-/// your windows opens no tab; one while the screen is locked opens it once it isn't. A host of
-/// Codealong's own would take tmux's place here.
+/// app attached to it, in front or behind your windows as `place` says, which ends it as it
+/// closes, as a tab's own session ends. While the screen is locked the tab opens once it isn't.
+/// A host of Codealong's own would take tmux's place here.
 pub fn session_run(profile: &str, use_tmux: TmuxUse, place: Placement, path: &Path, input: &str, env: &[(String, String)]) -> Result<Ran> {
     let app = opens_in(profile)?;
     match host_for(use_tmux).map_err(|why| anyhow!(why.words(app.name())))? {
         Host::App => terminal_run(profile, place, path, input, env).map(|_| Ran::InApp),
         Host::Tmux => {
             let hosted = tmux::start(path, input, env, place.label)?;
-            let line = hosted.attach_line(true).ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?;
-            if place.behind {
-                return Ok(Ran::InTmux(Shown::OnShowIn));
-            }
             if screen_locked() {
-                show_once_unlocked(profile, place, path, line, hosted.pane);
-                return Ok(Ran::InTmux(Shown::OnUnlock));
+                return Ok(Ran::InTmux(match hosted.wait_for_tab(place.behind) {
+                    Ok(()) => Shown::OnUnlock,
+                    Err(e) => Shown::Not(e.to_string()),
+                }));
             }
+            let line = hosted.attach_line(true).ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it."))?;
             // The session runs whether or not a tab shows it: Show in opens one later.
             Ok(Ran::InTmux(match app.run(place, path, &format!("exec {line}\n"), &[]) {
                 Ok(()) => Shown::Now,
@@ -490,44 +486,26 @@ pub fn session_run(profile: &str, use_tmux: TmuxUse, place: Placement, path: &Pa
     }
 }
 
-/// A session started in tmux while the screen was locked, for a tab of its terminal to show once
-/// it isn't: where the tab goes, and what it runs.
-struct ToShow {
-    profile: String,
-    new_terminal: NewTerminal,
-    near: Vec<Vec<String>>,
-    label: Option<String>,
-    dir: PathBuf,
-    line: String,
-    pane: String,
+/// Whether the screen was just unlocked, or has been since Codealong began looking (`before`
+/// None), as the engine's tick sees it: then sessions that started in tmux while it was locked
+/// get their tabs (`show_unlocked`).
+pub fn just_unlocked(before: Option<bool>, locked: bool) -> bool {
+    !locked && before != Some(false)
 }
 
-static TO_SHOW: Mutex<Vec<ToShow>> = Mutex::new(Vec::new());
-
-fn show_once_unlocked(profile: &str, place: Placement, dir: &Path, line: String, pane: String) {
-    let to_show = ToShow { profile: profile.to_string(), new_terminal: place.new_terminal, near: place.near.to_vec(), label: place.label.map(String::from), dir: dir.to_path_buf(), line, pane };
-    TO_SHOW.lock().unwrap_or_else(|e| e.into_inner()).push(to_show);
-}
-
-/// Whether sessions started while the screen was locked wait for it to be unlocked to show, and
-/// it is: the engine's tick asks, and shows them (`show_unlocked`) off its thread.
-pub fn unlocked_with_sessions_to_show() -> bool {
-    !TO_SHOW.lock().unwrap_or_else(|e| e.into_inner()).is_empty() && !screen_locked()
-}
-
-/// Opens a tab for each session started while the screen was locked, as its start would have,
-/// but for one that ended meanwhile or that a terminal shows already (Show in attached one). A
-/// tab that doesn't open is said, and its session goes on in tmux for Show in to open.
-pub fn show_unlocked() -> Vec<String> {
-    let waiting = std::mem::take(&mut *TO_SHOW.lock().unwrap_or_else(|e| e.into_inner()));
+/// Opens a tab of the terminal `profile` names for each session that started in tmux while the
+/// screen was locked and waits for one (tmux.rs `waiting_for_tabs`), as its start would have:
+/// beside the terminals of the worktrees near it in `lanes`, in front or behind your windows. A
+/// session that ended meanwhile, or that Show in opened, gets none. Says each that didn't open,
+/// whose session goes on in tmux for Show in to open.
+pub fn show_unlocked(profile: &str, new_terminal: NewTerminal, lanes: &[crate::model::Lane]) -> Vec<String> {
     let mut failed = Vec::new();
-    for s in waiting {
-        if tmux::shown(&s.pane) != Some(false) {
-            continue;
-        }
-        let place = Placement { new_terminal: s.new_terminal, near: &s.near, behind: false, label: s.label.as_deref() };
-        if let Err(e) = opens_in(&s.profile).and_then(|app| app.run(place, &s.dir, &format!("exec {}\n", s.line), &[])) {
-            failed.push(format!("{}: {e}", s.label.as_deref().unwrap_or("A session")));
+    for w in tmux::waiting_for_tabs() {
+        let near = crate::board::terminal_neighbours(lanes, &w.dir);
+        let place = Placement { new_terminal, near: &near, behind: w.behind, label: Some(w.label.as_str()) };
+        let opened = w.hosted.attach_line(true).ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it.")).and_then(|line| opens_in(profile)?.run(place, &w.dir, &format!("exec {line}\n"), &[]));
+        if let Err(e) = opened {
+            failed.push(format!("{}: {e}", w.label));
         }
     }
     failed
@@ -1190,7 +1168,7 @@ pub fn codex_review_url(pr_url: &str) -> String {
 mod tests {
     use super::ghostty::{osascript, terminal_of as ghostty_terminal_of, terminals as ghostty_terminals};
     use super::ghostty::GHOSTTY_FOCUS;
-    use super::tmux::{client_for as tmux_client_for, pane_for as tmux_pane_for, socket_in as tmux_socket_in, Client as TmuxClient, Pane as TmuxPane, Server as TmuxServer};
+    use super::tmux::{client_for as tmux_client_for, pane_for as tmux_pane_for, socket_in as tmux_socket_in, waiting_in as tmux_waiting_in, Client as TmuxClient, Pane as TmuxPane, Server as TmuxServer};
     use super::*;
 
     /// A send waits its turn only as long as it has; a key press, or a send once the turn is
@@ -1945,6 +1923,34 @@ end run
         assert_eq!(tmux_socket_in("/Users/a,b/Library/Application Support/Codealong/tmux.sock,98760,3"), Some(PathBuf::from("/Users/a,b/Library/Application Support/Codealong/tmux.sock")));
         assert_eq!(tmux_socket_in("nonsense"), None);
         assert_eq!(tmux_socket_in(",1,2"), None);
+    }
+
+    /// The tick shows what waits for a tab as the screen is unlocked, and on its first look when
+    /// it isn't locked (after a restart, or a start the command made with the app closed); not
+    /// again until it's locked and unlocked once more.
+    #[test]
+    fn tabs_open_as_the_screen_is_unlocked() {
+        assert!(just_unlocked(None, false));
+        assert!(just_unlocked(Some(true), false));
+        assert!(!just_unlocked(Some(false), false));
+        assert!(!just_unlocked(None, true));
+        assert!(!just_unlocked(Some(true), true));
+        assert!(!just_unlocked(Some(false), true));
+    }
+
+    #[test]
+    fn what_waits_for_a_tab_is_read_from_tmux() {
+        let list = "$4\t%9\t0\tfront\t/r/my app\tapp · fix\n$4\t%10\t0\tfront\t/r/my app\tapp · fix\n$5\t%11\t1\tbehind\t/r/b\tb\n$6\t%12\t0\t\t/r/c\tc\nnonsense\n";
+        let waiting = tmux_waiting_in(list);
+        let hosted = |session: &str, pane: &str| tmux::Hosted { session: session.into(), pane: pane.into() };
+        assert_eq!(
+            waiting,
+            [
+                (tmux::Waiting { hosted: hosted("$4", "%9"), dir: PathBuf::from("/r/my app"), label: "app · fix".into(), behind: false }, false),
+                (tmux::Waiting { hosted: hosted("$5", "%11"), dir: PathBuf::from("/r/b"), label: "b".into(), behind: true }, true),
+            ],
+            "a session once however many panes it has, and none that isn't marked"
+        );
     }
 
     /// Where a session Codealong starts in a terminal runs: in tmux where `[apps] tmux` says,

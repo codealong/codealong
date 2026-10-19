@@ -52,9 +52,18 @@ const NEW_TERMINALS: { id: NewTerminal; label: string; says: string }[] = [
  *  each choice comes to, in the terminal's name. */
 const TMUX_USES: { id: TmuxUse; label: string; says: (terminal: string) => string }[] = [
   { id: 'when-locked', label: 'While locked', says: (t) => `Sessions open in ${t}. While the screen is locked, when ${t} can’t open a terminal, one Codealong starts runs in tmux instead and opens in ${t} once you unlock.` },
-  { id: 'always', label: 'Always', says: (t) => `Every session Codealong starts runs in tmux, shown in a tab of ${t}, even while the screen is locked. Closing its tab ends it, as before.` },
+  { id: 'always', label: 'Always', says: (t) => `Every session Codealong starts runs in tmux, shown in a tab of ${t} (once you unlock, while the screen is locked). Closing its tab ends it, as before.` },
   { id: 'never', label: 'Never', says: (t) => `Sessions open in ${t} only. While the screen is locked, a start goes to the background or to Codealong where its account can, and otherwise can’t start until you unlock.` },
 ];
+
+/** What a choice comes to while tmux isn't installed: Always starts nothing in a terminal, and
+ *  the others open sessions in the terminal only (launch.rs `host_rule`). */
+function withoutTmux(use: TmuxUse, terminal: string): string {
+  const missing = 'tmux isn’t installed (brew install tmux)';
+  return use === 'always'
+    ? `${missing}, so no session can start in a terminal until it is, or you pick another choice here.`
+    : `${missing}, so sessions open in ${terminal} only. While the screen is locked, a start goes to the background or to Codealong where its account can.`;
+}
 
 /** How long a command's tab stays once the command ends, in minutes (`[apps]
  *  close_command_tabs_after`, config.rs `CLOSE_COMMAND_TABS_AFTER` the default); 0 keeps it open. */
@@ -287,20 +296,14 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
         {platform() === 'mac' && (
           <div className="ca-field">
             <span>Run sessions in tmux</span>
-            {view.tmuxInstalled !== false && (
-              <Seg
-                className="ca-settings-theme"
-                label="Run sessions in tmux"
-                options={TMUX_USES}
-                value={tmuxUse}
-                onPick={(id) => id !== tmuxUse && void onSave({ ...cfg, apps: { ...cfg.apps, tmux: id } })}
-              />
-            )}
-            <small>
-              {view.tmuxInstalled === false
-                ? `tmux isn’t installed (brew install tmux), so sessions open in ${terminalName} only. While the screen is locked, a start goes to the background or to Codealong where its account can.`
-                : TMUX_USES.find((u) => u.id === tmuxUse)?.says(terminalName)}
-            </small>
+            <Seg
+              className="ca-settings-theme"
+              label="Run sessions in tmux"
+              options={TMUX_USES}
+              value={tmuxUse}
+              onPick={(id) => id !== tmuxUse && void onSave({ ...cfg, apps: { ...cfg.apps, tmux: id } })}
+            />
+            <small>{view.tmuxInstalled === false ? withoutTmux(tmuxUse, terminalName) : TMUX_USES.find((u) => u.id === tmuxUse)?.says(terminalName)}</small>
           </div>
         )}
         <div className="ca-field">

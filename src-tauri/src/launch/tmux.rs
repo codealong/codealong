@@ -8,7 +8,8 @@
 //! (`hosted`), with settings of its own (`CONFIG`), when the screen is locked and a terminal app
 //! can't start one, or for every start where `[apps] tmux` says so (launch.rs `host_for`), and on
 //! Linux, where a terminal is always one of its sessions (linux.rs). A terminal app shows such a
-//! session by attaching to it (`Hosted::attach_line`). It's where a host of Codealong's own, one
+//! session by attaching to it (`Hosted::attach_line`); one started while the screen is locked
+//! waits for that, marked in tmux (`WAITS_FOR_TAB`). It's where a host of Codealong's own, one
 //! that keeps a session's terminal itself, would go.
 
 use std::path::{Path, PathBuf};
@@ -150,8 +151,6 @@ pub(super) enum Server {
     Yours,
     /// One by its socket's path (`-S`).
     Socket(PathBuf),
-    /// One by its name in tmux's own folder (`-L`).
-    Named(&'static str),
 }
 
 impl Server {
@@ -184,7 +183,6 @@ impl Server {
         match self {
             Server::Yours => Vec::new(),
             Server::Socket(path) => vec!["-S".into(), path.to_string_lossy().into_owned()],
-            Server::Named(name) => vec!["-L".into(), name.to_string()],
         }
     }
 
@@ -231,7 +229,7 @@ impl Pane {
     fn at(&self) -> String {
         match &self.server {
             Server::Socket(path) => format!("{} {}", self.id, path.to_string_lossy()),
-            _ => self.id.clone(),
+            Server::Yours => self.id.clone(),
         }
     }
 }
@@ -341,7 +339,8 @@ fn type_text(server: &Server, pane: &str, text: &str, submit: Submit) -> Result<
 /// Codealong's own server, by a socket in its support folder (beside `codealong.sock`), shared
 /// by Codealong and Codealong Dev as their other files are, and out of `/tmp`, whose old files
 /// macOS clears. A socket's path holds at most 103 bytes, so a home whose path is longer than
-/// that allows gets one by name in tmux's own folder.
+/// that allows keeps it in a folder of Codealong's own in `/tmp` instead (`start` makes it, for
+/// you alone).
 pub(super) fn hosted() -> Server {
     #[cfg(test)]
     if let Some(staged) = super::stage::hosted_socket() {
@@ -351,8 +350,26 @@ pub(super) fn hosted() -> Server {
     if socket.as_os_str().len() < 104 {
         Server::Socket(socket)
     } else {
-        Server::Named("codealong")
+        // SAFETY: getuid can't fail.
+        Server::Socket(PathBuf::from(format!("/tmp/codealong-{}", unsafe { libc::getuid() })).join("tmux.sock"))
     }
+}
+
+/// Makes the folder Codealong's server's socket goes in, readable by you alone where it's one
+/// of its own in `/tmp`.
+fn socket_folder(server: &Server) -> Result<()> {
+    #[cfg(test)]
+    if super::stage::hosted_socket().is_some() {
+        return Ok(());
+    }
+    let Server::Socket(socket) = server else { return Ok(()) };
+    let Some(dir) = socket.parent() else { return Ok(()) };
+    std::fs::create_dir_all(dir)?;
+    if dir.starts_with("/tmp") {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }
 
 /// The settings Codealong's server starts with (`-f`). No prefix key or status line, so tmux
@@ -424,6 +441,62 @@ impl Hosted {
     pub fn attach_line(&self, ends_with_tab: bool) -> Option<String> {
         attach_line(&hosted(), &self.pane, ends_with_tab.then_some(self.session.as_str()))
     }
+
+    /// Marks it as waiting for a tab of its terminal, `behind` your windows or not, once the
+    /// screen is unlocked (`waiting_for_tabs`).
+    pub fn wait_for_tab(&self, behind: bool) -> Result<()> {
+        hosted().run(&["set-option", "-t", &self.session, WAITS_FOR_TAB, if behind { "behind" } else { "front" }]).map(|_| ())
+    }
+}
+
+/// The session option that marks a session started while the screen was locked as waiting for a
+/// tab (`front`, or `behind` your windows). It's kept in tmux, with the session, so whichever
+/// process sees the unlock opens the tab: the app, after a restart too, and for a start the
+/// `codealong` command made with the app closed.
+const WAITS_FOR_TAB: &str = "@codealong-tab";
+
+/// A session of Codealong's server that waits for a tab: the session, its folder, the name its
+/// window (and so its tab) goes by, and whether the tab goes behind your windows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Waiting {
+    pub hosted: Hosted,
+    pub dir: PathBuf,
+    pub label: String,
+    pub behind: bool,
+}
+
+/// What `list-panes` says of each pane for `waiting_in`, tab-separated, since a folder or a name
+/// may have spaces.
+const WAITING: &str = "#{session_id}\t#{pane_id}\t#{session_attached}\t#{@codealong-tab}\t#{session_path}\t#{window_name}";
+
+/// From `list-panes -F WAITING`, each session that waits for a tab, once, and whether a terminal
+/// shows it already.
+pub(super) fn waiting_in(list: &str) -> Vec<(Waiting, bool)> {
+    let mut out: Vec<(Waiting, bool)> = Vec::new();
+    for line in list.lines() {
+        let f: Vec<&str> = line.splitn(6, '\t').collect();
+        let [session, pane, attached, tab, dir, label] = f[..] else { continue };
+        if tab.is_empty() || out.iter().any(|(w, _)| w.hosted.session == session) {
+            continue;
+        }
+        let waiting = Waiting { hosted: Hosted { session: session.into(), pane: pane.into() }, dir: PathBuf::from(dir), label: label.into(), behind: tab == "behind" };
+        out.push((waiting, attached != "0"));
+    }
+    out
+}
+
+/// The sessions of Codealong's server that wait for a tab and that no terminal shows yet, each
+/// waiting no longer once listed: one Show in opened meanwhile needs none.
+pub fn waiting_for_tabs() -> Vec<Waiting> {
+    let server = hosted();
+    let Ok(list) = server.run(&["list-panes", "-a", "-F", WAITING]) else { return Vec::new() };
+    let mut out = Vec::new();
+    for (waiting, shown) in waiting_in(&list) {
+        if server.run(&["set-option", "-u", "-t", &waiting.hosted.session, WAITS_FOR_TAB]).is_ok() && !shown {
+            out.push(waiting);
+        }
+    }
+    out
 }
 
 /// What a terminal runs to show a pane: attaching to it. With `ends`, the session ends once no
@@ -448,11 +521,6 @@ pub(super) fn attaches(line: &str) -> bool {
     bin().is_some_and(|b| line.starts_with(&format!("{} ", b.to_string_lossy()))) && line.contains(" attach -t ")
 }
 
-/// Whether a terminal shows a pane of Codealong's server; None when it's gone.
-pub(super) fn shown(pane: &str) -> Option<bool> {
-    hosted().run(&["display-message", "-p", "-t", pane, "#{session_attached}"]).ok().map(|n| n.trim() != "0")
-}
-
 /// A new session's name, one per start.
 fn session_name() -> String {
     static STARTED: AtomicU64 = AtomicU64::new(0);
@@ -466,6 +534,7 @@ fn session_name() -> String {
 /// shows it until a terminal attaches.
 pub fn start(dir: &Path, input: &str, env: &[(String, String)], label: Option<&str>) -> Result<Hosted> {
     let server = hosted();
+    socket_folder(&server)?;
     let launcher = launcher(dir, &with_locale(env, has_locale()))?;
     let shell = format!("/bin/sh {}", sh_quote(&launcher.to_string_lossy()));
     let conf = config_file()?.to_string_lossy().into_owned();
@@ -544,13 +613,20 @@ mod tests {
         assert_eq!(pane_of(shell).map(|p| (p.id, p.server)), Some((hosted.pane.clone(), server.clone())));
         assert_eq!(Tmux.type_session(shell, &scratch, "hello there", false, Submit::Return, false).unwrap(), Typed::Into("tmux"));
         until("the send arrived", &|| std::fs::read_to_string(&typed).is_ok_and(|t| t == "hello there\n"));
+        // Marked as waiting for a tab, it's listed once, with its folder and its window's name.
+        hosted.wait_for_tab(true).unwrap();
+        let waiting = waiting_for_tabs();
+        assert_eq!(waiting.iter().map(|w| (&w.hosted, w.label.as_str(), w.behind)).collect::<Vec<_>>(), [(&hosted, "a test", true)]);
+        assert_eq!(waiting[0].dir.canonicalize().unwrap(), scratch.canonicalize().unwrap());
+        assert!(waiting_for_tabs().is_empty(), "it waits no longer once listed");
         // A tab that ends it, opened and closed.
+        let shown = || server.run(&["display-message", "-p", "-t", &hosted.pane, "#{session_attached}"]).ok().map(|n| n.trim() != "0");
         let attach = hosted.attach_line(true).unwrap();
         let mut client = std::process::Command::new("/usr/bin/script").args(["-q", "/dev/null", "/bin/sh", "-c", &format!("exec {attach}")]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).spawn().unwrap();
-        until("the tab showed it", &|| shown(&hosted.pane) == Some(true));
+        until("the tab showed it", &|| shown() == Some(true));
         let _ = client.kill();
         let _ = client.wait();
-        until("the session ended with its tab", &|| shown(&hosted.pane).is_none());
+        until("the session ended with its tab", &|| shown().is_none());
         let _ = server.run(&["kill-server"]);
     }
 }

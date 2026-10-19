@@ -1186,6 +1186,8 @@ struct Engine {
     processes: Option<Arc<procs::Listed>>,
     /// A tick's process table is being listed.
     processes_inflight: bool,
+    /// Whether the screen was locked at the last tick; None before the first.
+    was_locked: Option<bool>,
     /// Each repo's team settings, `.codealong/config.toml` on its branches (teamfile.rs).
     team_files: teamfile::TeamFiles,
     /// Whether each account's provider may train on it (training.rs).
@@ -1304,6 +1306,7 @@ impl Engine {
             usage_backoff: false,
             processes: None,
             processes_inflight: false,
+            was_locked: None,
             team_files: teamfile::TeamFiles::default(),
             training: training::TrainingPoll::default(),
             dirty: false,
@@ -2647,14 +2650,20 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         self.read_team_files();
         self.read_training();
-        // Sessions started in tmux while the screen was locked open in your terminal once it isn't.
-        if launch::unlocked_with_sessions_to_show() {
+        // Sessions that started in tmux while the screen was locked open in your terminal once
+        // it isn't, those started while Codealong was closed too.
+        let locked = launch::screen_locked();
+        if launch::just_unlocked(self.was_locked, locked) && crate::os::is_macos() {
             let tx = self.tx.clone();
-            throttle::background("codealong-show-unlocked", launch::show_unlocked, move |failed| {
-                let why = failed.filter(|f| !f.is_empty()).map(|f| format!("{} It still runs in tmux; Show in opens it.", f.join("; ")));
-                let _ = tx.send(Msg::ShownUnlocked(why));
-            });
+            let apps = self.board.read().map(|b| (b.apps.terminal_id.clone(), b.apps.new_terminal, b.lanes.clone())).ok();
+            if let Some((terminal, new_terminal, lanes)) = apps {
+                throttle::background("codealong-show-unlocked", move || launch::show_unlocked(&terminal, new_terminal, &lanes), move |failed| {
+                    let why = failed.filter(|f| !f.is_empty()).map(|f| format!("{} It still runs in tmux; Show in opens it.", f.join("; ")));
+                    let _ = tx.send(Msg::ShownUnlocked(why));
+                });
+            }
         }
+        self.was_locked = Some(locked);
         // A new account's folder appears when it first signs in; start reading it.
         if self.missing_homes.iter().any(|p| p.exists()) {
             self.reload();

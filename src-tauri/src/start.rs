@@ -675,11 +675,6 @@ pub fn options_for(cfg: &Config) -> StartOptions {
     let on: Vec<AccountCfg> = cfg.accounts.iter().filter(|a| !a.disabled).cloned().collect();
     let projects = on.iter().flat_map(|a| crate::harness::of(a).map(|h| h.app_projects(a)).unwrap_or_default()).collect();
     let mut out = options(&on, &launch::terminal_name(&cfg.apps.terminal), projects, &home(), |a| crate::harness::of(a).and_then(|h| h.default_model(a)));
-    // Where every start runs in tmux, a Background start opens no window, behind yours or not:
-    // Show in opens one, as for a background job.
-    if cfg.apps.tmux == config::TmuxUse::Always && launch::host_for(cfg.apps.tmux) == Ok(launch::Host::Tmux) {
-        out.accounts.iter_mut().flat_map(|a| a.places.iter_mut()).for_each(|p| p.behind = false);
-    }
     out.auto_group = cfg.routing.auto.trim().to_string();
     out.groups = cfg
         .routing
@@ -936,7 +931,7 @@ fn start_at(board: &Board, cfg: &Config, spec: &StartSpec, lane: &Lane, account:
             let ran = in_terminal(board, cfg, folder, label.as_deref(), behind, &typed.input, &typed.env)?;
             // A harness that names its own sessions shows one on the board once it's written.
             let said = typed.key.is_none().then(|| {
-                if behind && ran == launch::Ran::InApp {
+                if behind && matches!(ran, launch::Ran::InApp | launch::Ran::InTmux(launch::Shown::Now)) {
                     format!("{word} is starting in {}, in {} behind your windows.", lane.callsign, launch::terminal_name(&cfg.apps.terminal))
                 } else {
                     format!("{word} is starting in {}.", lane.callsign)
@@ -1064,7 +1059,7 @@ fn resume_at(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &st
             let ran = in_terminal(board, cfg, &cwd, label.as_deref(), behind, &input, &env)?;
             let terminal = launch::terminal_name(&cfg.apps.terminal);
             let in_terminal = match &ran {
-                launch::Ran::InApp if behind => format!(" in {terminal} behind your windows"),
+                launch::Ran::InApp | launch::Ran::InTmux(launch::Shown::Now) if behind => format!(" in {terminal} behind your windows"),
                 launch::Ran::InApp | launch::Ran::InTmux(launch::Shown::Now) => format!(" in {terminal}"),
                 launch::Ran::InTmux(_) => String::new(),
             };

@@ -1477,8 +1477,7 @@ hasn't trusted). Background starts it the same way under Claude Code's backgroun
 --bg`), with no terminal: it shows on the board like any other, takes prompts from Codealong, and
 Attach opens a terminal on it when you want one. The other agents have no background service of
 their own, so for them Background opens the terminal behind your windows instead (nothing is asked
-to come forward, so you stay where you are), or with no window at all where they run in tmux
-([In tmux](#in-tmux-and-while-the-screen-is-locked)). The Claude app opens a new session with the prompt
+to come forward, so you stay where you are). The Claude app opens a new session with the prompt
 filled in, and you send it there (its own model and worktree choices included). The Codex app runs
 the new thread on your prompt: Codealong makes the thread, opens it in the app and has the app send
 the prompt, on the model and effort you picked, else the account's own; without a prompt it opens
@@ -1533,11 +1532,12 @@ nor an unlocked screen.
 - **While locked** (the default): sessions open in your terminal as before. While the screen is
   locked, Ghostty can't start a terminal (iTerm2 and Terminal are taken to be the same), so a
   start, a resume, a fork, a move or a command Codealong runs for you goes to tmux, and its tab
-  opens in your terminal once you unlock. One that ended meanwhile, or that Show in opened
-  already, gets none. A Background start opens no tab at all: Show in opens one, and closing that
-  leaves the session running.
-- **Always**: every one of those runs in tmux, shown in a tab of your terminal, and a Background
-  start opens no window at all.
+  opens in your terminal once you unlock: in front, or behind your windows for a Background
+  start. tmux keeps what waits for a tab, so it opens even when Codealong restarted meanwhile, or
+  was closed while `codealong start` started it. One that ended meanwhile, or that Show in opened
+  already, gets none.
+- **Always**: every one of those runs in tmux, shown in a tab of your terminal (once you unlock,
+  while the screen is locked).
 - **Never**: sessions open in your terminal only. While the screen is locked a start goes where no
   window is needed instead, saying why: Claude Code's background service, else Codealong itself,
   where the account can start there. Otherwise it can't start until you unlock.
