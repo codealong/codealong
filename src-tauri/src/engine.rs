@@ -1651,11 +1651,12 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// `codealong start`, or forked from Codealong where the harness doesn't say. What the
     /// harness recorded comes first. With it, what each helper helps (`board::helper_of`): the
     /// session that started it as one (origins.json), or the PR whose automatic review it is
-    /// (reviews.json), else the session whose scratch folder it runs in
-    /// (`board::scratch_helpers`), unless you made it your own (`SeenState::own`).
+    /// (reviews.json, or its first prompt: `autoreview::reviewers`), else the session whose
+    /// scratch folder it runs in (`board::scratch_helpers`), unless you made it your own
+    /// (`SeenState::own`).
     fn with_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
         let store = origins::current();
-        let reviewers = autoreview::reviewers(&self.reviews);
+        let reviewers = autoreview::reviewers(&self.reviews, &sessions);
         if !store.sessions.is_empty() || !reviewers.is_empty() {
             let keys: HashSet<String> = sessions.iter().map(|s| s.key.clone()).collect();
             for s in sessions.iter_mut() {

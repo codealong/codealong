@@ -806,7 +806,9 @@ quarter of an hour; a post that doesn't go through is tried a few times too. A h
 its sessions itself (Antigravity, OpenCode, Codex in a terminal) has ten minutes for the review's
 session to show; one
 that shows later, the PR still at that commit, is taken up all the same, and its review read and
-posted. A review's session isn't taken for stopped until it has been seen at work on what it was
+posted. One that shows only once the PR has moved on, its round given up on, is still the PR's
+review, known by how its prompt opens: a helper of the PR (see *Helpers*), not a session of
+yours in Your turn. A review's session isn't taken for stopped until it has been seen at work on what it was
 asked, or ten minutes have passed: in its first seconds a session can read as ended before its
 harness shows the turn. One taken for stopped before it was ever seen at work is taken up the same
 way once it's at work again, as long as nobody has prompted it since. A round that still

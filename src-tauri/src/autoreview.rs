@@ -735,17 +735,32 @@ fn at_work(s: &Session) -> bool {
 /// only a prompt's first words (`util::one_line`'s 140 characters), which a PR with a long title
 /// cuts before its link, so this is what a review's session is known by.
 fn opening(pr: &PrItem) -> String {
-    format!("Review pull request #{} in {},", pr.number, pr.repo_slug)
+    opening_of(pr.number, &pr.repo_slug)
 }
 
-/// Whether a first prompt, as a reader keeps it, is a review of `pr`: it opens as one does, even
-/// cut short (`util::truncate`) where a long repo name takes the opening past what's kept, so
-/// long as it goes past the PR's number; or it has the PR's link in brackets as one does (a bare
-/// link to #7 would match #70's too).
+fn opening_of(number: impl std::fmt::Display, slug: &str) -> String {
+    format!("{OPENS}{number} in {slug},")
+}
+
+const OPENS: &str = "Review pull request #";
+
+/// Whether a first prompt, as a reader keeps it, is a review of `pr`: it opens as one does
+/// (`opens_review_of`), or it has the PR's link in brackets as one does (a bare link to #7 would
+/// match #70's too).
 fn names(first: &str, pr: &PrItem) -> bool {
-    let opening = opening(pr);
-    let past_number = opening.len() - pr.repo_slug.len() - 1;
-    first.starts_with(&opening) || first.strip_suffix('…').is_some_and(|cut| cut.len() > past_number && opening.starts_with(cut)) || first.contains(&format!("({})", pr.url))
+    opens_review_of(first, &pr.repo_slug, pr.number) || first.contains(&format!("({})", pr.url))
+}
+
+/// Whether a first prompt, as a reader keeps it, opens as a review of PR `number` of repo `slug`
+/// does, case aside as reviews.json keys a PR (`pr_key`), even cut short (`util::truncate`) where
+/// a long repo name takes the opening past what's kept, so long as it goes past the PR's number.
+/// A prompt of yours with the PR's link in it doesn't: that's taken for a review only where a
+/// start's session is looked for (`names`).
+fn opens_review_of(first: &str, slug: &str, number: impl std::fmt::Display) -> bool {
+    let (first, slug) = (first.to_ascii_lowercase(), slug.to_ascii_lowercase());
+    let opening = opening_of(number, &slug).to_ascii_lowercase();
+    let past_number = opening.len() - slug.len() - 1;
+    first.starts_with(&opening) || first.strip_suffix('…').is_some_and(|cut| cut.len() > past_number && opening.starts_with(cut))
 }
 
 /// The first session among `sessions` started since `at` (a minute's leeway) whose first prompt
@@ -1215,14 +1230,34 @@ fn end(r: &mut Round, stage: ReviewStage, note: Option<String>, now: i64) {
 }
 
 /// The PR each session reviews, by the session's key: every session a round of a PR's reviews
-/// asked, and the one kept for its next round. Each is a helper of that PR (`Session::helper`),
-/// out of your lists and queues while it doesn't need you, and listed on the PR's card.
-pub fn reviewers(store: &Store) -> HashMap<&str, &str> {
+/// asked, and the one kept for its next round; and among `sessions`, one no round holds whose
+/// first prompt opens as a review of a PR here does, started since its first round
+/// (`opens_review_of`). That one's start named no session and it showed only after its round
+/// gave up on it, or once a later round had begun, so nothing took it up (`Tracked::take_up`);
+/// it's a review of the PR all the same. Each is a helper of that PR (`Session::helper`), out of
+/// your lists and queues while it doesn't need you, and listed on the PR's card.
+pub fn reviewers<'a>(store: &'a Store, sessions: &[Session]) -> HashMap<String, &'a str> {
     let mut out = HashMap::new();
     for (pr, t) in &store.prs {
         let asked = t.rounds.iter().flat_map(|r| &r.parts).filter_map(|p| p.session.as_deref());
         for key in t.sessions.values().map(String::as_str).chain(asked) {
-            out.insert(key, pr.as_str());
+            out.insert(key.to_string(), pr.as_str());
+        }
+    }
+    // Only a prompt that opens as a review does is matched against each PR.
+    let maybe = |f: &str| f.get(..OPENS.len()).is_some_and(|o| o.eq_ignore_ascii_case(OPENS));
+    for s in sessions {
+        let Some(first) = s.first_prompt.as_deref().filter(|f| s.visitor.is_none() && maybe(f)) else { continue };
+        if out.contains_key(&s.key) {
+            continue;
+        }
+        let started = s.started_at.unwrap_or(s.last_activity);
+        let since = |t: &Tracked| t.rounds.iter().map(|r| r.at).min().is_some_and(|at| started >= at - 60_000);
+        let review_of = |pr: &str| pr.rsplit_once('#').is_some_and(|(slug, number)| opens_review_of(first, slug, number));
+        // An opening cut short in a long repo name can fit more than one: then it's none of them.
+        let mut of = store.prs.iter().filter(|(pr, t)| since(t) && review_of(pr));
+        if let (Some((pr, _)), None) = (of.next(), of.next()) {
+            out.insert(s.key.clone(), pr.as_str());
         }
     }
     out
@@ -3602,9 +3637,45 @@ mod tests {
         next.parts = vec![started(AUTO, S, NOW + 1), Part::failed(AUTO, "no account".into(), NOW + 1)];
         let tracked = Tracked { sessions: [(AUTO.to_string(), S.to_string())].into(), rounds: vec![round, next] };
         let store = Store { prs: [("o/r#7".to_string(), tracked), ("o/r#8".to_string(), Tracked::default())].into() };
-        let got = reviewers(&store);
+        let got = reviewers(&store, &[]);
         assert_eq!(got.len(), 2);
         assert_eq!((got.get("claude:claude:first"), got.get(S)), (Some(&"o/r#7"), Some(&"o/r#7")));
+
+        // A session no round holds whose first prompt is a review of a PR here, started since its
+        // first round: one that showed after its round gave up on it, before a later round.
+        let files = Reading { md: "m".into(), diff: "d".into(), changes: None };
+        let asked = |pr: &PrItem| crate::util::one_line(&first_prompt(pr, HEAD, None, false, "gwen", &Goes::Post(ReviewPost::Draft), INSTRUCTIONS, &files), 140);
+        let stray = |key: &str, first: &str, at: i64| Session { started_at: Some(at), first_prompt: Some(first.into()), ..fixtures::session(key) };
+        let sessions = [
+            stray("antigravity:antigravity:late", &asked(&pr(7, HEAD)), NOW + 5),
+            // Case aside, as reviews.json keeps a PR's key.
+            stray("codex:codex:cased", &asked(&PrItem { key: "O/R#7".into(), repo_slug: "O/R".into(), ..pr(7, HEAD) }), NOW + 5),
+            // Not one from before its reviews began, nor one of a PR with no round here or none
+            // here at all, nor another lane's copy of one shown as a visitor.
+            stray("codex:codex:before", &asked(&pr(7, HEAD)), NOW - 2 * 60_000),
+            stray("codex:codex:eight", &asked(&pr(8, HEAD)), NOW + 5),
+            stray("codex:codex:seventy", &asked(&pr(70, HEAD)), NOW + 5),
+            Session { visitor: Some("worked here".into()), ..stray("codex:codex:far", &asked(&pr(7, HEAD)), NOW + 5) },
+            // Nor a session of yours about the PR, its link in brackets as a review's is.
+            stray("claude:claude:mine", "Fix what the review of #7 (https://github.com/o/r/pull/7) raised", NOW + 5),
+            // Nor what a round asked, which stays where the round has it.
+            stray(S, &asked(&pr(8, HEAD)), NOW + 5),
+        ];
+        let got = reviewers(&store, &sessions);
+        let of = |k: &str| got.get(k).copied();
+        assert_eq!((of("antigravity:antigravity:late"), of("codex:codex:cased"), of(S)), (Some("o/r#7"), Some("o/r#7"), Some("o/r#7")));
+        assert_eq!([of("codex:codex:before"), of("codex:codex:eight"), of("codex:codex:seventy"), of("codex:codex:far"), of("claude:claude:mine")], [None; 5]);
+
+        // An opening cut short in a long repo name is the one PR here it fits, and none when two
+        // repos here begin alike past what's kept.
+        let long = |end: &str| format!("{}/{}{end}", "o".repeat(39), "r".repeat(100));
+        let cut = asked(&PrItem { repo_slug: long("a"), ..pr(7, HEAD) });
+        assert!(cut.ends_with('…'), "{cut}");
+        let tracked = || Tracked { sessions: BTreeMap::new(), rounds: vec![Round::new(HEAD, ReviewStage::Failed, NOW)] };
+        let store_of = |ends: &[&str]| Store { prs: ends.iter().map(|end| (format!("{}#7", long(end)), tracked())).collect() };
+        let late = [stray("codex:codex:cut", &cut, NOW + 5)];
+        assert_eq!(reviewers(&store_of(&["a"]), &late).get("codex:codex:cut").copied(), Some(format!("{}#7", long("a")).as_str()));
+        assert!(reviewers(&store_of(&["a", "b"]), &late).is_empty());
     }
 
     #[test]
