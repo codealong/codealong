@@ -24,6 +24,10 @@ pub struct SeenState {
     /// Turns that ended before Codealong first ran count as seen.
     #[serde(default)]
     pub first_run: i64,
+    /// The setup wizard was finished or skipped (setup.rs): until then the main window shows it.
+    /// A file from before the wizard has none, and was set up without it.
+    #[serde(default = "set_up_before")]
+    pub setup_done: bool,
     /// Session key → when you last saw it.
     #[serde(default)]
     pub seen: HashMap<String, i64>,
@@ -61,6 +65,10 @@ pub struct SeenState {
     /// (`Session::helper`), for good.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub own: Vec<String>,
+}
+
+fn set_up_before() -> bool {
+    true
 }
 
 /// A session marked unread from Codealong.
@@ -320,11 +328,14 @@ mod tests {
         s.save_to(&path).unwrap();
         assert!(!s.seen.contains_key("claude:claude:old"), "marks older than a month are let go");
         assert_eq!(SeenState::load_from(&path).unwrap(), s);
-        // A file that doesn't say when the first run was keeps the rest of what it says.
+        assert!(!s.setup_done, "a first run hasn't been through setup, even once its state is saved");
+        // A file that doesn't say when the first run was keeps the rest of what it says, and one
+        // from before the setup wizard was set up without it.
         std::fs::write(&path, r#"{"pinned":["codex:codex:b"]}"#).unwrap();
         let s = SeenState::load_from(&path).unwrap();
         assert!(s.first_run >= before);
         assert_eq!(s.pinned, ["codex:codex:b"]);
+        assert!(s.setup_done);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

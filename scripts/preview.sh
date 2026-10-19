@@ -92,6 +92,9 @@
 # PREVIEW_FOUND=<file> lists the accounts in it under Settings › Accounts › Found on this Mac
 # (scripts/preview/found-sample.json has some) in place of the ones this Mac has but config.toml
 # doesn't list, which are often none.
+# PREVIEW_SETUP=<file> gives the setup wizard what's in it (scripts/preview/setup-sample.json is a
+# new Mac's: accounts listed and not, folders searched and not) in place of this Mac's
+# (--snapshot --setup); scripts/preview/setup-init.js opens the wizard.
 # PREVIEW_EMBLEMS=1 gives every session an emblem made up from its key, as `[jev] emblems` would
 # once Jev had picked their icons: some with a harness's color too, for the two-tone gradient.
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
@@ -147,6 +150,9 @@ if [ "$prepare" != skip ]; then
   if [ -z "${PREVIEW_FOUND:-}" ] || [ "$prepare" = only ]; then
     "$bin" --snapshot --found >"$dir/found-here.json" 2>/dev/null
   fi
+  if [ -z "${PREVIEW_SETUP:-}" ] || [ "$prepare" = only ]; then
+    "$bin" --snapshot --setup >"$dir/setup-here.json" 2>/dev/null
+  fi
 elif [ ! -f "$dir/board.json" ]; then
   echo "PREVIEW_PREPARE=skip, but $dir has no build and snapshots: run with PREVIEW_PREPARE=only first." >&2
   exit 1
@@ -185,6 +191,7 @@ if [ -d "$images" ]; then
   cp -R "$images" "$dir/images"
 fi
 cp "${PREVIEW_FOUND:-$dir/found-here.json}" "$dir/found.json"
+cp "${PREVIEW_SETUP:-$dir/setup-here.json}" "$dir/setup.json"
 
 # The sidebar opens, though it starts folded in the app: the checks find the views and filters
 # by their labels there (sidebar-check.js folds it).

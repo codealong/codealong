@@ -65,6 +65,12 @@ impl Found {
     pub fn account(&self) -> AccountCfg {
         AccountCfg { name: self.name.clone(), harness: self.harness.clone(), home: self.home.clone(), command: self.command.clone(), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }
     }
+
+    /// An account config.toml lists that nothing on this Mac turned up: what config.toml says of it.
+    pub fn of_listed(a: &AccountCfg) -> Found {
+        let folder_exists = a.home_path().is_dir();
+        Found { name: a.name.clone(), harness: a.harness.clone(), home: a.home.clone(), command: a.command.clone(), via: None, state: State::Idle, signed_in: false, folder_exists, email: None, sign_in_note: None, last_used: None, new: false }
+    }
 }
 
 /// What finds a harness's accounts on this Mac: its files and commands (`Adapter::spec`).

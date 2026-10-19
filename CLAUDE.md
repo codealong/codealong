@@ -80,7 +80,7 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
 - `--snapshot [--table] [--no-github] [--usage]`: the board; `--snapshot --bar`: the floating bar's feed.
 - `--snapshot --accounts`, `--snapshot --found`, `--snapshot --config`: accounts and sign-in;
   accounts on this Mac config.toml doesn't list; the settings as Settings gets them.
-  `--snapshot --training`: whether each account's provider may train on it, asked of each
+  `--snapshot --setup`: what the setup wizard offers (setup.rs). `--snapshot --training`: whether each account's provider may train on it, asked of each
   provider (training.rs).
 - `--snapshot --open <lane id> <target id>`: runs a click's open action; `--snapshot --link
   <url>`: where a click on a web link would open it (a worktree's app opens in its preview's

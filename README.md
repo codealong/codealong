@@ -139,20 +139,19 @@ the notch, the Claude and Codex apps, and Antigravity's and Cursor's usage among
 1. **Open Codealong.** It finds your agents' accounts by the files they keep: Claude Code's
    `~/.claude` and any sibling folders like `~/.claude-work`, Codex's `~/.codex`, OpenCode,
    Antigravity and Cursor, including accounts your shell's aliases point at. It looks for git
-   repos in `~/projects`, and makes a project for each GitHub owner your recent sessions worked
-   in. Your sessions show up straight away, wherever you started them.
-2. **Tell it where your code lives**, if that isn't `~/projects`: Settings (⌘,) › General. Group
-   your repos into projects under Settings › Projects.
-3. **Check your accounts** in Settings › Accounts. Accounts Codealong found but didn't add wait
-   under *Found on this Mac*; add one with a click.
-4. **Install the agent tools** from Settings › Agents. This puts the `codealong` command on your
-   PATH, adds Codealong's plugin to each Claude Code account (so you can answer its permission
-   prompts and questions from Codealong), and gives every agent a skill that tells it how to use
-   the board.
-5. **On macOS, say yes when it asks.** The first time Codealong opens or focuses a terminal tab,
+   repos in the folders your agents worked in, and makes a project for each GitHub owner your
+   recent sessions worked in. Your sessions show up straight away, wherever you started them.
+2. **Go through Set up Codealong**, which opens over the window the first time: tick the
+   accounts to show, the folders your code lives in, and your terminal and editor. Its last step
+   installs the agent tools: the `codealong` command on your PATH, Codealong's plugin in each
+   Claude Code account (so you can answer its permission prompts and questions from Codealong),
+   and a skill in every other agent that tells it how to use the board. The app menu's Set up
+   Codealong… opens it again, and Settings (⌘,) changes any of it. Group your repos into projects
+   under Settings › Projects.
+3. **On macOS, say yes when it asks.** The first time Codealong opens or focuses a terminal tab,
    macOS asks whether it may control Ghostty, iTerm2 or Terminal. Allow it, so Codealong can bring
    the right tab forward and type your replies into it.
-6. **Keep working the way you do.** Start agents in your terminal or their apps as usual. When
+4. **Keep working the way you do.** Start agents in your terminal or their apps as usual. When
    you want something done, press **⌥⌘/** from any app. When agents are waiting on you, press
    **⌥⌘.** to work through them.
 

@@ -1,0 +1,104 @@
+/* Set up Codealong (ui/SetupDialog.tsx): a first run's wizard over the main window. Its rows are
+   Close idle sessions' (CloseIdleDialog.css): a box, then what it is and a line about it, their
+   boxes in line with the title and their hover reaching past it. */
+
+.ca-setup {
+  width: min(600px, 100%);
+}
+.ca-setup-list {
+  display: grid;
+  gap: 2px;
+  margin: 0 calc(-1 * var(--space-2));
+}
+.ca-setup-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.ca-setup-row:hover {
+  background: var(--neutral-tint);
+}
+.ca-setup-row .ca-check {
+  margin-top: 2px;
+}
+.ca-setup-text {
+  display: grid;
+  min-width: 0;
+}
+.ca-setup-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  font: var(--type-body-strong);
+  color: var(--ink);
+}
+.ca-setup-kind {
+  flex: none;
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+.ca-setup-path {
+  overflow: hidden;
+  color: var(--ink-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ca-setup-note {
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+/* A folder typed in: the field's look is .ca-field input's (controls.css), in a row with its button. */
+.ca-setup-add {
+  display: flex;
+  gap: var(--space-2);
+}
+.ca-setup-add input {
+  flex: 1;
+  min-width: 0;
+}
+.ca-setup-fields {
+  display: grid;
+  gap: var(--space-4);
+}
+.ca-setup-tip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--ink-2);
+}
+.ca-setup-wait,
+.ca-setup-empty {
+  margin: 0;
+  font: var(--type-body);
+  color: var(--ink-2);
+}
+.ca-setup-error {
+  margin: 0;
+  font: var(--type-meta-strong);
+  color: var(--alert);
+}
+/* Where you are among the steps, at the foot's start. */
+.ca-setup-steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ca-setup-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.ca-setup-dot.is-past {
+  background: var(--ink-3);
+}
+.ca-setup-dot.is-on {
+  background: var(--ink);
+}

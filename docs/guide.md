@@ -1266,6 +1266,34 @@ them, it hides Codealong as ⌘H does, and macOS goes back to the app you were i
 the quick panel and the cards pinned to the desktop stay. Settings › General changes it or turns it
 off.
 
+### Set up Codealong
+
+*By itself the first time Codealong opens; again from the app menu's Set up Codealong…*
+
+The first time it opens, Codealong writes config.toml from what it finds on the Mac: the agent
+accounts in use or signed in, the folders the repos your agents worked in over the last month are
+in (each repo's parent; one right in your home folder is searched by itself, and none hidden, like
+an agent's scratch clone, or outside your home folder), a project per GitHub owner of those repos,
+the first terminal it finds of Ghostty, iTerm2 and Terminal, and the first editor installed. Then
+a wizard over the main window has you confirm it, in four steps:
+
+- **Your agents**: every account on the Mac, the ones config.toml lists and the others it found,
+  each with where it's signed in and when it was last used. The listed ones, and any other in use
+  or signed in, start ticked.
+- **Your repos**: the folders to search, three levels deep: the ones config.toml has, the ones your
+  agents worked in, and the usual places for code in your home folder (`~/projects`, `~/code`,
+  `~/src`, `~/Developer` and the like) that hold repos, each saying how many repos it has and how
+  many your agents worked in lately. Type another to add it.
+- **Your apps**: the terminal sessions open in and the editor folders open in, from the ones
+  installed.
+- **Ready**: putting Codealong in the accounts you kept (the plugin in Claude Code, the skill
+  elsewhere) and the `codealong` command on your PATH, as Settings › Agents does, ticked; and
+  opening Codealong when you log in, not.
+
+Nothing is saved until **Done**. **Skip setup**, Escape or the ✕ keep what the first run wrote.
+Either way it doesn't show by itself again (state.json's `setupDone`), and Settings changes all of
+it later.
+
 ### Settings window
 
 *⌘, (comma), the app menu, or the foot of the sidebar*

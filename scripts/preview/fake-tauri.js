@@ -2,7 +2,7 @@
 // your real data. Every command the UI sends is recorded in `window.__calls`, so a scripted
 // check can click something and assert what the app would have done. Reads come from files
 // next to the page: board.json (get_board), accounts.json (get_accounts), found.json
-// (found_accounts), config.json (get_config), start-options.json (start_options),
+// (found_accounts), setup.json (setup_view), config.json (get_config), start-options.json (start_options),
 // editor-icons.json (editor_icons), shell-commands.json (shell_commands), bar-feed.json
 // (bar_feed, for the floating bar) and, when present, pr-detail.json (pr_detail, for any PR),
 // todos-fixture.json (todos to show in place of the board's), usage-fixture.json (plan usage,
@@ -351,7 +351,7 @@ window.__TAURI_INTERNALS__ = {
         return feed;
       });
     }
-    var file = { get_accounts: './accounts.json', found_accounts: './found.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', bar_feed: './bar-feed.json', editor_icons: './editor-icons.json', shell_commands: './shell-commands.json' }[cmd];
+    var file = { get_accounts: './accounts.json', found_accounts: './found.json', setup_view: './setup.json', get_config: './config.json', pr_detail: './pr-detail.json', start_options: './start-options.json', device_start_options: './start-options.json', bar_feed: './bar-feed.json', editor_icons: './editor-icons.json', shell_commands: './shell-commands.json' }[cmd];
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     // The `/` lists' skills: from skills-fixture.json (PREVIEW_SKILLS) where there is one, else
     // what the engine listed for every worktree on the board (skills.json), a folder inside a
@@ -785,6 +785,10 @@ window.__TAURI_INTERNALS__ = {
       var defaults = { quick: 'Option+Cmd+/', chat: "Option+Cmd+'", waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;' };
       return Promise.resolve({ which: which, shortcut: which in set ? set[which] : defaults[which], error: null });
     }
+    // The setup wizard shows by itself only when `window.__setupNeeded` says it's a first run;
+    // finishing it, and saving what it picked, need no answer.
+    if (cmd === 'setup_needed') return Promise.resolve(!!window.__setupNeeded);
+    if (cmd === 'finish_setup' || cmd === 'save_accounts' || cmd === 'save_config') return Promise.resolve(null);
     if (window.__unknown.indexOf(cmd) < 0) window.__unknown.push(cmd);
     return Promise.resolve(null);
   },

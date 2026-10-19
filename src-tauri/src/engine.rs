@@ -40,6 +40,7 @@ use crate::perf;
 use crate::procs;
 use crate::repos::{self, Checkout};
 use crate::search;
+use crate::setup;
 use crate::state::SeenState;
 use crate::throttle::{self, GitQueue, Verdict};
 use crate::todos::{self, TodoOp, TodoStore};
@@ -60,7 +61,7 @@ const USAGE_BACKOFF: Duration = Duration::from_secs(10 * 60);
 /// How long the repo scan waits for folders' files before going on without the ones still out,
 /// which macOS may be holding for a privacy prompt (held.rs). At a load of 600, this Mac's 66
 /// session folders and 123 worktrees were all read within 170 ms.
-const HELD_WAIT: Duration = Duration::from_secs(1);
+pub(crate) const HELD_WAIT: Duration = Duration::from_secs(1);
 /// How long it waits for a scan root's walk, which reads many folders (330 ms at that load): one
 /// that came in late would leave the board without the root's repos for a moment.
 const ROOT_WAIT: Duration = Duration::from_secs(10);
@@ -104,6 +105,9 @@ pub enum Msg {
     /// Helpers made sessions of your own. The reply is the time of the board that shows it,
     /// published at once.
     Own(Vec<String>, Sender<i64>),
+    /// Whether the setup wizard has yet to show by itself, after marking it finished when told
+    /// to (setup.rs).
+    Setup(bool, Sender<bool>),
     /// suggestions.json just changed at a request here: the board is published again at once.
     /// The reply is the time of the board that shows it.
     Suggested(Sender<i64>),
@@ -334,6 +338,23 @@ impl Handle {
         let (tx, rx) = channel();
         self.tx.send(Msg::Own(keys, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// Whether the main window shows the setup wizard by itself: a first run's, until it's
+    /// finished or skipped. No when the engine is too busy to say: a wizard that shows late
+    /// would cover a window already in use.
+    pub fn setup_needed(&self) -> bool {
+        self.setup(false)
+    }
+
+    /// The setup wizard was finished or skipped: it shows again only when asked for.
+    pub fn finish_setup(&self) {
+        self.setup(true);
+    }
+
+    fn setup(&self, done: bool) -> bool {
+        let (tx, rx) = channel();
+        self.tx.send(Msg::Setup(done, tx)).is_ok() && rx.recv_timeout(SHOWN_WAIT).unwrap_or(false)
     }
 
     /// suggestions.json or tags.json was just changed here (suggestions.rs, tags.rs): the board
@@ -2285,6 +2306,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     }
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
+                Ok(Msg::Setup(done, reply)) => {
+                    if done && !self.seen.setup_done {
+                        self.seen.setup_done = true;
+                        self.save_state();
+                    }
+                    // A state.json that didn't read isn't a first run's: it's yours, set up already.
+                    let _ = reply.send(!self.seen.setup_done && !self.state_unreadable);
+                }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
@@ -3996,24 +4025,19 @@ fn git_worker(jobs: &Mutex<Receiver<GitJob>>, run: impl Fn(&Path, Option<&str>) 
     }
 }
 
-/// First run: the accounts in use or signed in, then a project per GitHub owner your agents
-/// worked in.
+/// First run: the accounts in use or signed in, a project per GitHub owner your agents worked
+/// in, the folders their repos are in to search, and an editor that's installed. The setup
+/// wizard then has you confirm them (setup.rs).
 fn first_run_config() -> Config {
     let accounts = detect::first_run_accounts();
-    let since = now_ms() - 30 * DAY_MS;
-    let mut cwds: Vec<String> = Vec::new();
-    for a in &accounts {
-        if let Some(h) = harness::of(a) {
-            cwds.extend(h.session_cwds(&a.home_path(), since));
-        }
+    let mut per_repo = setup::worked_repos(&accounts);
+    let mut defaults = Config::default();
+    let scan = setup::scan_folders(per_repo.keys().map(PathBuf::as_path), &crate::util::home());
+    if !scan.is_empty() {
+        defaults.scan = scan.iter().map(|p| crate::util::tilde(p)).collect();
     }
-    // A folder macOS holds for a privacy prompt is left out rather than waited on (held.rs).
-    let located = Held::new("session folder", repos::locate, || {}).read(cwds.iter().map(PathBuf::from), HELD_WAIT);
-    let mut per_repo: BTreeMap<PathBuf, usize> = BTreeMap::new();
-    for cwd in &cwds {
-        if let Some(Some((_, main))) = located.get(Path::new(cwd)) {
-            *per_repo.entry(main.clone()).or_default() += 1;
-        }
+    if let Some(editor) = setup::first_editor() {
+        defaults.apps.editor = editor;
     }
     per_repo.retain(|_, n| *n >= 2);
     let mut loaded = Held::new("checkout", repos::load_checkout, || {}).read(per_repo.keys().cloned(), HELD_WAIT);
@@ -4023,7 +4047,7 @@ fn first_run_config() -> Config {
             *owners.entry(owner).or_default() += n;
         }
     }
-    Config { accounts, projects: config::suggest_projects(&owners, github::display_name), ..Config::default() }
+    Config { accounts, projects: config::suggest_projects(&owners, github::display_name), ..defaults }
 }
 
 #[cfg(test)]

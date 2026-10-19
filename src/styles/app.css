@@ -93,5 +93,6 @@
 @import '../ui/Working.css';
 @import '../ui/CloseIdleDialog.css';
 @import '../ui/CleanUpDialog.css';
+@import '../ui/SetupDialog.css';
 @import '../ui/DeviceBadge.css';
 @import '../ui/DevicesSection.css';

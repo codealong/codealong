@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, SessionSpent, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, SessionSpent, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { TodoOp } from './todos';
 import { pageZoom, type ZoomStep } from './zoom';
 
@@ -578,6 +578,32 @@ export async function foundAccounts(): Promise<FoundAccount[]> {
   if (inTauri) return invoke<FoundAccount[]>('found_accounts');
   const res = await fetch('./found.json');
   return res.ok ? ((await res.json()) as FoundAccount[]) : [];
+}
+
+/** What the setup wizard offers: the accounts on this Mac and the folders to search for repos. */
+export async function setupView(): Promise<SetupView> {
+  if (inTauri) return invoke<SetupView>('setup_view');
+  const res = await fetch('./setup.json');
+  if (!res.ok) throw new Error('No setup.json next to the page.');
+  return (await res.json()) as SetupView;
+}
+
+/** Whether the main window shows the setup wizard by itself: a first run's, until it's finished
+ *  or skipped. */
+export async function setupNeeded(): Promise<boolean> {
+  if (!inTauri) return false;
+  return invoke<boolean>('setup_needed');
+}
+
+/** The setup wizard was finished or skipped: it shows again only from the app menu. */
+export async function finishSetup(): Promise<void> {
+  if (!inTauri) return;
+  await invoke('finish_setup');
+}
+
+/** Calls `cb` when the app menu's Set up Codealong… asks the main window for the wizard. */
+export function onSetupMenu(cb: () => void): () => void {
+  return onWindowEvent<null>('setup', () => cb());
 }
 
 /** The settings as parsed and config.toml as written. */

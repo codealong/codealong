@@ -1670,7 +1670,7 @@ function ShortcutField({ which, name, fallback, value, others, onChange }: Short
 
 /** A select over the built-in profiles. A value the file names that isn't one stays listed,
  *  so a hand-edited setting shows as written instead of jumping to another app. */
-function ProfileSelect({ value, profiles, onChange }: { value: string; profiles: Profile[]; onChange: (id: string) => void }) {
+export function ProfileSelect({ value, profiles, onChange }: { value: string; profiles: Profile[]; onChange: (id: string) => void }) {
   const options = profiles.some((p) => p.id === value) ? profiles : [...profiles, { id: value, name: value }];
   return (
     <div className="ca-start-select ca-settings-select">

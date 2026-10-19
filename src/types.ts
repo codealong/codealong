@@ -1055,6 +1055,30 @@ export interface FoundAccount extends AccountCfg {
   new: boolean;
 }
 
+/** An account the setup wizard offers (setup.rs): one config.toml lists, or another on this Mac. */
+export interface SetupAccount extends FoundAccount {
+  listed: boolean;
+}
+
+/** A folder the setup wizard offers to search for repos (setup.rs). */
+export interface SetupFolder {
+  /** With `~` for your home folder, as config.toml's `scan` writes it. */
+  path: string;
+  exists: boolean;
+  /** The repos in it, three levels deep; null when it couldn't be read in time. */
+  repos: number | null;
+  /** Of those, the ones your agents worked in lately. */
+  worked: number;
+  /** config.toml's `scan` lists it. */
+  scanned: boolean;
+}
+
+/** What the setup wizard offers. */
+export interface SetupView {
+  accounts: SetupAccount[];
+  folders: SetupFolder[];
+}
+
 /** The `codealong` command link and the agent skill per account (install.rs). */
 export interface AgentsStatus {
   command: { link: string | null; target: string; onPath: boolean };

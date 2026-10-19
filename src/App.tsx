@@ -14,7 +14,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, rowItems, runsShownKey, sidesShownKey, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -31,6 +31,7 @@ import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CleanUpDialog } from './ui/CleanUpDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
+import { SetupDialog } from './ui/SetupDialog';
 import { UsageDialog } from './ui/UsageDialog';
 import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
@@ -303,6 +304,17 @@ export function App() {
   useEffect(() => onCheckUpdates(() => openSettings('general')), [openSettings]);
   // File › Close idle sessions… (ui/CloseIdleDialog.tsx).
   const [closeIdle, setCloseIdle] = useState(false);
+  // Set up Codealong (ui/SetupDialog.tsx): by itself in the main window on a first run, and from
+  // the app menu's Set up Codealong… whenever asked.
+  const [setup, setSetup] = useState(false);
+  useEffect(() => onSetupMenu(() => setSetup(true)), []);
+  useEffect(() => {
+    if (windowLabel() !== 'main') return;
+    // Not saying it failed: the wizard is in the app menu still, and Settings has all it does.
+    setupNeeded()
+      .then((needed) => needed && setSetup(true))
+      .catch(() => {});
+  }, []);
   // View › Usage… and the usage bar (ui/UsageDialog.tsx), for one account or all of them.
   const [usageOf, setUsageOf] = useState<{ account: string | null } | null>(null);
   useEffect(() => onUsageMenu(() => setUsageOf({ account: null })), []);
@@ -2167,6 +2179,7 @@ export function App() {
         />
       )}
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
+      {setup && <SetupDialog onClose={() => setSetup(false)} onDone={setToast} now={now} />}
       {usageOf && board && (
         <UsageDialog
           board={board}

@@ -1,0 +1,13 @@
+{
+  "accounts": [
+    { "name": "claude", "harness": "claude", "home": "~/.claude", "command": null, "via": null, "state": "active", "signedIn": true, "folderExists": true, "email": "you@example.com", "signInNote": null, "lastUsed": 1790200000000, "new": false, "listed": true },
+    { "name": "codex", "harness": "codex", "home": "~/.codex", "command": null, "via": null, "state": "signedIn", "signedIn": true, "folderExists": true, "email": null, "signInNote": "Signed in with ChatGPT", "lastUsed": null, "new": false, "listed": true },
+    { "name": "claude-work", "harness": "claude", "home": "~/.claude-work", "command": "claude-work", "via": "~/.zshrc", "state": "idle", "signedIn": false, "folderExists": true, "email": null, "signInNote": null, "lastUsed": null, "new": true, "listed": false },
+    { "name": "cursor", "harness": "cursor", "home": "~/.cursor", "command": null, "via": null, "state": "idle", "signedIn": false, "folderExists": false, "email": null, "signInNote": null, "lastUsed": null, "new": true, "listed": false }
+  ],
+  "folders": [
+    { "path": "~/code", "exists": true, "repos": 12, "worked": 5, "scanned": true },
+    { "path": "~/work", "exists": true, "repos": 3, "worked": 1, "scanned": false },
+    { "path": "~/projects", "exists": true, "repos": 7, "worked": 0, "scanned": false }
+  ]
+}
