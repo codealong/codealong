@@ -7,6 +7,7 @@
 import { resetsPhrase } from './format';
 import { HARNESS_WORD } from './harness';
 import { failedNotice } from './notices';
+import { errorText } from './report';
 import { readStored, writeStored, type Codec } from './stored';
 import type { Harness, Lane, Meter, Notice, ResumeIn, RoutingGroup, StartAccount, StartOptions, StartPlace, Usage } from './types';
 
@@ -17,11 +18,10 @@ export function startOptionsFailed(e: unknown): Notice {
   return failedNotice(START_OPTIONS_NOTICE, 'Can’t read where sessions start', 'Couldn’t read where each account can start a session, so the last answer read stands', e);
 }
 
-/** The notice while where a start opened can't be saved as its accounts' `start`
- *  (`keepPlaceFor`), which ends once one is saved. */
-export const KEEP_PLACE_NOTICE = 'keep-start-place';
-export function keepPlaceFailed(e: unknown): Notice {
-  return failedNotice(KEEP_PLACE_NOTICE, 'Can’t save where sessions start', 'Couldn’t save where the quick panel started a session as its account’s start in config.toml', e);
+/** What the quick panel says when Make default couldn't save the place as its accounts' `start`
+ *  (`keepPlaceFor`): asked for there, so said there rather than as a notice. */
+export function keepPlaceFailed(e: unknown): string {
+  return `Couldn’t make it the default in config.toml: ${errorText(e)}`;
 }
 
 /** An account's name, a routing group's name, or `auto` for Auto. */
@@ -490,6 +490,22 @@ export function keepPlaceFor(choice: Choice | null, accounts: StartAccount[], pl
   const g = gName ? groups.find((x) => x.name === gName) : undefined;
   const names = g ? (g.members.length > 0 ? g.members.map((m) => m.account) : preferredNames(accounts)) : isAuto(choice) ? preferredNames(accounts) : [choice];
   return names.filter((n) => accounts.find((a) => a.name === n)?.places.some((p) => p.place === place));
+}
+
+/** Whether every account named (`keepPlaceFor`'s) starts in `place` already, by its `start` or,
+ *  without one, its first place: Make default would change none of them. */
+export function keptAt(names: string[], accounts: StartAccount[], place: StartPlace): boolean {
+  return names.length > 0 && names.every((n) => {
+    const a = accounts.find((x) => x.name === n);
+    return !!a && (a.chosen ?? a.places[0]?.place) === place;
+  });
+}
+
+/** The place `delta` along from `place` among `places`, kept within them: ← and → in the agent
+ *  menu opened for where it runs (⌘O). */
+export function placeStep(places: { place: StartPlace }[], place: StartPlace | null, delta: -1 | 1): StartPlace | null {
+  const at = places.findIndex((p) => p.place === place);
+  return places[Math.min(places.length - 1, Math.max(0, (at < 0 ? 0 : at) + delta))]?.place ?? null;
 }
 
 /** `o` with `place` as the `start` of the accounts named, as reading them again would have it

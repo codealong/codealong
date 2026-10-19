@@ -4,8 +4,9 @@
 // Claude Code that it runs in the background, a terminal attached later; either way ⌘⏎ asks for
 // the background place, for that start alone (no `keep_start_place`), and picking a model then
 // leaves Background picked. The places are the Runs in row under the agent menu's lines (⌘O opens
-// that menu, AgentMenu.tsx `AgentFoot`), each saying what it is on hover, and the agent chip says
-// the place; Make default there keeps the one picked as the account's start.
+// that menu, AgentMenu.tsx `AgentFoot`, and → steps the place then), each saying what it is on
+// hover, and the agent chip says the place; Make default there keeps the one picked as the
+// account's start, and says in the panel when config.toml refuses it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/start-background-check.js
 // It needs a Claude Code account and one of another agent in config.toml; a missing one is
 // noted and its steps are skipped.
@@ -107,6 +108,30 @@
     });
   };
 
+  // ⌘O opens the agent menu for where it runs: → steps the place, and Make default that config.toml
+  // refuses says why in the panel, where it was asked for.
+  var placeKeys = function () {
+    // ⌘O again would put the menu away, as each menu's key does.
+    if (q('.ca-quick-agent .ca-picker-filter')) key(q('.ca-quick-agent .ca-picker-filter'), { key: 'Escape' });
+    return wait(200).then(placeOptions).then(function (opts) {
+      var before = placeNow();
+      var step = function (left) {
+        key(q('.ca-quick-agent .ca-picker-filter'), { key: 'ArrowRight' });
+        return wait(150).then(function () { return makeDefault() || left <= 0 ? null : step(left - 1); });
+      };
+      return step(opts.length).then(function () {
+        check('⌘O then → steps where it runs', placeNow() !== before, before + ' → ' + placeNow());
+        if (!makeDefault()) return note('every place is its default already: the failed save skipped');
+        window.__failKeepPlace = true;
+        makeDefault().click();
+        return until(function () { var e = q('.ca-quick-error'); return e && /Couldn’t make it the default/.test(e.textContent); }, 2000, 'no error in the panel for a failed Make default').then(function () {
+          check('a Make default config.toml refuses says why in the panel', true, q('.ca-quick-error').textContent);
+          window.__failKeepPlace = false;
+        });
+      });
+    });
+  };
+
   localStorage.setItem('codealong.quick.project', 'All projects');
   say('start background check: waiting for the panel');
   fetch('./start-options.json')
@@ -129,7 +154,7 @@
     .then(function () {
       var claude = listed.find(function (a) { return a.harness === 'claude' && a.places.some(function (p) { return p.place === 'background'; }); });
       if (!claude) return note('no Claude Code account here: its steps skipped');
-      return tryAccount(claude, 'in the background. Attach a terminal any time.').then(function () { return modelKeepsBackground(claude); });
+      return tryAccount(claude, 'in the background. Attach a terminal any time.').then(function () { return modelKeepsBackground(claude); }).then(placeKeys);
     })
     .then(done)
     .catch(stopped);

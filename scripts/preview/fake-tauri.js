@@ -452,6 +452,8 @@ window.__TAURI_INTERNALS__ = {
     // review of yours (pr_draft) unless a check says so, so none is submitted with one.
     if (cmd === 'review_pr') return args.body === 'fail' ? Promise.reject(new Error('GitHub said no')) : Promise.resolve({ draft: null });
     if (cmd === 'pr_draft') return Promise.resolve({ draft: null, submitted: null });
+    // A check can have config.toml refuse an account's start (Make default in the quick panel).
+    if (cmd === 'keep_start_place' && window.__failKeepPlace) return Promise.reject(new Error('config.toml doesn’t parse'));
     // A PR's merge box (prmerge.rs `MergeBox`) for a PR the board lists: ready to squash and
     // merge, with GitHub's title and message for each way, and two emails. merge_pr answers as
     // lib.rs does, a merge after a moment, as GitHub takes one, so what shows meanwhile can be

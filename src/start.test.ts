@@ -18,6 +18,7 @@ import {
   initialChoice,
   initialPlace,
   keepPlaceFor,
+  keptAt,
   metersFor,
   modelFamily,
   modelMeter,
@@ -30,6 +31,7 @@ import {
   parseAgent,
   pickFromGroup,
   placeNote,
+  placeStep,
   placesFor,
   placeTakesModel,
   preferredNames,
@@ -217,7 +219,7 @@ describe('the sheet opens with', () => {
     expect(settledPlace(AUTO, set, { ...p, account: 'claude' })).toBe('terminal');
   });
 
-  it('the place a start there last opened in, kept as the start of its accounts that can go there', () => {
+  it('Make default keeps a place as the start of the accounts it picks among that can go there', () => {
     expect(keepPlaceFor('claude', ACCOUNTS, 'claude-app')).toEqual(['claude']);
     expect(keepPlaceFor('claude2', ACCOUNTS, 'claude-app')).toEqual([]);
     // Auto's for every account it picks among, so whichever it picks next opens there too.
@@ -229,6 +231,17 @@ describe('the sheet opens with', () => {
     const kept = withChosen({ accounts: ACCOUNTS, codexProjects: [], claudeModels: [] }, ['claude', 'claude2'], 'terminal');
     expect(kept.accounts.map((a) => a.chosen)).toEqual(['terminal', 'terminal', null]);
     expect(settledPlace(AUTO, kept.accounts, p)).toBe('terminal');
+  });
+
+  it('offers Make default while one of those accounts starts elsewhere, and ← → step the places', () => {
+    // Auto's accounts: claude says the Claude app, claude2 says none, so its first place, Ghostty.
+    const mixed = ACCOUNTS.map((a) => (a.name === 'claude' ? { ...a, chosen: 'claude-app' as const } : a));
+    expect(keptAt(['claude', 'claude2'], mixed, 'terminal')).toBe(false);
+    expect(keptAt(['claude2'], mixed, 'terminal')).toBe(true);
+    expect(keptAt(['claude', 'claude2'], ACCOUNTS, 'terminal')).toBe(true);
+    expect(keptAt([], ACCOUNTS, 'terminal')).toBe(false);
+    const places = ACCOUNTS[0].places;
+    expect([placeStep(places, 'terminal', 1), placeStep(places, 'claude-app', 1), placeStep(places, 'terminal', -1), placeStep(places, null, 1)]).toEqual(['claude-app', 'claude-app', 'terminal', 'claude-app']);
   });
 });
 

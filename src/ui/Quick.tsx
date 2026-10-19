@@ -72,11 +72,11 @@ import {
   isGroup,
   keepPlaceFailed,
   keepPlaceFor,
-  KEEP_PLACE_NOTICE,
   newWorktreeTitle,
   onModelWords,
   ownModels,
-  settledPlace,
+  keptAt,
+  placeStep,
   START_OPTIONS_NOTICE,
   startHappens,
   startingLabel,
@@ -1157,13 +1157,12 @@ export function Quick() {
     if (names.length === 0) return;
     keepStartPlace(names, p)
       .then(() => {
-        clearNotice(KEEP_PLACE_NOTICE);
         const cached = cachedOptions.current;
         if (cached) cachedOptions.current = { ...cached, options: withChosen(cached.options, names, p) };
         setOptions((o) => o && withChosen(o, names, p));
       })
-      // The start went ahead; only where the next one opens wasn't saved, which the notice says.
-      .catch((e: unknown) => reportNotice(keepPlaceFailed(e)));
+      // Asked for here, so said here.
+      .catch((e: unknown) => setError(keepPlaceFailed(e)));
   };
 
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
@@ -1363,6 +1362,8 @@ export function Quick() {
   /* ---- Keys ---- */
 
   const togglePicker = (k: PickerKind) => setPicker((p) => (p === k ? null : k));
+  // The agent menu opened for where it runs (⌘O): its ← → step the place, not the effort.
+  const [stepsPlace, setStepsPlace] = useState(false);
 
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
@@ -1497,8 +1498,15 @@ export function Quick() {
       const startMenu = !inSendTo && (k === 't' || k === 'l' || (k === 'd' && macs.length > 0) || (k === 'o' && places.length > 1));
       if (k === 'p' || startMenu) {
         e.preventDefault();
-        // ⌘O opens the agent menu too: where it runs is a row under its lines (AgentMenu.tsx).
-        togglePicker(k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'worktree' : 'agent');
+        // ⌘O opens the agent menu too, its ← → stepping where it runs, a row under its lines
+        // (AgentMenu.tsx `AgentFoot`); with the menu up, ⌘O and ⌘L switch which row they step.
+        const kind = k === 'p' ? 'project' : k === 'd' ? 'device' : k === 't' ? 'worktree' : 'agent';
+        const forPlace = k === 'o';
+        if (kind === 'agent' && picker === 'agent' && forPlace !== stepsPlace) setStepsPlace(forPlace);
+        else {
+          setStepsPlace(forPlace);
+          togglePicker(kind);
+        }
       } else if (k === 'q' || k === 'h') {
         // The menu bar is the other app's while the panel is up, so ⌘Q and ⌘H mean that app,
         // not Codealong: they close the panel instead of quitting or hiding Codealong.
@@ -1566,7 +1574,6 @@ export function Quick() {
 
   // Where it runs is for this start alone; Make default keeps it as its accounts' own (on this Mac).
   const keepers = choice && placeNow && !deviceNow ? keepPlaceFor(choice, accounts, placeNow, routingGroups, optionsForStart?.autoGroup) : [];
-  const usualPlace = choice ? (settledPlace(choice, accounts, pick, routingGroups, usage, now, allLanes) ?? places[0]?.place ?? null) : null;
   const agentFoot = (
     <AgentFoot
       effort={{ efforts, value: effortShown, onPick: pickEffort, harness, model: effortModel, takesEffort: (accountInfo?.efforts?.length ?? 0) > 0 }}
@@ -1574,7 +1581,8 @@ export function Quick() {
         places,
         value: placeNow,
         onPick: pickPlace,
-        usual: keepers.length > 0 ? { place: usualPlace, whose: keepers.length === 1 ? keepers[0] : 'their', onKeep: () => placeNow && keepPlace(keepers, placeNow) } : undefined,
+        stepped: stepsPlace,
+        usual: keepers.length > 0 && placeNow ? { kept: keptAt(keepers, accounts, placeNow), whose: keepers.length === 1 ? keepers[0] : 'their', onKeep: () => keepPlace(keepers, placeNow) } : undefined,
       }}
     />
   );
@@ -2216,7 +2224,7 @@ export function Quick() {
               New worktree
             </label>
             <div className="ca-quick-pick ca-quick-agent">
-              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Account, model, effort (⌘L) and where it runs (⌘O)')} disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => togglePicker('agent')}>
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn('Account, model, effort (⌘L) and where it runs (⌘O)')} disabled={accounts.length === 0} aria-haspopup="dialog" aria-expanded={picker === 'agent'} onClick={() => { setStepsPlace(false); togglePicker('agent'); }}>
                 <Icon name={autoFor ? 'sparkles' : 'user'} size={14} />
                 <span>{agentChip.label}</span>
                 {agentChip.detail && <span className="ca-quick-chip-detail">{agentChip.detail}</span>}
@@ -2228,7 +2236,7 @@ export function Quick() {
                 )}
                 <Icon name="chevron-down" size={12} />
               </button>
-              {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={agentFoot} onStep={efforts.length > 0 ? stepEffort : undefined} />}
+              {picker === 'agent' && <Picker className="is-wide" sections={agentSections} value={agentNow} placeholder="Account or model" onPick={pickAgent} onClose={() => { setPicker(null); refocus(); }} foot={agentFoot} onStep={stepsPlace && places.length > 1 ? (delta) => { const p = placeStep(places, placeNow, delta); if (p) pickPlace(p); } : efforts.length > 0 ? stepEffort : undefined} />}
             </div>
           </div>
         )}

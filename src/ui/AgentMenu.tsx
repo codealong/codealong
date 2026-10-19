@@ -19,10 +19,11 @@ import type { StartAccount, StartPlace, Usage } from '../types';
 import { BoxMenu } from './ModelMenu';
 import type { PickerSection } from './Picker';
 import { Seg } from './primitives';
+import { Kbd } from './primitives';
 import { agentMenuSections, EffortFoot } from './StartControls';
 
 /** Where a start runs, among the places its account offers (`places`, each a Seg option with what
- *  it is on hover), and the account's own place (`usual`): where it starts unless another is
+ *  it is on hover), and the accounts' own place (`usual`): where they start unless another is
  *  picked, which Make default sets to the one picked (`onKeep`). No `usual` where it isn't this
  *  Mac's to keep (a start on another Mac). */
 export interface PlaceRow {
@@ -31,8 +32,11 @@ export interface PlaceRow {
   onPick: (place: StartPlace) => void;
   /** Whether it goes on in a place rather than starts there (a resume), as `placeNote` says it. */
   resuming?: boolean;
+  /** ← → step it (the menu opened for it, ⌘O) rather than the effort. */
+  stepped?: boolean;
   usual?: {
-    place: StartPlace | null;
+    /** Every account Make default would set starts in the one picked already (start.ts `keptAt`). */
+    kept: boolean;
     /** Whose it is, as the button says it: an account's name, or `their` for several. */
     whose: string;
     onKeep: () => void;
@@ -49,7 +53,7 @@ export function AgentFoot({ effort, place }: { effort?: ComponentProps<typeof Ef
     <div className="ca-picker-foot-rows">
       {effort && effort.efforts.length > 0 && (
         <div className="ca-picker-foot-row">
-          <EffortFoot {...effort} />
+          <EffortFoot {...effort} keys={!placed?.stepped} />
         </div>
       )}
       {placed && (
@@ -62,7 +66,8 @@ export function AgentFoot({ effort, place }: { effort?: ComponentProps<typeof Ef
             keepsFocus
             onPick={(p) => placed.onPick(p)}
           />
-          {kept && placed.value && placed.value !== kept.place ? (
+          {placed.stepped && <Kbd keys={['←', '→']} />}
+          {kept && placed.value && !kept.kept ? (
             <button type="button" className="ca-linkbtn ca-picker-foot-note" title={`Start ${kept.whose === 'their' ? 'their' : `${kept.whose}’s`} sessions here unless you pick another`} onMouseDown={(e) => e.preventDefault()} onClick={kept.onKeep}>
               Make default
             </button>

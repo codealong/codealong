@@ -57,7 +57,7 @@ const LEVEL_TITLES: Record<string, string> = {
  *  stays while you look through them, or (`running`) a running session's level, which a pick
  *  switches, the account's own not being one to switch to. Null where no account takes effort;
  *  `takesEffort` is whether the chosen one does. */
-export function EffortFoot({ efforts, value, onPick, harness, model, running = false, takesEffort = true }: { efforts: { id: string; label: string }[]; value: string | null; onPick: (e: string | null) => void; harness: Harness | null; model: string | null; running?: boolean; takesEffort?: boolean }) {
+export function EffortFoot({ efforts, value, onPick, harness, model, running = false, takesEffort = true, keys = true }: { efforts: { id: string; label: string }[]; value: string | null; onPick: (e: string | null) => void; harness: Harness | null; model: string | null; running?: boolean; takesEffort?: boolean; /** ← → step it; false where they step another row. */ keys?: boolean }) {
   if (efforts.length === 0) return null;
   const levels = efforts.map((e) => ({ id: e.id as string | null, label: e.label, title: LEVEL_TITLES[e.id] }));
   return (
@@ -71,7 +71,7 @@ export function EffortFoot({ efforts, value, onPick, harness, model, running = f
         keepsFocus
         onPick={onPick}
       />
-      <span className="ca-picker-foot-note">{effortNote(harness, model, takesEffort) ?? (running ? 'This session only' : <Kbd keys={['←', '→']} />)}</span>
+      <span className="ca-picker-foot-note">{effortNote(harness, model, takesEffort) ?? (running ? 'This session only' : keys ? <Kbd keys={['←', '→']} /> : null)}</span>
     </>
   );
 }
