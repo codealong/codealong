@@ -1664,28 +1664,35 @@ fn answer_held(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Sess
     })
 }
 
-/// How the id of a background job's questions starts (`job_pending`): a hash of the first
-/// question follows, since that's what its record says it waits on.
+/// How the id of a background job's questions starts (`job_pending`): a hash of when it began
+/// waiting and of what its record says it waits on follows, so an answer meant for questions it
+/// asked before never goes to new ones, however alike.
 const JOB_ASKS_ID: &str = "job-asks:";
 
-fn job_asks_id(question: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let hash: String = Sha256::digest(question.as_bytes()).iter().take(6).map(|b| format!("{b:02x}")).collect();
-    format!("{JOB_ASKS_ID}{hash}")
+/// The questions a live background job waits on you to answer, with the id an answer names them
+/// by and its registry entry.
+struct JobAsks {
+    id: String,
+    questions: Vec<crate::harness::Question>,
+    reg: RegistryEntry,
 }
 
-/// The questions a live background job waits on you to answer, from its record
-/// (`registry::job_questions`), with its registry entry: the transcript's call's when it has the
-/// same ones, since the call says each one's header and whether it takes several.
-fn job_asks(ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Option<&Item>) -> Option<(Vec<crate::harness::Question>, RegistryEntry)> {
+/// What a live background job waits on you to answer, from its record
+/// (`registry::job_questions`): the transcript's call's questions when it has the same ones, since
+/// the call says each one's header and whether it takes several. Without it a question that takes
+/// several is offered as one that takes one, the record not saying.
+fn job_asks(ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Option<&Item>) -> Option<JobAsks> {
+    use sha2::{Digest, Sha256};
     let home = ctx.account.home_path();
     let reg = session_entry(&home, s).filter(|r| r.kind.as_deref() == Some("bg") && r.waits_on(INPUT_NEEDED))?;
-    let asked = questions_of(&registry::job_questions(&home, reg.job_id.as_deref()?)?);
+    let block = registry::job_questions(&home, reg.job_id.as_deref()?)?;
+    let asked = questions_of(&block);
     let questions = match written {
         Some(call) if call.questions.iter().map(|q| &q.question).eq(asked.iter().map(|q| &q.question)) => call.questions.clone(),
         _ => asked,
     };
-    (!questions.is_empty()).then_some((questions, reg))
+    let hash: String = Sha256::digest(format!("{}\n{block}", reg.status_updated_at.unwrap_or(0)).as_bytes()).iter().take(6).map(|b| format!("{b:02x}")).collect();
+    (!questions.is_empty()).then(|| JobAsks { id: format!("{JOB_ASKS_ID}{hash}"), questions, reg })
 }
 
 /// A background job's questions as the panel shows them. Claude Code's service takes a reply to
@@ -1693,14 +1700,14 @@ fn job_asks(ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Optio
 /// is answered from here; of several, the rest would go unanswered, so those are answered where
 /// it runs.
 fn job_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Option<&Item>) -> Option<crate::harness::Pending> {
-    let (questions, _) = job_asks(ctx, s, written)?;
+    let JobAsks { id, questions, .. } = job_asks(ctx, s, written)?;
     let cannot = if questions.len() > 1 {
         Some(format!("Claude Code takes only the first of {} questions' answers from outside a background job.", questions.len()))
     } else {
         daemon_socket(&ctx.account.home_path()).is_none().then(|| "Its account's background service isn't running.".to_string())
     };
     Some(crate::harness::Pending {
-        id: job_asks_id(&questions[0].question),
+        id,
         label: crate::board::asks_you(&questions[0].question),
         input: None,
         cannot,
@@ -1722,11 +1729,11 @@ fn job_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Op
 fn job_asked(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str) -> anyhow::Result<(Vec<crate::harness::Question>, daemon::Background)> {
     let written = waiting_on(a, ctx, s, INPUT_NEEDED).map(|(c, _)| c);
     let gone = || anyhow::anyhow!("It isn't waiting on that any more.");
-    let (questions, reg) = job_asks(ctx, s, written.as_ref()).filter(|(qs, _)| job_asks_id(&qs[0].question) == id).ok_or_else(gone)?;
+    let asks = job_asks(ctx, s, written.as_ref()).filter(|a| a.id == id).ok_or_else(gone)?;
     let home = ctx.account.home_path();
     let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
-    let job = reg.job_id.ok_or_else(gone)?;
-    Ok((questions, daemon::Background { socket, key_file: home.join("daemon/control.key"), job }))
+    let job = asks.reg.job_id.ok_or_else(gone)?;
+    Ok((asks.questions, daemon::Background { socket, key_file: home.join("daemon/control.key"), job }))
 }
 
 /// Answers a background job's question through its account's service, as Claude Code's own list
@@ -1881,7 +1888,8 @@ mod tests {
         let prompt = r#"{"type":"user","timestamp":"2026-10-19T18:00:50Z","origin":{"kind":"human"},"message":{"content":"Pick a fruit"}}"#;
         let ask = r#"{"type":"assistant","timestamp":"2026-10-19T18:01:58Z","message":{"content":[{"type":"tool_use","id":"toolu_f","name":"AskUserQuestion","input":{"questions":[{"question":"Which fruit?","header":"Fruit","multiSelect":true,"options":[{"label":"Apple"},{"label":"Pear"}]}]}}],"stop_reason":"tool_use"}}"#;
         std::fs::write(dir.join(format!("{id}.jsonl")), format!("{prompt}\n")).unwrap();
-        std::fs::write(home.join("sessions/4242.json"), serde_json::json!({ "pid": 4242, "sessionId": id, "cwd": "/x", "status": "waiting", "waitingFor": "input needed", "kind": "bg", "jobId": "1a2b3c4d" }).to_string()).unwrap();
+        let waits_since = |at: i64| std::fs::write(home.join("sessions/4242.json"), serde_json::json!({ "pid": 4242, "sessionId": id, "cwd": "/x", "status": "waiting", "waitingFor": "input needed", "kind": "bg", "jobId": "1a2b3c4d", "statusUpdatedAt": at }).to_string()).unwrap();
+        waits_since(1_792_432_918_000);
         let blocked = |questions: &str| std::fs::write(home.join("jobs/1a2b3c4d/state.json"), format!(r#"{{"state":"working","tempo":"blocked","block":{{"questions":[{questions}]}}}}"#)).unwrap();
         let fruit = r#"{"question":"Which fruit?","options":[{"label":"Apple","description":"A red fruit"},{"label":"Pear","description":"A green fruit"}]}"#;
         blocked(fruit);
@@ -1894,6 +1902,8 @@ mod tests {
         let p = ClaudeCode.pending(&ctx, &session).unwrap();
         assert!(p.id.starts_with(JOB_ASKS_ID));
         assert_eq!((p.label.as_str(), p.questions.len(), p.questions[0].header.as_deref(), p.unwritten), ("Asks you · Which fruit?", 1, None, true));
+        // The record doesn't say whether it takes several, so it's offered as one that takes one.
+        assert!(!p.questions[0].multi_select);
         assert_eq!(p.cannot.as_deref(), Some("Its account's background service isn't running."));
 
         // A stand-in for the service, at the socket the account's folder hashes to.
@@ -1949,6 +1959,14 @@ mod tests {
         assert_eq!((p.questions[0].header.as_deref(), p.questions[0].multi_select, p.unwritten), (Some("Fruit"), true, false));
         ClaudeCode.answer_questions(&ctx, &session, &p.id, &answers(serde_json::json!(["Apple", "Pear"]))).unwrap();
         assert_eq!(heard().0["text"].as_str(), Some("Apple, Pear"));
+
+        // The same question asked again is new questions: what was meant for the first goes nowhere.
+        let asked_before = p.id.clone();
+        waits_since(1_792_433_018_000);
+        let again = ClaudeCode.pending(&ctx, &session).unwrap();
+        assert_ne!(again.id, asked_before);
+        assert!(ClaudeCode.answer_questions(&ctx, &session, &asked_before, &answers(serde_json::json!("Apple"))).unwrap_err().to_string().contains("isn't waiting"));
+        assert!(ClaudeCode.answer(&ctx, &session, &asked_before, Answer::Deny).is_err());
 
         // Of several, the service would answer only the first.
         blocked(&format!(r#"{fruit},{{"question":"Which size?","options":[{{"label":"Small"}}]}}"#));

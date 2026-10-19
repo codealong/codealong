@@ -526,7 +526,11 @@ hand them over (the app restarted while they waited, say), from what its account
 service records of them, and its row says it asks you: a single question is answered from here
 through that service, as Claude Code's own list of agents answers it, and Decline stops its turn;
 several are answered where it runs, since the service takes only the first one's answer. An answer
-that starts with `/` or `!` is turned down there, since the job would run it as a command. An Antigravity command line conversation's questions (its
+that starts with `/` or `!` is turned down there, since the job would run it as a command. Until
+its conversation has the question (an Opus job writes it only once it's answered), that record
+doesn't say whether a question takes several choices, so it's offered as one that takes one: to
+give several, write them in your own answer ("Red, Blue"), which is how the job takes several
+anyway. An Antigravity command line conversation's questions (its
 `ask_question`) show the same way while it runs in a Ghostty, iTerm2 or tmux tab: Answer presses
 the keys there that give your picks, typing your own words into its Write-in box, and Decline
 skips them all and stops its turn. A question with more than eight choices is answered in its
