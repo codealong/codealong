@@ -3,7 +3,8 @@
 // searched or worked in ticked, a typed folder added ticked; Done saves, in one go, the accounts kept and the
 // one added, the folders in order, the apps, puts Codealong in the accounts, opens at login when
 // ticked and says setup is finished. Skip setup saves nothing and says it's finished too. A first
-// run (`setup_needed`) opens it by itself. config.toml's accounts are the sample's listed ones,
+// run (`setup_needed`) opens it by itself. Set up Jev, one of what the last step suggests for
+// later, finishes it and opens Settings at Jev. config.toml's accounts are the sample's listed ones,
 // so the check doesn't hang on this Mac's.
 //   PREVIEW_WAIT=30000 PREVIEW_SETUP=scripts/preview/setup-sample.json scripts/preview.sh sessions '' scripts/preview/setup-check.js
 (function () {
@@ -95,6 +96,23 @@
       var after = window.__calls.slice(before).map(function (c) { return c[0]; });
       check('Skip setup saves nothing', after.indexOf('save_accounts') < 0 && after.indexOf('save_config') < 0, after.join(','));
       check('and says setup is finished', after.indexOf('finish_setup') >= 0);
+
+      // What's worth setting up later: a button for each that finishes and opens it in Settings.
+      window.__emit('setup', null);
+      await until(function () { return dialog() && row('claude-work'); }, 5000, 'the app menu didn’t open it a third time');
+      for (var i = 0; i < 3; i++) {
+        button('Next').click();
+        await wait(50);
+      }
+      await until(function () { return heading() === 'Ready'; }, 5000, 'Next didn’t go on to the last step again');
+      var more = all('.ca-setup-more-row .ca-setup-label', dialog()).map(function (l) { return l.textContent.trim(); });
+      check('the last step suggests Jev, other devices and automation', more.join(',') === 'Jev,Your other devices,Automation', more.join(','));
+      var finished = calls('finish_setup').length;
+      button('Set up Jev').click();
+      await until(function () { return !dialog(); }, 5000, 'Set up Jev didn’t close the wizard');
+      check('Set up Jev finishes setup', calls('finish_setup').length === finished + 1);
+      var jev = await until(function () { var h = q('.ca-settings-intro h3'); return h && h.textContent.trim() === 'Jev' && h; }, 5000, 'Settings didn’t open at Jev');
+      check('and opens Settings at Jev', !!jev);
       done();
     } catch (e) {
       stopped(e);

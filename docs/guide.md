@@ -1288,7 +1288,10 @@ a wizard over the main window has you confirm it, in four steps:
   installed.
 - **Ready**: putting Codealong in the accounts you kept (the plugin in Claude Code, the skill
   elsewhere) and the `codealong` command on your PATH, as Settings › Agents does, ticked; and
-  opening Codealong when you log in, not.
+  opening Codealong when you log in, not. Under *When you're ready* it points at what's worth
+  setting up later, each off until you turn it on: Jev, your other devices and automation (the
+  reviews of pull requests waiting on you, and the rest Settings › Automation has). Each one's
+  button finishes as Done does and opens it in Settings.
 
 Nothing is saved until **Done**. **Skip setup**, Escape or the ✕ keep what the first run wrote.
 Either way it doesn't show by itself again (state.json's `setupDone`), and Settings changes all of

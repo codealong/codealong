@@ -64,6 +64,30 @@
   display: grid;
   gap: var(--space-4);
 }
+/* What's worth setting up later, on the last step: an icon, what it is and does, and a button
+   that opens it in Settings. */
+.ca-setup-more {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.ca-setup-more-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ca-setup-more-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--ink-2);
+}
+.ca-setup-more-row .ca-setup-text {
+  flex: 1;
+}
+.ca-setup-more-row .ca-btn {
+  flex: none;
+}
 .ca-setup-tip {
   display: flex;
   flex-wrap: wrap;

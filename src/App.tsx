@@ -2179,7 +2179,7 @@ export function App() {
         />
       )}
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
-      {setup && <SetupDialog onClose={() => setSetup(false)} onDone={setToast} now={now} />}
+      {setup && <SetupDialog onClose={() => setSetup(false)} onDone={setToast} onSettings={(section) => openSettings(section)} now={now} />}
       {usageOf && board && (
         <UsageDialog
           board={board}

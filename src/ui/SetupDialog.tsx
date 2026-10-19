@@ -2,8 +2,10 @@
 // steps confirm what a first run found and wrote to config.toml (src-tauri/src/setup.rs): the
 // agent accounts to show, the folders to search for repos, the terminal and editor to open things
 // in; the last offers to put Codealong in those accounts (the plugin, or the skill, and the
-// command) and to open it at login. Nothing is saved until Done; Skip, Escape or the ✕ keep what
-// the first run wrote. Either way it doesn't show by itself again (`finishSetup`).
+// command) and to open it at login, and points at what's worth setting up later (`MORE`), each a
+// button that finishes as Done does and opens its part of Settings. Nothing is saved until then;
+// Skip, Escape or the ✕ keep what the first run wrote. Either way it doesn't show by itself again
+// (`finishSetup`).
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { agentsStatus, finishSetup, getConfig, installAgents, saveConfig, setOpenAtLogin, setupView } from '../api';
@@ -14,7 +16,32 @@ import { accountsAfter, configAfter, firstPicks, folderNote, SETUP_STEPS, typedF
 import type { ConfigView, SetupView } from '../types';
 import { foundNote } from './AccountsSection';
 import { Button, cx, Dialog, Icon, Kbd } from './primitives';
-import { ProfileSelect } from './SettingsDialog';
+import { ProfileSelect, type SettingsSection } from './SettingsDialog';
+
+/** What the last step suggests setting up once the basics are in: each off until you turn it on. */
+const MORE: { section: SettingsSection; icon: string; title: string; says: string; button: string }[] = [
+  {
+    section: 'jev',
+    icon: 'sparkles',
+    title: 'Jev',
+    says: 'Finds the session a prompt in the quick panel is for, says when an agent’s reply asks you something, and links sessions to their todos. It needs a TypeSafe key, and a question costs a fraction of a cent.',
+    button: 'Set up Jev',
+  },
+  {
+    section: 'devices',
+    icon: 'device-desktop',
+    title: 'Your other devices',
+    says: 'Shows your other Macs’ agents here and in the iPhone app, to read and answer from either. They talk directly, over your tailnet or iroh, encrypted end to end.',
+    button: 'Set up devices',
+  },
+  {
+    section: 'automation',
+    icon: 'bolt',
+    title: 'Automation',
+    says: 'Has an agent review the pull requests waiting on you, tells a pull request’s session when it’s approved or gets comments, and moves a session that hits its usage limit to an account with room.',
+    button: 'Set up automation',
+  },
+];
 
 const LEDE: Record<SetupStep, string> = {
   accounts: 'Codealong found these agent accounts on this Mac. It shows the sessions of the ones you keep, and how much of each plan they’ve used.',
@@ -47,7 +74,7 @@ function toggled(list: string[], item: string, on: boolean): string[] {
   return on ? (list.includes(item) ? list : [...list, item]) : list.filter((x) => x !== item);
 }
 
-export function SetupDialog({ onClose, onDone, now }: { onClose: () => void; onDone: (said: string) => void; now: number }) {
+export function SetupDialog({ onClose, onDone, onSettings, now }: { onClose: () => void; onDone: (said: string) => void; onSettings: (section: SettingsSection) => void; now: number }) {
   const [view, setView] = useState<SetupView | null>(null);
   const [cfg, setCfg] = useState<ConfigView | null>(null);
   const [picks, setPicks] = useState<SetupPicks | null>(null);
@@ -83,7 +110,8 @@ export function SetupDialog({ onClose, onDone, now }: { onClose: () => void; onD
     onClose();
   };
 
-  const done = async () => {
+  /** Saves what was picked and finishes; `then` opens that part of Settings after. */
+  const done = async (then?: SettingsSection) => {
     if (!view || !cfg || !picks) return;
     setBusy(true);
     setError(null);
@@ -101,6 +129,7 @@ export function SetupDialog({ onClose, onDone, now }: { onClose: () => void; onD
       await finishSetup();
       onDone(troubles.length > 0 ? `Codealong is set up, but ${troubles.join(' ')}` : 'Codealong is set up.');
       onClose();
+      if (then) onSettings(then);
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -243,6 +272,23 @@ export function SetupDialog({ onClose, onDone, now }: { onClose: () => void; onD
               />
               <Check checked={picks.atLogin} onChange={(atLogin) => pick({ atLogin })} label="Open Codealong when you log in" note="So it’s keeping track of your agents from the start. Settings › General turns it off again." />
             </div>
+            <section className="ca-setup-more" aria-labelledby="ca-setup-more-title">
+              <h4 className="ca-label" id="ca-setup-more-title">
+                When you’re ready
+              </h4>
+              {MORE.map((m) => (
+                <div key={m.section} className="ca-setup-more-row">
+                  <Icon name={m.icon} size={16} className="ca-setup-more-icon" />
+                  <span className="ca-setup-text">
+                    <span className="ca-setup-label">{m.title}</span>
+                    <span className="ca-setup-note">{m.says}</span>
+                  </span>
+                  <Button size="sm" disabled={busy} onClick={() => void done(m.section)}>
+                    {m.button}
+                  </Button>
+                </div>
+              ))}
+            </section>
             {quickKeys && (
               <p className="ca-setup-tip">
                 <Kbd keys={quickKeys} /> in any app opens the quick panel: find a session, answer one that waits on you, or start one.
