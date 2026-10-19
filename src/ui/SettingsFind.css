@@ -1,0 +1,107 @@
+/* Searching Settings (SettingsFind.tsx): the field over the sections, a section with nothing that
+   matches faded, and every section's settings that match, each under its name. */
+
+/* The field is the list find's (ListBar.css), on the sections' ground. It takes the sections'
+   width rather than its input's own, which would widen them past the list's edge. */
+.ca-settings-find {
+  min-width: 0;
+  margin-bottom: var(--space-2);
+}
+.ca-settings-find-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 2px 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-3);
+}
+.ca-settings-find-field:focus-within {
+  box-shadow: var(--shadow-focus);
+}
+.ca-settings-find-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: var(--type-meta);
+}
+.ca-settings-find-field input::placeholder {
+  color: var(--ink-3);
+}
+.ca-settings-find-field .ca-settings-find-clear {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+/* A section none of whose settings match: faded, in its place, as the list holds still. */
+.ca-settings-nav .ca-nav.is-unmatched {
+  opacity: 0.45;
+}
+
+.ca-settings-found {
+  gap: var(--space-5);
+}
+.ca-settings-found-section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+/* A section's name over its settings, which opens it. */
+.ca-settings-found-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 0 var(--space-2);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--ink);
+  font: var(--type-heading-sm);
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+.ca-settings-found-head .ca-icon {
+  color: var(--ink-3);
+}
+.ca-settings-found-head:hover .ca-icon,
+.ca-settings-found-head:focus-visible .ca-icon {
+  color: var(--ink);
+}
+.ca-settings-found-head:focus-visible {
+  border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-focus);
+}
+/* The section's pane, laid out as the pane lays it out on its own. */
+.ca-settings-found-pane {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+/* What the search passes over: a setting that doesn't match, what's outside every setting, and a
+   section with nothing that does. */
+.ca-settings-found [data-unmatched] {
+  display: none;
+}
+.ca-settings-found-none {
+  display: grid;
+  gap: var(--space-1);
+}
+.ca-settings-found-none p {
+  margin: 0;
+  font: var(--type-body);
+  color: var(--ink-2);
+}
+
+::highlight(ca-settings-find) {
+  background-color: var(--attn-tint);
+}

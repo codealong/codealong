@@ -1,7 +1,8 @@
 // Settings (⌘,): a form for everything in config.toml, in sections, and the file itself as a
 // fallback. Form fields save as you leave them, each in its place in the file, so the file
 // stays yours: comments and order included. Accounts keep their own add, edit and remove flow
-// in AccountsSection.
+// in AccountsSection. A search over the sections shows every section's settings that match
+// (SettingsFind.tsx).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getConfig, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setOpenAtLogin, setReusable, startOptions, takeTeamSettings, testJev } from '../api';
@@ -22,6 +23,7 @@ import { JevUsage } from './JevUsage';
 import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
 import { Button, cx, Dialog, Icon, NavItem, Seg } from './primitives';
+import { SettingsFindField, useSettingsFind } from './SettingsFind';
 import { THEMES } from './ThemeSwitch';
 import { errorText } from '../report';
 import { bare, cmd, keysIn, keysSaid, platform, type Platform } from '../platform';
@@ -116,6 +118,21 @@ export function SettingsDialog({ section, onSection, focus, usage, training, app
   const [error, setError] = useState<string | null>(null);
   // What you've typed in the config.toml section, kept while you look at another section.
   const [fileDraft, setFileDraft] = useState<FileDraft | null>(null);
+  // The search over the sections, and how many of each one's settings it finds once they're read.
+  const [query, setQuery] = useState('');
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  const searching = query.trim() !== '';
+  const findRef = useRef<HTMLInputElement>(null);
+  const foundRef = useRef<HTMLDivElement>(null);
+  useSettingsFind(foundRef, query, (next) => setCounts((was) => (was && JSON.stringify(was) === JSON.stringify(next) ? was : next)));
+  useEffect(() => {
+    if (!searching) setCounts(null);
+  }, [searching]);
+  /** A section, from the list or a section's name over what the search found: the search clears. */
+  const open = (s: SettingsSection) => {
+    setQuery('');
+    onSection(s);
+  };
 
   const load = useCallback(() => getConfig().then(setView).catch((e: unknown) => setError(errorText(e))), []);
 
@@ -149,48 +166,52 @@ export function SettingsDialog({ section, onSection, focus, usage, training, app
   const cfg = view?.config ?? null;
   const broken = view?.error ?? null;
 
-  const gate = broken && section !== 'file' && (
+  const gate = broken && (searching || section !== 'file') && (
     <div className="ca-settings-broken" role="alert">
       <Icon name="alert" size={14} />
       <span>
         config.toml has an error, so these settings can't be changed here until it's fixed. <code className="ca-ic">{broken}</code>
       </span>
-      <Button size="sm" onClick={() => onSection('file')}>
+      <Button size="sm" onClick={() => open('file')}>
         Open config.toml
       </Button>
     </div>
   );
 
-  let pane: React.ReactNode = null;
-  if (section === 'accounts') {
-    pane = (
-      <>
-        <AccountsSection focus={focus} usage={usage} training={training} terminal={apps.terminal} now={now} onSaved={() => void load()} />
-      </>
-    );
-  } else if (section === 'agents') {
-    pane = <AgentsSection cfg={cfg} disabled={!!broken} onSave={save} />;
-  } else if (view === null) {
-    pane = error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Reading settings…</p>;
-  } else if (section === 'general' && cfg) {
-    pane = <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} now={now} />;
-  } else if (section === 'sounds' && cfg) {
-    pane = <SoundsPane cfg={cfg} names={view.sounds ?? []} disabled={!!broken} onSave={save} onError={setError} />;
-  } else if (section === 'routing' && cfg) {
-    pane = <RoutingPane cfg={cfg} disabled={!!broken} onSave={save} usage={usage} now={now} />;
-  } else if (section === 'automation' && cfg) {
-    pane = <AutomationPane cfg={cfg} disabled={!!broken} onSave={save} onReload={() => void load()} defaultPrompt={view.reviewPrompt ?? ''} usage={usage} now={now} lanes={lanes} teamFiles={teamFiles} focus={focus} />;
-  } else if (section === 'devices' && cfg) {
-    pane = <DevicesPane cfg={cfg} disabled={!!broken} onSave={save} now={now} />;
-  } else if (section === 'projects' && cfg) {
-    pane = <ProjectsPane cfg={cfg} chromeProfiles={view.chromeProfiles ?? []} disabled={!!broken} onSave={save} lanes={lanes} adding={focus === NEW_PROJECT} />;
-  } else if (section === 'jev' && cfg) {
-    pane = <JevPane jev={{ ...JEV_OFF, ...cfg.jev }} disabled={!!broken} onChange={(jev) => void save({ ...cfg, jev })} />;
-  } else if (section === 'advanced' && cfg) {
-    pane = <AdvancedPane cfg={cfg} view={view} disabled={!!broken} onSave={save} />;
-  } else if (section === 'file') {
-    pane = <FilePane view={view} draft={fileDraft} onDraft={setFileDraft} editor={apps.editor} onOpenConfig={onOpenConfig} onSaved={() => void load()} />;
-  }
+  // What Settings was opened for (an account to scroll to, a repo for Automation, a new project's
+  // form) is the section's own: what the search finds is as it goes everywhere, its repo picker out
+  // of sight, and nothing in it takes the keyboard from the search.
+  const aim = searching ? null : focus;
+  const paneOf = (s: SettingsSection): React.ReactNode => {
+    if (s === 'accounts') return <AccountsSection focus={aim} usage={usage} training={training} terminal={apps.terminal} now={now} onSaved={() => void load()} />;
+    if (s === 'agents') return <AgentsSection cfg={cfg} disabled={!!broken} onSave={save} />;
+    if (view === null) return error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Reading settings…</p>;
+    if (s === 'file') return <FilePane view={view} draft={fileDraft} onDraft={setFileDraft} editor={apps.editor} onOpenConfig={onOpenConfig} onSaved={() => void load()} />;
+    if (!cfg) return null;
+    switch (s) {
+      case 'general':
+        return <GeneralPane cfg={cfg} view={view} theme={theme} onPickTheme={onPickTheme} disabled={!!broken} onSave={save} now={now} />;
+      case 'sounds':
+        return <SoundsPane cfg={cfg} names={view.sounds ?? []} disabled={!!broken} onSave={save} onError={setError} />;
+      case 'routing':
+        return <RoutingPane cfg={cfg} disabled={!!broken} onSave={save} usage={usage} now={now} />;
+      case 'automation':
+        return <AutomationPane cfg={cfg} disabled={!!broken} onSave={save} onReload={() => void load()} defaultPrompt={view.reviewPrompt ?? ''} usage={usage} now={now} lanes={lanes} teamFiles={teamFiles} focus={aim} />;
+      case 'devices':
+        return <DevicesPane cfg={cfg} disabled={!!broken} onSave={save} now={now} />;
+      case 'projects':
+        return <ProjectsPane cfg={cfg} chromeProfiles={view.chromeProfiles ?? []} disabled={!!broken} onSave={save} lanes={lanes} adding={aim === NEW_PROJECT} />;
+      case 'jev':
+        return <JevPane jev={{ ...JEV_OFF, ...cfg.jev }} disabled={!!broken} onChange={(jev) => void save({ ...cfg, jev })} />;
+      case 'advanced':
+        return <AdvancedPane cfg={cfg} view={view} disabled={!!broken} onSave={save} />;
+    }
+  };
+
+  // While searching, every section but the file itself, each under its name, narrowed to what
+  // matches (SettingsFind.tsx); the file has no settings to narrow to.
+  const found = SECTIONS.filter((s) => s.id !== 'file');
+  const nothing = counts !== null && found.every((s) => !counts[s.id]);
 
   return (
     <Dialog
@@ -210,19 +231,57 @@ export function SettingsDialog({ section, onSection, focus, usage, training, app
     >
       <div className="ca-settings-body">
         <nav className="ca-settings-nav" aria-label="Settings sections">
-          {SECTIONS.map((s) => (
-            <NavItem key={s.id} label={s.label} icon={s.icon} active={section === s.id} onClick={() => onSection(s.id)} />
-          ))}
+          <SettingsFindField inputRef={findRef} value={query} onChange={setQuery} autoFocus={focus === null} />
+          {SECTIONS.map((s) => {
+            // While searching: how many settings each section has that match, the ones with none
+            // faded. The file isn't searched, and is where to look for what the form doesn't have.
+            const n = searching && counts && s.id !== 'file' ? (counts[s.id] ?? 0) : null;
+            return <NavItem key={s.id} label={s.label} icon={s.icon} active={!searching && section === s.id} count={n || undefined} className={cx(n === 0 && 'is-unmatched')} onClick={() => open(s.id)} />;
+          })}
         </nav>
-        <div className={section === 'file' ? 'ca-settings-pane is-file' : 'ca-settings-pane'}>
-          {gate}
-          {pane}
-          {error && section !== 'accounts' && section !== 'agents' && view !== null && (
-            <p className="ca-form-error" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
+        {searching ? (
+          <div ref={foundRef} className="ca-settings-pane ca-settings-found">
+            {gate}
+            {found.map((s) => (
+              <section key={s.id} className="ca-settings-found-section" data-section={s.id} data-label={s.label} aria-label={s.label}>
+                <button type="button" className="ca-settings-found-head" title={`Open ${s.label}`} onClick={() => open(s.id)}>
+                  <Icon name={s.icon} size={14} />
+                  <span>{s.label}</span>
+                  <Icon name="chevron-right" size={12} />
+                </button>
+                <div className="ca-settings-found-pane" data-pane>
+                  {paneOf(s.id)}
+                </div>
+              </section>
+            ))}
+            {nothing && (
+              <div className="ca-settings-found-none">
+                <p>No settings match “{query.trim()}”.</p>
+                <p>
+                  config.toml has a few the form doesn’t.{' '}
+                  <button type="button" className="ca-linkbtn" onClick={() => open('file')}>
+                    Open config.toml
+                  </button>
+                </p>
+              </div>
+            )}
+            {error && view !== null && (
+              <p className="ca-form-error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className={section === 'file' ? 'ca-settings-pane is-file' : 'ca-settings-pane'}>
+            {gate}
+            {paneOf(section)}
+            {error && section !== 'accounts' && section !== 'agents' && view !== null && (
+              <p className="ca-form-error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </Dialog>
   );

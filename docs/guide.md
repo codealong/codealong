@@ -1357,6 +1357,17 @@ the performance log on and shows where the files are. Each change is saved in it
 so comments and order stay as you wrote them. The config.toml section edits the file itself, for
 anything the form doesn't cover, and says what's wrong when it doesn't parse.
 
+The search over the sections (it has the keyboard as Settings opens, and ⌘F brings you back to it)
+turns the pane into every section's settings that match what you type, each section under its
+name, with your words marked: the fields themselves, to change right there. A setting is found by
+its label, what it says under it, the choices it offers and its section's name ("sounds" shows all
+of Sounds), every word somewhere in those, in any order; "PR" finds pull requests. An account's,
+device's or routing group's card is found by what it says too, and a list of them (the routing
+groups, Jev's features) shows only the ones that match. The sections down the left count what each
+has that matches and fade where nothing does; a click on one, or on a section's name over its
+settings, clears the search and opens it. Escape clears what you typed, and with nothing typed
+closes Settings.
+
 An account's card in Settings › Accounts says who it's signed in as. OpenCode signs in to the
 providers you bring rather than to an account of its own, so its card names them (*Signed in to
 Anthropic and GitHub Copilot*), or says *Free models only* when it has none: OpenCode's own free

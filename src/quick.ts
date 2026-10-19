@@ -195,15 +195,15 @@ export function queryWords(query: string): string[] {
 }
 
 /**
- * Where `word` first appears in `text` (lowercased), or -1. Among other words, a word of one or
- * two letters counts only whole: "class c" shouldn't find every session with a c in it (every
- * `claude` account has one). Alone it's a search as you type and matches anywhere. The engine's
- * text search has the same rule (`search::has_word`).
+ * Where `word` first appears in `text` (lowercased), at `from` or after, or -1. Among other words,
+ * a word of one or two letters counts only whole: "class c" shouldn't find every session with a c
+ * in it (every `claude` account has one). Alone it's a search as you type and matches anywhere.
+ * The engine's text search has the same rule (`search::has_word`).
  */
-export function wordAt(text: string, word: string, of: number): number {
-  if (of < 2 || word.length > 2) return text.indexOf(word);
+export function wordAt(text: string, word: string, of: number, from = 0): number {
+  if (of < 2 || word.length > 2) return text.indexOf(word, from);
   const edge = (c: string | undefined) => !c || !/[\p{L}\p{N}]/u.test(c);
-  for (let i = text.indexOf(word); i >= 0; i = text.indexOf(word, i + 1)) {
+  for (let i = text.indexOf(word, from); i >= 0; i = text.indexOf(word, i + 1)) {
     if (edge(text[i - 1]) && edge(text[i + word.length])) return i;
   }
   return -1;
