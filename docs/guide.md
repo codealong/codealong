@@ -323,9 +323,11 @@ title with the ways to open it, mark it seen, expand the panel, its details (ⓘ
 times) and its menu (⋯, New session here among the rest); where it stands, its worktree and branch
 (its account is under the reply box, below, or ends this line where there's no box: a session on a
 device that can't be reached from here); and the PRs it worked on (as the PRs view links them, else
-its worktree's), each a chip that shows the PR's panel in place of the session's on a click (in
-the floating windows, in PRs), opens it on GitHub on a double-click and shows the PR's card on
-hover, with the todo it's on and +N for the rest. Beside its PRs is the latest page on the web it
+its worktree's), each a chip that says where the PR stands as its header leads with it (Ready to
+merge, Review requested, Approved, Changes requested, Draft, Merged), shows the PR's panel in place
+of the session's on a click (in the floating windows, in PRs), opens it on GitHub on a double-click
+and shows the PR's card on hover, which merges an open PR there (see *Merging*), with the todo it's
+on and +N for the rest. Beside its PRs is the latest page on the web it
 made: an artifact Claude Code published, made from a type or opened, its subagents' included, as a
 chip with its title that opens it in the browser on a click, what it last did with it and when on
 hover. When it made more, "+N more" beside the chip (naming them on hover) lists the rest under the
@@ -358,12 +360,14 @@ session as it goes. A link to a GitHub PR, in a reply or a prompt, reads `name#1
 state as its icon (in a tool's output it keeps its words as written); hovering it shows a card with
 where the PR stands (review, checks, branches, size, and whose reviews it still waits on, you
 first), the worktrees that hold it and the sessions that worked on it, each a click from its panel,
-and its right-click menu is the PR's. A click shows the PR in Codealong, as a click on its chip
-does: its panel in place of the session's, with the way back (in the floating windows, in PRs), on
-its Changes tab for a link to its files and on Reviews for one to a review or a comment. ⌘-click,
-or Open on GitHub in its card, opens it on GitHub instead. A PR the board doesn't list (an older
-one, another repo's) is asked of GitHub when its card first shows, and has no panel here, so a
-click opens it on GitHub. A link to a PR in a PR's description shows it the same way.
+and its right-click menu is the PR's. An open PR's card ends in its merge box, as its panel has it
+(see *Merging*); a chip's card has no Show in Codealong, which a click on the chip does. A click
+shows the PR in Codealong, as a click on its chip does: its panel in place of the session's, with
+the way back (in the floating windows, in PRs), on its Changes tab for a link to its files and on
+Reviews for one to a review or a comment. ⌘-click, or Open on GitHub in its card, opens it on
+GitHub instead. A PR the board doesn't list (an older one, another repo's) is asked of GitHub when
+its card first shows, and has no panel here, so a click opens it on GitHub. A link to a PR in a
+PR's description shows it the same way.
 What Codex's app draws in a reply is drawn here too, near enough. A writing block, a finished piece
 of writing such as an email, a message to paste elsewhere or a document, is a card named for its
 kind, with Copy, which copies the writing without the lines around it. An email shows its recipients
@@ -372,7 +376,9 @@ code comment is a card with the file and lines it's about. A file Codex cites sh
 folder, and opens on a click as a file sent you does. A follow-up it offers is a button that puts its prompt in the session's box, after what's
 there, to send or change.
 A card the pointer brings up (a PR's, a session's helpers) goes away on a key, which still does
-what it does, but not on ⌘, ⇧, ⌥ or ⌃ alone, nor on ⌘C, which copies what you selected on it.
+what it does, but not on ⌘, ⇧, ⌥ or ⌃ alone, nor on ⌘C, which copies what you selected on it, nor
+on keys typed into a field on it. Once you press something on it, it stays up as the pointer
+leaves, until you press elsewhere or a key, so a merge's commit can be written there.
 
 #### Replies as they're written
 
@@ -954,7 +960,9 @@ approved one after another with one toast, and the ones that ask for your review
 #### Merging
 
 A PR's panel, and its card in the notch and the waiting window, has GitHub's merge box where Approve
-is, in the row of buttons under its title, right after Approve: what you may do now, and under the
+is, in the row of buttons under its title, right after Approve; so does the card that hovering an
+open PR's chip or a link to it brings up, at its foot before Open on GitHub, so a session's PR
+merges from the session. It's what you may do now, and under the
 row where it stands for merging when it isn't plainly ready (blocked and why, behind its base,
 conflicts, a draft, in the merge queue, auto-merge on). Merge it with a merge commit, squashed or
 rebased (picked from the button's caret and kept per repo, GitHub's pick for you until then), the

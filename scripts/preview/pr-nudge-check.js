@@ -61,8 +61,10 @@
       Object.keys(b.repos || {}).forEach(function (k) { delete b.repos[k].pull_requests; });
       (b.teamFiles || []).forEach(function (t) { if (t.settings) t.settings.nudgeAbout = null; });
       // The check's own copy to change and push: the page keeps the parts of a push that equal
-      // what it has, so changing the board it holds would look like no change at all.
-      board = JSON.parse(JSON.stringify(b));
+      // what it has, so changing the board it holds would look like no change at all. Taken from
+      // the first board read: the stub reads it again for the card's merge box, which would undo
+      // what the check has pushed since.
+      if (!board) board = JSON.parse(JSON.stringify(b));
       return b;
     });
   };

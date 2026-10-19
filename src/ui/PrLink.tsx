@@ -6,14 +6,18 @@
 // the board lists it, as a click on its chip does, on the tab that has what the link goes to
 // (`followPrLink`); one the board doesn't list has no panel here and opens in the browser, as
 // ⌘-click always does. A right-click has the PR's menu (menus.ts). A PR's chip in a session's
-// panel (`PrChipCard`) has the same card. For an open PR the board lists, the card has
-// the switch that has its primary session, listed first, told of what happens on it (nudges.rs).
+// panel (`PrChipCard`) has the same card, less Show in Codealong, which a click on the chip does.
+// For an open PR the board lists, the card has the switch that has its primary session, listed
+// first, told of what happens on it (nudges.rs). An open PR's card ends in GitHub's merge box
+// (MergeBox.tsx), as its panel has it, so a session's PR merges from the session: it stays once
+// the PR has merged, saying so and offering to delete the branch.
 //
 // It costs nothing until you hover: the board already lists the PRs in your projects' repos with
 // their sessions, and each link watches only its own PR there, so a push re-renders a link only
 // when its PR changed. A PR the board doesn't list (an older one, or another repo's) is asked of
 // GitHub once its card shows (pr_card, which matches it to sessions as the board does), and the
-// answer is kept a while for every link to it.
+// answer is kept a while for every link to it. An open PR's merge box is read as its card shows,
+// and kept for it until it's updated (MergeBox.tsx).
 
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { PrTab } from '../agentReview';
@@ -26,6 +30,7 @@ import { errorText } from '../report';
 import { nudgeAboutFor } from '../repoSettings';
 import type { Board, Lane, Pr, PrItem, Session } from '../types';
 import { HoverCard, useHoverCard, type HoverCardState } from './HoverCard';
+import { MergeBox } from './MergeBox';
 import { PanelSession } from './PanelSession';
 import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
@@ -142,8 +147,9 @@ export function followPrLink(url: string, ref: PrRef, browser: boolean) {
 
 /** A PR's card for what shows the PR, a link or a chip: the handlers its anchor takes, and the
  *  card while it's up. Without a window that says what to do with it (a page that never called
- *  usePrLinks), there's no card. */
-function usePrCard(url: string, ref: PrRef) {
+ *  usePrLinks), there's no card. `clickShows`: a click on what it's beside shows the PR in
+ *  Codealong, so the card has no button for it. */
+function usePrCard(url: string, ref: PrRef, clickShows = false) {
   const hosted = host.actions !== null;
   const c = useHoverCard();
 
@@ -152,7 +158,7 @@ function usePrCard(url: string, ref: PrRef) {
     followPrLink(url, ref, browser);
   };
 
-  const card = c.open && c.anchor.current ? <PrCard card={c} prRef={ref} url={url} onBrowse={() => follow(true)} /> : null;
+  const card = c.open && c.anchor.current ? <PrCard card={c} prRef={ref} url={url} onBrowse={() => follow(true)} clickShows={clickShows} /> : null;
   return { hosted, anchor: c.anchor, show: c.show, hide: c.hide, close: c.close, follow, card };
 }
 
@@ -200,7 +206,7 @@ export function PrLink({ url, pr: ref, plain, children }: { url: string; pr: PrR
 
 /** A PR's chip whose card shows on hover, as a link to it does: its title and the rest are
  *  there, so the chip needs no line of its own. A click shows it in Codealong and a double-click
- *  opens it on GitHub (PrChip), and a right-click has its menu. */
+ *  opens it on GitHub (PrChip), and a right-click has its menu; its card merges it. */
 export function PrChipCard({ pr, onShow, onOpen, onMenu }: { pr: Pr; onShow?: () => void; onOpen?: () => void; onMenu?: () => void }) {
   const ref = prRefOf(pr.url);
   if (!ref) return <PrChip pr={pr} onShow={onShow} onOpen={onOpen} onMenu={onMenu} />;
@@ -208,7 +214,7 @@ export function PrChipCard({ pr, onShow, onOpen, onMenu }: { pr: Pr; onShow?: ()
 }
 
 function HoveredChip({ pr, prRef, onShow, onOpen, onMenu }: { pr: Pr; prRef: PrRef; onShow?: () => void; onOpen?: () => void; onMenu?: () => void }) {
-  const c = usePrCard(pr.url, prRef);
+  const c = usePrCard(pr.url, prRef, !!onShow);
   return (
     <span ref={(el) => void (c.anchor.current = el)} className="ca-prchipcard" onMouseEnter={c.hosted ? c.show : undefined} onMouseLeave={c.hosted ? c.hide : undefined}>
       <PrChip
@@ -250,9 +256,10 @@ interface CardProps {
   url: string;
   /** Open on GitHub: the link in the browser. */
   onBrowse: () => void;
+  clickShows: boolean;
 }
 
-function PrCard({ card, prRef: ref, url, onBrowse }: CardProps) {
+function PrCard({ card, prRef: ref, url, onBrowse, clickShows }: CardProps) {
   const listed = useSyncExternalStore(subscribe, () => host.index.get(ref.key));
   const lanes = useSyncExternalStore(subscribe, lanesNow);
   const asked = useSyncExternalStore(subscribe, () => fetched.get(ref.key));
@@ -280,10 +287,14 @@ function PrCard({ card, prRef: ref, url, onBrowse }: CardProps) {
   const holding = (pr?.lanes ?? []).flatMap((id) => laneById.get(id) ?? []);
   const ended = pr?.mergedAt ?? pr?.closedAt ?? null;
   const reviewers = pr ? reviewersWords(pr) : null;
+  const open = !!pr && pr.state !== 'merged' && pr.state !== 'closed';
+  // The merge box, from when the PR shows open: kept as it merges, so what was done stays said.
+  const [merges, setMerges] = useState(false);
+  if (open && !merges) setMerges(true);
   // The nudge, for an open PR the board lists: shown as just set until the board says so too.
   const [wanted, setWanted] = useState<boolean | null>(null);
   const [nudgeError, setNudgeError] = useState<string | null>(null);
-  const canNudge = !!listed && listed.state !== 'merged' && listed.state !== 'closed';
+  const canNudge = !!listed && open;
   const nudges = wanted ?? !!listed?.nudge;
   useEffect(() => {
     if (wanted !== null && !!listed?.nudge === wanted) setWanted(null);
@@ -301,6 +312,19 @@ function PrCard({ card, prRef: ref, url, onBrowse }: CardProps) {
     card.close();
     if (host.actions) f(host.actions);
   };
+  // Its buttons: at its foot, or after the merge box's in their row, sized as those are.
+  const buttons = (size: 'sm' | 'md') => (
+    <>
+      {listed && host.actions?.showPr && !clickShows && (
+        <Button size={size} icon="layout-sidebar" onClick={() => act((a) => a.showPr?.(listed, prTabOf(ref)))}>
+          Show in Codealong
+        </Button>
+      )}
+      <Button size={size} icon="external" title={url} onClick={onBrowse}>
+        Open on GitHub
+      </Button>
+    </>
+  );
 
   return (
     <HoverCard card={card} label={`${ref.slug}#${ref.number}`} className="ca-prhover">
@@ -381,16 +405,13 @@ function PrCard({ card, prRef: ref, url, onBrowse }: CardProps) {
           {nudgeError && <p className="ca-hovercard-error">{nudgeError}</p>}
         </div>
       )}
-      <div className="ca-hovercard-foot">
-        {listed && host.actions?.showPr && (
-          <Button size="sm" icon="layout-sidebar" onClick={() => act((a) => a.showPr?.(listed, prTabOf(ref)))}>
-            Show in Codealong
-          </Button>
-        )}
-        <Button size="sm" icon="external" title={url} onClick={onBrowse}>
-          Open on GitHub
-        </Button>
-      </div>
+      {merges && pr ? (
+        <div className="ca-hovercard-sec ca-prhover-merge">
+          <MergeBox key={pr.key} pr={pr} trail={buttons('md')} />
+        </div>
+      ) : (
+        <div className="ca-hovercard-foot">{buttons('sm')}</div>
+      )}
     </HoverCard>
   );
 }

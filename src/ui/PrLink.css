@@ -46,3 +46,11 @@
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-focus);
 }
+
+/* An open PR's merge box (MergeBox.tsx) at the card's foot: its row, the card's buttons after the
+   merge's, keeps to the right as the foot does, and wraps in the card's width. */
+.ca-prhover-merge .ca-insp-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-right: 0;
+}

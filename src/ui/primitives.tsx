@@ -8,7 +8,7 @@ import { deviceLabel } from '../devices';
 import { middleTruncate, withTimes } from '../format';
 import { HARNESS_WORD, sessionPlace } from '../harness';
 import { branchLabel, laneWaits, waitsInBackground } from '../lanes';
-import { reviewMark } from '../prStatus';
+import { chipWord, reviewMark } from '../prStatus';
 import type { Bay, Emblem, GitInfo, Lane, LogoStatus, Pr, PrItem, PrState, Session, Status, Surface } from '../types';
 import type { Waits } from '../queue';
 import { LOGO_LABEL } from '../logo';
@@ -857,12 +857,14 @@ export function PanelBack({ back }: { back: PanelBackTo }) {
  *  the click is then the chip's rather than the row's. With `onOpen` alone, a click opens it on
  *  GitHub, or with `inRow`, on a list's row, a double-click does. Without `titled`, it has no
  *  tooltip: a card shows instead (PrLink.tsx). Its review shows as a mark after its number
- *  (prStatus.ts `reviewMark`), but approved or changes asked for where it says its state in
- *  words; the board's PR (`PrItem`) also says what's asked of you. */
-export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onOpen, inRow = false }: { pr: Pr & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview'>>; compact?: boolean; titled?: boolean; onMenu?: () => void; onShow?: () => void; onOpen?: () => void; inRow?: boolean }) {
+ *  (prStatus.ts `reviewMark`), but approved or changes asked for where it says in words where it
+ *  stands, as the PR's header leads with it (`chipWord`: Ready to merge, Review requested…); the
+ *  board's PR (`PrItem`) also says what's asked of you and of others. */
+export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onOpen, inRow = false }: { pr: Pr & Partial<Pick<PrItem, 'reviewRequested' | 'reviewersAsked' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'base'>>; compact?: boolean; titled?: boolean; onMenu?: () => void; onShow?: () => void; onOpen?: () => void; inRow?: boolean }) {
   const c = pr.checks;
   const open = pr.state !== 'merged' && pr.state !== 'closed';
-  const title = `#${pr.number} ${PR_WORD[pr.state]}: ${pr.title}`;
+  const word = chipWord(pr);
+  const title = `#${pr.number} ${word}: ${pr.title}`;
   const twice = onShow && onOpen ? { run: onOpen, does: 'open it on GitHub' } : undefined;
   const found = reviewMark(pr);
   const mark = found && (compact || found.key === 'asked' || found.key === 'agent') ? found : null;
@@ -873,7 +875,7 @@ export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onO
           each centered on its own, a zoomed page put the sans word a pixel below the mono. */}
       <span>
         #{pr.number}
-        {!compact && <span className="ca-pr-word">{PR_WORD[pr.state]}</span>}
+        {!compact && <span className="ca-pr-word">{word}</span>}
       </span>
       {mark && (
         <span className={`ca-checks ca-prmark is-${mark.tone}`} title={mark.title}>

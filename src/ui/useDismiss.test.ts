@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { escapeTopmost, keyLeavesHover, pressedOutside } from './useDismiss';
+import { escapeTopmost, keyLeavesHover, pressedOutside, typedOn } from './useDismiss';
 
 /** A stand-in for an element: `inside` names what it contains, `matches` what its ancestors match. */
 const node = (name: string, matches: string[] = []) => ({ name, closest: (sel: string) => (matches.includes(sel) ? {} : null) }) as unknown as Element;
@@ -75,5 +75,23 @@ describe('keyLeavesHover', () => {
     expect(keyLeavesHover(press('v', { meta: true }))).toBe(false);
     expect(keyLeavesHover(press('c', { meta: true, ctrl: true }))).toBe(false);
     expect(keyLeavesHover(press('c', { meta: true, alt: true }))).toBe(false);
+  });
+});
+
+describe('typedOn', () => {
+  /** A stand-in for what a key went to: the selectors it matches, and whether it's editable. */
+  const target = (name: string, matches: string, editable = false) => ({ name, isContentEditable: editable, matches: (sel: string) => sel === matches }) as unknown as HTMLElement;
+  const FIELDS = 'textarea, select, input:not([type="checkbox"]):not([type="radio"])';
+
+  it('keeps a hover card up for a key typed into a field on it', () => {
+    expect(typedOn(target('title', FIELDS), box('title'))).toBe(true);
+    expect(typedOn(target('note', '', true), box('note'))).toBe(true);
+  });
+
+  it('is not a key typed anywhere else, nor on a button or a box to tick on it', () => {
+    expect(typedOn(target('reply', FIELDS), box('title'))).toBe(false);
+    expect(typedOn(target('merge', 'button'), box('merge'))).toBe(false);
+    expect(typedOn(null, box('title'))).toBe(false);
+    expect(typedOn(target('title', FIELDS), null)).toBe(false);
   });
 });

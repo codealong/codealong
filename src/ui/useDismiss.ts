@@ -26,8 +26,8 @@ export interface DismissOptions {
   inside?: string | ((target: Element) => boolean);
   /** The keys that close it. `escape` (the default) closes the one opened last and takes the
    *  key. `any` is for a card the pointer brought up: any key puts it away and still does what
-   *  it does, but a modifier alone and ⌘C, which copies what's selected on it (`keyLeavesHover`).
-   *  `none` leaves keys to the caller. */
+   *  it does, but a modifier alone and ⌘C, which copies what's selected on it (`keyLeavesHover`),
+   *  and one typed into a field on it (`typedOn`). `none` leaves keys to the caller. */
   keys?: 'escape' | 'any' | 'none';
   /** Closes it when the window goes to the background too. */
   blur?: boolean;
@@ -91,6 +91,14 @@ export function keyLeavesHover(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlK
   return (held(e, 'Cmd') || held(e, 'Shift', 'Cmd')) && e.key.toLowerCase() === 'c';
 }
 
+/** Whether a key went to a field on `el`, a card the pointer brought up: a merge's commit
+ *  message written on a PR's card (PrLink.tsx) is the card's to take, Escape included. */
+export function typedOn(target: EventTarget | null, el: Pick<Element, 'contains'> | null): boolean {
+  const t = target as (HTMLElement & Node) | null;
+  if (!t || !el?.contains(t)) return false;
+  return !!t.isContentEditable || !!t.matches?.('textarea, select, input:not([type="checkbox"]):not([type="radio"])');
+}
+
 /** Closes a popover on a press outside `ref` (anywhere at all, without a ref) and on Escape.
  *  `onClose` may be a new function every render: the latest is called. */
 export function useDismiss(ref: RefObject<Element | null> | null, onClose: () => void, options: DismissOptions = {}): void {
@@ -105,7 +113,7 @@ export function useDismiss(ref: RefObject<Element | null> | null, onClose: () =>
       if (pressedOutside(e.target, ref?.current ?? null, latest.current.inside)) close();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (!keyLeavesHover(e)) close();
+      if (!keyLeavesHover(e) && !typedOn(e.target, ref?.current ?? null)) close();
     };
     window.addEventListener('pointerdown', onDown, true);
     if (keys === 'any') window.addEventListener('keydown', onKey, true);

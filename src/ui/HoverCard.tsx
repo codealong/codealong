@@ -1,10 +1,13 @@
 // A card that opens beside what the pointer rests on: a PR's link or chip (PrLink.tsx), a
 // session's helpers chip (HelpersCard.tsx). It shows once the pointer has rested a moment, or at
 // once while another has just closed, and takes the pointer: moving onto it keeps it up, so its
-// rows and buttons can be used. One is up at a time. It goes on a key (which still does what it
-// does), but not on a modifier alone or ⌘C, which copies what's selected on it (useDismiss.ts
+// rows and buttons can be used. Once something on it is pressed it stays up when the pointer
+// leaves, so a merge's commit message can be written there and a menu from it used. One is up at
+// a time. It goes on a key (which still does what it does), but not on a modifier alone or ⌘C,
+// which copies what's selected on it, nor one typed into a field on it (useDismiss.ts
 // `keyLeavesHover`); on a press elsewhere; and when the window goes to the background. It follows
-// what it's beside as the page scrolls, under it or over it, wherever there's more room.
+// what it's beside as the page scrolls and as it grows, under it or over it, wherever there's more
+// room, and stays on its side once pressed, so it doesn't jump from under the pointer.
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -23,19 +26,23 @@ const EDGE = 8;
 const GAP = 4;
 
 /** A card's state, and the handlers what it's beside takes: `show` and `hide` on the pointer's
- *  coming and going, `close` when something on it is done. */
+ *  coming and going, `close` when something on it is done. `hold` keeps it up as the pointer
+ *  leaves, once something on it is pressed, until it closes; `held` says whether it is. */
 export interface HoverCardState {
   anchor: MutableRefObject<HTMLElement | null>;
   open: boolean;
   show: () => void;
   hide: () => void;
   close: () => void;
+  hold: () => void;
+  held: () => boolean;
 }
 
 export function useHoverCard(): HoverCardState {
   const anchor = useRef<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
   const timer = useRef(0);
+  const holding = useRef(false);
   const closeRef = useRef(() => setOpen(false));
 
   useEffect(
@@ -58,6 +65,7 @@ export function useHoverCard(): HoverCardState {
   };
   const close = () => {
     window.clearTimeout(timer.current);
+    holding.current = false;
     if (shown === closeRef.current) {
       shown = null;
       warmUntil = performance.now() + WARM_MS;
@@ -66,9 +74,13 @@ export function useHoverCard(): HoverCardState {
   };
   const hide = () => {
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(close, HIDE_MS);
+    if (!holding.current) timer.current = window.setTimeout(close, HIDE_MS);
   };
-  return { anchor, open, show, hide, close };
+  const hold = () => {
+    window.clearTimeout(timer.current);
+    holding.current = true;
+  };
+  return { anchor, open, show, hide, close, hold, held: () => holding.current };
 }
 
 /** The card itself, for a component that renders it only while `card.open`: in the page's body,
@@ -76,6 +88,8 @@ export function useHoverCard(): HoverCardState {
 export function HoverCard({ card: c, label, className, children }: { card: HoverCardState; label: string; className?: string; children: ReactNode }) {
   const el = useRef<HTMLDivElement>(null);
   const anchor = c.anchor.current;
+  /** Whether it was last placed under what it's beside. */
+  const side = useRef<boolean | null>(null);
 
   const place = useRef(() => {});
   place.current = () => {
@@ -92,10 +106,14 @@ export function HoverCard({ card: c, label, className, children }: { card: Hover
     const natural = box.offsetHeight;
     const below = window.innerHeight - last.bottom - GAP - EDGE;
     const above = first.top - GAP - EDGE;
-    const under = natural <= below || below >= above;
-    const height = Math.max(0, Math.min(natural, under ? below : above));
+    const under = c.held() && side.current !== null ? side.current : natural <= below || below >= above;
+    side.current = under;
+    // As high as there's room for, so it grows as what's on it does, which the observer below
+    // hears, and is placed again.
+    const room = Math.max(0, under ? below : above);
+    const height = Math.min(natural, room);
     const at = under ? last : first;
-    box.style.maxHeight = `${height}px`;
+    box.style.maxHeight = `${room}px`;
     box.style.top = `${under ? last.bottom + GAP : first.top - GAP - height}px`;
     box.style.left = `${Math.max(EDGE, Math.min(at.left, window.innerWidth - box.offsetWidth - EDGE))}px`;
     box.scrollTop = scrolled;
@@ -113,10 +131,18 @@ export function HoverCard({ card: c, label, className, children }: { card: Hover
     };
     window.addEventListener('scroll', onMove, true);
     window.addEventListener('resize', onMove);
+    // What's on it changing its height (a PR's merge box read, a commit message to write): over
+    // what it's beside, it grows upwards.
+    const grown = new ResizeObserver(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => place.current());
+    });
+    if (el.current) grown.observe(el.current);
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener('scroll', onMove, true);
       window.removeEventListener('resize', onMove);
+      grown.disconnect();
     };
   }, []);
 
@@ -125,6 +151,10 @@ export function HoverCard({ card: c, label, className, children }: { card: Hover
   // card are the card's alone. It has no menu of its own, so a right-click away from its rows
   // shows none, as main.tsx has it.
   const own = (e: ReactMouseEvent | ReactPointerEvent) => e.stopPropagation();
+  const pressed = (e: ReactPointerEvent) => {
+    own(e);
+    c.hold();
+  };
   return createPortal(
     <div
       ref={el}
@@ -133,7 +163,7 @@ export function HoverCard({ card: c, label, className, children }: { card: Hover
       aria-label={label}
       onMouseEnter={c.show}
       onMouseLeave={c.hide}
-      onPointerDown={own}
+      onPointerDown={pressed}
       onMouseDown={own}
       onClick={own}
       onDoubleClick={own}

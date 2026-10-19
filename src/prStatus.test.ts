@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksFor, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, type PrFacts } from './prStatus';
+import { asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { PrComment, PrItem } from './types';
 
@@ -171,6 +171,25 @@ describe('review comments', () => {
     // A `</sub>` in code ends nothing, nor a fence in a hidden comment.
     expect(commentText('<sub>Use `</sub><div>` here</sub>')).toBe('*Use `</sub><div>` here*');
     expect(commentText('Text\n<!--\n```\n-->\nMore')).toBe('Text\n\nMore');
+  });
+});
+
+describe('chipWord', () => {
+  it('says what the PR’s header leads with', () => {
+    expect(chipWord(facts({ state: 'approved', merge: 'clean' }))).toBe('Ready to merge');
+    expect(chipWord(facts({ state: 'approved', merge: 'blocked' }))).toBe('Approved');
+    expect(chipWord(facts({ reviewRequested: true }))).toBe('Review requested');
+    expect(chipWord(facts({ reviewRequested: false, reviewersAsked: ['ana'] }))).toBe('Review requested');
+    expect(chipWord(facts({ reviewRequested: false }))).toBe('Awaiting review');
+    expect(chipWord(facts({ state: 'changes' }))).toBe('Changes requested');
+    expect(chipWord(facts({ state: 'draft' }))).toBe('Draft');
+    expect(chipWord(facts({ state: 'merged' }))).toBe('Merged');
+    expect(chipWord(facts({ state: 'closed' }))).toBe('Closed');
+  });
+
+  it('says Open for a worktree’s PR, which doesn’t say whose review it waits on', () => {
+    expect(chipWord(fx.pr({ state: 'open' }))).toBe('Open');
+    expect(chipWord(fx.pr({ state: 'approved', merge: 'blocked' }))).toBe('Approved');
   });
 });
 

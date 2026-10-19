@@ -135,6 +135,16 @@ export function prPills(pr: PrFacts): PrPill[] {
   return pills;
 }
 
+/** What a PR's chip says after its number where it says it in words (primitives.tsx PrChip):
+ *  the first of the pills its header shows, Ready to merge, Review requested, Approved and the
+ *  rest. A worktree's PR, which doesn't say whose review it waits on, reads Open rather than
+ *  Awaiting review. */
+export function chipWord(pr: PrFacts): string {
+  const first = prPills(pr)[0];
+  if (first.key === 'review' && pr.state === 'open' && pr.reviewRequested === undefined && !heldForAgent(pr)) return 'Open';
+  return first.text;
+}
+
 /** Why a PR is your move, if it is: your review is asked for, or it's yours and GitHub would
  *  merge it, or its checks fail, or it's held up by something you can fix. `attn` and `alert`
  *  are what the Needs you filter keeps. */
