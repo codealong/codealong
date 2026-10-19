@@ -34,11 +34,11 @@
   font: var(--type-code);
   color: var(--ink-3);
 }
-/* A PR row's second line. The pills and the diff always show; the rest takes the room that's
-   left, in this order: the first 12 characters of the repo · branch · author line, the
+/* A PR row's second line. Its repo, the pills and the diff always show; the rest takes the room
+   that's left, in this order: the first 12 characters of the branch · author line, the
    agents with their +n, the worktree's chip, then the rest of that line. A piece that doesn't fit
-   wraps onto a second line that is cut off, so it shows whole or not at all, and the repo ·
-   branch · author line takes back its room. The PR panel lists them all.
+   wraps onto a second line that is cut off, so it shows whole or not at all, and the branch ·
+   author line takes back its room. The PR panel lists them all.
    The padding, which the margin takes back, leaves room for a chip's focus ring, and the gap
    keeps the second line out of it. Clip rather than hidden, so focusing a chip that wrapped
    away can't scroll the line. */
@@ -56,8 +56,8 @@
   overflow: clip;
   container: prfit / inline-size;
 }
-/* The pills, then the repo · branch · author line. The line comes last, so when there's no room
-   for 12 characters of it, it wraps away instead of showing a stub. It counts as 12 characters
+/* The repo's chip and the pills, then the branch · author line. The line comes last, so when
+   there's no room for 12 characters of it, it wraps away instead of showing a stub. It counts as 12 characters
    when the agents and tag are fitted. */
 .ca-prrow-lead {
   display: flex;
@@ -88,7 +88,7 @@
 .ca-prrow-agents > .ca-sesschip .ca-sesschip-title {
   max-width: 156px;
 }
-/* On one line, its standing and size at the line's end, whole, after its labels (rows.css
+/* On one line, its repo, standing and size at the line's end, after its labels (rows.css
    .ca-lane-tags, PrLabels.css), which give way first, then its title. */
 .ca-prrow-end {
   display: flex;

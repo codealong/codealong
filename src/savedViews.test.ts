@@ -16,6 +16,10 @@ describe('saved views', () => {
       [['m1'], []],
       [[], ['work']],
     ]);
+    // The sidebar's other picks, saved since there were any; what doesn't read is left out.
+    const picked = JSON.stringify([{ ...saved, view: 'prs', facets: { repos: ['o/a'], prLabels: [], agents: 'codex', labels: [3] } }]);
+    expect(parseSaved(picked)[0].facets).toEqual({ repos: ['o/a'] });
+    expect(parseSaved(JSON.stringify([saved]))[0].facets).toBeUndefined();
     expect(parseSaved(null)).toEqual([]);
     expect(parseSaved('not json')).toEqual([]);
     expect(parseSaved('{"id":"a"}')).toEqual([]);
@@ -27,6 +31,10 @@ describe('saved views', () => {
     expect(sameView(saved, { ...saved, filter: [] })).toBe(false);
     expect(sameView({ ...saved, filter: ['needs', 'unread'] }, { ...saved, filter: ['unread', 'needs'] })).toBe(true);
     expect(sameView(saved, { ...saved, age: '7d' })).toBe(false);
+    // A view saved before facets were is one with none picked.
+    expect(sameView(saved, { ...saved, facets: { agents: [] } })).toBe(true);
+    expect(sameView(saved, { ...saved, facets: { agents: ['codex'] } })).toBe(false);
+    expect(sameView({ ...saved, facets: { repos: ['a', 'b'] } }, { ...saved, facets: { repos: ['b', 'a'], labels: [] } })).toBe(true);
   });
 
   it('names a view by what narrows it', () => {

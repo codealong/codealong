@@ -69,8 +69,11 @@ and size in every list, and none is cut off: on a row short of room a long name 
 chip, and the last chips drop out whole.
 
 Sessions, PRs and Todo list their rows alike: each row's status at the left, what it is, and its
-age at the right, with no lines between them. Rows, icon buttons in the bar over each of those
-lists, puts each row on one line, as they start, or on two, and each list keeps its own choice. On
+age at the right, with no lines between them. The bar over each of those lists has two groups of
+icon buttons, each named in its tooltip. Sort by orders the list by status, as it starts, or
+newest first under the day each started, was opened or was added (Today, Yesterday, Last 7 days,
+Older), each row's age then saying when; Rows puts each row on one line, as they start, or on
+two. Each list keeps its own choices. On
 one line a row leads with its title, then what it's doing or says while there's room, then its
 chips at the line's end, the last of them giving way first, then the title.
 
@@ -657,6 +660,10 @@ that wait on your review), a view with none of them yet says it's reading them, 
 than that there are none. When GitHub can't be asked (`gh` missing or signed out, a rate limit), it
 says why instead.
 
+Sorted by status, as it starts, the PRs that aren't pinned are under Review requested, Yours,
+Others and Snoozed; sorted by when they were opened, the open ones are under the day each was
+opened, the newest first, snoozed ones too. Merged & closed is folded at the end either way.
+
 #### Nudging a PR's primary session
 
 A PR's primary session can be nudged with what happens on it. It's off for a PR until turned on
@@ -948,10 +955,11 @@ now. The review pill says Review requested while anyone's review is asked for (y
 its tooltip names them), Awaiting review while nobody's is, else Draft, Changes requested,
 Approved, or Agent reviewing while Codealong's agent is on it. Rows that are your move are marked at the left edge, as a session that needs you is: amber for a review asked of you or
 something to fix, red for failing checks, green for your PRs that are ready to merge. On one line a
-PR's row is its number and title, its labels as they fit, then its pills and size at the line's end
-(on a narrow list the size gives way, then the pills say less); on two lines its labels follow its
-title, and under it are its pills, its repo, branch and author, one of its sessions, its worktree
-and its size. A label shows with a dot in its color on GitHub and its description on hover; on two
+PR's row is its number and title, its labels as they fit, then its repo's chip, its pills and its
+size at the line's end (on a narrow list the size gives way, then the pills say less); on two lines
+its labels follow its title, and under it are its repo's chip, its pills, its branch and author,
+one of its sessions, its worktree and its size. A double-click on the repo's chip shows only that
+repo's PRs, and another shows them all again. A label shows with a dot in its color on GitHub and its description on hover; on two
 lines as many as fit in a little under half the line. All of them show in its header and on a
 link's card. The search finds a PR by a label's name. A label added on GitHub shows within ten minutes,
 when the repo's PRs are next read in full. Selecting a PR shows a short header: its number and
@@ -1015,7 +1023,10 @@ inside their app: yours (`[apps] editor`) when it's one of them, else the first 
 Work you mean to hand an agent. Each todo has a title, a description that can hold screenshots and
 any other files (paste, drop or attach them; files copied in the Finder paste too), colored labels,
 and a status: Todo, In progress (an agent is on it) or Done. The list has In progress, In review,
-Ready, Waiting and Done. Add one in the box at the top (`n`), reorder by dragging or with ⌃⌘↑ ⌃⌘↓,
+Ready, Waiting and Done, or, sorted by when they were added (Sort by, over the list), the ones not
+done under the day each was added, the newest first, with Done still last; your order is kept
+for when they're sorted by status again. Add one in the box at the top (`n`), reorder by dragging
+or with ⌃⌘↑ ⌃⌘↓,
 mark one done with `x`. A todo under way is In review once its work waits on your verdict: while
 its PR is open and not a draft (approved or with changes asked for too), or merged and the todo
 not yet marked done, its PR being the one of a worktree linked to it, or of a session's worktree
@@ -1154,14 +1165,19 @@ selection, ⇧0 100%. Zoomed out, cards become blocks in their status color draw
 
 ### Sidebar
 
-Picks the view (Sessions, Worktrees, PRs, Todo, Kanban, Canvas) and narrows it: to the devices you pick, to
-what was active in the last 24h, 3d or 7d, and to the statuses you pick (Needs you, Your turn,
-Working, In review, PR needs work; any of them). In Sessions it also sorts, by status or by when
-sessions started. Devices and statuses toggle; none picked shows all, and Clear unpicks them. Save
-the view as it is under a name to come back to it; right-click a saved view to update or delete it
-(they're kept per Mac, not in config.toml). It starts folded to a rail of the views and devices,
-whose filter button opens it and carries a badge while a filter narrows the view; ⌃⌘S, or the
-button beside the traffic lights, opens and folds it, and it stays as you left it.
+Picks the view (Sessions, Worktrees, PRs, Todo, Kanban, Canvas) and narrows it: to the devices you
+pick, to what was active in the last 24h, 3d or 7d, and to the statuses you pick (Needs you, Your
+turn, Working, In review, PR needs work; any of them). Some views have more to narrow by, each pick
+with its count: Sessions its agents (the accounts sessions run on), PRs their repos and their labels
+on GitHub, Todo and Kanban the todos' labels (a double-click on a label's chip on a todo shows only
+that label, as a repo's does in PRs). A long list shows its first eight and the rest under "more".
+Each view keeps its picks while another shows, and showing a row from elsewhere (a link, the quick
+panel) clears what would hide it. Devices, statuses and these toggle; within one section any of the
+picks shows, none picked shows all, and Clear unpicks them. Save the view as it is under a name to
+come back to it; right-click a saved view to update or delete it (they're kept per Mac, not in
+config.toml), with the agents, repos and labels picked. It starts folded to a rail of the views and
+devices, whose filter button opens it and carries a badge while a filter narrows the view; ⌃⌘S, or
+the button beside the traffic lights, opens and folds it, and it stays as you left it.
 
 ### Find in the list
 

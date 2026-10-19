@@ -6,14 +6,16 @@
 // is due, its labels, what it waits on, the sessions on it with their status, and the worktree
 // it's in.
 // Type in the box at the top and press Return to add one. ⌘-click and ⇧-click pick several, to
-// start in one session. Rows, in the bar over the list, puts each todo on one line (`TODO_ROWS`).
+// start in one session. The bar over the list sorts the todos that aren't done by status or by
+// when they were added, under the days they were (`TODO_SORTS`), and puts each on one line or two
+// (`TODO_ROWS`).
 
 import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
 import { selectHow, type SelectHow } from '../picks';
-import { attachmentsIn, blockedBy, SECTION_WORD, snippet, todoPr, type TodoItem, type TodoSection, type TodoSectionId } from '../todos';
+import { attachmentsIn, blockedBy, itemSection, SECTION_WORD, snippet, statusSection, todoPr, type TodoItem, type TodoSection, type TodoSectionId, type TodoSort } from '../todos';
 import type { Label, Lane, Pr, Session, Todo, TodoHint, TodoStatus } from '../types';
-import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, ReorderHint, Row, WorktreeChip } from './primitives';
+import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, ReorderHint, Row, SectionHeader, WorktreeChip } from './primitives';
 import { rowsOptions, type RowLines } from './ListBar';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
@@ -22,6 +24,11 @@ import { cmd } from '../platform';
 /** How much each todo's row says: when it's due, its labels, sessions, worktree and PR on a second
  *  line, or one line with them at the end, as many as fit. */
 export const TODO_ROWS = rowsOptions('under each todo, when it’s due, its labels, sessions, worktree and PR', 'each todo with its chips at the end, as many as fit, and its PR');
+
+export const TODO_SORTS: { id: TodoSort; label: string; icon: string; title: string }[] = [
+  { id: 'status', label: 'Status', icon: 'sort-descending-shapes', title: 'Sort by status: in progress, in review, ready and waiting, each in your order' },
+  { id: 'added', label: 'Added', icon: 'sort-descending-numbers', title: 'Sort by when added: the newest todo first, under the day it was added' },
+];
 
 /** Where a new todo will be linked, when it's made from a worktree or a session. */
 export interface ComposerContext {
@@ -89,6 +96,8 @@ interface TodoRowProps {
   now: number;
   /** On one line: its title and description, then its chips at the end. */
   slim: boolean;
+  /** Sorted by when added, its age says when it was added, not when it was last active. */
+  added: boolean;
   selected: boolean;
   /** Show the project: the view spans all of them. */
   showProject: boolean;
@@ -113,7 +122,7 @@ const CHIPS_SHOWN = 3;
 /** A todo in the list: its title and the start of its description, then when it's due, its labels,
  *  what it waits on, the sessions on it and the worktrees and PR it's in. On one line (`slim`)
  *  they follow its title at the line's end, the last giving way first, its PR always shown. */
-function TodoRow({ item, section, domId, now, slim, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, blocked, hint, drag }: TodoRowProps) {
+function TodoRow({ item, section, domId, now, slim, added, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, blocked, hint, drag }: TodoRowProps) {
   const { todo } = item;
   const pr = todoPr(item);
   const detail = snippet(todo.description);
@@ -220,8 +229,8 @@ function TodoRow({ item, section, domId, now, slim, selected, showProject, onSel
           </div>
         )}
       </div>
-      <div className="ca-seg ca-seg-age" title={absolute(item.lastActivity)}>
-        {ago(item.lastActivity, now)}
+      <div className="ca-seg ca-seg-age" title={added ? `Added ${absolute(todo.createdAt)}, which sets its place in the list. Last active ${absolute(item.lastActivity)}.` : absolute(item.lastActivity)}>
+        {ago(added ? todo.createdAt : item.lastActivity, now)}
       </div>
     </Row>
   );
@@ -231,6 +240,8 @@ interface TodoViewProps {
   sections: TodoSection[];
   /** Every todo, in any project: what a row waits on can be anywhere. */
   todos: Todo[];
+  /** Sorted by when added, the open todos are under the days they were added. */
+  sort: TodoSort;
   /** Two lines a todo, or one. */
   lines: RowLines;
   now: number;
@@ -239,7 +250,7 @@ interface TodoViewProps {
   picked: Set<string>;
   domId: (row: TodoItem) => string;
   showProject: boolean;
-  /** Dragging reorders a section; not while a search or a filter hides some of it. */
+  /** Dragging reorders a status's section, which sorting by when added doesn't list. */
   canReorder: boolean;
   onSelect: (row: TodoItem, how: SelectHow) => void;
   onOpen: (row: TodoItem) => void;
@@ -275,26 +286,27 @@ function SectionHead({ id, count, hint }: { id: TodoSectionId; count: number; hi
   );
 }
 
+/** A status's section, in your order, or a day's, sorted by when added, where each todo's box
+ *  still says its status and nothing is reordered. */
 function Section({ section, props }: { section: TodoSection; props: TodoViewProps }) {
-  const { todos, lines, now, selectedKey, picked, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, onMove } = props;
-  const drag = useTodoDrag(section.rows, (id, index) => onMove(section.id, id, index));
-  const draggable = canReorder && section.rows.length > 1;
+  const { todos, sort, lines, now, selectedKey, picked, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, onMove } = props;
+  const status = statusSection(section.id) ? section.id : null;
+  const drag = useTodoDrag(section.rows, status ? (id, index) => onMove(status, id, index) : undefined);
+  const draggable = !!status && canReorder && section.rows.length > 1;
+  const hint = draggable && selectedKey && picked.size === 0 && section.rows.some((r) => r.key === selectedKey) ? <ReorderHint /> : undefined;
   return (
     <section className="ca-bayblock">
-      <SectionHead
-        id={section.id}
-        count={section.rows.length}
-        hint={draggable && selectedKey && picked.size === 0 && section.rows.some((r) => r.key === selectedKey) ? <ReorderHint /> : undefined}
-      />
+      {status ? <SectionHead id={status} count={section.rows.length} hint={hint} /> : <SectionHeader label={section.label} count={section.rows.length} />}
       <div className="ca-bay-lanes" data-drag-list>
         {section.rows.map((r, i) => (
           <TodoRow
             key={r.key}
             item={r}
-            section={section.id}
+            section={status ?? itemSection(r, todos)}
             domId={domId(r)}
             now={now}
             slim={lines === 'one'}
+            added={sort === 'added'}
             selected={r.key === selectedKey || picked.has(r.key)}
             showProject={showProject}
             onSelect={(how) => onSelect(r, how)}
@@ -326,7 +338,7 @@ function useTodoDrag(rows: TodoItem[], onMove?: (id: string, index: number) => v
 }
 
 export function TodoView(props: TodoViewProps) {
-  const { sections, todos, lines, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
+  const { sections, todos, sort, lines, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
   const open = sections.filter((s) => s.id !== 'done');
   const done = sections.find((s) => s.id === 'done');
   // Done todos keep no order of yours; they can still go to the desktop.
@@ -359,6 +371,7 @@ export function TodoView(props: TodoViewProps) {
                   domId={domId(r)}
                   now={now}
                   slim={lines === 'one'}
+                  added={sort === 'added'}
                   selected={r.key === selectedKey || picked.has(r.key)}
                   showProject={showProject}
                   onSelect={(how) => onSelect(r, how)}

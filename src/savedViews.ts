@@ -1,16 +1,19 @@
 // Saved views: a view and what narrows it, under a name you gave it, listed in the sidebar. They
 // are a convenience of this Mac's windows, so they live in the page's storage, not config.toml.
 
+import type { Facets, FacetId } from './boardLists';
 import type { DeviceFilter } from './devices';
 import type { Filter } from './lanes';
 
-/** What a window shows: its view, project, devices, how recently active, and statuses. */
+/** What a window shows: its view, project, devices, how recently active, statuses, and the
+ *  sidebar's other picks (agents, repos, labels). A view saved before those were has none. */
 export interface ViewState {
   view: string;
   project: string;
   device: DeviceFilter;
   age: string;
   filter: readonly Filter[];
+  facets?: Facets;
 }
 
 export interface SavedView extends ViewState {
@@ -40,7 +43,8 @@ export function parseSaved(raw: string | null): SavedView[] {
     const device = picks(x.device);
     const filter = picks(x.filter);
     if (!text(id) || !text(name) || !text(view) || !text(project) || !device || !text(age) || !filter) return [];
-    return [{ id, name, view, project, device, age, filter: filter as Filter[] }];
+    const facets = facetsIn(x.facets);
+    return [{ id, name, view, project, device, age, filter: filter as Filter[], ...(facets && { facets }) }];
   });
 }
 
@@ -69,10 +73,20 @@ export function onSavedChange(f: (views: SavedView[]) => void): () => void {
   return () => window.removeEventListener('storage', listen);
 }
 
+/** A saved view's facets: each a list of picks; what doesn't read as one is left out. */
+function facetsIn(v: unknown): Facets | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const out: Facets = {};
+  for (const [k, p] of Object.entries(v)) if (Array.isArray(p) && p.every(text) && p.length > 0) out[k as FacetId] = p;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** Whether two states show the same thing: the same picks, in whatever order. */
 export function sameView(a: ViewState, b: ViewState): boolean {
   const same = (x: readonly string[], y: readonly string[]) => x.length === y.length && x.every((v) => y.includes(v));
-  return a.view === b.view && a.project === b.project && same(a.device, b.device) && a.age === b.age && same(a.filter, b.filter);
+  const ids = new Set([...Object.keys(a.facets ?? {}), ...Object.keys(b.facets ?? {})]) as Set<FacetId>;
+  const facets = [...ids].every((id) => same(a.facets?.[id] ?? [], b.facets?.[id] ?? []));
+  return a.view === b.view && a.project === b.project && same(a.device, b.device) && a.age === b.age && same(a.filter, b.filter) && facets;
 }
 
 /** A name for a view as it is, offered when you save it: the view, then what narrows it. */

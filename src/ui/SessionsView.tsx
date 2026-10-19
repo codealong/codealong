@@ -13,6 +13,7 @@
 // end that takes them away again (`FoldRow`).
 
 import { Fragment } from 'react';
+import { byDay, newestFirst } from '../days';
 import { bySession, byStatusTime, foldsOf, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, workingFor, type Fold } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
@@ -77,30 +78,6 @@ export function waitingQueue(rows: SessionItem[]): SessionItem[] {
   return ATTENTION.filter((g) => g.queue).flatMap(({ statuses }) => rows.filter(inGroup(statuses)).sort(byGroupTime));
 }
 
-const DAYS = [
-  { id: 'today', label: 'Today' },
-  { id: 'yesterday', label: 'Yesterday' },
-  { id: 'week', label: 'Last 7 days' },
-  { id: 'older', label: 'Older' },
-];
-
-/** `rows`, already in order, under Today, Yesterday, Last 7 days and Older, by `at` in local time. */
-function byDay(rows: SessionItem[], at: (r: SessionItem) => number, now: number): SessionSection[] {
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const daysBack = (n: number) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - n);
-    return d.getTime();
-  };
-  const [t0, t1, t6] = [today.getTime(), daysBack(1), daysBack(6)];
-  const day = (r: SessionItem) => {
-    const t = at(r);
-    return t >= t0 ? 0 : t >= t1 ? 1 : t >= t6 ? 2 : 3;
-  };
-  return DAYS.map((d, i) => ({ ...d, rows: rows.filter((r) => day(r) === i) }));
-}
-
 /**
  * The sessions under their headings, in `sort`'s order; a heading with none under it is left out.
  * By status: Needs you, Your turn and Working first, in the floating bar's order (each the longest
@@ -123,7 +100,7 @@ export function sessionSections(rows: SessionItem[], sort: SessionSort, now: num
   };
   const withHelpers = (s: SessionSection): SessionSection => ({ ...s, rows: s.rows.flatMap((r) => [r, ...(under.get(r.session.key) ?? [])]) });
   if (sort === 'started') {
-    const newest = [...top].sort((a, b) => startedOf(b.session) - startedOf(a.session) || a.key.localeCompare(b.key));
+    const newest = newestFirst(top, (r) => startedOf(r.session), (r) => r.key);
     return byDay(newest, (r) => startedOf(r.session), now)
       .filter((s) => s.rows.length > 0)
       .map(withHelpers);

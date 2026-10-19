@@ -1,16 +1,18 @@
 // The sidebar: what the window shows and what narrows it. The view, the devices, how recently
-// things were active, their statuses and views you saved, above Settings. How Sessions is sorted,
-// and how much a row says in Sessions, PRs and Todo, is the bar over the list (ListBar.tsx
-// `ListTools`). Devices and statuses toggle, any number of each: none picked shows all. Collapsed,
+// things were active, their statuses, what else the view narrows by (`SideFacetChips`: agents,
+// repos, labels) and views you saved, above Settings. How Sessions, PRs and Todo are sorted, and how
+// much a row says, is the bar over the list (ListBar.tsx `ListTools`). Devices, statuses and
+// facets toggle, any number of each: none picked shows all. Collapsed,
 // as it starts, it's a rail of the views and devices, whose filter button carries a badge while a
 // filter narrows the view. The project stays in the switcher at top left.
 
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
+import type { FacetId, FacetOption } from '../boardLists';
 import type { DeviceFilter } from '../devices';
 import { agoPhrase } from '../format';
 import type { Filter } from '../lanes';
 import type { SavedView } from '../savedViews';
-import type { DevicesView, Label, Status } from '../types';
+import type { DevicesView, LabelColor, Status } from '../types';
 import { cx, Icon, NavItem, Seg, StatusGlyph } from './primitives';
 import { LabelDot } from './TodoBits';
 import { RestartToUpdate } from './Updates';
@@ -70,9 +72,11 @@ interface SidebarProps {
   /** Picks a status, or unpicks it. */
   onFilter: (f: Filter) => void;
   onClearFilters: () => void;
-  /** The label Todo is narrowed to, if any. */
-  label: Label | null;
-  onClearLabel: () => void;
+  /** What else narrows the view showing (boardLists.ts `facetsIn`): agents, repos, labels. */
+  facets: SideFacet[];
+  /** Picks one of a facet's options, or unpicks it. */
+  onFacet: (id: FacetId, pick: string) => void;
+  onClearFacet: (id: FacetId) => void;
   saved: SavedView[];
   /** The saved view the window shows, if it shows one. */
   savedOn: string | null;
@@ -81,7 +85,7 @@ interface SidebarProps {
   /** A name for the view as it is, offered when you save it. */
   suggestion: string;
   onSave: (name: string) => void;
-  /** The filters narrowing the view (age, status, label), for the rail's badge and tooltip. */
+  /** The filters narrowing the view (age, statuses, facets), for the rail's badge and tooltip. */
   filters: string[];
   onSettings: () => void;
   /** Settings and the theme switch, at the foot of the open sidebar. */
@@ -164,14 +168,10 @@ function Open(p: SidebarProps) {
               {!p.loading && <span className={cx('ca-side-chip-count', s.tone && s.count > 0 && `is-${s.tone}`)}>{s.count}</span>}
             </button>
           ))}
-          {p.label && (
-            <button type="button" className="ca-side-chip is-on" aria-label={`Label ${p.label.name}: show every label`} title="Show every label" onClick={p.onClearLabel}>
-              <LabelDot label={p.label} />
-              <span>{p.label.name}</span>
-              <Icon name="x" size={10} stroke={2.25} />
-            </button>
-          )}
         </div>
+        {p.facets.map((f) => (
+          <SideFacetChips key={f.id} facet={f} loading={p.loading} onPick={(pick) => p.onFacet(f.id, pick)} onClear={() => p.onClearFacet(f.id)} />
+        ))}
         <div className="ca-label ca-side-label">Saved views</div>
         {p.saved.map((v) => (
           <NavItem key={v.id} icon="star" label={v.name} active={p.savedOn === v.id} title="Right-click to update or delete it" onClick={() => p.onApplySaved(v)} onContextMenu={() => p.onSavedMenu(v)} />
@@ -208,6 +208,49 @@ function Open(p: SidebarProps) {
       <RestartToUpdate />
       {p.foot}
     </nav>
+  );
+}
+
+export interface SideFacet {
+  id: FacetId;
+  label: string;
+  options: FacetOption[];
+  picked: readonly string[];
+}
+
+/** How many of a facet's options show before "more": the rest are a click away. */
+const FACET_SHOWN = 8;
+
+/** A facet's options as the statuses are, toggles with counts, each with what marks it: a repo's
+ *  book, a label's dot in its color. A long list shows its first few, the picked ones always. */
+function SideFacetChips({ facet: f, loading, onPick, onClear }: { facet: SideFacet; loading: boolean; onPick: (pick: string) => void; onClear: () => void }) {
+  const [all, setAll] = useState(false);
+  if (f.options.length === 0) return null;
+  const shown = all ? f.options : f.options.filter((o, i) => i < FACET_SHOWN || f.picked.includes(o.id));
+  const more = f.options.length - shown.length;
+  return (
+    <>
+      <SideLabel label={f.label} onClear={f.picked.length > 0 ? onClear : undefined} />
+      <div className="ca-side-chips">
+        {shown.map((o) => {
+          const on = f.picked.includes(o.id);
+          return (
+            <button key={o.id} type="button" className={cx('ca-side-chip', on && 'is-on')} aria-pressed={on} title={o.title} onClick={() => onPick(o.id)}>
+              {f.id === 'repos' && <Icon name="book" size={12} />}
+              {f.id === 'prLabels' && <i className="ca-labeldot ca-prlabel-dot" style={o.color ? ({ '--prlabel': `#${o.color}` } as CSSProperties) : undefined} aria-hidden="true" />}
+              {f.id === 'labels' && <LabelDot label={{ id: o.id, name: o.label, color: (o.color ?? 'gray') as LabelColor }} />}
+              <span>{o.label}</span>
+              {!loading && <span className="ca-side-chip-count">{o.count}</span>}
+            </button>
+          );
+        })}
+        {(more > 0 || all) && (
+          <button type="button" className="ca-linkbtn ca-side-more" onClick={() => setAll(!all)}>
+            {all ? 'Fewer' : `${more} more`}
+          </button>
+        )}
+      </div>
+    </>
   );
 }
 

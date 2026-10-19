@@ -742,6 +742,17 @@ export function WorktreeChip({ lane, short = false, note, onShow, onMenu }: { la
   );
 }
 
+/** A PR's repo on its row, an outline chip as a place's is, named as GitHub names it. On a list's
+ *  row a double-click shows only that repo's PRs (`onShowOnly`), as a label's chip does its todos. */
+export function RepoChip({ repo, slug, onShowOnly }: { repo: string; slug: string; onShowOnly?: () => void }) {
+  return (
+    <Chip className="ca-repochip" title={slug} does={`show only ${repo}’s PRs`} act={onShowOnly} inRow>
+      <Icon name="book" size={12} />
+      <span className="ca-repochip-name">{repo}</span>
+    </Chip>
+  );
+}
+
 /** Whether a press on a list's row selects it: the primary button, without ⌃, which macOS takes
  *  as a right-click. A right-click opens the row's menu and leaves the selection where it was. */
 export function selects(e: { button: number; ctrlKey: boolean }): boolean {

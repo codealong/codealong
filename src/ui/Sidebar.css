@@ -171,6 +171,25 @@
 .ca-side-chip-count.is-alert {
   color: var(--alert);
 }
+/* A facet's options (`SideFacetChips`): a long repo or label name shortens inside its chip, and
+   the list's "more" sits on the chips' line. */
+.ca-side-chip {
+  max-width: 100%;
+}
+.ca-side-chip > span:not(.ca-side-chip-count) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-side-chip > .ca-icon,
+.ca-side-chip > .ca-labeldot {
+  flex: none;
+}
+.ca-side-more {
+  height: 24px;
+  padding: 0 var(--space-1);
+}
 
 .ca-side-save {
   color: var(--ink-3);

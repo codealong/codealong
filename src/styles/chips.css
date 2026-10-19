@@ -218,6 +218,23 @@
 .ca-wtchip > .ca-icon {
   flex: none;
 }
+/* A PR's repo (`RepoChip`): a place, outlined as a worktree is, its name shortening inside. */
+.ca-chip.ca-repochip {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.ca-repochip > .ca-icon {
+  flex: none;
+}
+.ca-repochip-name {
+  min-width: 0;
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .ca-wtchip-more {
   flex: none;
   color: var(--ink-3);

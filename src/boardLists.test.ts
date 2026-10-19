@@ -41,6 +41,17 @@ import {
   shownSessionsOf,
   todoInQuery,
   unarchived,
+  agentOptions,
+  facetsIn,
+  facetsOn,
+  onlyPick,
+  prFacetOptions,
+  prInFacets,
+  sessionInFacets,
+  todoInFacets,
+  todoLabelOptions,
+  togglePick,
+  type Facets,
 } from './boardLists';
 import { needsOn } from './devices';
 import { bayOf, runsShownKey, sessionHomes } from './lanes';
@@ -225,6 +236,95 @@ describe('the status filters on a PR', () => {
     expect(prIn(row([]), 'idle')).toBe(false);
     expect(prInFilter(row([]), [])).toBe(true);
     expect(prInFilter(row([]), ['idle', 'review'])).toBe(true);
+  });
+});
+
+describe('the sidebar’s facets', () => {
+  const agent = (account: string, n: number) => {
+    const s = session(`${account}:${account}:s${n}`, { account });
+    return item(lane(`/r/${n}`, [s]), s);
+  };
+  const pr = (repoSlug: string, number: number, labels: string[] = [], over: Parameters<typeof fx.prItem>[0] = {}) => prRowOf(fx.prItem({ repoSlug, number, labels: labels.map((name) => ({ name, color: 'ff0000' })), ...over }), new Map(), new Map());
+  const todo = (id: string, labels: string[], over: Partial<Todo> = {}) => todoItem(fx.todo({ id, labels, ...over }), new Map(), new Map(), new Map());
+
+  it('picks and unpicks, and a chip’s double-click shows only its pick, or everything again', () => {
+    let f: Facets = {};
+    f = togglePick(f, 'repos', 'o/a');
+    f = togglePick(f, 'repos', 'o/b');
+    expect(f.repos).toEqual(['o/a', 'o/b']);
+    expect(togglePick(f, 'repos', 'o/a').repos).toEqual(['o/b']);
+    expect(onlyPick(f, 'repos', 'o/b').repos).toEqual(['o/b']);
+    expect(onlyPick({ repos: ['o/b'] }, 'repos', 'o/b').repos).toEqual([]);
+  });
+
+  it('offers each view its own, and counts as narrowing only the picks of the view showing', () => {
+    expect(facetsIn('sessions')).toEqual(['agents']);
+    expect(facetsIn('prs')).toEqual(['repos', 'prLabels']);
+    expect(facetsIn('todo')).toEqual(['labels']);
+    expect(facetsIn('kanban')).toEqual(['labels']);
+    expect(facetsIn('worktrees')).toEqual([]);
+    expect(facetsOn({ agents: ['codex'], repos: [], labels: ['l1'] }, 'sessions')).toEqual(['agents']);
+    expect(facetsOn({ agents: ['codex'], repos: [] }, 'prs')).toEqual([]);
+  });
+
+  it('lets a row through with any of a facet’s picks, when every facet holds', () => {
+    expect(sessionInFacets(agent('codex', 1), {})).toBe(true);
+    expect(sessionInFacets(agent('codex', 1), { agents: ['claude', 'codex'] })).toBe(true);
+    expect(sessionInFacets(agent('codex', 1), { agents: ['claude'] })).toBe(false);
+    expect(prInFacets(pr('o/a', 1, ['bug']), { repos: ['o/a'], prLabels: ['bug', 'docs'] })).toBe(true);
+    expect(prInFacets(pr('o/a', 1, ['bug']), { repos: ['o/a'], prLabels: ['docs'] })).toBe(false);
+    expect(prInFacets(pr('o/a', 1), { repos: ['o/b'] })).toBe(false);
+    expect(todoInFacets(todo('a', ['l1', 'l2']), { labels: ['l2'] })).toBe(true);
+    expect(todoInFacets(todo('a', []), { labels: ['l2'] })).toBe(false);
+  });
+
+  it('counts each option, the most first, keeping one picked that has none left', () => {
+    const rows = [agent('codex', 1), agent('claude', 2), agent('codex', 3)];
+    expect(agentOptions(rows, { agents: ['cursor'] }).map((o) => [o.id, o.count])).toEqual([
+      ['codex', 2],
+      ['claude', 1],
+      ['cursor', 0],
+    ]);
+  });
+
+  it('counts a PR facet’s open PRs as the other facet narrows them, naming repos as GitHub does', () => {
+    const rows = [pr('o/app', 1, ['bug']), pr('o/app', 2), pr('o/web', 3, ['bug', 'docs']), pr('o/web', 4, ['bug'], { state: 'merged' })];
+    const all = prFacetOptions(rows, {});
+    expect(all.repos.map((o) => [o.id, o.label, o.count])).toEqual([
+      ['o/app', 'app', 2],
+      ['o/web', 'web', 1],
+    ]);
+    expect(all.prLabels.map((o) => [o.id, o.count, o.color])).toEqual([
+      ['bug', 2, 'ff0000'],
+      ['docs', 1, 'ff0000'],
+    ]);
+    // A repo picked narrows the labels' counts, not its own.
+    const picked = prFacetOptions(rows, { repos: ['o/web'] });
+    expect(picked.repos.map((o) => o.count)).toEqual([2, 1]);
+    expect(picked.prLabels.map((o) => [o.id, o.count])).toEqual([
+      ['bug', 1],
+      ['docs', 1],
+    ]);
+  });
+
+  it('lists todos’ labels in your order, counting the ones not done', () => {
+    const labels = [
+      { id: 'l1', name: 'billing', color: 'red' as const },
+      { id: 'l2', name: 'docs', color: 'teal' as const },
+      { id: 'l3', name: 'unused', color: 'gray' as const },
+    ];
+    const rows = [todo('a', ['l2']), todo('b', ['l1', 'l2']), todo('c', ['l1'], { status: 'done' })];
+    expect(todoLabelOptions(rows, labels, {}).map((o) => [o.id, o.label, o.count])).toEqual([
+      ['l1', 'billing', 1],
+      ['l2', 'docs', 2],
+    ]);
+    expect(todoLabelOptions(rows, labels, { labels: ['l3'] }).map((o) => o.id)).toEqual(['l1', 'l2', 'l3']);
+    // One picked and since deleted can still be unpicked.
+    expect(todoLabelOptions(rows, labels, { labels: ['gone'] }).map((o) => [o.id, o.label])).toEqual([
+      ['l1', 'billing'],
+      ['l2', 'docs'],
+      ['gone', 'Deleted label'],
+    ]);
   });
 });
 

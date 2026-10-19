@@ -1,12 +1,15 @@
 // The PRs view: every PR in the project's repos. The ones you pinned come first, in your order;
-// then reviews asked of you, flagged (Approve is in the PR's panel and its menu); then yours,
-// then everyone else's; then the reviews you snoozed, the soonest back first; merged and closed
-// ones fold at the end. Each row names the local worktree and the sessions that
-// worked on the PR. Drag a PR up among the pinned ones to pin it there, a pinned one down to the
-// list to unpin it, and any out of the window to pin it to the desktop (useRowDrag.tsx).
-// ⌘-click and ⇧-click (or ⇧↑ ⇧↓, ⌘A) pick several, to open, approve, snooze, pin or copy together
-// (picks.ts, PrPickPanel.tsx). Rows, in the bar over the list, puts each PR on one line (`PR_ROWS`).
+// then, sorted by status, reviews asked of you, flagged (Approve is in the PR's panel and its
+// menu); then yours, then everyone else's; then the reviews you snoozed, the soonest back first.
+// Sorted by when opened (`PR_SORTS`, in the bar over the list), the open ones go under the days
+// they were opened. Merged and closed ones fold at the end. Each row names its repo (a chip whose
+// double-click shows only that repo's PRs), the local worktree and the sessions that worked on
+// the PR. Drag a PR up among the pinned ones to pin it there, a pinned one down to the list to
+// unpin it, and any out of the window to pin it to the desktop (useRowDrag.tsx). ⌘-click and
+// ⇧-click (or ⇧↑ ⇧↓, ⌘A) pick several, to open, approve, snooze, pin or copy together (picks.ts,
+// PrPickPanel.tsx). Rows, in the bar over the list, puts each PR on one line (`PR_ROWS`).
 
+import { byDay, newestFirst, type DayId } from '../days';
 import { absolute, ago, count } from '../format';
 import { selectHow, type SelectHow } from '../picks';
 import { heldForAgent, prFlag } from '../prStatus';
@@ -15,7 +18,7 @@ import { rowsOptions, type RowLines } from './ListBar';
 import { PinnedSection } from './PinnedSection';
 import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
-import { cx, HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, Row, WorktreeChip } from './primitives';
+import { cx, HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, RepoChip, Row, SectionHeader, WorktreeChip } from './primitives';
 import { SnoozeChip } from './LaneRow';
 import { useRowDrag, type DragProps } from './useRowDrag';
 import { cmd } from '../platform';
@@ -71,8 +74,16 @@ export function syncWords(g: GitInfo | null): string | null {
  *  or one line with its standing and size at the end. */
 export const PR_ROWS = rowsOptions('under each PR, its standing, repo, branch, author, sessions, worktree and size', 'each PR with its standing and size at the end');
 
+/** How the PRs that aren't pinned are ordered. */
+export type PrSort = 'status' | 'opened';
+
+export const PR_SORTS: { id: PrSort; label: string; icon: string; title: string }[] = [
+  { id: 'status', label: 'Status', icon: 'sort-descending-shapes', title: 'Sort by status: reviews asked of you first, then yours, then everyone else’s, then the ones you snoozed' },
+  { id: 'opened', label: 'Opened', icon: 'sort-descending-numbers', title: 'Sort by when opened: the newest PR first, under the day it was opened' },
+];
+
 export interface PrSection {
-  id: 'requested' | 'mine' | 'others' | 'snoozed' | 'done';
+  id: 'requested' | 'mine' | 'others' | 'snoozed' | 'done' | DayId;
   label: string;
   rows: PrRowItem[];
 }
@@ -92,18 +103,24 @@ export function reviewSnoozed(pr: PrItem): pr is PrItem & { snoozedUntil: number
   return pr.reviewRequested && !!pr.snoozedUntil && prIsOpen(pr);
 }
 
-/** Review requested, Yours, Others, Snoozed (the soonest back first), then Merged & closed
- *  (newest first). */
-export function prSections(rows: PrRowItem[]): PrSection[] {
+/** By status: Review requested, Yours, Others, Snoozed (the soonest back first). By when opened:
+ *  the open ones under the day each was opened, the newest first, snoozed ones too. Either way
+ *  Merged & closed (newest first) come last. */
+export function prSections(rows: PrRowItem[], sort: PrSort = 'status', now = Date.now()): PrSection[] {
+  const done = rows.filter((r) => !prIsOpen(r.pr)).sort((a, b) => (b.pr.mergedAt ?? b.pr.closedAt ?? 0) - (a.pr.mergedAt ?? a.pr.closedAt ?? 0));
+  const doneSection: PrSection = { id: 'done', label: 'Merged & closed', rows: done };
+  if (sort === 'opened') {
+    const newest = newestFirst(rows.filter((r) => prIsOpen(r.pr)), (r) => r.pr.createdAt, (r) => r.key);
+    return [...byDay(newest, (r) => r.pr.createdAt, now), doneSection].filter((s) => s.rows.length > 0);
+  }
   const open = rows.filter((r) => prIsOpen(r.pr) && !reviewSnoozed(r.pr));
   const snoozed = rows.filter((r) => reviewSnoozed(r.pr)).sort((a, b) => (a.pr.snoozedUntil ?? 0) - (b.pr.snoozedUntil ?? 0) || a.key.localeCompare(b.key));
-  const done = rows.filter((r) => !prIsOpen(r.pr)).sort((a, b) => (b.pr.mergedAt ?? b.pr.closedAt ?? 0) - (a.pr.mergedAt ?? a.pr.closedAt ?? 0));
   const sections: PrSection[] = [
     { id: 'requested', label: 'Review requested', rows: open.filter((r) => r.pr.reviewRequested) },
     { id: 'mine', label: 'Yours', rows: open.filter((r) => !r.pr.reviewRequested && r.pr.mine) },
     { id: 'others', label: 'Others', rows: open.filter((r) => !r.pr.reviewRequested && !r.pr.mine) },
     { id: 'snoozed', label: 'Snoozed', rows: snoozed },
-    { id: 'done', label: 'Merged & closed', rows: done },
+    doneSection,
   ];
   return sections.filter((s) => s.rows.length > 0);
 }
@@ -122,6 +139,10 @@ interface PrRowProps {
   now: number;
   /** On one line: its number, title and labels, then its standing and size at the end. */
   slim: boolean;
+  /** Sorted by when opened, its age says when it was opened, not when it was last updated. */
+  opened: boolean;
+  /** A double-click on its repo's chip: only that repo's PRs, by its slug. */
+  onShowRepo?: (slug: string) => void;
   selected: boolean;
   /** A press: alone, or with ⌘ or ⇧ held, picking it with others (picks.ts). */
   onSelect: (how: SelectHow) => void;
@@ -132,10 +153,11 @@ interface PrRowProps {
   drag?: DragProps;
 }
 
-/** A PR in the list: its number, title and labels, then its standing (pills), its repo, branch and
- *  author, a session that worked on it and its worktree, and its size. On one line (`slim`): its
- *  number and title, then its labels as they fit and its standing and size at the line's end. */
-function PrRow({ item, domId, now, slim, selected, onSelect, onOpen, onOpenSession, onContextMenu, drag }: PrRowProps) {
+/** A PR in the list: its number, title and labels, then its repo's chip, its standing (pills), its
+ *  branch and author, a session that worked on it and its worktree, and its size. On one line
+ *  (`slim`): its number and title, then its labels as they fit, and its repo, standing and size at
+ *  the line's end. */
+function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect, onOpen, onOpenSession, onContextMenu, drag }: PrRowProps) {
   const { pr } = item;
   const requested = waitsOnReview(pr);
   const flag = prFlag(pr);
@@ -143,6 +165,7 @@ function PrRow({ item, domId, now, slim, selected, onSelect, onOpen, onOpenSessi
   // leave neither readable on a row's line; the +n names the rest, and the PR panel lists them all.
   const sessions = [...item.sessions].sort((a, b) => Number(b.session.key === pr.primary) - Number(a.session.key === pr.primary));
   const shown = sessions.slice(0, 1);
+  const repo = <RepoChip repo={pr.repo} slug={pr.repoSlug} onShowOnly={onShowRepo && (() => onShowRepo(pr.repoSlug))} />;
   const snooze = reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away="out of Review requested and off the floating bar" />;
   const diff = (
     <span className="ca-diff">
@@ -178,6 +201,7 @@ function PrRow({ item, domId, now, slim, selected, onSelect, onOpen, onOpenSessi
                 <PrLabels labels={pr.labels} />
               </span>
               <span className="ca-prrow-end">
+                {repo}
                 <PrPills pr={pr} />
                 {diff}
               </span>
@@ -191,13 +215,14 @@ function PrRow({ item, domId, now, slim, selected, onSelect, onOpen, onOpenSessi
             {/* Shows what fits: the agents and the worktree tag drop out whole when there's no
                 room (see .ca-prrow-fit), and the PR panel lists them all. */}
             <div className="ca-prrow-fit">
-              {/* The repo · branch · author line comes after the pills, so it's the one that
-                  drops out of the lead. */}
+              {/* The branch · author line comes after the repo and the pills, so it's the one
+                  that drops out of the lead. */}
               <span className="ca-prrow-lead">
+                {repo}
                 {snooze}
                 <PrPills pr={pr} />
-                <span className="ca-prrow-meta" title={`${pr.repoSlug} · ${pr.head}${pr.base ? ` → ${pr.base}` : ''}`}>
-                  {pr.repo} · {pr.head} · {pr.mine ? 'you' : (pr.author ?? 'unknown')}
+                <span className="ca-prrow-meta" title={`${pr.head}${pr.base ? ` → ${pr.base}` : ''}`}>
+                  {pr.head} · {pr.mine ? 'you' : (pr.author ?? 'unknown')}
                 </span>
               </span>
               {shown.length > 0 && (
@@ -214,8 +239,8 @@ function PrRow({ item, domId, now, slim, selected, onSelect, onOpen, onOpenSessi
           </div>
         )}
       </div>
-      <div className="ca-seg ca-seg-age" title={`Updated ${absolute(pr.updatedAt)}`}>
-        {ago(pr.updatedAt, now)}
+      <div className="ca-seg ca-seg-age" title={opened ? `Opened ${absolute(pr.createdAt)}, which sets its place in the list. Updated ${absolute(pr.updatedAt)}.` : `Updated ${absolute(pr.updatedAt)}`}>
+        {ago(opened ? pr.createdAt : pr.updatedAt, now)}
       </div>
     </Row>
   );
@@ -224,7 +249,12 @@ function PrRow({ item, domId, now, slim, selected, onSelect, onOpen, onOpenSessi
 interface PrsViewProps {
   /** The PRs you pinned, in your order; they're left out of the sections. */
   pinned: PrRowItem[];
+  /** The rest under their headings, in `sort`'s order. */
   sections: PrSection[];
+  /** Sorted by when opened, the rows show when each was opened. */
+  sort: PrSort;
+  /** A double-click on a row's repo chip: only that repo's PRs, by its slug. */
+  onShowRepo?: (slug: string) => void;
   /** Two lines a PR, or one. */
   lines: RowLines;
   now: number;
@@ -246,10 +276,11 @@ interface PrsViewProps {
   onUnpin: (key: string) => void;
 }
 
-const SECTION_ICON: Record<PrSection['id'], string> = { requested: 'eye', mine: 'user', others: 'pr', snoozed: 'zzz', done: 'merge' };
+/** The status headings' icons; the days' have none, as in Sessions. */
+const SECTION_ICON: Partial<Record<PrSection['id'], string>> = { requested: 'eye', mine: 'user', others: 'pr', snoozed: 'zzz', done: 'merge' };
 
 export function PrsView(props: PrsViewProps) {
-  const { pinned, sections, lines, now, selectedKey, picked, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
+  const { pinned, sections, sort, onShowRepo, lines, now, selectedKey, picked, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
   const byKey = (key: string) => pinned.find((r) => r.pr.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.pr.key === key);
   const drag = useRowDrag({
     onPlace: onPlacePinned,
@@ -269,6 +300,8 @@ export function PrsView(props: PrsViewProps) {
       domId={domId(r)}
       now={now}
       slim={lines === 'one'}
+      opened={sort === 'opened'}
+      onShowRepo={onShowRepo}
       selected={r.key === selectedKey || picked.has(r.key)}
       onSelect={(how) => onSelect(r, how)}
       onOpen={() => onOpen(r)}
@@ -285,18 +318,18 @@ export function PrsView(props: PrsViewProps) {
       {drag.ghost}
       {sections.map((s) => (
         <section key={s.id} className={cx('ca-bayblock', s.id === 'requested' && 'ca-prs-requested')}>
-          <div className="ca-bay ca-bay--section" role="heading" aria-level={3}>
-            <Icon name={SECTION_ICON[s.id]} size={12} />
-            <span>{s.label}</span>
-            <span className="ca-bay-count">{s.rows.length}</span>
-            {s.id === 'done' && (
-              <span className="ca-bay-action">
+          <SectionHeader
+            icon={SECTION_ICON[s.id]}
+            label={s.label}
+            count={s.rows.length}
+            hint={
+              s.id === 'done' && (
                 <button type="button" className="ca-linkbtn" aria-expanded={showDone} onClick={onToggleDone}>
                   {showDone ? 'Hide' : 'Show'}
                 </button>
-              </span>
-            )}
-          </div>
+              )
+            }
+          />
           {(s.id !== 'done' || showDone) && (
             <div className="ca-bay-lanes">{s.rows.map((r) => row(r, null))}</div>
           )}

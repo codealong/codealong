@@ -11,10 +11,10 @@ import { needsOn, withDevices, workingOn } from './devices';
 import { AGENT_BAY, buildBays, bySession, byStatusTime, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sessionPrs, sideTitle, snoozedApart, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
-import { itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem } from './todos';
+import { itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSort } from './todos';
 import type { Bay, Board, DevicesView, Label, Lane, Pr, PrItem, ProjectSummary, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
-import { prIsOpen, prPlaces, prSections, waitsOnReview, type PrRowItem } from './ui/PrsView';
+import { prIsOpen, prPlaces, prSections, waitsOnReview, type PrRowItem, type PrSort } from './ui/PrsView';
 import { helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
 
 const ELSEWHERE = 'Elsewhere';
@@ -156,6 +156,109 @@ export function prIn(r: PrRowItem, f: Filter): boolean {
     default:
       return false;
   }
+}
+
+/** What the sidebar narrows a view to beside its statuses: Sessions to agents (accounts), PRs to
+ *  repos and their labels, Todo and Kanban to todos' labels. Each takes any number of picks, none
+ *  showing everything; a row shows when it has any of a facet's picks and every facet holds. */
+export type FacetId = 'agents' | 'repos' | 'prLabels' | 'labels';
+export type Facets = Partial<Record<FacetId, readonly string[]>>;
+
+export const FACET_WORD: Record<FacetId, string> = { agents: 'Agents', repos: 'Repos', prLabels: 'Labels', labels: 'Labels' };
+
+/** The facets the sidebar offers in each view. */
+export function facetsIn(view: string): FacetId[] {
+  return view === 'sessions' ? ['agents'] : view === 'prs' ? ['repos', 'prLabels'] : view === 'todo' || view === 'kanban' ? ['labels'] : [];
+}
+
+/** One pick a facet offers, with how many of the view's rows it would show. */
+export interface FacetOption {
+  id: string;
+  label: string;
+  count: number;
+  /** A PR label's color on GitHub (six hex digits), or a todo label's. */
+  color?: string;
+  title?: string;
+}
+
+const holds = (picks: readonly string[] | undefined, has: (pick: string) => boolean) => !picks?.length || picks.some(has);
+
+/** Picks one, or unpicks it. */
+export function togglePick(f: Facets, id: FacetId, pick: string): Facets {
+  const picks = f[id] ?? [];
+  return { ...f, [id]: picks.includes(pick) ? picks.filter((p) => p !== pick) : [...picks, pick] };
+}
+
+/** Only this one, or everything again when it's the only one picked: a chip's double-click on a
+ *  row (a repo's, a label's). */
+export function onlyPick(f: Facets, id: FacetId, pick: string): Facets {
+  const picks = f[id] ?? [];
+  return { ...f, [id]: picks.length === 1 && picks[0] === pick ? [] : [pick] };
+}
+
+/** The facets with picks, among the ones `view` offers. */
+export function facetsOn(f: Facets, view: string): FacetId[] {
+  return facetsIn(view).filter((id) => (f[id]?.length ?? 0) > 0);
+}
+
+export function sessionInFacets(r: SessionItem, f: Facets): boolean {
+  return holds(f.agents, (a) => r.session.account === a);
+}
+
+export function prInFacets(r: PrRowItem, f: Facets): boolean {
+  return holds(f.repos, (slug) => r.pr.repoSlug === slug) && holds(f.prLabels, (name) => (r.pr.labels ?? []).some((l) => l.name === name));
+}
+
+export function todoInFacets(r: TodoItem, f: Facets): boolean {
+  return holds(f.labels, (id) => r.todo.labels.includes(id));
+}
+
+/** Each pick's count, the most first, then by name; a pick with none left is still offered while
+ *  it's picked, so it can be unpicked. */
+function optionsOf<T>(rows: T[], keys: (r: T) => string[], picked: readonly string[] | undefined, label: (id: string) => Omit<FacetOption, 'id' | 'count'>): FacetOption[] {
+  const counts = new Map<string, number>();
+  for (const r of rows) for (const k of new Set(keys(r))) counts.set(k, (counts.get(k) ?? 0) + 1);
+  for (const p of picked ?? []) if (!counts.has(p)) counts.set(p, 0);
+  return [...counts]
+    .map(([id, count]) => ({ id, count, ...label(id) }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+/** Sessions' agents: each account with how many of `rows` it has. */
+export function agentOptions(rows: SessionItem[], f: Facets): FacetOption[] {
+  return optionsOf(rows, (r) => [r.session.account], f.agents, (id) => ({ label: id }));
+}
+
+/** PRs' repos and labels, each counting the open PRs among `rows` that the other facet lets through. */
+export function prFacetOptions(rows: PrRowItem[], f: Facets): { repos: FacetOption[]; prLabels: FacetOption[] } {
+  const open = rows.filter((r) => prIsOpen(r.pr));
+  const names = new Map(open.map((r) => [r.pr.repoSlug, r.pr.repo]));
+  const labels = new Map(open.flatMap((r) => (r.pr.labels ?? []).map((l) => [l.name, l] as const)));
+  return {
+    repos: optionsOf(
+      open.filter((r) => prInFacets(r, { ...f, repos: [] })),
+      (r) => [r.pr.repoSlug],
+      f.repos,
+      (slug) => ({ label: names.get(slug) ?? slug.split('/').pop() ?? slug, title: slug }),
+    ),
+    prLabels: optionsOf(
+      open.filter((r) => prInFacets(r, { ...f, prLabels: [] })),
+      (r) => (r.pr.labels ?? []).map((l) => l.name),
+      f.prLabels,
+      (name) => ({ label: name, color: labels.get(name)?.color, title: labels.get(name)?.description }),
+    ),
+  };
+}
+
+/** Todos' labels, in your labels' order, each counting the open todos among `rows` that have it.
+ *  One picked that's since been deleted (in another window, say) is still offered, so it can be
+ *  unpicked. */
+export function todoLabelOptions(rows: TodoItem[], labels: Label[], f: Facets): FacetOption[] {
+  const counts = new Map<string, number>();
+  for (const r of rows) if (r.todo.status !== 'done') for (const id of r.todo.labels) counts.set(id, (counts.get(id) ?? 0) + 1);
+  const known = labels.filter((l) => counts.has(l.id) || f.labels?.includes(l.id)).map((l) => ({ id: l.id, label: l.name, count: counts.get(l.id) ?? 0, color: l.color }));
+  const gone = (f.labels ?? []).filter((id) => !labels.some((l) => l.id === id)).map((id) => ({ id, label: 'Deleted label', count: 0 }));
+  return [...known, ...gone];
 }
 
 const UNARCHIVED: LaneCopies = new WeakMap();
@@ -669,12 +772,15 @@ export interface ListsInput {
   lanePins: Pins;
   prPins: Pins;
   sessionSort: SessionSort;
+  prSort: PrSort;
+  todoSort: TodoSort;
   showParked: boolean;
   showArchived: boolean;
   showDonePrs: boolean;
   todos: Todo[];
   labels: Label[];
-  labelFilter: string | null;
+  /** What the sidebar narrows each view to beside its statuses (`Facets`). */
+  facets: Facets;
   showDoneTodos: boolean;
   /** The Kanban view's Done column is open. */
   showDoneCards: boolean;
@@ -682,7 +788,7 @@ export interface ListsInput {
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, showParked, showArchived, showDonePrs, todos, labels, labelFilter, showDoneTodos, showDoneCards } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, prSort, todoSort, showParked, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, showDoneCards } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
@@ -694,7 +800,8 @@ export function useBoardLists(input: ListsInput) {
   const deviceWorking = useMemo(() => deviceCountsOf(withDevices(board?.lanes ?? [], deviceLanes, []), devices?.devices ?? [], workingOn), [board?.lanes, deviceLanes, devices?.devices]);
   const lanes = useMemo(() => unarchived(rawLanes), [rawLanes]);
   const projectLanes = useMemo(() => lanes.filter((l) => inProject(l, current)), [lanes, current]);
-  const archivedItems = useMemo(() => archivedIn(rawLanes, current, query, said), [rawLanes, current, query, said]);
+  // Archived sessions are narrowed to the agents picked, as the rest are.
+  const archivedItems = useMemo(() => archivedIn(rawLanes, current, query, said).filter((r) => sessionInFacets(r, facets)), [rawLanes, current, query, said, facets]);
   // Worktrees active since the cutoff and pinned ones, each showing only its sessions active
   // since then.
   const recentLanes = useMemo(() => filterByAge(projectLanes, cutoff, lanePins.set, since), [projectLanes, cutoff, lanePins.set, since]);
@@ -702,7 +809,11 @@ export function useBoardLists(input: ListsInput) {
   // The Sessions view: each session once, in the worktree it runs in, pinned ones first.
   const sessionItems = useMemo(() => sessionItemsOf(projectLanes), [projectLanes]);
   // Helpers under the sessions that started them, or out of sight while they don't need you.
-  const shownSessions = useMemo(() => placeHelpers(shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter, said), !!query, helpersShown, sessionItems), [sessionItems, cutoff, sessionPins.set, query, filter, said, helpersShown]);
+  // The agents a session runs on narrow it after the rest, so each agent's count is of what it
+  // would show.
+  const listedSessions = useMemo(() => placeHelpers(shownSessionsOf(sessionItems, cutoff, sessionPins.set, query, filter, said), !!query, helpersShown, sessionItems), [sessionItems, cutoff, sessionPins.set, query, filter, said, helpersShown]);
+  const shownSessions = useMemo(() => (facets.agents?.length ? listedSessions.filter((r) => sessionInFacets(r, facets)) : listedSessions), [listedSessions, facets]);
+  const agents = useMemo(() => agentOptions(listedSessions, facets), [listedSessions, facets]);
   // A session found only by what was said in it shows the line that has the words.
   const saidLines = useMemo(() => saidLinesOf([...sessionItems, ...archivedItems], query, said), [sessionItems, archivedItems, query, said]);
   const saidOf = useCallback((k: string) => saidLines.get(k), [saidLines]);
@@ -752,10 +863,12 @@ export function useBoardLists(input: ListsInput) {
   const laneById = useMemo(() => new Map(lanes.map((l) => [l.id, l])), [lanes]);
   const prRow = useCallback((pr: PrItem): PrRowItem => prRowOf(pr, laneById, sessionIndex), [laneById, sessionIndex]);
   const projectPrs = useMemo(() => (board?.prs ?? []).filter((p) => current === ALL_PROJECTS || p.project === current), [board?.prs, current]);
-  const prRows = useMemo(() => prRowsOf(projectPrs, cutoff, prPins.set, query, filter, laneById, sessionIndex, said), [projectPrs, cutoff, query, filter, laneById, sessionIndex, prPins.set, said]);
+  const listedPrs = useMemo(() => prRowsOf(projectPrs, cutoff, prPins.set, query, filter, laneById, sessionIndex, said), [projectPrs, cutoff, query, filter, laneById, sessionIndex, prPins.set, said]);
+  const prRows = useMemo(() => listedPrs.filter((r) => prInFacets(r, facets)), [listedPrs, facets]);
+  const prFacets = useMemo(() => prFacetOptions(listedPrs, facets), [listedPrs, facets]);
   // Pinned PRs lead the PRs view in your order, whatever their age, and leave its sections.
   const pinnedPrRows = useMemo(() => inPinOrder(prRows, prPins.keys, (r) => r.pr.key), [prRows, prPins.keys]);
-  const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key))), [prRows, prPins.set]);
+  const prSecs = useMemo(() => prSections(prRows.filter((r) => !prPins.set.has(r.pr.key)), prSort, now), [prRows, prPins.set, prSort, now]);
   const prVisible = useMemo<ListRow[]>(() => [...pinnedPrRows, ...prSecs.flatMap((s) => (s.id === 'done' && !showDonePrs ? [] : s.rows))], [pinnedPrRows, prSecs, showDonePrs]);
   const openPrCount = useMemo(() => projectPrs.filter((p) => prIsOpen(p) && p.updatedAt >= cutoff).length, [projectPrs, cutoff]);
   const requestedCount = useMemo(() => projectPrs.filter(waitsOnReview).length, [projectPrs]);
@@ -767,8 +880,10 @@ export function useBoardLists(input: ListsInput) {
   const labelById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
   const projectTodos = useMemo(() => todos.filter((t) => current === ALL_PROJECTS || t.project === current), [todos, current]);
   const todoItems = useMemo(() => projectTodos.map((t) => todoItem(t, laneById, homes, labelById)), [projectTodos, laneById, homes, labelById]);
-  const todoRows = useMemo(() => todoItems.filter((r) => todoInQuery(r, query, said) && todoInFilter(r, filter) && (!labelFilter || r.todo.labels.includes(labelFilter))), [todoItems, query, said, filter, labelFilter]);
-  const todoSecs = useMemo(() => todoSections(todoRows, todos), [todoRows, todos]);
+  const listedTodos = useMemo(() => todoItems.filter((r) => todoInQuery(r, query, said) && todoInFilter(r, filter)), [todoItems, query, said, filter]);
+  const todoRows = useMemo(() => listedTodos.filter((r) => todoInFacets(r, facets)), [listedTodos, facets]);
+  const todoLabels = useMemo(() => todoLabelOptions(listedTodos, labels, facets), [listedTodos, labels, facets]);
+  const todoSecs = useMemo(() => todoSections(todoRows, todos, todoSort, now), [todoRows, todos, todoSort, now]);
   const todoVisible = useMemo<ListRow[]>(() => todoSecs.flatMap((s) => (s.id === 'done' && !showDoneTodos ? [] : s.rows)), [todoSecs, showDoneTodos]);
   const openTodoCount = useMemo(() => projectTodos.filter((t) => t.status !== 'done').length, [projectTodos]);
   // Which todos each session and worktree is on, for their chips.
@@ -780,13 +895,15 @@ export function useBoardLists(input: ListsInput) {
 
   // The Kanban view: the todos listed, and the sessions listed that no open todo's card shows,
   // in columns by how far their work has got. Sessions have no labels, so a label shows only todos.
-  const cardSessions = useMemo(() => (labelFilter ? [] : shownSessionsOf(sessionItems, cutoff, NO_PINS, query, filter, said)), [labelFilter, sessionItems, cutoff, query, filter, said]);
+  const labelled = !!facets.labels?.length;
+  const cardSessions = useMemo(() => (labelled ? [] : shownSessionsOf(sessionItems, cutoff, NO_PINS, query, filter, said)), [labelled, sessionItems, cutoff, query, filter, said]);
   const doneSince = cutoff || now - DONE_SPAN;
   const kanbanCols = useMemo(() => kanbanColumns(todoRows, todos, cardSessions, board?.prs ?? [], doneSince), [todoRows, todos, cardSessions, board?.prs, doneSince]);
   const kanbanVisible = useMemo<ListRow[]>(() => kanbanCols.flatMap((c) => (c.id === 'done' && !showDoneCards ? [] : c.cards)), [kanbanCols, showDoneCards]);
   const openCardCount = useMemo(() => kanbanCols.reduce((n, c) => (c.id === 'done' ? n : n + c.cards.length), 0), [kanbanCols]);
 
-  // The sidebar's and the switcher's counts.
+  // The sidebar's and the switcher's counts, and what each facet offers.
+  const facetOptions = useMemo<Record<FacetId, FacetOption[]>>(() => ({ agents, repos: prFacets.repos, prLabels: prFacets.prLabels, labels: todoLabels }), [agents, prFacets, todoLabels]);
   const counts = useMemo(() => inboxCounts(recentLanes), [recentLanes]);
   const totalLanes = useMemo(() => lanes.filter((l) => !l.hidden).length, [lanes]);
   const actions = useMemo(() => projectActions(lanes, projects, cutoff, lanePins.set, since), [lanes, projects, cutoff, lanePins.set, since]);
@@ -826,6 +943,7 @@ export function useBoardLists(input: ListsInput) {
     githubPrs,
     homes,
     labelById,
+    facetOptions,
     projectTodos,
     todoItems,
     todoSecs,

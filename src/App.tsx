@@ -23,7 +23,7 @@ import { reuse } from './reuse';
 import { usePins } from './pins';
 import { reviewItems as reviewItemsFor, tryAgain } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
-import { itemPrimaryHolds, todoAgent, todoInFilter, todoPrompt, useTodoStore, type TodoItem } from './todos';
+import { itemPrimaryHolds, statusSection, todoAgent, todoInFilter, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
 import { repoReviews } from './repoSettings';
 import type { DevicesView, Lane, Pr, PrItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
@@ -44,11 +44,11 @@ import { useLogo } from './logo';
 import { usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
-import { PR_ROWS, PrsView, type PrRowItem } from './ui/PrsView';
+import { PR_ROWS, PR_SORTS, PrsView, type PrRowItem, type PrSort } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
 import { SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionItem, type SessionSort } from './ui/SessionsView';
-import { ListBar, ListFind, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
-import { TODO_ROWS, TodoComposer, TodoView } from './ui/TodoView';
+import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
+import { TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { KanbanView } from './ui/KanbanView';
 import { applyKanbanDrop, kanbanStep, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
@@ -81,7 +81,7 @@ import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingChain, ageListingPr, chainOf, laneInQuery, prInDone, prInFilter, prInQuery, revealing, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, toggleShown, useBoardLists } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, revealing, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { improveTitle } from './improve';
@@ -108,6 +108,8 @@ const DISMISSED_KEY = 'codealong.dismissedNotices';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
 const SESSION_ROWS_KEY = 'codealong.sessionRows';
 const PR_ROWS_KEY = 'codealong.prRows';
+const PR_SORT_KEY = 'codealong.prSort';
+const TODO_SORT_KEY = 'codealong.todoSort';
 const TODO_ROWS_KEY = 'codealong.todoRows';
 const SIDEBAR_WIDTH_KEY = 'codealong.sidebarWidth';
 const SIDEBAR_COLLAPSED_KEY = 'codealong.sidebarCollapsed';
@@ -121,6 +123,7 @@ const HELPERS_SHOWN_KEY = 'codealong.helpersShown';
 // Each window has its own way back.
 const HISTORY_KEY = WINDOW_PROJECT ? `codealong.sessionHistory:${WINDOW_PROJECT}` : 'codealong.sessionHistory';
 const DAY = 24 * 60 * 60 * 1000;
+const NO_PICKS: readonly string[] = [];
 /** How long Sessions waits for a moved session's copy to be listed before letting it go: the
  *  minute its card on the desktop waits too (lib.rs `move_session`). */
 const COPY_WAIT_MS = 60_000;
@@ -183,6 +186,8 @@ function domId(r: { key: string }): string {
 const VIEW_STORED = oneOf(VIEWS.map((v) => v.id));
 const AGE_STORED = oneOf(AGES.map((a) => a.id));
 const SORT_STORED = oneOf(SESSION_SORTS.map((o) => o.id));
+const PR_SORT_STORED = oneOf(PR_SORTS.map((o) => o.id));
+const TODO_SORT_STORED = oneOf(TODO_SORTS.map((o) => o.id));
 const ROWS_STORED = oneOf(SESSION_ROWS.map((o) => o.id));
 
 /** A dragged panel width for the grid's style; left out, the panel takes its default from the CSS. */
@@ -206,6 +211,14 @@ export function App() {
   // A project window keeps its choice to itself; the main window's is remembered.
   const [project, setProject] = useStored(WINDOW_PROJECT ? null : PROJECT_KEY, asText, WINDOW_PROJECT);
   const [bayFilter, setBayFilter] = useState<readonly Filter[]>([]);
+  // What else the sidebar narrows a view to: agents in Sessions, repos and labels in PRs, labels
+  // in Todo and Kanban (boardLists.ts `Facets`). Each view keeps its own while another shows.
+  const [facets, setFacets] = useState<Facets>({});
+  /** Nothing in the sidebar hides anything: for showing a row wherever it is. */
+  const clearFilters = useCallback(() => {
+    setBayFilter([]);
+    setFacets({});
+  }, []);
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   // The session shown in Sessions as you moved it (menus.ts `moving`), and its copy's key once the
@@ -369,11 +382,11 @@ export function App() {
   const pickProject = useCallback(
     (name: string) => {
       setProject(name);
-      setBayFilter([]);
+      clearFilters();
       setShowParked(false);
       setSelectedKey(null);
     },
-    [setProject],
+    [setProject, clearFilters],
   );
 
   // Pinned sessions head the Sessions view and pinned worktrees the Worktrees view, each in
@@ -383,6 +396,9 @@ export function App() {
   const prPins = usePins(board?.pinnedPrs, setPinnedPrs, setToast);
   // How Sessions orders the sessions that aren't pinned: by status, or the newest start first.
   const [sessionSort, setSessionSort] = useStored<SessionSort>(SESSION_SORT_KEY, SORT_STORED, 'status');
+  // How PRs and Todo order what isn't pinned or done: by status, or the newest opened or added first.
+  const [prSort, setPrSort] = useStored<PrSort>(PR_SORT_KEY, PR_SORT_STORED, 'status');
+  const [todoSort, setTodoSort] = useStored<TodoSort>(TODO_SORT_KEY, TODO_SORT_STORED, 'status');
   // How much each row says in Sessions, PRs and Todo, each as you left it: two lines, or one.
   const [sessionLines, setSessionLines] = useStored<RowLines>(SESSION_ROWS_KEY, ROWS_STORED, 'one');
   const [prLines, setPrLines] = useStored<RowLines>(PR_ROWS_KEY, ROWS_STORED, 'one');
@@ -398,7 +414,6 @@ export function App() {
   // until the engine's board shows them.
   const todoStore = useTodoStore(board, setToast);
   const [showDoneTodos, setShowDoneTodos] = useState(false);
-  const [labelFilter, setLabelFilter] = useState<string | null>(null);
   // The Kanban view's Done column, folded to a rail until you open it.
   const [showDoneCards, setShowDoneCards] = useState(false);
 
@@ -440,6 +455,7 @@ export function App() {
     githubPrs,
     homes,
     labelById,
+    facetOptions,
     projectTodos,
     todoItems,
     todoSecs,
@@ -475,12 +491,14 @@ export function App() {
     lanePins,
     prPins,
     sessionSort,
+    prSort,
+    todoSort,
     showParked,
     showArchived,
     showDonePrs,
     todos: todoStore.todos,
     labels: todoStore.labels,
-    labelFilter,
+    facets,
     showDoneTodos,
     showDoneCards,
   });
@@ -575,9 +593,9 @@ export function App() {
     [saidOf, query, revealFind],
   );
   // The runs of todos listed in your order, which ⌃⌘↑ ⌃⌘↓ move one within: the Todo view's open
-  // sections, the Kanban view's To do.
+  // sections while it's sorted by status, the Kanban view's To do.
   const todoRuns = useMemo(
-    () => (view === 'kanban' ? [(kanbanCols.find((c) => c.id === 'todo')?.cards ?? []).filter((c): c is TodoItem => c.kind === 'todo')] : todoSecs.filter((s) => s.id !== 'done').map((s) => s.rows)),
+    () => (view === 'kanban' ? [(kanbanCols.find((c) => c.id === 'todo')?.cards ?? []).filter((c): c is TodoItem => c.kind === 'todo')] : todoSecs.filter((s) => s.id !== 'done' && statusSection(s.id)).map((s) => s.rows)),
     [view, kanbanCols, todoSecs],
   );
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
@@ -621,8 +639,8 @@ export function App() {
     laneById,
     lanePins,
     selectedLane,
-    labelFilter,
-    setLabelFilter,
+    labelPicks: facets.labels ?? NO_PICKS,
+    unpickLabel: (id) => setFacets((f) => ({ ...f, labels: (f.labels ?? []).filter((x) => x !== id) })),
     setShowDoneTodos,
     report,
     setToast,
@@ -633,7 +651,7 @@ export function App() {
     pickProject,
     setView,
     listsTodos: view === 'todo' || view === 'kanban',
-    setBayFilter,
+    clearFilters,
     setQuery,
     onDesktop,
     canvasItem,
@@ -715,7 +733,7 @@ export function App() {
     if (r.kind === 'canvas') {
       if (current !== r.project) pickProject(r.project);
       setQuery('');
-      setBayFilter([]);
+      clearFilters();
       setDrill(null);
       setView('canvas');
       if (r.focus?.length) setCanvasFocus((f) => ({ ids: r.focus ?? [], n: (f?.n ?? 0) + 1 }));
@@ -748,14 +766,14 @@ export function App() {
       // Its row in the Archived fold, opened, with its conversation in the panel; the age
       // filter doesn't apply there.
       setView('sessions');
-      setBayFilter([]);
+      clearFilters();
       setShowArchived(true);
       setSelectedKey(`${archivedLane.id}::${archived.key}`);
     } else if (lane && session) {
       // Its own row in Sessions, with its conversation in the panel, whichever view was showing:
       // the board would only show its line on its worktree's row.
       setView('sessions');
-      setBayFilter([]);
+      clearFilters();
       // One older than the age filter lets through: the filter widens as far as it, as for a PR,
       // and as far as the sessions a helper or a run is listed under. A finished helper, or a run
       // its session's row only counts, is listed under its session.
@@ -767,7 +785,7 @@ export function App() {
       setSelectedKey(`${lane.id}::${session.key}`);
     } else if (pr) {
       setView('prs');
-      setBayFilter([]);
+      clearFilters();
       if (prInDone(pr, prPins.set)) setShowDonePrs(true);
       // One older than the age filter lets through: the filter widens as far as it.
       const wider = ageListingPr(pr, prPins.set, AGES, age, Date.now());
@@ -1185,10 +1203,16 @@ export function App() {
     showSide(key, side);
     focusBox();
   };
+  /** A helper shown from its session's chip runs on an account Agents may leave out: then it
+   *  shows them all, as showing a row from elsewhere clears what would hide it. */
+  const unhide = (r: SessionItem) => {
+    if (!sessionInFacets(r, facets)) setFacets((f) => ({ ...f, agents: [] }));
+  };
   const helperActions: HelperActions = {
     show: (key) => {
       const r = helperRow(key);
       if (!r) return;
+      unhide(r);
       setHelpersShownList((prev) => showingHelper(prev, sessionRows, r, sessionItemsOf(lanes)));
       picks.sessions.select(r, 'one');
       focusBox();
@@ -1196,6 +1220,7 @@ export function App() {
     open: (key) => {
       const r = helperRow(key);
       if (!r) return;
+      unhide(r);
       setHelpersShownList((prev) => showingHelper(prev, sessionRows, r, sessionItemsOf(lanes)));
       openRow(r);
     },
@@ -1269,7 +1294,7 @@ export function App() {
       return;
     }
     setView('worktrees');
-    setBayFilter([]);
+    clearFilters();
     if (lane.parked) setShowParked(true);
     // Its own panel, though its row was selected already, with a PR in that panel's place.
     setDrill(null);
@@ -1545,13 +1570,16 @@ export function App() {
     { id: 'work', label: 'PR needs work', glyph: 'error', count: counts.work, tone: 'alert', title: 'Open PRs with failing checks or changes requested' },
   ];
   const ageApplies = view !== 'todo' && view !== 'canvas';
-  const shownLabel = (view === 'todo' || view === 'kanban') && labelFilter ? (labelById.get(labelFilter) ?? null) : null;
+  // The facets the view offers, and the picks among them that narrow it now, by their names.
+  const sideFacets = facetsIn(view).map((id) => ({ id, label: FACET_WORD[id], options: facetOptions[id], picked: facets[id] ?? NO_PICKS }));
+  const facetsNow = Object.fromEntries(facetsOn(facets, view).map((id) => [id, facets[id]])) as Facets;
+  const pickNames = sideFacets.flatMap((f) => f.picked.map((p) => f.options.find((o) => o.id === p)?.label ?? p));
   const sideFilters = [
     ageApplies && age !== 'all' ? (AGES.find((a) => a.id === age)?.title.replace(/^Active in the /, '') ?? age) : null,
     ...bayFilter.map((f) => sideStatuses.find((x) => x.id === f)?.label ?? f),
-    shownLabel ? `label ${shownLabel.name}` : null,
+    ...pickNames,
   ].filter((x): x is string => !!x);
-  const viewNow: ViewState = { view, project: current, device: deviceFilter, age, filter: bayFilter };
+  const viewNow: ViewState = { view, project: current, device: deviceFilter, age, filter: bayFilter, facets: facetsNow };
   const savedOn = savedViews.find((v) => sameView(v, viewNow))?.id ?? null;
   const deviceName = (id: string) => (id === 'here' ? devices?.me.name || 'This device' : (devices?.devices.find((d) => d.short === id)?.name ?? null));
   const either = (words: (string | null | undefined)[]) => words.filter(Boolean).join(' + ') || null;
@@ -1560,6 +1588,7 @@ export function App() {
     current === ALL_PROJECTS ? null : current,
     either(deviceFilter.map(deviceName)),
     either(bayFilter.map((f) => sideStatuses.find((x) => x.id === f)?.label)),
+    either(pickNames),
     ageApplies && age !== 'all' ? AGES.find((a) => a.id === age)?.label : null,
   ]);
   const applySaved = (v: SavedView) => {
@@ -1571,6 +1600,7 @@ export function App() {
     const a = AGES.find((x) => x.id === v.age);
     if (a) setAge(a.id);
     setBayFilter(v.filter);
+    setFacets({ ...v.facets, labels: v.facets?.labels?.filter((id) => labelById.has(id)) });
   };
   const savedMenu = (v: SavedView) =>
     void showContextMenu([
@@ -1721,8 +1751,9 @@ export function App() {
           filter={bayFilter}
           onFilter={toggleBay}
           onClearFilters={() => setBayFilter([])}
-          label={shownLabel}
-          onClearLabel={() => setLabelFilter(null)}
+          facets={sideFacets}
+          onFacet={(id, pick) => setFacets((f) => togglePick(f, id, pick))}
+          onClearFacet={(id) => setFacets((f) => ({ ...f, [id]: [] }))}
           saved={savedViews}
           savedOn={savedOn}
           onApplySaved={applySaved}
@@ -1751,11 +1782,13 @@ export function App() {
               {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
               {view === 'prs' && (
                 <ListTools label="How PRs are listed">
+                  <ListSeg label="Sort by" options={PR_SORTS} value={prSort} onPick={setPrSort} />
                   <RowsSeg options={PR_ROWS} value={prLines} onPick={setPrLines} />
                 </ListTools>
               )}
               {view === 'todo' && (
                 <ListTools label="How Todo is listed">
+                  <ListSeg label="Sort by" options={TODO_SORTS} value={todoSort} onPick={setTodoSort} />
                   <RowsSeg options={TODO_ROWS} value={todoLines} onPick={setTodoLines} />
                 </ListTools>
               )}
@@ -1804,7 +1837,7 @@ export function App() {
             <div className="ca-board-empty">
               {query
                 ? `No sessions in ${current} match “${query}”${textSearch.building ? ' yet: Codealong is still reading what recent sessions said' : ''}.`
-                : bayFilter.length > 0
+                : bayFilter.length > 0 || facetsOn(facets, view).length > 0
                   ? 'No sessions here right now.'
                   : cutoff > 0
                     ? `No sessions ${AGES.find((a) => a.id === age)?.title.toLowerCase()}.`
@@ -1901,13 +1934,14 @@ export function App() {
               <TodoView
                 sections={todoSecs}
                 todos={todoStore.todos}
+                sort={todoSort}
                 lines={todoLines}
                 now={now}
                 selectedKey={selected?.key ?? null}
                 picked={pickedKeys}
                 domId={domId}
                 showProject={current === ALL_PROJECTS}
-                canReorder
+                canReorder={todoSort === 'status'}
                 onSelect={(r, how) => {
                   pressRow(r.key, how);
                   selectTodoRow(r, how);
@@ -1928,7 +1962,7 @@ export function App() {
                 onOpenSession={(lane, session) => open(lane, session.openTarget)}
                 onShowPr={(p, r) => showPrOf(p, { key: r.key, select: () => selectTodoRow(r, 'one') })}
                 onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
-                onFilterLabel={(l) => setLabelFilter(labelFilter === l.id ? null : l.id)}
+                onFilterLabel={(l) => setFacets((f) => onlyPick(f, 'labels', l.id))}
                 onMove={moveTodo}
                 hints={board.jev?.todos ? board.todoHints : undefined}
                 showDone={showDoneTodos}
@@ -1949,6 +1983,8 @@ export function App() {
                 onPlacePinned={(key, index) => prPins.place(pinnedPrRows.map((r) => r.pr.key), key, index)}
                 onUnpin={prPins.remove}
                 sections={prSecs}
+                sort={prSort}
+                onShowRepo={(slug) => setFacets((f) => onlyPick(f, 'repos', slug))}
                 lines={prLines}
                 now={now}
                 selectedKey={selected?.key ?? null}

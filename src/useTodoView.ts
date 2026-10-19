@@ -8,7 +8,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ListRow } from './boardLists';
 import { showContextMenu, type MenuSpec } from './contextMenu';
-import { type Filter } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
 import { nextAfter, usePicks } from './picks';
@@ -41,8 +40,10 @@ export interface TodoViewInput {
   laneById: Map<string, Lane>;
   lanePins: Pins;
   selectedLane: Lane | null;
-  labelFilter: string | null;
-  setLabelFilter: (id: string | null) => void;
+  /** The labels Todo and Kanban are narrowed to (boardLists.ts `Facets`). */
+  labelPicks: readonly string[];
+  /** Unpicks a label, as when it's deleted. */
+  unpickLabel: (id: string) => void;
   setShowDoneTodos: (show: boolean) => void;
   report: Report;
   setToast: (message: string | null) => void;
@@ -54,7 +55,8 @@ export interface TodoViewInput {
   setView: (view: 'todo') => void;
   /** The views whose rows are todos, or have them among them. */
   listsTodos: boolean;
-  setBayFilter: (filter: readonly Filter[]) => void;
+  /** Clears the sidebar's statuses and every view's facets: nothing hides what's shown. */
+  clearFilters: () => void;
   setQuery: (query: string) => void;
   onDesktop: ReadonlySet<string>;
   /** Add to canvas, or Show on canvas, for a todo's menu. */
@@ -62,7 +64,7 @@ export interface TodoViewInput {
 }
 
 export function useTodoView(input: TodoViewInput) {
-  const { store: todoStore, selected, setSelectedKey, visible, todoVisible, todoSecs, ordered, current, projects, lanes, laneById, lanePins, selectedLane, labelFilter, setLabelFilter, setShowDoneTodos, report, setToast, setTodoUndo, newSession, open, pickProject, setView, listsTodos, setBayFilter, setQuery, onDesktop, canvasItem } = input;
+  const { store: todoStore, selected, setSelectedKey, visible, todoVisible, todoSecs, ordered, current, projects, lanes, laneById, lanePins, selectedLane, labelPicks, unpickLabel, setShowDoneTodos, report, setToast, setTodoUndo, newSession, open, pickProject, setView, listsTodos, clearFilters, setQuery, onDesktop, canvasItem } = input;
   const runTodo = todoStore.run;
   // The todo whose panel should open its due date's picker, for Pick a date… and D.
   const [duePick, setDuePick] = useState<string | null>(null);
@@ -104,8 +106,7 @@ export function useTodoView(input: TodoViewInput) {
     const home = t.project && projects.some((p) => p.name === t.project) ? t.project : ALL_PROJECTS;
     if (current !== ALL_PROJECTS && current !== home) pickProject(home);
     setView('todo');
-    setBayFilter([]);
-    setLabelFilter(null);
+    clearFilters();
     setQuery('');
     if (t.status === 'done') setShowDoneTodos(true);
     setSelectedKey(`todo:${t.id}`);
@@ -121,8 +122,8 @@ export function useTodoView(input: TodoViewInput) {
         project,
         worktrees: context?.worktree ? [context.worktree] : [],
         sessions: context?.session ? [context.session] : [],
-        // Made while a label filter is on, it takes the label, so it stays in view.
-        labels: labelFilter ? [labelFilter] : [],
+        // Made while labels narrow the list, it takes the first of them, so it stays in view.
+        labels: labelPicks.slice(0, 1),
       },
       Date.now(),
     );
@@ -134,7 +135,7 @@ export function useTodoView(input: TodoViewInput) {
   /** Opens the Todo view with the box at the top ready for a todo linked to `context`. */
   const newTodoFrom = (context: ComposerContext, title = '') => {
     setView('todo');
-    setBayFilter([]);
+    clearFilters();
     setComposer({ text: title, context });
     setComposerFocus((n) => n + 1);
   };
@@ -192,7 +193,7 @@ export function useTodoView(input: TodoViewInput) {
   const deleteLabel = (label: Label) => {
     const at = todoStore.labels.findIndex((l) => l.id === label.id);
     runTodo({ op: 'labels', labels: todoStore.labels.filter((l) => l.id !== label.id) });
-    if (labelFilter === label.id) setLabelFilter(null);
+    unpickLabel(label.id);
     setTodoUndo({
       message: `Deleted the label “${label.name}”.`,
       undo: () => {

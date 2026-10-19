@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { todoOp } from './api';
+import { byDay, newestFirst, type DayId } from './days';
 import { liveOrLatest, prNeedsWork, type Placed } from './lanes';
 import type { Attachment, Board, Label, LabelColor, Lane, Pr, Session, Todo, TodoReview, TodoStatus, TodoSuggested, Waiting } from './types';
 import { LABEL_COLORS } from './types';
@@ -475,15 +476,21 @@ export function prInReview(item: TodoItem): boolean {
   return state === 'open' || state === 'approved' || state === 'changes' || state === 'merged';
 }
 
+/** How the Todo view orders the todos that aren't done: by status, each section in your order, or
+ *  the newest added first. */
+export type TodoSort = 'status' | 'added';
+
 export interface TodoSection {
-  id: TodoSectionId;
+  /** A status's section, or, sorted by when they were added, a day's. */
+  id: TodoSectionId | DayId;
   label: string;
   rows: TodoItem[];
 }
 
-/** In progress, In review, Ready and Waiting in your order, then Done, the latest first. `todos`
- *  is every todo, in any project: what a todo waits on can be anywhere. */
-export function todoSections(items: TodoItem[], todos: Todo[]): TodoSection[] {
+/** By status: In progress, In review, Ready and Waiting in your order. By when added: the todos
+ *  that aren't done under the day each was added, the newest first. Either way Done comes last,
+ *  the latest first. `todos` is every todo, in any project: what a todo waits on can be anywhere. */
+export function todoSections(items: TodoItem[], todos: Todo[], sort: TodoSort = 'status', now = Date.now()): TodoSection[] {
   const rows = new Map<TodoSectionId, TodoItem[]>([
     ['in-progress', []],
     ['review', []],
@@ -493,7 +500,22 @@ export function todoSections(items: TodoItem[], todos: Todo[]): TodoSection[] {
   ]);
   for (const r of items) rows.get(itemSection(r, todos))?.push(r);
   rows.get('done')?.sort((a, b) => (b.todo.doneAt ?? b.todo.updatedAt) - (a.todo.doneAt ?? a.todo.updatedAt));
+  const done: TodoSection = { id: 'done', label: SECTION_WORD.done, rows: rows.get('done') ?? [] };
+  if (sort === 'added') {
+    const isDone = new Set(done.rows);
+    const open = newestFirst(
+      items.filter((r) => !isDone.has(r)),
+      (r) => r.todo.createdAt,
+      (r) => r.key,
+    );
+    return [...byDay(open, (r) => r.todo.createdAt, now), done].filter((s) => s.rows.length > 0);
+  }
   return [...rows].filter(([, list]) => list.length > 0).map(([id, list]) => ({ id, label: SECTION_WORD[id], rows: list }));
+}
+
+/** Whether a section is one of a status's, whose todos keep your order, rather than a day's. */
+export function statusSection(id: TodoSection['id']): id is TodoSectionId {
+  return id in SECTION_WORD;
 }
 
 /** The status filters, applied to a todo through its sessions and worktrees. */

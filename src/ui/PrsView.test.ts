@@ -64,4 +64,24 @@ describe('prSections', () => {
       ['done', [6]],
     ]);
   });
+
+  it('by when opened, puts the open ones under the day each was opened, the newest first, snoozed ones too', () => {
+    const now = new Date(2026, 9, 14, 12).getTime();
+    const day = (n: number) => new Date(2026, 9, 14 - n, 9).getTime();
+    const rows = [
+      row(1, { createdAt: day(3), reviewRequested: true }),
+      row(2, { createdAt: day(0) }),
+      row(3, { createdAt: day(1), reviewRequested: true, snoozedUntil: now + 1 }),
+      row(4, { createdAt: day(30) }),
+      row(5, { createdAt: day(0) + 1000, mine: true }),
+      row(6, { createdAt: day(0), state: 'merged', mergedAt: 5 }),
+    ];
+    expect(prSections(rows, 'opened', now).map((s) => [s.id, s.rows.map((r) => r.pr.number)])).toEqual([
+      ['today', [5, 2]],
+      ['yesterday', [3]],
+      ['week', [1]],
+      ['older', [4]],
+      ['done', [6]],
+    ]);
+  });
 });

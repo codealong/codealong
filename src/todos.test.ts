@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, prInReview, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoItem, todoPr, todoPrompt, todosPrompt, todoSections, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, prInReview, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoItem, todoPr, todoPrompt, todosPrompt, todoSections, statusSection, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import type { Label, Lane, Session, Todo } from './types';
@@ -157,6 +157,28 @@ describe('the list', () => {
     // What a todo waits on can be in another project, outside the rows shown.
     expect(todoSections([items[4]], todos).map((s) => s.id)).toEqual(['waiting']);
     expect(sectionOf(todo('k', { dependsOn: ['c'] }), [])).toBe('ready');
+  });
+
+  it('by when added, lists the todos not done under the day each was added, the newest first, then Done', () => {
+    const now = new Date(2026, 9, 14, 12).getTime();
+    const day = (n: number) => new Date(2026, 9, 14 - n, 9).getTime();
+    const todos = [
+      todo('a', { createdAt: day(2), status: 'in-progress' }),
+      todo('b', { createdAt: day(0) }),
+      todo('c', { createdAt: day(0) + 1000, waiting: { note: 'x', since: NOW } }),
+      todo('d', { createdAt: day(0), status: 'done', doneAt: NOW }),
+      todo('e', { createdAt: day(40) }),
+    ];
+    const items = todos.map((t) => todoItem(t, byId, homes, labels));
+    const sections = todoSections(items, todos, 'added', now);
+    expect(sections.map((s) => [s.id, s.rows.map((r) => r.todo.id)])).toEqual([
+      ['today', ['c', 'b']],
+      ['week', ['a']],
+      ['older', ['e']],
+      ['done', ['d']],
+    ]);
+    // Only a status's sections keep your order.
+    expect(sections.map((s) => statusSection(s.id))).toEqual([false, false, false, true]);
   });
 
   it('finds the todos on each session and worktree', () => {
