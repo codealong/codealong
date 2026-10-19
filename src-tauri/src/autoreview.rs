@@ -28,8 +28,9 @@
 //! again, once the branch has held still a few minutes (an author's pushes come in runs): it's
 //! sent the PR as it is now and what changed since the commit it last reviewed, and asked what of
 //! its findings is fixed; a session that isn't running goes on where `[reviews] start` lets it,
-//! and one that's gone, or can't go on there, is replaced by a new one. A review whose PR moved on
-//! before it was done isn't posted: the next round covers it.
+//! and one that's gone, or can't go on there, is replaced by a new one, which closes it where it
+//! still runs and isn't at work (`ask`). A review whose PR moved on before it was done isn't
+//! posted: the next round covers it.
 //!
 //! A reviewer whose turn was cut off partway (`Session::cut_off`: what ran it ended, as Codealong
 //! restarting ends the sessions it runs) is told to carry on where it runs or can go on, as
@@ -1698,8 +1699,17 @@ fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, si
         let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
         match hand(engine, board, cfg, pr, key, seat.model.as_deref(), again_prompt(pr, head, since, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files)) {
             Ok((session, pending)) => return Part::asked(&seat.who, session, pending, at),
-            // A session that can't go on is replaced by a new one.
-            Err(e) => eprintln!("codealong: {}'s review of {} starts afresh: {e}", seat.who, pr.key),
+            // A session that can't go on is replaced by a new one, and one still running but not
+            // at work is closed rather than left beside it: one waiting at what its harness asks
+            // before it starts takes nothing typed.
+            Err(e) => {
+                eprintln!("codealong: {}'s review of {} starts afresh: {e}", seat.who, pr.key);
+                if board.session(key).is_some_and(|(_, s)| s.live && s.status != Status::Working) {
+                    if let Err(e) = crate::idle::close_one(board, cfg, key) {
+                        eprintln!("codealong: {}'s old review session of {} stays open: {e:#}", seat.who, pr.key);
+                    }
+                }
+            }
         }
     }
     let spec = match new_start(board, cfg, pr, head, since, login, files, seat) {

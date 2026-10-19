@@ -43,6 +43,24 @@ export function reviewsRunIn(a: StartAccount, start: ReviewStart = 'no-terminal'
   return null;
 }
 
+/** "a", "a and b", "a, b and c". */
+function listed(names: string[]): string {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/** What a routing group named as the reviewer reviews with, as Settings says it (`where`, how
+ *  `start` reads): it picks among its accounts that can start a review there (`reviewsRunIn`),
+ *  passing over the rest without a word, so the ones that can't are named, and the ones left. */
+export function groupReviewWords(group: RoutingGroup, accounts: StartAccount[], start: ReviewStart, where: string): string {
+  const names = [...new Set(group.members.map((m) => m.account))];
+  const can = names.filter((n) => accounts.some((a) => a.name === n && reviewsRunIn(a, start)));
+  const cant = names.filter((n) => !can.includes(n));
+  const picks = `Routing group ${group.name} (${group.strategy}) picks among its accounts that can start a review ${where}`;
+  if (!cant.length) return `${picks}.`;
+  if (!can.length) return `${picks}, and none of them can: pick another reviewer, or change where reviews run.`;
+  return `${picks}: ${listed(cant)} can’t, so only ${listed(can)} review${can.length === 1 ? 's' : ''}.`;
+}
+
 /** Whether this Mac has a checkout a review of the PR can start in, as side.rs `pr_lane` picks
  *  one: a worktree that holds it, else the repo's main checkout, else any worktree of the repo.
  *  Null when it has none. */

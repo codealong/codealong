@@ -66,9 +66,29 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   (`slug`, `unslug`).
 - A command line chat is `chats/<md5 of its folder>/<id>/store.db` (`blobs`, sha256-addressed
   protobufs, and `meta`, one row `"0"` whose value is hex for JSON: `name`, `createdAt`,
-  `lastUsedModel`, `mode`…, no folder): `cursor.rs` (`read_cli_chats`, `parse_meta`). Its ACP
-  sessions are in `acp-sessions/<id>/` (`store.db` and `meta.json {cwd, title}`); Codealong
-  doesn't run it over ACP yet.
+  `lastUsedModel`, `mode`…, no folder): `cursor.rs` (`read_cli_chats`, `parse_meta`). Beside it
+  is `meta.json` (`{schemaVersion, createdAtMs, updatedAtMs, hasConversation, title, cwd,
+  isSubagent}`, 2026.08.11 to 2026.10.16), which has the folder and is written as the chat is
+  made, before the transcript: `cursor.rs` (`Sidecar`, `parse_sidecar`). Its own list of chats
+  leaves out subagents' and ones with no conversation yet. Its ACP sessions are in
+  `acp-sessions/<id>/` (`store.db` and `meta.json {cwd, title}`); Codealong doesn't run it over
+  ACP yet.
+- Two folders (2026.08.11's code): `chats` and `cli-config.json` are in
+  `CURSOR_CONFIG_DIR`, else `$XDG_CONFIG_HOME/cursor`, else `~/.cursor`; `projects` (transcripts
+  and trust) in `CURSOR_DATA_DIR`, else `~/.cursor`: `cursor.rs` (`config_dir_of`). A folder's
+  long path also gets a short records folder of its own for its worker's socket
+  (`projects/<slug cut to 84 characters>-<7 hex of its sha256>`), empty once the socket's gone.
+- Before it writes its chat the terminal UI asks, each in a box of its own, in a folder it doesn't
+  trust "Workspace Trust Required" (`a` trusts, `q` quits), for each folder it works in, one
+  `--add-dir` adds too; then, in a trusted one, "MCP Server Approval Required" for servers in the
+  workspace's `.cursor/mcp.json` not yet approved. Nothing is written while it waits there:
+  `cursor.rs` (`Chat::unwritten`), `board.rs` (`CURSOR_STARTING_MS`). Trust is a
+  `.workspace-trusted` file (`{trustedAt, workspacePath}`; `trustMethod` too from `--trust`) in
+  the folder's `projects/<slug>`, or in that of a folder above that isn't your home or one of the
+  top two: `cursor.rs` (`TRUSTED`, `trust_folder`, `Cursor::before_start`). `--trust` trusts
+  every folder it works in, in the terminal UI from 2026.08.11 (2026.07.x took it with `-p`
+  only). Started behind your windows without either, a review's `cursor-agent` sat at the trust
+  box and wrote nothing (2026-10-18; 2026.08.11 and 2026.10.16 alike, in tmux).
 - The command line's launcher runs its bundled node as the name it was run by (`exec -a`), so
   `ps` shows that name, `--use-system-ca`, the bundle's `index.js`, and the arguments; the
   version folder's `.running` holds an empty file a pid while one runs, with no chat in it:
@@ -169,9 +189,9 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
 
 ## Unchecked
 
-- Everything of the command line's on a real chat: it isn't signed in on this Mac, so its
-  `store.db`, its transcripts, its processes' arguments and `--new-session-id` were read in its
-  code only. Typing into its terminal and Escape weren't tried.
+- Typing into the command line's terminal and Escape weren't tried. Its chats, transcripts,
+  processes' arguments and `--new-session-id` were seen on real chats on 2026-10-18 (2026.08.11
+  and 2026.10.16, signed in).
 - A chat generating or waiting on a call while Codealong read it: no chat ran during the work,
   so `generating`, `hasBlockingPendingActions` and `reviewData.status: "Requested"` are as the
   code and old chats have them.
@@ -181,4 +201,4 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
 - Usage on a plan without spillover, and with an on-demand limit set: read from the app's code
   only (`usage_meters`).
 - A start or a resume with `--model <name>` (and `auto`): read from the command line's code and
-  its `models` text; it isn't signed in here.
+  its `models` text.

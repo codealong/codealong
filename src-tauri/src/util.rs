@@ -300,6 +300,13 @@ pub(crate) fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (if m <= 2 { yoe + era * 400 + 1 } else { yoe + era * 400 }, m, d)
 }
 
+/// Epoch milliseconds as JavaScript's `toISOString` writes them: `2026-10-18T23:58:12.064Z`.
+pub fn iso_utc(ms: i64) -> String {
+    let (days, ms) = (ms.div_euclid(DAY_MS), ms.rem_euclid(DAY_MS));
+    let (y, mo, d) = civil_from_days(days);
+    format!("{y:04}-{mo:02}-{d:02}T{:02}:{:02}:{:02}.{:03}Z", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
+}
+
 /// Today on this Mac's clock, as days since 1970-01-01.
 pub(crate) fn today_local() -> i64 {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as libc::time_t;
@@ -743,6 +750,9 @@ mod tests {
         assert_eq!(parse_rfc3339_ms("2026-09-23T17:32:03.758417Z"), Some(1_790_184_723_758));
         assert_eq!(parse_rfc3339_ms("2026-09-23T10:32:03-07:00"), Some(1_790_184_723_000));
         assert_eq!(parse_rfc3339_ms("nonsense"), None);
+        // And written back as JavaScript writes them.
+        assert_eq!(iso_utc(1_790_175_594_748), "2026-09-23T14:59:54.748Z");
+        assert_eq!(iso_utc(0), "1970-01-01T00:00:00.000Z");
     }
 
     /// Whatever the zone the tests run in, the time read back on the clock is the one given.

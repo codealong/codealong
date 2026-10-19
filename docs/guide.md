@@ -720,7 +720,9 @@ Codealong through the account's Agent Client Protocol adapter (Codex, OpenCode),
 can do neither (Antigravity, Cursor) doesn't review. `"codealong"` runs every reviewer in Codealong,
 Claude Code too; `"background"` goes as the account's Background does, which for Antigravity and
 Cursor is a terminal opened behind your windows; `"terminal"` opens each in your terminal, a tab
-or a window as `[apps] new_terminal` says, which comes forward. Reviews of your own PRs and Review with… go there too, in every repo. It
+or a window as `[apps] new_terminal` says, which comes forward. When the reviewer is a routing
+group, Settings names its accounts that can't review where reviews run, which the group passes
+over. Reviews of your own PRs and Review with… go there too, in every repo. It
 starts in the worktree that holds the PR's branch, else the repo's
 main checkout, and is handed the PR and its whole diff as files, each line of the diff numbered by
 its place in the file's new version (so it never stops on a permission prompt to ask `gh`, and can
@@ -759,7 +761,9 @@ the review in the session. Never a submitted review, which would settle the requ
 goes on GitHub says an agent wrote it and which commit it read. When new commits come in while the
 PR still waits on you, the same session reviews it again once the branch has held still five
 minutes, told what changed since and asked what of its findings is fixed (a session that isn't
-running goes on where `[reviews] start` lets it, else a new one starts). A review whose turn is cut
+running goes on where `[reviews] start` lets it, else a new one starts, and one that still runs
+but can't be handed the new commits, such as one waiting at what its harness asks before it
+starts, is closed). A review whose turn is cut
 off partway (see *Cut off*: Codealong restarting cuts off the reviews it runs) is told to carry on
 the same way, four times at most before its round is given up on; one you stop ends its round
 without a review. A start that couldn't reach GitHub to read the PR (the network still coming back
@@ -1469,13 +1473,19 @@ terminal on one of the models Cursor's own picker shows, Auto among them (`--mod
 default settings; turn more on in Cursor's Settings › Models and they're listed here too). It keeps
 the model it last started on as its default, which is what the account's own line starts on, and
 it signs in on its own (`cursor-agent login`), apart from the app. A running one's model, and a
-chat's in the Cursor app, are changed in Cursor. Codealong trusts the folder for the Codex CLI and `agy`
-first, as it does for Claude Code, since each stops to ask in a folder it hasn't trusted. For Codex
+chat's in the Cursor app, are changed in Cursor. Codealong trusts the folder for the Codex CLI, `agy`
+and `cursor-agent` first, as it does for Claude Code, since each stops to ask in a folder it hasn't
+trusted. For Codex
 that's an entry in the account's `config.toml` for the repo's main checkout, or for a folder in no
 repo (each chat's own); a folder Codex already has an answer for, trusted or not, is left alone.
 For `agy` it's its settings' `trustedWorkspaces`, the folder exactly as it's started in; without
 it the prompt runs behind the question with no workspace, asking before it reads each file of
-yours.
+yours. For `cursor-agent` it's a `.workspace-trusted` file in the folder's records under
+`~/.cursor/projects`, for the folder and for Codealong's folders of attachments, which a start
+adds; without it, it asks about each before it writes its chat. A `cursor-agent` that hasn't
+written its chat shows from the start all the same, and after twenty seconds as waiting on you in
+its terminal, where it asks something first (whether to trust a folder, to allow a workspace's MCP
+servers): nothing is typed into it until it starts.
 
 #### In Codealong
 

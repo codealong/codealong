@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { againFor, askAccount, askAccounts, autoReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewsRunIn, suggestWords } from './review';
+import { againFor, askAccount, askAccounts, autoReviewWords, groupReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewsRunIn, suggestWords } from './review';
 import * as fx from './testing/fixtures';
 import type { AutoReview, Lane, PrItem, StartAccount } from './types';
 
@@ -150,6 +150,17 @@ describe('reviewsRunIn', () => {
   it('opens one where Background is a terminal behind your windows, or in a window when asked', () => {
     expect(where('background')).toEqual(['in the background', 'in Codealong', 'in a terminal behind your windows']);
     expect(where('terminal')).toEqual(['in Ghostty', 'in Ghostty', 'in Ghostty']);
+  });
+  it('says which of a routing group’s accounts can’t review where reviews run, which it passes over', () => {
+    const agy = fx.startAccount({ name: 'antigravity', harness: 'antigravity', places: [ghostty, behind] });
+    const accounts = [claude, codex, cursor, agy];
+    const reviewers = { name: 'reviewers', strategy: 'round-robin', members: [{ account: 'codex' }, { account: 'cursor' }, { account: 'antigravity' }] };
+    expect(groupReviewWords(reviewers, accounts, 'no-terminal', 'without a terminal')).toBe('Routing group reviewers (round-robin) picks among its accounts that can start a review without a terminal: cursor and antigravity can’t, so only codex reviews.');
+    expect(groupReviewWords(reviewers, accounts, 'background', 'in the background')).toBe('Routing group reviewers (round-robin) picks among its accounts that can start a review in the background.');
+    // One turned off, or gone from the accounts, can't either.
+    const two = { ...reviewers, members: [{ account: 'claude' }, { account: 'codex', model: 'gpt-5.5' }, { account: 'codex' }, { account: 'gone' }] };
+    expect(groupReviewWords(two, accounts, 'no-terminal', 'without a terminal')).toBe('Routing group reviewers (round-robin) picks among its accounts that can start a review without a terminal: gone can’t, so only claude and codex review.');
+    expect(groupReviewWords({ ...reviewers, members: [{ account: 'cursor' }] }, accounts, 'codealong', 'in Codealong')).toBe('Routing group reviewers (round-robin) picks among its accounts that can start a review in Codealong, and none of them can: pick another reviewer, or change where reviews run.');
   });
   it('keeps Review with… to the accounts that can start one there', () => {
     const accounts = [claude, codex, cursor];

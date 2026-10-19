@@ -76,6 +76,37 @@ pub fn cli_installed(home: &Path) -> bool {
     crate::detect::is_executable(&home.join(".local/bin").join(CLI)) || (home == crate::util::home() && crate::detect::on_user_path(CLI))
 }
 
+/// The file in a folder's records (`projects/<slug>`) that says the command line trusts the
+/// folder. Without it there, or in the records of a folder above that isn't your home or one of
+/// the two at the top, the command line stops at "Workspace Trust Required" before it writes its
+/// chat, for each folder it works in, one `--add-dir` adds too (2026.07.09 to 2026.10.16).
+const TRUSTED: &str = ".workspace-trusted";
+
+/// Trusts `folder` for the command line of the account kept in `home`, as Trust at its prompt
+/// does: `{trustedAt, workspacePath}` in the folder's `.workspace-trusted`. By the path it's
+/// given and by its real path, which the command line goes by when it starts there (the shell's
+/// folder as the kernel has it). False when it trusts both already, and then nothing is written.
+/// Not the home folder or one above it.
+pub fn trust_folder(home: &Path, folder: &Path, user_home: &Path) -> anyhow::Result<bool> {
+    if user_home.starts_with(folder) {
+        anyhow::bail!("{} holds the home folder", folder.display());
+    }
+    let given = folder.to_string_lossy().trim_end_matches('/').to_string();
+    let real = std::fs::canonicalize(folder).ok().map(|p| p.to_string_lossy().into_owned());
+    let mut wrote = false;
+    for path in std::iter::once(given.clone()).chain(real.filter(|r| *r != given)) {
+        let records = home.join("projects").join(slug(&path));
+        if records.join(TRUSTED).exists() {
+            continue;
+        }
+        std::fs::create_dir_all(&records)?;
+        let marker = serde_json::json!({ "trustedAt": crate::util::iso_utc(crate::util::now_ms()), "workspacePath": path });
+        crate::util::write_whole(&records.join(TRUSTED), &serde_json::to_string_pretty(&marker)?)?;
+        wrote = true;
+    }
+    Ok(wrote)
+}
+
 /// A chat, the app's or the command line's.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Chat {
@@ -116,6 +147,10 @@ pub struct Chat {
     pub written: i64,
     /// It's the command line's: a `cursor-agent` process runs it, in a terminal or on its own.
     pub cli: bool,
+    /// A command line process runs it but hasn't written it yet: the command line asks what it
+    /// must (whether to trust the folder, to allow a workspace's MCP servers) before it does,
+    /// and writes none of that down.
+    pub unwritten: bool,
     /// The command line's chat folder (`chats/<hash>/<id>`), and its transcript.
     pub dir: Option<PathBuf>,
     pub transcript: Option<PathBuf>,
@@ -801,6 +836,21 @@ fn read_meta(store: &Path) -> Meta {
     db.query_row("SELECT value FROM meta WHERE key = '0'", [], |r| r.get::<_, String>(0)).map(|v| parse_meta(&v)).unwrap_or_default()
 }
 
+/// What the command line writes beside a chat's database as it makes it, `meta.json`
+/// (`{schemaVersion, createdAtMs, updatedAtMs, hasConversation, title, cwd, isSubagent}`,
+/// 2026.08.11 on): the folder it works in, which the database doesn't say, and whether it's a
+/// subagent's, which its own list of chats leaves out.
+#[derive(Debug, Default, PartialEq)]
+pub struct Sidecar {
+    pub cwd: Option<String>,
+    pub subagent: bool,
+}
+
+pub fn parse_sidecar(text: &str) -> Sidecar {
+    let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+    Sidecar { cwd: v.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty()).map(str::to_string), subagent: v.get("isSubagent").and_then(Value::as_bool) == Some(true) }
+}
+
 /// A folder's path as Cursor names the folder of its records for it under `projects`: each run
 /// of characters that aren't letters or digits one `-`.
 pub fn slug(path: &str) -> String {
@@ -846,7 +896,8 @@ fn find_transcript(home: &Path, id: &str) -> Option<PathBuf> {
 }
 
 /// The command line's chats under `home`, written to since `since_ms` or in `keep`, newest
-/// first, without their folders (`cli_cwd`).
+/// first, but not subagents': each in the folder its `meta.json` says, which an older one has
+/// none of (`cli_cwd`).
 pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec<Chat> {
     let Ok(folders) = std::fs::read_dir(home.join("chats")) else { return Vec::new() };
     let mut out = Vec::new();
@@ -865,12 +916,22 @@ pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec
             if written < since_ms && !keep.contains(&id) {
                 continue;
             }
+            let side = std::fs::read_to_string(dir.join("meta.json")).map(|t| parse_sidecar(&t)).unwrap_or_default();
+            if side.subagent {
+                continue;
+            }
             let meta = read_meta(&store);
-            out.push(Chat { id, title: meta.name, created_at: meta.created_at.unwrap_or(written), last_updated: written, model: meta.model, mode: meta.mode, approval: meta.approval, cli: true, dir: Some(dir), transcript, ..Chat::default() });
+            out.push(Chat { id, title: meta.name, cwd: side.cwd, created_at: meta.created_at.unwrap_or(written), last_updated: written, model: meta.model, mode: meta.mode, approval: meta.approval, cli: true, dir: Some(dir), transcript, ..Chat::default() });
         }
     }
     out.sort_by(|a, b| b.last_updated.cmp(&a.last_updated));
     out
+}
+
+/// A command line chat's folder under `home`, `chats/<hash>/<id>`, once its database is there.
+fn cli_chat_dir(home: &Path, id: &str) -> Option<PathBuf> {
+    let chats = std::fs::read_dir(home.join("chats")).ok()?;
+    chats.flatten().map(|f| f.path().join(id)).find(|d| d.join(STORE_DB).is_file())
 }
 
 /// The folder a command line chat works in, from where its transcript is kept: its database's
@@ -1035,15 +1096,27 @@ pub struct Process {
     pub chat: Option<String>,
     /// It's the interactive UI in a terminal, rather than a print run.
     pub terminal: bool,
+    /// The prompt it was started with, as `ps` joins its words.
+    pub prompt: Option<String>,
 }
 
-/// What a process's command line says when it's `cursor-agent` working on a chat: whether it's
-/// the interactive UI rather than a print run, and the chat it names. None for its other
-/// commands (`login`, `models`…) and for anything else. Its launcher runs its bundled node as
-/// the name it was run by (`exec -a`), so `ps` shows that name, node's options, the bundle's
-/// `index.js` and the arguments, joined with spaces: a prompt reads as words, and only the
-/// words before it matter.
-pub fn cli_args(command: &str) -> Option<(bool, Option<String>)> {
+/// What a `cursor-agent` process's arguments say (`cli_args`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Args {
+    /// It's the interactive UI rather than a print run.
+    pub interactive: bool,
+    /// The chat it names.
+    pub chat: Option<String>,
+    /// The prompt, from its first word on.
+    pub prompt: Option<String>,
+}
+
+/// What a process's command line says when it's `cursor-agent` working on a chat (`Args`). None
+/// for its other commands (`login`, `models`…) and for anything else. Its launcher runs its
+/// bundled node as the name it was run by (`exec -a`), so `ps` shows that name, node's options,
+/// the bundle's `index.js` and the arguments, joined with spaces: a prompt reads as words, and
+/// only the words before it are options.
+pub fn cli_args(command: &str) -> Option<Args> {
     let mut words = command.split_whitespace().peekable();
     let program = words.next()?;
     if !matches!(program.rsplit('/').next(), Some("cursor-agent" | "agent")) {
@@ -1052,6 +1125,7 @@ pub fn cli_args(command: &str) -> Option<(bool, Option<String>)> {
     words.by_ref().find(|w| w.ends_with("/index.js") && w.contains("/cursor-agent/"))?;
     let mut interactive = true;
     let mut chat = None;
+    let mut prompt = None;
     while let Some(w) = words.next() {
         let (flag, value) = match w.split_once('=') {
             Some((f, v)) if f.starts_with("--") => (f, Some(v.to_string())),
@@ -1067,18 +1141,36 @@ pub fn cli_args(command: &str) -> Option<(bool, Option<String>)> {
                 };
                 chat = id.filter(|id| id.len() >= 8 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')).or(chat);
             }
-            "--api-key" | "-H" | "--header" | "-e" | "--endpoint" | "--output-format" | "--mode" | "--model" | "--sandbox" | "--workspace" | "--add-dir" | "--plugin-dir" | "--worktree-base" if value.is_none() => {
+            "--api-key" | "-H" | "--header" | "-e" | "--endpoint" | "--output-format" | "--mode" | "--model" | "--sandbox" if value.is_none() => {
                 words.next();
+            }
+            // A folder with a space in its path (`Application Support`) goes on in the words
+            // after it that carry on a path.
+            "--workspace" | "--add-dir" | "--plugin-dir" | "--worktree-base" if value.is_none() => {
+                words.next();
+                while words.next_if(|n| n.contains('/') && !n.starts_with(['/', '-'])).is_some() {}
             }
             _ if flag.starts_with('-') => {}
             "acp" | "install-shell-integration" | "uninstall-shell-integration" | "login" | "logout" | "mcp" | "plugin" | "worker" | "status" | "whoami" | "models" | "bedrock" | "about" | "update" | "create-chat" | "generate-rule" | "rule" | "ls" | "help" => return None,
             // `resume` goes on with the folder's latest chat.
             "resume" | "agent" => {}
             // A prompt.
-            _ => break,
+            _ => {
+                prompt = Some(std::iter::once(w).chain(words.by_ref()).collect::<Vec<_>>().join(" "));
+                break;
+            }
         }
     }
-    Some((interactive, chat))
+    Some(Args { interactive, chat, prompt })
+}
+
+/// The folder a command line process keeps its chats in, from the environment it started with:
+/// `CURSOR_CONFIG_DIR`, else `$XDG_CONFIG_HOME/cursor`, else `~/.cursor` (2026.08.11's code).
+/// Its transcripts and the folders it trusts go by another, `CURSOR_DATA_DIR`, else `~/.cursor`.
+fn config_dir_of(pid: u32) -> PathBuf {
+    let env = procs::environment(pid).unwrap_or_default();
+    let set = |k: &str| env.get(k).map(|v| v.trim()).filter(|v| !v.is_empty()).map(PathBuf::from);
+    set("CURSOR_CONFIG_DIR").or_else(|| set("XDG_CONFIG_HOME").map(|x| x.join("cursor"))).unwrap_or_else(|| crate::util::home().join(".cursor"))
 }
 
 /// Whether a process's command line is the Cursor app's own.
@@ -1107,9 +1199,9 @@ pub fn processes(listed: &[procs::PsLine]) -> (Vec<Process>, bool) {
     let mut found = Vec::new();
     for p in listed {
         app |= is_app(&p.command);
-        if let Some((interactive, chat)) = cli_args(&p.command) {
-            let chat = chat.or_else(|| procs::open_files(p.pid).and_then(|files| held_chat(&files)));
-            found.push(Process { pid: p.pid, chat, terminal: interactive && !p.tty.starts_with('?') });
+        if let Some(args) = cli_args(&p.command) {
+            let chat = args.chat.or_else(|| procs::open_files(p.pid).and_then(|files| held_chat(&files)));
+            found.push(Process { pid: p.pid, chat, terminal: args.interactive && !p.tty.starts_with('?'), prompt: args.prompt });
         }
     }
     (found, app)
@@ -1177,7 +1269,7 @@ impl Reader {
         for mut c in read_cli_chats(&home, look.since, &keep) {
             let process = self.held(&c.id);
             // Walking the disk for its folder is done once a chat.
-            let cwd = before.get(&c.id).and_then(|old| old.cwd.clone()).or_else(|| cli_cwd(&c));
+            let cwd = c.cwd.clone().or_else(|| before.get(&c.id).and_then(|old| old.cwd.clone())).or_else(|| cli_cwd(&c));
             c.cwd = cwd.or_else(|| process.and_then(|p| procs::cwd_of(p.pid)).map(|d| d.to_string_lossy().into_owned()));
             match before.get(&c.id) {
                 Some(old) if process.is_none() && old.last_updated == c.last_updated => c.tail = old.tail.clone(),
@@ -1185,8 +1277,23 @@ impl Reader {
             }
             rows.push(c);
         }
+        // A process of the account's whose chat isn't written yet: the board knows it from the
+        // start, and shows it waiting on what the command line asks first.
+        let unwritten: Vec<Chat> = self
+            .processes
+            .iter()
+            .filter(|p| p.chat.as_deref().is_some_and(|id| !rows.iter().any(|c| c.id == id) && cli_chat_dir(&home, id).is_none()) && config_dir_of(p.pid) == home)
+            .map(|p| {
+                let started = procs::proc_start_ms(p.pid).unwrap_or(look.now);
+                let first_prompt = p.prompt.as_deref().map(|t| one_line(t, 140)).filter(|t| !t.is_empty());
+                let cwd = before.get(p.chat.as_deref().unwrap_or_default()).and_then(|old| old.cwd.clone()).or_else(|| procs::cwd_of(p.pid).map(|d| d.to_string_lossy().into_owned()));
+                Chat { id: p.chat.clone().unwrap_or_default(), cwd, created_at: started, last_updated: started, cli: true, unwritten: true, tail: Tail { first_prompt, ..Tail::default() }, ..Chat::default() }
+            })
+            .collect();
+        rows.extend(unwritten);
         rows.sort_by(|x, y| y.last_updated.cmp(&x.last_updated));
-        let added = rows.iter().any(|c| !before.contains_key(&c.id));
+        // A chat whose folder is known only now may need a lane as much as a new one.
+        let added = rows.iter().any(|c| before.get(&c.id).map_or(true, |old| old.cwd.is_none() && c.cwd.is_some()));
         self.chats.insert(a.name.clone(), rows);
         added
     }
@@ -1548,8 +1655,7 @@ pub struct Cursor;
 
 impl Cursor {
     fn chat_dir(&self, account: &AccountCfg, s: &Session) -> Option<PathBuf> {
-        let chats = std::fs::read_dir(account.home_path().join("chats")).ok()?;
-        chats.flatten().map(|f| f.path().join(&s.id)).find(|d| d.join(STORE_DB).is_file())
+        cli_chat_dir(&account.home_path(), &s.id)
     }
 
     fn transcript(&self, account: &AccountCfg, s: &Session) -> anyhow::Result<PathBuf> {
@@ -1575,6 +1681,19 @@ fn under_way(s: &Session) -> bool {
 impl crate::harness::Adapter for Cursor {
     fn harness(&self) -> Harness {
         Harness::Cursor
+    }
+
+    /// Trusts the folder for the command line (`trust_folder`), and Codealong's folders of
+    /// attachments, which a start adds (`--add-dir`): in a folder it doesn't trust, an added one
+    /// too, `cursor-agent` asks first and writes no chat until it's answered, so a review
+    /// started behind your windows waited there unseen (2026-10-18). You chose the folder, as
+    /// answering the prompt would. A start goes ahead without it, and Cursor asks.
+    fn before_start(&self, account: &AccountCfg, folder: &Path) {
+        for f in [folder.to_path_buf(), crate::attachments::images_dir(), crate::attachments::files_dir()] {
+            if let Err(e) = trust_folder(&account.home_path(), &f, &crate::util::home()) {
+                eprintln!("Couldn't trust {} for {}: {e:#}", crate::util::tilde(&f), account.name);
+            }
+        }
     }
 
     /// One account in `~/.cursor`, which the app's chats go with (`app_db`); `CURSOR_CONFIG_DIR`
@@ -1809,10 +1928,13 @@ impl crate::harness::Adapter for Cursor {
     }
 
     /// The command line's chat takes a prompt typed into its terminal, or a new terminal that
-    /// resumes it; one a print run has open takes nothing until that ends. Nothing reaches the
-    /// app's from outside: the app comes forward with the prompt on the clipboard.
-    fn routes(&self, _account: &AccountCfg, s: &Session) -> Vec<crate::send::Route> {
+    /// resumes it; one a print run has open takes nothing until that ends, nor one whose chat
+    /// isn't written yet (`Chat::unwritten`), whose terminal shows what the command line asks
+    /// first, which a prompt typed there would answer. Nothing reaches the app's from outside:
+    /// the app comes forward with the prompt on the clipboard.
+    fn routes(&self, account: &AccountCfg, s: &Session) -> Vec<crate::send::Route> {
         match (s.surface, s.pid, s.live) {
+            (Surface::Cli, Some(_), _) if self.chat_dir(account, s).is_none() => Vec::new(),
             (Surface::Cli, Some(pid), _) => vec![crate::send::Route::Type { pid }],
             (Surface::Cli, None, false) => vec![crate::send::Route::Resume],
             (Surface::Cli, None, true) => Vec::new(),
@@ -2137,6 +2259,52 @@ mod tests {
         assert_eq!(parse_meta(r#"{"approvalMode":"auto-review","isRunEverything":true}"#).approval.as_deref(), Some("auto-review"));
     }
 
+    /// A chat as 2026.08.11 leaves one: its database, the `meta.json` beside it, and its
+    /// transcript, here under a folder no lane walks to.
+    #[test]
+    fn a_command_line_chat_is_in_the_folder_its_meta_json_says() {
+        let dir = crate::fixtures::scratch("cursor-sidecar");
+        let home = dir.join(".cursor");
+        let chat = |hash: &str, id: &str, side: Value| {
+            let dir = home.join("chats").join(hash).join(id);
+            std::fs::create_dir_all(&dir).unwrap();
+            Connection::open(dir.join(STORE_DB)).unwrap().execute_batch("CREATE TABLE meta (key TEXT, value TEXT); INSERT INTO meta VALUES ('0', '{\"name\":\"Hi There\"}');").unwrap();
+            std::fs::write(dir.join("meta.json"), side.to_string()).unwrap();
+        };
+        chat("d16e", "c1", json!({ "schemaVersion": 1, "createdAtMs": 1, "hasConversation": true, "title": "Hi There", "cwd": "/Users/me/projects/atlas-agent-restart-deferral" }));
+        chat("d16e", "sub", json!({ "schemaVersion": 1, "createdAtMs": 1, "hasConversation": true, "isSubagent": true, "cwd": "/Users/me/app" }));
+        let rows = read_cli_chats(&home, 0, &HashSet::new());
+        assert_eq!(rows.iter().map(|c| (c.id.as_str(), c.title.as_deref(), c.cwd.as_deref())).collect::<Vec<_>>(), [("c1", Some("Hi There"), Some("/Users/me/projects/atlas-agent-restart-deferral"))]);
+        assert_eq!(cli_chat_dir(&home, "c1"), Some(home.join("chats/d16e/c1")));
+        assert_eq!(cli_chat_dir(&home, "unwritten"), None);
+        assert_eq!(parse_sidecar("{}"), Sidecar::default());
+    }
+
+    /// The command line asks about each folder it works in that it doesn't trust before it
+    /// writes its chat, and goes by its records' `.workspace-trusted`.
+    #[test]
+    fn trusts_a_folder_as_its_prompt_does_and_not_the_home_folder() {
+        let dir = crate::fixtures::scratch("cursor-trust");
+        let root = std::fs::canonicalize(&*dir).unwrap();
+        let (home, user) = (root.join("me/.cursor"), root.join("me"));
+        let folder = root.join("me/projects/app two");
+        std::fs::create_dir_all(&folder).unwrap();
+        assert!(trust_folder(&home, &folder, &user).unwrap());
+        let marker = home.join("projects").join(slug(&folder.to_string_lossy())).join(TRUSTED);
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(&marker).unwrap()).unwrap();
+        assert_eq!(written["workspacePath"], folder.to_string_lossy().as_ref());
+        assert!(written["trustedAt"].as_str().is_some_and(|t| t.ends_with('Z') && parse_rfc3339_ms(t).is_some()));
+        // Once is enough.
+        assert!(!trust_folder(&home, &folder, &user).unwrap());
+        // By a link too, which the command line, started there, takes for the folder it leads to.
+        let link = root.join("me/linked");
+        std::os::unix::fs::symlink(&folder, &link).unwrap();
+        assert!(trust_folder(&home, &link, &user).unwrap());
+        assert!(home.join("projects").join(slug(&link.to_string_lossy())).join(TRUSTED).is_file());
+        assert!(trust_folder(&home, &user, &user).is_err());
+        assert!(trust_folder(&home, &root, &user).is_err());
+    }
+
     #[test]
     fn a_switch_between_modes_of_one_length_shows_once_the_header_says_it() {
         let root = crate::fixtures::scratch("cursor-mode-switch");
@@ -2221,15 +2389,21 @@ mod tests {
         let bin = "/Users/me/.local/share/cursor-agent/versions/2026.08.11-e8db854/index.js";
         let ps = |rest: &str| format!("cursor-agent --use-system-ca {bin} {rest}");
         let id = "6ea31b00-0a64-4c8c-bfd0-f71170a1bf7f";
-        assert_eq!(cli_args(&ps("")), Some((true, None)));
-        assert_eq!(cli_args(&ps(&format!("--resume {id}"))), Some((true, Some(id.into()))));
-        assert_eq!(cli_args(&ps(&format!("--new-session-id={id} --model gpt-5 fix it"))), Some((true, Some(id.into()))));
-        assert_eq!(cli_args(&ps("-p --output-format json fix it")), Some((false, None)));
+        let args = |interactive: bool, chat: Option<&str>, prompt: Option<&str>| Some(Args { interactive, chat: chat.map(String::from), prompt: prompt.map(String::from) });
+        assert_eq!(cli_args(&ps("")), args(true, None, None));
+        assert_eq!(cli_args(&ps(&format!("--resume {id}"))), args(true, Some(id), None));
+        assert_eq!(cli_args(&ps(&format!("--new-session-id={id} --model gpt-5 fix it"))), args(true, Some(id), Some("fix it")));
+        // As a start names the files it adds, then the prompt: `ps` writes a space in a folder's
+        // path as it does between words, and a skill's prompt starts with a slash.
+        let files = "/Users/me/Library/Application Support/Codealong/files";
+        assert_eq!(cli_args(&ps(&format!("--new-session-id {id} --add-dir {files} Review pull request #7"))), args(true, Some(id), Some("Review pull request #7")));
+        assert_eq!(cli_args(&ps(&format!("--add-dir {files} /review the diff"))), args(true, None, Some("/review the diff")));
+        assert_eq!(cli_args(&ps("-p --output-format json fix it")), args(false, None, Some("fix it")));
         // A prompt that names a command is still a prompt after its first word.
-        assert_eq!(cli_args(&ps("fix the login page")), Some((true, None)));
+        assert_eq!(cli_args(&ps("fix the login page")), args(true, None, Some("fix the login page")));
         assert_eq!(cli_args(&ps("login")), None);
         assert_eq!(cli_args(&ps("acp")), None);
-        assert_eq!(cli_args(&format!("/Users/me/.local/bin/agent {bin} --resume")), Some((true, None)));
+        assert_eq!(cli_args(&format!("/Users/me/.local/bin/agent {bin} --resume")), args(true, None, None));
         assert_eq!(cli_args("/opt/homebrew/bin/agent run"), None);
         assert!(is_app("/Applications/Cursor.app/Contents/MacOS/Cursor"));
         assert!(!is_app("/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/Contents/MacOS/Cursor Helper --type=gpu-process"));

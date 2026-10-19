@@ -9,7 +9,7 @@ import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
-import { reviewsRunIn } from '../review';
+import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { agentId, agentOptions, modelName, parseAgent, withLists } from '../start';
 import type { AtLogin, ChromeProfile, Config, ConfigView, GroupMemberCfg, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, Training, Usage, Verdict, WhenLimited } from '../types';
@@ -819,10 +819,11 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
 }
 
 /** Where the reviewer named runs (`reviewsRunIn`), or that it can't start a review where reviews
- *  run, which has its reviews fail until one or the other changes; `auto` without one named. */
+ *  run, which has its reviews fail until one or the other changes; for a routing group, which of
+ *  its accounts can't (`groupReviewWords`); `auto` without one named. */
 function ReviewerRuns({ account, accounts, groups, start, auto }: { account: string; accounts: StartAccount[]; groups: RoutingGroup[]; start: (typeof REVIEW_STARTS)[number]; auto: string }) {
   const group = groups.find((g) => g.name === account);
-  if (group) return <>{`Routing group ${group.name} (${group.strategy}) picks among its accounts that can start a review ${start.where}.`}</>;
+  if (group) return <>{groupReviewWords(group, accounts, start.id, start.where)}</>;
   const named = accounts.find((a) => a.name === account);
   if (!named) return <>{auto}</>;
   const runs = reviewsRunIn(named, start.id);
