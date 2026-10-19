@@ -1192,13 +1192,21 @@ pub fn cli_args(command: &str) -> Option<Args> {
                 words.next();
                 while words.next_if(|n| n.contains('/') && !n.starts_with(['/', '-'])).is_some() {}
             }
+            // Its name is optional, and takes the word after it: a start puts it after the prompt.
+            "-w" | "--worktree" if value.is_none() => {
+                words.next_if(|n| !n.starts_with('-'));
+            }
             _ if flag.starts_with('-') => {}
             "acp" | "install-shell-integration" | "uninstall-shell-integration" | "login" | "logout" | "mcp" | "plugin" | "worker" | "status" | "whoami" | "models" | "bedrock" | "about" | "update" | "create-chat" | "generate-rule" | "rule" | "ls" | "help" => return None,
             // `resume` goes on with the folder's latest chat.
             "resume" | "agent" => {}
             // A prompt.
             _ => {
-                prompt = Some(std::iter::once(w).chain(words.by_ref()).collect::<Vec<_>>().join(" "));
+                let mut said: Vec<&str> = std::iter::once(w).chain(words.by_ref()).collect();
+                if matches!(said.last(), Some(&"--worktree" | &"-w")) {
+                    said.pop();
+                }
+                prompt = Some(said.join(" "));
                 break;
             }
         }
@@ -2477,6 +2485,10 @@ mod tests {
         let files = "/Users/me/Library/Application Support/Codealong/files";
         assert_eq!(cli_args(&ps(&format!("--new-session-id {id} --add-dir {files} Review pull request #7"))), args(true, Some(id), Some("Review pull request #7")));
         assert_eq!(cli_args(&ps(&format!("--add-dir {files} /review the diff"))), args(true, None, Some("/review the diff")));
+        // A worktree's name is no prompt; a start puts the flag after the prompt, with none.
+        assert_eq!(cli_args(&ps("--worktree review")), args(true, None, None));
+        assert_eq!(cli_args(&ps("-w review --model gpt-5 fix it")), args(true, None, Some("fix it")));
+        assert_eq!(cli_args(&ps(&format!("--new-session-id {id} fix it --worktree"))), args(true, Some(id), Some("fix it")));
         assert_eq!(cli_args(&ps("-p --output-format json fix it")), args(false, None, Some("fix it")));
         // A prompt that names a command is still a prompt after its first word.
         assert_eq!(cli_args(&ps("fix the login page")), args(true, None, Some("fix the login page")));
