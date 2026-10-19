@@ -760,7 +760,18 @@ mod tests {
         );
         assert_eq!(ended.iter().map(|e| e.result.starts_with("skipped")).collect::<Vec<_>>(), [false, true, true]);
         assert_eq!(ended[0].result, "ended");
-        assert!([root, a, b].iter().all(|&p| !crate::procs::pid_alive(p)));
+        // A process ended is a zombie, still answering to its pid, until its thread above reaps it,
+        // which on a busy machine (a release build's runner) can come a moment after `end` returns.
+        let gone = |p: u32| {
+            for _ in 0..50 {
+                if !crate::procs::pid_alive(p) {
+                    return true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            false
+        };
+        assert!([root, a, b].iter().all(|&p| gone(p)));
         assert!(crate::procs::pid_alive(renamed) && crate::procs::pid_alive(reused));
         for pid in [renamed, reused] {
             // SAFETY: kill only sends a signal, to a sleep this test started.
