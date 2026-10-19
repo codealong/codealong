@@ -46,8 +46,9 @@ describe('applyOp', () => {
   });
 
   it('makes, renames and deletes a board, and sends what was put in a column that’s gone back to the rules', () => {
-    let boards = applyOp([], { op: 'create', board: named('b-1', '  Bugs   to fix ') }, NOW);
-    expect(boards[0]).toMatchObject({ name: 'Bugs to fix', createdAt: NOW });
+    let boards = applyOp([], { op: 'create', board: named('b-1', '  Bugs   to fix ', { added: ['session:s1'] }) }, NOW);
+    // What it's made with was added as it was made.
+    expect(boards[0]).toMatchObject({ name: 'Bugs to fix', createdAt: NOW, addedAt: { 'session:s1': NOW } });
     boards = applyOp(boards, { op: 'rename', id: 'b-1', name: ' ' }, NOW);
     expect(boards[0].name).toBe('Bugs to fix');
     boards = applyOp(boards, { op: 'columns', id: 'b-1', columns: [{ id: 'a', name: 'A', sort: 'hand' }] }, NOW);

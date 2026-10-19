@@ -454,6 +454,9 @@ fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -
             }
             board.added = cards(&board.added)?;
             board.removed = cards(&board.removed)?;
+            for c in &board.added {
+                board.added_at.entry(c.clone()).or_insert(now);
+            }
             board.created_at = now;
             let out = Applied { board: Some(board.clone().listed()), id: board.id.clone(), project: board.project.clone() };
             file.boards.push(board);
@@ -752,6 +755,11 @@ mod tests {
         let new = |id: &str, name: &str, project: &str| BoardOp::Create { board: BoardDoc { id: id.into(), ..named("", name, project) } };
         let (_, out) = run(&mut file, new("b-1", "  Bugs   to fix ", "Northwind")).unwrap();
         assert_eq!(out.id, "b-new");
+        let with: BoardDoc = BoardDoc { added: vec!["session:s1".into()], ..named("", "With it", "Atlas") };
+        run(&mut file, BoardOp::Create { board: with }).unwrap();
+        // What a board is made with was added as it was made.
+        assert_eq!(file.boards.last().unwrap().added_at.get("session:s1"), Some(&100));
+        file.boards.pop();
         assert_eq!(out.board.unwrap().name, "Bugs to fix");
         assert_eq!(file.boards[1].created_at, 100);
         assert!(run(&mut file, new("", "release", "Northwind")).is_err());

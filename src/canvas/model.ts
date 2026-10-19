@@ -336,13 +336,14 @@ export function lastActivityOf(e: Entities, ref: RefKind, key: string): number {
  * busy one (working, or waiting on you); open todos within theirs, counting their sessions'
  * activity; open PRs, yours or all of them; and worktrees active within the sessions' age (or
  * pinned), or home to any of the rest. With `cleared`, only what moved on after that time. What
- * was put on the board by hand is in whatever its kind and age, once it was put there after
- * `cleared`: a clear, or an arrange that takes the rest off, isn't undone by it.
+ * was put on the board by hand is in whatever its kind and age, unless it was put there before
+ * `cleared`: a clear, or an arrange that takes the rest off, isn't undone by it. With no time
+ * (`cleared` 0, as a tidy has it) it's all in, a card added at no known time too.
  */
 export function recentRefs(e: Entities, now: number, pinned: Set<string> = new Set(), scope: Filter = DEFAULT_SCOPE, cleared = 0, on: OnBoard = WHOLE): { ref: RefKind; key: string }[] {
   const inc = scope.include;
   const since = now - SESSION_MS[scope.sessions];
-  const hand = (ref: RefKind, key: string) => (on.added.get(refId(ref, key)) ?? -1) > cleared && !on.removed.has(refId(ref, key));
+  const hand = (ref: RefKind, key: string) => (on.added.get(refId(ref, key)) ?? -1) >= cleared && !on.removed.has(refId(ref, key));
   const sessions = [...e.sessions.values()].filter(({ session: s }) => hand('session', s.key) || (inc.sessions && on.has(refId('session', s.key)) && sessionIn(s, since) && movedSince(s, cleared)));
   sessions.sort((a, b) => b.session.lastPromptAt - a.session.lastPromptAt);
   const todos = [...e.todos.values()].filter((t) => hand('todo', t.id) || (inc.todos && on.has(refId('todo', t.id)) && todoIn(e, t, now, scope.todos) && Math.max(t.createdAt, t.updatedAt) > cleared));

@@ -281,6 +281,9 @@ describe('tidy with ages', () => {
     const after = tidy(d, e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '1d', todos: '7d' }, hand);
     expect(refs(after).map(itemId)).toEqual(expect.arrayContaining(['todo:stale', 'session:week']));
     expect(at(after, 'session:fresh')).toBeUndefined();
+    // Added at no known time, a tidy keeps it too, and a fresh canvas starts with it.
+    const timeless = onBoard(['todo:stale'], [], () => true, 0);
+    expect(refs(tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_TIDY, todos: '7d' }, timeless)).map(itemId)).toContain('todo:stale');
   });
 
   it('takes older sessions off, kept or not, but never busy ones', () => {

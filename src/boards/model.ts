@@ -192,7 +192,11 @@ const without = (list: string[] | undefined, gone: string[]) => (list ?? []).fil
  * changes.
  */
 export function applyOp(boards: BoardDoc[], op: BoardOp, now: number): BoardDoc[] {
-  if (op.op === 'create') return [...boards, { ...op.board, name: cleanName(op.board.name), createdAt: now }];
+  if (op.op === 'create') {
+    // What a board is made with was added as it was made.
+    const addedAt = { ...Object.fromEntries(op.board.added.map((c) => [c, now])), ...op.board.addedAt };
+    return [...boards, { ...op.board, name: cleanName(op.board.name), addedAt, createdAt: now }];
+  }
   if (op.op === 'delete') return boards.filter((b) => b.id !== op.id || isProjects(b));
   const at = boards.findIndex((b) => b.id === op.id);
   const project = op.id.startsWith(PROJECT_PREFIX) ? op.id.slice(PROJECT_PREFIX.length) : null;
