@@ -353,7 +353,7 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
     }
     info.flagged |= was_flagged;
     if let Some(floor) = floor.filter(|_| !info.flagged) {
-        info.flagged = crate::util::flagged_before(path, floor.max(flag_from), tail.start, &["\"error\"", "\"refusal\""], flagged);
+        info.flagged = crate::providerflags::before(path, floor.max(flag_from), tail.start, &["\"error\"", "\"refusal\""], flagged);
     }
     if info.last_ts == 0 {
         info.last_ts = mtime;

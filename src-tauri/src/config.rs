@@ -392,6 +392,12 @@ pub struct SessionsCfg {
     pub live_replies: bool,
 }
 
+impl SessionsCfg {
+    pub fn blocks(&self, session: &crate::model::Session) -> bool {
+        self.block_flagged_sessions && session.flagged
+    }
+}
+
 impl Default for SessionsCfg {
     fn default() -> Self {
         SessionsCfg { block_flagged_sessions: true, continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, resume_for_pr_news: true, live_replies: false }

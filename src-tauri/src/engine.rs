@@ -1737,7 +1737,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         let on = self.cfg.limits.continue_when_lifted;
         for s in &mut sessions {
-            let live = s.live && !(s.flagged && self.cfg.sessions.block_flagged_sessions);
+            let live = s.live && !self.cfg.sessions.blocks(s);
             if let Some(limit) = s.limit.as_mut() {
                 limit.continues = on && live && limit.resets_at.is_some();
             }
@@ -1751,8 +1751,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     fn with_connections(&self, mut sessions: Vec<Session>) -> Vec<Session> {
         let on = self.cfg.sessions.continue_after_network_error;
         for s in &mut sessions {
+            let live = s.live && !self.cfg.sessions.blocks(s);
             if let Some(lost) = s.connection_lost.as_mut() {
-                lost.continues = on && s.live && !(s.flagged && self.cfg.sessions.block_flagged_sessions) && harness::adapter(s.harness).api_address().is_some();
+                lost.continues = on && live && harness::adapter(s.harness).api_address().is_some();
             }
         }
         sessions
@@ -3430,7 +3431,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             previews: &self.previews,
             reusable: &self.reusable,
             review_snoozes: &self.seen.review_snoozes,
-            auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings),
+            auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings, &self.cfg.sessions),
         });
         // Starts in a terminal that never made their session: the board has nothing else of them.
         let word_of = |account: &str| self.cfg.accounts.iter().find(|a| a.name == account).and_then(harness::of).map_or_else(|| account.to_string(), |h| h.harness().word().to_string());
@@ -3442,7 +3443,6 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;
-        board.sessions = self.cfg.sessions.clone();
         board.nudge_about = self.cfg.pull_requests.nudge_about;
         board.pr_stopped = crate::nudges::stopped_primaries(&board, &self.running_elsewhere, self.cfg.sessions.resume_for_pr_news, |s| crate::send::reaches_stopped(&self.cfg, s));
         board.reviews = self.cfg.reviews.clone();

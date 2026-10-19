@@ -74,6 +74,7 @@ mod pointer;
 mod prasks;
 mod prdiff;
 mod previews;
+mod providerflags;
 mod prices;
 mod prlinks;
 mod prmerge;

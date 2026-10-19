@@ -715,6 +715,7 @@ impl crate::harness::Reader for Reader {
             self.stopped_by_quit = self.stopped_by_quit_now(look);
         }
         self.refresh_archived(accounts, look);
+        crate::providerflags::flush();
     }
 
     fn watch(&self, account: &AccountCfg) -> Vec<(PathBuf, bool)> {

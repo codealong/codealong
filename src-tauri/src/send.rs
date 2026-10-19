@@ -476,7 +476,7 @@ pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: 
 /// A flag stops messages from Codealong and other agents before any delivery path, including
 /// hosted sessions and automatic resumes. A person can still reply or resume deliberately.
 pub fn ensure_not_flagged(cfg: &Config, s: &Session, sender: &Sender) -> Result<()> {
-    if cfg.sessions.block_flagged_sessions && s.flagged && matches!(sender, Sender::Codealong | Sender::Agent(_)) {
+    if cfg.sessions.blocks(s) && matches!(sender, Sender::Codealong | Sender::Agent(_)) {
         bail!("“{}” was flagged by its provider. Automatic messages and resumes are blocked in Settings › Automation; nothing was sent.", s.title);
     }
     Ok(())

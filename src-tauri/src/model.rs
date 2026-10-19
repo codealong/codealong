@@ -232,7 +232,7 @@ pub struct Board {
 
 impl Board {
     pub fn automation_blocked(&self, key: &str) -> bool {
-        self.sessions.block_flagged_sessions && self.session(key).is_some_and(|(_, s)| s.flagged)
+        self.session(key).is_some_and(|(_, s)| self.sessions.blocks(s))
     }
 
     /// A session and the lane it's listed under as its own, else one it visits (`board::home`).

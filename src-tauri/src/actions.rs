@@ -1054,7 +1054,7 @@ fn started_back(v: Value, device: &str) -> Result<Value, String> {
 /// still theirs to ask for. Remote forks are checked before forwarding, while who asked is known.
 fn ensure_fork_not_blocked(board: &crate::model::Board, key: &str, from: &From) -> Result<(), String> {
     if matches!(from, From::Command(_)) && board.automation_blocked(key) {
-        return Err("Its provider flagged this session, so automatic forks are blocked in Settings > Automation.".into());
+        return Err("Its provider flagged this session, so automatic forks are blocked in Settings › Automation.".into());
     }
     Ok(())
 }

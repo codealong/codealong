@@ -765,8 +765,8 @@ Settings › Automation › **Block automations for flagged sessions** is on by 
 PR news and helper reports), other agents' messages, automatic resumes and usage-limit account
 moves and agent-initiated forks. PR review automation pauses when its opener or reviewer is
 flagged; a review already written is still collected and kept. A manual review can start with a
-fresh reviewer. You can still reply, resume or move a session yourself. Turning the setting off allows automation again without
-removing the badge. Codealong can detect only signals the harness records; it does not control
+fresh reviewer. You can still reply, send a review, resume or move a session yourself. Turning the
+setting off allows automation again without removing the badge. Codealong can detect only signals the harness records; it does not control
 a harness's own automation.
 
 #### Automatic reviews

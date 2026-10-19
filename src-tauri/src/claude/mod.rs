@@ -1148,6 +1148,7 @@ impl crate::harness::Reader for Reader {
                 self.transcripts.insert(path, (a.name.clone(), parsed));
             }
         }
+        crate::providerflags::flush();
     }
 
     fn watch(&self, account: &AccountCfg) -> Vec<(PathBuf, bool)> {

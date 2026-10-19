@@ -249,7 +249,7 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     }
     info.flagged |= was_flagged;
     if fresh && !info.flagged {
-        info.flagged = crate::util::flagged_before(path, flag_from, tail.start, &["\"refusal\"", "\"dlp_request_denied\"", "\"safety_monitor_blocked\""], flagged);
+        info.flagged = crate::providerflags::before(path, flag_from, tail.start, &["\"refusal\"", "\"dlp_request_denied\"", "\"safety_monitor_blocked\""], flagged);
     }
     state.offset = tail.end;
     if info.last_ts == 0 {
