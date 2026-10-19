@@ -1,5 +1,6 @@
 // The worktrees and sessions behind a PR or a todo, as their panels show them (`PanelPlaces`): as
-// chips at first, a worktree's chip and its sessions' after it, as the lists' rows name them; and
+// chips at first, a worktree's chip and its sessions' after it, as the lists' rows name them, the
+// primary session's worktree and that session leading (`primaryFirst`); and
 // with the panel's details open, drawn like the sidebar's tree (`PanelPlace`), each session under
 // its worktree (`PanelSession`) with its title, then who runs it and what it's doing, as the
 // Sessions view says it. A click on a session, chip or row, shows it in the panel (with a way
@@ -126,8 +127,19 @@ interface PanelPlacesProps extends Omit<PanelPlaceProps, 'lane' | 'sessions' | '
   label: string;
 }
 
+/** The places with the primary session's worktree first and that session first in it, the one the
+ *  work goes on in; the rest keep their order. */
+export function primaryFirst(places: Place[], key: string | null | undefined): Place[] {
+  const at = places.findIndex((p) => p.sessions.some((s) => s.key === key));
+  if (at < 0) return places;
+  const p = places[at];
+  const lifted = { ...p, sessions: [...p.sessions.filter((s) => s.key === key), ...p.sessions.filter((s) => s.key !== key)] };
+  return [lifted, ...places.slice(0, at), ...places.slice(at + 1)];
+}
+
 /** The worktrees and sessions behind a PR or a todo: chips, or with `open` the tree. */
-export function PanelPlaces({ places, open, label, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary = null }: PanelPlacesProps) {
+export function PanelPlaces({ places: given, open, label, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary = null }: PanelPlacesProps) {
+  const places = primaryFirst(given, primary?.key);
   if (open) {
     return (
       <div className="ca-tree" role="tree" aria-label={label}>

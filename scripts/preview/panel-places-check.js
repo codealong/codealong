@@ -1,6 +1,7 @@
 // The worktrees and sessions behind a PR or a todo, in its panel (PanelSession.tsx `PanelPlaces`).
 // In PRs: the header is short, so the tabs start near the panel's top; under it the PR's worktrees
-// and sessions are chips, a worktree's then its sessions'; the chevron beside the title opens the
+// and sessions are chips, a worktree's then its sessions', the primary session's worktree and that
+// session leading, whichever worktree it's in; the chevron beside the title opens the
 // details, which list them as a tree, with a row for each session, and stay open for the next PR
 // until it's pressed again; the button beside it, and ⇧⌘F, expand the panel to the whole window
 // and back. In Todo: the todo's are chips too, and its chevron beside Link makes them a tree.
@@ -32,6 +33,37 @@
     });
   };
   var sayChips = function (chips) { return chips.map(function (c) { return c.textContent + ' [' + (c.getAttribute('title') || '').split('\n').slice(0, 2).join(' / ') + ']'; }).join(' | '); };
+  // Whether the primary session's chip, if one is marked, comes right after the first worktree's.
+  var primaryLeads = function (places) {
+    var marked = q('.ca-places-primary', places);
+    return !marked || all('.ca-chip', places)[1] === marked.closest('.ca-chip');
+  };
+
+  // Every PR's primary session leads its chips (PanelSession.tsx `primaryFirst`); the PRs whose
+  // sessions are over several worktrees are the ones that tell.
+  var primaries = function (rows) {
+    var marked = 0;
+    var apart = 0;
+    var wrong = [];
+    var step = function (i) {
+      if (i >= Math.min(rows.length, 30)) return null;
+      press(rows[i]);
+      return wait(200).then(function () {
+        var places = q('.ca-prinsp-head .ca-places');
+        if (places && q('.ca-places-primary', places)) {
+          marked++;
+          if (all('.ca-places-group', places).length > 1) apart++;
+          if (!primaryLeads(places)) wrong.push(q('.ca-prinsp-head .ca-insp-call').textContent);
+        }
+        return step(i + 1);
+      });
+    };
+    return Promise.resolve(step(0)).then(function () {
+      if (marked === 0) return note('no PR here has a primary session marked');
+      if (apart === 0) note('no PR with a primary has sessions over several worktrees');
+      check('a PR’s primary session leads its chips, after its worktree’s', wrong.length === 0, marked + ' with one, ' + apart + ' over several worktrees' + (wrong.length ? '; not first in ' + wrong.join(', ') : ''));
+    });
+  };
 
   var prs = function () {
     var rows = prRows();
@@ -40,8 +72,11 @@
     check('a PR’s row names its sessions by their titles', named(rowChips), sayChips(rowChips));
     var fit = q('.ca-prrow-fit', rows[0]).getBoundingClientRect();
     check('and they keep inside the row’s line', rowChips.every(function (c) { return c.getBoundingClientRect().right <= fit.right + 1; }));
-    press(rows[0]);
-    return until(function () { return q('.ca-prinsp-head .ca-places'); }, 5000, 'the PR panel’s chips')
+    return primaries(rows)
+      .then(function () {
+        press(rows[0]);
+        return until(function () { return q('.ca-prinsp-head .ca-places'); }, 5000, 'the PR panel’s chips');
+      })
       .then(function (places) {
         var chips = all('.ca-chip', places);
         check('its worktree comes first, as a chip', chips.length > 0 && chips[0].classList.contains('ca-wtchip'), chips.map(function (c) { return c.className; }).join(' | '));
@@ -56,6 +91,8 @@
         press(q('.ca-prinsp-head .ca-detailsbtn'));
         return until(function () { return q('.ca-prinsp .ca-tree'); }, 3000, 'the tree, with the details open').then(function () {
           check('the details list each session as a row', all('.ca-prinsp .ca-tree .ca-psess').length === sessions, all('.ca-prinsp .ca-tree .ca-psess').length + ' rows, ' + sessions + ' chips');
+          var tagged = q('.ca-prinsp .ca-tree .ca-psess-primary');
+          if (tagged) check('its primary session the first row', q('.ca-prinsp .ca-tree .ca-psess').contains(tagged));
           check('in place of the chips', !q('.ca-prinsp-head .ca-places'));
           check('the button says they’re open', q('.ca-prinsp-head .ca-detailsbtn').getAttribute('aria-expanded') === 'true');
         });
@@ -122,6 +159,7 @@
         check('the todo’s worktree is a chip, then its sessions', chips.length >= 2 && chips[0].classList.contains('ca-wtchip'), chips.map(function (c) { return c.textContent; }).join(' | '));
         var primary = chips.filter(function (c) { return !!q('.ca-places-primary', c); });
         check('its primary session’s chip says so', primary.length === 1, String(primary.length));
+        check('and comes first, after its worktree’s', primaryLeads(places), chips.map(function (c) { return c.textContent; }).join(' | '));
         check('its sessions’ chips say their titles, with the account on hover', named(chips.filter(function (c) { return !c.classList.contains('ca-wtchip'); })), sayChips(chips));
         var sessions = chips.filter(function (c) { return !c.classList.contains('ca-wtchip'); }).length;
         press(q('.ca-todoinsp .ca-detailsbtn'));
@@ -129,6 +167,7 @@
           var rows = all('.ca-todoinsp .ca-psess').length;
           check('its chevron makes them a tree', rows === sessions && !q('.ca-todoinsp .ca-places'), rows + ' rows, ' + sessions + ' chips');
           check('the primary one tagged there', all('.ca-todoinsp .ca-psess-primary').length === 1);
+          check('as its first row', q('.ca-todoinsp .ca-psess').contains(q('.ca-todoinsp .ca-psess-primary')));
         });
       });
   };

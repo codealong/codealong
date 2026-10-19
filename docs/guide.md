@@ -966,7 +966,7 @@ when the repo's PRs are next read in full. Selecting a PR shows a short header: 
 title, one line of its repo, branch, author and last update, its pills and size, its labels, and
 the worktrees and sessions behind it on this Mac as chips (a worktree's
 chip, then its sessions', each named by its title with its account on hover, the PR's primary
-session marked; a click on a session shows it in the panel, on a worktree shows it in Worktrees,
+session marked and first, after its worktree's chip; a click on a session shows it in the panel, on a worktree shows it in Worktrees,
 and a right-click gives either's menu). A PR's row on two lines names one of its sessions the same
 way, its primary one first, and how many more; a todo's row names up to three. The chevron
 beside the title opens its details, and they stay open for the next PR until you close them: the
