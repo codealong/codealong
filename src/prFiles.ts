@@ -5,6 +5,7 @@
 // word come after, as the ones that mention it, so a name can be looked for in what the PR
 // changed as well as in where. Where the words fall is marked, in the paths and in the diffs.
 
+import type { Run } from './syntax';
 import type { PrFile } from './types';
 
 /** What's typed, as words to find and words that leave a file out, in lower case. */
@@ -133,6 +134,36 @@ export function parsePatch(patch: string): DiffLine[] {
       out.push({ kind: 'ctx', text: l.slice(1), old: old++, new: neu++ });
     }
   }
+  return out;
+}
+
+/** Each line's code in its colors (syntax.ts), for numbered lines (`parsePatch`), colored a hunk
+ *  at a time with each side whole: the lines it keeps and removes as the file was, and the lines it
+ *  keeps and adds as it is, so a line inside a comment or a string that began lines before it is
+ *  colored as part of it. A hunk begins wherever the change does, so one that begins inside a
+ *  comment reads as code until the comment ends. `color` answers a side's lines, or null to leave
+ *  them plain; headers and notes have no colors. */
+export function diffRuns(lines: DiffLine[], color: (code: string) => Run[][] | null): Map<DiffLine, Run[]> {
+  const out = new Map<DiffLine, Run[]>();
+  const side = (hunk: DiffLine[]) => {
+    const runs = color(hunk.map((l) => l.text).join('\n'));
+    if (runs?.length === hunk.length) hunk.forEach((l, i) => out.set(l, runs[i]));
+  };
+  let before: DiffLine[] = [];
+  let after: DiffLine[] = [];
+  const flush = () => {
+    if (before.length > 0) side(before);
+    // The lines kept are colored as the file is now.
+    if (after.length > 0) side(after);
+    before = [];
+    after = [];
+  };
+  for (const l of lines) {
+    if (l.kind === 'hunk') flush();
+    if (l.kind === 'del' || l.kind === 'ctx') before.push(l);
+    if (l.kind === 'add' || l.kind === 'ctx') after.push(l);
+  }
+  flush();
   return out;
 }
 

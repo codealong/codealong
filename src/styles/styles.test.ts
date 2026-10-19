@@ -34,6 +34,7 @@ const BUILT: Record<string, string> = {
   'ca-glyph--*': 'a status (primitives.tsx StatusGlyph)',
   'ca-bay--*': 'a bay (primitives.tsx Bay)',
   'ca-md-h*': 'a heading’s level (Markdown.tsx)',
+  'ca-syn-*': 'a tone of code (PrFiles.tsx Code, syntax.ts Tone)',
   'ca-chip--button': 'a chip that acts, `${base}--button` (primitives.tsx Chip)',
   'ca-labelchip--button': 'a label chip that acts, `${base}--button` (primitives.tsx Chip)',
 };

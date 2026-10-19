@@ -10,11 +10,15 @@
   grid-template-columns: minmax(0, 1fr);
 }
 .ca-prfiles-top {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  margin-bottom: 6px;
+  padding: 6px 0;
+  background: var(--prfiles-ground, var(--surface));
 }
 .ca-prfiles-top > .ca-label {
   flex: 1;
@@ -26,14 +30,6 @@
 }
 .ca-prfiles-top > .ca-linkbtn {
   flex: none;
-}
-.ca-prfiles-top.is-filterable {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 6px 0;
-  margin-bottom: 0;
-  background: var(--prfiles-ground, var(--surface));
 }
 
 /* The filter: a field as the title bar's search is, smaller. */
@@ -316,6 +312,29 @@
 .ca-patch-row.is-del > .ca-patch-num,
 .ca-patch-half > .ca-patch-num {
   color: var(--ink-3);
+}
+/* Code in its language's colors (syntax.ts): a few tones, as GitHub draws them, over the line's
+   tint. A comment is quieter than the code. */
+.ca-syn-keyword {
+  color: var(--syntax-keyword);
+}
+.ca-syn-string {
+  color: var(--syntax-string);
+}
+.ca-syn-constant {
+  color: var(--syntax-constant);
+}
+.ca-syn-entity {
+  color: var(--syntax-entity);
+}
+.ca-syn-tag {
+  color: var(--syntax-tag);
+}
+.ca-syn-variable {
+  color: var(--syntax-variable);
+}
+.ca-syn-comment {
+  color: var(--syntax-comment);
 }
 /* A hunk's header and git's note about a newline go across the whole diff. */
 .ca-patch-across {

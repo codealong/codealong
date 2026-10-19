@@ -55,7 +55,7 @@
 .ca-prtab-panel[hidden] {
   display: none;
 }
-.ca-prtab-panel .ca-prfiles-top.is-filterable {
+.ca-prtab-panel .ca-prfiles-top {
   top: var(--prtabs-h);
 }
 .ca-prtab-panel .ca-prfiles-sec {

@@ -2,7 +2,8 @@
 // waiting window: each row says the file's name, then its folder; the file count under Checks and
 // reviews goes to the filter; words narrow the list to the paths that hold them all, marked, and
 // `-word` leaves some out; the files whose changes mention the words come after, under their own
-// heading with how many lines do; ↑ ↓ pick a file and ⏎ opens it, the words marked in its diff;
+// heading with how many lines do; ↑ ↓ pick a file and ⏎ opens it, its code in its language's
+// colors (syntax.ts) and the words marked in them;
 // Open all opens what the filter lists; Escape clears the filter, then leaves it; ⌘F comes back to
 // it, and in the main window's PRs ⌘F from the list opens the list's find (ListBar.tsx) instead
 // (findKeys.ts); and a filter nothing matches says so, with a way to clear it.
@@ -89,6 +90,14 @@
     .then(function () {
       var open = q('.ca-prfile.is-open');
       check('⏎ opens it, the words marked in its diff', !!open && open.querySelector('.ca-prfile-name').textContent === 'TeamPicker.tsx' && (open.querySelector('.ca-patch mark') || {}).textContent === 'createProject');
+      return until(function () { return !!q('.ca-prfile.is-open .ca-syn-keyword'); }, 10000, 'the diff’s colors');
+    })
+    .then(function () {
+      var open = q('.ca-prfile.is-open');
+      var tones = all('[class^="ca-syn-"]', open).map(function (s) { return s.className + ':' + s.textContent; });
+      check('its code is in its language’s colors', tones.indexOf('ca-syn-keyword:const') >= 0 && tones.indexOf('ca-syn-keyword:import') >= 0, JSON.stringify(tones));
+      var mark = open.querySelector('.ca-patch mark');
+      check('and the words are still marked, in their color', !!mark && mark.textContent === 'createProject' && !!mark.querySelector('.ca-syn-entity'), mark && mark.innerHTML);
       var all_ = all('.ca-prfiles-top .ca-linkbtn')[0];
       check('Open all is offered while it filters', !!all_ && all_.textContent === 'Open all', all_ && all_.textContent);
       all_.click();

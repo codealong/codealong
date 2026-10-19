@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileOnGitHub, fileQuery, filterFiles, firstChanged, marks, parsePatch, pieces, splitPath, splitRows } from './prFiles';
+import { diffRuns, fileOnGitHub, fileQuery, filterFiles, firstChanged, marks, parsePatch, pieces, splitPath, splitRows } from './prFiles';
 import type { PrFile } from './types';
 
 const file = (path: string, patch: string | null = null): PrFile => ({ path, status: 'modified', additions: 1, deletions: 0, patch });
@@ -102,6 +102,22 @@ describe('parsePatch', () => {
     expect(said(patch)).toEqual(['hunk', '  one|  one', '  two|  Two', '·|  three', '  four|  four', 'note', 'hunk', 'x|y', '·|z']);
     // Removed lines after added ones aren't put beside them.
     expect(said('@@ -1,2 +1,2 @@\n+a\n-b\n')).toEqual(['hunk', '·|a', 'b|·']);
+  });
+
+  it('colors each hunk a side at a time, the lines kept as the file is now', () => {
+    const sides: string[] = [];
+    // Each line's runs say which side colored it and its place there.
+    const color = (code: string) => {
+      sides.push(code);
+      const n = sides.length;
+      return code.split('\n').map((_, i) => [{ text: `${n}.${i}`, tone: null }]);
+    };
+    const lines = parsePatch(patch);
+    const runs = diffRuns(lines, color);
+    expect(sides).toEqual(['  one\n  two\n  four', '  one\n  Two\n  three\n  four', 'x', 'y\nz']);
+    expect(lines.map((l) => runs.get(l)?.[0].text ?? l.kind)).toEqual(['hunk', '2.0', '1.1', '2.1', '2.2', '2.3', 'note', 'hunk', '3.0', '4.0', '4.1']);
+    // A side that can't be colored leaves its lines plain.
+    expect(diffRuns(lines, () => null).size).toBe(0);
   });
 
   it('names a file on GitHub by the SHA-256 of its path', async () => {

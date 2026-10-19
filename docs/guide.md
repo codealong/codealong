@@ -979,8 +979,9 @@ whole title, its repo, branch, author, when it was opened and its commits, and t
 in Sessions, for reading its description and diffs at the window's width. Under the merge box are
 its parts as tabs, by whose words they are, which stay at the top as what's under them scrolls
 (← → between them): Description, what its author wrote of it; Changes, its changed files with their
-diffs (each file's name, then its folder; a filter beside Files changed, which the file count goes
-to and which stays under the tabs as the list scrolls, narrows them to the paths holding every word
+diffs (each file's name, then its folder; a filter beside Files changed on every PR, however few
+files it changes, which the file count goes to and which stays under the tabs as the list scrolls,
+narrows them to the paths holding every word
 typed, `-word` leaving some out, then lists the files whose changes mention the words, which are
 marked in the paths and diffs; ↑ ↓ and ⏎ open one, Escape clears it, ⌘F in the PR's panel or card
 comes back to it); and Reviews, your review first (see *Your review*), then everyone's.
@@ -1007,7 +1008,11 @@ answer it) with a link back; in the tree, double-click or its arrow opens it whe
 
 #### Diffs
 
-A file's diff numbers its lines before and after. The switches beside the filter draw it one
+A file's diff numbers its lines before and after, and shows its code in its language's colors,
+known by the file's name (`.ts`, `.rs`, `Dockerfile`; highlight.js's common languages and a few
+more), the way GitHub colors it; a file in a language it doesn't know shows in one color. Each
+hunk is colored a side at a time, so a line inside a comment that began a few lines up reads as
+the comment. The filter's words are marked over the colors. The switches beside the filter draw it one
 under the other (Unified) or, where the list is wide enough (the panel expanded to the window, say),
 side by side (Split), and wrap long lines or let them scroll sideways; both stay as you left them,
 for every PR. As the pointer comes onto a file's row, two buttons show at its end: its diff in your

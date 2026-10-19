@@ -1,7 +1,7 @@
 // A PR's changed files, its details' Changes tab (PrInspector.tsx `PrDetails`): a row each, its
-// name first and its folder after it, quieter, opening to its diff. Once there are enough to look
-// for one, a filter sits beside the heading and stays at the top while the list scrolls under
-// it: what's typed narrows the list to the paths that hold every word (prFiles.ts), `-word`
+// name first and its folder after it, quieter, opening to its diff. A filter sits beside the
+// heading and stays at the top while the list scrolls under it, on every PR, since it finds what
+// the diffs say as well as the files' names: what's typed narrows the list to the paths that hold every word (prFiles.ts), `-word`
 // leaving some out, and lists after them the files whose changes mention it, so a name is found
 // where the PR changed it as well as where it lives. The words are marked in the paths and in the
 // diffs. ↑ ↓ pick a file, ⏎ opens or closes it, Escape clears the filter, then leaves it; while
@@ -11,7 +11,8 @@
 // What's typed is kept for each PR while the window shows another.
 //
 // A diff has each line's numbers before and after (prFiles.ts `parsePatch`), one under the other
-// (unified) or, where the list is wide enough, side by side (split), and its long lines wrap or
+// (unified) or, where the list is wide enough, side by side (split), its code in its language's
+// colors (syntax.ts, by the file's name; prFiles.ts `diffRuns`), and its long lines wrap or
 // scroll sideways; both are kept as you left them, for every PR. Where the window can open files
 // (`FileOpener`), each row has, at its end, its diff in your editor (the editor's own icon; its
 // side before is where the PR's branch began, its side after your copy in the worktree that
@@ -19,12 +20,13 @@
 // row; a right-click gives those and the file at its first change (menus.ts `prFileMenu`), and a
 // line's number after opens the file at that line, in the worktree that holds the PR.
 
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, Fragment, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { findsAt } from '../findKeys';
 import { useLatest } from '../latest';
-import { filterFiles, fileQuery, marks, parsePatch, pieces, splitPath, splitRows, type DiffLine, type FileHit } from '../prFiles';
+import { diffRuns, filterFiles, fileQuery, marks, parsePatch, pieces, splitPath, splitRows, type DiffLine, type FileHit } from '../prFiles';
 import { flag, oneOf, useStored } from '../stored';
+import { paint, useSyntax, type Run } from '../syntax';
 import type { PrFile } from '../types';
 import { cx, Icon, Kbd, Seg } from './primitives';
 import { chordPressed, typed } from '../platform';
@@ -59,9 +61,6 @@ export interface FileOpener {
   menu: (file: PrFile) => void;
 }
 
-/** The fewest files the filter is offered for: fewer read at a glance. */
-const FILTER_FROM = 8;
-
 /** The most a filter's files open at once. */
 const OPEN_ALL = 30;
 
@@ -79,6 +78,18 @@ function Marked({ text, ranges, from, to }: { text: string; ranges: [number, num
   );
 }
 
+/** A line's code in its colors, where it has them (`Run`s), with what the filter found marked. */
+function Code({ text, runs, words }: { text: string; runs?: Run[]; words: string[] }) {
+  const ranges = words.length > 0 ? marks(text, words) : [];
+  if (!runs) return <Marked text={text} ranges={ranges} />;
+  const tone = (r: Run, i: number) => (r.tone ? <span key={i} className={`ca-syn-${r.tone}`}>{r.text}</span> : r.text);
+  return (
+    <>
+      {paint(runs, ranges).map((g, i) => (g.hit ? <mark key={i}>{g.runs.map(tone)}</mark> : <Fragment key={i}>{g.runs.map(tone)}</Fragment>))}
+    </>
+  );
+}
+
 /** How a diff is drawn: one under the other or side by side, and whether long lines wrap. */
 interface View {
   layout: Layout;
@@ -87,9 +98,10 @@ interface View {
 
 const SIGN: Record<DiffLine['kind'], string> = { add: '+', del: '−', ctx: '', hunk: '', note: '' };
 
-/** A file's diff, numbered (`parsePatch`). Opened for what its changes mention (`seek`), the first
- *  mention comes into view. With `onLine`, a line's number after opens the file at that line. */
-function Patch({ text, words, seek, view, onLine }: { text: string; words: string[]; seek: boolean; view: View; onLine?: { title: (line: number) => string; run: (line: number) => void } }) {
+/** A file's diff, numbered (`parsePatch`), in the colors of the language `path` names. Opened for
+ *  what its changes mention (`seek`), the first mention comes into view. With `onLine`, a line's
+ *  number after opens the file at that line. */
+function Patch({ path, text, words, seek, view, onLine }: { path: string; text: string; words: string[]; seek: boolean; view: View; onLine?: { title: (line: number) => string; run: (line: number) => void } }) {
   const [all, setAll] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -100,8 +112,14 @@ function Patch({ text, words, seek, view, onLine }: { text: string; words: strin
   const lines = useMemo(() => parsePatch(text), [text]);
   // A file opened for what its changes mention shows them all, so none of it is below a fold.
   const mentions = words.length > 0 && lines.slice(PATCH_LINES).some((l) => marks(l.text, words).length > 0);
-  const shown = all || mentions ? lines : lines.slice(0, PATCH_LINES);
-  const code = (l: DiffLine) => (words.length > 0 ? <Marked text={l.text} ranges={marks(l.text, words)} /> : l.text);
+  const whole = all || mentions;
+  const shown = useMemo(() => (whole ? lines : lines.slice(0, PATCH_LINES)), [lines, whole]);
+  // Only what's shown is colored, so a long diff costs no more than its first lines until it's all
+  // shown.
+  const syntax = useSyntax();
+  const language = useMemo(() => syntax?.language(path) ?? null, [syntax, path]);
+  const runs = useMemo(() => (syntax && language ? diffRuns(shown, (code) => syntax.lines(code, language)) : null), [syntax, language, shown]);
+  const code = (l: DiffLine) => <Code text={l.text} runs={runs?.get(l)} words={words} />;
   const num = (n: number | null, after: boolean) =>
     n !== null && after && onLine ? (
       <button type="button" className="ca-patch-num is-link" title={onLine.title(n)} onClick={() => onLine.run(n)}>
@@ -231,7 +249,7 @@ function FileRow({ hit, open, active, words, view, opener, onToggle }: { hit: Fi
       </div>
       {open &&
         (file.patch ? (
-          <Patch text={file.patch} words={words} seek={lines > 0} view={view} onLine={onLine} />
+          <Patch path={file.path} text={file.patch} words={words} seek={lines > 0} view={view} onLine={onLine} />
         ) : (
           <p className="ca-empty ca-prfile-nodiff">
             GitHub doesn’t show a diff for this file here.
@@ -307,7 +325,6 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
   const [focused, setFocused] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const top = useRef<HTMLDivElement>(null);
-  const filterable = files.length >= FILTER_FROM;
   const [layout, setLayout] = useStored<Layout>(LAYOUT_KEY, LAYOUT_CODEC, 'unified');
   const [wrap, setWrap] = useStored(WRAP_KEY, flag, false);
 
@@ -337,11 +354,11 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
   };
   useImperativeHandle(ref, () => ({ find }));
 
-  const finding = useLatest(filterable ? find : null);
+  const finding = useLatest(find);
   useEffect(() => {
     if (!keys) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.isComposing || !finding.current) return;
+      if (e.defaultPrevented || e.isComposing) return;
       if (!chordPressed('Cmd+F', e)) return;
       if (!findsAt(section.current)) return;
       e.preventDefault();
@@ -380,7 +397,7 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
 
   return (
     <section className="ca-insp-sec ca-prfiles-sec" aria-label="Files changed" ref={section}>
-      <div className={cx('ca-prfiles-top', filterable && 'is-filterable')} ref={top}>
+      <div className="ca-prfiles-top" ref={top}>
         <h4 className="ca-label">Files changed · {count}</h4>
         {filtering && rows.length > 1 && rows.length <= OPEN_ALL && (
           <button type="button" className="ca-linkbtn" onClick={openAll}>
@@ -404,57 +421,55 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
             <Seg<'wrap'> look="icon" toggles label="Long lines" value={wrap ? 'wrap' : null} onPick={() => setWrap((w) => !w)} options={[{ id: 'wrap', label: 'Wrap long lines', icon: 'text-wrap', title: wrap ? 'Long lines wrap. Click to scroll them sideways' : 'Long lines scroll sideways. Click to wrap them' }]} />
           )}
         </span>
-        {filterable && (
-          <label className="ca-prfiles-filter" title="Words a file’s path holds, any order; -word leaves out the paths that hold it. Files whose changes mention them come after.">
-            <Icon name="search" size={12} />
-            <input
-              ref={input}
-              value={query}
-              placeholder="Filter files"
-              aria-label="Filter the files changed"
-              spellCheck={false}
-              onChange={(e) => type(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing || !typed(e)) return;
-                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  const step = e.key === 'ArrowDown' ? 1 : -1;
-                  setActive((at) => Math.max(0, Math.min(rows.length - 1, at + step)));
-                } else if (e.key === 'Enter') {
-                  const h = rows[Math.max(0, active)];
-                  if (!h) return;
-                  e.preventDefault();
-                  setActive(Math.max(0, active));
-                  toggle(h.file.path);
-                } else if (e.key === 'Escape') {
-                  // Clears the filter, then leaves it; the window's own Escape waits for the next.
-                  e.preventDefault();
-                  if (query) type('');
-                  else input.current?.blur();
-                }
+        <label className="ca-prfiles-filter" title="Words a file’s path holds, any order; -word leaves out the paths that hold it. Files whose changes mention them come after.">
+          <Icon name="search" size={12} />
+          <input
+            ref={input}
+            value={query}
+            placeholder="Filter files"
+            aria-label="Filter the files changed"
+            spellCheck={false}
+            onChange={(e) => type(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || !typed(e)) return;
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const step = e.key === 'ArrowDown' ? 1 : -1;
+                setActive((at) => Math.max(0, Math.min(rows.length - 1, at + step)));
+              } else if (e.key === 'Enter') {
+                const h = rows[Math.max(0, active)];
+                if (!h) return;
+                e.preventDefault();
+                setActive(Math.max(0, active));
+                toggle(h.file.path);
+              } else if (e.key === 'Escape') {
+                // Clears the filter, then leaves it; the window's own Escape waits for the next.
+                e.preventDefault();
+                if (query) type('');
+                else input.current?.blur();
+              }
+            }}
+          />
+          {query ? (
+            <button
+              type="button"
+              className="ca-prfiles-clear"
+              aria-label="Clear the filter"
+              title="Clear the filter"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                type('');
+                input.current?.focus();
               }}
-            />
-            {query ? (
-              <button
-                type="button"
-                className="ca-prfiles-clear"
-                aria-label="Clear the filter"
-                title="Clear the filter"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  type('');
-                  input.current?.focus();
-                }}
-              >
-                <Icon name="x" size={11} />
-              </button>
-            ) : (
-              keys && !focused && <Kbd keys={['⌘', 'F']} />
-            )}
-          </label>
-        )}
+            >
+              <Icon name="x" size={11} />
+            </button>
+          ) : (
+            keys && !focused && <Kbd keys={['⌘', 'F']} />
+          )}
+        </label>
       </div>
       <div className="ca-prfiles">{named.map((h, i) => row(h, i))}</div>
       {mentioned.length > 0 && (
