@@ -543,8 +543,8 @@ pub struct Looked {
 /// screen was locked and waits for one (tmux.rs `waiting_tabs`), as its start would have: beside
 /// the terminals of the worktrees near it in `lanes`, in front or behind your windows. Each waits
 /// no longer only once it's handled, so a restart partway leaves the rest for the next look, and
-/// a lock partway (a tab can take a minute to open) leaves the rest, and one whose tab didn't
-/// open as it came, for the next unlock. A session that ended meanwhile, or that a terminal shows
+/// a lock partway (a tab can take a minute to open) leaves the rest, and the one being opened as
+/// it came, for the next unlock. A session that ended meanwhile, or that a terminal shows
 /// already (Show in opened it, or a look cut short opened it), gets none. Says each that didn't
 /// open otherwise, whose session goes on in tmux for Show in to open.
 pub fn show_unlocked(profile: &str, new_terminal: NewTerminal, lanes: &[crate::model::Lane]) -> Looked {
@@ -558,13 +558,15 @@ pub fn show_unlocked(profile: &str, new_terminal: NewTerminal, lanes: &[crate::m
             let near = crate::board::terminal_neighbours(lanes, &w.dir);
             let place = Placement { new_terminal, near: &near, behind: w.behind, label: Some(w.label.as_str()) };
             let opened = w.hosted.attach_line(true).ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it.")).and_then(|line| opens_in(profile)?.run(place, &w.dir, &format!("exec {line}\n"), &[]));
-            match opened {
-                Ok(()) => {}
-                Err(_) if screen_locked() => {
-                    looked.deferred = true;
-                    break;
-                }
-                Err(e) => looked.failed.push(format!("{}: {e}", w.label)),
+            // Locked as it opened, Ghostty's window can have come with no terminal in it and
+            // still answer that it opened: it keeps its mark, and the next look finds it attached
+            // if it did open.
+            if screen_locked() {
+                looked.deferred = true;
+                break;
+            }
+            if let Err(e) = opened {
+                looked.failed.push(format!("{}: {e}", w.label));
             }
         }
         w.hosted.handled();

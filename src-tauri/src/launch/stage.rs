@@ -1024,13 +1024,14 @@ mod tests {
         let p = played(answer, || show_unlocked("ghostty", NewTerminal::Window, &[]));
         assert_eq!(p.got, Looked::default());
         assert_eq!(p.log, [listed.clone(), tab("front"), unmarked.clone()]);
-        // Locked again after the first tab: the next waits for the next unlock, still marked.
+        // Locked again as the first tab opened: it and the next wait for the next unlock, still
+        // marked, since a window Ghostty opened then can have no terminal in it however it answers.
         const TWO: &str = "$4\t%9\t0\tfront\t/r/app\tapp · fix\n$5\t%10\t0\tfront\t/r/app\tother\n";
         let relocks = Setup { locks_after_a_window: true, ..setup() };
         let p = play(relocks, |s| Ok(if s.args.iter().any(|a| a == "list-panes") { TWO.to_string() } else { "ok\n".to_string() }), || show_unlocked("ghostty", NewTerminal::Window, &[]));
         assert_eq!(p.got, Looked { failed: Vec::new(), deferred: true });
-        assert_eq!(p.log, [listed.clone(), tab("front"), unmarked.clone()]);
-        // And one whose tab failed as the screen locked keeps its mark too.
+        assert_eq!(p.log, [listed.clone(), tab("front")]);
+        // And so does one whose tab failed as the screen locked.
         let relocks = Setup { locks_after_a_window: true, ..setup() };
         let p = play(relocks, |s| if s.what == "GHOSTTY_NEW" { Err("Terminal surface model is not available".into()) } else if s.args.iter().any(|a| a == "list-panes") { Ok(TWO.to_string()) } else { Ok(String::new()) }, || show_unlocked("ghostty", NewTerminal::Window, &[]));
         assert_eq!(p.got, Looked { failed: Vec::new(), deferred: true });
