@@ -75,7 +75,9 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   ACP yet.
 - Two folders (2026.08.11's code): `chats` and `cli-config.json` are in
   `CURSOR_CONFIG_DIR`, else `$XDG_CONFIG_HOME/cursor`, else `~/.cursor`; `projects` (transcripts
-  and trust) in `CURSOR_DATA_DIR`, else `~/.cursor`: `cursor.rs` (`config_dir_of`). A folder's
+  and trust) in `CURSOR_DATA_DIR`, else `~/.cursor`: `cursor.rs` (`config_dir_of`, `data_dir`).
+  An account of its own is `CURSOR_CONFIG_DIR=<folder> cursor-agent` (detect.rs `naming`), so
+  its transcripts are with everyone's, where its reader doesn't look for them yet. A folder's
   long path also gets a short records folder of its own for its worker's socket
   (`projects/<slug cut to 84 characters>-<7 hex of its sha256>`), empty once the socket's gone.
 - Before it writes its chat the terminal UI asks, each in a box of its own, in a folder it doesn't
@@ -84,7 +86,7 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   workspace's `.cursor/mcp.json` not yet approved. Nothing is written while it waits there:
   `cursor.rs` (`Chat::unwritten`), `board.rs` (`CURSOR_STARTING_MS`). Trust is a
   `.workspace-trusted` file (`{trustedAt, workspacePath}`; `trustMethod` too from `--trust`) in
-  the folder's `projects/<slug>`, or in that of a folder above that isn't your home or one of the
+  the folder's `projects/<slug>` in the data folder, or in that of a folder above that isn't your home or one of the
   top two: `cursor.rs` (`TRUSTED`, `trust_folder`, `Cursor::before_start`). `--trust` trusts
   every folder it works in, in the terminal UI from 2026.08.11 (2026.07.x took it with `-p`
   only). Started behind your windows without either, a review's `cursor-agent` sat at the trust

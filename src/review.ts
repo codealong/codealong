@@ -50,9 +50,11 @@ function listed(names: string[]): string {
 
 /** What a routing group named as the reviewer reviews with, as Settings says it (`where`, how
  *  `start` reads): it picks among its accounts that can start a review there (`reviewsRunIn`),
- *  passing over the rest without a word, so the ones that can't are named, and the ones left. */
+ *  passing over the rest without a word, so the ones that can't are named, and the ones left. A
+ *  group that lists no members has every account that can start (start.ts `pickFromGroup`). */
 export function groupReviewWords(group: RoutingGroup, accounts: StartAccount[], start: ReviewStart, where: string): string {
-  const names = [...new Set(group.members.map((m) => m.account))];
+  const members = group.members.length ? group.members.map((m) => m.account) : accounts.filter((a) => a.places.length > 0).map((a) => a.name);
+  const names = [...new Set(members)];
   const can = names.filter((n) => accounts.some((a) => a.name === n && reviewsRunIn(a, start)));
   const cant = names.filter((n) => !can.includes(n));
   const picks = `Routing group ${group.name} (${group.strategy}) picks among its accounts that can start a review ${where}`;

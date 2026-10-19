@@ -82,12 +82,20 @@ pub fn cli_installed(home: &Path) -> bool {
 /// chat, for each folder it works in, one `--add-dir` adds too (2026.07.09 to 2026.10.16).
 const TRUSTED: &str = ".workspace-trusted";
 
-/// Trusts `folder` for the command line of the account kept in `home`, as Trust at its prompt
-/// does: `{trustedAt, workspacePath}` in the folder's `.workspace-trusted`. By the path it's
-/// given and by its real path, which the command line goes by when it starts there (the shell's
-/// folder as the kernel has it). False when it trusts both already, and then nothing is written.
-/// Not the home folder or one above it.
-pub fn trust_folder(home: &Path, folder: &Path, user_home: &Path) -> anyhow::Result<bool> {
+/// The folder the command line keeps its records of folders in (`projects`), whatever account
+/// it runs as: `CURSOR_DATA_DIR`, else `~/.cursor` in `home`, where an account of its own sets
+/// only `CURSOR_CONFIG_DIR` (`config_dir_of`). `env` is the environment it starts with, which
+/// Codealong's own stands in for.
+fn data_dir(env: impl Fn(&str) -> Option<String>, home: &Path) -> PathBuf {
+    env("CURSOR_DATA_DIR").map(|d| d.trim().to_string()).filter(|d| !d.is_empty()).map(PathBuf::from).unwrap_or_else(|| home.join(".cursor"))
+}
+
+/// Trusts `folder` for the command line whose records are in `data` (`data_dir`), as Trust at
+/// its prompt does: `{trustedAt, workspacePath}` in the folder's `.workspace-trusted`. By the
+/// path it's given and by its real path, which the command line goes by when it starts there
+/// (the shell's folder as the kernel has it). False when it trusts both already, and then
+/// nothing is written. Not the home folder or one above it.
+pub fn trust_folder(data: &Path, folder: &Path, user_home: &Path) -> anyhow::Result<bool> {
     if user_home.starts_with(folder) {
         anyhow::bail!("{} holds the home folder", folder.display());
     }
@@ -95,7 +103,7 @@ pub fn trust_folder(home: &Path, folder: &Path, user_home: &Path) -> anyhow::Res
     let real = std::fs::canonicalize(folder).ok().map(|p| p.to_string_lossy().into_owned());
     let mut wrote = false;
     for path in std::iter::once(given.clone()).chain(real.filter(|r| *r != given)) {
-        let records = home.join("projects").join(slug(&path));
+        let records = data.join("projects").join(slug(&path));
         if records.join(TRUSTED).exists() {
             continue;
         }
@@ -1286,14 +1294,14 @@ impl Reader {
             .map(|p| {
                 let started = procs::proc_start_ms(p.pid).unwrap_or(look.now);
                 let first_prompt = p.prompt.as_deref().map(|t| one_line(t, 140)).filter(|t| !t.is_empty());
-                let cwd = before.get(p.chat.as_deref().unwrap_or_default()).and_then(|old| old.cwd.clone()).or_else(|| procs::cwd_of(p.pid).map(|d| d.to_string_lossy().into_owned()));
+                // Where it is now: it goes into a folder `--workspace` or `--worktree` names as it starts.
+                let cwd = procs::cwd_of(p.pid).map(|d| d.to_string_lossy().into_owned()).or_else(|| before.get(p.chat.as_deref().unwrap_or_default()).and_then(|old| old.cwd.clone()));
                 Chat { id: p.chat.clone().unwrap_or_default(), cwd, created_at: started, last_updated: started, cli: true, unwritten: true, tail: Tail { first_prompt, ..Tail::default() }, ..Chat::default() }
             })
             .collect();
         rows.extend(unwritten);
         rows.sort_by(|x, y| y.last_updated.cmp(&x.last_updated));
-        // A chat whose folder is known only now may need a lane as much as a new one.
-        let added = rows.iter().any(|c| before.get(&c.id).map_or(true, |old| old.cwd.is_none() && c.cwd.is_some()));
+        let added = rows.iter().any(|c| placed_anew(before.get(&c.id), c));
         self.chats.insert(a.name.clone(), rows);
         added
     }
@@ -1311,6 +1319,13 @@ impl Reader {
     fn held(&self, id: &str) -> Option<&Process> {
         self.processes.iter().find(|p| p.chat.as_deref() == Some(id))
     }
+}
+
+/// Whether a chat as read now may need a lane made for it (`Applied::added`): it's new, or it's
+/// in a folder it wasn't in when last read, as one known only from its process is once its own
+/// record says where it works.
+fn placed_anew(before: Option<&Chat>, now: &Chat) -> bool {
+    before.map_or(true, |old| now.cwd.is_some() && old.cwd != now.cwd)
 }
 
 impl crate::harness::Reader for Reader {
@@ -1690,7 +1705,7 @@ impl crate::harness::Adapter for Cursor {
     /// answering the prompt would. A start goes ahead without it, and Cursor asks.
     fn before_start(&self, account: &AccountCfg, folder: &Path) {
         for f in [folder.to_path_buf(), crate::attachments::images_dir(), crate::attachments::files_dir()] {
-            if let Err(e) = trust_folder(&account.home_path(), &f, &crate::util::home()) {
+            if let Err(e) = trust_folder(&data_dir(|k| std::env::var(k).ok(), &crate::util::home()), &f, &crate::util::home()) {
                 eprintln!("Couldn't trust {} for {}: {e:#}", crate::util::tilde(&f), account.name);
             }
         }
@@ -2303,6 +2318,24 @@ mod tests {
         assert!(home.join("projects").join(slug(&link.to_string_lossy())).join(TRUSTED).is_file());
         assert!(trust_folder(&home, &user, &user).is_err());
         assert!(trust_folder(&home, &root, &user).is_err());
+        // An account of its own (`CURSOR_CONFIG_DIR=~/.cursor-work cursor-agent`) keeps its
+        // records of folders where every other does, unless CURSOR_DATA_DIR says otherwise.
+        let env = |set: Option<&'static str>| move |k: &str| (k == "CURSOR_DATA_DIR").then_some(set).flatten().map(String::from);
+        assert_eq!(data_dir(env(None), &user), user.join(".cursor"));
+        assert_eq!(data_dir(env(Some(" ")), &user), user.join(".cursor"));
+        assert_eq!(data_dir(env(Some("/data/cursor")), &user), PathBuf::from("/data/cursor"));
+    }
+
+    /// The board makes a lane for a chat in a folder it hasn't one for only when a reader says a
+    /// chat is new or has moved: one known from its process at first, then from its own record.
+    #[test]
+    fn a_chat_that_moved_folder_needs_placing() {
+        let at = |cwd: Option<&str>| Chat { id: "c".into(), cwd: cwd.map(String::from), ..Chat::default() };
+        assert!(placed_anew(None, &at(None)));
+        assert!(placed_anew(Some(&at(None)), &at(Some("/r/app"))));
+        assert!(placed_anew(Some(&at(Some("/r/app"))), &at(Some("/r/app/.cursor/worktrees/sky"))));
+        assert!(!placed_anew(Some(&at(Some("/r/app"))), &at(Some("/r/app"))));
+        assert!(!placed_anew(Some(&at(Some("/r/app"))), &at(None)));
     }
 
     #[test]

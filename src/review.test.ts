@@ -161,6 +161,10 @@ describe('reviewsRunIn', () => {
     const two = { ...reviewers, members: [{ account: 'claude' }, { account: 'codex', model: 'gpt-5.5' }, { account: 'codex' }, { account: 'gone' }] };
     expect(groupReviewWords(two, accounts, 'no-terminal', 'without a terminal')).toBe('Routing group reviewers (round-robin) picks among its accounts that can start a review without a terminal: gone can’t, so only claude and codex review.');
     expect(groupReviewWords({ ...reviewers, members: [{ account: 'cursor' }] }, accounts, 'codealong', 'in Codealong')).toBe('Routing group reviewers (round-robin) picks among its accounts that can start a review in Codealong, and none of them can: pick another reviewer, or change where reviews run.');
+    // A group that lists no members has every account that can start, as a start picks from it.
+    const everyone = { ...reviewers, members: [] };
+    expect(groupReviewWords(everyone, accounts, 'no-terminal', 'without a terminal')).toBe('Routing group reviewers (round-robin) picks among its accounts that can start a review without a terminal: cursor and antigravity can’t, so only claude and codex review.');
+    expect(groupReviewWords(everyone, [cursor, agy], 'no-terminal', 'without a terminal')).toBe('Routing group reviewers (round-robin) picks among its accounts that can start a review without a terminal, and none of them can: pick another reviewer, or change where reviews run.');
   });
   it('keeps Review with… to the accounts that can start one there', () => {
     const accounts = [claude, codex, cursor];
