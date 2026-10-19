@@ -32,7 +32,7 @@ use super::registry::{registry_of, INPUT_NEEDED, PERMISSION_PROMPT};
 use super::transcript::tool_request;
 use crate::model::{Harness, Session, Status};
 use crate::transcript::{clip_input, Item};
-use crate::util::{code, one_line, read_last};
+use crate::util::{code, read_last};
 
 /// A request as the hook gives it, less what Codealong doesn't use.
 #[derive(Debug, Clone, PartialEq)]
@@ -387,7 +387,7 @@ pub fn written_in(items: &[Item], a: &Asked) -> bool {
 /// A held request as a line: the call, or what it asks you.
 pub fn asked_label(a: &Asked) -> String {
     match questions_of(&a.input).first().filter(|_| a.tool == QUESTIONS) {
-        Some(q) => format!("Asks you · {}", one_line(&q.question, 160)),
+        Some(q) => crate::board::asks_you(&q.question),
         None => tool_request(&a.tool, &a.input),
     }
 }

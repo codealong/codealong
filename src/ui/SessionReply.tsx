@@ -1077,6 +1077,8 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   const [told, setNote] = useState<{ text: string; error: boolean } | null>(null);
   const failed = useUnanswered(s);
   const note = told ?? (failed ? { text: failed.why, error: true } : null);
+  // Asked again when its line changes too: what it asks can reach Codealong a moment after the
+  // session says it waits (the plugin's hook, a background job's record), and the line says so.
   useEffect(() => {
     let live = true;
     sessionPending(s.key)
@@ -1085,7 +1087,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     return () => {
       live = false;
     };
-  }, [s.key, s.statusSince]);
+  }, [s.key, s.statusSince, s.excerpt]);
 
   /** Answers the call; resolves with why that didn't go, or null once it did. A deny with
    *  `message` tells it what to do instead. One that lets it go on shows it working at once, so

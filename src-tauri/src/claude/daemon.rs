@@ -65,6 +65,14 @@ fn daemon_reply(socket: &Path, key: &str, job: &str, text: &str) -> Result<()> {
     bail!("Claude Code's daemon didn't take it: {last}")
 }
 
+/// Hands a background job `text` as `daemon_reply` does, with the service's key read from its
+/// file. A job waiting on its questions takes it as the answer to the first of them
+/// (`claude::answer_job_questions`).
+pub fn daemon_say(socket: &Path, key_file: &Path, job: &str, text: &str) -> Result<()> {
+    let key = std::fs::read_to_string(key_file).map_err(|e| anyhow!("Claude Code's daemon key: {e}"))?;
+    daemon_reply(socket, key.trim(), job, text)
+}
+
 /// The daemon's `attach` request, as `claude attach` sends it but without a terminal's
 /// capabilities (`caps` is optional, and the job goes on without them as it does with nobody
 /// attached; null is refused).
@@ -161,8 +169,7 @@ impl Own for Background {
             daemon_type(&self.socket, &self.key_file, &self.job, &[pasted(&typed).as_bytes(), SEND_NOW.as_bytes()])?;
             return Ok(sent(format!("Sent now to {title} in the background: it reads it without waiting for its current step.")));
         }
-        let key = std::fs::read_to_string(&self.key_file).map_err(|e| anyhow!("Claude Code's daemon key: {e}"))?;
-        daemon_reply(&self.socket, key.trim(), &self.job, &typed)?;
+        daemon_say(&self.socket, &self.key_file, &self.job, &typed)?;
         Ok(sent(if d.busy() { format!("Queued for {title}; the background session takes it after its current step.") } else { format!("Sent to {title} in the background.") }))
     }
 }

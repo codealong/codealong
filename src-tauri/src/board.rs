@@ -222,6 +222,12 @@ pub fn moved_registry(r: &RegistryEntry, from: &TranscriptInfo) -> RegistryEntry
 /// (`claude::held`): the sender follows.
 pub const HELD_MESSAGE: &str = "Held message from ";
 
+/// A session's excerpt while it waits on your answers to its questions: the first of them, as
+/// the windows know it (`lanes.ts` reads the start).
+pub fn asks_you(question: &str) -> String {
+    format!("Asks you · {}", one_line(question, 160))
+}
+
 /// A Claude Code session from its registry entry (when live) and transcript.
 pub fn claude_session(
     account: &AccountCfg,
@@ -312,6 +318,8 @@ pub fn claude_session(
                 None => format!("No activity for {{for:{t}}}"),
             })
         }
+        // A background job's record says what it asks, which its transcript may not have yet.
+        Status::Needs if reg.is_some_and(|r| r.asks.is_some()) => reg.and_then(|r| r.asks.as_deref()).map(asks_you),
         // A message held since its last call was made is what it waits on: a turn goes on under
         // its dialog, so the call may be one still running.
         Status::Needs => tr.and_then(|t| match &t.held {
@@ -2997,6 +3005,16 @@ mod tests {
         // A call made since may be.
         let since = s(&TranscriptInfo { held: Some(held), pending_tool_at: Some(NOW - 10_000), ..tr() });
         assert_eq!(since.excerpt.as_deref(), Some("Bash · `yarn mikro-orm migration:up`"));
+    }
+
+    /// A background job's record says what it asks while its transcript has nothing of it yet.
+    #[test]
+    fn a_jobs_question_is_what_it_waits_on() {
+        let a = acct("claude");
+        let job = RegistryEntry { kind: Some("bg".into()), job_id: Some("1a2b3c4d".into()), asks: Some("Keep its settings?\n(ticks every 15 min)".into()), ..reg("waiting", NOW - 30_000) };
+        let s = claude_session(&a, Some(&job), Some(&TranscriptInfo { pending_tool: None, ..tr() }), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!((s.status, s.excerpt.as_deref()), (Status::Needs, Some("Asks you · Keep its settings?")));
+        assert_eq!(session_headline(&s), ("`claude` asks you · Portal daily log + photo sync".to_string(), Some("Keep its settings?".to_string())));
     }
 
     #[test]

@@ -264,12 +264,18 @@ impl crate::harness::Adapter for ClaudeCode {
             }
             return Some(p);
         }
-        // Questions the hook didn't hand over (the plugin isn't in the account, or the app started
-        // after they were asked) still show here, to answer where the session runs.
-        if let Some((call, _)) = waiting_on(self, ctx, s, INPUT_NEEDED).filter(|(c, _)| !c.questions.is_empty()) {
+        // Questions the hook didn't hand over (the plugin isn't in the account, the app started
+        // after they were asked, or the hook went before it was answered) still show here: a
+        // background job's are answered through its account's service, whether its transcript
+        // has the call yet or not, and the rest where the session runs.
+        let written = waiting_on(self, ctx, s, INPUT_NEEDED).map(|(c, _)| c).filter(|c| !c.questions.is_empty());
+        if let Some(p) = job_pending(ctx, s, written.as_ref()) {
+            return Some(p);
+        }
+        if let Some(call) = written {
             return Some(crate::harness::Pending {
                 id: call.id.clone().unwrap_or_default(),
-                label: format!("Asks you · {}", one_line(&call.questions[0].question, 160)),
+                label: crate::board::asks_you(&call.questions[0].question),
                 input: None,
                 cannot: Some("Codealong didn't get these as they were asked, so they're answered where the session runs.".into()),
                 always: false,
@@ -300,6 +306,9 @@ impl crate::harness::Adapter for ClaudeCode {
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         if let Some(held) = id.strip_prefix(HELD_ID) {
             return answer_held(self, ctx, s, held, answer);
+        }
+        if id.starts_with(JOB_ASKS_ID) {
+            return decline_job_questions(self, ctx, s, id, answer);
         }
         let decision = match answer {
             crate::harness::Answer::Allow => asks::Decision::Allow,
@@ -363,7 +372,10 @@ impl crate::harness::Adapter for ClaudeCode {
         Ok(Some(format!("Denied {}, and told it what to do instead.", tool_request(&a.tool, &a.input))))
     }
 
-    fn answer_questions(&self, _ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answers: &Value) -> anyhow::Result<String> {
+    fn answer_questions(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answers: &Value) -> anyhow::Result<String> {
+        if id.starts_with(JOB_ASKS_ID) {
+            return answer_job_questions(self, ctx, s, id, answers);
+        }
         let Some(asked) = asks::of_session(&s.id).filter(|a| a.id == id) else {
             anyhow::bail!("It isn't waiting on that any more.");
         };
@@ -1652,6 +1664,105 @@ fn answer_held(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Sess
     })
 }
 
+/// How the id of a background job's questions starts (`job_pending`): a hash of the first
+/// question follows, since that's what its record says it waits on.
+const JOB_ASKS_ID: &str = "job-asks:";
+
+fn job_asks_id(question: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash: String = Sha256::digest(question.as_bytes()).iter().take(6).map(|b| format!("{b:02x}")).collect();
+    format!("{JOB_ASKS_ID}{hash}")
+}
+
+/// The questions a live background job waits on you to answer, from its record
+/// (`registry::job_questions`), with its registry entry: the transcript's call's when it has the
+/// same ones, since the call says each one's header and whether it takes several.
+fn job_asks(ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Option<&Item>) -> Option<(Vec<crate::harness::Question>, RegistryEntry)> {
+    let home = ctx.account.home_path();
+    let reg = session_entry(&home, s).filter(|r| r.kind.as_deref() == Some("bg") && r.waits_on(INPUT_NEEDED))?;
+    let asked = questions_of(&registry::job_questions(&home, reg.job_id.as_deref()?)?);
+    let questions = match written {
+        Some(call) if call.questions.iter().map(|q| &q.question).eq(asked.iter().map(|q| &q.question)) => call.questions.clone(),
+        _ => asked,
+    };
+    (!questions.is_empty()).then_some((questions, reg))
+}
+
+/// A background job's questions as the panel shows them. Claude Code's service takes a reply to
+/// a job waiting on questions as the first one's answer (`answer_job_questions`), so one question
+/// is answered from here; of several, the rest would go unanswered, so those are answered where
+/// it runs.
+fn job_pending(ctx: &crate::harness::Ctx, s: &crate::model::Session, written: Option<&Item>) -> Option<crate::harness::Pending> {
+    let (questions, _) = job_asks(ctx, s, written)?;
+    let cannot = if questions.len() > 1 {
+        Some(format!("Claude Code takes only the first of {} questions' answers from outside a background job.", questions.len()))
+    } else {
+        daemon_socket(&ctx.account.home_path()).is_none().then(|| "Its account's background service isn't running.".to_string())
+    };
+    Some(crate::harness::Pending {
+        id: job_asks_id(&questions[0].question),
+        label: crate::board::asks_you(&questions[0].question),
+        input: None,
+        cannot,
+        always: false,
+        no_once: false,
+        plan: false,
+        message: false,
+        always_rule: None,
+        // What it wrote with them comes with the call, which its transcript has once they're
+        // answered (Opus 5.5 holds it back every time).
+        unwritten: written.is_none() && live::stream(&s.key).is_none(),
+        questions,
+        terminal: None,
+    })
+}
+
+/// A background job's questions and the way to it, while it still waits on the ones `id` names:
+/// a reply to a job that has gone on is a prompt, not an answer.
+fn job_asked(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str) -> anyhow::Result<(Vec<crate::harness::Question>, daemon::Background)> {
+    let written = waiting_on(a, ctx, s, INPUT_NEEDED).map(|(c, _)| c);
+    let gone = || anyhow::anyhow!("It isn't waiting on that any more.");
+    let (questions, reg) = job_asks(ctx, s, written.as_ref()).filter(|(qs, _)| job_asks_id(&qs[0].question) == id).ok_or_else(gone)?;
+    let home = ctx.account.home_path();
+    let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
+    let job = reg.job_id.ok_or_else(gone)?;
+    Ok((questions, daemon::Background { socket, key_file: home.join("daemon/control.key"), job }))
+}
+
+/// Answers a background job's question through its account's service, as Claude Code's own list
+/// of agents does: a `reply` to a job waiting on questions answers the first, matched to a
+/// choice's label whatever its case, else taken as your own words, so several picks go as "A, B"
+/// (2.1.303's code; Haiku jobs answered "Apple" and "red, Blue" so, 2026-10-19).
+fn answer_job_questions(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answers: &Value) -> anyhow::Result<String> {
+    let (questions, job) = job_asked(a, ctx, s, id)?;
+    if questions.len() > 1 {
+        anyhow::bail!("Claude Code takes only the first question's answer from outside a background job: answer them where it runs.");
+    }
+    let question = &questions[0].question;
+    let text = match asks::picked(&questions, answers)?.remove(question) {
+        Some(Value::Array(picks)) => picks.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "),
+        Some(Value::String(t)) => t,
+        _ => anyhow::bail!("Pick an answer first."),
+    };
+    // A reply led by these is a command, or runs in its shell, whatever the job waits on.
+    if let Some(lead) = text.chars().next().filter(|c| matches!(c, '/' | '!')) {
+        anyhow::bail!("Claude Code takes words that start with {lead} as a command, not an answer: reword it, or answer it where it runs.");
+    }
+    daemon::daemon_say(&job.socket, &job.key_file, &job.job, &text)?;
+    Ok(format!("Answered: {} → {text}.", one_line(question, 80)))
+}
+
+/// Declines a background job's questions with Escape in its terminal, as its prompt's own does:
+/// the call is refused and the turn stops (a Haiku job, 2026-10-19).
+fn decline_job_questions(a: &ClaudeCode, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
+    if answer != crate::harness::Answer::Deny {
+        anyhow::bail!("It asks you questions: pick your answers.");
+    }
+    let (_, job) = job_asked(a, ctx, s, id)?;
+    daemon_press_escape(&job.socket, &job.key_file, &job.job)?;
+    Ok("Declined its questions; it stops and waits for you.".into())
+}
+
 /// Whether Claude Code's plan prompt puts "Yes, clear context…" first, as 1, for a session in
 /// `cwd` on the account at `home`: `showClearContextOnPlanAccept` in its settings (2.1.292; off by
 /// default), the account's settings.json, then the repo's `.claude/settings.json` and
@@ -1752,6 +1863,105 @@ mod tests {
         assert!(!r.answers.contains_key("Blank"));
         registry("input needed");
         assert!(ClaudeCode.pending(&ctx, &session).is_none(), "nothing waits once it's answered");
+    }
+
+    /// A background job's questions come from its record whether or not its transcript has the
+    /// call, and one is answered through its account's service: a reply answers it, Escape
+    /// declines it.
+    #[test]
+    fn a_background_jobs_question_is_answered_through_its_service() {
+        use crate::harness::{Adapter, Answer};
+        use std::io::{BufRead, BufReader, Read, Write};
+        let home = crate::fixtures::scratch("job-questions");
+        let dir = home.join("projects/-x");
+        std::fs::create_dir_all(home.join("sessions")).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(home.join("jobs/1a2b3c4d")).unwrap();
+        let id = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+        let prompt = r#"{"type":"user","timestamp":"2026-10-19T18:00:50Z","origin":{"kind":"human"},"message":{"content":"Pick a fruit"}}"#;
+        let ask = r#"{"type":"assistant","timestamp":"2026-10-19T18:01:58Z","message":{"content":[{"type":"tool_use","id":"toolu_f","name":"AskUserQuestion","input":{"questions":[{"question":"Which fruit?","header":"Fruit","multiSelect":true,"options":[{"label":"Apple"},{"label":"Pear"}]}]}}],"stop_reason":"tool_use"}}"#;
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{prompt}\n")).unwrap();
+        std::fs::write(home.join("sessions/4242.json"), serde_json::json!({ "pid": 4242, "sessionId": id, "cwd": "/x", "status": "waiting", "waitingFor": "input needed", "kind": "bg", "jobId": "1a2b3c4d" }).to_string()).unwrap();
+        let blocked = |questions: &str| std::fs::write(home.join("jobs/1a2b3c4d/state.json"), format!(r#"{{"state":"working","tempo":"blocked","block":{{"questions":[{questions}]}}}}"#)).unwrap();
+        let fruit = r#"{"question":"Which fruit?","options":[{"label":"Apple","description":"A red fruit"},{"label":"Pear","description":"A green fruit"}]}"#;
+        blocked(fruit);
+        let account = crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: home.to_string_lossy().into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let ctx = crate::harness::Ctx { account: &account };
+        let session = Session { status: crate::model::Status::Needs, live: true, pid: Some(4242), title: "Fruit".into(), cwd: "/x".into(), ..Session::new(Harness::Claude, "claude", id) };
+
+        // Its transcript has nothing of it yet (Opus 5.5 holds the message back): the record's
+        // question shows all the same, and with no service running it's answered where it runs.
+        let p = ClaudeCode.pending(&ctx, &session).unwrap();
+        assert!(p.id.starts_with(JOB_ASKS_ID));
+        assert_eq!((p.label.as_str(), p.questions.len(), p.questions[0].header.as_deref(), p.unwritten), ("Asks you · Which fruit?", 1, None, true));
+        assert_eq!(p.cannot.as_deref(), Some("Its account's background service isn't running."));
+
+        // A stand-in for the service, at the socket the account's folder hashes to.
+        let socket = daemon::daemon_socket_path(&home, unsafe { libc::getuid() });
+        let _ = std::fs::remove_dir_all(socket.parent().unwrap());
+        std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(home.join("daemon")).unwrap();
+        std::fs::write(home.join("daemon/control.key"), "k\n").unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().take(3) {
+                let mut conn = conn.unwrap();
+                let mut reader = BufReader::new(conn.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(line.trim()).unwrap();
+                let op = request["op"].as_str().unwrap_or_default().to_string();
+                conn.write_all(format!("{{\"ok\":true,\"op\":\"{op}\"}}\n").as_bytes()).unwrap();
+                let mut typed = Vec::new();
+                if op == "attach" {
+                    reader.read_to_end(&mut typed).unwrap();
+                }
+                tx.send((request, typed)).unwrap();
+            }
+        });
+        let heard = || rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let p = ClaudeCode.pending(&ctx, &session).unwrap();
+        assert_eq!(p.cannot, None);
+        let answers = |a: Value| serde_json::json!({ "Which fruit?": a });
+
+        // Words that would be a command aren't sent, nor an answer to questions it no longer asks.
+        let refused = ClaudeCode.answer_questions(&ctx, &session, &p.id, &answers(serde_json::json!("/clear"))).unwrap_err().to_string();
+        assert!(refused.contains("start with /"), "{refused}");
+        let gone = ClaudeCode.answer_questions(&ctx, &session, "job-asks:000000000000", &answers(serde_json::json!("Apple"))).unwrap_err().to_string();
+        assert!(gone.contains("isn't waiting"), "{gone}");
+        assert!(ClaudeCode.answer(&ctx, &session, &p.id, Answer::Allow).is_err(), "questions are answered, not allowed");
+
+        // A pick goes as the service's reply, which the job takes as the answer.
+        assert_eq!(ClaudeCode.answer_questions(&ctx, &session, &p.id, &answers(serde_json::json!("Apple"))).unwrap(), "Answered: Which fruit? → Apple.");
+        let (request, _) = heard();
+        assert_eq!((request["op"].as_str(), request["short"].as_str(), request["text"].as_str(), request["auth"].as_str()), (Some("reply"), Some("1a2b3c4d"), Some("Apple"), Some("k")));
+
+        // Declined, it's Escape in its terminal.
+        assert!(ClaudeCode.answer(&ctx, &session, &p.id, Answer::Deny).unwrap().starts_with("Declined"));
+        let (request, typed) = heard();
+        assert_eq!((request["op"].as_str(), typed.as_slice()), (Some("attach"), b"\x1b".as_slice()));
+
+        // With the call in its transcript, the call says whether it takes several: they go as
+        // words, as the job takes them.
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{prompt}\n{ask}\n")).unwrap();
+        let p = ClaudeCode.pending(&ctx, &session).unwrap();
+        assert_eq!((p.questions[0].header.as_deref(), p.questions[0].multi_select, p.unwritten), (Some("Fruit"), true, false));
+        ClaudeCode.answer_questions(&ctx, &session, &p.id, &answers(serde_json::json!(["Apple", "Pear"]))).unwrap();
+        assert_eq!(heard().0["text"].as_str(), Some("Apple, Pear"));
+
+        // Of several, the service would answer only the first.
+        blocked(&format!(r#"{fruit},{{"question":"Which size?","options":[{{"label":"Small"}}]}}"#));
+        let p = ClaudeCode.pending(&ctx, &session).unwrap();
+        assert_eq!(p.questions.len(), 2);
+        assert!(p.cannot.as_deref().is_some_and(|c| c.contains("first of 2")));
+        assert!(ClaudeCode.answer_questions(&ctx, &session, &p.id, &answers(serde_json::json!("Apple"))).is_err());
+
+        // Gone on: nothing waits.
+        std::fs::write(home.join("jobs/1a2b3c4d/state.json"), r#"{"state":"working","tempo":"active"}"#).unwrap();
+        std::fs::write(dir.join(format!("{id}.jsonl")), format!("{prompt}\n")).unwrap();
+        assert!(ClaudeCode.pending(&ctx, &session).is_none());
+        let _ = std::fs::remove_dir_all(socket.parent().unwrap());
     }
 
     /// A background helper's prompt shows in its session, its call only in the helper's own log,

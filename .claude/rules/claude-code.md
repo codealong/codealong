@@ -109,6 +109,17 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   (`claude/mod.rs` `session_var`, `engine.rs` `with_run_origins`). An inherited
   `CLAUDE_CODE_ENTRYPOINT=cli` didn't keep such a run from being `sdk-cli` (2.1.296,
   2026-10-14).
+- A background job waiting on you: its record says `tempo: "blocked"` and `needs` (a line for the
+  list of agents: "answer: <question> (<labels>)", "approve Bash: <command>", "approve plan"), and
+  for an `AskUserQuestion` `block.questions` with each question's text and choices, without its
+  header or whether it takes several (2.1.303's code). The service's `reply` to a job blocked on
+  questions answers the first of them, a choice's label matched whatever its case, else as words
+  ("red, Blue" for several), leaving the rest unanswered; a reply led by `/` or `!` is a command
+  instead; Escape typed through `attach` declines them ("User rejected tool use") and ends the
+  turn (Haiku and Opus 5.5 jobs, 2026-10-19). The record has them while an Opus 5.5 job's
+  transcript doesn't, and when the plugin's hook went away before they were answered (seen once,
+  across an app relaunch and a plugin update, cause not found): `claude/registry.rs`
+  (`job_questions`), `claude/mod.rs` (`job_pending`, `answer_job_questions`).
 - Warm spares (from 2.1.286), which Claude Code's own lookups and `read_registry` skip:
   `claude/registry.rs` (`RegistryEntry::spare`, `read_registry`). A spare's registry entry says
   `"spare": true`, `kind: bg`, `status: idle` and `name` its job ID, and its roster entry

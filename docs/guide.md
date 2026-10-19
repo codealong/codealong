@@ -521,7 +521,12 @@ headers, each with its choices listed as Claude Code lists them, what each says 
 and a box for your own answer, and Answer sends your picks. In a card too short for all of it (the
 peek under a tall header, say), the conversation gives up its room first, then the question and its
 choices scroll together while your own answer's box and the buttons stay in view. Claude Code's own prompt stays up all the while, and
-whichever answer comes first counts. An Antigravity command line conversation's questions (its
+whichever answer comes first counts. A background job's questions show too when the plugin didn't
+hand them over (the app restarted while they waited, say), from what its account's background
+service records of them, and its row says it asks you: a single question is answered from here
+through that service, as Claude Code's own list of agents answers it, and Decline stops its turn;
+several are answered where it runs, since the service takes only the first one's answer. An answer
+that starts with `/` or `!` is turned down there, since the job would run it as a command. An Antigravity command line conversation's questions (its
 `ask_question`) show the same way while it runs in a Ghostty, iTerm2 or tmux tab: Answer presses
 the keys there that give your picks, typing your own words into its Write-in box, and Decline
 skips them all and stops its turn. A question with more than eight choices is answered in its

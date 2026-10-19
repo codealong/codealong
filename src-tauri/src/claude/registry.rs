@@ -47,6 +47,9 @@ pub struct RegistryEntry {
     /// For a background job that goes on from another session's conversation (a fork, or a
     /// window's `/background`), that session's id, from the service's roster.
     pub resumes: Option<String>,
+    /// For a background job waiting on the questions it asks, the first of them, from its record
+    /// (`job_questions`), which has them whether or not its transcript or the plugin's hook does.
+    pub asks: Option<String>,
     /// The socket it listens on for other sessions' messages, and the protocol it speaks there.
     pub messaging_socket: Option<String>,
     pub peer_protocol: Option<u64>,
@@ -112,6 +115,7 @@ pub fn parse_registry(text: &str) -> Option<RegistryEntry> {
         started_at: raw.started_at,
         status_updated_at: raw.status_updated_at,
         resumes: None,
+        asks: None,
         messaging_socket: text_of(raw.messaging_socket_path),
         peer_protocol: raw.peer_protocol.as_ref().and_then(Value::as_u64),
         host_session: text_of(raw.host_session_id),
@@ -231,6 +235,27 @@ fn is_job_id(name: &str) -> bool {
     name.len() == 8 && name.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
+/// The questions a background job waits on you to answer, from its record, as the service's
+/// list of agents shows them: while a job's prompt is up its record says `tempo: "blocked"`, and
+/// for an `AskUserQuestion` it has `block: {questions: [{question, options: [{label,
+/// description}]}]}`, each question's header and whether it takes several left out (2.1.303's
+/// code, and a Haiku job's record, 2026-10-19). It's written whether or not the plugin's hook has
+/// the questions, and while the transcript doesn't have the call yet: an Opus 5.5 session holds
+/// the message a question comes in back until it's answered (`.claude/rules/claude-code.md`).
+/// None when the job isn't waiting on questions.
+pub fn job_questions(home: &Path, job: &str) -> Option<Value> {
+    if !is_job_id(job) {
+        return None;
+    }
+    let state: Value = serde_json::from_slice(&std::fs::read(home.join("jobs").join(job).join("state.json")).ok()?).ok()?;
+    if state.get("tempo").and_then(Value::as_str) != Some("blocked") {
+        return None;
+    }
+    let block = state.get("block")?;
+    block.get("questions")?.as_array().filter(|qs| !qs.is_empty())?;
+    Some(block.clone())
+}
+
 /// A job's session and the session it was forked from, from its record.
 pub fn parse_job_state(bytes: &[u8]) -> Option<(String, Option<String>)> {
     #[derive(Deserialize)]
@@ -275,6 +300,9 @@ pub fn read_registry(home: &Path) -> Vec<RegistryEntry> {
         if let Some(job) = entry.job_id.as_deref() {
             let roster = roster.get_or_insert_with(|| std::fs::read(home.join("daemon/roster.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null));
             entry.resumes = resumed_from(roster, job);
+            if entry.waits_on(INPUT_NEEDED) {
+                entry.asks = job_questions(home, job).and_then(|b| b.pointer("/questions/0/question")?.as_str().map(str::trim).filter(|q| !q.is_empty()).map(String::from));
+            }
         }
         out.push(entry);
     }
@@ -389,5 +417,38 @@ mod tests {
         assert!(parse_registry(&entry("acdfc0fb-8aa7-4e09-b822-056b058f5ca5", spare)).unwrap().spare);
         let live: Vec<String> = read_registry(&home).into_iter().map(|e| e.session_id).collect();
         assert_eq!(live, vec!["c1456f74"]);
+    }
+
+    /// A job waiting on an `AskUserQuestion` has its questions in its record, as 2.1.303's
+    /// service wrote them for a Haiku job, while an Opus 5.5 one's transcript doesn't have the
+    /// call yet (2026-10-19).
+    #[test]
+    fn a_job_waiting_on_questions_names_the_first() {
+        let home = crate::fixtures::scratch("job-asks");
+        std::fs::create_dir_all(home.join("sessions")).unwrap();
+        let (pid, now) = (std::process::id(), crate::util::now_ms());
+        let record = |job: &str, state: &str| {
+            std::fs::create_dir_all(home.join("jobs").join(job)).unwrap();
+            std::fs::write(home.join("jobs").join(job).join("state.json"), state).unwrap();
+        };
+        let blocked = r#"{"state":"working","tempo":"blocked","needs":"answer: Which fruit? (Apple · Pear)","block":{"questions":[{"question":"Which fruit?","options":[{"label":"Apple","description":"A red fruit"},{"label":"Pear","description":"A green fruit"}]},{"question":"Which colors?","options":[{"label":"Red","description":"Red"}]}]}}"#;
+        record("1a2b3c4d", blocked);
+        assert_eq!(job_questions(&home, "1a2b3c4d").and_then(|b| b.pointer("/questions/1/question").cloned()), Some(serde_json::json!("Which colors?")));
+        // Not while it works, and not for a permission prompt, which has no block.
+        record("5e6f7a8b", r#"{"state":"working","tempo":"active","block":{"questions":[{"question":"Stale?","options":[]}]}}"#);
+        record("9c0d1e2f", r#"{"state":"working","tempo":"blocked","needs":"approve Bash: npm test"}"#);
+        assert_eq!(job_questions(&home, "5e6f7a8b"), None);
+        assert_eq!(job_questions(&home, "9c0d1e2f"), None);
+        assert_eq!(job_questions(&home, "../1a2b3c4d"), None);
+
+        let entry = |n: u32, id: &str, job: &str, waiting: &str| {
+            let e = format!(r#"{{"pid":{pid},"sessionId":"{id}","cwd":"/x","status":"waiting","waitingFor":"{waiting}","kind":"bg","jobId":"{job}","startedAt":{now}}}"#);
+            std::fs::write(home.join(format!("sessions/{n}.json")), e).unwrap();
+        };
+        entry(1, "1a2b3c4d-0000", "1a2b3c4d", "input needed");
+        entry(2, "9c0d1e2f-1111", "9c0d1e2f", "permission prompt");
+        let asks: Vec<(String, Option<String>)> = read_registry(&home).into_iter().map(|e| (e.session_id, e.asks)).collect();
+        assert!(asks.contains(&("1a2b3c4d-0000".into(), Some("Which fruit?".into()))));
+        assert!(asks.contains(&("9c0d1e2f-1111".into(), None)));
     }
 }

@@ -649,7 +649,7 @@ impl Call {
     /// What it waits on you for, as a line: the call, or what it asks you.
     pub fn asked(&self) -> String {
         match self.questions.first() {
-            Some(q) => format!("Asks you · {}", one_line(&q.question, 160)),
+            Some(q) => crate::board::asks_you(&q.question),
             None => self.label.clone(),
         }
     }
