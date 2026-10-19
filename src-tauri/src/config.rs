@@ -339,8 +339,13 @@ impl RoutingStrategy {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GroupMemberCfg {
     pub account: String,
+    /// Empty for Auto's: the account's own, else the best other with room once its own limit is
+    /// at the account's cap (`start::auto_model`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
+    /// The effort level its sessions start at; empty for the account's own.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub effort: String,
 }
 
 /// What Codealong does for sessions by itself.
@@ -1410,6 +1415,16 @@ pub fn check_routing(cfg: &Config) -> std::result::Result<(), String> {
             if !model.is_empty() && !crate::start::valid_model(model) {
                 return Err(format!("Routing group {name}'s model is {model:?}, which isn't a model name Codealong can start a session on."));
             }
+            let effort = m.effort.trim();
+            let levels = cfg.accounts.iter().find(|a| a.name == acc).and_then(crate::harness::of).map(|h| h.efforts()).unwrap_or(&[]);
+            if !effort.is_empty() && !levels.iter().any(|(id, _)| *id == effort) {
+                let takes = levels.iter().map(|(id, _)| *id).collect::<Vec<_>>().join(", ");
+                return Err(if takes.is_empty() {
+                    format!("Routing group {name}'s effort for {acc} is {effort:?}, but {acc} takes no effort level.")
+                } else {
+                    format!("Routing group {name}'s effort for {acc} is {effort:?}; {acc} takes {takes}.")
+                });
+            }
         }
     }
     if let Some(b) = cfg.routing.buffer {
@@ -2175,6 +2190,9 @@ fn set_routing(doc: &mut toml_edit::DocumentMut, routing: &RoutingCfg) {
                     if !m.model.trim().is_empty() {
                         entry.insert("model", Value::from(m.model.trim()));
                     }
+                    if !m.effort.trim().is_empty() {
+                        entry.insert("effort", Value::from(m.effort.trim()));
+                    }
                     members.push(Value::InlineTable(entry));
                 }
                 t["members"] = Item::Value(Value::Array(members));
@@ -2601,7 +2619,7 @@ mod tests {
                 groups: vec![RoutingGroupCfg {
                     name: "reviewers".into(),
                     strategy: RoutingStrategy::AlternateHarness,
-                    members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into() }, GroupMemberCfg { account: "codex".into(), model: String::new() }],
+                    members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into(), effort: String::new() }, GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }],
                 }],
             },
             sessions: SessionsCfg { continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true },
@@ -3404,13 +3422,13 @@ mod tests {
                 RoutingGroupCfg {
                     name: "reviewers".into(),
                     strategy: RoutingStrategy::AlternateHarness,
-                    members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into() }, GroupMemberCfg { account: "codex".into(), model: String::new() }],
+                    members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into(), effort: String::new() }, GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }],
                 },
-                // A fallback group's members keep their order.
+                // A fallback group's members keep their order, and their effort.
                 RoutingGroupCfg {
                     name: "overflow".into(),
                     strategy: RoutingStrategy::Fallback,
-                    members: vec![GroupMemberCfg { account: "codex".into(), model: String::new() }, GroupMemberCfg { account: "claude".into(), model: String::new() }],
+                    members: vec![GroupMemberCfg { account: "codex".into(), model: String::new(), effort: "xhigh".into() }, GroupMemberCfg { account: "claude".into(), model: "sonnet".into(), effort: "high".into() }],
                 },
             ],
         };
@@ -3429,6 +3447,9 @@ mod tests {
         let mut bad_auto = cfg.clone();
         bad_auto.routing.auto = "missing".into();
         assert!(check(&bad_auto).unwrap_err().contains("[routing] auto"));
+        let mut no_level = cfg.clone();
+        no_level.routing.groups[1].members[1].effort = "ultra".into();
+        assert!(check(&no_level).unwrap_err().contains("claude takes low, medium, high, xhigh, max"), "{:?}", check(&no_level));
         let mut wide = cfg.clone();
         wide.routing.buffer = Some(60);
         assert!(check(&wide).unwrap_err().contains("[routing] buffer"));

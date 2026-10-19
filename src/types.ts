@@ -643,10 +643,12 @@ export interface AccountCfg {
 /** How a routing group picks among its members with room (config.rs `RoutingStrategy`). */
 export type RoutingStrategy = 'usage' | 'alternate-harness' | 'round-robin' | 'fallback';
 
-/** One member of a `[[routing.groups]]` table (config.rs `GroupMemberCfg`). */
+/** One member of a `[[routing.groups]]` table (config.rs `GroupMemberCfg`): an account, on a
+ *  model (empty for Auto's) at an effort (empty for the account's own). */
 export interface GroupMemberCfg {
   account: string;
   model?: string;
+  effort?: string;
 }
 
 /** A `[[routing.groups]]` table in config.toml (config.rs `RoutingGroupCfg`). */
@@ -1751,6 +1753,8 @@ export interface ResumeIn {
 export interface GroupMember {
   account: string;
   model?: string;
+  /** Missing from Macs before 2026-10-19. */
+  effort?: string;
 }
 
 /** A routing group as `StartOptions` sends it (peer/src/api.rs `RoutingGroup`). */

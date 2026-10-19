@@ -431,9 +431,18 @@
   max-width: 440px;
   min-height: 26px;
 }
-/* Its model menu and, in a fallback group, the buttons that move it sooner or later. */
+/* A member: its place in a fallback group's order and its account, model and effort; then the
+   buttons that move it sooner or later there, and take it out. */
+.ca-routing-member-start,
 .ca-routing-member-end {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
+}
+.ca-routing-member-at {
+  min-width: 1.5em;
+  font: var(--type-meta);
+  color: var(--ink-3);
+  text-align: right;
 }

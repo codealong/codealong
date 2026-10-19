@@ -328,6 +328,24 @@ pub fn preferred_names<'a>(startable: &[&'a AccountCfg]) -> Vec<&'a str> {
 /// The families of models with weekly limits of their own on Claude plans.
 const FAMILIES: [&str; 4] = ["fable", "opus", "sonnet", "haiku"];
 
+/// What Auto falls back to, best first, when an account's own model is nearly used up.
+const FALLBACK: [&str; 2] = ["opus", "sonnet"];
+
+/// The model Auto starts an account on: None for its own (`default`), unless that model's own
+/// limit is at the account's cap, as Fable's week can be while the account has room; then the
+/// best other model with room, with the default's context size. `src/start.ts`'s `autoModel` has
+/// the same rule.
+pub fn auto_model(default: Option<&str>, u: Option<&Usage>, cap: Option<u8>) -> Option<String> {
+    let (default, u) = (default?.to_lowercase(), u?);
+    let family = FAMILIES.iter().copied().find(|f| default.contains(f))?;
+    let meter = |f: &str| u.meters.iter().find(|m| m.model.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(f)));
+    if !meter(family).is_some_and(|m| near(m, cap)) {
+        return None;
+    }
+    let long = default.ends_with("[1m]");
+    FALLBACK.iter().filter(|f| **f != family).find(|f| !meter(f).is_some_and(|m| near(m, cap))).map(|f| if long { format!("{f}[1m]") } else { f.to_string() })
+}
+
 /// The families a limit for `limit_model` is for: one, or several joined by ` & ` as
 /// Antigravity's `Claude & GPT` is, lowercased.
 fn families_of(limit_model: &str) -> impl Iterator<Item = String> + '_ {
@@ -420,11 +438,13 @@ impl AutoReason {
     }
 }
 
-/// An account and optional model chosen from a routing group.
+/// An account chosen from a routing group, with the model and effort its member names: None for
+/// Auto's model (`auto_model`, which `resolve_group` asks) and the account's own effort.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupPick {
     pub account: String,
     pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 /// The sessions on this Mac's `lanes`, flattened.
@@ -495,10 +515,14 @@ pub fn pick_from_group_in(
         preferred: bool,
         explicit_model: Option<String>,
         check_model: Option<String>,
+        effort: Option<String>,
         roomy: bool,
         /// Room short of its buffer, or no numbers yet.
         clear: bool,
         usable: bool,
+    }
+    fn named(s: &str) -> Option<&str> {
+        Some(s.trim()).filter(|s| !s.is_empty())
     }
     let refused = refused_accounts(sessions, now);
     let startable: Vec<(&AccountCfg, Vec<Place>)> = cfg
@@ -510,27 +534,26 @@ pub fn pick_from_group_in(
     let preferred = preferred_names(&startable.iter().map(|(a, _)| *a).collect::<Vec<_>>());
     // A fallback group's order is its preference, so the first harness gets no more.
     let equal = group.strategy == config::RoutingStrategy::Fallback;
-    let raw: Vec<(&AccountCfg, &[Place], Option<&str>, bool)> = if group.members.is_empty() {
-        startable.iter().map(|(a, ps)| (*a, ps.as_slice(), None, equal || preferred.contains(&a.name.as_str()))).collect()
+    let raw: Vec<(&AccountCfg, &[Place], Option<&str>, Option<&str>, bool)> = if group.members.is_empty() {
+        startable.iter().map(|(a, ps)| (*a, ps.as_slice(), None, None, equal || preferred.contains(&a.name.as_str()))).collect()
     } else {
         group
             .members
             .iter()
             .filter_map(|m| {
                 let (a, ps) = startable.iter().find(|(a, _)| a.name == m.account)?;
-                let member_model = Some(m.model.trim()).filter(|s| !s.is_empty());
-                Some((*a, ps.as_slice(), member_model, true))
+                Some((*a, ps.as_slice(), named(&m.model), named(&m.effort), true))
             })
             .collect()
     };
     let asked_model = model.map(str::trim).filter(|s| !s.is_empty());
     let members: Vec<Member> = raw
         .into_iter()
-        .filter(|(a, offered, _, _)| {
+        .filter(|(a, offered, _, _, _)| {
             (places.is_empty() || places.iter().any(|p| offered.contains(p)))
                 && asked_model.is_none_or(|m| crate::harness::of(a).is_some_and(|h| h.offers_model(a, m)))
         })
-        .map(|(a, _, member_model, pref)| {
+        .map(|(a, _, member_model, effort, pref)| {
             let explicit_model = asked_model.or(member_model).map(str::to_string);
             let check_model = explicit_model.clone().or_else(|| crate::harness::of(a).and_then(|h| h.default_model(a)));
             let u = usages.iter().find(|u| u.account == a.name);
@@ -543,6 +566,7 @@ pub fn pick_from_group_in(
                 preferred: pref,
                 explicit_model,
                 check_model,
+                effort: effort.map(str::to_string),
                 roomy,
                 clear,
                 usable,
@@ -564,14 +588,14 @@ pub fn pick_from_group_in(
             pool.retain(|m| m.harness != h);
         }
     }
+    let picked = |m: &Member| GroupPick { account: m.account.name.clone(), model: m.explicit_model.clone(), effort: m.effort.clone() };
     let by_usage = |slice: &[&Member]| -> Option<GroupPick> {
         let cs: Vec<Candidate> = slice
             .iter()
             .map(|m| Candidate { name: &m.account.name, preferred: m.preferred, model: m.check_model.as_deref(), usage_cap: m.account.usage_cap, buffer: cfg.routing.buffer })
             .collect();
         let (idx, _) = auto_pick_indexed(&cs, usages, now)?;
-        let m = slice.get(idx)?;
-        Some(GroupPick { account: m.account.name.clone(), model: m.explicit_model.clone() })
+        slice.get(idx).map(|m| picked(m))
     };
     match group.strategy {
         config::RoutingStrategy::Usage => by_usage(&pool),
@@ -615,13 +639,12 @@ pub fn pick_from_group_in(
                     .max()
                     .unwrap_or(0)
             };
-            let m = pool.iter().min_by_key(|m| last_member(m))?;
-            Some(GroupPick { account: m.account.name.clone(), model: m.explicit_model.clone() })
+            pool.iter().min_by_key(|m| last_member(m)).map(|m| picked(m))
         }
         // The members in their order, each until it's within its buffer; once every one is, the
         // buffers are the sessions' running there, so the most room.
         config::RoutingStrategy::Fallback => match pool.iter().find(|m| m.clear) {
-            Some(m) => Some(GroupPick { account: m.account.name.clone(), model: m.explicit_model.clone() }),
+            Some(m) => Some(picked(m)),
             None => by_usage(&pool),
         },
     }
@@ -657,7 +680,19 @@ pub fn resolve_group(
     let usages = board.map(|b| b.usage.as_slice()).unwrap_or(&[]);
     let sessions = board.map(|b| all_sessions(&b.lanes)).unwrap_or_default();
     let recent = board.map(|b| recent_sessions(&b.lanes, reviews_only)).unwrap_or_default();
-    Some(pick_from_group(group, cfg, usages, &sessions, &recent, places, model, avoid, now, keep).ok_or_else(|| format!("no account in {} can start a session there", group.name)))
+    let picked = pick_from_group(group, cfg, usages, &sessions, &recent, places, model, avoid, now, keep).ok_or_else(|| format!("no account in {} can start a session there", group.name));
+    Some(picked.map(|p| with_auto_model(p, cfg, usages)))
+}
+
+/// `p` on Auto's model (`auto_model`) where its member names none.
+fn with_auto_model(p: GroupPick, cfg: &Config, usages: &[Usage]) -> GroupPick {
+    if p.model.is_some() {
+        return p;
+    }
+    let Some(a) = cfg.accounts.iter().find(|a| a.name == p.account) else { return p };
+    let default = crate::harness::of(a).and_then(|h| h.default_model(a));
+    let model = auto_model(default.as_deref(), usages.iter().find(|u| u.account == a.name), a.usage_cap);
+    GroupPick { model, ..p }
 }
 
 /// Auto's account, by the quick panel's rule (`auto_pick` or `[routing] auto`): among the accounts
@@ -718,7 +753,7 @@ pub fn options_for(cfg: &Config) -> StartOptions {
             members: g
                 .members
                 .iter()
-                .map(|m| GroupMember { account: m.account.clone(), model: m.model.trim().to_string() })
+                .map(|m| GroupMember { account: m.account.clone(), model: m.model.trim().to_string(), effort: m.effort.trim().to_string() })
                 .collect(),
         })
         .collect();
@@ -1733,41 +1768,41 @@ mod tests {
             ..Config::default()
         };
         let members = vec![
-            GroupMemberCfg { account: "claude".into(), model: "opus".into() },
-            GroupMemberCfg { account: "claude2".into(), model: "sonnet".into() },
-            GroupMemberCfg { account: "codex".into(), model: String::new() },
+            GroupMemberCfg { account: "claude".into(), model: "opus".into(), effort: String::new() },
+            GroupMemberCfg { account: "claude2".into(), model: "sonnet".into(), effort: String::new() },
+            GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() },
         ];
         let alt = RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::AlternateHarness, members: members.clone() };
         let usages = [usage("claude", 20.0, 30.0, Some(40)), usage("claude2", 10.0, 20.0, Some(80)), usage("codex", 15.0, 25.0, Some(20))];
         // First pick takes the first harness (Claude) and the account in it whose week resets soonest (claude).
         assert_eq!(
             pick_from_group_in(&alt, &cfg, &usages, &[], &[], &[], None, None, NOW, home, |_| true),
-            Some(GroupPick { account: "claude".into(), model: Some("opus".into()) })
+            Some(GroupPick { account: "claude".into(), model: Some("opus".into()), effort: None })
         );
         // After a Claude review, it switches to Codex.
         let recent = vec![("claude".to_string(), Harness::Claude, Some("opus".to_string()), NOW - 10)];
         assert_eq!(
             pick_from_group_in(&alt, &cfg, &usages, &[], &recent, &[], None, None, NOW, home, |_| true),
-            Some(GroupPick { account: "codex".into(), model: None })
+            Some(GroupPick { account: "codex".into(), model: None, effort: None })
         );
         // After Codex ran more recently than Claude, it switches back to Claude, passing over claude when it hits its 80% usage_cap.
         let recent2 = vec![("claude".to_string(), Harness::Claude, Some("opus".to_string()), NOW - 20), ("codex".to_string(), Harness::Codex, None, NOW - 5)];
         let capped = [usage("claude", 20.0, 82.0, Some(40)), usage("claude2", 10.0, 20.0, Some(80)), usage("codex", 15.0, 25.0, Some(20))];
         assert_eq!(
             pick_from_group_in(&alt, &cfg, &capped, &[], &recent2, &[], None, None, NOW, home, |_| true),
-            Some(GroupPick { account: "claude2".into(), model: Some("sonnet".into()) })
+            Some(GroupPick { account: "claude2".into(), model: Some("sonnet".into()), effort: None })
         );
         // Avoiding Claude (for a PR Claude wrote) picks Codex even when Claude was used less recently.
         assert_eq!(
             pick_from_group_in(&alt, &cfg, &usages, &[], &recent2, &[], None, Some(Harness::Claude), NOW, home, |_| true),
-            Some(GroupPick { account: "codex".into(), model: None })
+            Some(GroupPick { account: "codex".into(), model: None, effort: None })
         );
         // Round-robin rotates across every roomy member in order.
         let rr = RoutingGroupCfg { name: "rr".into(), strategy: RoutingStrategy::RoundRobin, members };
         let recent_rr = vec![("claude".to_string(), Harness::Claude, Some("opus".to_string()), NOW - 30), ("claude2".to_string(), Harness::Claude, Some("sonnet".to_string()), NOW - 10)];
         assert_eq!(
             pick_from_group_in(&rr, &cfg, &usages, &[], &recent_rr, &[], None, None, NOW, home, |_| true),
-            Some(GroupPick { account: "codex".into(), model: None })
+            Some(GroupPick { account: "codex".into(), model: None, effort: None })
         );
         // Multiple members on the same account keep their own model when the second has more room,
         // and round-robin rotates across models on the same account.
@@ -1775,21 +1810,21 @@ mod tests {
             name: "models".into(),
             strategy: RoutingStrategy::Usage,
             members: vec![
-                GroupMemberCfg { account: "claude2".into(), model: "opus".into() },
-                GroupMemberCfg { account: "claude2".into(), model: "sonnet".into() },
+                GroupMemberCfg { account: "claude2".into(), model: "opus".into(), effort: String::new() },
+                GroupMemberCfg { account: "claude2".into(), model: "sonnet".into(), effort: String::new() },
             ],
         };
         let mut per_model = usage("claude2", 10.0, 20.0, None);
         per_model.meters.push(Meter { model: Some("Opus".into()), ..meter("model:Opus", 80.0, None) });
         assert_eq!(
             pick_from_group_in(&same_acct, &cfg, &[per_model], &[], &[], &[], None, None, NOW, home, |_| true),
-            Some(GroupPick { account: "claude2".into(), model: Some("sonnet".into()) })
+            Some(GroupPick { account: "claude2".into(), model: Some("sonnet".into()), effort: None })
         );
         let rr_models = RoutingGroupCfg { strategy: RoutingStrategy::RoundRobin, ..same_acct };
         let after_opus = vec![("claude2".to_string(), Harness::Claude, Some("claude-opus-4-6".to_string()), NOW - 5)];
         assert_eq!(
             pick_from_group_in(&rr_models, &cfg, &usages, &[], &after_opus, &[], None, None, NOW, home, |_| true),
-            Some(GroupPick { account: "claude2".into(), model: Some("sonnet".into()) })
+            Some(GroupPick { account: "claude2".into(), model: Some("sonnet".into()), effort: None })
         );
         let after_sonnet = vec![
             ("claude2".to_string(), Harness::Claude, Some("claude-opus-4-6".to_string()), NOW - 10),
@@ -1797,8 +1832,56 @@ mod tests {
         ];
         assert_eq!(
             pick_from_group_in(&rr_models, &cfg, &usages, &[], &after_sonnet, &[], None, None, NOW, home, |_| true),
-            Some(GroupPick { account: "claude2".into(), model: Some("opus".into()) })
+            Some(GroupPick { account: "claude2".into(), model: Some("opus".into()), effort: None })
         );
+    }
+
+    // start.test.ts's "Auto's model" tests the same cases.
+    #[test]
+    fn autos_model_is_the_default_until_its_own_limit_is_nearly_used() {
+        let fable = |percent: f64, opus: Option<f64>| {
+            let mut u = usage("claude", 10.0, 20.0, Some(100));
+            u.meters.push(Meter { model: Some("Fable".into()), ..meter("model:Fable", percent, None) });
+            if let Some(o) = opus {
+                u.meters.push(Meter { model: Some("Opus".into()), ..meter("model:Opus", o, None) });
+            }
+            u
+        };
+        assert_eq!(auto_model(Some("claude-fable-5-1"), Some(&fable(40.0, None)), None), None);
+        assert_eq!(auto_model(Some("opus[1m]"), Some(&fable(99.0, None)), None), None);
+        assert_eq!(auto_model(None, Some(&fable(99.0, None)), None), None);
+        // The best other model, keeping the default's context size; Opus nearly used too: Sonnet.
+        assert_eq!(auto_model(Some("claude-fable-5-1"), Some(&fable(95.0, None)), None).as_deref(), Some("opus"));
+        assert_eq!(auto_model(Some("claude-fable-5-1[1m]"), Some(&fable(92.0, None)), None).as_deref(), Some("opus[1m]"));
+        assert_eq!(auto_model(Some("fable"), Some(&fable(95.0, Some(96.0))), None).as_deref(), Some("sonnet"));
+        // The account's own cap says when.
+        assert_eq!(auto_model(Some("fable"), Some(&fable(75.0, None)), Some(70)).as_deref(), Some("opus"));
+    }
+
+    #[test]
+    fn a_group_member_starts_on_its_model_and_effort_else_autos_and_the_accounts() {
+        use config::{GroupMemberCfg, RoutingGroupCfg, RoutingStrategy};
+        let home = Path::new("/Users/me");
+        let cfg = Config { accounts: vec![account("claude", "claude", "/Users/me/.claude", Some("claude")), account("codex", "codex", "/Users/me/.codex", Some("codex"))], ..Config::default() };
+        let group = RoutingGroupCfg {
+            name: "overflow".into(),
+            strategy: RoutingStrategy::Fallback,
+            members: vec![GroupMemberCfg { account: "claude".into(), model: String::new(), effort: "high".into() }, GroupMemberCfg { account: "codex".into(), model: "gpt-5.5".into(), effort: " ".into() }],
+        };
+        let picked = |us: &[Usage]| pick_from_group_in(&group, &cfg, us, &[], &[], &[], None, None, NOW, home, |_| true);
+        assert_eq!(picked(&[]), Some(GroupPick { account: "claude".into(), model: None, effort: Some("high".into()) }));
+        assert_eq!(picked(&[usage("claude", 10.0, 88.0, Some(100))]), Some(GroupPick { account: "codex".into(), model: Some("gpt-5.5".into()), effort: None }));
+        // A member on Auto's model moves off a default whose own limit is nearly used.
+        let mut u = usage("claude", 10.0, 20.0, Some(100));
+        u.meters.push(Meter { model: Some("Fable".into()), ..meter("model:Fable", 95.0, None) });
+        let home_dir = crate::fixtures::scratch("auto-model-home");
+        let mut fable = cfg.clone();
+        fable.accounts[0].home = home_dir.to_string_lossy().into_owned();
+        std::fs::write(fable.accounts[0].home_path().join("settings.json"), r#"{"model": "claude-fable-5-1"}"#).unwrap();
+        let pick = GroupPick { account: "claude".into(), model: None, effort: None };
+        assert_eq!(with_auto_model(pick.clone(), &fable, &[u.clone()]).model.as_deref(), Some("opus"));
+        assert_eq!(with_auto_model(GroupPick { model: Some("sonnet".into()), ..pick.clone() }, &fable, &[u]).model.as_deref(), Some("sonnet"));
+        assert_eq!(with_auto_model(pick, &fable, &[]).model, None);
     }
 
     #[test]
@@ -1813,7 +1896,7 @@ mod tests {
             ],
             ..Config::default()
         };
-        let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new() };
+        let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
         let group = RoutingGroupCfg { name: "overflow".into(), strategy: RoutingStrategy::Fallback, members: vec![member("codex"), member("claude2"), member("claude")] };
         let picked = |cfg: &Config, us: &[Usage], avoid: Option<Harness>| pick_from_group_in(&group, cfg, us, &[], &[], &[], None, avoid, NOW, home, |_| true).map(|p| p.account);
         // The first member, whoever has more room or resets sooner, and whatever ran last.

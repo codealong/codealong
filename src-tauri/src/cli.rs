@@ -4601,7 +4601,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
         PlaceArg::CodexApp => Place::CodexApp,
         PlaceArg::Codealong => Place::Codealong,
     });
-    let (account, model) = {
+    let (account, model, effort) = {
         let cfg = c.cfg()?.clone();
         if a.account == "auto" || cfg.routing.groups.iter().any(|g| g.name == a.account) {
             let board = match c.app.is_some() {
@@ -4617,9 +4617,9 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             let picked = start::resolve_group(&cfg, board.as_ref(), &a.account, &places, a.model.as_deref(), None, false, now_ms(), |_| true)
                 .and_then(std::result::Result::ok)
                 .ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?;
-            (picked.account, a.model.clone().or(picked.model))
+            (picked.account, a.model.clone().or(picked.model), a.effort.clone().or(picked.effort))
         } else {
-            (a.account.clone(), a.model.clone())
+            (a.account.clone(), a.model.clone(), a.effort.clone())
         }
     };
     // Without --in, the account's own first place: the one its `start` names, else the usual; a
@@ -4634,7 +4634,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             hidden.or(places.first().copied()).ok_or_else(|| anyhow!("{account} can't start a session from here."))?
         }
     };
-    let spec = StartSpec { lane_id, account, place, prompt, model, effort: a.effort.clone(), worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper, report: a.report };
+    let spec = StartSpec { lane_id, account, place, prompt, model, effort, worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper, report: a.report };
     if a.dry_run {
         let cfg = c.cfg()?.clone();
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;

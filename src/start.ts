@@ -100,6 +100,8 @@ export interface AutoPick {
   resetsAt: number | null;
   /** The explicit model a routing group member set, when Auto or a group picked one. */
   model?: string | null;
+  /** The effort a routing group member set, when a group picked one. */
+  effort?: string | null;
 }
 
 /** Whether an account's command line would take `model`: one it lists, and for Claude Code any,
@@ -247,8 +249,8 @@ export function pickFromGroup(
   // A fallback group's order is its preference, so the first harness gets no more.
   const equal = group.strategy === 'fallback';
   const rawMembers = explicitMembers
-    ? group.members.map((m) => ({ account: m.account, model: m.model?.trim() || null, preferred: true }))
-    : can.map((a) => ({ account: a.name, model: null, preferred: equal || preferred.includes(a.name) }));
+    ? group.members.map((m) => ({ account: m.account, model: m.model?.trim() || null, effort: m.effort?.trim() || null, preferred: true }))
+    : can.map((a) => ({ account: a.name, model: null, effort: null, preferred: equal || preferred.includes(a.name) }));
   const askedModel = model?.trim() || null;
   const members = rawMembers.flatMap((m) => {
     const a = can.find((x) => x.name === m.account);
@@ -263,7 +265,7 @@ export function pickFromGroup(
     const roomy = usable && spent.every((x) => !near(x, a.usageCap));
     // Room short of its buffer, or no numbers yet.
     const clear = roomy && spent.every((x) => x.percent < bufferLine(a.usageCap, a.buffer));
-    return [{ account: a, preferred: m.preferred, explicitModel: explicit, checkModel, roomy, clear, usable }];
+    return [{ account: a, preferred: m.preferred, explicitModel: explicit, effort: m.effort, checkModel, roomy, clear, usable }];
   });
   if (members.length === 0) return null;
   const roomy = members.filter((m) => m.roomy);
@@ -280,7 +282,7 @@ export function pickFromGroup(
     );
     if (!res) return null;
     const chosen = slice[res.index];
-    return { ...res.pick, account: chosen.account.name, model: chosen.explicitModel };
+    return { ...res.pick, account: chosen.account.name, model: chosen.explicitModel, effort: chosen.effort };
   };
   if (group.strategy === 'alternate-harness') {
     const recent = targetLanes(lanes)
@@ -314,13 +316,13 @@ export function pickFromGroup(
       );
     };
     const chosen = pool.reduce((best, m) => (lastMember(m) < lastMember(best) ? m : best));
-    return { account: chosen.account.name, reason: 'first', resetsAt: null, model: chosen.explicitModel };
+    return { account: chosen.account.name, reason: 'first', resetsAt: null, model: chosen.explicitModel, effort: chosen.effort };
   }
   if (group.strategy === 'fallback') {
     // The members in their order, each until it's within its buffer; once every one is, the
     // buffers are the sessions' running there, so the most room.
     const first = pool.find((m) => m.clear);
-    return first ? { account: first.account.name, reason: 'first', resetsAt: null, model: first.explicitModel } : byUsage(pool);
+    return first ? { account: first.account.name, reason: 'first', resetsAt: null, model: first.explicitModel, effort: first.effort } : byUsage(pool);
   }
   return byUsage(pool);
 }
@@ -622,7 +624,9 @@ export function startChoice(
   // The levels its account takes (Codex's go past Claude Code's), else those offered for any.
   const levels = accountInfo?.efforts?.length ? accountInfo.efforts : efforts;
   const takesEffort = (accountInfo?.efforts?.length ?? 0) > 0;
-  const tuned = (!!chosenModel || !!activePick?.model || (!!effort && takesEffort)) && allPlaces.some((p) => placeTakesModel(p.place, resuming));
+  // The effort picked, else the one the group's member names.
+  const wanted = effort ?? (autoFor ? (activePick?.effort ?? null) : null);
+  const tuned = (!!chosenModel || !!activePick?.model || (!!wanted && takesEffort)) && allPlaces.some((p) => placeTakesModel(p.place, resuming));
   const places = tuned ? allPlaces.filter((p) => placeTakesModel(p.place, resuming)) : allPlaces;
   const placeNow = [place, choice ? (settledPlace(choice, accounts, pick, groups, usage, now, lanes) ?? lastPlace(choice)) : undefined].map((p) => places.find((x) => x.place === p)?.place).find(Boolean) ?? places[0]?.place ?? null;
   // A harness whose command line makes a worktree for a session (Claude Code's `--worktree`).
@@ -635,8 +639,8 @@ export function startChoice(
   const startsOn = takesAModel ? (modelNow ?? defaultModel) : null;
   // A Mac whose Codealong doesn't know effort yet lists no levels. An account that lists no
   // models still takes one (a Codex account Codex hasn't run in has no list yet).
-  const effortTaken = placeTakes && takesEffort && modelFamily(startsOn) !== 'haiku' && levels.some((e) => e.id === effort);
-  const effortNow = effortTaken ? effort : null;
+  const effortTaken = placeTakes && takesEffort && modelFamily(startsOn) !== 'haiku' && levels.some((e) => e.id === wanted);
+  const effortNow = effortTaken ? wanted : null;
   return {
     agentNow,
     choice,

@@ -935,6 +935,10 @@ pub struct GroupMember {
     pub account: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
+    /// The effort level its sessions start at; empty for the account's own. Missing from Macs
+    /// before 2026-10-19.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub effort: String,
 }
 
 /// Where a session that isn't running goes on, and on what: a place its account starts sessions

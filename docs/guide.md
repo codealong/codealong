@@ -1631,7 +1631,11 @@ until that one is within 5% of its cap, that last 5% being left to the sessions 
 running on it (*Room kept for running sessions* in Settings › Routing, `[routing] buffer`); else
 the one with the most room. It starts on that default model, or the next best
 (Opus, then Sonnet) when the default's own weekly limit is nearly used up. Named **routing groups**
-(`[[routing.groups]]`, Settings › Routing) group `(account, model)` members under a strategy:
+(`[[routing.groups]]`, Settings › Routing) group members under a strategy, each an account on a
+model at an effort, added with *Add account* from the same menu the quick panel starts with (an
+account can be in a group more than once, on different models). A member with no model starts on
+Auto's (its account's default, or the next best as above), wherever the group starts it: the quick
+panel, `codealong start` and reviews; one with no effort, at its account's own. The strategies are
 `"usage"` (most room / soonest reset), `"alternate-harness"` (rotates across the group's harnesses),
 `"round-robin"`, or `"fallback"`, skipping accounts at their usage cap. A fallback group starts on
 its members in the order they're listed (Settings › Routing moves them up and down; with none

@@ -589,7 +589,7 @@ buffer = 5                     # percent below each account's usage_cap left for
 [[routing.groups]]
 name = "reviewers"             # offered in the quick panel, `codealong start --account`, and as the reviewer for PRs
 strategy = "alternate-harness" # "usage" (most room / soonest reset), "alternate-harness" (rotates across harnesses), "round-robin", or "fallback" (the members in order, each until it's within `buffer` of its cap)
-members = [{ account = "claude-work", model = "opus" }, { account = "codex" }]  # [] includes every enabled account that can start
+members = [{ account = "claude-work", model = "opus", effort = "high" }, { account = "codex" }]  # each an account on a model (none: Auto's) at an effort (none: the account's own), added in order; [] includes every enabled account that can start
 
 [reviews]
 auto = false                   # an agent reviews each PR that waits on your review, and again on new commits (Settings › Automation)

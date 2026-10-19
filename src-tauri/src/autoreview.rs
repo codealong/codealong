@@ -1786,34 +1786,35 @@ fn start_words(start: ReviewStart) -> &'static str {
     }
 }
 
-/// The account and model a new review runs on, and where: `seat`'s account (or the one Auto or
-/// the routing group it names picks among the accounts that can start one where `[reviews] start`
-/// says, of another harness than `avoid` when one of them can) and model.
-fn reviewer_place(cfg: &Config, board: &Board, seat: &Seat, avoid: Option<Harness>) -> Result<(String, Option<String>, Place), String> {
+/// The account, model and effort a new review runs on, and where: `seat`'s account (or the one
+/// Auto or the routing group it names picks among the accounts that can start one where
+/// `[reviews] start` says, of another harness than `avoid` when one of them can) and model, and
+/// the effort the group's member names.
+fn reviewer_place(cfg: &Config, board: &Board, seat: &Seat, avoid: Option<Harness>) -> Result<(String, Option<String>, Option<String>, Place), String> {
     let start = cfg.reviews.start;
     let can = |a: &AccountCfg| review_place(a, start).is_some();
     let asked = seat.account.as_deref().map(str::trim).filter(|a| !a.is_empty());
-    let (name, model) = match asked {
+    let (name, model, effort) = match asked {
         None => {
             let picked = crate::start::resolve_group(cfg, Some(board), AUTO, &[], seat.model.as_deref(), avoid, true, now_ms(), can)
                 .and_then(std::result::Result::ok)
                 .ok_or_else(|| format!("no account can start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
-            (picked.account, seat.model.clone().or(picked.model))
+            (picked.account, seat.model.clone().or(picked.model), picked.effort)
         }
         Some(n) if cfg.routing.groups.iter().any(|g| g.name == n) => {
             let picked = crate::start::resolve_group(cfg, Some(board), n, &[], seat.model.as_deref(), avoid, true, now_ms(), can)
                 .and_then(std::result::Result::ok)
                 .ok_or_else(|| format!("no account in {n} can start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
-            (picked.account, seat.model.clone().or(picked.model))
+            (picked.account, seat.model.clone().or(picked.model), picked.effort)
         }
-        Some(n) => (n.to_string(), seat.model.clone()),
+        Some(n) => (n.to_string(), seat.model.clone(), None),
     };
     let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| format!("there's no account named {name}"))?;
     if a.disabled {
         return Err(format!("{name} is turned off in Settings › Accounts"));
     }
     let place = review_place(a, start).ok_or_else(|| format!("{name} can't start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
-    Ok((name, model, place))
+    Ok((name, model, effort, place))
 }
 
 /// Links a review's session to its PR, so the PR's card lists it.
@@ -1944,10 +1945,10 @@ fn new_start(board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option
     let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
     let other_harness = if pr.mine { reviews.own.other_harness } else { reviews.other_harness };
     let avoid = seat.avoid.or_else(|| other_harness.then(|| pr_harness(&board.lanes, pr)).flatten());
-    let (account, model, place) = reviewer_place(cfg, board, seat, avoid)?;
+    let (account, model, effort, place) = reviewer_place(cfg, board, seat, avoid)?;
     let (lane, holds) = crate::side::pr_lane(board, pr).ok_or_else(|| format!("there's no checkout of {} on this Mac", pr.repo_slug))?;
     let prompt = first_prompt(pr, head, since, holds, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files);
-    Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model, effort: None, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
+    Ok(StartSpec { lane_id: lane.id.clone(), account, place, prompt, model, effort, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
 }
 
 /// Reads the review a turn wrote after `at`: its session's last message once the turn ended.

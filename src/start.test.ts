@@ -823,5 +823,18 @@ describe('usageCap and routing groups', () => {
     const c = startChoice(accounts, models, [], [], pick, opts, 'reviewers', { agent: agentId('reviewers', null, groups), effort: null, place: null, newWorktree: false }, () => undefined, groups, NOW);
     expect([c.choice, c.account, c.placeNow, c.modelNow, c.startsOn, c.modelShown]).toEqual(['reviewers', 'claude', 'terminal', 'opus', 'opus', 'Opus']);
   });
+
+  // start.rs's a_group_member_starts_on_its_model_and_effort_else_autos_and_the_accounts tests the pick.
+  it('starts a group’s member at the effort it names, unless another is picked', () => {
+    const efforts = [{ id: 'high', label: 'High' }, { id: 'max', label: 'Max' }];
+    const accounts = [fx.startAccount({ name: 'claude', places: [claudeApp, ghostty], defaultModel: 'opus', models: [{ id: 'opus', label: 'Opus' }], efforts })];
+    const groups: RoutingGroup[] = [{ name: 'deep', strategy: 'fallback', members: [{ account: 'claude', effort: 'max' }] }];
+    expect(pickFromGroup(groups[0], accounts, [], NOW)).toMatchObject({ account: 'claude', model: null, effort: 'max' });
+    const opts = agentOptions(accounts, [], null, groups);
+    const started = (effort: string | null) => startChoice(accounts, [], efforts, [], null, opts, 'deep', { agent: 'deep', effort, place: null, newWorktree: false }, () => undefined, groups, NOW);
+    // An effort keeps it to the places that take one.
+    expect([started(null).effortNow, started(null).effortWord, started(null).placeNow]).toEqual(['max', 'Max', 'terminal']);
+    expect(started('high').effortNow).toBe('high');
+  });
 });
 

@@ -1,22 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { memberOrder, movedMember } from './SettingsDialog';
+import { movedMember } from './SettingsDialog';
 
 describe('a fallback group’s order', () => {
-  // config.toml can list an account again on another model; the editor has a row per account.
-  const members = [{ account: 'atlas', model: 'opus' }, { account: 'kestrel' }, { account: 'atlas', model: 'sonnet' }];
+  // An account can be in a group more than once, on different models.
+  const members = [{ account: 'atlas', model: 'opus' }, { account: 'kestrel' }, { account: 'atlas', model: 'sonnet', effort: 'high' }];
 
-  it('lists each account once, where it first comes', () => {
-    expect(memberOrder(members)).toEqual(['atlas', 'kestrel']);
+  it('moves a member a place sooner or later, the rest keeping theirs', () => {
+    expect(movedMember(members, 1, -1)).toEqual([{ account: 'kestrel' }, { account: 'atlas', model: 'opus' }, { account: 'atlas', model: 'sonnet', effort: 'high' }]);
+    expect(movedMember(members, 1, 1)).toEqual([{ account: 'atlas', model: 'opus' }, { account: 'atlas', model: 'sonnet', effort: 'high' }, { account: 'kestrel' }]);
   });
 
-  it('moves an account with all its members, which keep their own order', () => {
-    expect(movedMember(members, 'kestrel', -1)).toEqual([{ account: 'kestrel' }, { account: 'atlas', model: 'opus' }, { account: 'atlas', model: 'sonnet' }]);
-    expect(movedMember(members, 'atlas', 1)).toEqual([{ account: 'kestrel' }, { account: 'atlas', model: 'opus' }, { account: 'atlas', model: 'sonnet' }]);
-  });
-
-  it('leaves them as they are at either end, or for an account not in the group', () => {
-    expect(movedMember(members, 'atlas', -1)).toBe(members);
-    expect(movedMember(members, 'kestrel', 1)).toBe(members);
-    expect(movedMember(members, 'northwind', 1)).toBe(members);
+  it('leaves them as they are at either end, or for a place past them', () => {
+    expect(movedMember(members, 0, -1)).toBe(members);
+    expect(movedMember(members, 2, 1)).toBe(members);
+    expect(movedMember(members, 5, -1)).toBe(members);
   });
 });
