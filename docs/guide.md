@@ -774,11 +774,14 @@ quarter of an hour; a post that doesn't go through is tried a few times too. A h
 its sessions itself (Antigravity, OpenCode, Codex in a terminal) has ten minutes for the review's
 session to show; one
 that shows later, the PR still at that commit, is taken up all the same, and its review read and
-posted. A round that still
+posted. A review's session isn't taken for stopped until it has been seen at work on what it was
+asked, or ten minutes have passed: in its first seconds a session can read as ended before its
+harness shows the turn. One taken for stopped before it was ever seen at work is taken up the same
+way once it's at work again, as long as nobody has prompted it since. A round that still
 didn't get done says so on the line over the PR's box, "didn't start" when no session ever began
 and "didn't finish" when one did, why on hover, and isn't tried again for that commit by itself:
 Try again beside it, and in its Reviews tab, does. It posts the review the agent wrote when only
-posting failed, takes the review from a session that showed after its round gave up on it, and
+posting failed, takes the review from a session that went on after its round gave up on it, and
 otherwise reviews the PR again as Review with… does on the reviewer Settings names, in its session
 for the PR while that can go on. Two run at once at most;
 a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
