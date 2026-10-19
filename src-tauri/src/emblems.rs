@@ -206,7 +206,7 @@ fn hash(s: &str) -> u64 {
 }
 
 /// What the session is about, for Jev: the first prompt you gave it, else the latest where its
-/// harness keeps only that (Codex, OpenCode). None while it has been sent nothing: its title then
+/// harness keeps only that (OpenCode). None while it has been sent nothing: its title then
 /// is its harness's word for an empty one ("Codex thread"), which an icon kept for its life
 /// mustn't be picked from.
 fn about(s: &Session) -> Option<&str> {
@@ -651,13 +651,13 @@ mod tests {
         assert_eq!(store.kept[&now.key], again);
     }
 
-    /// Where a harness keeps only the latest prompt (Codex, OpenCode), that's what Jev goes by.
+    /// Where a harness keeps only the latest prompt (OpenCode), that's what Jev goes by.
     #[test]
     fn goes_by_the_latest_prompt_where_theres_no_first() {
-        let codex = Session { first_prompt: None, last_prompt: Some("Speed up the search index".into()), title: "Speed up the search index".into(), ..session("cx", "") };
+        let latest = Session { first_prompt: None, last_prompt: Some("Speed up the search index".into()), title: "Speed up the search index".into(), ..session("oc", "") };
         let mut store = Store::default();
-        assert_eq!(store.look([("A", &codex)], NOW), vec![codex.key.clone()]);
-        let body = request(&codex, "m");
+        assert_eq!(store.look([("A", &latest)], NOW), vec![latest.key.clone()]);
+        let body = request(&latest, "m");
         assert_eq!(body["state"]["latest prompt"], "Speed up the search index");
         assert!(body["state"].get("first prompt").is_none());
         let claude = Session { last_prompt: Some("And the docs".into()), ..session("cl", "Fix the login") };

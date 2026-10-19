@@ -25,6 +25,11 @@ pub struct ThreadInfo {
     pub last_agent_message: Option<String>,
     /// The end of that message, for Jev.
     pub last_agent_tail: Option<String>,
+    /// The first prompt it was given, which names it where Codex hasn't, as the app-server's
+    /// `preview` does ("usually the first user message in the thread").
+    pub first_prompt: Option<String>,
+    /// The latest prompt. This and the first are what a message asks (`send::past_sender_lines`):
+    /// Codealong's messages and other sessions' are user messages here too.
     pub last_user_message: Option<String>,
     /// When you sent that prompt. It doesn't move while the thread works, so lists sort by it.
     pub last_prompt_at: Option<i64>,
@@ -315,6 +320,8 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
     };
     let events = parse_events(&tail.text());
     if let Some(floor) = floor {
+        // Read before the events behind the tail, whose prompt is the latest one there.
+        info.first_prompt = first_prompt(path, floor, tail.start);
         for v in earlier_events(path, floor, tail.start, &events) {
             apply_event(&mut info, &v);
         }
@@ -381,6 +388,40 @@ fn earlier_events(path: &Path, floor: u64, end: u64, later: &[Value]) -> Vec<Val
     });
     found.reverse();
     found
+}
+
+/// How far into a thread its first prompt is looked for: it follows the instructions and context
+/// Codex puts first, within 230 KB in 99 of 100 of this Mac's latest 390 threads and 1.3 MB in the
+/// farthest (2026-10-19).
+const FIRST_PROMPT_WITHIN: u64 = 4 * 1024 * 1024;
+
+/// The first prompt in `floor..end`, read forward only as far as it: on a first parse, for a
+/// thread whose start is behind the tail.
+fn first_prompt(path: &Path, floor: u64, end: u64) -> Option<String> {
+    use std::io::{BufRead, Read, Seek, SeekFrom};
+    let end = end.min(floor + FIRST_PROMPT_WITHIN);
+    if end <= floor {
+        return None;
+    }
+    let mut f = std::fs::File::open(path).ok()?;
+    f.seek(SeekFrom::Start(floor)).ok()?;
+    let mut lines = std::io::BufReader::new(f.take(end - floor));
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if lines.read_until(b'\n', &mut line).ok()? == 0 {
+            return None;
+        }
+        // Cheap check first: most bytes are instructions and tool output.
+        let text = String::from_utf8_lossy(&line);
+        if !text.contains("\"event_msg\"") || !(text.contains("\"user_message\"") || text.contains("\"UserMessage\"")) {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
+        if let Some(m) = event_payload(&v).and_then(prompt_of) {
+            return Some(asked(&m));
+        }
+    }
 }
 
 pub fn parse_meta(first_line: &str) -> Option<ThreadInfo> {
@@ -652,8 +693,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
         }
         "user_message" => {
             if let Some(m) = prompt_of(payload) {
-                info.last_user_message = Some(one_line(&m, 140));
-                info.last_prompt_at = ts.or(info.last_prompt_at);
+                note_prompt(info, &m, ts);
             }
         }
         "token_count" => {
@@ -682,12 +722,25 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
         }
         _ => {
             if let Some(m) = prompt_of(payload) {
-                info.last_user_message = Some(one_line(&m, 140));
-                info.last_prompt_at = ts.or(info.last_prompt_at);
+                note_prompt(info, &m, ts);
             }
             info.pending_approval = None;
         }
     }
+}
+
+/// A prompt, as the latest, and as the first where none came before it.
+fn note_prompt(info: &mut ThreadInfo, prompt: &str, ts: Option<i64>) {
+    let asked = asked(prompt);
+    info.first_prompt.get_or_insert_with(|| asked.clone());
+    info.last_user_message = Some(asked);
+    info.last_prompt_at = ts.or(info.last_prompt_at);
+}
+
+/// What a prompt asks, on a line, for a title or an excerpt. The conversation reads prompts whole
+/// (`prose_of`), since it tells Codealong's and other sessions' messages apart by their lines.
+fn asked(prompt: &str) -> String {
+    one_line(crate::send::past_sender_lines(prompt), 140)
 }
 
 /// Tracks a `response_item` tool call until its output arrives.
@@ -771,6 +824,7 @@ pub(super) fn pr_made(line: &str) -> Option<(String, i64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn apply_events(info: &mut ThreadInfo, text: &str) {
         for v in parse_events(text) {
@@ -1066,6 +1120,44 @@ mod tests {
         assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Spur issue and diagnose it"));
         assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-24T18:04:01.042Z"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A thread's first prompt is read from its start however far behind the tail, and what
+    /// Codealong sent it later is its latest prompt without the line that says Codealong sent it:
+    /// such a thread was titled "Codealong sent this by itself…" once a PR's news reached it.
+    #[test]
+    fn a_first_parse_finds_the_first_prompt_and_what_later_ones_ask() {
+        let prompt = |at: &str, text: &str| json!({ "timestamp": format!("2026-09-24T18:{at}.000Z"), "type": "event_msg", "payload": { "type": "user_message", "message": text } }).to_string();
+        let again = prompt("10:00", "Now the docs too");
+        let news = prompt("40:00", &crate::send::by_codealong("On your PR #7: ken approved it."));
+        let (dir, path) = long_rollout("first-prompt", &[TURN_STARTED, PROMPT_ITEM, TURN_COMPLETE, &again], &[&news, TOKEN_COUNT]);
+        let (info, off) = parse_rollout(&path, 0, None).unwrap();
+        assert_eq!(info.first_prompt.as_deref(), Some("Find the forwarded Spur issue and diagnose it"));
+        assert_eq!(info.last_user_message.as_deref(), Some("On your PR #7: ken approved it."));
+        // Its latest before the tail, when the tail has none.
+        let (dir2, path2) = long_rollout("first-prompt-back", &[TURN_STARTED, PROMPT_ITEM, TURN_COMPLETE, &again], &[TOKEN_COUNT]);
+        let (back, _) = parse_rollout(&path2, 0, None).unwrap();
+        assert_eq!((back.first_prompt.as_deref(), back.last_user_message.as_deref()), (Some("Find the forwarded Spur issue and diagnose it"), Some("Now the docs too")));
+
+        // A later read keeps it.
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(f, "{}", prompt("50:00", "And the changelog")).unwrap();
+        drop(f);
+        let (info, _) = parse_rollout(&path, 0, Some((info, off))).unwrap();
+        assert_eq!((info.first_prompt.as_deref(), info.last_user_message.as_deref()), (Some("Find the forwarded Spur issue and diagnose it"), Some("And the changelog")));
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_dir_all(&dir2).unwrap();
+    }
+
+    /// A thread read from its start takes its first prompt as it comes, Codealong's too.
+    #[test]
+    fn the_first_prompt_is_the_first_one_read() {
+        let mut info = parse_meta(META_USER).unwrap();
+        let told = json!({ "timestamp": "2026-09-24T18:04:00.000Z", "type": "event_msg", "payload": { "type": "user_message", "message": crate::send::by_codealong("Review pull request #7 in o/r") } });
+        apply_events(&mut info, &format!("{told}\n{PROMPT_ITEM}\n"));
+        assert_eq!(info.first_prompt.as_deref(), Some("Review pull request #7 in o/r"));
+        assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Spur issue and diagnose it"));
     }
 
     #[test]

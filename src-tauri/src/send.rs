@@ -247,6 +247,18 @@ pub fn from_an_agent(text: &str) -> Option<&str> {
     AGENT_BYLINES.iter().any(|s| t.starts_with(s)).then(|| without_byline(t))
 }
 
+/// What a message asks, past the lines Codealong leads it with where Codealong sent it by itself
+/// (`by_codealong`, `RESUMED_TO_TELL`) or another session sent it (`byline`,
+/// `RESUMED_FOR_A_MESSAGE`); other text as it is. For a harness that records such messages as
+/// prompts (Codex's are user messages): a session's title, excerpt and latest prompt say what was
+/// asked, where those lines would say only who asked it.
+pub fn past_sender_lines(text: &str) -> &str {
+    match from_codealong(text) {
+        Some(said) => said.strip_prefix(RESUMED_TO_TELL).map_or(said, str::trim_start),
+        None => from_an_agent(text).unwrap_or(text),
+    }
+}
+
 /// Text past the line that says a message resumed its session (`RESUMED_FOR_A_MESSAGE`), or the
 /// text as it is.
 fn past_resumed(text: &str) -> &str {
@@ -1475,6 +1487,23 @@ mod tests {
         let board = board_with(Session { key: "claude:claude2:boss".into(), title: "Cloud SQL CPU spike".into(), ..Session::new(Harness::Claude, "claude2", "boss") });
         let named = format!("{RESUMED_FOR_A_MESSAGE}\n\n{}\n\nPR #1199 is open.", byline(&board, Some("claude:claude2:boss")).intro);
         assert_eq!(sender_of(&named), Some("Cloud SQL CPU spike"));
+    }
+
+    /// A title or excerpt taken from a message Codealong or another session sent says what it
+    /// asks, not the lines that say who sent it: a Codex thread was titled "Codealong sent this by
+    /// itself…" once a PR's news reached it.
+    #[test]
+    fn what_a_message_asks_is_past_the_lines_that_say_who_sent_it() {
+        let news = "On your PR #7: ken approved it.";
+        assert_eq!(past_sender_lines(&by_codealong(news)), news);
+        assert_eq!(past_sender_lines(&format!("{FROM_CODEALONG_ITSELF_BEFORE}\n\n{news}")), news);
+        assert_eq!(past_sender_lines(&by_codealong(&format!("{RESUMED_TO_TELL}\n\n{news}"))), news);
+        let intro = byline(&Board::default(), Some("claude:claude2:boss")).intro;
+        assert_eq!(past_sender_lines(&format!("{intro}\n\nPR #1199 is open.")), "PR #1199 is open.");
+        assert_eq!(past_sender_lines(&format!("{RESUMED_FOR_A_MESSAGE}\n\n{intro}\n\nPR #1199 is open.")), "PR #1199 is open.");
+        // Yours, as it is, even when it quotes Codealong further on.
+        let yours = format!("Why does this say {FROM_CODEALONG_ITSELF}?");
+        assert_eq!(past_sender_lines(&yours), yours);
     }
 
     /// A session resumed for a message isn't resumed again for another until the board has had

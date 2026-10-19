@@ -438,8 +438,12 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
     } else {
         Status::Idle
     };
+    // A thread Codex hasn't named (21 of the 83 Codealong made here, 2026-10-19) goes by its first
+    // prompt, as the app shows one and as a Claude Code session without a title goes. Its latest
+    // was often a message Codealong sent it.
     let title = name
         .map(String::from)
+        .or_else(|| th.first_prompt.clone())
         .or_else(|| th.last_user_message.clone())
         .unwrap_or_else(|| "Codex thread".to_string());
     let excerpt = match status {
@@ -469,6 +473,7 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         work: th.work.clone(),
         reply_tail: th.last_agent_tail.clone(),
         reply_head: th.last_agent_message.clone(),
+        first_prompt: th.first_prompt.clone(),
         last_prompt: th.last_user_message.clone(),
         started_at: th.started_at,
         // Waiting on you since its oldest unanswered call, not since the turn before it ended:
@@ -3592,6 +3597,24 @@ mod tests {
         // A turn that ended isn't cut off, held or not.
         let ended = ThreadInfo { turn_open: false, pending_calls: Vec::new(), ..th };
         assert_eq!(codex_session(&a, &ended, None, None, Some(false), 0, NOW).cut_off, None);
+    }
+
+    /// A thread Codex hasn't named goes by its first prompt, not its latest, which may be a message
+    /// Codealong sent it; a name wins over both.
+    #[test]
+    fn an_unnamed_codex_thread_goes_by_its_first_prompt() {
+        let a = AccountCfg { name: "codex".into(), harness: "codex".into(), home: "~/.codex".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let th = ThreadInfo {
+            id: "01a0f2c7".into(),
+            cwd: "/r".into(),
+            last_ts: NOW - 1_000,
+            first_prompt: Some("Tidy the photo uploader".into()),
+            last_user_message: Some("On your PR #7: ken approved it.".into()),
+            ..Default::default()
+        };
+        let s = codex_session(&a, &th, None, None, None, 0, NOW);
+        assert_eq!((s.title.as_str(), s.first_prompt.as_deref(), s.last_prompt.as_deref()), ("Tidy the photo uploader", Some("Tidy the photo uploader"), Some("On your PR #7: ken approved it.")));
+        assert_eq!(codex_session(&a, &th, Some("Photo uploader"), None, None, 0, NOW).title, "Photo uploader");
     }
 
     #[test]

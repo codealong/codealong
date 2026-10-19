@@ -169,7 +169,7 @@ fn read_sessions_from(db: &Connection, since_ms: i64, keep: &HashSet<String>) ->
         match kind.as_str() {
             "user" => {
                 row.last_prompt_at = Some(created);
-                row.last_prompt = v.get("text").and_then(Value::as_str).map(|t| one_line(t, 140)).filter(|t| !t.is_empty());
+                row.last_prompt = v.get("text").and_then(Value::as_str).map(|t| one_line(crate::send::past_sender_lines(t), 140)).filter(|t| !t.is_empty());
             }
             "assistant" => {
                 let (text, tool) = assistant_summary(&v);

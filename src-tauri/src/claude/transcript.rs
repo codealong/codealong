@@ -386,7 +386,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                 }
             }
             Some("last-prompt") => {
-                info.last_prompt = str_of(&v, "lastPrompt").map(|p| one_line(&p, 140));
+                info.last_prompt = str_of(&v, "lastPrompt").map(|p| one_line(crate::send::past_sender_lines(&p), 140));
             }
             Some("worktree-state") => {
                 info.own_worktree = own_worktree(&v);
@@ -466,7 +466,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     // Its `last-prompt` line often comes only after the reply has begun (in 104 of
                     // 191 prompts here, 2026-10-15), so the prompt itself says what it's on now.
                     if let Some(p) = typed_text(&v) {
-                        info.last_prompt = Some(one_line(&p, 140));
+                        // A resume's prompt from Codealong, for a PR's news say, starts with the
+                        // line that says so.
+                        info.last_prompt = Some(one_line(crate::send::past_sender_lines(&p), 140));
                     }
                     if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
                         info.last_prompt_at = Some(ts);
@@ -1158,6 +1160,16 @@ mod tests {
         // One it only went into stays where it is when the session exits.
         assert_eq!(parse_lines(HEAD, &[made, entered].join("\n")).own_worktree, None);
         assert_eq!(parse_lines(HEAD, "").own_worktree, None);
+    }
+
+    /// A session Codealong resumed with something to tell it goes on with what it was told, not
+    /// with the line that says Codealong sent it.
+    #[test]
+    fn the_latest_prompt_is_what_codealong_said_past_its_line() {
+        let told = serde_json::json!({ "type": "user", "timestamp": "2026-10-15T20:47:20.000Z", "origin": { "kind": "human" }, "message": { "content": crate::send::by_codealong("On your PR #7: ken approved it.") } });
+        assert_eq!(parse_lines(HEAD, &format!("{told}\n")).last_prompt.as_deref(), Some("On your PR #7: ken approved it."));
+        let recorded = serde_json::json!({ "type": "last-prompt", "lastPrompt": crate::send::by_codealong("On your PR #7: ken approved it.") });
+        assert_eq!(parse_lines(HEAD, &format!("{recorded}\n")).last_prompt.as_deref(), Some("On your PR #7: ken approved it."));
     }
 
     #[test]
