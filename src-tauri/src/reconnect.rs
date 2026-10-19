@@ -205,7 +205,7 @@ impl Continuer {
         self.runs.retain(|k, r| r.sending || listed.contains(k.as_str()));
         let mut due = Due::default();
         for s in here {
-            if s.archived {
+            if s.archived || board.automation_blocked(&s.key) {
                 continue;
             }
             let Some((why, at, address)) = owed(s, now, cut_offs) else { continue };
@@ -323,6 +323,16 @@ mod tests {
 
     fn keys(due: &Due) -> Vec<&str> {
         due.jobs.iter().map(|j| j.session.as_str()).collect()
+    }
+
+    #[test]
+    fn provider_flags_block_every_kind_of_automatic_recovery() {
+        let mut sessions = vec![lost(A, NOW - 1_000), limited(B, NOW - 600_000, NOW - 300_000), cut("claude:claude:cut", NOW - 1_000)];
+        for s in &mut sessions { s.flagged = true; }
+        let mut b = board(sessions);
+        assert!(Continuer::default().due(&b, NOW, true).jobs.is_empty());
+        b.sessions.block_flagged_sessions = false;
+        assert_eq!(Continuer::default().due(&b, NOW, true).jobs.len(), 3);
     }
 
     #[test]

@@ -198,6 +198,27 @@ pub fn read_last(path: &Path, max: u64) -> std::io::Result<Tail> {
     read_tail(path, len.saturating_sub(max))
 }
 
+/// A provider flag can precede the usual tail by many turns. On a fresh parse, look through
+/// the earlier records once; subsequent incremental reads carry it forward. Most bytes are
+/// tool output, so parse only candidate lines and let the harness check their structure. Read
+/// forwards: unlike the bounded work lookback, this can cross very large tool-result lines.
+pub fn flagged_before(path: &Path, floor: u64, end: u64, markers: &[&str], flagged: impl Fn(&serde_json::Value) -> bool) -> bool {
+    let Ok(mut file) = File::open(path) else { return false };
+    if file.seek(SeekFrom::Start(floor)).is_err() { return false; }
+    let mut reader = BufReader::new(file.take(end.saturating_sub(floor)));
+    let mut buf = Vec::new();
+    while reader.read_until(b'\n', &mut buf).is_ok_and(|n| n > 0) {
+        if let Ok(line) = std::str::from_utf8(&buf) {
+            if markers.iter().any(|m| line.contains(m))
+                && serde_json::from_str(line).ok().is_some_and(|v| flagged(&v)) {
+                return true;
+            }
+        }
+        buf.clear();
+    }
+    false
+}
+
 /// Hands the whole lines in `floor..end` (both at line starts) to `visit`, last first, reading
 /// a megabyte at a time, until `visit` returns true.
 pub fn scan_lines_back(path: &Path, floor: u64, end: u64, mut visit: impl FnMut(&str) -> bool) {
@@ -702,6 +723,26 @@ pub fn write_whole(file: &Path, text: &str) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_flags_scan_only_the_requested_history_past_large_or_invalid_lines() {
+        let dir = crate::fixtures::scratch("flagged-history");
+        let path = dir.join("history.jsonl");
+        let flag = b"{\"flagged\":true}\n";
+        let mut bytes = flag.to_vec();
+        let floor = bytes.len() as u64;
+        bytes.extend_from_slice(&vec![b'x'; 3 * 1024 * 1024]);
+        bytes.extend_from_slice(b"\n\xff\n{\"flagged\":false}\n");
+        let before = bytes.len() as u64;
+        bytes.extend_from_slice(flag);
+        let end = bytes.len() as u64;
+        std::fs::write(&path, bytes).unwrap();
+        let read = |floor, end| flagged_before(&path, floor, end, &["\"flagged\""], |v| v["flagged"] == true);
+        assert!(!read(floor, before), "neither the prefix nor the unread tail counts");
+        assert!(read(floor, end), "an old flag after large and malformed lines is found");
+        assert!(!read(end, end));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn an_error_says_what_caused_it() {

@@ -552,7 +552,7 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const value = limits.when_hit;
   const lifted = limits.continue_when_lifted ?? true;
   const agents = MOVES_ACCOUNTS.map((h) => HARNESS_WORD[h]).join(', ');
-  const sessions: SessionsCfg = { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, resume_for_pr_news: true, ...cfg.sessions };
+  const sessions: SessionsCfg = { block_flagged_sessions: true, continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, resume_for_pr_news: true, ...cfg.sessions };
   const continues = sessions.continue_after_network_error;
   const restarts = sessions.continue_after_restart ?? true;
   const resumes = sessions.resume_for_sessions_it_started ?? true;
@@ -561,6 +561,11 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   const saveSessions = (change: Partial<SessionsCfg>) => void onSave({ ...cfg, sessions: { ...sessions, ...change } });
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={sessions.block_flagged_sessions ?? true} onChange={(e) => saveSessions({ block_flagged_sessions: e.target.checked })} />
+        <span>Block automations for flagged sessions</span>
+        <small>When Claude or Codex records a provider refusal or content-policy error, keep that session out of automatic messages, resumes, account moves and PR review follow-ups. The flag stays across later turns. You can still reply yourself.</small>
+      </label>
       <div className="ca-field">
         <span>When a session hits its usage limit</span>
         <Seg className="ca-settings-theme" label="When a session hits its usage limit" options={WHEN_LIMITED} value={value} onPick={(id) => id !== value && void onSave({ ...cfg, limits: { ...limits, when_hit: id } })} />

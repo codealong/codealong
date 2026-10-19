@@ -35,6 +35,7 @@ impl Mover {
         let moved_here = |s: &crate::model::Session| s.origin.as_ref().is_some_and(|o| o.key.split(':').nth(1) != Some(s.account.as_str()));
         let mut out = Vec::new();
         for s in board.lanes.iter().flat_map(|l| &l.sessions).filter(|s| s.visitor.is_none() && !s.archived && s.live && !moved_here(s)) {
+            if board.automation_blocked(&s.key) { continue; }
             let Some(limit) = &s.limit else { continue };
             let Some(to) = &limit.move_to else { continue };
             if now - limit.at <= FRESH_MS && self.tried.insert((s.key.clone(), limit.at)) {
@@ -48,6 +49,7 @@ impl Mover {
 /// Moves one session, as Move to does from a window, and tells the engine how it went, which
 /// says so in a notice when it didn't.
 pub fn move_now(engine: &Handle, key: &str, to: &str) {
+    if engine.read(|b| b.automation_blocked(key)) { return; }
     let moved = crate::actions::local(engine, &crate::actions::From::Here, crate::actions::MOVE, key, serde_json::json!({ "account": to }));
     let title = engine.read(|b| b.session(key).map(|(_, s)| s.title.clone())).unwrap_or_else(|| key.to_string());
     engine.limit_moved(moved.map(|_| ()).map_err(|e| format!("“{title}” stopped at its usage limit, and moving it to {to} didn't work: {e}")));
@@ -67,6 +69,17 @@ mod tests {
     fn limited(key: &str, at: i64, to: Option<&str>) -> crate::model::Session {
         let limit = SessionLimit { at, move_to: to.map(str::to_string), ..SessionLimit::default() };
         crate::model::Session { live: true, limit: Some(limit), ..crate::fixtures::session(key) }
+    }
+
+    #[test]
+    fn provider_flags_block_automatic_account_moves() {
+        let mut s = limited("claude:claude:a", NOW - 1_000, Some("claude2"));
+        s.flagged = true;
+        let mut b = board(WhenLimited::Move, vec![s]);
+        let mut mover = Mover::default();
+        assert!(mover.due(&b, NOW).is_empty());
+        b.sessions.block_flagged_sessions = false;
+        assert_eq!(mover.due(&b, NOW).len(), 1);
     }
 
     #[test]

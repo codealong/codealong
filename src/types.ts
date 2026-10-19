@@ -13,6 +13,8 @@ export type Merge = 'clean' | 'conflicts' | 'behind' | 'blocked' | 'unstable' | 
 /** The usage limit a session's last turn ended on (peer model.rs `SessionLimit`). */
 /** `[sessions]` (config.rs `SessionsCfg`). */
 export interface SessionsCfg {
+  /** Block automatic messages, resumes and moves after a provider flag. Defaults to true. */
+  block_flagged_sessions?: boolean;
   continue_after_network_error: boolean;
   /** A session Codealong runs, cut off by Codealong quitting, is told to carry on as it comes back
    *  (reconnect.rs). Files from before it have none: on. */
@@ -181,6 +183,8 @@ export interface Session {
    *  restarted, it was killed), and nothing has gone on since. When the turn last did something.
    *  Missing from older Macs. */
   cutOff?: number;
+  /** The provider recorded a refusal or content-policy error in this conversation. */
+  flagged?: boolean;
   /** The model it's on, as its harness names it (`claude-opus-5-5`): its latest reply's, or one
    *  it was switched to since. Missing where the harness doesn't say, and from older Macs. */
   model?: string;
@@ -1205,6 +1209,8 @@ export interface Board {
   devices?: DevicesCfg;
   /** `[limits] when_hit`: whether a session a usage limit stopped is moved by itself. */
   whenLimited?: WhenLimited;
+  /** Session automation settings on this device. Missing on older boards. */
+  sessions?: SessionsCfg;
   /** `[pull_requests] nudge_about`: what a PR's nudge tells its session about. Missing on older
    *  boards: everything. */
   nudgeAbout?: NudgeAbout;

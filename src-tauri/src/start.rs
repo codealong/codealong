@@ -1073,6 +1073,9 @@ pub struct Resumed {
 pub fn resume(board: &Board, cfg: &Config, key: &str, how: &ResumeIn, prompt: &str, sender: &crate::send::Sender) -> Result<Resumed> {
     // Before the folder is readied for the harness (`to_fork`), let alone anything started.
     crate::send::ensure_not_moved(&crate::origins::current(), board, key)?;
+    if let Some((_, s)) = board.session(key) {
+        crate::send::ensure_not_flagged(cfg, s, sender)?;
+    }
     if let Some((_, s)) = board.session(key).filter(|(_, s)| !s.live) {
         crate::send::ensure_may_resume(sender, &s.title)?;
     }
@@ -1474,6 +1477,16 @@ fn move_target<'a>(cfg: &'a Config, s: &crate::model::Session, account: &Account
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_provider_flag_blocks_automated_resume_before_preparing_the_folder() {
+        let s = crate::model::Session { flagged: true, ..crate::fixtures::session("claude:claude:flagged") };
+        let key = s.key.clone();
+        let board = Board { lanes: vec![crate::fixtures::lane("/missing-northwind-folder", vec![s])], ..Board::default() };
+        let how = ResumeIn { place: Place::Background, model: None, effort: None };
+        let err = resume(&board, &Config::default(), &key, &how, "PR checks failed", &crate::send::Sender::Codealong).unwrap_err();
+        assert!(err.to_string().contains("flagged"), "{err}");
+    }
 
     /// While the screen is locked a start that would open a terminal goes out of sight where the
     /// account can: under its harness's background service, else in Codealong, saying why; with

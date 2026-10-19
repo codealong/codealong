@@ -134,6 +134,7 @@ pub fn tell_waking(engine: &crate::engine::Handle, key: &str, text: &str) -> Res
     let cfg = crate::config::current()?;
     let board = engine.board();
     let (session, account) = crate::harness::find(&board, &cfg, key)?;
+    ensure_not_flagged(&cfg, session, &Sender::Codealong)?;
     let routes = || crate::harness::adapter(session.harness).routes(account, session);
     match waking(session, account, routes, || crate::start::resume_out_of_sight(account, &crate::util::home())) {
         Waking::Send => send(&board, &cfg, key, text, Sender::Codealong, false).map(|sent| Some(crate::start::Resumed { key: Some(key.to_string()), sent })),
@@ -151,6 +152,9 @@ pub fn tell_waking(engine: &crate::engine::Handle, key: &str, text: &str) -> Res
 /// Whether `tell_waking` would reach a session that isn't running, for nudges.rs
 /// `stopped_primaries`.
 pub fn reaches_stopped(cfg: &Config, session: &Session) -> bool {
+    if ensure_not_flagged(cfg, session, &Sender::Codealong).is_err() {
+        return false;
+    }
     let Some(account) = cfg.accounts.iter().find(|a| a.name == session.account) else { return false };
     let routes = || crate::harness::adapter(session.harness).routes(account, session);
     waking(session, account, routes, || crate::start::resume_out_of_sight(account, &crate::util::home())) != Waking::Nowhere
@@ -463,7 +467,19 @@ pub fn opened(message: String) -> Sent {
 /// send and gets its outcome, rather than going twice.
 pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
     ensure_not_moved(&crate::origins::current(), board, session_key)?;
+    if let Some((_, s)) = board.session(session_key) {
+        ensure_not_flagged(cfg, s, &sender)?;
+    }
     join(session_key, text.trim(), || deliver(board, cfg, session_key, text, &sender, now))
+}
+
+/// A flag stops messages from Codealong and other agents before any delivery path, including
+/// hosted sessions and automatic resumes. A person can still reply or resume deliberately.
+pub fn ensure_not_flagged(cfg: &Config, s: &Session, sender: &Sender) -> Result<()> {
+    if cfg.sessions.block_flagged_sessions && s.flagged && matches!(sender, Sender::Codealong | Sender::Agent(_)) {
+        bail!("“{}” was flagged by its provider. Automatic messages and resumes are blocked in Settings › Automation; nothing was sent.", s.title);
+    }
+    Ok(())
 }
 
 /// A session that moved to another account (start.rs `move_to`) is neither sent to nor resumed
@@ -1124,6 +1140,26 @@ mod tests {
     use crate::model::{Harness, Session, Status, Surface};
     use serde_json::json;
     use std::time::Instant;
+
+    #[test]
+    fn provider_flags_stop_automated_delivery_before_any_route() {
+        let mut cfg = Config::default();
+        let mut s = crate::fixtures::session("claude:claude:flagged");
+        s.flagged = true;
+        s.hosted = true;
+        let b = Board { lanes: vec![crate::fixtures::lane("/work", vec![s.clone()])], ..Board::default() };
+        for sender in [Sender::Codealong, Sender::Agent(None), Sender::Agent(Some("codex:codex:helper".into()))] {
+            assert!(send(&b, &cfg, &s.key, "PR checks failed", sender.clone(), false).unwrap_err().to_string().contains("flagged"));
+            assert!(ensure_not_flagged(&cfg, &s, &sender).is_err());
+        }
+        for sender in [Sender::You, Sender::Elsewhere] {
+            assert!(ensure_not_flagged(&cfg, &s, &sender).is_ok());
+        }
+        cfg.sessions.block_flagged_sessions = false;
+        assert!(ensure_not_flagged(&cfg, &s, &Sender::Codealong).is_ok());
+        s.flagged = false;
+        assert!(ensure_not_flagged(&Config::default(), &s, &Sender::Codealong).is_ok());
+    }
 
     #[test]
     fn a_pasted_prompt_never_ends_in_a_mention() {

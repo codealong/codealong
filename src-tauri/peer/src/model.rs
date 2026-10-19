@@ -301,6 +301,10 @@ pub struct Session {
     /// something. None from Macs before 2026-10-12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cut_off: Option<i64>,
+    /// A provider refusal or content-policy error was recorded in this conversation. Kept
+    /// across later turns; absent on older peers.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flagged: bool,
     /// The model it's on, as its harness names it (`claude-opus-5-5`, `gpt-5.5`): the one its
     /// latest reply came from, or one it was switched to since. None where the harness doesn't
     /// say, and from Macs before 2026-10-06.
@@ -538,6 +542,7 @@ impl Session {
             limit: None,
             connection_lost: None,
             cut_off: None,
+            flagged: false,
             model: None,
             effort: None,
             mode: None,

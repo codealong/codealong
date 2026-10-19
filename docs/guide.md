@@ -755,6 +755,19 @@ primary session. The PR's card says which of these it is under its switch. Setti
 Resume a stopped session for its pull request's news (`[sessions] resume_for_pr_news`, on unless
 turned off) turns it off.
 
+**Flagged sessions.** Claude's recorded provider refusals and Codex's recorded content-policy
+errors or typed refusals give a session a **Flagged** chip. Ordinary replies, quoted warnings,
+commands denied by an approval reviewer and tool output do not count. The flag stays across
+later turns and app restarts while the conversation's records retain it.
+
+Settings › Automation › **Block automations for flagged sessions** is on by default
+(`[sessions] block_flagged_sessions = true`). It blocks Codealong's automatic messages (including
+PR news and helper reports), other agents' messages, automatic resumes and usage-limit account
+moves. PR review automation pauses when its opener or reviewer is flagged. You can still reply,
+resume or move a session yourself. Turning the setting off allows automation again without
+removing the badge. Codealong can detect only signals the harness records; it does not control
+a harness's own automation.
+
 #### Automatic reviews
 
 With `[reviews] auto = true` (Settings › Automation), an agent reviews each open PR that asks for your

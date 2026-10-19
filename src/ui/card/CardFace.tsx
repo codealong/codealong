@@ -11,6 +11,7 @@ import type { Pr } from '../../types';
 import { BranchLabel, cx, Drift, Icon, LaneGlyph, PR_ICON, PR_WORD, PrChip, Rich, SessionEmblem, SessionGlyph } from '../primitives';
 import { LabelDot, TodoGlyph } from '../TodoBits';
 import { DeviceBadge } from '../DeviceBadge';
+import { ProviderFlagChip } from '../InsightBits';
 import { sessionLine, type CardData } from './data';
 
 interface CardFaceProps {
@@ -100,6 +101,7 @@ export function CardFace({ item, data, now, style, className, children, onPrShow
             <span className="ca-cv-headline">
               <Rich text={sessionLine(s)} now={now} />
             </span>
+            <ProviderFlagChip session={s} />
             {prChip(data.lane.pr)}
           </div>
           {children}

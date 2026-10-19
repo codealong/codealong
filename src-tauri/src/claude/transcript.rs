@@ -83,6 +83,8 @@ pub struct TranscriptInfo {
     /// When the last turn ended for want of a connection to the API (`connection_lost_at`),
     /// until a reply or a prompt of yours comes after.
     pub connection_lost: Option<i64>,
+    /// A provider refusal anywhere in the conversation, including before the current tail.
+    pub flagged: bool,
     /// When the last turn last did something, while it hasn't ended (`turn_step`). A session
     /// whose process is gone with one was cut off partway through it.
     pub unfinished: Option<i64>,
@@ -243,6 +245,9 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     if fresh {
         work_before(path, 0, tail.start, &mut info.work, |line| line_work(line, &head.cwd));
     }
+    if fresh && !info.flagged {
+        info.flagged = crate::util::flagged_before(path, 0, tail.start, &["\"refusal\"", "\"dlp_request_denied\"", "\"safety_monitor_blocked\""], flagged);
+    }
     state.offset = tail.end;
     if info.last_ts == 0 {
         info.last_ts = mtime;
@@ -329,11 +334,22 @@ pub fn parse_lines(head: &str, tail: &str) -> TranscriptInfo {
     info
 }
 
+/// Claude records classifier refusals as assistant messages with `stop_reason: "refusal"`,
+/// including its synthetic "safeguards flagged this session" API error (2.1.303). A quoted
+/// warning, tool result or a subagent's old inline reply isn't this session being flagged.
+fn flagged(v: &Value) -> bool {
+    v.get("type").and_then(Value::as_str) == Some("assistant")
+        && v.get("isSidechain").and_then(Value::as_bool) != Some(true)
+        && (v.pointer("/message/stop_reason").and_then(Value::as_str) == Some("refusal")
+            || matches!(v.get("apiError").and_then(Value::as_str), Some("dlp_request_denied" | "safety_monitor_blocked")))
+}
+
 /// Titles, the last prompt, activity and pending tool calls from transcript lines.
 pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) {
     let open_tools = &mut state.open_tools;
     for line in tail.lines() {
         let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        info.flagged |= flagged(&v);
         let kind = v.get("type").and_then(Value::as_str);
         // Moving the conversation to the background isn't something it did.
         if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).filter(|_| kind != Some("continued-in")) {
@@ -1018,6 +1034,34 @@ mod tests {
     use super::*;
     use crate::claude::conversation::claude_input;
     use crate::claude::peer::FROM_YOU;
+
+    #[test]
+    fn provider_flags_are_structured_sticky_and_found_before_the_tail() {
+        use serde_json::json;
+        let refusal = json!({"type":"assistant","message":{"stop_reason":"refusal","content":[]}});
+        assert!(flagged(&refusal));
+        for api_error in ["dlp_request_denied", "safety_monitor_blocked"] {
+            assert!(flagged(&json!({"type":"assistant","apiError":api_error,"message":{"content":[]}})));
+        }
+        for other in [
+            json!({"type":"assistant","isSidechain":true,"message":{"stop_reason":"refusal"}}),
+            json!({"type":"user","message":{"stop_reason":"refusal"}}),
+            json!({"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"The safeguards flagged this session."}]}}),
+            json!({"type":"assistant","isApiErrorMessage":true,"error":"rate_limit"}),
+        ] { assert!(!flagged(&other), "{other}"); }
+        let dir = crate::fixtures::scratch("provider-flags-claude");
+        let path = dir.join("s.jsonl");
+        let padding = json!({"type":"user","message":{"content":[{"type":"tool_result","content":"x".repeat(300_000)}]}});
+        let later = json!({"type":"assistant","message":{"stop_reason":"end_turn","content":[]}});
+        std::fs::write(&path, format!("{HEAD}{refusal}\n{padding}\n{later}\n")).unwrap();
+        let parsed = parse_transcript(&path, 1, None).unwrap();
+        assert!(parsed.1.flagged, "cold read looks beyond the 256KB tail");
+        use std::io::Write;
+        writeln!(std::fs::OpenOptions::new().append(true).open(&path).unwrap(), "{later}").unwrap();
+        assert!(parse_transcript(&path, 2, Some(parsed)).unwrap().1.flagged);
+        assert!(parse_transcript(&path, 2, None).unwrap().1.flagged, "restart keeps the flag");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn reads_the_model_model_switched_to() {

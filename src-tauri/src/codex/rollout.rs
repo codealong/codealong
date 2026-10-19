@@ -20,6 +20,8 @@ pub struct ThreadInfo {
     pub last_ts: i64,
     /// A turn started and hasn't completed or been aborted.
     pub turn_open: bool,
+    /// A recorded provider content-policy error or refusal, kept across later turns.
+    pub flagged: bool,
     pub turn_started_at: Option<i64>,
     pub last_complete_at: Option<i64>,
     /// When its last turn was stopped (`turn_aborted` with `interrupted`) with none started
@@ -347,6 +349,9 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
             serde_json::from_str::<Value>(line).ok().and_then(|v| worked_at(&v, &cwd)).into_iter().collect()
         });
     }
+    if let Some(floor) = floor.filter(|_| !info.flagged) {
+        info.flagged = crate::util::flagged_before(path, floor, tail.start, &["\"error\"", "\"refusal\""], flagged);
+    }
     if info.last_ts == 0 {
         info.last_ts = mtime;
     }
@@ -649,7 +654,25 @@ pub fn turn_mode(p: &Value) -> Option<SessionMode> {
     Some(SessionMode::new(kind, label, detail))
 }
 
+/// Codex's persisted ErrorEvent names provider policy blocks in `codex_error_info`. Older
+/// content-filter failures use the stream error's message. Check only that error or a typed
+/// assistant refusal, never prompts, tool output, ordinary prose or opaque moderation metadata.
+fn flagged(v: &Value) -> bool {
+    if let Some(p) = event_payload(v).filter(|p| p.get("type").and_then(Value::as_str) == Some("error")) {
+        if matches!(p.get("codex_error_info").and_then(Value::as_str), Some("cyber_policy" | "bio_policy" | "misalignment_policy_violation" | "content_filter")) {
+            return true;
+        }
+        let message = p.get("message").and_then(Value::as_str).unwrap_or_default().to_lowercase();
+        return message.contains("reason: content_filter") || message.contains("response was blocked by a content filter");
+    }
+    v.get("type").and_then(Value::as_str) == Some("response_item")
+        && v.pointer("/payload/type").and_then(Value::as_str) == Some("message")
+        && v.pointer("/payload/role").and_then(Value::as_str) == Some("assistant")
+        && v.pointer("/payload/content").and_then(Value::as_array).is_some_and(|parts| parts.iter().any(|p| p.get("type").and_then(Value::as_str) == Some("refusal")))
+}
+
 fn apply_event(info: &mut ThreadInfo, v: &Value) {
+    info.flagged |= flagged(v);
     let ts = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms);
     if let Some(t) = ts {
         info.last_ts = info.last_ts.max(t);
@@ -853,6 +876,37 @@ mod tests {
         for v in parse_events(text) {
             apply_event(info, &v);
         }
+    }
+
+    #[test]
+    fn provider_flags_ignore_discussion_and_survive_tail_reads() {
+        use serde_json::json;
+        for code in ["cyber_policy", "bio_policy", "misalignment_policy_violation", "content_filter"] {
+            assert!(flagged(&json!({"type":"event_msg","payload":{"type":"error","codex_error_info":code}})));
+        }
+        let blocked = json!({"type":"event_msg","payload":{"type":"error","message":"stream disconnected before completion: Incomplete response returned, reason: content_filter"}});
+        assert!(flagged(&blocked));
+        assert!(flagged(&json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"Request refused"}]}})));
+        for other in [
+            json!({"type":"event_msg","payload":{"type":"error","message":"Invalid configuration key content_filter_guidance"}}),
+            json!({"type":"event_msg","payload":{"type":"agent_message","message":"content_filter"}}),
+            json!({"type":"event_msg","payload":{"type":"user_message","message":"cyber_policy"}}),
+            json!({"type":"response_item","payload":{"type":"function_call_output","output":"content_filter"}}),
+            json!({"type":"event_msg","payload":{"type":"error","codex_error_info":"sandbox_error","message":"Approval denied"}}),
+            json!({"type":"event_msg","payload":{"type":"turn_moderation_metadata","metadata":{"presentation":"inline"}}}),
+        ] { assert!(!flagged(&other), "{other}"); }
+        let dir = crate::fixtures::scratch("provider-flags-codex");
+        let path = dir.join("rollout.jsonl");
+        let padding = json!({"type":"response_item","payload":{"type":"function_call_output","output":"x".repeat(300_000)}});
+        let later = json!({"type":"event_msg","payload":{"type":"task_complete"}});
+        std::fs::write(&path, format!("{META_USER}\n{blocked}\n{padding}\n{later}\n")).unwrap();
+        let parsed = parse_rollout(&path, 1, None).unwrap();
+        assert!(parsed.0.flagged);
+        use std::io::Write;
+        writeln!(std::fs::OpenOptions::new().append(true).open(&path).unwrap(), "{later}").unwrap();
+        assert!(parse_rollout(&path, 2, Some(parsed)).unwrap().0.flagged);
+        assert!(parse_rollout(&path, 2, None).unwrap().0.flagged);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

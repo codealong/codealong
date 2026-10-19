@@ -203,6 +203,9 @@ pub struct Board {
     /// (limits.rs) or only offered a move.
     #[serde(default)]
     pub when_limited: crate::config::WhenLimited,
+    /// Session automation settings on this device, for scheduling work from this board.
+    #[serde(default)]
+    pub sessions: crate::config::SessionsCfg,
     /// `[pull_requests] nudge_about`: what a PR whose nudge is on tells its session about
     /// (nudges.rs), which its card says.
     #[serde(default)]
@@ -228,6 +231,10 @@ pub struct Board {
 
 
 impl Board {
+    pub fn automation_blocked(&self, key: &str) -> bool {
+        self.sessions.block_flagged_sessions && self.session(key).is_some_and(|(_, s)| s.flagged)
+    }
+
     /// A session and the lane it's listed under as its own, else one it visits (`board::home`).
     pub fn session(&self, key: &str) -> Option<(&Lane, &Session)> {
         crate::board::home(&self.lanes, key)

@@ -917,7 +917,7 @@ impl Reviewer {
         // partway, to be told to carry on or just told.
         let holds_place = |r: &Round| {
             r.stage == ReviewStage::Reviewing
-                && r.parts.iter().any(|p| p.reviewing() && match &p.session { Some(k) => board.session(k).is_none_or(|(_, s)| s.status == Status::Working || p.cut_off_in(s) || p.starting(now)), None => p.pending.is_some() })
+                && r.parts.iter().any(|p| p.reviewing() && match &p.session { Some(k) => !board.automation_blocked(k) && board.session(k).is_none_or(|(_, s)| s.status == Status::Working || p.cut_off_in(s) || p.starting(now)), None => p.pending.is_some() })
         };
         let mut running = self.busy.len() + self.store.prs.iter().filter(|(k, t)| !self.busy.contains(*k) && t.rounds.last().is_some_and(holds_place)).count();
         let mut jobs = Vec::new();
@@ -937,6 +937,13 @@ impl Reviewer {
             }
             let cfg = settings.reviews(cfg, pr);
             let cfg = cfg.as_ref();
+            let tracked = self.store.prs.get(&key);
+            let reviewer = seat_for(cfg, tracked, &board.lanes, pr);
+            let blocked = origin(&board.lanes, pr).is_some_and(|(_, s)| board.automation_blocked(&s.key))
+                || reviewer.session.as_deref().is_some_and(|k| board.automation_blocked(k))
+                || tracked.and_then(|t| t.rounds.last()).is_some_and(|r| r.stage == ReviewStage::Reviewing
+                    && r.parts.iter().filter_map(|p| p.session.as_deref()).any(|k| board.automation_blocked(k)));
+            if blocked { continue; }
             let want = wanted(cfg, &board.lanes, pr);
             let on = on(cfg);
             if let Some(r) = self.store.prs.get_mut(&key).and_then(|t| t.rounds.last_mut()).filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) {
@@ -1902,6 +1909,14 @@ fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, mo
 #[allow(clippy::too_many_arguments)]
 fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, seat: &Seat) -> Part {
     let at = now_ms();
+    // Recheck after the PR read: a blocked send must not fall through to a fresh session.
+    for key in seat.session.as_deref().into_iter().chain(origin(&board.lanes, pr).map(|(_, s)| s.key.as_str())) {
+        if let Some((_, s)) = board.session(key) {
+            if let Err(e) = crate::send::ensure_not_flagged(cfg, s, &crate::send::Sender::Codealong) {
+                return Part::failed(&seat.who, format!("{e:#}"), at);
+            }
+        }
+    }
     let can_switch = seat.account.as_deref().is_none_or(|n| cfg.routing.groups.iter().any(|g| g.name == n));
     if let Some(key) = seat.session.as_deref().filter(|k| board.session(k).is_some() && !(can_switch && session_at_limit(board, &cfg.accounts, k, seat.model.as_deref(), at))) {
         let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
@@ -1972,7 +1987,8 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
         Ok(f) => f,
         Err(e) => return Went::NotStarted(e),
     };
-    Went::Started(vec![ask(engine, &board, &cfg, pr, head, since, &login, &files, seat)])
+    let fresh = engine.board();
+    Went::Started(vec![ask(engine, &fresh, &cfg, pr, head, since, &login, &files, seat)])
 }
 
 /// A new session's start for a review: on the reviewer's account (Auto's for none) and model,
@@ -2521,6 +2537,21 @@ mod tests {
                 Job::Submit { pr, head, verdict, text } => format!("{} {} {}{}", verdict.verb(), pr.number, short(head), text.as_deref().map(|t| format!(" saying {t:?}")).unwrap_or_default()),
             })
             .collect()
+    }
+
+    #[test]
+    fn provider_flags_pause_reviews_for_the_opener_and_kept_reviewer() {
+        let mut b = board(vec![mine(7, HEAD)], vec![Session { flagged: true, ..fixtures::session(MAKER) }]);
+        let mut r = Reviewer::default();
+        assert!(r.due(&b, &own(), NOW).is_empty());
+        b.sessions.block_flagged_sessions = false;
+        let jobs = r.due(&b, &own(), NOW + 1);
+        assert_eq!(jobs.len(), 1);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW + 1)]), NOW + 2).unwrap();
+        b.sessions.block_flagged_sessions = true;
+        b.lanes[0].sessions[0].flagged = false;
+        b.lanes[0].sessions.push(Session { flagged: true, ..session(Status::Unread, NOW + 60_000) });
+        assert!(r.due(&b, &own(), NOW + 61_000).is_empty());
     }
 
     /// Each PR goes as its repo's settings say: your table for the repo turns reviews on there

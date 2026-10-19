@@ -141,8 +141,9 @@
 .ca-cv-l2 .ca-labeldot {
   flex: none;
 }
-/* A session's PR, after what it said last: as tall as the line, so the card keeps its height. */
-.ca-cv-l2 .ca-pr {
+/* A session's chips are as tall as the line, so the card keeps its height. */
+.ca-cv-l2 .ca-pr,
+.ca-cv-l2 .ca-insight {
   height: 16px;
 }
 /* A stripe down the left edge in the status's color, as the status glyphs color them. */

@@ -297,6 +297,7 @@ impl Nudger {
             }
             let Some(primary) = pr.primary.as_deref() else { continue };
             let s = goes_to(&self.copies, primary);
+            if board.automation_blocked(&s) { continue; }
             // One that isn't running is resumed only for what asks for work; the copy one went on
             // as is told as it runs, once the board has it.
             let why = if runs_here(board, &s) || s != primary {
@@ -333,6 +334,7 @@ impl Nudger {
         let primary = |p: &PrItem, s: &str| p.primary.as_deref().map(|k| goes_to(copies, k)).as_deref() == Some(s);
         self.owed.retain(|(pr, s), o| {
             let p = listed.get(pr);
+            if board.automation_blocked(s) { return o.sending.is_some(); }
             o.sending.is_some() || (reached(p, s) && !off.contains(pr) && p.is_none_or(|p| primary(p, s)))
         });
         // A send already under way to a session is let finish first: two typing into one terminal
@@ -603,6 +605,7 @@ pub fn send_now(engine: &Handle, nudger: &Mutex<Nudger>, jobs: Vec<Job>) {
 /// session that isn't running, if that still goes (`still_due`). The copy it went on as, where it
 /// was resumed as one.
 fn deliver(engine: &Handle, job: &Job, text: &str) -> Result<Option<String>, String> {
+    if engine.read(|b| b.automation_blocked(&job.session)) { return Ok(None); }
     let told = if !job.stopped {
         crate::send::tell(engine, &job.session, text).map(|_| None)
     } else if engine.read(|b| still_due(b, job)) {
@@ -785,6 +788,25 @@ mod tests {
     }
 
     const NOW: i64 = 1_800_000_000_000;
+
+    #[test]
+    fn provider_flags_drop_pr_news_including_news_queued_before_the_flag() {
+        let initial = board(vec![pr("o/r#1", PrState::Open, &[A])], vec![live(A)]);
+        let mut nudger = Nudger::default();
+        assert!(nudger.due(&initial, NOW).is_empty());
+        let mut changed = initial.clone();
+        changed.prs[0].updated_at += 1;
+        changed.lanes[0].sessions[0].status = crate::model::Status::Needs;
+        assert!(nudger.due(&changed, NOW + 1).is_empty());
+        changed.lanes[0].sessions[0].status = crate::model::Status::Idle;
+        changed.lanes[0].sessions[0].flagged = true;
+        assert!(nudger.more(&changed, NOW + 2).is_empty());
+        changed.prs[0].updated_at += 1;
+        assert!(nudger.due(&changed, NOW + 3).is_empty());
+        changed.sessions.block_flagged_sessions = false;
+        changed.prs[0].updated_at += 1;
+        assert_eq!(nudger.due(&changed, NOW + 4).len(), 1);
+    }
 
     #[test]
     fn an_update_on_a_pr_its_on_for_is_a_job_for_the_sessions_that_run_here_once() {

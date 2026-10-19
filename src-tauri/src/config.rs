@@ -351,6 +351,9 @@ pub struct GroupMemberCfg {
 /// What Codealong does for sessions by itself.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionsCfg {
+    /// Keep provider-flagged conversations out of automatic sends, resumes and account moves.
+    #[serde(default = "yes")]
+    pub block_flagged_sessions: bool,
     /// A session whose turn ended because its agent couldn't reach its API (the Mac slept, or
     /// the network dropped) is told to carry on once the API can be reached again (reconnect.rs).
     #[serde(default = "yes")]
@@ -391,7 +394,7 @@ pub struct SessionsCfg {
 
 impl Default for SessionsCfg {
     fn default() -> Self {
-        SessionsCfg { continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, resume_for_pr_news: true, live_replies: false }
+        SessionsCfg { block_flagged_sessions: true, continue_after_network_error: true, continue_after_restart: true, resume_for_sessions_it_started: true, resume_for_any_session: true, resume_for_pr_news: true, live_replies: false }
     }
 }
 
@@ -1627,7 +1630,7 @@ const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), \"round-robin\",\n# or \"fallback\" (the members in order, each until it's within `buffer` of its usage_cap).\n# buffer: the percent below each account's usage_cap left for the sessions already running on it (default 5).\n";
-const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict) and its primary session isn't running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n";
+const SESSIONS_COMMENT: &str = "# block_flagged_sessions: keep provider-flagged sessions out of automatic messages, resumes and\n# account moves. On by default; manual replies and resumes remain available.\n# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict) and its primary session isn't running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account, model and effort: what it runs on; \"\" for the account Auto would start, on its
@@ -2068,6 +2071,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             let after = ["routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
             place_after(&mut doc, "sessions", after);
         }
+        set_value(&mut doc["sessions"]["block_flagged_sessions"], Value::from(cfg.sessions.block_flagged_sessions));
         set_value(&mut doc["sessions"]["continue_after_network_error"], Value::from(cfg.sessions.continue_after_network_error));
         set_value(&mut doc["sessions"]["continue_after_restart"], Value::from(cfg.sessions.continue_after_restart));
         set_value(&mut doc["sessions"]["resume_for_sessions_it_started"], Value::from(cfg.sessions.resume_for_sessions_it_started));
@@ -2521,6 +2525,7 @@ pub fn render(cfg: &Config) -> String {
         s.push('\n');
         s.push_str(SESSIONS_COMMENT);
         s.push_str("[sessions]\n");
+        s.push_str(&format!("block_flagged_sessions = {}\n", cfg.sessions.block_flagged_sessions));
         s.push_str(&format!("continue_after_network_error = {}\n", cfg.sessions.continue_after_network_error));
         s.push_str(&format!("continue_after_restart = {}\n", cfg.sessions.continue_after_restart));
         s.push_str(&format!("resume_for_sessions_it_started = {}\n", cfg.sessions.resume_for_sessions_it_started));
@@ -2632,6 +2637,20 @@ pub fn render(cfg: &Config) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn provider_flag_protection_defaults_on_and_round_trips() {
+        assert!(Config::default().sessions.block_flagged_sessions);
+        for text in ["", "[sessions]\ncontinue_after_restart = false\n"] {
+            assert!(parse(text).unwrap().sessions.block_flagged_sessions);
+        }
+        let mut cfg = Config::default();
+        cfg.sessions.block_flagged_sessions = false;
+        for text in [render(&cfg), with_config("# Keep this comment\n[sessions]\nlive_replies = false\n", &cfg).unwrap()] {
+            assert!(!parse(&text).unwrap().sessions.block_flagged_sessions);
+            assert!(text.contains("block_flagged_sessions = false"));
+        }
+    }
+
     /// A config.toml that doesn't parse is an error that says where to look, never the
     /// defaults, which have no accounts: what acted on those would act on settings that aren't
     /// yours. No file yet is the defaults.
@@ -2678,7 +2697,7 @@ mod tests {
                     members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into(), effort: String::new() }, GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }],
                 }],
             },
-            sessions: SessionsCfg { continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true },
+            sessions: SessionsCfg { block_flagged_sessions: false, continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true },
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
@@ -3132,13 +3151,13 @@ mod tests {
         let mut off = full();
         off.sessions.continue_after_network_error = false;
         let out = with_config(&old, &off).unwrap();
-        assert!(out.contains(&format!("{SESSIONS_COMMENT}[sessions]\ncontinue_after_network_error = false\ncontinue_after_restart = true\nresume_for_sessions_it_started = true")), "{out}");
+        assert!(out.contains(&format!("{SESSIONS_COMMENT}[sessions]\nblock_flagged_sessions = true\ncontinue_after_network_error = false\ncontinue_after_restart = true\nresume_for_sessions_it_started = true")), "{out}");
         assert!(out.find("[sessions]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert_eq!(parse(&out).unwrap(), off);
         assert_eq!(parse(&render(&off)).unwrap(), off);
         // Turned back on, the table stays, saying so.
         let on = with_config(&out, &full()).unwrap();
-        assert!(on.contains("[sessions]\ncontinue_after_network_error = true"), "{on}");
+        assert!(on.contains("[sessions]\nblock_flagged_sessions = true\ncontinue_after_network_error = true"), "{on}");
     }
 
     #[test]
@@ -3151,7 +3170,7 @@ mod tests {
         let mut off = full();
         off.sessions.continue_after_restart = false;
         let out = with_config(&old, &off).unwrap();
-        assert!(out.contains("[sessions]\ncontinue_after_network_error = true\ncontinue_after_restart = false\n"), "{out}");
+        assert!(out.contains("[sessions]\nblock_flagged_sessions = true\ncontinue_after_network_error = true\ncontinue_after_restart = false\n"), "{out}");
         assert_eq!(parse(&out).unwrap(), off);
         assert_eq!(parse(&render(&off)).unwrap(), off);
     }
@@ -3203,7 +3222,7 @@ mod tests {
         let mut off = full();
         off.sessions.resume_for_sessions_it_started = false;
         let out = with_config(&old, &off).unwrap();
-        assert!(out.contains("[sessions]\ncontinue_after_network_error = true\ncontinue_after_restart = true\nresume_for_sessions_it_started = false"), "{out}");
+        assert!(out.contains("[sessions]\nblock_flagged_sessions = true\ncontinue_after_network_error = true\ncontinue_after_restart = true\nresume_for_sessions_it_started = false"), "{out}");
         assert_eq!(parse(&out).unwrap(), off);
         assert_eq!(parse(&render(&off)).unwrap(), off);
     }

@@ -146,7 +146,7 @@ impl Reporter {
         self.seen = seen_now;
         // A session that stopped is told nothing more.
         self.owed.retain(|k, o| o.sending.is_some() || runs_here(k));
-        let waits = |k: &str| board.session(k).is_some_and(|(_, s)| crate::send::waits_on_you(s));
+        let waits = |k: &str| board.automation_blocked(k) || board.session(k).is_some_and(|(_, s)| crate::send::waits_on_you(s));
         let mut out = Vec::new();
         for (k, o) in self.owed.iter_mut() {
             if o.sending.is_some() || o.notes.is_empty() || now < o.next_at || waits(k) {

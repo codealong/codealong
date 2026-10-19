@@ -1737,7 +1737,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         let on = self.cfg.limits.continue_when_lifted;
         for s in &mut sessions {
-            let live = s.live;
+            let live = s.live && !(s.flagged && self.cfg.sessions.block_flagged_sessions);
             if let Some(limit) = s.limit.as_mut() {
                 limit.continues = on && live && limit.resets_at.is_some();
             }
@@ -1752,7 +1752,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         let on = self.cfg.sessions.continue_after_network_error;
         for s in &mut sessions {
             if let Some(lost) = s.connection_lost.as_mut() {
-                lost.continues = on && s.live && harness::adapter(s.harness).api_address().is_some();
+                lost.continues = on && s.live && !(s.flagged && self.cfg.sessions.block_flagged_sessions) && harness::adapter(s.harness).api_address().is_some();
             }
         }
         sessions
@@ -3440,6 +3440,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();
         board.when_limited = self.cfg.limits.when_hit;
+        board.sessions = self.cfg.sessions.clone();
         board.nudge_about = self.cfg.pull_requests.nudge_about;
         board.pr_stopped = crate::nudges::stopped_primaries(&board, &self.running_elsewhere, self.cfg.sessions.resume_for_pr_news, |s| crate::send::reaches_stopped(&self.cfg, s));
         board.reviews = self.cfg.reviews.clone();

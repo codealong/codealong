@@ -21,13 +21,17 @@ export function FlagChip({ session }: { session: Session }) {
   return l ? <Insight l={l} /> : null;
 }
 
+export function ProviderFlagChip({ session }: { session: Session }) {
+  return session.flagged ? <Insight l={{ label: 'Flagged', tone: 'bad', title: 'The provider flagged a message in this conversation. Automatic messages, resumes and account moves are blocked by default in Settings › Automation. You can still reply yourself.' }} /> : null;
+}
+
 /** The session's risk while it waits on you, else how far its work got. Not after a lost
  *  connection ended its turn: Jev read Claude Code's error, which it takes for being blocked. */
 export function InsightChips({ session }: { session: Session }) {
   const risk = riskLabel(session);
   const landing = risk || (session.connectionLost && session.status !== 'working') ? null : landingLabel(session.insight);
   const l = risk ?? landing;
-  return l ? <Insight l={l} /> : null;
+  return <><ProviderFlagChip session={session} />{l && <Insight l={l} />}</>;
 }
 
 export function LooksFinished({ lane }: { lane: Lane }) {

@@ -636,3 +636,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   lists every such session in one lane (`engine.rs` `chat_roots`), and the app's
   `<system-reminder>` part ahead of the first prompt is skipped (`claude/transcript.rs`
   `typed_text`).
+
+- Provider flags (2026-10-19): assistant lines with `message.stop_reason: "refusal"`,
+  including the synthetic `error: "invalid_request"` reply whose text says the model's safeguards
+  flagged the session. The refusal is also on the preceding empty assistant message. Read by
+  `transcript.rs` (`flagged`), ignoring inline sidechains; kept across later turns. A fresh read
+  scans before the usual tail for it, so a restart doesn't forget an older refusal.
+  Claude Code 2.1.303 also treats `apiError: "dlp_request_denied"` and
+  `apiError: "safety_monitor_blocked"` on assistant messages as flags; the reader does too.
