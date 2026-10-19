@@ -70,7 +70,10 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   is `meta.json` (`{schemaVersion, createdAtMs, updatedAtMs, hasConversation, title, cwd,
   isSubagent}`, 2026.08.11 to 2026.10.16), which has the folder and is written as the chat is
   made, before the transcript: `cursor.rs` (`Sidecar`, `parse_sidecar`). Its own list of chats
-  leaves out subagents' and ones with no conversation yet. Its ACP sessions are in
+  leaves out subagents' and ones with no conversation yet. A subagent's chat is in the same
+  `chats/<hash>` folder with no `meta.json` (2026.10.16), its `meta` row naming it a subagent's
+  (`subagentInfo {parentAgentId, rootParentAgentId}`, name "New Agent"): a review's agent started
+  three (2026-10-18), which Codealong leaves out (`Meta::subagent`). Its ACP sessions are in
   `acp-sessions/<id>/` (`store.db` and `meta.json {cwd, title}`); Codealong doesn't run it over
   ACP yet.
 - Two folders (2026.08.11's code): `chats` and `cli-config.json` are in

@@ -847,6 +847,9 @@ pub struct Meta {
     /// `approvalMode`, else `unrestricted` where `isRunEverything` says so, as the command line
     /// reads them (2026.08.11's code).
     pub approval: Option<String>,
+    /// It's a subagent's chat (`subagentInfo`, naming the chat that started it), which the
+    /// command line's own list of chats leaves out. 2026.10.16 writes no `meta.json` for one.
+    pub subagent: bool,
 }
 
 fn decode_hex(s: &str) -> Option<Vec<u8>> {
@@ -863,7 +866,8 @@ pub fn parse_meta(value: &str) -> Meta {
     let v: Value = serde_json::from_str(&json).unwrap_or(Value::Null);
     let text = |k: &str| v.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
     let approval = text("approvalMode").or_else(|| (v.get("isRunEverything").and_then(Value::as_bool) == Some(true)).then(|| "unrestricted".to_string()));
-    Meta { name: text("name"), created_at: v.get("createdAt").and_then(Value::as_i64), model: text("lastUsedModel"), mode: text("mode"), approval }
+    let subagent = v.get("subagentInfo").is_some_and(|i| !i.is_null());
+    Meta { name: text("name"), created_at: v.get("createdAt").and_then(Value::as_i64), model: text("lastUsedModel"), mode: text("mode"), approval, subagent }
 }
 
 fn read_meta(store: &Path) -> Meta {
@@ -956,6 +960,9 @@ pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec
                 continue;
             }
             let meta = read_meta(&store);
+            if meta.subagent {
+                continue;
+            }
             out.push(Chat { id, title: meta.name, cwd: side.cwd, created_at: meta.created_at.unwrap_or(written), last_updated: written, model: meta.model, mode: meta.mode, approval: meta.approval, cli: true, dir: Some(dir), transcript, ..Chat::default() });
         }
     }
@@ -2299,6 +2306,9 @@ mod tests {
         let planned = parse_meta(r#"{"name":"n","mode":"plan","isRunEverything":true}"#);
         assert_eq!((planned.mode.as_deref(), planned.approval.as_deref()), (Some("plan"), Some("unrestricted")));
         assert_eq!(parse_meta(r#"{"approvalMode":"auto-review","isRunEverything":true}"#).approval.as_deref(), Some("auto-review"));
+        // A subagent's, as 2026.10.16 writes one under the chat that started it.
+        assert!(parse_meta(r#"{"name":"New Agent","subagentInfo":{"parentAgentId":"d1414899","rootParentAgentId":"d1414899"}}"#).subagent);
+        assert!(!planned.subagent);
     }
 
     /// A chat as 2026.08.11 leaves one: its database, the `meta.json` beside it, and its
@@ -2315,6 +2325,10 @@ mod tests {
         };
         chat("d16e", "c1", json!({ "schemaVersion": 1, "createdAtMs": 1, "hasConversation": true, "title": "Hi There", "cwd": "/Users/me/projects/atlas-agent-restart-deferral" }));
         chat("d16e", "sub", json!({ "schemaVersion": 1, "createdAtMs": 1, "hasConversation": true, "isSubagent": true, "cwd": "/Users/me/app" }));
+        // A subagent's chat with no meta.json, its database saying whose it is (2026.10.16).
+        let sub = home.join("chats/d16e/sub2");
+        std::fs::create_dir_all(&sub).unwrap();
+        Connection::open(sub.join(STORE_DB)).unwrap().execute_batch(r#"CREATE TABLE meta (key TEXT, value TEXT); INSERT INTO meta VALUES ('0', '{"name":"New Agent","subagentInfo":{"parentAgentId":"c1"}}');"#).unwrap();
         let rows = read_cli_chats(&home, 0, &HashSet::new());
         assert_eq!(rows.iter().map(|c| (c.id.as_str(), c.title.as_deref(), c.cwd.as_deref())).collect::<Vec<_>>(), [("c1", Some("Hi There"), Some("/Users/me/projects/atlas-agent-restart-deferral"))]);
         assert_eq!(cli_chat_dir(&home, "c1"), Some(home.join("chats/d16e/c1")));
