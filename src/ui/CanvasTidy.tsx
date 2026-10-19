@@ -90,7 +90,7 @@ export function TidyPanel({ doc, entities, holds, now, pinned, onTidy, onClear, 
         <button
           type="button"
           className="ca-btn ca-btn--ghost ca-btn--sm ca-cv-tidy-clear"
-          title="Take everything off the canvas, notes and frames too, though not off the board. Bring in adds sessions and todos back as they move on: a new prompt, a finished turn, a change; and what was added to the board by hand comes back."
+          title="Take everything off the canvas, notes and frames too, though not off the board. Bring in adds sessions and todos back as they move on: a new prompt, a finished turn, a change; and a tidy brings back what was added to the board by hand."
           onClick={onClear}
         >
           Clear canvas

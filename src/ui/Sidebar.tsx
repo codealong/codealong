@@ -131,7 +131,7 @@ function Open(p: SidebarProps) {
         {p.boards.map((b) => (
           <NavItem key={b.id} icon="layout-board" label={b.name} active={p.view === 'board' && p.board === b.id} title={`${b.title}. Right-click for its settings`} onClick={() => p.onBoard(b.id)} onContextMenu={() => p.onBoardMenu(b.id)} />
         ))}
-        <button type="button" className="ca-nav ca-side-save" onClick={p.onNewBoard}>
+        <button type="button" className="ca-nav ca-side-newboard" onClick={p.onNewBoard}>
           <Icon name="plus" size={14} />
           <span className="ca-nav-label">New board</span>
         </button>

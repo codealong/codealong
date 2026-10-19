@@ -6,7 +6,7 @@
 // boards.json (boards.rs) and makes every change; a change is made here too as it's asked
 // (`applyOp`, which does what boards.rs `apply_to` does), so the window shows it at once.
 
-import type { RefKind } from '../canvas/model';
+import type { OnBoard, RefKind } from '../canvas/model';
 import type { Label } from '../types';
 
 /** How far a card's work has got, as the stage columns have it (rules.ts `stageOf`). */
@@ -65,6 +65,9 @@ export interface BoardDoc {
   /** Cards added by hand and taken off by hand, by card id (`refId`). */
   added: string[];
   removed: string[];
+  /** When each card was added by hand: a canvas brings on by itself only what was added after its
+   *  last tidy or clear (canvas/model.ts `recentRefs`). */
+  addedAt?: Record<string, number>;
   /** Its Kanban columns; null for the four stages. */
   columns?: BoardColumn[] | null;
   /** The column each card was put in by hand, by card id. */
@@ -200,12 +203,14 @@ export function applyOp(boards: BoardDoc[], op: BoardOp, now: number): BoardDoc[
     case 'rename':
       next = { ...b, name: cleanName(op.name) || b.name };
       break;
-    case 'add':
-      next = { ...b, removed: without(b.removed, op.cards), added: [...b.added, ...op.cards.filter((c) => !b.added.includes(c))] };
+    case 'add': {
+      const fresh = op.cards.filter((c) => !b.added.includes(c));
+      next = { ...b, removed: without(b.removed, op.cards), added: [...b.added, ...fresh], addedAt: { ...b.addedAt, ...Object.fromEntries(fresh.map((c) => [c, now])) } };
       break;
+    }
     case 'remove': {
-      const placed = Object.fromEntries(Object.entries(b.placed ?? {}).filter(([c]) => !op.cards.includes(c)));
-      next = { ...b, added: without(b.added, op.cards), removed: [...b.removed, ...op.cards.filter((c) => !b.removed.includes(c))], placed, order: without(b.order, op.cards) };
+      const kept = <T,>(m: Record<string, T> | undefined) => Object.fromEntries(Object.entries(m ?? {}).filter(([c]) => !op.cards.includes(c)));
+      next = { ...b, added: without(b.added, op.cards), removed: [...b.removed, ...op.cards.filter((c) => !b.removed.includes(c))], placed: kept(b.placed), addedAt: kept(b.addedAt), order: without(b.order, op.cards) };
       break;
     }
     case 'rule':
@@ -228,6 +233,11 @@ export function applyOp(boards: BoardDoc[], op: BoardOp, now: number): BoardDoc[
       break;
   }
   return at >= 0 ? boards.map((x, i) => (i === at ? next : x)) : [...boards, next];
+}
+
+/** What a board holds, as its canvas takes it (canvas/model.ts `OnBoard`). */
+export function holdsOf(b: BoardDoc, member: (card: string) => boolean): OnBoard {
+  return { has: member, added: new Map(b.added.map((c) => [c, b.addedAt?.[c] ?? 0])), removed: new Set(b.removed) };
 }
 
 /** A board as the engine sends it, with what a window counts on filled in. */

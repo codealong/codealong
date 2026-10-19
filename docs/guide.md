@@ -1220,8 +1220,9 @@ Bring in (the gear in the toolbar) has the same choices for new work: what moves
 tidy (a new prompt, a finished turn, a question for you, a changed todo) comes on by itself and
 lands in its frame beside what it belongs to (a session under its worktree, a worktree in the next
 free column of its repo's or the latest day's frame, else in one column beside the frames); the
-frame grows to hold it, and what's below or beside moves along whole. Nothing comes off by itself
-but what's taken off the board. Add older things from Add in the toolbar or a right-click on the
+frame grows to hold it, and what's below or beside moves along whole; so does what's added to the
+board after the last tidy, whatever its age. Nothing comes off by itself but what's taken off the
+board. Add older things from Add in the toolbar or a right-click on the
 canvas, which puts them on the board too. Remove from board takes a card off the board, its Kanban
 too, and it doesn't come back by itself. Notes (`n`) and frames (`f`) organize it; a frame carries
 what's in it, and grows to hold a card dropped over its edge. Clear canvas (in Tidy, or a

@@ -56,8 +56,8 @@ import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kan
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type OnBoard, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
-import { columnsOf, isProjects, newBoardId, newColumnId, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
-import { columnOf, repoOf } from './boards/rules';
+import { columnsOf, holdsOf, isProjects, newBoardId, newColumnId, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
+import { columnOf, memberTest, repoOf } from './boards/rules';
 import { useBoardAsks } from './boards/useBoardAsks';
 import { useBoards } from './boards/useBoards';
 import { BoardBar, type BoardLayout } from './ui/BoardBar';
@@ -564,7 +564,7 @@ export function App() {
     () => entitiesOf(board, projectLanes, todoStore.todos, (p) => current === ALL_PROJECTS || p === current),
     [board, projectLanes, todoStore.todos, current],
   );
-  const holds = useMemo<OnBoard>(() => ({ has: member, added: new Set(shownBoard.added), removed: new Set(shownBoard.removed) }), [member, shownBoard.added, shownBoard.removed]);
+  const holds = useMemo<OnBoard>(() => holdsOf(shownBoard, member), [member, shownBoard]);
   const canvas = useCanvas(shownBoard.id, view === 'canvas', !loading, canvasEntities, now, lanePins.set, holds);
   /** A change to a board, here at once; what the engine turns down is said in a toast. */
   const applyBoard = useCallback((op: Parameters<typeof boards.apply>[0]) => boards.apply(op).catch((e: unknown) => setToast(errorText(e))), [boards, setToast]);
@@ -586,7 +586,7 @@ export function App() {
    *  its own Remove from board, for what's picked on it. */
   const boardItems = (ref: RefKind, key: string): MenuSpec => {
     const card = refId(ref, key);
-    const on = (b: BoardDoc) => (b.id === shownBoard.id ? member(card) : b.added.includes(card) && !b.removed.includes(card));
+    const on = (b: BoardDoc) => (b.id === shownBoard.id ? member(card) : memberTest(b, subjects, now)(card));
     const put = (b: BoardDoc, yes: boolean) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: [card] });
     const remove: MenuSpec = view === 'kanban' && member(card) ? [{ label: 'Remove from board', run: () => put(shownBoard, false) }] : [];
     return [
@@ -1426,7 +1426,7 @@ export function App() {
   };
   // What `codealong board …` asks of the main window: a board's Kanban and canvas, moving a card,
   // arranging its canvas (boards/useBoardAsks.ts).
-  useBoardAsks({ deviceLanes, deviceFilter, shown: shownBoard, canvas, apply: boards.apply, run: todoStore.run, markDone: markSessionDone });
+  useBoardAsks({ deviceLanes, deviceFilter, shown: shownBoard, canvas, apply: boards.apply });
 
   // A worktree's row dragged on the board: among the pinned ones to pin it there or move it, from
   // them down to the bays to unpin it, out of the window onto the desktop (useRowDrag.tsx).

@@ -738,9 +738,11 @@ export function kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board
   const onCards = new Set(todoCards.filter((c) => todoStage(c, todos) !== 'done').flatMap((c) => c.todo.sessions));
   const viaPrs = new Set(prs.filter((p) => member(`pr:${p.key}`)).flatMap((p) => p.sessions.map((s) => s.key)));
   const added = new Set(board.added);
+  const removed = new Set(board.removed);
   const sessionCards = sessions.filter((r) => {
     const card = `session:${r.session.key}`;
-    if (!(member(card) || member(`worktree:${r.lane.id}`) || viaPrs.has(r.session.key))) return false;
+    // Taken off the board, it stays off, though its worktree or a PR of its is on it.
+    if (removed.has(card) || !(member(card) || member(`worktree:${r.lane.id}`) || viaPrs.has(r.session.key))) return false;
     if (onCards.has(r.session.key) || unattended(r.session)) return false;
     return added.has(card) || current(r.session) || sessionStage(r, prs) === 'review';
   });

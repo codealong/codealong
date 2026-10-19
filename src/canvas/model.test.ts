@@ -16,10 +16,11 @@ function ents(lanes: Lane[], todos: Todo[] = []) {
   return entitiesOf(null, lanes, todos, () => true);
 }
 
-/** What a board holds: everything but what was taken off, or with `has` only what it says. */
-const onBoard = (added: string[], removed: string[], has: (id: string) => boolean = () => true): OnBoard => ({
+/** What a board holds: everything but what was taken off, or with `has` only what it says; what
+ *  was added, added at `at`. */
+const onBoard = (added: string[], removed: string[], has: (id: string) => boolean = () => true, at = NOW): OnBoard => ({
   has: (id) => has(id) && !removed.includes(id),
-  added: new Set(added),
+  added: new Map(added.map((c) => [c, at])),
   removed: new Set(removed),
 });
 
@@ -66,11 +67,14 @@ describe('sync', () => {
     expect(sync(d, e, NOW + 2 * DAY, new Set(), off)).toBe(d);
   });
 
-  it('brings on only what the board holds, what was added by hand whatever its age, and takes off what was taken off the board', () => {
-    const hand = onBoard(['session:s1'], [], (id) => id === 'session:s1' || id === 'worktree:a');
-    const d = sync({ ...emptyDoc(), scope: { ...DEFAULT_SCOPE, since: NOW } }, e, NOW, new Set(), hand);
+  it('brings on only what the board holds, what was added by hand since the last tidy or clear whatever its age, and takes off what was taken off the board', () => {
+    const cleared = { ...emptyDoc(), scope: { ...DEFAULT_SCOPE, since: NOW } };
+    const holds = (id: string) => id === 'session:s1' || id === 'worktree:a';
+    const d = sync(cleared, e, NOW, new Set(), onBoard(['session:s1'], [], holds, NOW + 1));
     // Its worktree, which the board holds too, heads it.
     expect(d.items.filter((it) => it.kind === 'ref').map(itemId).sort()).toEqual(['session:s1', 'worktree:a']);
+    // Added before the clear, it stays off: a clear isn't undone by what was added by hand.
+    expect(refs(sync(cleared, e, NOW, new Set(), onBoard(['session:s1'], [], holds, NOW - 1)))).toEqual([]);
     const all = sync(emptyDoc(), e, NOW);
     expect(at(sync(all, e, NOW, new Set(), onBoard([], ['session:s1'])), 'session:s1')).toBeUndefined();
   });

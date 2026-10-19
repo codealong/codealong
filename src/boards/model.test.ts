@@ -28,7 +28,7 @@ describe('a project’s boards', () => {
 describe('applyOp', () => {
   it('makes a change as the engine makes it: a project’s own board joins the list as it first changes', () => {
     const one = applyOp([], { op: 'add', id: 'p:Acme', cards: ['todo:t-1'] }, NOW);
-    expect(one).toEqual([{ ...projectBoard('Acme'), added: ['todo:t-1'] }]);
+    expect(one).toEqual([{ ...projectBoard('Acme'), added: ['todo:t-1'], addedAt: { 'todo:t-1': NOW } }]);
     expect(applyOp(one, { op: 'delete', id: 'p:Acme' }, NOW)).toEqual(one);
     expect(applyOp(one, { op: 'add', id: 'b-gone', cards: ['todo:t-2'] }, NOW)).toBe(one);
   });
@@ -40,7 +40,7 @@ describe('applyOp', () => {
     boards = applyOp(boards, { op: 'order', id: 'b-1', order: ['session:s1', 'todo:t', 'session:s1'] }, NOW);
     expect(boards[0]).toMatchObject({ placed: { 'session:s1': 'next' }, order: ['session:s1', 'todo:t'] });
     boards = applyOp(boards, { op: 'remove', id: 'b-1', cards: ['session:s1'] }, NOW);
-    expect(boards[0]).toMatchObject({ added: [], removed: ['session:s1'], placed: {}, order: ['todo:t'] });
+    expect(boards[0]).toMatchObject({ added: [], removed: ['session:s1'], placed: {}, addedAt: {}, order: ['todo:t'] });
     boards = applyOp(boards, { op: 'add', id: 'b-1', cards: ['session:s1'] }, NOW);
     expect(boards[0]).toMatchObject({ added: ['session:s1'], removed: [] });
   });

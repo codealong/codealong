@@ -170,6 +170,10 @@ pub struct BoardDoc {
     pub added: Vec<String>,
     #[serde(default)]
     pub removed: Vec<String>,
+    /// When each card was added by hand: a canvas brings on by itself only what was added after
+    /// its last tidy or clear (canvas/model.ts `recentRefs`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub added_at: BTreeMap<String, i64>,
     /// Its Kanban columns; none for the four stages.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub columns: Option<Vec<Column>>,
@@ -199,6 +203,7 @@ impl BoardDoc {
             rule: Some(Rule::default()),
             added: vec![],
             removed: vec![],
+            added_at: BTreeMap::new(),
             columns: None,
             placed: BTreeMap::new(),
             order: vec![],
@@ -483,6 +488,7 @@ fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -
             b.removed.retain(|c| !given.contains(c));
             for c in given {
                 if !b.added.contains(&c) {
+                    b.added_at.insert(c.clone(), now);
                     b.added.push(c);
                 }
             }
@@ -493,6 +499,7 @@ fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -
             let b = board_mut(file, &id)?;
             let before = (b.added.clone(), b.removed.clone(), b.placed.clone(), b.order.clone());
             b.added.retain(|c| !given.contains(c));
+            b.added_at.retain(|c, _| !given.contains(c));
             b.placed.retain(|c, _| !given.contains(c));
             b.order.retain(|c| !given.contains(c));
             for c in given {
@@ -724,12 +731,13 @@ mod tests {
         let add = |c: &str| BoardOp::Add { id: "b-1".into(), cards: vec![c.into()] };
         let remove = |c: &str| BoardOp::Remove { id: "b-1".into(), cards: vec![c.into()] };
         run(&mut file, add("session:s1")).unwrap();
+        assert_eq!(file.boards[0].added_at.get("session:s1"), Some(&100));
         run(&mut file, BoardOp::Place { id: "b-1".into(), card: "session:s1".into(), column: Some("c1".into()) }).unwrap();
         run(&mut file, BoardOp::Order { id: "b-1".into(), order: vec!["session:s1".into(), "todo:t-1".into(), "session:s1".into()] }).unwrap();
         assert_eq!(file.boards[0].order, ["session:s1", "todo:t-1"]);
         run(&mut file, remove("session:s1")).unwrap();
         let b = &file.boards[0];
-        assert!(b.added.is_empty() && b.placed.is_empty());
+        assert!(b.added.is_empty() && b.placed.is_empty() && b.added_at.is_empty());
         assert_eq!((b.removed.clone(), b.order.clone()), (vec!["session:s1".to_string()], vec!["todo:t-1".to_string()]));
         let (changed, _) = run(&mut file, remove("session:s1")).unwrap();
         assert!(!changed);

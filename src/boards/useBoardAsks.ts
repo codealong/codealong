@@ -10,20 +10,18 @@
 // its page back), so what its last render had can be hours old, or from before the first scan.
 
 import { useEffect } from 'react';
-import { boardAnswer, boardsList, getBoard, onBoardAsk, type BoardAsk } from '../api';
+import { boardAnswer, boardsList, getBoard, onBoardAsk, todoOp, type BoardAsk } from '../api';
 import { kanbanOf, NO_COLUMN, unarchived, type KanbanCard, type KanbanColumn } from '../boardLists';
-import { arrange, emptyDoc, entitiesOf, outline, refId, type ArrangeFrame, type ArrangeRest, type OnBoard } from '../canvas/model';
+import { arrange, emptyDoc, entitiesOf, outline, refId, type ArrangeFrame, type ArrangeRest } from '../canvas/model';
 import type { CanvasHandle } from '../canvas/useCanvas';
 import { readCanvas, saveCanvas, seed } from '../canvas/useCanvas';
 import { withDevices, type DeviceFilter } from '../devices';
-import { boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanDrop, orderedIds, type KanbanMove } from '../kanban';
+import { boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanDrop, orderedIds, todoPatchOf, type KanbanMove } from '../kanban';
 import { useLatest } from '../latest';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { errorText } from '../report';
-import type { TodoOp } from '../todos';
 import type { Board, Lane } from '../types';
-import type { SessionItem } from '../ui/SessionsView';
-import { isProjects, projectBoard, readBoard, type BoardDoc, type BoardOp } from './model';
+import { holdsOf, isProjects, projectBoard, readBoard, type BoardDoc, type BoardOp } from './model';
 
 /** What `codealong board …` asks for, as boards.rs `Ask` sends it. */
 type Ask = { kind: 'show'; layout: 'kanban' | 'canvas' } | { kind: 'arrange'; frames: ArrangeFrame[]; rest: ArrangeRest } | { kind: 'move'; card: string; to: string; before?: string; dryRun?: boolean };
@@ -35,12 +33,9 @@ export interface BoardAsks {
   /** The board this window shows, and its canvas. */
   shown: BoardDoc;
   canvas: CanvasHandle;
-  /** A change to a board, as the window makes one (useBoards.ts `apply`). */
+  /** A change to a board, as the window makes one (useBoards.ts `apply`), which rejects with what
+   *  the engine said. */
   apply: (op: BoardOp) => Promise<unknown>;
-  /** A change to todos, through the window's store. */
-  run: (op: TodoOp) => void;
-  /** Mark as done on a session, as its menu does it. */
-  markDone: (item: SessionItem) => void;
 }
 
 /** Answers each `codealong board …` request the engine hands this window. */
@@ -71,11 +66,6 @@ async function boardAsked(ask: BoardAsk): Promise<BoardDoc> {
   throw new Error(`There's no board ${ask.board} in ${project}.`);
 }
 
-/** What the board holds, as the canvas takes it. */
-function holds(doc: BoardDoc, member: (card: string) => boolean): OnBoard {
-  return { has: member, added: new Set(doc.added), removed: new Set(doc.removed) };
-}
-
 const named = (doc: BoardDoc) => ({ id: doc.id, name: doc.name, project: doc.project });
 
 async function answer(ask: BoardAsk, latest: { readonly current: BoardAsks }): Promise<unknown> {
@@ -104,7 +94,7 @@ async function answer(ask: BoardAsk, latest: { readonly current: BoardAsks }): P
   const projectLanes = lanes.filter((l) => inProject(l, doc.project));
   const e = entitiesOf(board, projectLanes, board.todos, (p) => doc.project === ALL_PROJECTS || p === doc.project);
   const pinned = new Set(board.pinnedWorktrees);
-  const on = holds(doc, member);
+  const on = holdsOf(doc, member);
   const file = await readCanvas(doc.id);
   // The window's own document once it holds the board's, which may have a change still to save,
   // else the file, read again if the window saved the board meanwhile (`readCanvas`). Taken after
@@ -164,29 +154,31 @@ async function move(op: Extract<Ask, { kind: 'move' }>, doc: BoardDoc, board: Bo
   const drop = kanbanDrop(card, from, to, null, index, { columns: columns.flatMap((c) => c.column ?? []), placed: doc.placed, subjects, todos: board.todos, now });
   if (!drop || drop.moves.length === 0) throw new Error(from.id === to.id ? `It's in ${to.label} already.` : `Moving it to ${to.label} does nothing: no change would put it there.`);
   if (drop.moves.some((m) => m.kind === 'start')) throw new Error('Moving a todo from To do to In progress starts a session, which the command doesn’t do: run `codealong todo start` in the session that takes it on.');
+  // Mark as done can stop a session, which its menu asks about first; the command for it says so.
+  if (card.kind === 'agent' && drop.moves.some((m) => m.kind === 'done')) throw new Error(`Marking a session done is \`codealong session done ${card.session.key}\`'s, which turns down one that's working or waits on your user.`);
   const title = (card.kind === 'todo' ? card.todo.title : card.session.title) || 'Untitled';
   const said = `${drop.word ?? `Move to ${to.label}`}: “${title}”.`;
   if (op.dryRun) return { said: `Would ${said.charAt(0).toLowerCase()}${said.slice(1)}`, column: to.label, done: false };
-  await doMoves(card, drop.moves, to, doc, board, acts);
-  return { said: `${said}`, column: to.label, done: true };
+  await doMoves(card, drop.moves, to, doc, board, acts.apply);
+  return { said, column: to.label, done: true };
 }
 
-/** Does a drop's moves for the command, as applyKanbanDrop does them for a drag, without a toast. */
-async function doMoves(card: KanbanCard, moves: KanbanMove[], to: KanbanColumn, doc: BoardDoc, board: Board, acts: BoardAsks): Promise<void> {
+/** Does a drop's moves for the command, as applyKanbanDrop does them for a drag, without a toast:
+ *  each through the engine, waited on, so the command hears what it turned down. */
+async function doMoves(card: KanbanCard, moves: KanbanMove[], to: KanbanColumn, doc: BoardDoc, board: Board, apply: BoardAsks['apply']): Promise<void> {
   const id = kanbanCardId(card);
+  if (card.kind === 'todo') {
+    const patch = todoPatchOf(card.todo, moves);
+    if (Object.keys(patch).length > 0) await todoOp({ op: 'update', id: card.todo.id, patch });
+  }
   for (const m of moves) {
-    if (card.kind === 'agent') {
-      if (m.kind === 'done') acts.markDone(card);
-    } else if (m.kind === 'status') acts.run({ op: 'update', id: card.todo.id, patch: { status: m.status } });
-    else if (m.kind === 'review') acts.run({ op: 'update', id: card.todo.id, patch: { review: m.on ? { note: '', since: 0 } : null, ...(m.on && card.todo.status === 'done' ? { status: 'in-progress' as const } : {}) } });
-    else if (m.kind === 'labels') acts.run({ op: 'update', id: card.todo.id, patch: { labels: [...card.todo.labels.filter((l) => !m.remove.includes(l)), ...m.add.filter((l) => !card.todo.labels.includes(l))] } });
-    if (m.kind === 'place') await acts.apply({ op: 'place', id: doc.id, card: id, column: m.column });
+    if (m.kind === 'place') await apply({ op: 'place', id: doc.id, card: id, column: m.column });
     if (m.kind === 'order') {
       const seq = columnWith(orderedIds(to.cards, isProjects(doc)), id, m.index);
       // A project's own board keeps the Todo view's order.
       if (isProjects(doc)) {
-        if (card.kind === 'todo') acts.run({ op: 'order', ids: inSlots(board.todos.map((t) => t.id), seq.flatMap((c) => (c.startsWith('todo:') ? [c.slice(5)] : []))) });
-      } else await acts.apply({ op: 'order', id: doc.id, order: boardOrderWith(doc.order ?? [], seq) });
+        if (card.kind === 'todo') await todoOp({ op: 'order', ids: inSlots(board.todos.map((t) => t.id), seq.flatMap((c) => (c.startsWith('todo:') ? [c.slice(5)] : []))) });
+      } else await apply({ op: 'order', id: doc.id, order: boardOrderWith(doc.order ?? [], seq) });
     }
   }
 }

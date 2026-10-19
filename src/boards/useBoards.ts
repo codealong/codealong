@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { boardOp, boardsList, onBoardsChanged, type BoardApplied } from '../api';
+import { useLatest } from '../latest';
 import { textByName, useStored } from '../stored';
 import { applyOp, boardsIn, readBoard, type BoardDoc, type BoardOp } from './model';
 
@@ -29,6 +30,8 @@ export function useBoards(project: string): BoardsHandle {
   // Changes still on their way to the engine: what it has is read again once none are, so a read
   // between two changes doesn't put back what the second one changed.
   const pending = useRef(0);
+  // The project shown when the last change lands, which may not be the one it was made in.
+  const projectNow = useLatest(project);
 
   const read = useCallback((p: string) => {
     if (pending.current > 0) return;
@@ -59,10 +62,10 @@ export function useBoards(project: string): BoardsHandle {
         return await boardOp(op);
       } finally {
         pending.current -= 1;
-        read(project);
+        read(projectNow.current);
       }
     },
-    [project, read],
+    [project, projectNow, read],
   );
 
   return { boards, board: board ?? boards[0], pick, apply };

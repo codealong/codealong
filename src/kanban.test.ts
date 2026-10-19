@@ -113,6 +113,18 @@ describe('kanbanDrop on label columns', () => {
 });
 
 describe('applyKanbanDrop', () => {
+  it('starts a todo into a column that asks for a label too, giving it the label', () => {
+    const doingBugs: BoardColumn = { id: 'bugs', name: 'Bugs under way', rule: { stages: ['progress'], labels: ['l-bug'] }, sort: 'move' };
+    const defs = [{ id: 'inbox', name: 'Inbox', sort: 'hand' as const }, doingBugs];
+    const t = todoCard({ id: 's' });
+    const d = must(drop(t, 'inbox', 'bugs', null, null, shown(defs), ctxOf(defs, [t])));
+    expect(d.moves).toEqual([{ kind: 'start' }, { kind: 'labels', add: ['l-bug'], remove: [] }]);
+    const { ops, did, acts } = acting();
+    applyKanbanDrop(t, d, acts, null);
+    expect(ops).toEqual([{ op: 'update', id: 's', patch: { labels: ['l-bug'] } }]);
+    expect(did).toEqual(['start s']);
+  });
+
   const acting = () => {
     const ops: TodoOp[] = [];
     const did: string[] = [];

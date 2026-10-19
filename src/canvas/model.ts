@@ -250,15 +250,16 @@ export function bounds(rects: Rect[]): Rect | null {
 }
 
 /** What the board holds, by card id (`refId`): whether a card is on it, what was put on it by
- *  hand, which the canvas always shows, and what was taken off it, which the canvas never does. */
+ *  hand and when, which a tidy always keeps, and what was taken off it, which the canvas never
+ *  shows. */
 export interface OnBoard {
   has: (id: string) => boolean;
-  added: ReadonlySet<string>;
+  added: ReadonlyMap<string, number>;
   removed: ReadonlySet<string>;
 }
 
 /** Everything, as a project's own board holds it until something is taken off. */
-export const WHOLE: OnBoard = { has: () => true, added: new Set(), removed: new Set() };
+export const WHOLE: OnBoard = { has: () => true, added: new Map(), removed: new Set() };
 
 /** What the canvas can show, from the board, for one project (or all of them). */
 export interface Entities {
@@ -335,12 +336,13 @@ export function lastActivityOf(e: Entities, ref: RefKind, key: string): number {
  * busy one (working, or waiting on you); open todos within theirs, counting their sessions'
  * activity; open PRs, yours or all of them; and worktrees active within the sessions' age (or
  * pinned), or home to any of the rest. With `cleared`, only what moved on after that time. What
- * was put on the board by hand is always in, whatever its kind and age.
+ * was put on the board by hand is in whatever its kind and age, once it was put there after
+ * `cleared`: a clear, or an arrange that takes the rest off, isn't undone by it.
  */
 export function recentRefs(e: Entities, now: number, pinned: Set<string> = new Set(), scope: Filter = DEFAULT_SCOPE, cleared = 0, on: OnBoard = WHOLE): { ref: RefKind; key: string }[] {
   const inc = scope.include;
   const since = now - SESSION_MS[scope.sessions];
-  const hand = (ref: RefKind, key: string) => on.added.has(refId(ref, key)) && !on.removed.has(refId(ref, key));
+  const hand = (ref: RefKind, key: string) => (on.added.get(refId(ref, key)) ?? -1) > cleared && !on.removed.has(refId(ref, key));
   const sessions = [...e.sessions.values()].filter(({ session: s }) => hand('session', s.key) || (inc.sessions && on.has(refId('session', s.key)) && sessionIn(s, since) && movedSince(s, cleared)));
   sessions.sort((a, b) => b.session.lastPromptAt - a.session.lastPromptAt);
   const todos = [...e.todos.values()].filter((t) => hand('todo', t.id) || (inc.todos && on.has(refId('todo', t.id)) && todoIn(e, t, now, scope.todos) && Math.max(t.createdAt, t.updatedAt) > cleared));

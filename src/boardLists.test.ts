@@ -781,8 +781,11 @@ describe('the Kanban view’s columns', () => {
     // A session added by hand has a card though its turn ended and you've seen it.
     expect(cols(rows, todos, sessionItemsOf([l]), [], 0, board)).toEqual({ todo: ['todo:rel'], progress: ['/r/app::claude:claude:hand'], review: [], done: [] });
     const hand: BoardDoc = { ...board, rule: null, added: ['todo:other', 'worktree:/r/app'] };
-    // A worktree on the board brings its sessions worth a card.
+    // A worktree on the board brings its sessions worth a card, but not one taken off.
     expect(cols(rows, todos, sessionItemsOf([l]), [], 0, hand)).toEqual({ todo: ['todo:other'], progress: ['/r/app::claude:claude:in', '/r/app::claude:claude:out'], review: [], done: [] });
+    expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...hand, removed: ['session:claude:claude:out'] }).progress).toEqual(['/r/app::claude:claude:in']);
+    // Nor on a project's own board, which holds every worktree.
+    expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...projectBoard('Acme'), removed: ['session:claude:claude:in'] }).progress).toEqual(['/r/app::claude:claude:out']);
   });
 
   it('puts cards in a board’s own columns: the first whose rule takes it, else where it was put, else the first without a rule', () => {

@@ -229,6 +229,20 @@ export interface KanbanActs {
   said: (message: string, undo: () => void) => void;
 }
 
+/** The change to a todo a drop's moves make: its status, its review mark, its labels. */
+export function todoPatchOf(t: Todo, moves: readonly KanbanMove[]): TodoPatch {
+  const patch: TodoPatch = {};
+  for (const m of moves) {
+    if (m.kind === 'status') patch.status = m.status;
+    else if (m.kind === 'review') {
+      // A done todo goes back under way to be reviewed.
+      patch.review = m.on ? { note: '', since: 0 } : null;
+      if (m.on && t.status === 'done') patch.status = 'in-progress';
+    } else if (m.kind === 'labels') patch.labels = [...t.labels.filter((l) => !m.remove.includes(l)), ...m.add.filter((l) => !t.labels.includes(l))];
+  }
+  return patch;
+}
+
 /** Does what `drop` says to `card`. A todo's status, review, wait, labels and place are put back
  *  by the toast's Undo. */
 export function applyKanbanDrop(card: KanbanCard, drop: KanbanDrop, acts: KanbanActs, placedBefore: string | null): void {
@@ -246,22 +260,12 @@ export function applyKanbanDrop(card: KanbanCard, drop: KanbanDrop, acts: Kanban
   const t = card.todo;
   const title = `“${t.title || 'Untitled'}”`;
   if (drop.moves.length === 1 && ordering) return acts.order(card, drop.column, ordering.index);
-  if (drop.moves.some((m) => m.kind === 'start')) {
-    if (placing) acts.place(card, placing.column);
-    return acts.start(card);
-  }
-  const patch: TodoPatch = {};
-  for (const m of drop.moves) {
-    if (m.kind === 'status') patch.status = m.status;
-    else if (m.kind === 'review') {
-      // A done todo goes back under way to be reviewed.
-      patch.review = m.on ? { note: '', since: 0 } : null;
-      if (m.on && t.status === 'done') patch.status = 'in-progress';
-    } else if (m.kind === 'labels') patch.labels = [...t.labels.filter((l) => !m.remove.includes(l)), ...m.add.filter((l) => !t.labels.includes(l))];
-  }
+  const patch = todoPatchOf(t, drop.moves);
   if (Object.keys(patch).length > 0) acts.run({ op: 'update', id: t.id, patch });
   if (placing) acts.place(card, placing.column);
   if (ordering) acts.order(card, drop.column, ordering.index);
+  // Starting a session is the quick panel's, which says how it went: no toast here.
+  if (drop.moves.some((m) => m.kind === 'start')) return acts.start(card);
   const back: TodoOp = { op: 'update', id: t.id, patch: { status: t.status, waiting: t.waiting ?? null, review: t.review ?? null, labels: t.labels } };
   const message =
     patch.status === 'done'

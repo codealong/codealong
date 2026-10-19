@@ -139,7 +139,9 @@
   padding: 0 var(--space-1);
 }
 
-.ca-side-save {
+/* Save this view, and New board under the boards: quieter than what they add to. */
+.ca-side-save,
+.ca-side-newboard {
   color: var(--ink-3);
 }
 .ca-side-name {
