@@ -480,6 +480,17 @@ fn seat_in(cfg: &ReviewsCfg, t: Option<&Tracked>, board: &Board, pr: &PrItem, no
     s
 }
 
+/// Automatic rounds leave flagged conversations alone. A review asked for by hand can start
+/// afresh without continuing the flagged reviewer or messaging the PR's flagged opener.
+fn review_seat(board: &Board, pr: &PrItem, mut seat: Seat, by_hand: bool) -> Option<Seat> {
+    let reviewer_blocked = seat.session.as_deref().is_some_and(|k| board.automation_blocked(k));
+    if !by_hand && (reviewer_blocked || origin(&board.lanes, pr).is_some_and(|(_, s)| board.automation_blocked(&s.key))) {
+        return None;
+    }
+    if reviewer_blocked { seat.session = None; }
+    Some(seat)
+}
+
 /// What's due.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Job {
@@ -816,6 +827,10 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
         let Some(k) = p.session.clone() else { continue };
         match board.session(&k) {
             Some((_, s)) if turn_ended(s, p.at) => return Next::Job(Job::Read { pr: pr.clone(), head: r.head.clone(), part: i, session: k, at: p.at }),
+            Some((_, s)) if s.status != Status::Working && board.automation_blocked(&k) => {
+                fail(p, "Its provider flagged the conversation, so it wasn't told to carry on.");
+                changed = true;
+            }
             Some((_, s)) if p.cut_off_in(s) && p.carried_on.len() < CARRY_ONS => {
                 return Next::Job(Job::CarryOn { pr: pr.clone(), head: r.head.clone(), part: i, session: k, model: p.model().map(String::from), effort: p.effort().map(String::from) });
             }
@@ -917,7 +932,7 @@ impl Reviewer {
         // partway, to be told to carry on or just told.
         let holds_place = |r: &Round| {
             r.stage == ReviewStage::Reviewing
-                && r.parts.iter().any(|p| p.reviewing() && match &p.session { Some(k) => !board.automation_blocked(k) && board.session(k).is_none_or(|(_, s)| s.status == Status::Working || p.cut_off_in(s) || p.starting(now)), None => p.pending.is_some() })
+                && r.parts.iter().any(|p| p.reviewing() && match &p.session { Some(k) => board.session(k).is_none_or(|(_, s)| s.status == Status::Working || (!board.automation_blocked(k) && (p.cut_off_in(s) || p.starting(now)))), None => p.pending.is_some() })
         };
         let mut running = self.busy.len() + self.store.prs.iter().filter(|(k, t)| !self.busy.contains(*k) && t.rounds.last().is_some_and(holds_place)).count();
         let mut jobs = Vec::new();
@@ -937,13 +952,6 @@ impl Reviewer {
             }
             let cfg = settings.reviews(cfg, pr);
             let cfg = cfg.as_ref();
-            let tracked = self.store.prs.get(&key);
-            let reviewer = seat_for(cfg, tracked, &board.lanes, pr);
-            let blocked = origin(&board.lanes, pr).is_some_and(|(_, s)| board.automation_blocked(&s.key))
-                || reviewer.session.as_deref().is_some_and(|k| board.automation_blocked(k))
-                || tracked.and_then(|t| t.rounds.last()).is_some_and(|r| r.stage == ReviewStage::Reviewing
-                    && r.parts.iter().filter_map(|p| p.session.as_deref()).any(|k| board.automation_blocked(k)));
-            if blocked { continue; }
             let want = wanted(cfg, &board.lanes, pr);
             let on = on(cfg);
             if let Some(r) = self.store.prs.get_mut(&key).and_then(|t| t.rounds.last_mut()).filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) {
@@ -977,6 +985,9 @@ impl Reviewer {
                 continue;
             }
             let t = self.store.prs.get(&key);
+            if review_seat(board, pr, seat_for(cfg, t, &board.lanes, pr), false).is_none() {
+                continue;
+            }
             if t.is_some_and(|t| t.rounds.iter().any(|r| r.head == head)) {
                 continue;
             }
@@ -1050,7 +1061,7 @@ impl Reviewer {
         // A round asked for by hand goes back as an automatic one would.
         let r = self.store.prs.get(&pr_key(&pr.key))?.rounds.last().filter(|r| cfg.own.auto || r.by_hand)?;
         let (review, agent) = to_send(r, head)?;
-        let (_, s) = origin(&board.lanes, pr).filter(|(_, s)| can_take(s))?;
+        let (_, s) = origin(&board.lanes, pr).filter(|(_, s)| can_take(s) && !board.automation_blocked(&s.key))?;
         Some(Job::Send { pr: pr.clone(), head: head.to_string(), session: s.key.clone(), review, agent })
     }
 
@@ -1910,7 +1921,7 @@ fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, mo
 fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, since: Option<&str>, login: &str, files: &Reading, seat: &Seat) -> Part {
     let at = now_ms();
     // Recheck after the PR read: a blocked send must not fall through to a fresh session.
-    for key in seat.session.as_deref().into_iter().chain(origin(&board.lanes, pr).map(|(_, s)| s.key.as_str())) {
+    if let Some(key) = seat.session.as_deref() {
         if let Some((_, s)) = board.session(key) {
             if let Err(e) = crate::send::ensure_not_flagged(cfg, s, &crate::send::Sender::Codealong) {
                 return Part::failed(&seat.who, format!("{e:#}"), at);
@@ -1966,6 +1977,7 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
     if pr.head_oid.as_deref() != Some(head) || !still {
         return Went::Later;
     }
+    let Some(seat) = review_seat(&board, pr, seat.clone(), by_hand) else { return Went::Later };
     let login = board.github_login.clone().unwrap_or_else(|| "you".into());
     let (md, diff, detail) = match crate::github::for_reading(pr) {
         Ok(r) => r,
@@ -1988,7 +2000,8 @@ fn review(engine: &Handle, pr: &PrItem, head: &str, since: Option<&str>, seat: &
         Err(e) => return Went::NotStarted(e),
     };
     let fresh = engine.board();
-    Went::Started(vec![ask(engine, &fresh, &cfg, pr, head, since, &login, &files, seat)])
+    let Some(seat) = review_seat(&fresh, pr, seat, by_hand) else { return Went::Later };
+    Went::Started(vec![ask(engine, &fresh, &cfg, pr, head, since, &login, &files, &seat)])
 }
 
 /// A new session's start for a review: on the reviewer's account (Auto's for none) and model,
@@ -2549,9 +2562,34 @@ mod tests {
         assert_eq!(jobs.len(), 1);
         r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW + 1)]), NOW + 2).unwrap();
         b.sessions.block_flagged_sessions = true;
-        b.lanes[0].sessions[0].flagged = false;
         b.lanes[0].sessions.push(Session { flagged: true, ..session(Status::Unread, NOW + 60_000) });
-        assert!(r.due(&b, &own(), NOW + 61_000).is_empty());
+        // Reading and keeping a completed reply doesn't send anything to either flagged session.
+        read(&mut r, &b, &own(), NOW + 61_000, "A completed review.", "Claude");
+        let post = r.due(&b, &own(), NOW + 62_000).pop().unwrap();
+        assert!(matches!(post, Job::Post { .. }));
+        r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
+        assert!(r.due(&b, &own(), NOW + 64_000).is_empty(), "no handback to the flagged opener");
+        assert!(r.clear_for_hand("o/r#7", true, NOW + 65_000).is_ok(), "the completed round no longer blocks Review with");
+        let seat = seat_for(&own(), r.store.prs.get("o/r#7"), &b.lanes, &b.prs[0]);
+        assert_eq!(seat.session.as_deref(), Some(S));
+        assert!(review_seat(&b, &b.prs[0], seat.clone(), false).is_none());
+        assert!(review_seat(&b, &b.prs[0], seat, true).unwrap().session.is_none(), "a manual review starts afresh");
+        b.lanes[0].sessions[0].flagged = false;
+        b.prs[0].head_oid = Some(NEXT.into());
+        assert!(r.due(&b, &own(), NOW + 66_000).is_empty());
+        assert!(r.due(&b, &own(), NOW + 66_000 + QUIET_MS).is_empty(), "no new automatic round in the flagged kept reviewer");
+    }
+
+    #[test]
+    fn a_flagged_cut_off_reviewer_settles_without_a_carry_on() {
+        let mut r = Reviewer::default();
+        let mut b = board(vec![pr(7, HEAD)], vec![]);
+        let job = r.due(&b, &on(), NOW).pop().unwrap();
+        r.told(&job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        b.lanes[0].sessions.push(Session { flagged: true, live: false, cut_off: Some(NOW + 1), ..session(Status::Error, NOW + 1) });
+        assert!(r.due(&b, &on(), NOW + 60_000).is_empty());
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+        assert!(r.clear_for_hand("o/r#7", true, NOW + 61_000).is_ok());
     }
 
     /// Each PR goes as its repo's settings say: your table for the repo turns reviews on there

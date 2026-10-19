@@ -111,7 +111,7 @@ function fetchCard(ref: PrRef) {
 }
 
 /** What says what a PR's nudge tells of: the board's, each part as it was pushed. */
-type NudgeSettings = Partial<Pick<Board, 'nudgeAbout' | 'prStopped' | 'repos' | 'teamFiles'>>;
+type NudgeSettings = Partial<Pick<Board, 'nudgeAbout' | 'prStopped' | 'repos' | 'teamFiles' | 'sessions'>>;
 
 /** Gives this window's PR links the board's PRs and lanes, and what the window does with them,
  *  with what a PR's nudge tells of (`nudges`, from the board). Links rendering with it read the
@@ -124,8 +124,8 @@ export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly L
     host.index = prIndex(prs ?? []);
   }
   host.lanes = lanes ?? [];
-  host.nudges = { nudgeAbout: nudges?.nudgeAbout, prStopped: nudges?.prStopped, repos: nudges?.repos, teamFiles: nudges?.teamFiles };
-  useLayoutEffect(notify, [prs, lanes, nudges?.nudgeAbout, nudges?.prStopped, nudges?.repos, nudges?.teamFiles]);
+  host.nudges = { nudgeAbout: nudges?.nudgeAbout, prStopped: nudges?.prStopped, repos: nudges?.repos, teamFiles: nudges?.teamFiles, sessions: nudges?.sessions };
+  useLayoutEffect(notify, [prs, lanes, nudges?.nudgeAbout, nudges?.prStopped, nudges?.repos, nudges?.teamFiles, nudges?.sessions]);
 }
 
 /** Opens a link in the browser, as this window opens one. */
@@ -400,7 +400,7 @@ function PrCard({ card, prRef: ref, url, onBrowse, clickShows }: CardProps) {
             <span className={cx('ca-switch', nudges && 'is-on')} aria-hidden="true" />
           </button>
           <p className="ca-hovercard-meta">
-            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device, stopped: host.nudges.prStopped?.[listed.key] } : null, nudgeAboutFor(host.nudges, listed))}
+            {nudgeWords(listed, nudges, primary ? { title: primary.session.title, runs: primary.session.live && !primary.lane.device, stopped: host.nudges.prStopped?.[listed.key], blocked: !!primary.session.flagged && (host.nudges.sessions?.block_flagged_sessions ?? true) } : null, nudgeAboutFor(host.nudges, listed))}
           </p>
           {nudgeError && <p className="ca-hovercard-error">{nudgeError}</p>}
         </div>

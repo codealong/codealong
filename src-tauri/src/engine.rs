@@ -1984,6 +1984,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         // which PRs nudge by default.
         rest.apps = before.apps.clone();
         rest.pull_requests = before.pull_requests.clone();
+        // Flag protection changes scheduling and delivery, not how any record is read.
+        rest.sessions.block_flagged_sessions = before.sessions.block_flagged_sessions;
         // Sounds are read as each one plays (sounds.rs).
         rest.sounds = before.sounds.clone();
         if rest == before {

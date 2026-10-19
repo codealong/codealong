@@ -200,6 +200,8 @@ const FRESH_TAIL: u64 = 256 * 1024;
 /// Parses a transcript. With the result of an earlier parse, only lines added since are read.
 pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option<Parsed> {
     let len = std::fs::metadata(path).ok()?.len();
+    // A large append rebuilds the tail's status, but flags in the already-read prefix are known.
+    let (was_flagged, flag_from) = prev.as_ref().filter(|(_, _, st)| st.offset <= len).map(|(_, info, st)| (info.flagged, st.offset)).unwrap_or_default();
     let resume = prev.filter(|(_, _, st)| st.offset <= len && len - st.offset <= 4 * FRESH_TAIL);
     let fresh = resume.is_none();
     let (head, mut info, mut state, tail) = match resume {
@@ -245,8 +247,9 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
     if fresh {
         work_before(path, 0, tail.start, &mut info.work, |line| line_work(line, &head.cwd));
     }
+    info.flagged |= was_flagged;
     if fresh && !info.flagged {
-        info.flagged = crate::util::flagged_before(path, 0, tail.start, &["\"refusal\"", "\"dlp_request_denied\"", "\"safety_monitor_blocked\""], flagged);
+        info.flagged = crate::util::flagged_before(path, flag_from, tail.start, &["\"refusal\"", "\"dlp_request_denied\"", "\"safety_monitor_blocked\""], flagged);
     }
     state.offset = tail.end;
     if info.last_ts == 0 {
@@ -1060,6 +1063,31 @@ mod tests {
         writeln!(std::fs::OpenOptions::new().append(true).open(&path).unwrap(), "{later}").unwrap();
         assert!(parse_transcript(&path, 2, Some(parsed)).unwrap().1.flagged);
         assert!(parse_transcript(&path, 2, None).unwrap().1.flagged, "restart keeps the flag");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn provider_flags_survive_large_append_gaps() {
+        use serde_json::json;
+        use std::io::Write;
+        let dir = crate::fixtures::scratch("provider-flags-claude-gaps");
+        let path = dir.join("s.jsonl");
+        let refusal = json!({"type":"assistant","message":{"stop_reason":"refusal","content":[]}});
+        let later = json!({"type":"assistant","message":{"stop_reason":"end_turn","content":[]}});
+        let padding = json!({"type":"user","message":{"content":[{"type":"tool_result","content":"x".repeat(300_000)}]}});
+        std::fs::write(&path, format!("{HEAD}{later}\n")).unwrap();
+        let parsed = parse_transcript(&path, 1, None).unwrap();
+        assert!(!parsed.1.flagged);
+        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(file, "{refusal}").unwrap();
+        for _ in 0..5 { writeln!(file, "{padding}").unwrap(); }
+        writeln!(file, "{later}").unwrap();
+        let parsed = parse_transcript(&path, 2, Some(parsed)).unwrap();
+        assert!(parsed.1.flagged, "the gap before the new tail is checked");
+        for _ in 0..5 { writeln!(file, "{padding}").unwrap(); }
+        writeln!(file, "{later}").unwrap();
+        assert!(parse_transcript(&path, 3, Some(parsed)).unwrap().1.flagged, "a rebuilt tail keeps the known flag");
+        assert!(parse_transcript(&path, 3, None).unwrap().1.flagged, "a restart keeps the flag");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -310,6 +310,8 @@ pub fn thread_id_of(path: &Path) -> Option<String> {
 /// prompt it's working on can be far behind the tail.
 pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -> Option<(ThreadInfo, u64)> {
     let len = std::fs::metadata(path).ok()?.len();
+    // A large append rebuilds the tail's status, but flags in the already-read prefix are known.
+    let (was_flagged, flag_from) = prev.as_ref().filter(|(_, off)| *off <= len).map(|(info, off)| (info.flagged, *off)).unwrap_or_default();
     // `floor` is where the lines after the session meta begin, on a first parse.
     let (mut info, tail, floor) = match prev.filter(|(_, off)| *off <= len && len - off <= 1024 * 1024) {
         Some((info, off)) => (info, read_tail(path, off).ok()?, None),
@@ -349,8 +351,9 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
             serde_json::from_str::<Value>(line).ok().and_then(|v| worked_at(&v, &cwd)).into_iter().collect()
         });
     }
+    info.flagged |= was_flagged;
     if let Some(floor) = floor.filter(|_| !info.flagged) {
-        info.flagged = crate::util::flagged_before(path, floor, tail.start, &["\"error\"", "\"refusal\""], flagged);
+        info.flagged = crate::util::flagged_before(path, floor.max(flag_from), tail.start, &["\"error\"", "\"refusal\""], flagged);
     }
     if info.last_ts == 0 {
         info.last_ts = mtime;
@@ -654,11 +657,16 @@ pub fn turn_mode(p: &Value) -> Option<SessionMode> {
     Some(SessionMode::new(kind, label, detail))
 }
 
-/// Codex's persisted ErrorEvent names provider policy blocks in `codex_error_info`. Older
-/// content-filter failures use the stream error's message. Check only that error or a typed
+/// Codex persists turn failures as `task_complete.error`; standalone ErrorEvents name the
+/// same provider policy codes in `codex_error_info`. Older content-filter failures use the stream error's message. Check only that error or a typed
 /// assistant refusal, never prompts, tool output, ordinary prose or opaque moderation metadata.
 fn flagged(v: &Value) -> bool {
-    if let Some(p) = event_payload(v).filter(|p| p.get("type").and_then(Value::as_str) == Some("error")) {
+    let error = event_payload(v).and_then(|p| match p.get("type").and_then(Value::as_str) {
+        Some("error") => Some(p),
+        Some("task_complete") => p.get("error"),
+        _ => None,
+    });
+    if let Some(p) = error {
         if matches!(p.get("codex_error_info").and_then(Value::as_str), Some("cyber_policy" | "bio_policy" | "misalignment_policy_violation" | "content_filter")) {
             return true;
         }
@@ -883,6 +891,7 @@ mod tests {
         use serde_json::json;
         for code in ["cyber_policy", "bio_policy", "misalignment_policy_violation", "content_filter"] {
             assert!(flagged(&json!({"type":"event_msg","payload":{"type":"error","codex_error_info":code}})));
+            assert!(flagged(&json!({"type":"event_msg","payload":{"type":"task_complete","error":{"codex_error_info":code}}})));
         }
         let blocked = json!({"type":"event_msg","payload":{"type":"error","message":"stream disconnected before completion: Incomplete response returned, reason: content_filter"}});
         assert!(flagged(&blocked));
@@ -893,6 +902,7 @@ mod tests {
             json!({"type":"event_msg","payload":{"type":"user_message","message":"cyber_policy"}}),
             json!({"type":"response_item","payload":{"type":"function_call_output","output":"content_filter"}}),
             json!({"type":"event_msg","payload":{"type":"error","codex_error_info":"sandbox_error","message":"Approval denied"}}),
+            json!({"type":"event_msg","payload":{"type":"task_complete","error":{"codex_error_info":"sandbox_error"}}}),
             json!({"type":"event_msg","payload":{"type":"turn_moderation_metadata","metadata":{"presentation":"inline"}}}),
         ] { assert!(!flagged(&other), "{other}"); }
         let dir = crate::fixtures::scratch("provider-flags-codex");
@@ -906,6 +916,31 @@ mod tests {
         writeln!(std::fs::OpenOptions::new().append(true).open(&path).unwrap(), "{later}").unwrap();
         assert!(parse_rollout(&path, 2, Some(parsed)).unwrap().0.flagged);
         assert!(parse_rollout(&path, 2, None).unwrap().0.flagged);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn completed_turn_flags_survive_large_append_gaps_and_restarts() {
+        use serde_json::json;
+        use std::io::Write;
+        let dir = crate::fixtures::scratch("provider-flags-codex-gaps");
+        let path = dir.join("rollout.jsonl");
+        let later = json!({"type":"event_msg","payload":{"type":"task_complete"}});
+        let blocked = json!({"type":"event_msg","payload":{"type":"task_complete","error":{"message":"Request blocked", "codex_error_info":"cyber_policy"}}});
+        let padding = json!({"type":"response_item","payload":{"type":"function_call_output","output":"x".repeat(300_000)}});
+        std::fs::write(&path, format!("{META_USER}\n{later}\n")).unwrap();
+        let parsed = parse_rollout(&path, 1, None).unwrap();
+        assert!(!parsed.0.flagged);
+        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(file, "{blocked}").unwrap();
+        for _ in 0..5 { writeln!(file, "{padding}").unwrap(); }
+        writeln!(file, "{later}").unwrap();
+        let parsed = parse_rollout(&path, 2, Some(parsed)).unwrap();
+        assert!(parsed.0.flagged, "the gap before the new tail is checked");
+        for _ in 0..5 { writeln!(file, "{padding}").unwrap(); }
+        writeln!(file, "{later}").unwrap();
+        assert!(parse_rollout(&path, 3, Some(parsed)).unwrap().0.flagged, "a rebuilt tail keeps the known flag");
+        assert!(parse_rollout(&path, 3, None).unwrap().0.flagged, "a restart reads the nested completed-turn error");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

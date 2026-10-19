@@ -288,16 +288,16 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   leaves as text. In this Mac's threads over 30 days to 2026-10-13, replies held 91 file
   citations, 20 writing blocks, 18 follow-ups and 11 code comments.
 
+- Provider flags: recorded `event_msg` / `task_complete` lines have a nested `error` with
+  `codex_error_info: "cyber_policy"` (checked local records, 2026-10-19). The protocol also has
+  direct `error` events; 0.162.1 names `bio_policy` and `misalignment_policy_violation` too.
+  Content filtering reaches a stream error's message as `content_filter`; newer upstream code
+  calls it `ContentFilter`. `rollout.rs` (`flagged`) reads both error shapes and typed assistant
+  refusal content. A flag survives later turns and large append gaps, with earlier history read
+  once on a cold read. Opaque `turn_moderation_metadata` and `safety_buffering` alone aren't a
+  refusal, and tool-approval denials aren't provider flags.
+
 ## Unchecked
 
 - Not yet checked by hand (2026-10-02): a steer sent through `thread-follower-steer-turn`,
   since that needs a running turn in the app.
-
-- Provider flags: `event_msg` / `error` with `codex_error_info` of `cyber_policy`, `bio_policy`
-  or `misalignment_policy_violation` (0.162.1's binary and upstream `protocol.rs`, 2026-10-19).
-  Content filtering also reaches a stream error's message as `content_filter`; newer upstream
-  code calls it `ContentFilter`. `rollout.rs` (`flagged`) reads these and typed assistant
-  refusal content, keeping a flag across turns and looking before the tail on fresh reads.
-  No real Codex policy error was found in this Mac's October rollouts to exercise that path;
-  fixtures follow the protocol. Opaque `turn_moderation_metadata` and `safety_buffering` are not
-  by themselves a refusal, and tool-approval denials aren't provider flags.

@@ -33,6 +33,7 @@
       b.lanes.forEach(function (l) {
         l.sessions.forEach(function (s) {
           if (picked || s.visitor || s.archived || l.hidden || l.device) return;
+          s.flagged = false;
           var pr = b.prs.find(function (x) { return x.sessions.some(function (y) { return y.key === s.key; }); });
           if (pr) picked = { key: s.key, lane: l.id, title: s.title, pr: pr };
         });
@@ -151,8 +152,24 @@
       stopped('never');
       await wait(200);
       check('when it can’t be, nobody is told until it runs', /isn’t running here, so nobody is told until it is\.$/.test(says()), says());
+      var flag = function (value) {
+        board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === picked.key) s.flagged = value; }); });
+      };
+      flag(true);
+      board.sessions = Object.assign({}, board.sessions, { block_flagged_sessions: true });
+      stopped('resumes');
+      await wait(200);
+      check('a flagged primary is blocked even when it could be resumed', /was flagged by its provider. PR notifications are blocked in Settings › Automation\.$/.test(says()) && !/resumed out of sight/.test(says()), says());
       running(true);
       stopped(null);
+      await wait(200);
+      check('a running flagged primary is blocked too', /PR notifications are blocked/.test(says()), says());
+      board.sessions.block_flagged_sessions = false;
+      push({});
+      await wait(200);
+      check('changing only the protection setting updates the open card', /is sent a message/.test(says()) && !/blocked/.test(says()), says());
+      flag(false);
+      push({});
       await wait(200);
       toggle().click();
       await wait(100);

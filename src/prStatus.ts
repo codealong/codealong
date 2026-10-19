@@ -238,8 +238,12 @@ function forStopped(about: NudgeAbout): NudgeAbout {
  *  told of what (`about`, `[pull_requests] nudge_about`). `primary` is its primary session's
  *  title, whether it runs on this Mac and what becomes of the news while it doesn't
  *  (`Board.prStopped`), when the card has it; only that session is ever told. */
-export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boolean, primary: { title: string; runs: boolean; stopped?: PrStopped } | null, about: NudgeAbout = 'everything'): string {
+export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boolean, primary: { title: string; runs: boolean; stopped?: PrStopped; blocked?: boolean } | null, about: NudgeAbout = 'everything'): string {
   const said = NUDGED_WHEN[about] ?? NUDGED_WHEN.everything;
+  if (primary?.blocked) {
+    const lead = on ? (pr.nudgeByDefault ? 'On for every PR of yours, by Settings.' : 'On for this PR.') : 'Off for this PR.';
+    return `${lead} “${primary.title}”, its primary session, was flagged by its provider. PR notifications are blocked in Settings › Automation.`;
+  }
   if (on) {
     const lead = pr.nudgeByDefault ? 'On for every PR of yours, by Settings.' : 'On for this PR.';
     if (!primary) return `${lead} No session of it is known here, so nobody is told.`;

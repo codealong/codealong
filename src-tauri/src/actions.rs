@@ -332,6 +332,11 @@ pub fn run_on(engine: &Handle, peers: &Peers, name: &str, device: Option<&str>, 
 pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, params: impl Serialize) -> Result<Value, String> {
     let params = to_value(params)?;
     let req = asked(from, name, &params)?;
+    if name == api::SESSION_FORK || name == FORK_TERMINAL {
+        let (device, own) = on.split();
+        let key = device.map(|d| peerfeed::remote_key(d, own)).unwrap_or_else(|| own.to_string());
+        ensure_fork_not_blocked(&engine.board(), &key, from)?;
+    }
     match on.split() {
         (Some(device), own) => ask_there(peers, req, from, device, own, params).or_else(|why| match req.instead {
             Some(instead) => instead(engine, peers, device, own, &why).map_err(|_| why),
@@ -487,6 +492,9 @@ fn elsewhere(req: &Request, from: &From) -> Result<(), String> {
 /// checking a link by hand): what it may ask for about a session here, and what it may have
 /// another device do. A request this table doesn't know is the other device's to refuse.
 pub fn command_may_ask(name: &str, params: &Value) -> Result<(), String> {
+    if name == api::SESSION_FORK {
+        return Err("Use `codealong session fork` so the session's automation setting is checked before forwarding.".into());
+    }
     let Some(req) = find(name) else { return Ok(()) };
     let from = From::Command(None);
     asked(&from, name, params)?;
@@ -1042,16 +1050,29 @@ fn started_back(v: Value, device: &str) -> Result<Value, String> {
     to_value(started)
 }
 
+/// An agent mustn't continue a flagged conversation by copying it first. A user's fork is
+/// still theirs to ask for. Remote forks are checked before forwarding, while who asked is known.
+fn ensure_fork_not_blocked(board: &crate::model::Board, key: &str, from: &From) -> Result<(), String> {
+    if matches!(from, From::Command(_)) && board.automation_blocked(key) {
+        return Err("Its provider flagged this session, so automatic forks are blocked in Settings > Automation.".into());
+    }
+    Ok(())
+}
+
 /// Forks it into a copy that goes on without a window, on `prompt` when there's one
 /// (`start::fork_background`).
 fn fork(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Fork = c.read()?;
-    to_value(crate::start::fork_background(&engine.board(), &cfg()?, c.session()?, &p.prompt).map_err(words)?)
+    let board = engine.board();
+    ensure_fork_not_blocked(&board, c.session()?, c.from)?;
+    to_value(crate::start::fork_background(&board, &cfg()?, c.session()?, &p.prompt).map_err(words)?)
 }
 
 /// Forks it into a new terminal in its folder (`start::fork`).
 fn fork_terminal(engine: &Handle, c: &Call) -> Result<Value, String> {
-    to_value(crate::start::fork(&engine.board(), &cfg()?, c.session()?).map_err(words)?)
+    let board = engine.board();
+    ensure_fork_not_blocked(&board, c.session()?, c.from)?;
+    to_value(crate::start::fork(&board, &cfg()?, c.session()?).map_err(words)?)
 }
 
 /// Moves it to another account of its harness, `account` (`start::move_to`): the copy goes on
@@ -1821,6 +1842,33 @@ mod tests {
         let back = (search.back)(found, "a1b2c3d4e5").unwrap();
         assert_eq!(back["hits"][0]["key"], "@a1b2c3d4e5:claude:claude:s1");
         assert_eq!(search.wait, Some(Duration::from_secs(4)));
+    }
+
+    #[test]
+    fn an_agent_cannot_fork_a_flagged_conversation_here_or_on_another_device() {
+        use crate::model::{Board, Session};
+        use crate::fixtures;
+        let key = "claude:claude:atlas";
+        let there = peerfeed::remote_key("a1b2c3d4e5", key);
+        let mut board = Board { lanes: vec![fixtures::lane("/atlas", vec![
+            Session { flagged: true, ..fixtures::session(key) },
+            Session { flagged: true, ..fixtures::session(&there) },
+        ])], ..Board::default() };
+        let command = From::Command(None);
+        for from in [From::Here, From::Device, From::Phone] {
+            assert!(ensure_fork_not_blocked(&board, key, &from).is_ok());
+        }
+        let engine = Handle::over(board.clone());
+        for name in [api::SESSION_FORK, FORK_TERMINAL] {
+            assert!(local(&engine, &command, name, key, json!({})).unwrap_err().contains("automatic forks are blocked"));
+        }
+        let (peers, _dir) = no_devices();
+        assert!(run_as(&engine, &peers, &command, api::SESSION_FORK, On::Key(&there), json!({})).unwrap_err().contains("automatic forks are blocked"));
+        assert!(command_may_ask(api::SESSION_FORK, &json!({ "key": key })).unwrap_err().contains("`codealong session fork`"));
+        board.sessions.block_flagged_sessions = false;
+        assert!(ensure_fork_not_blocked(&board, key, &command).is_ok());
+        let engine = Handle::over(board);
+        assert!(run_as(&engine, &peers, &command, api::SESSION_FORK, On::Key(&there), json!({})).unwrap_err().contains("isn't linked"));
     }
 
     #[test]

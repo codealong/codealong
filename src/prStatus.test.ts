@@ -100,6 +100,15 @@ describe('primaryWords', () => {
 });
 
 describe('nudgeWords', () => {
+  it('explains blocked notifications for flagged primaries even when stopped or switched off', () => {
+    for (const on of [true, false]) for (const runs of [true, false]) {
+      const primary = { title: 'Atlas build', runs, stopped: 'resumes' as const, blocked: true };
+      const words = nudgeWords(item({ state: 'approved' }), on, primary);
+      expect(words).toContain('was flagged by its provider. PR notifications are blocked in Settings › Automation.');
+      expect(words).not.toMatch(/is sent a message|resumed out of sight|turning this on tells/);
+      expect(nudgeWords(item({}), true, { ...primary, blocked: false })).not.toContain('blocked');
+    }
+  });
   const made = { title: 'marketing email broadcast', runs: true };
   it('names the one session that is told, and says when nobody is', () => {
     expect(nudgeWords(item({}), true, made)).toMatch(/^On for this PR\. “marketing email broadcast”, its primary session, is sent a message/);
