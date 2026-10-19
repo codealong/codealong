@@ -137,24 +137,25 @@ export function parsePatch(patch: string): DiffLine[] {
   return out;
 }
 
-/** Each line's code in its colors (syntax.ts), for numbered lines (`parsePatch`), colored a hunk
- *  at a time with each side whole: the lines it keeps and removes as the file was, and the lines it
- *  keeps and adds as it is, so a line inside a comment or a string that began lines before it is
- *  colored as part of it. A hunk begins wherever the change does, so one that begins inside a
- *  comment reads as code until the comment ends. `color` answers a side's lines, or null to leave
- *  them plain; headers and notes have no colors. */
-export function diffRuns(lines: DiffLine[], color: (code: string) => Run[][] | null): Map<DiffLine, Run[]> {
-  const out = new Map<DiffLine, Run[]>();
-  const side = (hunk: DiffLine[]) => {
+/** Each line's code in its colors (syntax.ts) on each side of a diff, for numbered lines
+ *  (`parsePatch`): `before` has the lines a hunk keeps and removes, colored together as the file
+ *  was, and `after` the lines it keeps and adds, as the file is, so a line inside a comment or a
+ *  string that began lines before it is colored as part of it. A line kept is in both, and can
+ *  differ: a change that takes a comment's `/*` away leaves the lines it held code on one side
+ *  only. A hunk begins wherever the change does, so one that begins inside a comment reads as code
+ *  until the comment ends. `color` answers a side's lines, or null to leave them plain; headers
+ *  and notes have no colors. */
+export function diffRuns(lines: DiffLine[], color: (code: string) => Run[][] | null): { before: Map<DiffLine, Run[]>; after: Map<DiffLine, Run[]> } {
+  const out = { before: new Map<DiffLine, Run[]>(), after: new Map<DiffLine, Run[]>() };
+  const side = (hunk: DiffLine[], into: Map<DiffLine, Run[]>) => {
     const runs = color(hunk.map((l) => l.text).join('\n'));
-    if (runs?.length === hunk.length) hunk.forEach((l, i) => out.set(l, runs[i]));
+    if (runs?.length === hunk.length) hunk.forEach((l, i) => into.set(l, runs[i]));
   };
   let before: DiffLine[] = [];
   let after: DiffLine[] = [];
   const flush = () => {
-    if (before.length > 0) side(before);
-    // The lines kept are colored as the file is now.
-    if (after.length > 0) side(after);
+    if (before.length > 0) side(before, out.before);
+    if (after.length > 0) side(after, out.after);
     before = [];
     after = [];
   };

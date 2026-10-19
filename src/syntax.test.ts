@@ -47,6 +47,18 @@ describe('paint', () => {
   it('leaves runs as they are with nothing marked', () => {
     expect(as(paint(runs, []))).toEqual(['keyword:const  -:team -: = 1']);
   });
+
+  it('walks a long line’s runs and marks together', () => {
+    // A minified line: thousands of runs and of marks, which a run each against every mark took a
+    // second over.
+    const long: Run[] = Array.from({ length: 30000 }, (_, i) => ({ text: 'ab', tone: i % 2 ? 'keyword' : null }));
+    const ranges = Array.from({ length: 10000 }, (_, i): [number, number] => [i * 6 + 1, i * 6 + 3]);
+    const started = performance.now();
+    const groups = paint(long, ranges);
+    expect(performance.now() - started).toBeLessThan(200);
+    expect(groups.filter((g) => g.hit)).toHaveLength(10000);
+    expect(groups.flatMap((g) => g.runs).map((r) => r.text).join('')).toBe('ab'.repeat(30000));
+  });
 });
 
 describe('languageOf', () => {
@@ -68,5 +80,12 @@ describe('languageOf', () => {
     expect(languageOf('Gemfile', known)).toBe('ruby');
     expect(languageOf('ui/App.vue', known)).toBe('xml');
     expect(languageOf('docs/guide.mdx', known)).toBe('markdown');
+  });
+
+  it('takes a name every object has for a name like any other', () => {
+    const hljsKnown = (name: string) => !!hljs.getLanguage(name);
+    expect(languageOf('src/constructor', hljsKnown)).toBeNull();
+    expect(languageOf('data.__proto__', hljsKnown)).toBeNull();
+    expect(languageOf('a.toString', hljsKnown)).toBeNull();
   });
 });

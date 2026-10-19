@@ -119,7 +119,9 @@ function Patch({ path, text, words, seek, view, onLine }: { path: string; text: 
   const syntax = useSyntax();
   const language = useMemo(() => syntax?.language(path) ?? null, [syntax, path]);
   const runs = useMemo(() => (syntax && language ? diffRuns(shown, (code) => syntax.lines(code, language)) : null), [syntax, language, shown]);
-  const code = (l: DiffLine) => <Code text={l.text} runs={runs?.get(l)} words={words} />;
+  // A line on the side before, or after: a line kept is colored as the file was on the left of a
+  // split diff, and as it is everywhere else.
+  const code = (l: DiffLine, after: boolean) => <Code text={l.text} runs={(after ? runs?.after : runs?.before)?.get(l)} words={words} />;
   const num = (n: number | null, after: boolean) =>
     n !== null && after && onLine ? (
       <button type="button" className="ca-patch-num is-link" title={onLine.title(n)} onClick={() => onLine.run(n)}>
@@ -132,7 +134,7 @@ function Patch({ path, text, words, seek, view, onLine }: { path: string; text: 
   // finds too), or git's note about a newline.
   const across = (l: DiffLine, key: number) => (
     <div key={key} className={`ca-patch-row is-${l.kind}`}>
-      <span className="ca-patch-across">{code(l)}</span>
+      <span className="ca-patch-across">{code(l, true)}</span>
     </div>
   );
   const side = (l: DiffLine | null, after: boolean): ReactNode =>
@@ -140,7 +142,7 @@ function Patch({ path, text, words, seek, view, onLine }: { path: string; text: 
       <>
         {num(after ? l.new : l.old, after)}
         <span className="ca-patch-sign">{SIGN[l.kind]}</span>
-        <span className="ca-patch-code">{code(l)}</span>
+        <span className="ca-patch-code">{code(l, after)}</span>
       </>
     ) : (
       <span className="ca-patch-none" />
@@ -168,7 +170,7 @@ function Patch({ path, text, words, seek, view, onLine }: { path: string; text: 
                   {num(l.old, false)}
                   {num(l.new, true)}
                   <span className="ca-patch-sign">{SIGN[l.kind]}</span>
-                  <span className="ca-patch-code">{code(l)}</span>
+                  <span className="ca-patch-code">{code(l, l.kind !== 'del')}</span>
                 </div>
               ),
             )}

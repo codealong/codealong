@@ -54,6 +54,10 @@ const TONES: Record<string, Tone | null> = {
   subst: null,
 };
 
+/** `table`'s own entry for `key`, never what every object has (`constructor`, `__proto__`): a file
+ *  can be named anything. */
+const own = <T>(table: Record<string, T>, key: string): T | undefined => (Object.hasOwn(table, key) ? table[key] : undefined);
+
 /** Scopes whose whole content is their tone: JSON's `true` is a literal holding a keyword. */
 const HOLDS = new Set(['literal']);
 
@@ -69,7 +73,7 @@ function scopeOf(cls: string): string | null {
  *  is a `title`), else undefined for its parent's. */
 function toneOf(scope: string): Tone | null | undefined {
   for (let s = scope; ; s = s.slice(0, s.lastIndexOf('.'))) {
-    if (s in TONES) return TONES[s];
+    if (Object.hasOwn(TONES, s)) return TONES[s];
     if (!s.includes('.')) return undefined;
   }
 }
@@ -110,8 +114,9 @@ export function runsOf(html: string): Run[][] {
   return lines;
 }
 
-/** Runs cut where `ranges` (prFiles.ts `marks`, start and end in the line) begin and end, gathered
- *  into what's marked and what isn't, in order. */
+/** Runs cut where `ranges` (prFiles.ts `marks`: start and end in the line, in order, none
+ *  overlapping) begin and end, gathered into what's marked and what isn't, in order. The runs and
+ *  the ranges are walked together, so a long line with many of each costs no more than both. */
 export function paint(runs: Run[], ranges: [number, number][]): { hit: boolean; runs: Run[] }[] {
   const out: { hit: boolean; runs: Run[] }[] = [];
   const put = (hit: boolean, run: Run) => {
@@ -120,11 +125,14 @@ export function paint(runs: Run[], ranges: [number, number][]): { hit: boolean; 
     else out.push({ hit, runs: [run] });
   };
   let at = 0;
+  // The first range that doesn't end before the run.
+  let next = 0;
   for (const run of runs) {
     const end = at + run.text.length;
     let from = at;
-    for (const [a, b] of ranges) {
-      if (b <= from || a >= end) continue;
+    while (next < ranges.length && ranges[next][1] <= from) next++;
+    for (let i = next; i < ranges.length && ranges[i][0] < end; i++) {
+      const [a, b] = ranges[i];
       if (a > from) put(false, { text: run.text.slice(from - at, a - at), tone: run.tone });
       const to = Math.min(b, end);
       put(true, { text: run.text.slice(Math.max(a, from) - at, to - at), tone: run.tone });
@@ -159,8 +167,8 @@ export function languageOf(path: string, known: (name: string) => boolean): stri
   const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
   const dot = name.lastIndexOf('.');
   const ext = dot > 0 ? name.slice(dot + 1) : '';
-  const named = NAMES[name] ?? (name.startsWith('dockerfile.') || ext === 'dockerfile' ? 'dockerfile' : undefined);
-  const language = named ?? EXTENSIONS[ext] ?? ext;
+  const named = own(NAMES, name) ?? (name.startsWith('dockerfile.') || ext === 'dockerfile' ? 'dockerfile' : undefined);
+  const language = named ?? own(EXTENSIONS, ext) ?? ext;
   return language && known(language) ? language : null;
 }
 
