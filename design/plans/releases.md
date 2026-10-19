@@ -19,8 +19,9 @@ refuses them. In this order:
 
 1. Done 2026-10-19: `codealong/codealong`, `codealong/codealong-ios` and `codealong/homebrew-tap`
    are public, with private vulnerability reporting on the first two.
-2. `scripts/release-secrets.sh`: the `release` and `homebrew` environments and their keys, from
-   1Password (environments need a paid plan on a private repo, so this waited for step 1).
+2. Done 2026-10-19: `scripts/release-secrets.sh` made the `release` and `homebrew` environments
+   and their keys, from 1Password (environments need a paid plan on a private repo, so this
+   waited for step 1).
 3. Done 2026-10-18: `scripts/version.sh 0.2.0` tagged it, and with CI skipped while the repo was
    private, `scripts/release.sh --draft` built the draft on the owner's Mac. From the next
    version on, the tag has GitHub build the draft (release.yml), which waits for your approval in
