@@ -615,11 +615,18 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
       `Carrying on ${count(carryOn.length, 'session')}…`,
       oneByOne(
         carryOn.map((c) => c.s),
-        (s, i) => resumeSession(s.key, { place: carryOn[i].to.place, model: null, effort: null }).then(() => rememberResumed(s.account, carryOn[i].to.place)),
+        (s, i) =>
+          resumeSession(s.key, { place: carryOn[i].to.place, model: null, effort: null }).then((sent) => {
+            rememberResumed(s.account, carryOn[i].to.place);
+            return sent;
+          }),
       ),
     ).then((out) => {
-      const went = out.filter((o) => !o.error).length;
-      say(howItWent(went > 0 ? `Resumed ${count(went, 'session')} to carry on.` : '', 'carry on', out));
+      // One its app only opened, with the prompt to paste there (claude/app.rs `InApp`), isn't
+      // going on yet: its own words say what's left to do.
+      const went = out.filter((o) => o.ok && !o.ok.opened).length;
+      const opened = out.flatMap((o) => (o.ok?.opened ? [o.ok.message] : []));
+      say(howItWent([went > 0 ? `Resumed ${count(went, 'session')} to carry on.` : '', ...opened].filter(Boolean).join(' '), 'carry on', out));
     });
   return {
     carryOn: carryOn.length > 0 ? { label: `Carry on ${count(carryOn.length, 'session')}`, run: carryOnAll } : undefined,

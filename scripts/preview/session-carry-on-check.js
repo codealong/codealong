@@ -23,6 +23,8 @@
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
+    // A resume in a terminal, as the engine answers it.
+    if (cmd === 'resume_session') return p.then(function () { return { message: 'Resumed.', opened: false }; });
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
       var seen = {};

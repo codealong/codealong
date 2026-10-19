@@ -407,26 +407,38 @@ describe('several sessions picked together', () => {
       await new Promise((r) => setTimeout(r, 1));
       going--;
       if (key === 'claude:c:8') throw new Error('Its folder is gone.');
-      return { message: 'Resumed.', opened: true };
+      // The app only opens one of its own, with the prompt on the clipboard.
+      if (key === 'claude:c:11') return { message: '“Cut 11” is open in the Claude app and the prompt is on the clipboard. Paste it there to send it.', opened: true };
+      return { message: 'Resumed.', opened: false };
     });
     vi.mocked(startAccountsNow).mockReturnValue([
-      fx.startAccount({ places: [{ place: 'background', label: 'Background' }, { place: 'terminal', label: 'Ghostty' }], resumes: ['background', 'terminal'] }),
+      fx.startAccount({
+        places: [
+          { place: 'background', label: 'Background' },
+          { place: 'terminal', label: 'Ghostty' },
+          { place: 'claude-app', label: 'Claude app' },
+        ],
+        resumes: ['background', 'terminal', 'claude-app'],
+      }),
     ]);
     const said: string[] = [];
     const cut = (n: number, over: Partial<Session> = {}) => ({ lane: lane(), session: session({ key: `claude:c:${n}`, id: `${n}`, title: `Cut ${n}`, status: 'needs', live: false, pid: null, cutOff: 1, ...over }) });
     try {
       // Not one running, nor one on another Mac, nor one that wasn't cut off.
-      const picked = [cut(7), a, cut(8), cut(9, { live: true, pid: 9 }), cut(10, { key: '@mini:claude:c:10' }), b];
+      const picked = [cut(7), a, cut(8), cut(9, { live: true, pid: 9 }), cut(10, { key: '@mini:claude:c:10' }), b, cut(11, { surface: 'app' })];
       const acts = sessionsActions(picked, { report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) } });
-      expect(acts.takes.carryOn).toBe(2);
-      expect(labels(sessionsMenu(picked, { report })).slice(0, 2)).toEqual(['Carry on 2 sessions', '-']);
+      expect(acts.takes.carryOn).toBe(3);
+      expect(labels(sessionsMenu(picked, { report })).slice(0, 2)).toEqual(['Carry on 3 sessions', '-']);
       acts.carryOn?.run();
       await vi.waitFor(() => expect(said).toHaveLength(1));
       expect(resume.mock.calls).toEqual([
         ['claude:c:7', { place: 'terminal', model: null, effort: null }],
         ['claude:c:8', { place: 'terminal', model: null, effort: null }],
+        ['claude:c:11', { place: 'claude-app', model: null, effort: null }],
       ]);
-      expect(said).toEqual(['error: Resumed 1 session to carry on. Couldn’t carry on “Cut 8”: Its folder is gone.']);
+      expect(said).toEqual([
+        'error: Resumed 1 session to carry on. “Cut 11” is open in the Claude app and the prompt is on the clipboard. Paste it there to send it. Couldn’t carry on “Cut 8”: Its folder is gone.',
+      ]);
       expect(sessionsActions([a, b], { report }).carryOn).toBeUndefined();
     } finally {
       vi.mocked(startAccountsNow).mockReturnValue([]);
