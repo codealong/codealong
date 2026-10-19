@@ -18,7 +18,9 @@ import { foundNote } from './AccountsSection';
 import { Button, cx, Dialog, Icon, Kbd } from './primitives';
 import { ProfileSelect, type SettingsSection } from './SettingsDialog';
 
-/** What the last step suggests setting up once the basics are in: each off until you turn it on. */
+/** What the last step suggests setting up once the basics are in. Jev and devices are off until
+ *  turned on, and so are Automation's reviews and moves; what it has on already (carrying on after
+ *  a lost connection or a lifted limit) isn't what it's pitched for here. */
 const MORE: { section: SettingsSection; icon: string; title: string; says: string; button: string }[] = [
   {
     section: 'jev',
@@ -38,7 +40,7 @@ const MORE: { section: SettingsSection; icon: string; title: string; says: strin
     section: 'automation',
     icon: 'bolt',
     title: 'Automation',
-    says: 'Has an agent review the pull requests waiting on you, tells a pull request’s session when it’s approved or gets comments, and moves a session that hits its usage limit to an account with room.',
+    says: 'Can have an agent review the pull requests waiting on you, tell a pull request’s session when it’s approved or gets comments, and move a session that hits its usage limit to an account with room.',
     button: 'Set up automation',
   },
 ];
