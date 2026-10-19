@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tauri::Manager;
 
 use crate::config::support_dir;
 use crate::engine::Handle;
@@ -38,6 +39,14 @@ pub enum Request {
     TodoApply { op: TodoOp },
     /// Starts a session, and links it to its todos.
     Start { spec: StartSpec },
+    /// Starts an agent's review of a PR now, as Review with… does (autoreview.rs `review_now`),
+    /// on `account` (an account or a routing group), else the reviewer config.toml names. The
+    /// reply is where its round stands (`autoreview::Begun`).
+    PrReview {
+        pr: String,
+        #[serde(default)]
+        account: Option<String>,
+    },
     /// Sessions whose prompts and replies have every word (search.rs).
     Search { words: Vec<String> },
     /// What closing idle sessions would close, and with `archive` only archive (idle.rs).
@@ -258,6 +267,13 @@ fn handle_request(engine: &Handle, peers: &Peers, app: &tauri::AppHandle, req: s
         Request::IdleSessions { after_ms, archive } => Reply::ok(crate::idle::plan_now(&engine.board(), after_ms, archive)),
         Request::CloseIdle { keys, after_ms, archive } => answered(crate::idle::close_on(engine, &keys, after_ms, archive)),
         Request::Start { spec } => answered(crate::start::start_here(engine, &spec).map_err(crate::util::words)),
+        Request::PrReview { pr, account } => match app.try_state::<crate::Reviews>() {
+            Some(reviews) => {
+                let reviewer = reviews.0.clone();
+                answered(crate::autoreview::review_now(engine, &reviewer, &pr, account.as_deref()).map(|()| crate::autoreview::begun(&reviewer, &pr)))
+            }
+            None => Reply::err("Codealong is still starting: try again in a moment."),
+        },
         Request::Devices => Reply::ok(DevicesSummary::of(peers.view())),
         Request::DeviceLink { key } => answered(peers.link(&key)),
         Request::DeviceAnswer { key, accept } => answered(peers.answer_link(&key, accept)),
@@ -566,6 +582,9 @@ mod tests {
         assert!(show.contains(r#""method":"show""#) && show.contains(r#""laneId":"l""#), "{show}");
         let shown = serde_json::to_string(&Request::MessageShown { hook: serde_json::json!({ "index": 0 }), home: "/h/.claude".into() }).unwrap();
         assert_eq!(shown, r#"{"method":"message-shown","hook":{"index":0},"home":"/h/.claude"}"#);
+        let review = serde_json::to_string(&Request::PrReview { pr: "acme/app#12".into(), account: Some("cursor".into()) }).unwrap();
+        assert_eq!(review, r#"{"method":"pr-review","pr":"acme/app#12","account":"cursor"}"#);
+        assert!(matches!(serde_json::from_str(r#"{"method":"pr-review","pr":"acme/app#12"}"#).unwrap(), Request::PrReview { account: None, .. }));
         let reply: Reply = serde_json::from_str(r#"{"ok":false,"error":"no"}"#).unwrap();
         assert!(!reply.ok && reply.error.as_deref() == Some("no"));
     }

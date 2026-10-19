@@ -1921,6 +1921,15 @@ Commands:
           `[pull_requests] nudge_about` can keep what it tells to comments and requests
           for changes ("feedback"), and failing checks and conflicts
           ("feedback-and-checks")
+  review  Start an agent's review of a PR now, as Review with… does in the app: a round
+          of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto`
+          says and of a commit reviewed already too, in a session of its own where
+          `[reviews] start` says, its review posted where `[reviews] post` says (one of
+          a PR of yours is kept and handed back to the session that opened it). That
+          reviewer's session for the PR is asked again when it has one. Not while a
+          round of it is under way. The answer names the round's session: `codealong
+          session wait <key>` waits for its turn, and `codealong pr show <pr>` says
+          where the review stands. Needs the app
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2074,6 +2083,44 @@ Options:
 
       --off
           Turn it off again, for this PR
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong pr review
+
+```
+Start an agent's review of a PR now, as Review with… does in the app: a round of
+Codealong's own reviews (Settings › Automation), whatever `[reviews] auto` says and of a
+commit reviewed already too, in a session of its own where `[reviews] start` says, its
+review posted where `[reviews] post` says (one of a PR of yours is kept and handed back
+to the session that opened it). That reviewer's session for the PR is asked again when
+it has one. Not while a round of it is under way. The answer names the round's session:
+`codealong session wait <key>` waits for its turn, and `codealong pr show <pr>` says
+where the review stands. Needs the app
+
+Usage: codealong pr review [OPTIONS] <PR>
+
+Arguments:
+  <PR>
+          The PR: its URL, owner/name#number, or a number (#123) in the repo of the
+          current folder's worktree
+
+Options:
+      --account <ACCOUNT>
+          The account to review on, on its own model: an account or a routing group in
+          config.toml. Without it, the reviewer `[reviews]` names (`[reviews.own]` for a
+          PR of yours), else the account Auto would start
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
 
       --verbose
           Say on stderr whether the app or the files answered

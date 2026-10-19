@@ -1226,7 +1226,7 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, settings: &
             Some((t, r)) => Some(AutoReview {
                 stage: r.stage,
                 head: r.head.clone(),
-                parts: r.parts.iter().map(|p| ReviewPart { who: p.who.clone(), session: p.session.clone(), state: p.state, note: p.note.clone() }).collect(),
+                parts: parts_of(r),
                 at: r.ended_at.unwrap_or(r.at),
                 comment: r.comment.clone().or_else(|| t.rounds.iter().rev().find_map(|r| r.comment.clone())),
                 note: if own { back_note(r, cfg, &head) } else { r.submitted.as_ref().and_then(not_submitted).or_else(|| r.note.clone()) },
@@ -1245,6 +1245,11 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, settings: &
             None => None,
         };
     }
+}
+
+/// A round's reviewers, each with its session, for a PR's card and for `codealong pr review`.
+fn parts_of(r: &Round) -> Vec<ReviewPart> {
+    r.parts.iter().map(|p| ReviewPart { who: p.who.clone(), session: p.session.clone(), state: p.state, note: p.note.clone() }).collect()
 }
 
 /// Why a round's review wasn't submitted as yours, when it was to be and wasn't.
@@ -2195,6 +2200,23 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
             Ok(())
         }
     }
+}
+
+/// Where a PR's latest round stands, as `codealong pr review` says once it has started one: its
+/// commit and its reviewers, each with its session to follow (`codealong session wait`).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Begun {
+    pub stage: ReviewStage,
+    pub head: String,
+    pub parts: Vec<ReviewPart>,
+}
+
+/// PR `key`'s latest round, as reviews.json has it.
+pub fn begun(reviewer: &Mutex<Reviewer>, key: &str) -> Option<Begun> {
+    let r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
+    let round = r.store.prs.get(&pr_key(key))?.rounds.last()?;
+    Some(Begun { stage: round.stage, head: round.head.clone(), parts: parts_of(round) })
 }
 
 /// Tries PR `key`'s review again, as Try again on its card and on its notice asks, and says what

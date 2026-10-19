@@ -754,6 +754,17 @@ enum PrCmd {
     Unlink(PrLinkArgs),
     /// Have a PR's primary session told of what happens on it: while it runs, it gets a message when someone else reviews the PR, asks for changes or comments (with what they wrote), when it's approved, merged or closed, and when its checks fail or its branch comes to conflict with its base, with where the PR stands. One on this Mac that has stopped is resumed out of sight with what asks for work (comments, changes asked for, failing checks, conflicts), unless another of the PR's sessions runs (`[sessions] resume_for_pr_news`). Its primary session is the one that pushed to its branch most, the one that opened it counting as once at least and winning a tie, unless another was made it here or from the PR's menu in the app (Primary session); the PR's other sessions aren't told. What the signed-in user did, which is what its own agent did through gh, isn't told. Run from a session, that session becomes the one told, unless another running session is the PR's primary (--take). Off for a PR until turned on for it, here or from its card in the app, unless `[pull_requests] nudge_by_default` in config.toml turns it on for every PR of yours; one turned on approved already tells its session that now. `[pull_requests] nudge_about` can keep what it tells to comments and requests for changes ("feedback"), and failing checks and conflicts ("feedback-and-checks").
     Nudge(PrNudgeArgs),
+    /// Start an agent's review of a PR now, as Review with… does in the app: a round of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto` says and of a commit reviewed already too, in a session of its own where `[reviews] start` says, its review posted where `[reviews] post` says (one of a PR of yours is kept and handed back to the session that opened it). That reviewer's session for the PR is asked again when it has one. Not while a round of it is under way. The answer names the round's session: `codealong session wait <key>` waits for its turn, and `codealong pr show <pr>` says where the review stands. Needs the app.
+    Review(PrReviewArgs),
+}
+
+#[derive(Args, Debug)]
+struct PrReviewArgs {
+    /// The PR: its URL, owner/name#number, or a number (#123) in the repo of the current folder's worktree.
+    pr: String,
+    /// The account to review on, on its own model: an account or a routing group in config.toml. Without it, the reviewer `[reviews]` names (`[reviews.own]` for a PR of yours), else the account Auto would start.
+    #[arg(long)]
+    account: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -1359,6 +1370,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Pr { cmd: PrCmd::Link(a) } => pr_link(c, &a, true, json),
         Cmd::Pr { cmd: PrCmd::Unlink(a) } => pr_link(c, &a, false, json),
         Cmd::Pr { cmd: PrCmd::Nudge(a) } => pr_nudge(c, &a, json),
+        Cmd::Pr { cmd: PrCmd::Review(a) } => pr_review(c, &a, json),
         Cmd::Preview { cmd: PreviewCmd::Show(a) } => preview_show(c, &a.worktree, json),
         Cmd::Preview { cmd: PreviewCmd::Set(a) } => {
             // What's left out stays: the URL set (and its port, unless one is given), and the worktree's own profile.
@@ -2956,6 +2968,12 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
         let why = if p.nudge_by_default { "[pull_requests] nudge_by_default; " } else { "" };
         println!("Its primary session is told of what happens on it while it runs ({why}`codealong pr nudge {} --off` stops that).", p.key);
     }
+    if let Some(r) = &p.auto_review {
+        let who: Vec<String> = r.parts.iter().map(|x| x.session.as_ref().map_or_else(|| x.who.clone(), |s| format!("{} in {s}", x.who))).collect();
+        let who = if who.is_empty() { String::new() } else { format!(", {}", who.join(", ")) };
+        let note = r.note.as_deref().map(|n| format!(": {n}")).unwrap_or_default();
+        println!("Review: {} at {}{who}{note}", lower_debug(&r.stage), r.head.get(..7).unwrap_or(&r.head));
+    }
     Ok(())
 }
 
@@ -2997,6 +3015,42 @@ fn pr_link(c: &mut Client, a: &PrLinkArgs, linked: bool, json: bool) -> Result<(
     }
     let what = if linked { "Linked" } else { "Unlinked" };
     println!("{what} {} {} {}{}", out.session, if linked { "to" } else { "from" }, key, if changed { "" } else { " (it already was)" });
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrReviewOut {
+    pr: String,
+    /// Its latest round, the one started: its commit and its reviewers, each with its session.
+    #[serde(flatten)]
+    round: Option<crate::autoreview::Begun>,
+}
+
+fn pr_review(c: &mut Client, a: &PrReviewArgs, json: bool) -> Result<()> {
+    let key = resolve_pr(c, &a.pr)?;
+    c.note();
+    if c.app.is_none() {
+        bail!("Codealong isn't running, and reviews run in it.");
+    }
+    let round: Option<crate::autoreview::Begun> = match server::ask(&Request::PrReview { pr: key.clone(), account: a.account.clone() }) {
+        Some(Ok(v)) => serde_json::from_value(v).context("reading the app's reply")?,
+        Some(Err(e)) if e.starts_with(server::UNKNOWN_REQUEST) => bail!("The Codealong that's running is older than this command and can't start a review for it. Update it, or quit it and open it again."),
+        Some(Err(e)) => bail!("{e}"),
+        None => bail!("The app stopped answering."),
+    };
+    let out = PrReviewOut { pr: key, round };
+    if json {
+        return print_json(&out);
+    }
+    let at = out.round.as_ref().map(|r| format!(" at {}", r.head.get(..7).unwrap_or(&r.head))).unwrap_or_default();
+    println!("Started a review of {}{at}.", out.pr);
+    for p in out.round.iter().flat_map(|r| &r.parts) {
+        match &p.session {
+            Some(s) => println!("{} reviews in {s}: `codealong session wait {s}` waits for its turn.", p.who),
+            None => println!("{}'s session hasn't shown yet; `codealong pr show {}` names it once it does.", p.who, out.pr),
+        }
+    }
     Ok(())
 }
 
@@ -5382,6 +5436,12 @@ mod tests {
         assert!(Cli::try_parse_from(["codealong", "pr", "nudge", "#12", "--off"]).is_ok());
         assert!(Cli::try_parse_from(["codealong", "pr", "nudge", "#12", "--off", "--take"]).is_err());
         assert!(Cli::try_parse_from(["codealong", "pr", "nudge", "#12", "--off", "--session", "me"]).is_err());
+        // A review by hand names its account, or goes on the one Settings names.
+        let cli = Cli::try_parse_from(["codealong", "pr", "review", "acme/app#12", "--account", "cursor"]).unwrap();
+        let Cmd::Pr { cmd: PrCmd::Review(r) } = cli.cmd else { panic!() };
+        assert_eq!((r.pr.as_str(), r.account.as_deref()), ("acme/app#12", Some("cursor")));
+        let cli = Cli::try_parse_from(["codealong", "pr", "review", "#12"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Pr { cmd: PrCmd::Review(PrReviewArgs { account: None, .. }) }));
         // The plugin's hook, under a subcommand every older app knows: one that doesn't know
         // `hook` fails with a usage error, where an unknown first word would start the app.
         let cli = Cli::try_parse_from(["codealong", "session", "hook", "permission-request"]).unwrap();

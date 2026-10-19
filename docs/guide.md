@@ -747,7 +747,9 @@ any other, on the PR's card and in its Reviews tab, its review posted where `[re
 submitted as `[reviews] submit` does; it reviews a commit reviewed already too, a second review going
 into your draft after the first. That account's session for the PR, when it has one, is asked again
 unless the account has since hit its usage cap, in which case a roomy reviewer takes over.
-One that can't start says why where you asked for it. So Settings › Automation shows the reviewer,
+One that can't start says why where you asked for it. An agent starts the same with `codealong pr
+review <pr> [--account <account or routing group>]`, which names the round's session to follow
+(`codealong session wait`); `codealong pr show` says where a PR's review stands. So Settings › Automation shows the reviewer,
 where reviews go and what's submitted with automatic reviews off as well. The Codex app's own review
 page is offered last, apart from Codealong's.
 
