@@ -28,6 +28,9 @@ pub struct ThreadInfo {
     /// The first prompt it was given, which names it where Codex hasn't, as the app-server's
     /// `preview` does ("usually the first user message in the thread").
     pub first_prompt: Option<String>,
+    /// Its first prompt is further from its start than a first parse looks
+    /// (`FIRST_PROMPT_WITHIN`): none is known, and none read later is taken for it.
+    pub first_prompt_unread: bool,
     /// The latest prompt. This and the first are what a message asks (`send::past_sender_lines`):
     /// Codealong's messages and other sessions' are user messages here too.
     pub last_user_message: Option<String>,
@@ -321,7 +324,7 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
     let events = parse_events(&tail.text());
     if let Some(floor) = floor {
         // Read before the events behind the tail, whose prompt is the latest one there.
-        info.first_prompt = first_prompt(path, floor, tail.start);
+        read_first_prompt(&mut info, path, floor, tail.start, FIRST_PROMPT_WITHIN);
         for v in earlier_events(path, floor, tail.start, &events) {
             apply_event(&mut info, &v);
         }
@@ -390,36 +393,47 @@ fn earlier_events(path: &Path, floor: u64, end: u64, later: &[Value]) -> Vec<Val
     found
 }
 
-/// How far into a thread its first prompt is looked for: it follows the instructions and context
-/// Codex puts first, within 230 KB in 99 of 100 of this Mac's latest 390 threads and 1.3 MB in the
-/// farthest (2026-10-19).
-const FIRST_PROMPT_WITHIN: u64 = 4 * 1024 * 1024;
+/// How far into a thread its first prompt is looked for, as far as Claude Code's is
+/// (claude/transcript.rs). It follows the instructions and context Codex puts first, and the
+/// images it came with, which are written out whole before it: of this Mac's 591 threads longer
+/// than a tail, 99 in 100 had it within 230 KB, 3 past 4 MB and the farthest at 10 MB; those with
+/// none before the tail had 2.2 MB there at most (2026-10-19).
+const FIRST_PROMPT_WITHIN: u64 = 32 * 1024 * 1024;
 
-/// The first prompt in `floor..end`, read forward only as far as it: on a first parse, for a
-/// thread whose start is behind the tail.
-fn first_prompt(path: &Path, floor: u64, end: u64) -> Option<String> {
-    use std::io::{BufRead, Read, Seek, SeekFrom};
-    let end = end.min(floor + FIRST_PROMPT_WITHIN);
-    if end <= floor {
-        return None;
+/// Reads a thread's first prompt from `floor..end`, forward only as far as it and no more than
+/// `within` bytes: on a first parse, for a thread whose start is behind the tail. One further,
+/// or one that can't be read, stays unknown (`first_prompt_unread`) rather than taken from the
+/// prompts read after.
+fn read_first_prompt(info: &mut ThreadInfo, path: &Path, floor: u64, end: u64, within: u64) {
+    let to = end.min(floor + within);
+    match first_prompt_in(path, floor, to) {
+        Ok(Some(first)) => info.first_prompt = Some(first),
+        // None before the tail: the first read after is it.
+        Ok(None) => info.first_prompt_unread = to < end,
+        Err(_) => info.first_prompt_unread = true,
     }
-    let mut f = std::fs::File::open(path).ok()?;
-    f.seek(SeekFrom::Start(floor)).ok()?;
-    let mut lines = std::io::BufReader::new(f.take(end - floor));
+}
+
+/// The first prompt in `floor..to`, read forward only as far as it.
+fn first_prompt_in(path: &Path, floor: u64, to: u64) -> std::io::Result<Option<String>> {
+    use std::io::{BufRead, Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path)?;
+    f.seek(SeekFrom::Start(floor))?;
+    let mut lines = std::io::BufReader::new(f.take(to.saturating_sub(floor)));
     let mut line = Vec::new();
     loop {
         line.clear();
-        if lines.read_until(b'\n', &mut line).ok()? == 0 {
-            return None;
+        if lines.read_until(b'\n', &mut line)? == 0 {
+            return Ok(None);
         }
-        // Cheap check first: most bytes are instructions and tool output.
+        // Cheap check first: most bytes are instructions, images and tool output.
         let text = String::from_utf8_lossy(&line);
         if !text.contains("\"event_msg\"") || !(text.contains("\"user_message\"") || text.contains("\"UserMessage\"")) {
             continue;
         }
         let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
         if let Some(m) = event_payload(&v).and_then(prompt_of) {
-            return Some(asked(&m));
+            return Ok(Some(asked(&m)));
         }
     }
 }
@@ -732,7 +746,9 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
 /// A prompt, as the latest, and as the first where none came before it.
 fn note_prompt(info: &mut ThreadInfo, prompt: &str, ts: Option<i64>) {
     let asked = asked(prompt);
-    info.first_prompt.get_or_insert_with(|| asked.clone());
+    if !info.first_prompt_unread {
+        info.first_prompt.get_or_insert_with(|| asked.clone());
+    }
     info.last_user_message = Some(asked);
     info.last_prompt_at = ts.or(info.last_prompt_at);
 }
@@ -1148,6 +1164,33 @@ mod tests {
         assert_eq!((info.first_prompt.as_deref(), info.last_user_message.as_deref()), (Some("Find the forwarded Spur issue and diagnose it"), Some("And the changelog")));
         std::fs::remove_dir_all(&dir).unwrap();
         std::fs::remove_dir_all(&dir2).unwrap();
+    }
+
+    /// A first prompt behind the images it came with, written out whole before it, is found past
+    /// them; one further than a first parse looks stays unknown, and no later prompt is taken for
+    /// it.
+    #[test]
+    fn a_first_prompt_behind_its_images_is_found_or_left_unknown() {
+        let image = json!({ "timestamp": "2026-09-24T18:04:00.000Z", "type": "response_item", "payload": { "type": "message", "role": "user", "content": [{ "type": "input_image", "image_url": format!("data:image/png;base64,{}", "A".repeat(5_500_000)) }] } }).to_string();
+        let news = json!({ "timestamp": "2026-09-24T18:40:00.000Z", "type": "event_msg", "payload": { "type": "user_message", "message": crate::send::by_codealong("On your PR #7: ken approved it.") } }).to_string();
+        let again = json!({ "timestamp": "2026-09-24T18:10:00.000Z", "type": "event_msg", "payload": { "type": "user_message", "message": "Now the docs too" } }).to_string();
+        let (dir, path) = long_rollout("first-prompt-images", &[TURN_STARTED, &image, PROMPT_ITEM, TURN_COMPLETE, &again], &[&news, TOKEN_COUNT]);
+        let (info, _) = parse_rollout(&path, 0, None).unwrap();
+        assert_eq!((info.first_prompt.as_deref(), info.first_prompt_unread), (Some("Find the forwarded Spur issue and diagnose it"), false));
+
+        let floor = META_USER.len() as u64 + 1;
+        let len = std::fs::metadata(&path).unwrap().len();
+        let mut far = parse_meta(META_USER).unwrap();
+        read_first_prompt(&mut far, &path, floor, len, 1_000_000);
+        assert_eq!((far.first_prompt.as_deref(), far.first_prompt_unread), (None, true));
+        apply_events(&mut far, &format!("{again}\n{news}\n"));
+        assert_eq!((far.first_prompt, far.last_user_message.as_deref()), (None, Some("On your PR #7: ken approved it.")));
+        // Read all the way with none there, the first read after is it.
+        let mut none = parse_meta(META_USER).unwrap();
+        read_first_prompt(&mut none, &path, floor, floor + TURN_STARTED.len() as u64 + 1, FIRST_PROMPT_WITHIN);
+        apply_events(&mut none, &format!("{again}\n"));
+        assert_eq!((none.first_prompt.as_deref(), none.first_prompt_unread), (Some("Now the docs too"), false));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A thread read from its start takes its first prompt as it comes, Codealong's too.

@@ -3615,6 +3615,9 @@ mod tests {
         let s = codex_session(&a, &th, None, None, None, 0, NOW);
         assert_eq!((s.title.as_str(), s.first_prompt.as_deref(), s.last_prompt.as_deref()), ("Tidy the photo uploader", Some("Tidy the photo uploader"), Some("On your PR #7: ken approved it.")));
         assert_eq!(codex_session(&a, &th, Some("Photo uploader"), None, None, 0, NOW).title, "Photo uploader");
+        // Its first not known (too far from its start), its latest.
+        let far = ThreadInfo { first_prompt: None, first_prompt_unread: true, ..th };
+        assert_eq!(codex_session(&a, &far, None, None, None, 0, NOW).title, "On your PR #7: ken approved it.");
     }
 
     #[test]
