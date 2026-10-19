@@ -36,6 +36,7 @@ import { errorText } from '../report';
 import type { BarItem, BarReview, Board } from '../types';
 import { useWaitingQueue } from '../useWaitingQueue';
 import { useCardHost, useLiveSession, type Told } from './cardHost';
+import { dialogUp } from './focusTrap';
 import { SessionCard, type WindowCan } from './SessionCard';
 import type { Notice, Queue } from './SessionPanel';
 import { chordMod, held } from '../platform';
@@ -245,6 +246,8 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
         close();
         return;
       }
+      // A dialog over the card keeps the rest (focusTrap.ts `dialogUp`).
+      if (dialogUp()) return;
       // ⌘E on a session that can be marked seen isn't taken here: it's its card's
       // (SessionCard.tsx), which marks it seen and says it left.
       if (onQueueKey(e)) {

@@ -18,6 +18,7 @@ import { queueKey, type QueueAction } from './queue';
 import type { TodoItem } from './todos';
 import type { ListPicksKeys } from './useListPicks';
 import type { Bay, Lane, ProjectSummary, Session } from './types';
+import { dialogUp } from './ui/focusTrap';
 import { openSwitcher, projectForDigit } from './ui/ProjectSwitcher';
 import type { PrRowItem } from './ui/PrsView';
 import type { SessionItem } from './ui/SessionsView';
@@ -207,7 +208,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // Settings has the keyboard while it's open, as the preview URL and rename sheets do, and so
   // does a dialog a panel opens over the window (Move to another account, MoveAccount.tsx).
-  if (settings || previewFor || renaming || document.activeElement?.closest('[aria-modal="true"]')) return;
+  if (settings || previewFor || renaming || dialogUp()) return;
   // A button with the keyboard (a row's PR chip, reached by Tab) takes its own Enter, before the
   // list or a view's keys (the canvas's, Todo's) can open or start what's selected.
   if (e.key === 'Enter' && typed(e) && e.target instanceof HTMLButtonElement) return;

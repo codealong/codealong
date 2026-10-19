@@ -1,11 +1,19 @@
 // Keeps the keyboard inside a dialog while it's up: Tab and ⇧Tab go round its controls and
 // never out to the window behind it, the dialog has the keyboard as it opens, and what had it
-// before gets it back when the dialog closes. `Dialog` in primitives.tsx uses it.
+// before gets it back when the dialog closes. `Dialog` in primitives.tsx uses it. The window's
+// own keys, heard on the window itself, ask `dialogUp` and leave the keyboard to it.
 
 import { useEffect, useState, type RefObject } from 'react';
 import { typed } from '../platform';
 
 const STOPS = 'a[href], button, input, select, textarea, [tabindex]';
+
+/** Whether a dialog is up, so the keys of what's behind it (a list's, a session's chords, the
+ *  queue's, ⌘⏎ allowing what a session waits on) don't act: a dialog a session's panel opens
+ *  (MoveAccount.tsx) is in a window whose keys work on that session. */
+export function dialogUp(): boolean {
+  return document.querySelector('[aria-modal="true"]') !== null;
+}
 
 /** What Tab stops at inside `root`, in the page's order: controls that are shown, enabled and
  *  not taken out of the order (`tabindex="-1"`). */

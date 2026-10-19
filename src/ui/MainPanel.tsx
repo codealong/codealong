@@ -279,7 +279,9 @@ export function MainPanel(props: MainPanelProps) {
         // In Sessions the strip is always there, with what's commonly done to a session and the
         // keys for it. Back and forward are in the title bar.
         hotkeys={row !== undefined ? {} : undefined}
-        actions={row !== undefined ? actionsRef.current.session(lane, session, 'session') : undefined}
+        // Everywhere, for what its header's boxes offer (Carry on, a move to another account) and
+        // its account's menu in the box; the strip that also reads them is Sessions' alone.
+        actions={actionsRef.current.session(lane, session, 'session')}
         onDone={queued ? (done) => void queue.answered(session.key, done) : undefined}
         autoFocus={row !== undefined && boxFocus === row}
         maximized={row !== undefined && panelMax}

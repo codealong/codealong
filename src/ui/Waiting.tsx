@@ -39,6 +39,7 @@ import { reuse } from '../reuse';
 import { repoReviews } from '../repoSettings';
 import type { Board, Lane, PrItem, Session } from '../types';
 import { shownSession, useWaitingQueue } from '../useWaitingQueue';
+import { dialogUp } from './focusTrap';
 import { PrCard, type PrWindowCan } from './PrCard';
 import { usePrLinks } from './PrLink';
 import { prPlaces, type PrRowItem } from './PrsView';
@@ -269,7 +270,7 @@ export function Waiting() {
   const onQueueKey = way.onKey;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.isComposing) return;
+      if (e.defaultPrevented || e.isComposing || dialogUp()) return;
       if (onQueueKey(e)) {
         e.preventDefault();
         return;

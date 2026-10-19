@@ -106,6 +106,7 @@ import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
 import { SessionModel } from './SessionModel';
 import { ContextMeter } from './ContextMeter';
+import { dialogUp } from './focusTrap';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
 import { chordedReply, SuggestedReplies, SuggestionHead, type Denies, type PickHow } from './SuggestedReplies';
@@ -459,7 +460,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   useEffect(() => {
     if (!canStop) return;
     const onKey = (e: KeyboardEvent) => {
-      if (!chordPressed('Cmd+.', e) || e.defaultPrevented) return;
+      if (!chordPressed('Cmd+.', e) || e.defaultPrevented || dialogUp()) return;
       e.preventDefault();
       stopNow.current();
     };
@@ -732,7 +733,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
     if (!suggesting) return;
     const onKey = (e: KeyboardEvent) => {
       const now = chordsNow.current;
-      if (e.defaultPrevented || e.isComposing || !now.suggested) return;
+      if (e.defaultPrevented || e.isComposing || !now.suggested || dialogUp()) return;
       if (!now.keyed && !(e.target instanceof Node && root.current?.contains(e.target))) return;
       const reply = chordedReply(e, now.suggested.replies);
       if (reply === null) return;
@@ -1127,7 +1128,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   useEffect(() => {
     if (!keys || !answerable) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || !held(e, 'Cmd')) return;
+      if (e.defaultPrevented || !held(e, 'Cmd') || dialogUp()) return;
       // With the keyboard anywhere in the window, as from the box: ⌘⏎ allows and goes on, and
       // ⌘⌫ denies, unless it's deleting words you wrote.
       if (e.key === 'Enter') {
@@ -1387,7 +1388,7 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, give
   useEffect(() => {
     if (!keys) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || !chordPressed('Cmd+Enter', e)) return;
+      if (e.defaultPrevented || !chordPressed('Cmd+Enter', e) || dialogUp()) return;
       // Not from words being written elsewhere (the message box below): that's a message, and
       // answering would send whatever was left half typed here instead. An answer box of its own
       // takes ⌘⏎ before it gets here.

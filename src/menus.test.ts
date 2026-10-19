@@ -232,11 +232,12 @@ describe('sessionMenu', () => {
     const settled = () => new Promise((r) => setTimeout(r, 0));
     const later = Date.now() + 61_000;
     vi.useFakeTimers({ toFake: ['Date'] });
-    // The accounts are read again a minute after they last were, as a session's menu is built.
+    // The accounts are read again a minute after they last were, as a session's actions are
+    // built (for its menu, its panel's buttons and its box's account).
     const readAccounts = async (list: Awaited<ReturnType<typeof getAccounts>>, at: number) => {
       accounts.mockResolvedValueOnce(list);
       vi.setSystemTime(at);
-      sessionMenu(lane(), session(), base);
+      sessionActions(lane(), session(), base);
       await settled();
     };
     const c2 = { name: 'c2', harness: 'claude' as const, home: '~/.claude-c2', command: 'claude-c2', folderExists: true, signedIn: true, email: null, signInNote: null };

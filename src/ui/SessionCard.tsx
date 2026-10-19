@@ -23,6 +23,7 @@ import { sessionContext } from '../sessionContext';
 import { useStartAccounts } from '../startAccounts';
 import type { Board, Lane, Pr, PrItem, Session, Todo } from '../types';
 import { zoomKey } from './cardHost';
+import { dialogUp } from './focusTrap';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 
 /** What the card reads from the board: what's around the session, and what's pinned in Sessions. */
@@ -98,7 +99,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     if (renaming) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
-      if (zoomKey(e, reportNow.current)) return;
+      if (zoomKey(e, reportNow.current) || dialogUp()) return;
       const action = menus.chorded(latest.current, e);
       if (!action) return;
       e.preventDefault();

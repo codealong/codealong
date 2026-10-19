@@ -61,9 +61,11 @@
       var line = await until(function () { return document.querySelector('.ca-sessinsp-head .ca-sessinsp-limit'); }, 20000);
       var words = line.querySelector('.ca-sessinsp-limit-words').textContent;
       check('its header says the turn was cut off', /^Its last turn was cut off partway/.test(words), words);
-      // Once the window has read where its account's sessions go on.
-      var button = await until(function () { return line.querySelector('button'); }, 5000, 'no Carry on once its account’s places were read');
-      check('it offers Carry on', button.textContent === 'Carry on', button.textContent);
+      // Once the window has read where its account's sessions go on. Move… beside it shows
+      // before that, where it can move to another account (MoveAccount.tsx).
+      var named = function (text) { return Array.prototype.filter.call(line.querySelectorAll('button'), function (b) { return b.textContent === text; })[0]; };
+      var button = await until(function () { return named('Carry on'); }, 5000, 'no Carry on once its account’s places were read');
+      check('it offers Carry on, first', line.querySelector('button') === button, line.querySelector('button').textContent);
       words = line.querySelector('.ca-sessinsp-limit-words').textContent;
       check('and leaves going on to the button', words.indexOf('Resume it') < 0, words);
       var more = document.querySelector('.ca-sessinsp-head [aria-label="More"]');

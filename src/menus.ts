@@ -34,8 +34,8 @@ export interface Editors {
 }
 
 // The accounts in config.toml, for Move to: a menu is built at once, so they're read ahead, as a
-// window loads this, and again as a session's menu is built (a minute apart at most), for the
-// next one to have an account added or signed in since.
+// window loads this, and again as a session's actions are built for its menu or its panel (a
+// minute apart at most), for the next to have an account added or signed in since.
 let accounts: AccountInfo[] = [];
 let accountsRead = -Infinity;
 
@@ -232,6 +232,7 @@ export interface AccountMoves {
 }
 
 export function sessionActions(lane: Lane, s: Session, can: SessionCan): SessionActions {
+  readAccounts();
   const { report } = can;
   const here = !shortOf(s.key);
   const busy = <T>(label: string, work: Promise<T>) => (report.busy ? report.busy(label, work) : work);
@@ -479,7 +480,6 @@ const SESSION_MENU = [
 
 /** A session's menu, as every window has it. */
 export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {
-  readAccounts();
   const extras = {
     heading: can.heading ? [{ label: `${s.title} · ${lane.callsign}`, enabled: false, run: () => {} }] : [],
     todos: can.todos ?? [],

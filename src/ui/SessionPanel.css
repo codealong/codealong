@@ -43,6 +43,19 @@
 .ca-insp.ca-sessinsp:has(> .ca-composer.is-questions) {
   overflow: hidden auto;
 }
+/* A dialog the card opens (Move to another account, MoveAccount.tsx) covers the card rather than
+   the window: the notch's window is taller than the card it shows, and a dialog centered in it
+   would land below what's seen. */
+.ca-reply:has(> .ca-scrim) {
+  position: relative;
+}
+.ca-reply > .ca-scrim {
+  position: absolute;
+  padding: var(--space-3);
+}
+.ca-reply > .ca-scrim > .ca-dialog {
+  max-height: 100%;
+}
 
 /* Working through what waits on you: how the last one went, and the way on. */
 .ca-reply-queue {
