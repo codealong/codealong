@@ -123,6 +123,18 @@ export interface SessionHeaderProps {
   accountBelow?: boolean;
   /** In the main window's panel, which is where a session Codealong runs lives. */
   inMain?: boolean;
+  /** Asks which account to move it to (MoveAccount.tsx), from the box a usage limit or a cut-off
+   *  turn puts under the header, where it can move. */
+  onMove?: () => void;
+}
+
+/** Move… in the box a usage limit or a cut-off turn puts under the header: it asks which account. */
+function MoveButton({ onMove }: { onMove: () => void }) {
+  return (
+    <Button size="sm" title="Move it to another account: its conversation goes on there, and this one is closed and archived" onClick={onMove}>
+      Move…
+    </Button>
+  );
 }
 
 /** A session's name as a field: ⏎ keeps what's typed, Escape leaves the name as it was, and so
@@ -298,7 +310,7 @@ function SessionCost({ sessionKey }: { sessionKey: string }) {
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain, onMove }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -441,10 +453,12 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
         <div className="ca-sessinsp-limit" role="note">
           <Icon name="alert" size={12} />
           <span className="ca-sessinsp-limit-words">{limitWords(s.account, s.limit, now, !!actions?.moveOn, MOVES_ACCOUNTS.includes(s.harness))}</span>
-          {actions?.moveOn && (
+          {actions?.moveOn ? (
             <Button size="sm" title="Its conversation goes on under that account, told to carry on where it stopped; this one is closed and archived" onClick={() => actions.moveOn?.run()}>
               {actions.moveOn.label}
             </Button>
+          ) : (
+            onMove && <MoveButton onMove={onMove} />
           )}
         </div>
       )}
@@ -457,6 +471,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
               {actions.carryOn.label}
             </Button>
           )}
+          {onMove && <MoveButton onMove={onMove} />}
         </div>
       )}
       {/* Hidden when it has nothing to show (SessionHeader.css), Jev's chip included. */}

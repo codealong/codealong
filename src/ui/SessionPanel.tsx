@@ -22,7 +22,7 @@
 // expands it to the whole window, so the list is out of the way while you do. Rename in a pill's
 // or a row's menu shows it with its name ready to change.
 
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { runCommand } from '../api';
 import { below, showContextMenu, type MenuGroup, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
@@ -32,6 +32,7 @@ import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session } from '../types';
 import { cardZoom } from '../zoom';
+import { MoveDialog } from './MoveAccount';
 import { Button, cx, Icon, OneLine, Rich } from './primitives';
 import { runFolder } from './RunButton';
 import { SessionHeader, type SessionHeaderProps } from './SessionHeader';
@@ -65,7 +66,7 @@ export interface Hotkeys {
 /** How the one before went: sent, or why it didn't go. */
 export type Notice = { text: string; error: boolean };
 
-export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' | 'compact' | 'accountBelow' | 'inMain'> {
+export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' | 'compact' | 'accountBelow' | 'inMain' | 'onMove'> {
   /** A panel in the main window, or a card of its own (the bar's peek, the waiting
    *  window), where a right-click anywhere but the box gives the session's menu. */
   variant?: 'panel' | 'card';
@@ -232,10 +233,15 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const replies = !device || (device.online && device.remoteControl);
   const key = s.key;
   const run = useMemo(() => (folder === null ? undefined : { folder, terminal, run: (command: string, at: string, block: boolean) => runCommand(key, at, command, block) }), [folder, terminal, key]);
+  // Moving it to another account asks first (MoveAccount.tsx), from its header's box or the
+  // account in its box, for the session it was asked for only.
+  const moves = header.actions?.moveAccounts;
+  const [moving, setMoving] = useState<{ key: string; to: string | null } | null>(null);
+  const ask = (to: string | null) => setMoving({ key, to });
   const body = (
     <>
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
-          <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} />
+          <SessionHeader {...header} seenAbove={!!hotkeys} compact={variant === 'card'} accountBelow={replies} inMain={variant === 'panel'} onMove={moves && (() => ask(null))} />
           <SessionThread
             key={s.key}
             session={s}
@@ -264,8 +270,9 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
               {device.name} doesn't take prompts from your other devices. To send from here, turn on <b>Let my linked devices act on sessions here</b> in Settings › Devices on {device.name}.
             </p>
           ) : (
-            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} sayKeys={!!hotkeys} />
+            <Reply session={s} terminal={terminal} runIn={folder ?? undefined} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} sayKeys={!!hotkeys} moves={moves} onMove={ask} />
           )}
+          {moves && moving?.key === key && <MoveDialog session={s} moves={moves} to={moving.to} terminal={terminal} onClose={() => setMoving(null)} />}
     </>
   );
   if (variant === 'card') {

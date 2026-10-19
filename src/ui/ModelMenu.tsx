@@ -3,8 +3,8 @@
 // effort under them, or what a running one switches to, its effort too (SessionModel.tsx). The
 // lines are the start menu's for that account (StartControls.tsx `agentLine`); what picking one
 // does is the caller's. The place a session that isn't running goes on in is a chip of the same
-// kind beside it (`BoxMenu`), and so is the mode of a session Codealong runs, at the foot's other
-// end (ModeLabel.tsx `ModeMenu`).
+// kind beside it (`BoxMenu`), and so are the mode of a session Codealong runs, at the foot's other
+// end (ModeLabel.tsx `ModeMenu`), and its account where it can move (MoveAccount.tsx).
 
 import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { AgentOption, ModelOption } from '../start';
@@ -50,7 +50,7 @@ export function ModelMenu({ account, lines, models, value, label, detail, title,
 export type MenuFoot = ReactNode | ((close: () => void) => ReactNode);
 
 /** A box menu's classes, and its chip's, by what it picks. */
-const BOX_MENU = { model: ['ca-modelmenu', 'ca-modelmenu-chip'], place: ['ca-placemenu', 'ca-placemenu-chip'], mode: ['ca-modemenu', 'ca-modemenu-chip'] } as const;
+const BOX_MENU = { model: ['ca-modelmenu', 'ca-modelmenu-chip'], place: ['ca-placemenu', 'ca-placemenu-chip'], mode: ['ca-modemenu', 'ca-modemenu-chip'], account: ['ca-acctmenu', 'ca-acctmenu-chip'] } as const;
 
 interface BoxMenuProps {
   kind: keyof typeof BOX_MENU;

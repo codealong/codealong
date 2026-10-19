@@ -244,7 +244,18 @@ describe('sessionMenu', () => {
       // One turned off isn't offered.
       await readAccounts([{ ...c2, disabled: true }], later);
       expect(sessionActions(lane(), session({ key: 'claude:c:10' }), base).move).toBeUndefined();
+      expect(sessionActions(lane(), session({ key: 'claude:c:10' }), base).moveAccounts).toBeUndefined();
       await readAccounts([c2], later + 61_000);
+      // A window that asks which account first gets the same moves, and the one a usage limit has
+      // room on, which the copy is told to carry on under.
+      const asks = (s: Partial<Session>) => {
+        const m = sessionActions(lane(), session({ key: 'claude:c:10', ...s }), base).moveAccounts;
+        return m && { to: m.to, suggested: m.suggested, goesOn: m.goesOn };
+      };
+      expect(asks({})).toEqual({ to: ['c2'], suggested: null, goesOn: false });
+      const limit = { meter: 'week' as const, resetsAt: null, spendCapped: false, at: 1, moveTo: 'c2' };
+      expect(asks({ status: 'stopped', live: false, limit })).toEqual({ to: ['c2'], suggested: 'c2', goesOn: true });
+      expect(asks({ status: 'stopped', live: false, limit: { ...limit, moveTo: null } })).toEqual({ to: ['c2'], suggested: null, goesOn: true });
       const run = async (key: string, can: Partial<SessionCan>) => {
         const left: string[] = [];
         const copies: (string | null)[] = [];

@@ -193,6 +193,8 @@ export interface SessionActions {
   moveFolder?: MenuGroup;
   /** The move a usage limit's stop suggests: to the account with room (`Session.limit`). */
   moveOn?: MenuAction;
+  /** The accounts `move` goes to, for a window that asks which first (MoveAccount.tsx). */
+  moveAccounts?: AccountMoves;
   /** A turn that was cut off goes on where its account's last session did, told to carry on
    *  (`Session.cutOff`, start.rs `CARRY_ON`). */
   carryOn?: MenuAction;
@@ -216,6 +218,17 @@ export interface SessionActions {
   archive: MenuAction;
   copyId: MenuAction;
   copyResume?: MenuAction;
+}
+
+/** Where a session can move to under another account of its harness, as Move to has them. */
+export interface AccountMoves {
+  /** The other accounts of its harness, signed in and on. */
+  to: string[];
+  /** The one a usage limit's stop has room on (`moveOn`). */
+  suggested: string | null;
+  /** The copy is told to carry on where a usage limit stopped it (actions.rs `move_session`). */
+  goesOn: boolean;
+  run: (to: string) => void;
 }
 
 export function sessionActions(lane: Lane, s: Session, can: SessionCan): SessionActions {
@@ -331,6 +344,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
           : undefined,
     moveFolder: movesFolders ? folderMoves(lane, can.worktrees ?? [], (to) => void moveFolder(to)) : undefined,
     moveOn: suggested ? moveItem(suggested, `Move to ${suggested} and go on`) : undefined,
+    moveAccounts: moveTo.length > 0 ? { to: moveTo, suggested, goesOn: !!goesOn, run: move } : undefined,
     carryOn: carryTo ? { label: 'Carry on', run: () => void resume(carryTo) } : undefined,
     // The session carries on, waiting for you.
     stop: stoppable(s) ? { label: 'Stop turn', run: () => void said(`Stopping ${s.title}…`, sessionCancel(s.key)) } : undefined,

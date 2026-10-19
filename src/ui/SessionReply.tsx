@@ -30,8 +30,9 @@
 // into its Ghostty tab, a message from Codealong, its app: send.rs `way_in`), and a row at its
 // foot has, at the left, the mode it runs in (ModeLabel.tsx), the session's account and how full
 // its context is (ContextMeter.tsx), who the message goes to and what it may do about it, and at
-// the right its model and the send button. The mode of a session Codealong runs is a menu of the
-// modes its agent offers, and ⇧⇥ in the box steps to the next, as it does in Claude Code's
+// the right its model and the send button. Its account, where it can move to another, is a menu
+// of them, and picking one asks whether to move it there (MoveAccount.tsx). The mode of a session
+// Codealong runs is a menu of the modes its agent offers, and ⇧⇥ in the box steps to the next, as it does in Claude Code's
 // terminal: mid-turn too, and while it waits on you, where what it asks next goes by the new mode. What else it has to say (how a send went, what what's
 // typed will do: `BoxSays`) goes in that row too, after who the message goes to, on one line that
 // shows all of it under the pointer (primitives.tsx `OneLine`): beside where you write, where you
@@ -99,6 +100,7 @@ import { bangCommand } from './RunButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { ModeLabel, ModeMenu, nextMode } from './ModeLabel';
+import { AccountMenu } from './MoveAccount';
 import { AccountLabel, BoxText, Button, Chip, cx, Icon, OneLine, Rich, Seg } from './primitives';
 import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
 import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
@@ -108,6 +110,7 @@ import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
 import { SlashList, type SlashOption } from './SlashList';
 import { chordedReply, SuggestedReplies, SuggestionHead, type Denies, type PickHow } from './SuggestedReplies';
 import { useLatest } from '../latest';
+import type { AccountMoves } from '../menus';
 import { errorText } from '../report';
 import { bare, chordPressed, cmd, held, keysIn, platform, typed } from '../platform';
 
@@ -200,6 +203,10 @@ interface ComposerProps {
   /** The window is worked from the keyboard and says its keys on a strip (SessionPanel.tsx
    *  `QueueStrip`), so the box's foot says the box's own keys too when it has nothing else to say. */
   sayKeys?: boolean;
+  /** The accounts it can move to: its account in the foot is a menu of them, and picking another
+   *  asks whether to move it there (`onMove`, MoveAccount.tsx). */
+  moves?: AccountMoves;
+  onMove?: (to: string) => void;
 }
 
 type Note = { text: string; error: boolean };
@@ -256,7 +263,7 @@ function land(key: string, note: Note): boolean {
   return true;
 }
 
-function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn, sayKeys = false }: ComposerProps) {
+function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting, onSending, onSent, onFailed, onNext, keyed = false, onAllow, onDeny, onDenySaying, asked = false, runIn, sayKeys = false, moves, onMove }: ComposerProps) {
   // A side conversation shows above the box, in this window and every other, so the box is its.
   const aside = useAside(s.key) || onlyAside;
   // Out in a window of its own, where what's asked of it here shows.
@@ -912,7 +919,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
             {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
             {switchesMode && !aside ? <ModeMenu mode={mode} modes={modes} disabled={switching} onPick={switchMode} onDone={() => box.current?.focus()} /> : s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
             {/* A side conversation's copy runs on the session's account too, so it stays. */}
-            <AccountLabel session={s} small />
+            {moves && onMove && !aside ? <AccountMenu session={s} moves={moves} onPick={onMove} onDone={() => box.current?.focus()} /> : <AccountLabel session={s} small />}
             {!aside && <ContextMeter session={s} />}
           </div>
           {saying && <OneLine className={cx('ca-composer-note', saying.error && 'is-error')} role="status" text={saying.text} />}
@@ -1524,6 +1531,9 @@ export interface ReplyProps {
   /** The box says its own keys too, where the window says its keys on a strip
    *  (`ComposerProps.sayKeys`). */
   sayKeys?: boolean;
+  /** Its account is a menu of the accounts it can move to (`ComposerProps.moves`). */
+  moves?: AccountMoves;
+  onMove?: (to: string) => void;
 }
 
 /** A session's side conversation in a window of its own (kept.rs `pop_side`, Peek.tsx): the
@@ -1541,7 +1551,7 @@ export function SideReply({ session, terminal, inWindow }: { session: Session; t
 /** The bottom of a session's panel: what it waits on you for, if anything, its side conversation
  *  while it has one, and the box that sends it a message. The box is the same one throughout, so
  *  it keeps what's in it as the session starts and stops waiting. */
-export function Reply({ session, terminal, runIn, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, sayKeys }: ReplyProps) {
+export function Reply({ session, terminal, runIn, onOpen, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onNext, sayKeys, moves, onMove }: ReplyProps) {
   const waiting = !takesReply(session);
   // What the box's ⌘⏎ and ⌘⌫ do, once there's a call to answer here.
   const [call, setCall] = useState<CallKeys | null>(null);
@@ -1552,7 +1562,7 @@ export function Reply({ session, terminal, runIn, onOpen, autoFocus, keys, onSen
       {waiting && <Approval key={`wait:${session.key}`} session={session} terminal={terminal} onOpen={onOpen} onAnswered={onAnswered} keys={keys} onKeys={takeKeys} onNext={onNext} />}
       <SideStrip key={`side:${session.key}`} sideKey={session.key} words={SESSION_SIDES} />
       {/* A session Codealong runs takes a message while it waits, after its current turn. */}
-      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} sayKeys={sayKeys} />
+      <Composer key={`box:${session.key}`} session={session} terminal={terminal} autoFocus={autoFocus} waiting={waiting && !session.hosted} onSending={onSending} onSent={onSent} onFailed={onFailed} onNext={onNext} keyed={keys} onAllow={callKeys?.allow} onDeny={callKeys?.deny} onDenySaying={callKeys?.denySaying} asked={callKeys?.asked} runIn={runIn} sayKeys={sayKeys} moves={moves} onMove={onMove} />
     </>
   );
 }

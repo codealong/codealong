@@ -190,7 +190,9 @@ follows `/fork` is the copy's first prompt; with nothing, the copy waits for one
 #### Move to another account
 
 Move to, in a Claude Code session's right-click menu, moves it to another of your Claude Code
-accounts (one that's signed in): the conversation goes on in a new terminal under that account (a
+accounts (one that's signed in). Its account under the reply box is a menu of them too, its own
+checked: picking another asks first, in a dialog that says what the move does, and Move there moves
+it. The conversation goes on in a new terminal under that account (a
 background job's as a job there), and the session is closed and archived; its panel and the copy's
 say where it went. The copy is a session of its own, with a new ID, and takes the session's place on
 its todos, among the pinned sessions, on its card on the desktop and in its kept window. Moved from
@@ -215,7 +217,8 @@ lifts, from what Claude Code or Antigravity wrote). A Claude Code session's pane
 to the account with room: one of its harness's other accounts, chosen as Auto chooses, that isn't
 near a limit by its meters and whose own sessions weren't refused since they last got through (a
 spend limit shows on no meter).
-Moved, it's told to carry on where it stopped. `[limits] when_hit = "move"` (Settings › Automation)
+Where none has room, or the limit has lifted, the box says Move… instead, which asks which account
+to move it to. Moved, it's told to carry on where it stopped. `[limits] when_hit = "move"` (Settings › Automation)
 moves it there by itself, as soon as it stops; a session moved there that stops again is offered a
 move rather than moved back.
 
@@ -241,7 +244,8 @@ error that ends an Antigravity turn shows as one (Error), in its own words, unti
 A Claude Code or Codex session whose turn stopped partway because what ran it ended (its terminal
 closed or quit, Codealong or the Mac restarted, it was killed) says so (Cut off), and waits on you until you've
 seen it; a session that had finished its turn when that happened lost nothing, and is just stopped.
-Its panel has Carry on, which resumes it where its account's sessions last went on from here, else
+Its panel has Carry on, and Move… where it can move to another account, as a session at its usage
+limit has. Carry on resumes it where its account's sessions last went on from here, else
 in a terminal, and tells it to carry on, checking first what its last step did, since a command it
 ran may have been stopped partway. Resume in, in its menu, says Carry on in and does the same
 anywhere it can go on; sending it something resumes it with what you send. A Claude Code session is
