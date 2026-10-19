@@ -147,6 +147,25 @@
       return age && age.scrollWidth > age.clientWidth + 1;
     });
     check(name + ': the age fits its column', crampedAge.length === 0, crampedAge.length + ' rows');
+    // A chip that wrapped away still takes the keyboard, and focusing it scrolls nothing: a row's
+    // line clips what doesn't fit, it doesn't scroll to it.
+    var away = [];
+    rows.forEach(function (r) {
+      var lane = r.querySelector('.ca-lane-tags');
+      if (!lane) return;
+      var below = lane.getBoundingClientRect().top + 14;
+      var hidden = all('button, [tabindex]', lane).filter(function (b) { return b.getBoundingClientRect().top >= below; })[0];
+      if (hidden) away.push({ row: r, el: hidden });
+    });
+    var scrolled = away.slice(0, 20).filter(function (a) {
+      a.el.focus();
+      var moved = [a.row].concat(all('*', a.row)).filter(function (el) { return el.scrollTop !== 0 || el.scrollLeft !== 0; });
+      a.el.blur();
+      moved.forEach(function (el) { el.scrollTop = 0; el.scrollLeft = 0; });
+      return moved.length > 0;
+    });
+    if (away.length === 0) note(name + ': no chip wrapped away to focus');
+    else check(name + ': focusing a chip that wrapped away scrolls nothing', scrolled.length === 0, scrolled.length + ' of ' + Math.min(away.length, 20) + ' rows');
     if (name === 'Sessions') check('with no account chip, and its account on its status', rows.every(function (r) { return !account(r) && /·/.test(r.querySelector('.ca-seg-glyph').title); }));
     // Rows hit where they're drawn: the board is a stacking context, so WebKit draws its
     // positioned rows in its scroller's layer, not each in a layer of its own (App.css).

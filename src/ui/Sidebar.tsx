@@ -1,8 +1,9 @@
 // The sidebar: what the window shows and what narrows it. The view, the devices, how recently
-// things were active, their statuses and views you saved, above Settings. How Sessions is sorted
-// and drawn is the bar over its list (SessionsView.tsx `SessionsBar`). Devices and statuses toggle, any number of each: none picked shows all. Collapsed
-// it's a rail of the views and devices, whose filter button carries a badge while a filter
-// narrows the view. The project stays in the switcher at top left.
+// things were active, their statuses and views you saved, above Settings. How Sessions is sorted,
+// and how much a row says in Sessions, PRs and Todo, is the bar over the list (ListBar.tsx
+// `ListTools`). Devices and statuses toggle, any number of each: none picked shows all. Collapsed,
+// as it starts, it's a rail of the views and devices, whose filter button carries a badge while a
+// filter narrows the view. The project stays in the switcher at top left.
 
 import { useState, type ReactNode } from 'react';
 import type { DeviceFilter } from '../devices';

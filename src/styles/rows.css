@@ -205,12 +205,14 @@
 }
 
 /* A PR's or a todo's first line, as tall as a chip, as a session's is (LaneRow.css
-   .ca-agentrow-line1): its title, then what else it says, which gives way first. */
+   .ca-agentrow-line1): its title, then what else it says, which gives way first. It clips rather
+   than hides, so focusing a chip that wrapped out of its lane on one line can't scroll it. */
 .ca-lane.is-item .ca-lane-line1 {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   height: 20px;
+  overflow: clip;
 }
 .ca-lane-line1 > .ca-lane-headline {
   flex: 0 1 auto;
