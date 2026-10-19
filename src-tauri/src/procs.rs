@@ -58,11 +58,15 @@ pub fn ancestors(pid: u32) -> Vec<u32> {
 /// command typed in a terminal can find. None when the shell didn't answer.
 pub fn login_path() -> Option<&'static str> {
     static PATH: OnceLock<Option<String>> = OnceLock::new();
-    PATH.get_or_init(|| {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        run_with_path(&shell, &["-lc", "printf %s \"$PATH\""], None, Duration::from_secs(4), "/usr/bin:/bin", false).ok().filter(|p| p.contains('/'))
-    })
-    .as_deref()
+    PATH.get_or_init(|| login_var("PATH").filter(|p| p.contains('/'))).as_deref()
+}
+
+/// A variable as the login shell sets it, which a command typed in a terminal gets and an app
+/// opened from the Dock doesn't. None when it's unset or empty, or the shell didn't answer. `name`
+/// goes into the shell's command as it is, so it's a variable's name and nothing else.
+pub fn login_var(name: &str) -> Option<String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    run_with_path(&shell, &["-lc", &format!("printf %s \"${name}\"")], None, Duration::from_secs(4), "/usr/bin:/bin", false).ok().filter(|v| !v.is_empty())
 }
 
 /// The PATH of the user's login shell. Apps launched from Finder get a minimal PATH, so

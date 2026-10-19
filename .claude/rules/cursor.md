@@ -75,7 +75,8 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   ACP yet.
 - Two folders (2026.08.11's code): `chats` and `cli-config.json` are in
   `CURSOR_CONFIG_DIR`, else `$XDG_CONFIG_HOME/cursor`, else `~/.cursor`; `projects` (transcripts
-  and trust) in `CURSOR_DATA_DIR`, else `~/.cursor`: `cursor.rs` (`config_dir_of`, `data_dir`).
+  and trust) in `CURSOR_DATA_DIR`, else `~/.cursor`: `cursor.rs` (`config_dir_of`, `data_dir`,
+  `launch_var`: a start gets it from the account's command or the login shell, not from Codealong).
   An account of its own is `CURSOR_CONFIG_DIR=<folder> cursor-agent` (detect.rs `naming`), so
   its transcripts are with everyone's, where its reader doesn't look for them yet. A folder's
   long path also gets a short records folder of its own for its worker's socket

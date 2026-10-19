@@ -84,10 +84,37 @@ const TRUSTED: &str = ".workspace-trusted";
 
 /// The folder the command line keeps its records of folders in (`projects`), whatever account
 /// it runs as: `CURSOR_DATA_DIR`, else `~/.cursor` in `home`, where an account of its own sets
-/// only `CURSOR_CONFIG_DIR` (`config_dir_of`). `env` is the environment it starts with, which
-/// Codealong's own stands in for.
+/// only `CURSOR_CONFIG_DIR` (`config_dir_of`). `env` is the environment it starts with
+/// (`launch_var`).
 fn data_dir(env: impl Fn(&str) -> Option<String>, home: &Path) -> PathBuf {
     env("CURSOR_DATA_DIR").map(|d| d.trim().to_string()).filter(|d| !d.is_empty()).map(PathBuf::from).unwrap_or_else(|| home.join(".cursor"))
+}
+
+/// A variable as a start of an account's command line has it: set at the start of the
+/// account's own command (`CURSOR_DATA_DIR=~/data cursor-agent`), else by your login shell,
+/// whose environment the terminal's command gets and Codealong, opened from the Dock, doesn't.
+/// The login shell is asked once a name.
+fn launch_var(command: &str, name: &str) -> Option<String> {
+    static ASKED: std::sync::Mutex<Vec<(String, Option<String>)>> = std::sync::Mutex::new(Vec::new());
+    if let Some(v) = assigned(command, name) {
+        return Some(v);
+    }
+    let mut asked = ASKED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, v)) = asked.iter().find(|(n, _)| n == name) {
+        return v.clone();
+    }
+    let v = procs::login_var(name);
+    asked.push((name.to_string(), v.clone()));
+    v
+}
+
+/// The value `command` gives `name` in the assignments it starts with, its `~` or `$HOME`
+/// expanded, as detect.rs writes an account's folder there.
+fn assigned(command: &str, name: &str) -> Option<String> {
+    let v = command.split_whitespace().take_while(|w| w.contains('=')).find_map(|w| w.strip_prefix(name)?.strip_prefix('='))?;
+    let v = v.trim_matches(['"', '\'']);
+    let v = v.strip_prefix("$HOME").map(|rest| format!("~{rest}")).unwrap_or_else(|| v.to_string());
+    Some(crate::util::expand(&v).to_string_lossy().into_owned())
 }
 
 /// Trusts `folder` for the command line whose records are in `data` (`data_dir`), as Trust at
@@ -1705,7 +1732,7 @@ impl crate::harness::Adapter for Cursor {
     /// answering the prompt would. A start goes ahead without it, and Cursor asks.
     fn before_start(&self, account: &AccountCfg, folder: &Path) {
         for f in [folder.to_path_buf(), crate::attachments::images_dir(), crate::attachments::files_dir()] {
-            if let Err(e) = trust_folder(&data_dir(|k| std::env::var(k).ok(), &crate::util::home()), &f, &crate::util::home()) {
+            if let Err(e) = trust_folder(&data_dir(|k| launch_var(cli_command(account), k), &crate::util::home()), &f, &crate::util::home()) {
                 eprintln!("Couldn't trust {} for {}: {e:#}", crate::util::tilde(&f), account.name);
             }
         }
@@ -2324,6 +2351,11 @@ mod tests {
         assert_eq!(data_dir(env(None), &user), user.join(".cursor"));
         assert_eq!(data_dir(env(Some(" ")), &user), user.join(".cursor"));
         assert_eq!(data_dir(env(Some("/data/cursor")), &user), PathBuf::from("/data/cursor"));
+        // Set by the account's own command, as its terminal runs it.
+        let you = crate::util::home();
+        assert_eq!(assigned("CURSOR_CONFIG_DIR=~/.cursor-work CURSOR_DATA_DIR=\"$HOME/data\" cursor-agent", "CURSOR_DATA_DIR"), Some(you.join("data").to_string_lossy().into_owned()));
+        assert_eq!(assigned("CURSOR_CONFIG_DIR=~/.cursor-work cursor-agent", "CURSOR_DATA_DIR"), None);
+        assert_eq!(assigned("cursor-agent CURSOR_DATA_DIR=/x", "CURSOR_DATA_DIR"), None);
     }
 
     /// The board makes a lane for a chat in a folder it hasn't one for only when a reader says a
