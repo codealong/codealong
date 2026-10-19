@@ -921,10 +921,13 @@ Lists by default; `find` searches
 Usage: codealong sessions [OPTIONS] [COMMAND]
 
 Commands:
-  find        Sessions whose title, excerpt, account, worktree, branch or PR contains
-              the words (all of them, any case), or whose prompts and replies do, for
-              sessions active in the last `[search] days`. The session running it is
-              left out: for whether another session covers something
+  find        Sessions whose title, name, excerpt, account, worktree, branch or PR
+              contains the words (all of them, any case), or whose prompts and replies
+              do, for sessions active in the last `[search] days`. The session running
+              it is left out: for whether another session covers something. A session
+              whose title or name is the words comes first, then those whose title or
+              name has them, then those whose row does, then those that only mention
+              them; within each, as `sessions` orders them
   close-idle  Close the sessions that sat idle and want nothing from you: idle or
               unread, quiet for --after, nothing left running in the background, and a
               last reply that asks nothing (Jev's read with `[jev] sessions` on, else no
@@ -991,10 +994,12 @@ Options:
 ## codealong sessions find
 
 ```
-Sessions whose title, excerpt, account, worktree, branch or PR contains the words (all
-of them, any case), or whose prompts and replies do, for sessions active in the last
-`[search] days`. The session running it is left out: for whether another session covers
-something
+Sessions whose title, name, excerpt, account, worktree, branch or PR contains the words
+(all of them, any case), or whose prompts and replies do, for sessions active in the
+last `[search] days`. The session running it is left out: for whether another session
+covers something. A session whose title or name is the words comes first, then those
+whose title or name has them, then those whose row does, then those that only mention
+them; within each, as `sessions` orders them
 
 Usage: codealong sessions find [OPTIONS] [QUERY]...
 

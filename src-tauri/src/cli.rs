@@ -529,7 +529,7 @@ struct SessionsArgs {
 
 #[derive(Subcommand, Debug)]
 enum SessionsCmd {
-    /// Sessions whose title, excerpt, account, worktree, branch or PR contains the words (all of them, any case), or whose prompts and replies do, for sessions active in the last `[search] days`. The session running it is left out: for whether another session covers something.
+    /// Sessions whose title, name, excerpt, account, worktree, branch or PR contains the words (all of them, any case), or whose prompts and replies do, for sessions active in the last `[search] days`. The session running it is left out: for whether another session covers something. A session whose title or name is the words comes first, then those whose title or name has them, then those whose row does, then those that only mention them; within each, as `sessions` orders them.
     Find {
         query: Vec<String>,
         #[command(flatten)]
@@ -2144,10 +2144,7 @@ fn sessions(c: &mut Client, f: &SessionFilter, query: &[String], json: bool) -> 
     let wanted = Wanted { status, worktree, since, words, said, me, now: now_ms() };
     let board = c.board()?;
     let mut found: Vec<(&Session, &Lane)> = all_sessions(board).into_iter().filter(|(s, lane)| wanted.lists(f, s, lane)).collect();
-    // Those that need you first, the longest wait first as on the bar; then the one you last
-    // prompted.
-    let waited = |s: &Session| board::waiting_since(s).map_or((1, 0), |t| (0, t));
-    found.sort_by(|(a, _), (b, _)| waited(a).cmp(&waited(b)).then(b.last_prompt_at.cmp(&a.last_prompt_at)));
+    wanted.sort(&mut found);
     found.truncate(f.limit);
     let rows: Vec<SessionRow> = found.into_iter().map(|(s, lane)| SessionRow { said: wanted.said.get(&s.key).cloned(), ..session_row(s, lane, &board.todos) }).collect();
     if json {
@@ -2188,11 +2185,52 @@ impl Wanted {
             && self.worktree.as_deref().map_or(true, |w| w == lane.id)
             && (!f.live || s.live)
             && self.since.map_or(true, |ms| self.now - s.last_activity <= ms)
-            && (self.words.is_empty() || {
-                let hay = [s.title.as_str(), s.account.as_str(), s.excerpt.as_deref().unwrap_or(""), lane.callsign.as_str(), lane.repo.as_str(), lane.branch.as_deref().unwrap_or(""), &lane.pr.as_ref().map(|p| format!("#{} {}", p.number, p.title)).unwrap_or_default()].join(" ").to_lowercase();
-                self.words.iter().all(|w| search::has_word(&hay, w, self.words.len())) || self.said.contains_key(&s.key)
-            })
+            && (self.words.is_empty() || self.rank(s, lane) < Match::Said || self.said.contains_key(&s.key))
     }
+
+    /// Puts what `sessions` lists in order: for a search, by how closely it names each session
+    /// (`rank`); then those that need you, the longest wait first as on the bar; then the one
+    /// you last prompted.
+    fn sort(&self, found: &mut [(&Session, &Lane)]) {
+        let waited = |s: &Session| board::waiting_since(s).map_or((1, 0), |t| (0, t));
+        found.sort_by_cached_key(|(s, lane)| (self.rank(s, lane), waited(s), std::cmp::Reverse(s.last_prompt_at)));
+    }
+
+    /// Where a search's words are in `s`, from its row: someone finding a session by its name
+    /// wants it before the sessions that only mention it. `Said` when they're only in what was
+    /// said, or nowhere; without words every session is `Exact`, and the listing's order stands.
+    fn rank(&self, s: &Session, lane: &Lane) -> Match {
+        if self.words.is_empty() {
+            return Match::Exact;
+        }
+        let names: Vec<String> = [Some(&s.title), s.name.as_ref()].into_iter().flatten().map(|n| n.to_lowercase()).collect();
+        let asked = self.words.join(" ");
+        if names.iter().any(|n| n.split_whitespace().collect::<Vec<_>>().join(" ") == asked) {
+            return Match::Exact;
+        }
+        let has_all = |hay: &str| self.words.iter().all(|w| search::has_word(hay, w, self.words.len()));
+        // Each name on its own: words split between a title and a name don't name the session.
+        if names.iter().any(|n| has_all(n)) {
+            return Match::InName;
+        }
+        let pr = lane.pr.as_ref().map(|p| format!("#{} {}", p.number, p.title)).unwrap_or_default();
+        let row = [s.account.as_str(), s.excerpt.as_deref().unwrap_or(""), lane.callsign.as_str(), lane.repo.as_str(), lane.branch.as_deref().unwrap_or(""), &pr].join(" ").to_lowercase();
+        match has_all(&format!("{} {row}", names.join(" "))) {
+            true => Match::InRow,
+            false => Match::Said,
+        }
+    }
+}
+
+/// Where `sessions find` found its words in a session, the closest first: its title or name is
+/// them; its title or name has them all; its row has them (account, excerpt, worktree, repo,
+/// branch, PR, with its title and name); only its prompts and replies do.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Match {
+    Exact,
+    InName,
+    InRow,
+    Said,
 }
 
 #[derive(Serialize)]
@@ -5878,6 +5916,42 @@ mod tests {
         assert_eq!(found(wanted(Some("me"))), ["other", "asked"]);
         // Run from no session it knows, it lists them all.
         assert_eq!(found(wanted(None)), ["me", "other", "asked"]);
+    }
+
+    #[test]
+    fn a_search_puts_the_session_it_names_before_the_ones_that_mention_it() {
+        let titled = |key: &str, title: &str, prompted: i64| Session { title: title.into(), last_prompt_at: prompted, ..session(key, false, None) };
+        let b = Board {
+            lanes: vec![lane(
+                "/r/main",
+                vec![
+                    // Prompted most recently, so first without a search.
+                    titled("quoted", "Fix the kestrel import", 90),
+                    Session { excerpt: Some("Waiting on the harbor watch".into()), ..titled("excerpt", "Atlas map tiles", 80) },
+                    Session { name: Some("Nightly harbor watch".into()), ..titled("by-name", "Release notes", 70) },
+                    titled("longer", "Harbor watch for northwind", 60),
+                    // The words split between its title and its name: its row has them.
+                    Session { name: Some("Night watch".into()), ..titled("split", "Harbor cleanup", 75) },
+                    titled("exact", "Harbor  Watch", 10),
+                ],
+            )],
+            ..Board::default()
+        };
+        let Cmd::Sessions(SessionsArgs { cmd: Some(SessionsCmd::Find { filter, .. }), .. }) = Cli::try_parse_from(["codealong", "sessions", "find", "harbor", "watch"]).unwrap().cmd else { panic!() };
+        let said = HashMap::from([("quoted".to_string(), "…ask the harbor watch first…".to_string()), ("exact".to_string(), "…harbor watch…".to_string())]);
+        let wanted = |words: &[&str]| Wanted { status: None, worktree: None, since: None, words: words.iter().map(|w| w.to_string()).collect(), said: said.clone(), me: None, now: 0 };
+        let order = |w: Wanted| {
+            let mut found: Vec<(&Session, &Lane)> = all_sessions(&b).into_iter().filter(|(s, l)| w.lists(&filter, s, l)).collect();
+            w.sort(&mut found);
+            found.into_iter().map(|(s, _)| s.key.clone()).collect::<Vec<_>>()
+        };
+        // Its title, then the titles and names with the words in them, then a row that has them,
+        // then what only mentions them, however long ago each was prompted.
+        assert_eq!(order(wanted(&["harbor", "watch"])), ["exact", "by-name", "longer", "excerpt", "split", "quoted"]);
+        // A name that is the words is as close as a title that is.
+        assert_eq!(order(wanted(&["nightly", "harbor", "watch"]))[0], "by-name");
+        // Without words, the listing's own order: the one last prompted first.
+        assert_eq!(order(wanted(&[])), ["quoted", "excerpt", "split", "by-name", "longer", "exact"]);
     }
 
     #[test]

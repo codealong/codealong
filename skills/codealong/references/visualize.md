@@ -35,7 +35,7 @@ command's help). Everything here needs the Codealong app running.
    in. Leave out sessions whose work landed long ago, unless your user wants history.
    `codealong worktrees --project <name>` has each worktree's PR and state.
    `codealong todo list --project <name>` has the work planned for them. If an
-   orchestrator runs (`codealong sessions find orchestrator`), its narrative's *Streams*
+   orchestrator runs (`codealong sessions find orchestrator --live`), its narrative's *Streams*
    (`<dataDir>/orchestrator/narrative.md`, with `dataDir` from `codealong status`) are a
    good start.
 3. **Read what you can't tell from a title.** `codealong session transcript <key>`, its
