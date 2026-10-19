@@ -284,6 +284,12 @@ pub struct RoutingCfg {
     /// for what you type alongside where it goes; empty asks for no model suggestion.
     #[serde(default)]
     pub prompt: String,
+    /// The room (percent) below an account's `usage_cap` that Auto and routing groups leave for
+    /// the sessions already running on it rather than send every start there: Auto's soonest
+    /// reset and a fallback group's next member go first once an account is this close to its
+    /// cap. None is 5 (`start::BUFFER`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buffer: Option<u8>,
     #[serde(default)]
     pub groups: Vec<RoutingGroupCfg>,
 }
@@ -310,6 +316,9 @@ pub enum RoutingStrategy {
     AlternateHarness,
     /// Rotates evenly across the group's members that have room.
     RoundRobin,
+    /// The first of the group's members, in their order, with room under its `usage_cap` less
+    /// the buffer (`[routing] buffer`); once every one is that close, the one with the most room.
+    Fallback,
 }
 
 impl RoutingStrategy {
@@ -318,6 +327,7 @@ impl RoutingStrategy {
             RoutingStrategy::Usage => "usage",
             RoutingStrategy::AlternateHarness => "alternate-harness",
             RoutingStrategy::RoundRobin => "round-robin",
+            RoutingStrategy::Fallback => "fallback",
         }
     }
 
@@ -1382,6 +1392,11 @@ pub fn check_routing(cfg: &Config) -> std::result::Result<(), String> {
             }
         }
     }
+    if let Some(b) = cfg.routing.buffer {
+        if b > 50 {
+            return Err(format!("[routing] buffer is {b}; it goes from 0 to 50 (percent below each account's usage_cap)."));
+        }
+    }
     let auto = cfg.routing.auto.trim();
     if !auto.is_empty() && !group_names.contains(auto) {
         return Err(format!("[routing] auto is {auto:?}, which isn't one of the [[routing.groups]]; use one of them, or \"\" for the default."));
@@ -1542,7 +1557,7 @@ const SEARCH_COMMENT: &str = "# The quick panel, the main window's filter and `c
 const DEVICES_COMMENT: &str = "# Your other devices: Codealong on each shows the others' sessions and can read and search them.\n# tailscale finds them on your tailnet; iroh reaches devices you link with a code, anywhere.\n# remote_control lets your linked devices send prompts, answer approvals and start sessions here.\n";
 const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then, and put it in place for the next launch.\n# The app menu's Check for updates… works either way.\n";
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
-const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), or \"round-robin\".\n";
+const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), \"round-robin\",\n# or \"fallback\" (the members in order, each until it's within `buffer` of its usage_cap).\n# buffer: the percent below each account's usage_cap left for the sessions already running on it (default 5).\n";
 const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict) and its primary session isn't running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that, failing checks and\n# conflicts.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
@@ -2113,6 +2128,14 @@ fn set_routing(doc: &mut toml_edit::DocumentMut, routing: &RoutingCfg) {
     if !routing.prompt.trim().is_empty() || doc["routing"].get("prompt").is_some() {
         set_value(&mut doc["routing"]["prompt"], Value::from(routing.prompt.trim()));
     }
+    match routing.buffer {
+        Some(b) => set_value(&mut doc["routing"]["buffer"], Value::from(i64::from(b))),
+        None => {
+            if let Some(t) = doc["routing"].as_table_like_mut() {
+                t.remove("buffer");
+            }
+        }
+    }
     if routing.groups.is_empty() {
         if let Some(t) = doc["routing"].as_table_like_mut() {
             t.remove("groups");
@@ -2554,6 +2577,7 @@ mod tests {
             routing: RoutingCfg {
                 auto: "reviewers".into(),
                 prompt: "Use Haiku for small edits.".into(),
+                buffer: Some(8),
                 groups: vec![RoutingGroupCfg {
                     name: "reviewers".into(),
                     strategy: RoutingStrategy::AlternateHarness,
@@ -3355,11 +3379,20 @@ mod tests {
         cfg.routing = RoutingCfg {
             auto: "reviewers".into(),
             prompt: "Prefer fast models for small edits.".into(),
-            groups: vec![RoutingGroupCfg {
-                name: "reviewers".into(),
-                strategy: RoutingStrategy::AlternateHarness,
-                members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into() }, GroupMemberCfg { account: "codex".into(), model: String::new() }],
-            }],
+            buffer: Some(10),
+            groups: vec![
+                RoutingGroupCfg {
+                    name: "reviewers".into(),
+                    strategy: RoutingStrategy::AlternateHarness,
+                    members: vec![GroupMemberCfg { account: "claude".into(), model: "opus".into() }, GroupMemberCfg { account: "codex".into(), model: String::new() }],
+                },
+                // A fallback group's members keep their order.
+                RoutingGroupCfg {
+                    name: "overflow".into(),
+                    strategy: RoutingStrategy::Fallback,
+                    members: vec![GroupMemberCfg { account: "codex".into(), model: String::new() }, GroupMemberCfg { account: "claude".into(), model: String::new() }],
+                },
+            ],
         };
         cfg.reviews.account = "reviewers".into();
         cfg.reviews.other_harness = false;
@@ -3376,6 +3409,15 @@ mod tests {
         let mut bad_auto = cfg.clone();
         bad_auto.routing.auto = "missing".into();
         assert!(check(&bad_auto).unwrap_err().contains("[routing] auto"));
+        let mut wide = cfg.clone();
+        wide.routing.buffer = Some(60);
+        assert!(check(&wide).unwrap_err().contains("[routing] buffer"));
+        // Back to the default, the line goes.
+        let mut unset = cfg.clone();
+        unset.routing.buffer = None;
+        let out = with_config(&render(&cfg), &unset).unwrap();
+        assert!(!out.contains("buffer ="), "{out}");
+        assert_eq!(parse(&out).unwrap(), unset);
     }
 
     #[test]

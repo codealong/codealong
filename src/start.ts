@@ -31,9 +31,10 @@ export const AUTO: Choice = 'auto';
 const REMEMBER_KEY = 'codealong.start';
 /** An account this close to any limit could stall a new session. */
 const NEAR_LIMIT = 90;
-/** The room below `NEAR_LIMIT` that Auto leaves on the account whose week resets soonest rather
- *  than spend it first, for the sessions already running there: start.rs's `KEPT_FOR_RUNNING`. */
-const KEPT_FOR_RUNNING = 5;
+/** The room below an account's cap that Auto leaves on the account whose week resets soonest,
+ *  and a fallback group on each member in turn, rather than spend it first, for the sessions
+ *  already running there; `[routing] buffer` sets another (start.rs `BUFFER`). */
+export const BUFFER = 5;
 
 export function isAuto(c: Choice | null): boolean {
   return c === AUTO;
@@ -45,6 +46,12 @@ export function isGroup(c: Choice | null, groups: RoutingGroup[] = []): RoutingG
 
 export function capOf(usageCap?: number | null): number {
   return usageCap != null && usageCap >= 1 && usageCap <= 100 ? usageCap : NEAR_LIMIT;
+}
+
+/** Where an account's buffer starts: below it, a start there leaves the sessions running on it
+ *  their room (start.rs `buffer_line`). */
+function bufferLine(usageCap?: number | null, buffer?: number | null): number {
+  return Math.max(0, capOf(usageCap) - (buffer ?? BUFFER));
 }
 
 /** Families that have their own weekly limits on Claude plans, as the usage report names them. */
@@ -155,10 +162,11 @@ interface UsageCandidate {
   preferred: boolean;
   on: string | null;
   usageCap?: number | null;
+  buffer?: number | null;
 }
 
 function pickByUsage(candidates: UsageCandidate[], usage: Usage[], now: number): { index: number; pick: AutoPick } | null {
-  const measured: { index: number; name: string; preferred: boolean; full: number; near: boolean; reset: number | null; cap: number }[] = [];
+  const measured: { index: number; name: string; preferred: boolean; full: number; near: boolean; reset: number | null; line: number }[] = [];
   const unknown: { index: number; c: UsageCandidate }[] = [];
   for (let i = 0; i < candidates.length; i++) {
     const c = candidates[i];
@@ -169,7 +177,6 @@ function pickByUsage(candidates: UsageCandidate[], usage: Usage[], now: number):
       unknown.push({ index: i, c });
       continue;
     }
-    const cap = capOf(c.usageCap);
     const resets = meters.filter((m) => (m.key === 'week' || m.key.startsWith('model:')) && m.resetsAt !== null && m.resetsAt > now).map((m) => m.resetsAt as number);
     measured.push({
       index: i,
@@ -178,7 +185,7 @@ function pickByUsage(candidates: UsageCandidate[], usage: Usage[], now: number):
       full: Math.max(...meters.map((m) => m.percent)),
       near: meters.some((m) => near(m, c.usageCap)),
       reset: resets.length > 0 ? Math.min(...resets) : null,
-      cap,
+      line: bufferLine(c.usageCap, c.buffer),
     });
   }
   const leastFull = (pool: typeof measured) => {
@@ -186,7 +193,7 @@ function pickByUsage(candidates: UsageCandidate[], usage: Usage[], now: number):
     return { index: m.index, pick: { account: m.name, reason: 'room' as const, resetsAt: null } };
   };
   const best = (pool: typeof measured) => {
-    const soon = pool.filter((m) => m.reset !== null && m.full < m.cap - KEPT_FOR_RUNNING).sort((a, b) => (a.reset as number) - (b.reset as number) || a.full - b.full);
+    const soon = pool.filter((m) => m.reset !== null && m.full < m.line).sort((a, b) => (a.reset as number) - (b.reset as number) || a.full - b.full);
     return soon.length > 0 ? { index: soon[0].index, pick: { account: soon[0].name, reason: 'reset' as const, resetsAt: soon[0].reset } } : leastFull(pool);
   };
   for (const pref of [true, false]) {
@@ -208,8 +215,8 @@ function pickByUsage(candidates: UsageCandidate[], usage: Usage[], now: number):
  * accounts with room go first, then a preferred one without numbers yet, then the others the
  * same way, and only when all are near a limit the least full of them. Among accounts with
  * room, the one whose weekly limit resets soonest wins, so no week's room goes unused, while its
- * fullest limit is under `usageCap - KEPT_FOR_RUNNING`; without such a reset, the one whose fullest
- * limit is least full. Signed-out accounts are passed over. Null when no account can start a
+ * fullest limit is under `usageCap` less its `buffer` (`BUFFER`); without such a reset, the one
+ * whose fullest limit is least full. Signed-out accounts are passed over. Null when no account can start a
  * session.
  */
 export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, model: string | null = null, autoGroup?: RoutingGroup | null, lanes: Lane[] = []): AutoPick | null {
@@ -219,7 +226,7 @@ export function autoPick(accounts: StartAccount[], usage: Usage[], now: number, 
   const matching = startable(accounts).filter((a) => model === null || offersModel(a, model));
   const unrefused = matching.filter((a) => !refused.has(a.name));
   const pool = unrefused.length > 0 ? unrefused : matching;
-  const candidates = pool.map((a) => ({ name: a.name, preferred: preferred.includes(a.name), on: model ?? a.defaultModel, usageCap: a.usageCap }));
+  const candidates = pool.map((a) => ({ name: a.name, preferred: preferred.includes(a.name), on: model ?? a.defaultModel, usageCap: a.usageCap, buffer: a.buffer }));
   return pickByUsage(candidates, usage, now)?.pick ?? null;
 }
 
@@ -250,8 +257,11 @@ export function pickFromGroup(
     const checkModel = explicit ?? a.defaultModel;
     const u = usage.find((x) => x.account === a.name);
     const usable = !u?.needsSignIn && !refused.has(a.name);
-    const roomy = usable && (u ? metersFor(u, checkModel) : []).every((x) => !near(x, a.usageCap));
-    return [{ account: a, preferred: m.preferred, explicitModel: explicit, checkModel, roomy, usable }];
+    const spent = u ? metersFor(u, checkModel) : [];
+    const roomy = usable && spent.every((x) => !near(x, a.usageCap));
+    // Room short of its buffer, or no numbers yet.
+    const clear = roomy && spent.every((x) => x.percent < bufferLine(a.usageCap, a.buffer));
+    return [{ account: a, preferred: m.preferred, explicitModel: explicit, checkModel, roomy, clear, usable }];
   });
   if (members.length === 0) return null;
   const roomy = members.filter((m) => m.roomy);
@@ -262,7 +272,7 @@ export function pickFromGroup(
   }
   const byUsage = (slice: typeof pool): AutoPick | null => {
     const res = pickByUsage(
-      slice.map((m) => ({ name: m.account.name, preferred: m.preferred, on: m.checkModel, usageCap: m.account.usageCap })),
+      slice.map((m) => ({ name: m.account.name, preferred: m.preferred, on: m.checkModel, usageCap: m.account.usageCap, buffer: m.account.buffer })),
       usage,
       now,
     );
@@ -303,6 +313,12 @@ export function pickFromGroup(
     };
     const chosen = pool.reduce((best, m) => (lastMember(m) < lastMember(best) ? m : best));
     return { account: chosen.account.name, reason: 'first', resetsAt: null, model: chosen.explicitModel };
+  }
+  if (group.strategy === 'fallback') {
+    // The members in their order, each until it's within its buffer; once every one is, the
+    // buffers are the sessions' running there, so the most room.
+    const first = pool.find((m) => m.clear);
+    return first ? { account: first.account.name, reason: 'first', resetsAt: null, model: first.explicitModel } : byUsage(pool);
   }
   return byUsage(pool);
 }

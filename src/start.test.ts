@@ -668,6 +668,32 @@ describe('usageCap and routing groups', () => {
     // A usageCap above 90% still treats 91% as having room even when the meter is critical.
     const raised = ACCOUNTS.map((a) => (a.name === 'claude' ? { ...a, usageCap: 98 } : a));
     expect(autoPick(raised, [usage('claude', 10, 91, 24), usage('claude2', 10, 40, 100)], NOW)?.account).toBe('claude');
+    // `[routing] buffer` reserves more, or nothing.
+    const buffered = (buffer: number) => ACCOUNTS.map((a) => ({ ...a, buffer }));
+    expect(autoPick(buffered(20), [usage('claude', 10, 72, 24), usage('claude2', 10, 40, 100)], NOW)?.account).toBe('claude2');
+    expect(autoPick(buffered(0), [usage('claude', 10, 89, 24), usage('claude2', 10, 40, 100)], NOW)?.account).toBe('claude');
+  });
+
+  // start.rs's a_fallback_group_takes_its_members_in_order_while_they_have_room tests the same cases.
+  it('takes a fallback group’s members in order while they have room short of the buffer', () => {
+    const accounts = [fx.startAccount({ name: 'claude', places: [ghostty] }), fx.startAccount({ name: 'claude2', places: [ghostty] }), fx.startAccount({ name: 'codex', harness: 'codex', places: [ghostty] })];
+    const group: RoutingGroup = { name: 'overflow', strategy: 'fallback', members: [{ account: 'codex' }, { account: 'claude2' }, { account: 'claude' }] };
+    const picked = (u: Usage[], accts = accounts, avoid: 'codex' | null = null) => pickFromGroup(group, accts, u, NOW, null, avoid)?.account;
+    // The first member, whoever has more room or resets sooner, and whatever ran last.
+    const roomy = [usage('codex', 50, 70, 100), usage('claude2', 5, 10, 6), usage('claude', 1, 2, 3)];
+    expect(picked(roomy)).toBe('codex');
+    // Within 5% of its 90% cap, the next; no numbers yet counts as room.
+    const full = [usage('codex', 20, 86, 100), usage('claude', 1, 2, 3)];
+    expect(picked(full)).toBe('claude2');
+    // A wider buffer moves on sooner, none later.
+    const early = [usage('codex', 20, 76, 100), usage('claude2', 5, 10, 6)];
+    expect(picked(early)).toBe('codex');
+    expect(picked(early, accounts.map((a) => ({ ...a, buffer: 15 })))).toBe('claude2');
+    expect(picked(full, accounts.map((a) => ({ ...a, buffer: 0 })))).toBe('codex');
+    // Every member within its buffer: the one with the most room, not the first.
+    expect(picked([usage('codex', 20, 88, 100), usage('claude2', 10, 87, null), usage('claude', 10, 86, null)])).toBe('claude');
+    // Keeping off a harness skips its members and keeps the order of the rest.
+    expect(picked(roomy, accounts, 'codex')).toBe('claude2');
   });
 
   it('picks from a routing group across strategies, equal member preference, and multi-model members', () => {

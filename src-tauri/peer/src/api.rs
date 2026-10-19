@@ -913,6 +913,10 @@ pub struct StartAccount {
     /// percent); None is 90%. Missing from Macs before 2026-10-14.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_cap: Option<u8>,
+    /// The room (percent) below `usage_cap` that Auto and routing groups leave for the sessions
+    /// already running on it (`[routing] buffer`); None is 5. Missing from Macs before 2026-10-19.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buffer: Option<u8>,
 }
 
 /// A model group from `[[routing.groups]]` that starts and reviews can pick in place of one

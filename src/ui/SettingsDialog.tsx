@@ -11,7 +11,7 @@ import { worktreeName } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
-import { agentId, agentOptions, modelName, parseAgent, withLists } from '../start';
+import { agentId, agentOptions, BUFFER, modelName, parseAgent, withLists } from '../start';
 import type { AtLogin, ChromeProfile, Config, ConfigView, GroupMemberCfg, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentPromptBox } from './AgentPromptBox';
@@ -947,7 +947,14 @@ const ROUTING_STRATEGIES: { id: RoutingStrategy; label: string; says: string }[]
   { id: 'usage', label: 'Most room', says: 'Picks the account whose weekly limit resets soonest, or that has the most room under its usage cap.' },
   { id: 'alternate-harness', label: 'Alternate harnesses', says: 'Rotates across harnesses (Claude Code, Codex, OpenCode…), picking the least-recently-used harness and the account with the most room in it.' },
   { id: 'round-robin', label: 'Round robin', says: 'Rotates evenly across every roomy account in the group, least-recently-used first.' },
+  { id: 'fallback', label: 'Fallback', says: 'Starts on the first account in the order below until it gets within the room kept for running sessions of its usage cap, then the next. Once every one is that close, the one with the most room.' },
 ];
+
+/** The choices for the room kept below each usage cap, with a value typed in config.toml too. */
+function bufferOptions(current: number): Profile[] {
+  const pcts = [...new Set([0, 2, BUFFER, 10, 15, 20, current])].sort((a, b) => a - b);
+  return pcts.map((p) => ({ id: String(p), name: p === 0 ? 'None: up to the usage cap' : p === BUFFER ? `${p}% (default)` : `${p}%` }));
+}
 
 /** Settings › Routing (`[routing]`): routing groups (`[[routing.groups]]`) that Auto,
  *  `codealong start`, and automatic reviews can pick from, which group `Auto` delegates to
@@ -962,6 +969,7 @@ function RoutingPane({ cfg, disabled, onSave }: PaneProps) {
   }, []);
   const routing: RoutingCfg = cfg.routing ?? {};
   const groups: RoutingGroupCfg[] = routing.groups ?? [];
+  const buffer = routing.buffer ?? BUFFER;
   const reviews = reviewsEverywhere(cfg.reviews);
   const allModels = useMemo(() => all.flatMap((a) => a.models ?? []).filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i), [all]);
   const [draft, setDraft] = useState<{
@@ -973,6 +981,14 @@ function RoutingPane({ cfg, disabled, onSave }: PaneProps) {
     useForReviews: boolean;
     useForOwnReviews: boolean;
   } | null>(null);
+  const fallback = draft?.strategy === 'fallback';
+  /** Moves a fallback group's member `by` places in the order its accounts are tried. */
+  const moveMember = (at: number, by: -1 | 1) => {
+    if (!draft || at + by < 0 || at + by >= draft.members.length) return;
+    const members = [...draft.members];
+    [members[at], members[at + by]] = [members[at + by], members[at]];
+    setDraft({ ...draft, members });
+  };
   const [promptDraft, setPromptDraft] = useState(routing.prompt ?? '');
   useEffect(() => setPromptDraft(routing.prompt ?? ''), [routing.prompt]);
   const saveRouting = (next: RoutingCfg) => void onSave({ ...cfg, routing: next });
@@ -1016,9 +1032,14 @@ function RoutingPane({ cfg, disabled, onSave }: PaneProps) {
           <ProfileSelect value={routing.auto ?? ''} profiles={autoProfiles} onChange={(auto) => saveRouting({ ...routing, auto })} />
           <small>Which rule Auto uses in the quick panel and in codealong start when no account or group is named (and for reviews left on Auto). To use a different routing group for reviews, check it on the group below, or pick that group on the reviewer in Automation.</small>
         </label>
+        <label className="ca-field">
+          <span>Room kept for running sessions</span>
+          <ProfileSelect value={String(buffer)} profiles={bufferOptions(buffer)} onChange={(b) => saveRouting({ ...routing, buffer: Number(b) === BUFFER ? null : Number(b) })} />
+          <small>How close to its usage cap an account gets before Auto stops favoring it for its soonest weekly reset, and a fallback group moves on to its next account. What’s left is for the sessions already running there. Each account’s usage cap is in Accounts (90% when not set).</small>
+        </label>
         <div className="ca-field">
           <span>Routing groups</span>
-          <small>Named pools of accounts and models that can alternate between harnesses, rotate round-robin, or pick by usage room, while passing over accounts at their usage cap.</small>
+          <small>Named pools of accounts and models that can alternate between harnesses, rotate round-robin, pick by usage room, or go through them in order, while passing over accounts at their usage cap.</small>
           {groups.length > 0 && (
             <div className="ca-settings-cards">
               {groups.map((g) => {
@@ -1026,7 +1047,7 @@ function RoutingPane({ cfg, disabled, onSave }: PaneProps) {
                 const membersWord =
                   (g.members ?? []).length === 0
                     ? 'All enabled accounts'
-                    : (g.members ?? []).map((m) => (m.model ? `${m.account} (${modelName(m.model, allModels)})` : m.account)).join(', ');
+                    : (g.members ?? []).map((m) => (m.model ? `${m.account} (${modelName(m.model, allModels)})` : m.account)).join(g.strategy === 'fallback' ? ' → ' : ', ');
                 return (
                   <div key={g.name} className="ca-ucard">
                     <div className="ca-ucard-head">
@@ -1103,9 +1124,10 @@ function RoutingPane({ cfg, disabled, onSave }: PaneProps) {
               </div>
               <div className="ca-field">
                 <span>Accounts in this group</span>
-                <small>Leave all unchecked to include every enabled account.</small>
-                {cfg.accounts.map((a) => {
+                <small>{fallback ? 'Tried in this order. Leave all unchecked to include every enabled account, in the order Accounts lists them.' : 'Leave all unchecked to include every enabled account.'}</small>
+                {(fallback ? [...draft.members.flatMap((m) => cfg.accounts.filter((a) => a.name === m.account)), ...cfg.accounts.filter((a) => !draft.members.some((m) => m.account === a.name))] : cfg.accounts).map((a) => {
                   const member = draft.members.find((m) => m.account === a.name);
+                  const at = draft.members.findIndex((m) => m.account === a.name);
                   const startAcct = all.find((x) => x.name === a.name);
                   const baseModels = startAcct?.models ?? [];
                   const currentModel = member?.model?.trim() || null;
@@ -1131,38 +1153,50 @@ function RoutingPane({ cfg, disabled, onSave }: PaneProps) {
                         <span className="ca-check-box" aria-hidden="true">
                           <Icon name="check" size={11} stroke={2.5} />
                         </span>
-                        <span>{a.name} ({HARNESS_WORD[a.harness]})</span>
+                        <span>
+                          {fallback && member ? `${at + 1}. ` : ''}
+                          {a.name} ({HARNESS_WORD[a.harness]})
+                        </span>
                       </label>
-                      {member &&
-                        (models.length > 0 ? (
-                          <ModelMenu
-                            account={menuAcct}
-                            lines={lines}
-                            models={models}
-                            value={agentId(a.name, currentModel)}
-                            label={currentModel ? modelName(currentModel, models) : 'Default model'}
-                            detail={!currentModel ? defaultLabel : null}
-                            title={`Model for ${a.name}`}
-                            disabled={disabled}
-                            down
-                            onPick={(id) => {
-                              const { model: picked } = parseAgent(id);
-                              const next = draft.members.map((m) => (m.account === a.name ? { ...m, model: picked ?? '' } : m));
-                              setDraft({ ...draft, members: next });
-                            }}
-                            onDone={() => {}}
-                          />
-                        ) : (
-                          <span className="ca-modelmenu-said" title={`The model is chosen in ${HARNESS_WORD[a.harness]}`}>
-                            Default model
-                          </span>
-                        ))}
+                      <div className="ca-routing-member-end">
+                        {member &&
+                          (models.length > 0 ? (
+                            <ModelMenu
+                              account={menuAcct}
+                              lines={lines}
+                              models={models}
+                              value={agentId(a.name, currentModel)}
+                              label={currentModel ? modelName(currentModel, models) : 'Default model'}
+                              detail={!currentModel ? defaultLabel : null}
+                              title={`Model for ${a.name}`}
+                              disabled={disabled}
+                              down
+                              onPick={(id) => {
+                                const { model: picked } = parseAgent(id);
+                                const next = draft.members.map((m) => (m.account === a.name ? { ...m, model: picked ?? '' } : m));
+                                setDraft({ ...draft, members: next });
+                              }}
+                              onDone={() => {}}
+                            />
+                          ) : (
+                            <span className="ca-modelmenu-said" title={`The model is chosen in ${HARNESS_WORD[a.harness]}`}>
+                              Default model
+                            </span>
+                          ))}
+                        {fallback && member && (
+                          <>
+                            <Button variant="ghost" size="sm" icon="arrow-up" aria-label={`Try ${a.name} sooner`} title="Sooner" disabled={at === 0} onClick={() => moveMember(at, -1)} />
+                            <Button variant="ghost" size="sm" icon="arrow-down" aria-label={`Try ${a.name} later`} title="Later" disabled={at === draft.members.length - 1} onClick={() => moveMember(at, 1)} />
+                          </>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
               </div>
               <div className="ca-field">
                 <span>Use this group for</span>
+                <small>The same settings as Auto routing above and the reviewers in Automation: checking one here picks this group there.</small>
                 <label className="ca-check">
                   <input type="checkbox" checked={draft.useForAuto} onChange={(e) => setDraft({ ...draft, useForAuto: e.target.checked })} />
                   <span className="ca-check-box" aria-hidden="true">

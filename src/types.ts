@@ -641,7 +641,7 @@ export interface AccountCfg {
 }
 
 /** How a routing group picks among its members with room (config.rs `RoutingStrategy`). */
-export type RoutingStrategy = 'usage' | 'alternate-harness' | 'round-robin';
+export type RoutingStrategy = 'usage' | 'alternate-harness' | 'round-robin' | 'fallback';
 
 /** One member of a `[[routing.groups]]` table (config.rs `GroupMemberCfg`). */
 export interface GroupMemberCfg {
@@ -662,6 +662,9 @@ export interface RoutingCfg {
   auto?: string;
   /** Optional guidance for Jev when suggesting an agent or model in the quick panel. */
   prompt?: string;
+  /** The room (percent, 0 to 50) below each account's `usage_cap` left for the sessions already
+   *  running on it; absent is 5. */
+  buffer?: number | null;
   groups?: RoutingGroupCfg[];
 }
 
@@ -1685,6 +1688,9 @@ export interface StartAccount {
   unavailable: string | null;
   /** Its `usage_cap` setting (1 to 100); absent uses 90. */
   usageCap?: number | null;
+  /** The room below `usageCap` Auto and routing groups leave for the sessions already running on
+   *  it (`[routing] buffer`); absent uses 5. Missing from Macs before 2026-10-19. */
+  buffer?: number | null;
   /** The model a session starts on without one chosen: the account's settings.json `model`. */
   defaultModel: string | null;
   /** The models a start on its command line can ask for, as its harness takes them; none when

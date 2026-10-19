@@ -431,3 +431,9 @@
   max-width: 440px;
   min-height: 26px;
 }
+/* Its model menu and, in a fallback group, the buttons that move it sooner or later. */
+.ca-routing-member-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}

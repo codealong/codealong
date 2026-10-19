@@ -277,8 +277,8 @@ typing a prompt and start it, choosing:
 
 *Auto* picks the account with room (or from your routing group in Settings › Routing): an
 account at its usage cap (90% by default) has none, and among those with room it picks the one
-whose week resets soonest, so no week's allowance goes unused, until it's within 5% of its cap and
-what's left is for the sessions already on it. A
+whose week resets soonest, so no week's allowance goes unused, until it's within 5% of its cap
+(`[routing] buffer`) and what's left is for the sessions already on it. A
 question that isn't about any of your repos can go to a chat of its own. Type `/` to find your
 repos' skills by name.
 
@@ -585,10 +585,11 @@ live_replies = false           # Claude Code sessions hand Codealong a reply as 
 [routing]                      # Settings › Routing
 auto = ""                      # the routing group Auto uses for new sessions and reviews; "" picks among accounts of the first harness with room
 prompt = ""                    # instructions for Jev in the quick panel to suggest an agent, model or routing group for what you type
+buffer = 5                     # percent below each account's usage_cap left for the sessions already running there: Auto stops favoring its soonest reset, and a fallback group moves on, once it's this close (0 to 50)
 
 [[routing.groups]]
 name = "reviewers"             # offered in the quick panel, `codealong start --account`, and as the reviewer for PRs
-strategy = "alternate-harness" # "usage" (most room / soonest reset), "alternate-harness" (rotates across harnesses), or "round-robin"
+strategy = "alternate-harness" # "usage" (most room / soonest reset), "alternate-harness" (rotates across harnesses), "round-robin", or "fallback" (the members in order, each until it's within `buffer` of its cap)
 members = [{ account = "claude-work", model = "opus" }, { account = "codex" }]  # [] includes every enabled account that can start
 
 [reviews]

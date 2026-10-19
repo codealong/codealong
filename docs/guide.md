@@ -1555,13 +1555,21 @@ its default model spends, where `usage_cap` (90% by default, set per account in 
 of a limit is no room; the others only once they're all
 out. Among them it takes the one whose weekly limit resets soonest, so no week's room goes unused,
 until that one is within 5% of its cap, that last 5% being left to the sessions already
-running on it; else the one with the most room. It starts on that default model, or the next best
+running on it (*Room kept for running sessions* in Settings › Routing, `[routing] buffer`); else
+the one with the most room. It starts on that default model, or the next best
 (Opus, then Sonnet) when the default's own weekly limit is nearly used up. Named **routing groups**
 (`[[routing.groups]]`, Settings › Routing) group `(account, model)` members under a strategy:
-`"usage"` (most room / soonest reset), `"alternate-harness"` (rotates across the group's harnesses)
-or `"round-robin"`, skipping accounts at their usage cap. A routing group is offered after Auto in
-the quick panel, in `codealong start --account <group>`, as the reviewer for PRs, or as Auto's own
-rule (`[routing] auto = "<group>"`). Codealong only launches:
+`"usage"` (most room / soonest reset), `"alternate-harness"` (rotates across the group's harnesses),
+`"round-robin"`, or `"fallback"`, skipping accounts at their usage cap. A fallback group starts on
+its members in the order they're listed (Settings › Routing moves them up and down; with none
+listed, every enabled account in config order), each until it's within the buffer of its cap,
+then the next; once every one is that close, the one with the most room. A routing group is
+offered after Auto in the quick panel, in `codealong start --account <group>`, as the reviewer
+for PRs, or as Auto's own rule (`[routing] auto = "<group>"`). A group's *Use this group for* boxes
+are those same settings: *New sessions on Auto* is `[routing] auto` (the *Auto routing* menu above
+the groups), and the two review boxes are the reviewers in Settings › Automation (`[reviews]
+account`, `[reviews.own] account`) as set for every repo; a repo given its own reviewer there keeps
+it. Codealong only launches:
 the session shows on the board like any other, and the panel stays on whatever you're looking at
 when it appears.
 
