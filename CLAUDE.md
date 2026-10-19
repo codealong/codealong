@@ -28,6 +28,7 @@ scripts/engine.sh                       # builds this checkout's engine binary w
 scripts/checks.sh                       # every browser check (scripts/preview/*-check.js) on your real data; names run a few
 scripts/relaunch.sh                     # builds Codealong Dev, then quits it and reopens it from Applications
 scripts/release.sh                      # the installer for other Macs: universal, Developer ID, notarized
+scripts/check-release.sh <version>      # a release on GitHub as a download gets it; the /release skill ships one
 scripts/linux-vm.sh [test|build|run]    # a Linux VM (Lima) to build, test and run it on Linux in
 ```
 

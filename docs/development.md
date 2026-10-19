@@ -27,6 +27,7 @@ scripts/relaunch.sh       # build Codealong Dev, then quit it and reopen it from
 scripts/catch-up-main.sh  # fast-forward the main checkout to origin/main (relaunch.sh does too)
 scripts/version.sh 0.3.0  # start a release: the version everywhere, committed and tagged
 scripts/release.sh        # the installer for other Macs (design/plans/releases.md)
+scripts/check-release.sh 0.3.0  # a release on GitHub as a download gets it: notarized, signed, its update
 npm run snapshot          # print the board as a table without opening a window
 ```
 

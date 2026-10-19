@@ -213,9 +213,12 @@ the release's `latest.json` and archive, and the key is `tauri.conf.json`'s.
   sentences, trimmed by hand (`--notes`). They go in the GitHub release and in `latest.json`,
   which is what the app shows beside Restart.
 - Each release: `version.sh --push`, which has CI build the draft (or `release.sh --draft` on a
-  Mac with the keys, after pushing the tag), then install the draft's image on a Mac or user
-  account that has never had Codealong, then publish the draft. The website needs nothing: its
-  button follows `releases/latest`; the Homebrew cask follows it by itself (phase 4).
+  Mac with the keys, after pushing the tag), then `scripts/check-release.sh <version>` and
+  installing the draft's image on a Mac or user account that has never had Codealong, then
+  publish the draft. The website needs nothing: its button follows `releases/latest`; the
+  Homebrew cask follows it by itself (phase 4). The `/release` skill
+  (`.claude/skills/release/SKILL.md`) walks an agent through all of it, stopping for the owner's
+  word at the notes, the build's approval and publishing.
 
 ## Phase 3: building releases on CI (written, not run yet)
 
