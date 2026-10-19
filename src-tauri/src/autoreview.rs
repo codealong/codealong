@@ -705,13 +705,21 @@ fn opening(pr: &PrItem) -> String {
     format!("Review pull request #{} in {},", pr.number, pr.repo_slug)
 }
 
+/// Whether a first prompt, as a reader keeps it, is a review of `pr`: it opens as one does, even
+/// cut short (`util::truncate`) where a long repo name takes the opening past what's kept, so
+/// long as it goes past the PR's number; or it has the PR's link in brackets as one does (a bare
+/// link to #7 would match #70's too).
+fn names(first: &str, pr: &PrItem) -> bool {
+    let opening = opening(pr);
+    let past_number = opening.len() - pr.repo_slug.len() - 1;
+    first.starts_with(&opening) || first.strip_suffix('…').is_some_and(|cut| cut.len() > past_number && opening.starts_with(cut)) || first.contains(&format!("({})", pr.url))
+}
+
 /// The first session among `sessions` started since `at` (a minute's leeway) whose first prompt
-/// is a review of `pr`: it opens as one does, or has the PR's link in brackets as one does (a
-/// bare link to #7 would match #70's too).
+/// is a review of `pr` (`names`).
 fn first_naming<'a>(sessions: impl Iterator<Item = &'a Session>, pr: &PrItem, at: i64) -> Option<String> {
-    let (opening, link) = (opening(pr), format!("({})", pr.url));
     sessions
-        .filter(|s| s.visitor.is_none() && s.started_at.unwrap_or(s.last_activity) >= at - 60_000 && s.first_prompt.as_deref().is_some_and(|f| f.starts_with(&opening) || f.contains(&link)))
+        .filter(|s| s.visitor.is_none() && s.started_at.unwrap_or(s.last_activity) >= at - 60_000 && s.first_prompt.as_deref().is_some_and(|f| names(f, pr)))
         .min_by_key(|s| s.started_at.unwrap_or(s.last_activity))
         .map(|s| s.key.clone())
 }
@@ -801,8 +809,11 @@ impl Reviewer {
         for (key, t) in self.store.prs.iter_mut() {
             let pr = listed.get(key).copied();
             let on = on_for(pr);
-            if let Some(pr) = pr.filter(|pr| t.rounds.last().is_some_and(|r| r.by_hand) || (on && wanted(&settings.reviews(cfg, pr), &board.lanes, pr))) {
-                changed |= t.take_up(board, pr, false);
+            let failed = t.rounds.last().filter(|r| r.stage == ReviewStage::Failed).map(|r| r.by_hand);
+            if let (Some(by_hand), Some(pr)) = (failed, pr) {
+                if by_hand || (on && wanted(&settings.reviews(cfg, pr), &board.lanes, pr)) {
+                    changed |= t.take_up(board, pr, false);
+                }
             }
             let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) else { continue };
             for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
@@ -2969,6 +2980,13 @@ mod tests {
         let files = Reading { md: "m".into(), diff: "d".into(), changes: None };
         let asked = crate::util::one_line(&first_prompt(&long, HEAD, None, false, "gwen", &Goes::Post(ReviewPost::Draft), INSTRUCTIONS, &files), 140);
         assert!(!asked.contains(&long.url), "the link is cut: {asked}");
+        // A repo name long enough takes the opening itself past what's kept: what's left of it
+        // still names the PR, once it's past the number, and no other.
+        let far = PrItem { repo_slug: format!("{}/{}", "o".repeat(39), "r".repeat(100)), ..long.clone() };
+        let kept = crate::util::one_line(&first_prompt(&far, HEAD, None, false, "gwen", &Goes::Post(ReviewPost::Draft), INSTRUCTIONS, &files), 140);
+        assert!(!kept.starts_with(&opening(&far)) && names(&kept, &far), "{kept}");
+        assert!(!names(&kept, &PrItem { number: 70, ..far.clone() }));
+        assert!(!names("Review pull request #7 in…", &far) && !names("…", &far));
         let agy = |key: &str, first: &str, activity: i64| Session { account: "antigravity".into(), status: Status::Unread, last_activity: activity, first_prompt: Some(first.into()), ..fixtures::session(key) };
         let mine = agy("antigravity:antigravity:late", &asked, NOW + SHOW_MS + 60_000);
         // Another PR's review, whose number starts the same, isn't it.
