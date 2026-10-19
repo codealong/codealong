@@ -4,23 +4,27 @@ Status: phases 1 and 2 are built (2026-09-28). `scripts/release.sh` makes the in
 with Gordon Hempton's Developer ID and notarized (Gatekeeper accepts the app and the disk image as
 "Notarized Developer ID"), and each release's update; release builds find, install and offer it.
 The routine (`scripts/version.sh`), CI's release build and the Homebrew tap are written
-(2026-10-17), and wait on the repo going public to run: see *Going public* below. The decisions
-below are made.
+(2026-10-17). The repos are public since 2026-10-19, and 0.2.0 waits as a draft: see *Going
+public* below. The decisions below are made.
 
 ## Going public
 
-The history is ready: an audit on 2026-10-17 found no secrets, and the names from the owner's
-other work that were in files and commit messages were rewritten out of both repos' histories
-that day, after which both repos were recreated on GitHub so it keeps nothing of the old one
-(`.git/rewrite-2026-10-17` holds the rules and the old-to-new commit map). Then, in this order:
+An audit on 2026-10-17 found no secrets, and the names from the owner's other work that were in
+files and commit messages were rewritten out of both repos' histories that day, after which both
+repos were recreated on GitHub so it keeps nothing of the old one (`.git/rewrite-2026-10-17`
+holds the rules and the old-to-new commit map). Three commits of 2026-10-18 brought names back,
+so the app repo's last 27 commits were rewritten again with the same rules on 2026-10-19 and the
+repo recreated once more (`.git/rewrite-2026-10-19`); a pre-push hook on the owner's Mac now
+refuses them. In this order:
 
-1. Make `codealong/codealong`, `codealong/codealong-ios` and `codealong/homebrew-tap` public, and
-   turn on private vulnerability reporting (Settings, Security) on the first two.
+1. Done 2026-10-19: `codealong/codealong`, `codealong/codealong-ios` and `codealong/homebrew-tap`
+   are public, with private vulnerability reporting on the first two.
 2. `scripts/release-secrets.sh`: the `release` and `homebrew` environments and their keys, from
-   1Password (environments need a paid plan on a private repo, so this waits for step 1).
-3. From origin/main: `scripts/version.sh 0.2.0 --notes <file> --push`. The plugin is 0.2.0
-   already, and the version never goes back. The tag has GitHub build the draft (release.yml),
-   which waits for your approval in the run's page; about half an hour after that.
+   1Password (environments need a paid plan on a private repo, so this waited for step 1).
+3. Done 2026-10-18: `scripts/version.sh 0.2.0` tagged it, and with CI skipped while the repo was
+   private, `scripts/release.sh --draft` built the draft on the owner's Mac. From the next
+   version on, the tag has GitHub build the draft (release.yml), which waits for your approval in
+   the run's page; about half an hour after that.
 4. Install the draft's `Codealong.dmg` on a Mac or user account that has never had Codealong
    (*Check before the first public release* below), then publish the draft. Publishing moves
    `latest`, so installed copies find it and the website's button gets it, and homebrew.yml

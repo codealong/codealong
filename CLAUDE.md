@@ -172,12 +172,13 @@ what changed), and the pull request template filled in.
    harness's to clean up when the session ends.
 6. If a Codealong todo started the work, mark it done: `codealong todo done <id>`.
 
-- The history was rewritten on 2026-10-17, before the repo went public, and the old `main` is
-  kept here as `refs/pre-rewrite/main`. A branch made before then shares no commits with
-  `origin/main`: move your own commits with `git rebase --onto origin/main $(git merge-base HEAD
-  refs/pre-rewrite/main)`, never a plain `git rebase origin/main` or `git pull`, which would
-  replay the whole old history. Its work is in `origin/main` once landed, though `git branch -d`
-  can't tell.
+- The history was rewritten before the repo went public, on 2026-10-17 and its last 27 commits
+  again on 2026-10-19, and the old `main` is kept here as `refs/pre-rewrite/main` (2026-10-17's
+  as `refs/pre-rewrite-2026-10-17/main`). A branch made before a rewrite stands on commits
+  `origin/main` no longer has: move your own commits with `git rebase --onto origin/main
+  $(git merge-base HEAD refs/pre-rewrite/main)`, never a plain `git rebase origin/main` or
+  `git pull`, which would replay the old ones. Its work is in `origin/main` once landed, though
+  `git branch -d` can't tell.
 - Ask before anything destructive: force-push, reset, rebasing commits that are already
   pushed, deleting branches. Rebasing your own unpushed branch onto `origin/main` needs no ask,
   nor removing your own worktree and branch once they've landed (step 5).
