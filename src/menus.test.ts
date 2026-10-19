@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead, quietAhead } from './ahead';
-import { getAccounts, moveSession, moveSessionTo, setPrPrimary, type Done } from './api';
+import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import { setPlatform } from './platform';
 import type { Report } from './report';
+import { startAccountsNow } from './startAccounts';
 import * as fx from './testing/fixtures';
 import type { TodoOp } from './todos';
 import type { Label, Lane, PrItem, Session, Todo } from './types';
@@ -13,7 +14,9 @@ import type { Label, Lane, PrItem, Session, Todo } from './types';
 // What the engine says to Mark as done: done, unless a test says otherwise.
 vi.mock('./ahead', async (original) => ({ ...(await original<typeof import('./ahead')>()), doneAhead: vi.fn(), quietAhead: vi.fn(() => Promise.resolve()) }));
 // No accounts to move to, unless a test says otherwise; what a move gives back, as a test says.
-vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
+vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), getAccounts: vi.fn(() => Promise.resolve([])), moveSession: vi.fn(), moveSessionTo: vi.fn(), resumeSession: vi.fn(), setPrPrimary: vi.fn(() => Promise.resolve()) }));
+// No accounts to resume in, unless a test says otherwise.
+vi.mock('./startAccounts', async (original) => ({ ...(await original<typeof import('./startAccounts')>()), startAccountsNow: vi.fn(() => []) }));
 
 const report: Report = { error: () => {}, info: () => {} };
 const noop = () => {};
@@ -339,7 +342,7 @@ describe('several sessions picked together', () => {
       '-',
       'Copy session IDs',
     ]);
-    expect(sessionsActions([a, b, c], { report }).takes).toEqual({ stop: 0, seen: 1, unread: 1, snooze: 2, close: 1, done: 2, archive: 2 });
+    expect(sessionsActions([a, b, c], { report }).takes).toEqual({ carryOn: 0, stop: 0, seen: 1, unread: 1, snooze: 2, close: 1, done: 2, archive: 2 });
     // All archived: they come out of it together, and aren't pinned, snoozed or done.
     const d = { ...c, session: { ...c.session, key: 'claude:c:4', id: 'd4' } };
     expect(labels(sessionsMenu([c, d], { report, pin: { label: 'Pin 2 sessions', run: noop } }))).toEqual(['Unarchive 2 sessions', '-', 'Copy session IDs']);
@@ -392,6 +395,42 @@ describe('several sessions picked together', () => {
     await settled();
     expect(left).toEqual([['closed', ['claude:c:1']]]);
     expect(said).toEqual(['Closed 1 session.']);
+  });
+
+  it('carries on the ones cut off, one after another, each where Carry on would take it alone', async () => {
+    const resume = vi.mocked(resumeSession);
+    resume.mockReset();
+    let going = 0;
+    resume.mockImplementation(async (key) => {
+      // One at a time: the next waits until this one's terminal has opened.
+      expect(going++).toBe(0);
+      await new Promise((r) => setTimeout(r, 1));
+      going--;
+      if (key === 'claude:c:8') throw new Error('Its folder is gone.');
+      return { message: 'Resumed.', opened: true };
+    });
+    vi.mocked(startAccountsNow).mockReturnValue([
+      fx.startAccount({ places: [{ place: 'background', label: 'Background' }, { place: 'terminal', label: 'Ghostty' }], resumes: ['background', 'terminal'] }),
+    ]);
+    const said: string[] = [];
+    const cut = (n: number, over: Partial<Session> = {}) => ({ lane: lane(), session: session({ key: `claude:c:${n}`, id: `${n}`, title: `Cut ${n}`, status: 'needs', live: false, pid: null, cutOff: 1, ...over }) });
+    try {
+      // Not one running, nor one on another Mac, nor one that wasn't cut off.
+      const picked = [cut(7), a, cut(8), cut(9, { live: true, pid: 9 }), cut(10, { key: '@mini:claude:c:10' }), b];
+      const acts = sessionsActions(picked, { report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) } });
+      expect(acts.takes.carryOn).toBe(2);
+      expect(labels(sessionsMenu(picked, { report })).slice(0, 2)).toEqual(['Carry on 2 sessions', '-']);
+      acts.carryOn?.run();
+      await vi.waitFor(() => expect(said).toHaveLength(1));
+      expect(resume.mock.calls).toEqual([
+        ['claude:c:7', { place: 'terminal', model: null, effort: null }],
+        ['claude:c:8', { place: 'terminal', model: null, effort: null }],
+      ]);
+      expect(said).toEqual(['error: Resumed 1 session to carry on. Couldn’t carry on “Cut 8”: Its folder is gone.']);
+      expect(sessionsActions([a, b], { report }).carryOn).toBeUndefined();
+    } finally {
+      vi.mocked(startAccountsNow).mockReturnValue([]);
+    }
   });
 
   it('marks them done together, holding the working ones until asked again', async () => {

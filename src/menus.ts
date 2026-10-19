@@ -281,16 +281,8 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   // One that isn't running goes on where its account's sessions can (start.rs `resume`), as its
   // box offers, where there's more than the terminal Open resumes it in.
   const resumeTo = here && !s.live && !s.hosted && s.surface === 'cli' ? resumePlaces(s) : [];
-  // Resumed with nothing to say, a turn that was cut off is told to carry on (start.rs `resume`):
-  // one of its harness's app goes on there, the rest where its box would resume it.
   const cutOff = s.cutOff != null && s.status !== 'working';
-  const carryTo = !cutOff || !here || s.live || s.hosted
-    ? undefined
-    : s.surface === 'app'
-      ? resumePlaces(s).find((p) => p.place === 'claude-app' || p.place === 'codex-app')
-      : resumeTo.length > 0
-        ? carryOnIn(resumeTo, resumedIn(s.account))
-        : undefined;
+  const carryTo = carriesOnIn(s);
   const resume = (to: StartAccount['places'][number]) =>
     busy(`Resuming ${s.title}…`, resumeSession(s.key, { place: to.place, model: null, effort: null }))
       .then((sent) => {
@@ -437,6 +429,16 @@ export function carryOnIn(places: StartAccount['places'], last: StartPlace | und
   return places.find((p) => p.place === last) ?? places.find((p) => p.place === 'terminal') ?? places[0];
 }
 
+/** Where Carry on resumes `s`, for one of this Mac's whose turn was cut off and that isn't
+ *  running; undefined for any other. Resumed with nothing to say, it's told to carry on (start.rs
+ *  `resume`): one of its harness's app goes on there, the rest where its box would resume it. */
+function carriesOnIn(s: Session): StartAccount['places'][number] | undefined {
+  if (s.cutOff == null || s.status === 'working' || shortOf(s.key) || s.live || s.hosted) return undefined;
+  if (s.surface === 'app') return resumePlaces(s).find((p) => p.place === 'claude-app' || p.place === 'codex-app');
+  const places = s.surface === 'cli' ? resumePlaces(s) : [];
+  return places.length > 0 ? carryOnIn(places, resumedIn(s.account)) : undefined;
+}
+
 /** Where a session of this Mac's that isn't running can go on: its account's places for that. */
 function resumePlaces(s: Pick<Session, 'account' | 'harness'>): StartAccount['places'] {
   const a = accountOf(startAccountsNow(), s);
@@ -507,6 +509,8 @@ export interface SessionsCan {
  *  the same keys run them (`keyed`). Each acts on the ones it applies to by `sessionActions`'s
  *  rules for one, says how many in its label, and is missing when it applies to none. */
 export interface SessionsActions {
+  /** Each whose turn was cut off goes on where Carry on would take it alone, one after another. */
+  carryOn?: MenuAction;
   stop?: MenuAction;
   seen?: MenuAction;
   unread?: MenuAction;
@@ -519,7 +523,7 @@ export interface SessionsActions {
   archive?: MenuAction;
   copyId?: MenuAction;
   /** How many of them each takes. */
-  takes: Record<'stop' | 'seen' | 'unread' | 'snooze' | 'close' | 'done' | 'archive', number>;
+  takes: Record<'carryOn' | 'stop' | 'seen' | 'unread' | 'snooze' | 'close' | 'done' | 'archive', number>;
 }
 
 /** Their titles, as a sentence lists them. */
@@ -528,13 +532,14 @@ function titles(list: Session[]): string {
   return said.length > 1 ? `${said.slice(0, -1).join(', ')} and ${said[said.length - 1]}` : (said[0] ?? '');
 }
 
-/** Does `work` to each in turn, each once the one before is done: closing a terminal or typing
- *  into one goes through the terminal app, which takes one at a time. Says how each went. */
-async function oneByOne<T>(list: Session[], work: (s: Session) => Promise<T>): Promise<{ s: Session; ok?: T; error?: string }[]> {
+/** Does `work` to each in turn (with where it is in `list`), each once the one before is done:
+ *  closing a terminal or typing into one goes through the terminal app, which takes one at a
+ *  time. Says how each went. */
+async function oneByOne<T>(list: Session[], work: (s: Session, i: number) => Promise<T>): Promise<{ s: Session; ok?: T; error?: string }[]> {
   const out: { s: Session; ok?: T; error?: string }[] = [];
-  for (const s of list) {
+  for (const [i, s] of list.entries()) {
     try {
-      out.push({ s, ok: await work(s) });
+      out.push({ s, ok: await work(s, i) });
     } catch (e) {
       out.push({ s, error: errorText(e) });
     }
@@ -559,6 +564,10 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
   const all = own.map((x) => x.s);
   const [stop, seen, unread, snooze, quiet, close, done] = (['stop', 'seen', 'unread', 'snooze', 'quiet', 'close', 'done'] as const).map(those);
   const allQuiet = quiet.length > 0 && quiet.every((s) => s.quiet);
+  const carryOn = all.flatMap((s) => {
+    const to = carriesOnIn(s);
+    return to ? [{ s, to }] : [];
+  });
   const toArchive = all.filter((s) => !s.archived);
   const archive = can.archive ?? ((keys: string[], archived: boolean) => void Promise.all(keys.map((k) => archiveAhead(k, archived))).catch((e: unknown) => report.error(errorText(e))));
   const say = (said: { words: string; wrong: boolean }) => said.words && (said.wrong ? report.error(said.words) : report.info(said.words));
@@ -600,7 +609,20 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
       else say(said);
     });
   };
+  // Each opens where it goes on, as Close closes a terminal, so they go one after another.
+  const carryOnAll = () =>
+    void busy(
+      `Carrying on ${count(carryOn.length, 'session')}…`,
+      oneByOne(
+        carryOn.map((c) => c.s),
+        (s, i) => resumeSession(s.key, { place: carryOn[i].to.place, model: null, effort: null }).then(() => rememberResumed(s.account, carryOn[i].to.place)),
+      ),
+    ).then((out) => {
+      const went = out.filter((o) => !o.error).length;
+      say(howItWent(went > 0 ? `Resumed ${count(went, 'session')} to carry on.` : '', 'carry on', out));
+    });
   return {
+    carryOn: carryOn.length > 0 ? { label: `Carry on ${count(carryOn.length, 'session')}`, run: carryOnAll } : undefined,
     stop:
       stop.length > 0
         ? { label: `Stop ${count(stop.length, 'turn')}`, run: () => void busy(`Stopping ${count(stop.length, 'turn')}…`, oneByOne(stop, (s) => sessionCancel(s.key))).then((out) => say(howItWent('', 'stop', out))) }
@@ -670,13 +692,14 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
           ? { label: `Unarchive ${count(all.length, 'session')}`, run: () => archive(keysOf(all), false) }
           : undefined,
     copyId: copyItem('Copy session IDs', all.map((s) => s.id).join(' '), 'session IDs', report),
-    takes: { stop: stop.length, seen: seen.length, unread: unread.length, snooze: snooze.length, close: close.length, done: done.length, archive: toArchive.length || all.length },
+    takes: { carryOn: carryOn.length, stop: stop.length, seen: seen.length, unread: unread.length, snooze: snooze.length, close: close.length, done: done.length, archive: toArchive.length || all.length },
   };
 }
 
-/** The order of the menu of several sessions picked together: what they are to you, then
- *  copying them. Opening them, and what's done to one at a time (rename, move, fork), aren't. */
+/** The order of the menu of several sessions picked together: carrying on the ones cut off, what
+ *  they are to you, then copying them. Opening them, and what's done to one at a time (rename, move, fork), aren't. */
 const SESSIONS_MENU = [
+  ['carryOn'],
   ['stop', 'seen', 'unread', 'pin', 'snooze', 'quiet', 'close', 'done', 'archive'],
   ['copyId'],
 ] as const;

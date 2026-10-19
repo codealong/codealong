@@ -126,7 +126,9 @@ rest.
 with Seen, Done, Snooze, Close and Archive for all of them at once, each saying how many it takes
 where that's fewer, a right-click on one of them is the menu for all (Pin, Quiet, Stop turn and Copy
 session IDs too), and the same chords act on all of them; Esc goes back to one. Archive and Mark as
-done have one Undo for the lot. With a search typed, Sessions' Archived fold lists the archived
+done have one Undo for the lot. Where any of them was cut off (a restart leaves many so), Carry on
+leads: each cut off resumes where its own Carry on would take it, one after another, told to carry
+on. With a search typed, Sessions' Archived fold lists the archived
 sessions it finds, so its count says how many match.
 
 #### Emblems

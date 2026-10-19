@@ -1,6 +1,7 @@
 // Several sessions picked together in Sessions (picks.ts), in the pick panel (PickPanel.tsx):
 // what's commonly done to all of them at once, the strip a session's panel has
-// (SessionPanel.tsx `Hotkey`) with Pin beside it, and each of them. The actions are the menu's
+// (SessionPanel.tsx `Hotkey`) with Pin beside it, led by Carry on where any was cut off (a restart
+// leaves many so), and each of them. The actions are the menu's
 // (menus.ts `sessionsActions`), and each acts on the ones it applies to: a button says how many
 // where that's fewer than all.
 
@@ -26,7 +27,7 @@ interface SessionPickPanelProps {
 
 export function SessionPickPanel({ items, actions, onShow, onLeaveOut, onMoreMenu }: SessionPickPanelProps) {
   const n = items.length;
-  const { seen, done, snooze, close, archive, pin, takes } = actions;
+  const { carryOn, seen, done, snooze, close, archive, pin, takes } = actions;
   const sign = (name: keyof typeof CHORDS) => chordSigns(CHORDS[name] ?? '');
   // How many it takes, where that's fewer than all of them: Close 2 of 5.
   const some = (name: keyof typeof takes) => (takes[name] > 0 && takes[name] < n ? ` ${takes[name]}` : '');
@@ -40,6 +41,13 @@ export function SessionPickPanel({ items, actions, onShow, onLeaveOut, onMoreMen
       onMoreMenu={onMoreMenu}
       actions={
         <PickKeys>
+          {carryOn && (
+            <Hotkey
+              label={`Carry on${some('carryOn')}`}
+              title={`${carryOn.label}: each resumes where its account’s sessions last went on, told to carry on the turn that was cut off`}
+              run={() => carryOn.run()}
+            />
+          )}
           <Hotkey label={`Seen${some('seen')}`} keys={sign('seen')} title={seen ? `${seen.label}: they go idle and leave what waits on you` : 'None of them has anything to mark as seen'} run={seen && (() => seen.run())} />
           <Hotkey
             label={`Done${some('done')}`}
