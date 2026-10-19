@@ -4,10 +4,13 @@
 // merge box (MergeBox.tsx), read as the card shows and once for it, its button GitHub's pick for
 // you with Open on GitHub after it in the row. Left untouched, the card goes as the pointer leaves it.
 // Pressing the merge button shows the commit on the card, which stays up from then on as the
-// pointer leaves and stays inside the window as it grows; keys typed into the commit don't put it
-// away, and Escape there puts the commit away and leaves the card. ⌘⏎ merges the PR with what was
-// written, and the card stays, saying so; a key typed elsewhere then puts it away. The session's
-// PR is made an open one that's someone else's, whatever it is today.
+// pointer leaves and stays inside the window as it grows, and as the pointer passes over another
+// PR's chip; keys typed into the commit and Tab and Space on its box don't put it away, a
+// right-click in it is the field's own menu and elsewhere on the card none, and Escape there puts
+// the commit away and leaves the card. ⌘⏎ merges the PR with what was written, and the card stays,
+// saying so; a key typed elsewhere then puts it away, and shown again it goes as the pointer
+// leaves. The session's PR is made an open one that's someone else's, whatever it is today, and
+// another PR lists the session too.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-card-merge-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -31,6 +34,8 @@
         board.prs.forEach(function (x) {
           if (x.key === picked.pr.key) Object.assign(x, { state: 'open', mine: false, author: 'ana', reviewRequested: false, snoozedUntil: null, mergedAt: null, closedAt: null });
         });
+        var another = board.prs.find(function (x) { return x.key !== picked.pr.key; });
+        if (another && !another.sessions.some(function (y) { return y.key === picked.key; })) another.sessions.push({ key: picked.key, lane: picked.lane });
         board.lanes.forEach(function (l) {
           l.sessions.forEach(function (s) { if (s.key === picked.key) s.lastActivity = Math.max(s.lastActivity, Date.now() - 60e3); });
         });
@@ -42,6 +47,8 @@
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var title = function () { var t = q('.ca-sessinsp .ca-sessinsp-title'); return t ? t.textContent : null; };
   var chip = function () { return all('.ca-sessinsp .ca-prchipcard').filter(function (el) { return el.textContent.indexOf('#' + picked.pr.number) >= 0; })[0]; };
+  var otherChip = function () { return all('.ca-sessinsp .ca-prchipcard').filter(function (el) { return el.textContent.indexOf('#' + picked.pr.number) < 0; })[0]; };
+  var cardRef = function () { var r = card() && q('.ca-prhover-ref', card()); return r ? r.textContent : null; };
   var card = function () { return q('.ca-prhover'); };
   var main = function () { return card() && q('.ca-merge-main > .ca-btn', card()); };
   var commit = function () { return card() && q('.ca-merge-write .ca-field input', card()); };
@@ -110,6 +117,31 @@
     })
     .then(function () {
       check('a key typed into the commit leaves it up', !!card() && !!commit());
+      var box = q('.ca-merge-opts .ca-check input', card());
+      if (box) {
+        key(box, { key: 'Tab' });
+        key(box, { key: ' ' });
+        check('so do Tab and Space on its box', !!card() && !!commit());
+      } else {
+        note('no box for deleting the branch: Tab and Space not tried');
+      }
+      var inField = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      commit().dispatchEvent(inField);
+      var onCard = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      q('.ca-prhover-title', card()).dispatchEvent(onCard);
+      check('a right-click in the commit is the field’s own menu, and elsewhere on the card none', !inField.defaultPrevented && onCard.defaultPrevented, [inField.defaultPrevented, onCard.defaultPrevented].join(', '));
+      if (!otherChip()) {
+        note('no other PR chip: passing over one not tried');
+        return null;
+      }
+      var was = cardRef();
+      hover(otherChip());
+      return wait(700).then(function () {
+        check('the pointer passing over another PR’s chip leaves it up, commit and all', cardRef() === was && !!commit(), cardRef());
+        leave(otherChip());
+      });
+    })
+    .then(function () {
       key(commit(), { key: 'Escape' });
       return wait(50);
     })
@@ -132,6 +164,15 @@
     })
     .then(function () {
       check('a key typed elsewhere then puts it away', true);
+      hover(chip());
+      return until(card, 3000, 'the card shown again');
+    })
+    .then(function () {
+      leave(card());
+      return until(function () { return !card(); }, 2000, 'the card shown again to go as the pointer leaves');
+    })
+    .then(function () {
+      check('shown again, it goes as the pointer leaves, nothing pressed', true);
       done();
     })
     .catch(stopped);

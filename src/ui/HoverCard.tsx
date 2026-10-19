@@ -3,14 +3,17 @@
 // once while another has just closed, and takes the pointer: moving onto it keeps it up, so its
 // rows and buttons can be used. Once something on it is pressed it stays up when the pointer
 // leaves, so a merge's commit message can be written there and a menu from it used. One is up at
-// a time. It goes on a key (which still does what it does), but not on a modifier alone or ⌘C,
-// which copies what's selected on it, nor one typed into a field on it (useDismiss.ts
-// `keyLeavesHover`); on a press elsewhere; and when the window goes to the background. It follows
-// what it's beside as the page scrolls and as it grows, under it or over it, wherever there's more
-// room, and stays on its side once pressed, so it doesn't jump from under the pointer.
+// a time: another's showing closes it, but not once it's been pressed, when the other waits. It
+// goes on a key (which still does what it does), but not on a modifier alone or ⌘C, which copies
+// what's selected on it (useDismiss.ts `keyLeavesHover`), nor one that goes to something on it
+// but Escape; on a press elsewhere; and when the window goes to the background. It follows what
+// it's beside as the page scrolls and as it grows, under it or over it, wherever there's more
+// room, and stays on its side once pressed, so it doesn't jump from under the pointer. A
+// right-click on it shows no menu but a text field's own, for copy and paste.
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { fieldAt } from '../contextMenu';
 import { cx } from './primitives';
 import { useDismiss } from './useDismiss';
 
@@ -18,8 +21,8 @@ const SHOW_MS = 350;
 const HIDE_MS = 200;
 /** After a card closes, another one shows at once for this long. */
 const WARM_MS = 500;
-/** The one card that's up, so a new one closes it. */
-let shown: (() => void) | null = null;
+/** The one card that's up, so a new one closes it, unless it's held. */
+let shown: { close: () => void; held: () => boolean } | null = null;
 let warmUntil = 0;
 /** Room kept between the card and the window's edges, and between it and what it's beside. */
 const EDGE = 8;
@@ -43,12 +46,18 @@ export function useHoverCard(): HoverCardState {
   const [open, setOpen] = useState(false);
   const timer = useRef(0);
   const holding = useRef(false);
-  const closeRef = useRef(() => setOpen(false));
+  const me = useRef({
+    close: () => {
+      holding.current = false;
+      setOpen(false);
+    },
+    held: () => holding.current,
+  });
 
   useEffect(
     () => () => {
       window.clearTimeout(timer.current);
-      if (shown === closeRef.current) shown = null;
+      if (shown === me.current) shown = null;
     },
     [],
   );
@@ -56,8 +65,12 @@ export function useHoverCard(): HoverCardState {
   const show = () => {
     window.clearTimeout(timer.current);
     const go = () => {
-      if (shown && shown !== closeRef.current) shown();
-      shown = closeRef.current;
+      if (shown && shown !== me.current) {
+        // What's being written on one pressed isn't lost to the pointer passing over another.
+        if (shown.held()) return;
+        shown.close();
+      }
+      shown = me.current;
       setOpen(true);
     };
     if (performance.now() < warmUntil) go();
@@ -66,7 +79,7 @@ export function useHoverCard(): HoverCardState {
   const close = () => {
     window.clearTimeout(timer.current);
     holding.current = false;
-    if (shown === closeRef.current) {
+    if (shown === me.current) {
       shown = null;
       warmUntil = performance.now() + WARM_MS;
     }
@@ -149,7 +162,7 @@ export function HoverCard({ card: c, label, className, children }: { card: Hover
   // React passes a portal's events up to what renders it, a list's row say, which would select
   // itself, start dragging itself or show its own menu: presses, drags and right-clicks on the
   // card are the card's alone. It has no menu of its own, so a right-click away from its rows
-  // shows none, as main.tsx has it.
+  // shows none, and one in a text field the field's own, as main.tsx has it.
   const own = (e: ReactMouseEvent | ReactPointerEvent) => e.stopPropagation();
   const pressed = (e: ReactPointerEvent) => {
     own(e);
@@ -169,7 +182,7 @@ export function HoverCard({ card: c, label, className, children }: { card: Hover
       onDoubleClick={own}
       onContextMenu={(e) => {
         e.stopPropagation();
-        e.preventDefault();
+        if (!fieldAt(e.target)) e.preventDefault();
       }}
     >
       {children}
