@@ -76,6 +76,7 @@ import { useTextSearch } from './useTextSearch';
 import { useLatest } from './latest';
 import { useMainKeys, VIEW_CHORDS } from './mainKeys';
 import { useListPicks } from './useListPicks';
+import type { SelectHow } from './picks';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import type { FindAsk } from './ui/ThreadFind';
@@ -662,9 +663,9 @@ export function App() {
     return true;
   });
   // A session shown in a PR's or todo's panel, from its list of sessions, or a PR in a session's,
-  // worktree's or todo's panel, from its chip (`showPrOf`), until you go back. It's tied to the
-  // panel it came from: selecting another row leaves it. Rows picked together show their own
-  // panel over it (MainPanel.tsx).
+  // worktree's or todo's panel, from its chip (`showPrOf`), until you go back or press its row
+  // again (`pressRow`). It's tied to the panel it came from: selecting another row leaves it.
+  // Rows picked together show their own panel over it (MainPanel.tsx).
   const [drill, setDrill] = useState<Drill | null>(null);
   const panelFrom =
     view === 'canvas'
@@ -677,6 +678,12 @@ export function App() {
   useEffect(() => {
     if (drill && drill.from !== panelFrom) setDrill(null);
   }, [drill, panelFrom]);
+  /** A press on a list's row, before it selects the row. On the row whose panel shows a PR or
+   *  session in its place, it brings the row's own panel back, which selecting a row that's
+   *  selected already wouldn't. */
+  const pressRow = (key: string, how: SelectHow) => {
+    if (how === 'one' && drill?.from === key) setDrill(null);
+  };
   // Where a new session starts: the selected worktree, session or PR's worktree; for a PR with
   // no worktree on this Mac, its repo's main checkout.
   const startLaneId = useMemo(() => {
@@ -1473,6 +1480,7 @@ export function App() {
       onSelect={(key, how) => {
         if (how !== 'one') return picks.worktrees.select(r, how);
         picks.worktrees.clear();
+        pressRow(key, how);
         setSelectedKey(key);
       }}
       onOpen={(lane) => open(lane, lane.defaultTarget)}
@@ -1864,6 +1872,7 @@ export function App() {
                 showDone={showDoneCards}
                 onToggleDone={() => setShowDoneCards(!showDoneCards)}
                 onSelect={(c, how) => {
+                  pressRow(c.key, how);
                   // Only todos are picked together; a session's card is selected alone.
                   if (c.kind === 'todo') return selectTodoRow(c, how);
                   clearTodoPick();
@@ -1899,7 +1908,10 @@ export function App() {
                 domId={domId}
                 showProject={current === ALL_PROJECTS}
                 canReorder
-                onSelect={selectTodoRow}
+                onSelect={(r, how) => {
+                  pressRow(r.key, how);
+                  selectTodoRow(r, how);
+                }}
                 onOpen={(r) => {
                   selectTodoRow(r, 'one');
                   openRow(r);
@@ -1944,7 +1956,10 @@ export function App() {
                 domId={domId}
                 showDone={showDonePrs}
                 onToggleDone={() => setShowDonePrs(!showDonePrs)}
-                onSelect={picks.prs.select}
+                onSelect={(r, how) => {
+                  pressRow(r.key, how);
+                  picks.prs.select(r, how);
+                }}
                 onOpen={(r) => {
                   picks.prs.select(r, 'one');
                   openRow(r);
@@ -1966,6 +1981,7 @@ export function App() {
                 picked={picks.sessions.keys}
                 domId={domId}
                 onSelect={(r, how) => {
+                  pressRow(r.key, how);
                   picks.sessions.select(r, how);
                   if (how === 'one') focusBox();
                 }}

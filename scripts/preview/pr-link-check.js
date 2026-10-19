@@ -9,7 +9,7 @@
 // the session stays active in the last minute, so its row shows under that filter. Then the
 // session, shown from the PR's panel in its place: Show in Codealong on its header's PR chip's
 // card goes back to the PR's panel, though the PR is the one selected already, and so does a
-// click on the chip itself, without opening it on GitHub.
+// click on the chip itself, without opening it on GitHub, and a press on the PR's row.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-link-check.js
 (function () {
   var texts = function (items) { return items.map(function (i) { return i.item === 'Separator' ? '-' : i.text; }); };
@@ -181,6 +181,20 @@
         var shown = document.querySelector('.ca-prinsp .ca-insp-call').textContent;
         check('a click on the PR’s chip in its header goes back to the PR’s panel too', shown === '#' + picked.pr.number, shown);
         check('without opening it on GitHub', calls('open_url').length === opens, JSON.stringify(last('open_url')));
+      });
+    })
+    .then(function () {
+      var sess = Array.prototype.filter.call(document.querySelectorAll('.ca-prinsp .ca-places .ca-sesschip'), function (el) { var t = el.querySelector('.ca-sesschip-title'); return !!t && t.textContent === picked.title; })[0];
+      sess.click();
+      return until(function () { return !document.querySelector('.ca-prinsp') && document.querySelector('.ca-panelback') && title() === picked.title; }, 3000, 'the session in the PR panel’s place once more');
+    })
+    .then(function () {
+      // The PR's row, selected already: a press on it is the PR's own panel again.
+      var prRow = document.querySelector('.ca-board-list [role="option"][aria-selected="true"]');
+      check('the PR’s row is still selected', !!prRow && prRow.id === 'row-pr:' + picked.pr.key, prRow && prRow.id);
+      prRow.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+      return until(function () { return document.querySelector('.ca-prinsp'); }, 3000, 'the PR panel, from a press on its row').then(function () {
+        check('a press on the PR’s row goes back to its panel', document.querySelector('.ca-prinsp .ca-insp-call').textContent === '#' + picked.pr.number && !document.querySelector('.ca-panelback'));
       });
     })
     .then(done)

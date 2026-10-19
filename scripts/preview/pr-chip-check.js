@@ -6,7 +6,7 @@
 // the chip's, not the window's, which would open the selected row or, in Todo with two picked,
 // start a session on them; a click on the chip opens nothing at once, then selects its row and
 // shows the PR's panel in place of the row's, the list staying as it was, with the way back to
-// the row's own; or opens it on GitHub when the board doesn't list it (the project's latest
+// the row's own, which a press on the row, selected already, is too; or opens it on GitHub when the board doesn't list it (the project's latest
 // worktrees are given a PR if they have none: one the board lists in their project where there
 // is one, and its first two open todos are linked to the first of them). On a
 // session's or worktree's card pinned to the desktop (given a PR and an app if its worktree has
@@ -262,9 +262,21 @@
           check('and opens nothing', calls('open_url').length === urls, JSON.stringify(last('open_url')));
           if (!back) return;
           back.click();
-          return wait(200).then(function () {
-            check('back is the row’s own panel again, the row still selected', !q('.ca-prinsp') && selected() === hit.row.id && view() === from, String(selected()) + ' in ' + view());
-          });
+          return wait(200)
+            .then(function () {
+              check('back is the row’s own panel again, the row still selected', !q('.ca-prinsp') && selected() === hit.row.id && view() === from, String(selected()) + ' in ' + view());
+              click(chip(), 1);
+              return wait(500);
+            })
+            .then(function () {
+              check('the chip shows the PR’s panel again', !!q('.ca-prinsp .ca-panelback') && selected() === hit.row.id, String(selected()));
+              // The row selected already: a press on it is still the row's own panel.
+              press(row());
+              return wait(200);
+            })
+            .then(function () {
+              check('and a press on the row is the row’s own panel again too', !q('.ca-prinsp') && selected() === hit.row.id && view() === from, String(selected()) + ' in ' + view());
+            });
         });
     })
     .then(function () {

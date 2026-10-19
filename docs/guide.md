@@ -52,7 +52,8 @@ a panel, a click does. A PR's chip is the same wherever it is, a row, a panel or
 shows the PR in Codealong, and a double-click opens it on GitHub; a PR Codealong doesn't list opens
 on GitHub on a click too. In Sessions, Worktrees and Todo, the PR's panel shows in place of the one
 beside the list, the chip's row selected, with a link back to the row's own panel over it, so the
-list stays as it was; from PRs, the canvas (its card, when the canvas has one) and the floating
+list stays as it was; a click on the row goes back too. The same holds for a session shown in a PR's
+or todo's panel: a click on the PR's or todo's row is its own panel again. From PRs, the canvas (its card, when the canvas has one) and the floating
 windows, it's the PR's row in PRs. A click waits a quarter of a second for a second one, so a
 double-click doesn't show the PR first. After the number, a mark says where its review stands:
 approved, changes asked for, your review asked for (amber), or Codealong's agent still reviewing
