@@ -84,9 +84,11 @@ scripts/version.sh <version> --notes <notes file> --push
 ```
 
 It commits "Release <version>", tags `v<version>`, and pushes the commit to `main` and then the
-tag. A push turned away because `main` moved: nothing reached GitHub but what it says it pushed;
-delete the local tag (`git tag -d v<version>`), remove the worktree, and do this step again from
-a fresh one. Once the tag is pushed, from the main checkout:
+tag. When the push of the commit is turned away because `main` moved, nothing reached GitHub:
+the tag is `version.sh`'s own, only in this worktree, and goes with it (`git tag -d v<version>`;
+the rule about tags is for ones GitHub has), and this step starts again from a fresh worktree.
+When the commit went and the tag didn't, push the tag: `git push origin v<version>`. Once the
+tag is pushed, from the main checkout:
 
 ```bash
 scripts/catch-up-main.sh
@@ -96,10 +98,13 @@ git worktree remove ../codealong-release-<version>
 ## 4. The build
 
 ```bash
-gh run list -R codealong/codealong --workflow release.yml --limit 1 --json databaseId,url,status
+git rev-parse 'v<version>^{commit}'
+gh run list -R codealong/codealong --workflow release.yml --branch v<version> --event push --json databaseId,url,status,headSha
 ```
 
-The run waits for the user's approval before it starts ("Review deployments" on its page). Give
+The run is the one for the tag (a tag's push is its branch here) whose `headSha` is the tagged
+commit; it can take a minute to appear, so look again rather than take another release's run.
+It waits for the user's approval before it starts ("Review deployments" on its page). Give
 them the run's link and ask them to approve it there. Approve it yourself only when they tell you
 to in chat, as them, through
 `gh api repos/codealong/codealong/actions/runs/<id>/pending_deployments`
@@ -129,10 +134,12 @@ checks every file, Gatekeeper and notarization, the signature and entitlements, 
 license files, and the update and `latest.json`. Every line must be ok.
 
 What it can't check is a person opening it: the first-open prompt, the setup wizard on a first
-run, the permission prompts. Offer the user the disk image to try before publishing
-(`gh release download v<version> -R codealong/codealong -p Codealong.dmg -D <scratchpad>`). On a
-Mac that also runs Codealong Dev, opening the release quits Dev: they share their settings, and
-the last one opened wins.
+run, the permission prompts. The routine (`design/plans/releases.md`) has the user install the
+draft on a Mac or user account that has never had Codealong before it's published: give them the
+disk image (`gh release download v<version> -R codealong/codealong -p Codealong.dmg -D
+<scratchpad>`) and ask how it went, or have them say they're publishing without trying it, and
+say which in step 7. On a Mac that also runs Codealong Dev, opening the release quits Dev: they
+share their settings, and the last one opened wins.
 
 ## 6. Publish, when the user says so
 
@@ -140,8 +147,10 @@ the last one opened wins.
 gh release edit v<version> -R codealong/codealong --draft=false --latest
 ```
 
-A prerelease is published with `--prerelease` and without `--latest`. Then check that it went
-everywhere it should:
+A prerelease is published with `--prerelease` and without `--latest`, and then only its own page
+changes: `latest.json` and the website's Download stay on the last release, and homebrew.yml's run
+skips it by design, leaving the cask where it was. Check those stayed put. A release goes
+everywhere; check that it did:
 
 ```bash
 curl -sL https://github.com/codealong/codealong/releases/latest/download/latest.json | jq -r .version   # installed copies
@@ -151,12 +160,14 @@ gh api repos/codealong/homebrew-tap/contents/Casks/codealong.rb --jq .content | 
 ```
 
 The cask's `version` is the new one and its `sha256` the disk image's (`Codealong_<version>_universal.dmg.sha256`).
-A Homebrew run that skipped or failed leaves the cask on the last version: its log says why, and
+For a release (not a prerelease), a Homebrew run that skipped or failed leaves the cask on the
+last version: its log says why, and
 `gh workflow run homebrew.yml -R codealong/codealong --ref v<version>` runs it again (on the
 tag: it takes the release from the ref it runs on, and its environment only lets `v*` tags in).
 
 ## 7. Say how it went
 
-The release page's link, what `check-release.sh` and the checks after publishing showed, and what
-nobody checked yet (a person's first open, an installed copy taking the update). Then offer to
-delete a stale draft and its tag, if step 1 found one.
+The release page's link, what `check-release.sh` and the checks after publishing showed, whether
+the user tried the draft on a fresh install or published without, and what nobody checked yet
+(an installed copy taking the update). Then offer to delete a stale draft and its tag, if step 1
+found one.

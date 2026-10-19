@@ -97,6 +97,13 @@ said="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist
 holds "it says it's $version" "it says $said" test "$said" = "$version"
 said="$("$app/Contents/MacOS/codealong" --version 2>&1 || true)"
 holds "its command says so too" "$said" test "$said" = "codealong $version"
+# What latest.json offers both kinds of Mac, so both halves must be there (release.sh's `lipo`).
+archs="$(lipo -archs "$app/Contents/MacOS/codealong" 2>/dev/null || true)"
+if [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]]; then
+  check "it's universal: Apple silicon and Intel" 0
+else
+  check "it's universal: Apple silicon and Intel" 1 "its command is ${archs:-unreadable}"
+fi
 for f in LICENSE NOTICE THIRD_PARTY_LICENSES.txt; do
   holds "has $f" "" test -s "$app/Contents/Resources/$f"
 done
@@ -104,13 +111,19 @@ done
 echo "The update installed copies get:"
 mkdir "$work/update"
 tar -xzf "$work/dl/$archive" -C "$work/update"
-cdhash() { codesign -dvvv "$1" 2>&1 | grep '^CDHash=' || true; }
-[ -n "$(cdhash "$app")" ] && [ "$(cdhash "$work/update/Codealong.app")" = "$(cdhash "$app")" ]; check "the archive holds the same build" $?
+update="$work/update/Codealong.app"
+runs "the app in it is whole: its signature holds, everything in it too" codesign --verify --deep --strict "$update"
+# The same build as the disk image's, each half: codesign shows one architecture's at a time.
+cdhash() { codesign -dvvv --arch "$2" "$1" 2>&1 | grep '^CDHash=' || true; }
+for arch in arm64 x86_64; do
+  [ -n "$(cdhash "$app" "$arch")" ] && [ "$(cdhash "$update" "$arch")" = "$(cdhash "$app" "$arch")" ]; check "the same build as the disk image's, $arch" $?
+done
 # The updater's check: a minisign signature (prehashed with BLAKE2b, "ED") by the key whose public
-# half is tauri.conf.json's, over the archive, and over its trusted comment.
+# half is tauri.conf.json's, over the archive and over its trusted comment, whose version must be
+# the one offered (`requireSignedVersion`); and latest.json pointing at this release's archive.
 node -e '
   const fs = require("fs"), crypto = require("crypto");
-  const [conf, file, sigFile, latest, version, archive] = process.argv.slice(1);
+  const [conf, file, sigFile, latest, version, archive, repo] = process.argv.slice(1);
   const b64 = (s) => Buffer.from(s.trim(), "base64");
   const pub = b64(b64(JSON.parse(fs.readFileSync(conf, "utf8")).plugins.updater.pubkey).toString().split("\n")[1]);
   const sigText = fs.readFileSync(sigFile, "utf8").trim();
@@ -124,15 +137,18 @@ node -e '
   const check = (name, ok, why) => { say(name, ok, why); results.push(ok); };
   check("its signature is by the app'"'"'s update key", pub.subarray(2, 10).equals(sig.subarray(2, 10)) && crypto.verify(null, msg, key, sig.subarray(10)));
   check("and so is its trusted comment", crypto.verify(null, Buffer.concat([sig.subarray(10), Buffer.from(trusted)]), key, global), trusted);
+  const signed = (trusted.match(/(?:^|\t)version:([^\t]+)/) || [])[1];
+  check(`which signs version ${version}`, signed === version, signed || "no version in it");
   const m = JSON.parse(fs.readFileSync(latest, "utf8"));
   check(`latest.json says ${version}`, m.version === version, m.version);
   check("with notes", typeof m.notes === "string" && m.notes.trim().length > 0);
+  const url = `https://github.com/${repo}/releases/download/v${version}/${archive}`;
   for (const p of ["darwin-aarch64", "darwin-x86_64"]) {
     const e = m.platforms && m.platforms[p];
-    check(`for ${p}, this archive and its signature`, !!e && e.url.endsWith(`/v${version}/${archive}`) && e.signature.trim() === sigText, e && e.url);
+    check(`for ${p}, the archive of this release and its signature`, !!e && e.url === url && e.signature.trim() === sigText, e && e.url);
   }
   process.exit(results.every(Boolean) ? 0 : 1);
-' src-tauri/tauri.conf.json "$work/dl/$archive" "$work/dl/$archive.sig" "$work/dl/latest.json" "$version" "$archive" || failed=1
+' src-tauri/tauri.conf.json "$work/dl/$archive" "$work/dl/$archive.sig" "$work/dl/latest.json" "$version" "$archive" "$repo" || failed=1
 
 echo
 if [ "$failed" = 0 ]; then
