@@ -92,14 +92,14 @@ describe('sessionMenu', () => {
     ]);
     // The bar's pill: its name first, then showing and answering it in Codealong.
     const bar = labels(sessionMenu(lane(), session(), { ...base, heading: true, reveal: noop, reply: noop, desktop: new Set() }));
-    // The main window's: its pins, todos and canvas.
+    // The main window's: its pins, todos and boards.
     const main = labels(
       sessionMenu(lane(), session(), {
         ...base,
         pin: { label: 'Pin session', run: noop },
         desktop: new Set(['session:claude:c:1']),
         todos: [{ label: 'Add to todo', items: [] }],
-        canvas: [{ label: 'Add to canvas', run: noop }],
+        boards: [{ label: 'Add to board', items: [{ label: 'Release', run: noop }] }],
       }),
     );
     // Every window's has everything the plainest one does, in the same order.
@@ -107,7 +107,7 @@ describe('sessionMenu', () => {
     for (const menu of [bar, main]) expect(menu.filter((l) => common.includes(l))).toEqual(common);
     expect(bar.slice(0, 2)).toEqual(['Fix login · api', '-']);
     expect(bar).toEqual(expect.arrayContaining(['Show in Codealong', 'Reply here', 'Pin to desktop']));
-    expect(main).toEqual(expect.arrayContaining(['Add to todo ›', 'Pin session', 'Remove from desktop', 'Add to canvas']));
+    expect(main).toEqual(expect.arrayContaining(['Add to todo ›', 'Add to board ›', 'Pin session', 'Remove from desktop']));
   });
 
   it('offers what the session allows', () => {

@@ -5,7 +5,7 @@
 // that, as it moves on; it never takes anything off.
 
 import { useMemo, useState } from 'react';
-import { PR_SCOPES, SESSION_AGES, TODO_AGES, tidyPlan, type CanvasDoc, type Entities, type Filter, type Include, type RefItem, type RefKind, type Scope, type TidyMode, type TidyOptions, type TidyPlan } from '../canvas/model';
+import { PR_SCOPES, SESSION_AGES, TODO_AGES, tidyPlan, type CanvasDoc, type Entities, type Filter, type Include, type OnBoard, type RefItem, type RefKind, type Scope, type TidyMode, type TidyOptions, type TidyPlan } from '../canvas/model';
 import { Icon, Seg } from './primitives';
 
 const LAYOUTS: { id: TidyMode; label: string; title: string }[] = [
@@ -63,6 +63,7 @@ function FilterRows<T extends Filter>({ value, onChange }: { value: T; onChange:
 interface TidyPanelProps {
   doc: CanvasDoc;
   entities: Entities;
+  holds: OnBoard;
   now: number;
   pinned: Set<string>;
   onTidy: (opts: TidyOptions, plan: TidyPlan) => void;
@@ -72,9 +73,9 @@ interface TidyPanelProps {
 }
 
 /** Tidy's own settings, used when you press Tidy and kept for the next one. */
-export function TidyPanel({ doc, entities, now, pinned, onTidy, onClear, onClose }: TidyPanelProps) {
+export function TidyPanel({ doc, entities, holds, now, pinned, onTidy, onClear, onClose }: TidyPanelProps) {
   const [opts, setOpts] = useState<TidyOptions>(doc.tidy);
-  const plan = useMemo(() => tidyPlan(doc, entities, now, pinned, opts), [doc, entities, now, pinned, opts]);
+  const plan = useMemo(() => tidyPlan(doc, entities, now, pinned, opts, holds), [doc, entities, now, pinned, opts, holds]);
   return (
     <div className="ca-cv-tidy" role="dialog" aria-label="Tidy">
       <div className="ca-cv-tidy-head">Tidy once, keeping</div>
@@ -89,7 +90,7 @@ export function TidyPanel({ doc, entities, now, pinned, onTidy, onClear, onClose
         <button
           type="button"
           className="ca-btn ca-btn--ghost ca-btn--sm ca-cv-tidy-clear"
-          title="Take everything off the canvas, notes and frames too. Bring in adds sessions and todos back as they move on: a new prompt, a finished turn, a change."
+          title="Take everything off the canvas, notes and frames too, though not off the board. Bring in adds sessions and todos back as they move on: a new prompt, a finished turn, a change; and what was added to the board by hand comes back."
           onClick={onClear}
         >
           Clear canvas

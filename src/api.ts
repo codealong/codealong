@@ -6,6 +6,7 @@ import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, SessionSpent, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
+import type { BoardDoc, BoardOp } from './boards/model';
 import type { TodoOp } from './todos';
 import { pageZoom, type ZoomStep } from './zoom';
 
@@ -1066,7 +1067,7 @@ export async function setTheme(theme: Theme): Promise<void> {
 /** What the floating bar, the quick panel or a card on the desktop asks the main window to show.
  *  A session's `find` is the words the quick panel found it by in what was said, which its
  *  conversation's find bar opens on; a PR's `tab` the one a link to a part of it goes to. */
-export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string; tab?: PrTab } | { kind: 'todo'; id: string } | { kind: 'canvas'; project: string; focus?: string[] };
+export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string; tab?: PrTab } | { kind: 'todo'; id: string } | { kind: 'board'; board: string; project: string; layout: 'kanban' | 'canvas'; focus?: string[] };
 
 /** Brings the main window forward, showing a session, worktree, PR or todo if given. */
 export async function showMain(reveal: Reveal | null = null): Promise<void> {
@@ -1702,41 +1703,67 @@ export function onQuickShortcut(cb: (status: ShortcutStatus) => void): () => voi
   };
 }
 
-/** A project's canvas as last saved (src/canvas/model.ts), or null when it has none yet. */
-export async function canvasLoad(project: string): Promise<unknown> {
+/** A project's boards, its own first, without their canvases (boards.rs `list`). */
+export async function boardsList(project: string): Promise<BoardDoc[]> {
+  if (!inTauri) return [];
+  return (await invoke<BoardDoc[] | null>('boards_list', { project })) ?? [];
+}
+
+/** What a change to a board did: the board as it is now, or null once it's deleted. */
+export interface BoardApplied {
+  board: BoardDoc | null;
+  id: string;
+  project: string;
+}
+
+/** A change to a board (boards.rs `apply`). Every window then reads its project's boards again. */
+export async function boardOp(op: BoardOp): Promise<BoardApplied | null> {
   if (!inTauri) return null;
-  return invoke<unknown>('canvas_load', { project });
+  return invoke<BoardApplied | null>('board_op', { op });
 }
 
-/** Saves a project's canvas. */
-export async function canvasSave(project: string, doc: unknown): Promise<void> {
+/** Calls `cb` when a board changed (boards.rs `changed`): from another window, the command, or
+ *  this window (`from` names it; null for the command). */
+export function onBoardsChanged(cb: (changed: { project: string; id: string; from: string | null }) => void): () => void {
+  return onWindowEvent<{ project: string; id: string; from: string | null }>('boards-changed', cb);
+}
+
+/** A board's canvas as last saved (src/canvas/model.ts), or null when it has none yet. */
+export async function canvasLoad(board: string): Promise<unknown> {
+  if (!inTauri) return null;
+  return invoke<unknown>('canvas_load', { board });
+}
+
+/** Saves a board's canvas. */
+export async function canvasSave(board: string, doc: unknown): Promise<void> {
   if (!inTauri) return;
-  await invoke('canvas_save', { project, doc });
+  await invoke('canvas_save', { board, doc });
 }
 
-/** Calls `cb` when another window saved a project's canvas (lib.rs `canvas_save`), so one
- *  showing the same project reads it again. */
-export function onCanvasSaved(cb: (saved: { project: string; from: string }) => void): () => void {
-  return onWindowEvent<{ project: string; from: string }>('canvas-saved', cb);
+/** Calls `cb` when another window saved a board's canvas (lib.rs `canvas_save`), so one showing
+ *  the same board reads it again. */
+export function onCanvasSaved(cb: (saved: { board: string; from: string }) => void): () => void {
+  return onWindowEvent<{ board: string; from: string }>('canvas-saved', cb);
 }
 
-/** A `codealong canvas …` request, which the engine hands the main window (canvas.rs `ask`):
- *  for a project by name, or the one the window shows when null. */
-export interface CanvasAsk {
+/** A `codealong board show|move|arrange` request, which the engine hands the main window
+ *  (boards.rs `ask`), about a board by id, in its project. */
+export interface BoardAsk {
   id: number;
-  project: string | null;
-  op: unknown;
+  board: string;
+  project: string;
+  ask: unknown;
 }
 
-/** Calls `cb` with each `codealong canvas …` request the engine hands this window. */
-export function onCanvasAsk(cb: (ask: CanvasAsk) => void): () => void {
-  return onWindowEvent<CanvasAsk>('canvas-ask', cb);
+/** Calls `cb` with each `codealong board …` request the engine hands this window. */
+export function onBoardAsk(cb: (ask: BoardAsk) => void): () => void {
+  return onWindowEvent<BoardAsk>('board-ask', cb);
 }
 
-/** Answers a `codealong canvas …` request: its result, or why there's none. */
-export async function canvasAnswer(id: number, answer: { result: unknown } | { error: string }): Promise<void> {
+/** Answers a `codealong board …` request: its result, or why there's none. */
+export async function boardAnswer(id: number, answer: { result: unknown } | { error: string }): Promise<void> {
   if (!inTauri) return;
-  await invoke('canvas_answer', { id, ...('error' in answer ? { result: null, error: answer.error } : { result: answer.result, error: null }) });
+  await invoke('board_answer', { id, ...('error' in answer ? { result: null, error: answer.error } : { result: answer.result, error: null }) });
 }
 
 /** A page of a session's conversation (transcript.rs): the newest, or what came before `before`. */

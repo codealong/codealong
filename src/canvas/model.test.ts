@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import { NOW } from '../testing/fixtures';
 import type { Lane, PrItem, Session, Todo } from '../types';
-import { addRef, arrange, contains, FRAME_GAP, settleDrop, CARD_H, clearDoc, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, originLinks, outline, overlaps, readDoc, rectOf, DEFAULT_SCOPE, DEFAULT_TIDY, DEFAULT_INCLUDE, refId, sync, tidy, tidyPlan, type CanvasDoc, type FrameItem, type NoteItem, type RefItem } from './model';
+import { addRef, arrange, contains, FRAME_GAP, settleDrop, CARD_H, clearDoc, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, originLinks, outline, overlaps, readDoc, rectOf, DEFAULT_SCOPE, DEFAULT_TIDY, DEFAULT_INCLUDE, refId, sync, tidy, tidyPlan, type CanvasDoc, type OnBoard, type FrameItem, type NoteItem, type RefItem } from './model';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -15,6 +15,13 @@ const todo = (id: string, fields: Partial<Todo> = {}): Todo => fx.todo({ id, pro
 function ents(lanes: Lane[], todos: Todo[] = []) {
   return entitiesOf(null, lanes, todos, () => true);
 }
+
+/** What a board holds: everything but what was taken off, or with `has` only what it says. */
+const onBoard = (added: string[], removed: string[], has: (id: string) => boolean = () => true): OnBoard => ({
+  has: (id) => has(id) && !removed.includes(id),
+  added: new Set(added),
+  removed: new Set(removed),
+});
 
 const refs = (d: CanvasDoc) => d.items.filter((it): it is RefItem => it.kind === 'ref');
 const at = (d: CanvasDoc, id: string) => d.items.find((it) => itemId(it) === id);
@@ -52,10 +59,20 @@ describe('sync', () => {
     expect(at(d2, 'session:s4')).toBeTruthy();
   });
 
-  it('takes nothing off once it is old, and never brings back what you took off', () => {
+  it('takes nothing off once it is old, and never brings back what was taken off the board', () => {
     let d = sync(emptyDoc(), e, NOW);
-    d = { ...d, items: d.items.filter((it) => itemId(it) !== 'worktree:b'), hidden: ['worktree:b'] };
-    expect(sync(d, e, NOW + 2 * DAY)).toBe(d);
+    d = { ...d, items: d.items.filter((it) => itemId(it) !== 'worktree:b') };
+    const off = onBoard([], ['worktree:b']);
+    expect(sync(d, e, NOW + 2 * DAY, new Set(), off)).toBe(d);
+  });
+
+  it('brings on only what the board holds, what was added by hand whatever its age, and takes off what was taken off the board', () => {
+    const hand = onBoard(['session:s1'], [], (id) => id === 'session:s1' || id === 'worktree:a');
+    const d = sync({ ...emptyDoc(), scope: { ...DEFAULT_SCOPE, since: NOW } }, e, NOW, new Set(), hand);
+    // Its worktree, which the board holds too, heads it.
+    expect(d.items.filter((it) => it.kind === 'ref').map(itemId).sort()).toEqual(['session:s1', 'worktree:a']);
+    const all = sync(emptyDoc(), e, NOW);
+    expect(at(sync(all, e, NOW, new Set(), onBoard([], ['session:s1'])), 'session:s1')).toBeUndefined();
   });
 });
 
@@ -66,10 +83,9 @@ describe('addRef and freeSpot', () => {
     expect(overlaps({ ...spot, w: CARD_W, h: CARD_H.session }, rectOf(d.items[0]))).toBe(false);
   });
 
-  it('adds a thing once, kept, off the hidden list', () => {
+  it('adds a thing once, kept', () => {
     const e = ents([lane('a', [])]);
-    const d = addRef({ ...emptyDoc(), hidden: ['worktree:a'] }, e, 'worktree', 'a', null, true);
-    expect(d.hidden).toEqual([]);
+    const d = addRef(emptyDoc(), e, 'worktree', 'a', null, true);
     expect(d.items).toMatchObject([{ kind: 'ref', ref: 'worktree', key: 'a', kept: true, title: 'a' }]);
     expect(addRef(d, e, 'worktree', 'a', null, true)).toBe(d);
   });
@@ -253,6 +269,16 @@ describe('tidy with ages', () => {
   const todos = [todo('new'), todo('stale', { updatedAt: NOW - 20 * DAY }), todo('worked', { updatedAt: NOW - 20 * DAY, sessions: ['fresh'] })];
   const e = ents(lanes, todos);
 
+  it('keeps what was put on the board by hand whatever its age, and takes off what was taken off the board', () => {
+    const d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '7d' });
+    const hand = onBoard(['todo:stale', 'session:week'], ['session:fresh']);
+    const plan = tidyPlan(d, e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '1d', todos: '7d' }, hand);
+    expect(plan.dropped.map(itemId).sort()).toEqual(['session:fresh']);
+    const after = tidy(d, e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '1d', todos: '7d' }, hand);
+    expect(refs(after).map(itemId)).toEqual(expect.arrayContaining(['todo:stale', 'session:week']));
+    expect(at(after, 'session:fresh')).toBeUndefined();
+  });
+
   it('takes older sessions off, kept or not, but never busy ones', () => {
     let d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '7d' });
     expect(refs(d).map(itemId).sort()).toEqual(['session:busy', 'session:fresh', 'session:week', 'todo:new', 'todo:stale', 'todo:worked', 'worktree:a', 'worktree:b']);
@@ -356,9 +382,8 @@ describe('clearing', () => {
 
 describe('readDoc and links', () => {
   it('drops what does not read as canvas items', () => {
-    const d = readDoc({ items: [{ kind: 'ref', ref: 'worktree', key: 'a', x: 1, y: 2 }, { kind: 'ref', ref: 'nope', key: 'b', x: 0, y: 0 }, { kind: 'note', id: 'n', x: 0, y: 0 }, null], hidden: ['x', 3], camera: { x: 1, y: 2, zoom: 0 } });
+    const d = readDoc({ items: [{ kind: 'ref', ref: 'worktree', key: 'a', x: 1, y: 2 }, { kind: 'ref', ref: 'nope', key: 'b', x: 0, y: 0 }, { kind: 'note', id: 'n', x: 0, y: 0 }, null], camera: { x: 1, y: 2, zoom: 0 } });
     expect(d.items).toHaveLength(1);
-    expect(d.hidden).toEqual(['x']);
     expect(d.camera).toBeNull();
     expect(readDoc(null)).toEqual(emptyDoc());
   });
@@ -504,11 +529,10 @@ describe('arrange', () => {
     expect(r.doc.scope.since).toBe(NOW);
   });
 
-  it('brings on a named card that was off the canvas, and off the hidden list', () => {
-    const d = { ...tidied, items: tidied.items.filter((it) => itemId(it) !== 'session:s3'), hidden: ['session:s3'] };
+  it('brings on a named card that was off the canvas', () => {
+    const d = { ...tidied, items: tidied.items.filter((it) => itemId(it) !== 'session:s3') };
     const r = arrange(d, e, [{ title: 'B', cards: [s('s3')] }], 'keep', NOW).doc;
     expect(at(r, 'session:s3')).toMatchObject({ kept: true, title: lanes[1].sessions[0].title });
-    expect(r.hidden).toEqual([]);
   });
 
   it('makes a note tall enough for its text', () => {

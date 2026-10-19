@@ -467,6 +467,16 @@ export function Seg<T extends string | number | null>({ options, value, onPick, 
   );
 }
 
+/** A chip you pick, any number of them, and pick again to unpick: the sidebar's statuses and
+ *  facets, a rule's parts (RuleFields.tsx). */
+export function PickChip({ on, onPick, title, className, children }: { on: boolean; onPick: () => void; title?: string; className?: string; children: ReactNode }) {
+  return (
+    <button type="button" className={cx('ca-side-chip', on && 'is-on', className)} aria-pressed={on} title={title} onClick={onPick}>
+      {children}
+    </button>
+  );
+}
+
 /** One tab of a tab bar. */
 export interface TabOption<T extends string> {
   id: T;

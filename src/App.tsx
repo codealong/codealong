@@ -51,17 +51,22 @@ import { SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionIte
 import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
 import { TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { KanbanView } from './ui/KanbanView';
-import { applyKanbanDrop, kanbanStep, type KanbanActs } from './kanban';
+import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanStep, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
-import { entitiesOf, homeLane, refId, type RefItem, type RefKind } from './canvas/model';
+import { entitiesOf, homeLane, refId, type OnBoard, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
-import { useCanvasOps } from './canvas/useCanvasOps';
+import { columnsOf, isProjects, newBoardId, newColumnId, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
+import { columnOf, repoOf } from './boards/rules';
+import { useBoardAsks } from './boards/useBoardAsks';
+import { useBoards } from './boards/useBoards';
+import { BoardBar, type BoardLayout } from './ui/BoardBar';
+import { BoardDialog, ColumnDialog, type BoardDraft } from './ui/BoardDialog';
 import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
 import { Reading } from './ui/Tip';
 import { UsageBar } from './ui/UsageBar';
 import { Notices } from './ui/Notices';
 import { clearNotice, keptDismissals, noticeId, reportNotice, shownNotices, useReportedNotices } from './notices';
-import { Sidebar, type SideStatus } from './ui/Sidebar';
+import { Sidebar, type SideBoard, type SideStatus } from './ui/Sidebar';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
 import { errorText } from './report';
@@ -83,7 +88,7 @@ import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingChain, ageListingPr, chainOf, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, revealing, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, type Facets } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, revealing, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { improveTitle } from './improve';
@@ -105,6 +110,7 @@ declare global {
 const WINDOW_PROJECT = typeof window !== 'undefined' ? (window.__CODEALONG_PROJECT__ ?? null) : null;
 const PROJECT_KEY = 'codealong.project';
 const VIEW_KEY = 'codealong.view';
+const BOARD_LAYOUT_KEY = 'codealong.boardLayout';
 const AGE_KEY = 'codealong.age';
 const DISMISSED_KEY = 'codealong.dismissedNotices';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
@@ -130,6 +136,8 @@ const NO_PICKS: readonly string[] = [];
  *  minute its card on the desktop waits too (lib.rs `move_session`). */
 const COPY_WAIT_MS = 60_000;
 
+/** The views. Kanban and Canvas are the Board view's two layouts (BoardBar.tsx), each with a
+ *  chord of its own; the sidebar lists the Board view once. */
 type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'kanban' | 'canvas';
 const VIEWS: { id: View; label: string; icon: string }[] = [
   { id: 'sessions', label: 'Sessions', icon: 'terminal' },
@@ -186,6 +194,7 @@ function domId(r: { key: string }): string {
 
 // How each remembered choice is read back: one of the ids it can be, else the default.
 const VIEW_STORED = oneOf(VIEWS.map((v) => v.id));
+const LAYOUT_STORED = oneOf<BoardLayout>(['kanban', 'canvas']);
 const AGE_STORED = oneOf(AGES.map((a) => a.id));
 const SORT_STORED = oneOf(SESSION_SORTS.map((o) => o.id));
 const PR_SORT_STORED = oneOf(PR_SORTS.map((o) => o.id));
@@ -227,6 +236,11 @@ export function App() {
   // move says it: the panel holds it until the copy is listed, then shows the copy.
   const [moving, setMoving] = useState<{ from: SessionItem; to: string | null } | null>(null);
   const [view, setView] = useStored<View>(VIEW_KEY, VIEW_STORED, 'sessions');
+  // The Board view's layout the sidebar's Board goes back to: the last one shown.
+  const [lastLayout, setLastLayout] = useStored<BoardLayout>(BOARD_LAYOUT_KEY, LAYOUT_STORED, 'kanban');
+  useEffect(() => {
+    if (view === 'kanban' || view === 'canvas') setLastLayout(view);
+  }, [view, setLastLayout]);
   const [age, setAge] = useStored<Age>(AGE_KEY, AGE_STORED, 'all');
   // Panel widths as you last dragged them. The PR panel has its own: it starts out wider.
   const [sidebarWidth, setSidebarWidth] = usePanelWidth(SIDEBAR_WIDTH_KEY);
@@ -427,8 +441,22 @@ export function App() {
   // until the engine's board shows them.
   const todoStore = useTodoStore(board, setToast);
   const [showDoneTodos, setShowDoneTodos] = useState(false);
-  // The Kanban view's Done column, folded to a rail until you open it.
-  const [showDoneCards, setShowDoneCards] = useState(false);
+  // The columns of a board's Kanban that start folded (Done) and that you opened, by board and
+  // column: each is a rail until it's opened.
+  const [openedColumns, setOpenedColumns] = useState<ReadonlySet<string>>(() => new Set());
+  // The board the Board view shows, of the project's boards (boards/useBoards.ts). The project is
+  // worked out as the lists work it out, which need the board.
+  const boardsProject = currentProject(project, projectsOf(board?.projects ?? [], deviceLanes), loading);
+  const boards = useBoards(boardsProject);
+  const shownBoard = boards.board;
+  const columnOpen = useCallback((c: { id: string; column: BoardColumn | null }) => !c.column?.folded || openedColumns.has(`${shownBoard.id}:${c.id}`), [openedColumns, shownBoard.id]);
+  const toggleColumn = (c: { id: string }) =>
+    setOpenedColumns((o) => {
+      const key = `${shownBoard.id}:${c.id}`;
+      const next = new Set(o);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
 
   // What was said in sessions, here and on your other devices, for the search to find them by.
   const textSearch = useTextSearch(query, { ready: !!board, devices: deviceLanes.length > 0 });
@@ -476,6 +504,8 @@ export function App() {
     openTodoCount,
     todoLinks,
     todosFor,
+    subjects,
+    member,
     kanbanCols,
     kanbanVisible,
     openCardCount,
@@ -513,7 +543,8 @@ export function App() {
     labels: todoStore.labels,
     facets,
     showDoneTodos,
-    showDoneCards,
+    shownBoard,
+    columnOpen,
   });
   // New session opens the quick panel (ui/Quick.tsx) at a worktree, maybe for a todo, in the
   // project this window shows. The panel tells this window how the start goes.
@@ -527,14 +558,15 @@ export function App() {
     [projectNow],
   );
 
-  // The Canvas view: the project's document, kept up to date with the board once it's been shown.
+  // The board's canvas: its document, kept up to date with what the board holds once it's been shown.
   const canvasEntities = useMemo(
     () => entitiesOf(board, projectLanes, todoStore.todos, (p) => current === ALL_PROJECTS || p === current),
     [board, projectLanes, todoStore.todos, current],
   );
-  const canvas = useCanvas(current, view === 'canvas', !loading, canvasEntities, now, lanePins.set);
-  // What `codealong canvas …` asks of the main window: a project's canvas, and arranging it.
-  useCanvasOps({ deviceLanes, deviceFilter, current, canvas });
+  const holds = useMemo<OnBoard>(() => ({ has: member, added: new Set(shownBoard.added), removed: new Set(shownBoard.removed) }), [member, shownBoard.added, shownBoard.removed]);
+  const canvas = useCanvas(shownBoard.id, view === 'canvas', !loading, canvasEntities, now, lanePins.set, holds);
+  /** A change to a board, here at once; what the engine turns down is said in a toast. */
+  const applyBoard = useCallback((op: Parameters<typeof boards.apply>[0]) => boards.apply(op).catch((e: unknown) => setToast(errorText(e))), [boards, setToast]);
   const [canvasFocus, setCanvasFocus] = useState<{ ids: string[]; n: number } | null>(null);
   const canvasKeys = useRef<(e: KeyboardEvent) => boolean>(() => false);
   // The one card selected on the canvas: its panel shows on the right, and ⌘N starts in its worktree.
@@ -542,15 +574,108 @@ export function App() {
   // Picking a status, or pressing Return in the filter, brings what matches into view.
   const [canvasFit, setCanvasFit] = useState(0);
   const canvasLane = view === 'canvas' && canvasSel ? homeLane(canvasEntities, canvasSel.ref, canvasSel.key) : null;
-  /** Puts a thing on the canvas if it isn't there, keeps it, and shows it there. */
+  /** Puts a thing on the board's canvas if it isn't there, keeps it, and shows it there. */
   const showOnCanvas = (ref: RefKind, key: string) => {
     const id = canvas.keep(ref, key);
     setView('canvas');
     setCanvasFocus((f) => ({ ids: [id], n: (f?.n ?? 0) + 1 }));
   };
-  /** The menu item that does that, in the other views' menus. */
-  const canvasItem = (ref: RefKind, key: string): MenuSpec =>
-    view === 'canvas' ? [] : [{ label: canvas.has(ref, key) ? 'Show on canvas' : 'Add to canvas', run: () => showOnCanvas(ref, key) }];
+  /** Add to board ›, each of the project's boards checked when it holds the thing (a pick puts it
+   *  on or takes it off); and in Kanban, Remove from board for the board shown. The canvas has
+   *  its own Remove from board, for what's picked on it. */
+  const boardItems = (ref: RefKind, key: string): MenuSpec => {
+    const card = refId(ref, key);
+    const on = (b: BoardDoc) => (b.id === shownBoard.id ? member(card) : b.added.includes(card) && !b.removed.includes(card));
+    const put = (b: BoardDoc, yes: boolean) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: [card] });
+    const remove: MenuSpec = view === 'kanban' && member(card) ? [{ label: 'Remove from board', run: () => put(shownBoard, false) }] : [];
+    return [
+      {
+        label: 'Add to board',
+        items: [
+          ...boards.boards.map((b) => ({ label: b.name, checked: on(b), run: () => put(b, !on(b)) })),
+          'separator',
+          { label: 'New board with it…', run: () => setBoardEdit({ board: null, with: card }) },
+        ],
+      },
+      ...remove,
+    ];
+  };
+  // Making or changing a board, or a column of its Kanban (BoardDialog.tsx).
+  const [boardEdit, setBoardEdit] = useState<{ board: BoardDoc | null; with?: string } | null>(null);
+  const [columnEdit, setColumnEdit] = useState<{ column: BoardColumn | null } | null>(null);
+  const boardLayout: BoardLayout = view === 'canvas' ? 'canvas' : 'kanban';
+  const showBoard = (id: string) => {
+    boards.pick(id);
+    setSelectedKey(null);
+    if (view !== 'kanban' && view !== 'canvas') setView(lastLayout);
+  };
+  const saveBoard = (draft: BoardDraft) => {
+    const b = boardEdit?.board;
+    if (b) {
+      if (draft.name !== b.name) void applyBoard({ op: 'rename', id: b.id, name: draft.name });
+      if (JSON.stringify(draft.rule) !== JSON.stringify(b.rule)) void applyBoard({ op: 'rule', id: b.id, rule: draft.rule });
+      return;
+    }
+    const id = newBoardId();
+    void applyBoard({ op: 'create', board: { id, name: draft.name, project: current, rule: draft.rule, added: boardEdit?.with ? [boardEdit.with] : [], removed: [], columns: draft.columns } });
+    boards.pick(id);
+    if (view !== 'kanban' && view !== 'canvas') setView(lastLayout);
+  };
+  /** A board's menu: the project's boards to show, a new one, its settings, deleting it. */
+  const boardMenu = (b: BoardDoc = shownBoard) =>
+    void showContextMenu([
+      ...boards.boards.map((x) => ({ label: x.name, checked: x.id === shownBoard.id && (view === 'kanban' || view === 'canvas'), run: () => showBoard(x.id) })),
+      'separator',
+      { label: 'New board…', run: () => setBoardEdit({ board: null }) },
+      { label: `Settings of ${b.name}…`, run: () => setBoardEdit({ board: b }) },
+      ...(b.columns ? [{ label: 'Kanban columns back to the stages', run: () => void applyBoard({ op: 'columns', id: b.id, columns: null }) }] : []),
+      ...(isProjects(b)
+        ? []
+        : [
+            'separator' as const,
+            {
+              label: `Delete ${b.name}`,
+              run: () => {
+                void applyBoard({ op: 'delete', id: b.id });
+                setToast(`Deleted the board ${b.name}. What was on it stays as it was.`);
+              },
+            },
+          ]),
+    ]).catch((e: unknown) => setToast(String(e)));
+  // A column's menu (KanbanView.tsx): its settings, folding it, moving it, taking it away.
+  const columnMenu = (c: { id: string; column: BoardColumn | null }) => {
+    const cols = columnsOf(shownBoard);
+    const at = cols.findIndex((x) => x.id === c.id);
+    if (at < 0 || !c.column) return;
+    const col = c.column;
+    const set = (next: BoardColumn[]) => void applyBoard({ op: 'columns', id: shownBoard.id, columns: next });
+    const swap = (i: number, j: number) => set(cols.map((x, k) => (k === i ? cols[j] : k === j ? cols[i] : x)));
+    void showContextMenu([
+      { label: 'Column settings…', run: () => setColumnEdit({ column: col }) },
+      { label: col.folded ? 'Open at first' : 'Fold at first', run: () => set(cols.map((x) => (x.id === col.id ? { ...x, folded: !col.folded } : x))) },
+      'separator',
+      { label: 'Move left', enabled: at > 0, run: () => swap(at, at - 1) },
+      { label: 'Move right', enabled: at < cols.length - 1, run: () => swap(at, at + 1) },
+      'separator',
+      { label: 'Add column…', run: () => setColumnEdit({ column: null }) },
+      { label: `Delete ${col.name}`, enabled: cols.length > 1, run: () => set(cols.filter((x) => x.id !== col.id)) },
+    ]).catch((e: unknown) => setToast(String(e)));
+  };
+  const saveColumn = (fields: Omit<BoardColumn, 'id'>) => {
+    const cols = columnsOf(shownBoard);
+    const editing = columnEdit?.column;
+    const next = editing ? cols.map((x) => (x.id === editing.id ? { ...fields, id: x.id } : x)) : [...cols, { ...fields, id: newColumnId(cols) }];
+    void applyBoard({ op: 'columns', id: shownBoard.id, columns: next });
+  };
+  // What a board's rule can pick: the project's labels, repos and accounts.
+  const ruleChoices = useMemo(
+    () => ({
+      labels: todoStore.labels,
+      repos: [...new Map(projectLanes.map((l) => [repoOf(l), { id: repoOf(l), label: l.repo }])).values()],
+      accounts: [...new Set(projectLanes.flatMap((l) => l.sessions.map((s) => s.account)))].sort(),
+    }),
+    [todoStore.labels, projectLanes],
+  );
   // What's pinned to the desktop, so menus offer to take it off (desktop.rs).
   const onDesktop = menus.useDesktopPins();
 
@@ -608,8 +733,13 @@ export function App() {
   // The runs of todos listed in your order, which ⌃⌘↑ ⌃⌘↓ move one within: the Todo view's open
   // sections while it's sorted by status, the Kanban view's To do.
   const todoRuns = useMemo(
-    () => (view === 'kanban' ? [(kanbanCols.find((c) => c.id === 'todo')?.cards ?? []).filter((c): c is TodoItem => c.kind === 'todo')] : todoSecs.filter((s) => s.id !== 'done' && statusSection(s.id)).map((s) => s.rows)),
-    [view, kanbanCols, todoSecs],
+    () =>
+      view === 'kanban'
+        ? isProjects(shownBoard)
+          ? kanbanCols.filter((c) => c.column?.sort === 'hand').map((c) => c.cards.filter((x): x is TodoItem => x.kind === 'todo'))
+          : []
+        : todoSecs.filter((s) => s.id !== 'done' && statusSection(s.id)).map((s) => s.rows),
+    [view, kanbanCols, todoSecs, shownBoard],
   );
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
   const {
@@ -635,7 +765,6 @@ export function App() {
     todoLinkMenu,
     labelMenu,
     moveTodo,
-    moveTodoAmong,
     todoMenuItems,
     todoKeys,
   } = useTodoView({
@@ -667,9 +796,14 @@ export function App() {
     clearFilters,
     setQuery,
     onDesktop,
-    canvasItem,
+    boardItems,
   });
-  // The box that adds a todo: at the top of the Todo view, and of the Kanban view's To do.
+  // The box that adds a todo: at the top of the Todo view, and of the column of a board's Kanban
+  // a new todo lands in. On a board that doesn't take everything, a new todo is put on it.
+  const composerColumn = useMemo(() => {
+    const fresh = { card: 'todo:', ref: 'todo' as const, title: '', activity: now, stage: 'todo' as const, statuses: [], labels: (facets.labels ?? []).slice(0, 1), repos: [], accounts: [] };
+    return columnOf(fresh, columnsOf(shownBoard), undefined, now);
+  }, [shownBoard, facets.labels, now]);
   const todoComposer = (
     <TodoComposer
       ref={composerRef}
@@ -677,7 +811,10 @@ export function App() {
       onChange={(text) => setComposer((c) => ({ ...c, text }))}
       context={composer.context}
       onClearContext={() => setComposer((c) => ({ ...c, context: null }))}
-      onCreate={(title) => createTodo(title, composer.context)}
+      onCreate={(title) => {
+        const id = createTodo(title, composer.context);
+        if (view === 'kanban' && !takesAll(shownBoard.rule)) void applyBoard({ op: 'add', id: shownBoard.id, cards: [`todo:${id}`] });
+      }}
       where={current === ALL_PROJECTS ? (composer.context?.worktree ? (laneById.get(composer.context.worktree)?.project ?? null) : 'no project') : null}
     />
   );
@@ -686,7 +823,7 @@ export function App() {
     const dir = ({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const)[e.key as 'ArrowUp'];
     if (view !== 'kanban' || !dir || !bare(e)) return false;
     e.preventDefault();
-    const to = kanbanStep(kanbanCols, selected?.key ?? null, dir, showDoneCards);
+    const to = kanbanStep(kanbanCols, selected?.key ?? null, dir, columnOpen);
     if (to) {
       clearTodoPick();
       setSelectedKey(to);
@@ -742,13 +879,15 @@ export function App() {
   // its panel's place (`drill`), which selecting what's selected already would leave.
   const reveal = useLatest((r: Reveal) => {
     setRevealFind(r.kind === 'session' && r.find ? { key: r.key, ask: { words: r.find, n: Date.now() } } : null);
-    // A project's canvas `codealong canvas arrange --show` laid out, with the frames it made in view.
-    if (r.kind === 'canvas') {
+    // A board `codealong board open` asked for, or the canvas `board arrange --show` laid out,
+    // with the frames it made in view.
+    if (r.kind === 'board') {
       if (current !== r.project) pickProject(r.project);
+      boards.pick(r.board, r.project);
       setQuery('');
       clearFilters();
       setDrill(null);
-      setView('canvas');
+      setView(r.layout);
       if (r.focus?.length) setCanvasFocus((f) => ({ ids: r.focus ?? [], n: (f?.n ?? 0) + 1 }));
       return;
     }
@@ -1112,7 +1251,7 @@ export function App() {
       showLane: lane ? { lane, run: () => focusLane(lane) } : undefined,
       pin: { label: prPins.set.has(p.key) ? 'Unpin PR' : 'Pin PR', run: () => prPins.toggle(p.key), accelerator: 'P' },
       desktop: onDesktop,
-      canvas: canvasItem('pr', p.key),
+      boards: boardItems('pr', p.key),
       lanes,
     });
   };
@@ -1197,7 +1336,7 @@ export function App() {
         setMoving({ from, to: null });
         void copy.then((to) => setMoving((m) => (m?.from !== from ? m : to ? { from, to } : null)));
       },
-      canvas: canvasItem('session', s.key),
+      boards: boardItems('session', s.key),
   });
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
@@ -1257,7 +1396,7 @@ export function App() {
       todos: todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
       pin: { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
       desktop: onDesktop,
-      canvas: canvasItem('worktree', lane.id),
+      boards: boardItems('worktree', lane.id),
       cleanUp: setCleaning,
   });
   const laneMenuSpec = (lane: Lane): MenuSpec => menus.laneMenu(lane, laneCan(lane));
@@ -1266,17 +1405,27 @@ export function App() {
   const laneMenu = (lane: Lane) => void showContextMenu(laneMenuSpec(lane)).catch((e: unknown) => setToast(String(e)));
   // What a card dropped on the Kanban view does it with (kanban.ts): the todo store, the quick
   // panel, a session's own Mark as done, and the toast's Undo.
+  const markSessionDone = (r: SessionItem) => {
+    const done = actionsRef.current.session(r.lane, r.session, 'session').done;
+    if (done) done.run();
+    else setToast('It’s archived already.');
+  };
   const kanbanActs: KanbanActs = {
     run: todoStore.run,
     start: startForTodo,
-    markDone: (r) => {
-      const done = actionsRef.current.session(r.lane, r.session, 'session').done;
-      if (done) done.run();
-      else setToast('It’s archived already.');
+    markDone: markSessionDone,
+    // A project's own board keeps the Todo view's order; another board keeps its own.
+    order: (card, column, index) => {
+      const seq = columnWith((kanbanCols.find((c) => c.id === column)?.cards ?? []).map(kanbanCardId), kanbanCardId(card), index);
+      if (!isProjects(shownBoard)) void applyBoard({ op: 'order', id: shownBoard.id, order: boardOrderWith(shownBoard.order ?? [], seq) });
+      else if (card.kind === 'todo') todoStore.run({ op: 'order', ids: inSlots(todoStore.todos.map((t) => t.id), seq.flatMap((c) => (c.startsWith('todo:') ? [c.slice(5)] : []))) });
     },
-    order: (id, index) => moveTodoAmong(todoRuns[0] ?? [], id, index),
-    said: (message, undo) => setTodoUndo({ message, undo: () => undo.forEach((op) => void todoStore.run(op)) }),
+    place: (card, column) => void applyBoard({ op: 'place', id: shownBoard.id, card: kanbanCardId(card), column }),
+    said: (message, undo) => setTodoUndo({ message, undo }),
   };
+  // What `codealong board …` asks of the main window: a board's Kanban and canvas, moving a card,
+  // arranging its canvas (boards/useBoardAsks.ts).
+  useBoardAsks({ deviceLanes, deviceFilter, shown: shownBoard, canvas, apply: boards.apply, run: todoStore.run, markDone: markSessionDone });
 
   // A worktree's row dragged on the board: among the pinned ones to pin it there or move it, from
   // them down to the bays to unpin it, out of the window onto the desktop (useRowDrag.tsx).
@@ -1568,15 +1717,32 @@ export function App() {
 
   // The sidebar: the views with their counts, the statuses to narrow them to, and what narrows
   // the view now, for the collapsed rail's badge.
-  const sideViews = VIEWS.map((v) => ({
-    id: v.id,
-    label: v.label,
-    icon: v.icon,
-    kbd: menus.chordKeys(VIEW_CHORDS[v.id]),
-    count: v.id === 'worktrees' ? recentLanes.length : v.id === 'sessions' ? shownSessionCount : v.id === 'todo' ? openTodoCount : v.id === 'kanban' ? openCardCount : v.id === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : githubPrs === 'coming' && openPrCount === 0 ? '' : openPrCount,
-    badge: v.id === 'prs' && requestedCount > 0 ? requestedCount : undefined,
-    badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,
-  }));
+  const sideViews = VIEWS.filter((v) => v.id !== 'canvas').map((v) => {
+    const board = v.id === 'kanban';
+    return {
+      id: board ? 'board' : v.id,
+      label: board ? 'Board' : v.label,
+      icon: v.icon,
+      kbd: menus.chordKeys(VIEW_CHORDS[board ? boardLayout : v.id]),
+      count:
+        v.id === 'worktrees'
+          ? recentLanes.length
+          : v.id === 'sessions'
+            ? shownSessionCount
+            : v.id === 'todo'
+              ? openTodoCount
+              : board
+                ? view === 'canvas'
+                  ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '')
+                  : openCardCount
+                : githubPrs === 'coming' && openPrCount === 0
+                  ? ''
+                  : openPrCount,
+      badge: v.id === 'prs' && requestedCount > 0 ? requestedCount : undefined,
+      badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,
+    };
+  });
+  const sideBoards: SideBoard[] = boards.boards.map((b) => ({ id: b.id, name: b.name, title: ruleWords(b.rule, todoStore.labels) }));
   const sideStatuses: SideStatus[] = [
     { id: 'needs', label: 'Needs you', glyph: 'needs', count: counts.needs, tone: 'attn' },
     { id: 'unread', label: 'Your turn', glyph: 'unread', count: counts.unread },
@@ -1754,8 +1920,13 @@ export function App() {
           onExpand={toggleSidebar}
           now={now}
           views={sideViews}
-          view={view}
-          onView={(id) => setView(id as View)}
+          view={view === 'kanban' || view === 'canvas' ? 'board' : view}
+          onView={(id) => setView(id === 'board' ? lastLayout : (id as View))}
+          boards={sideBoards}
+          board={shownBoard.id}
+          onBoard={showBoard}
+          onBoardMenu={(id) => boardMenu(boards.boards.find((b) => b.id === id))}
+          onNewBoard={() => setBoardEdit({ board: null })}
           devices={devices}
           deviceFilter={deviceFilter}
           onDevice={toggleDevice}
@@ -1796,8 +1967,11 @@ export function App() {
         {/* ⌘F from the board opens its find (findKeys.ts), but not while a panel takes the whole window. */}
         <main ref={boardRef} className={cx('ca-board', view === 'canvas' && 'is-canvas', view === 'kanban' && 'is-kanban')} aria-label={VIEWS.find((v) => v.id === view)?.label} data-find={maxed ? undefined : 'window'}>
           {/* One strip in every view, so the find keeps the keyboard as the view changes under it. */}
-          {!loading && (view === 'sessions' || view === 'prs' || view === 'todo' || findShown) && (
+          {!loading && (view === 'sessions' || view === 'prs' || view === 'todo' || view === 'kanban' || view === 'canvas' || findShown) && (
             <ListBar>
+              {(view === 'kanban' || view === 'canvas') && (
+                <BoardBar board={shownBoard} layout={boardLayout} labels={todoStore.labels} onLayout={setView} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
+              )}
               {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
               {view === 'prs' && (
                 <ListTools label="How PRs are listed">
@@ -1881,6 +2055,9 @@ export function App() {
               doc={canvas.doc}
               update={canvas.update}
               entities={canvasEntities}
+              holds={holds}
+              onTakeOff={(cards) => void applyBoard({ op: 'remove', id: shownBoard.id, cards })}
+              onPutOn={(cards) => void applyBoard({ op: 'add', id: shownBoard.id, cards })}
               pinned={lanePins.set}
               labels={labelById}
               todos={todoStore.todos}
@@ -1921,8 +2098,10 @@ export function App() {
                 selectedKey={selected?.key ?? null}
                 picked={pickedKeys}
                 domId={domId}
-                showDone={showDoneCards}
-                onToggleDone={() => setShowDoneCards(!showDoneCards)}
+                open={columnOpen}
+                onFold={toggleColumn}
+                onColumnMenu={columnMenu}
+                onAddColumn={() => setColumnEdit({ column: null })}
                 onSelect={(c, how) => {
                   pressRow(c.key, how);
                   // Only todos are picked together; a session's card is selected alone.
@@ -1943,8 +2122,11 @@ export function App() {
                 }}
                 onShowPr={(p, c) => showPrOf(p, { key: c.key, select: () => setSelectedKey(c.key) })}
                 onOpenPr={(p) => openUrl(p.url).catch((e: unknown) => setToast(String(e)))}
-                onDrop={(c, drop) => applyKanbanDrop(c, drop, kanbanActs)}
-                canReorder
+                onDrop={(c, drop) => applyKanbanDrop(c, drop, kanbanActs, shownBoard.placed?.[kanbanCardId(c)] ?? null)}
+                dropContext={{ columns: columnsOf(shownBoard), placed: shownBoard.placed, subjects, todos: todoStore.todos, now }}
+                canReorder={!query.trim() && bayFilter.length === 0}
+                orderable={(c) => !isProjects(shownBoard) || c.kind === 'todo'}
+                composerColumn={composerColumn}
                 hints={board.jev?.todos ? board.todoHints : undefined}
                 composer={todoComposer}
               />
@@ -2208,6 +2390,8 @@ export function App() {
       {previewLane && <PreviewDialog lane={previewLane} onClose={() => setPreviewFor(null)} />}
       {cleaning && <CleanUpDialog lanes={cleaning} onClose={() => setCleaning(null)} onDone={setToast} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
+      {boardEdit && <BoardDialog board={boardEdit.board} project={current} onSave={saveBoard} onClose={() => setBoardEdit(null)} {...ruleChoices} />}
+      {columnEdit && <ColumnDialog column={columnEdit.column} onSave={saveColumn} onClose={() => setColumnEdit(null)} {...ruleChoices} />}
       <Toasts state={toasts} anchor={toastAnchor} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />
     </div>
   );

@@ -13,7 +13,7 @@ import { agoPhrase } from '../format';
 import type { Filter } from '../lanes';
 import type { SavedView } from '../savedViews';
 import type { DevicesView, LabelColor, Status } from '../types';
-import { cx, Icon, NavItem, Seg, StatusGlyph } from './primitives';
+import { cx, Icon, NavItem, PickChip, Seg, StatusGlyph } from './primitives';
 import { LabelDot } from './TodoBits';
 import { RestartToUpdate } from './Updates';
 import { joinKeys, keysIn } from '../platform';
@@ -46,6 +46,14 @@ export interface SideStatus {
   title?: string;
 }
 
+/** One of the project's boards, under the Board view (boards/model.ts). */
+export interface SideBoard {
+  id: string;
+  name: string;
+  /** What it takes in, in words. */
+  title: string;
+}
+
 interface SidebarProps {
   collapsed: boolean;
   onExpand: () => void;
@@ -53,6 +61,12 @@ interface SidebarProps {
   views: SideView[];
   view: string;
   onView: (id: string) => void;
+  /** The project's boards, its own first, listed under the Board view, and the one it shows. */
+  boards: SideBoard[];
+  board: string;
+  onBoard: (id: string) => void;
+  onBoardMenu: (id: string) => void;
+  onNewBoard: () => void;
   /** Linked devices; the device filter shows only with at least one. */
   devices: DevicesView | null | undefined;
   /** The devices picked: `here` for this one, the others by short id. */
@@ -113,6 +127,14 @@ function Open(p: SidebarProps) {
         {p.views.map((v) => (
           <NavItem key={v.id} icon={v.icon} label={v.label} count={v.count === '' || p.loading ? undefined : (v.count as number)} badge={v.badge} badgeTitle={v.badgeTitle} kbd={v.kbd} active={p.view === v.id} title={keysIn('⌃Tab goes to the next view')} onClick={() => p.onView(v.id)} />
         ))}
+        <div className="ca-label ca-side-label">Boards</div>
+        {p.boards.map((b) => (
+          <NavItem key={b.id} icon="layout-board" label={b.name} active={p.view === 'board' && p.board === b.id} title={`${b.title}. Right-click for its settings`} onClick={() => p.onBoard(b.id)} onContextMenu={() => p.onBoardMenu(b.id)} />
+        ))}
+        <button type="button" className="ca-nav ca-side-save" onClick={p.onNewBoard}>
+          <Icon name="plus" size={14} />
+          <span className="ca-nav-label">New board</span>
+        </button>
         {showDevices && p.devices && (
           <>
             <SideLabel label="Devices" onClear={p.deviceFilter.length > 0 ? p.onClearDevices : undefined} />
@@ -162,11 +184,11 @@ function Open(p: SidebarProps) {
         <SideLabel label="Status" onClear={p.filter.length > 0 ? p.onClearFilters : undefined} />
         <div className="ca-side-chips">
           {p.statuses.map((s) => (
-            <button key={s.id} type="button" className={cx('ca-side-chip', p.filter.includes(s.id) && 'is-on')} aria-pressed={p.filter.includes(s.id)} title={s.title} onClick={() => p.onFilter(s.id)}>
+            <PickChip key={s.id} on={p.filter.includes(s.id)} title={s.title} onPick={() => p.onFilter(s.id)}>
               {s.glyph ? <StatusGlyph status={s.glyph} size={9} title="" /> : s.icon ? <Icon name={s.icon} size={12} /> : null}
               <span>{s.label}</span>
               {!p.loading && <span className={cx('ca-side-chip-count', s.tone && s.count > 0 && `is-${s.tone}`)}>{s.count}</span>}
-            </button>
+            </PickChip>
           ))}
         </div>
         {p.facets.map((f) => (
@@ -235,14 +257,14 @@ function SideFacetChips({ facet: f, loading, onPick, onClear }: { facet: SideFac
         {shown.map((o) => {
           const on = f.picked.includes(o.id);
           return (
-            <button key={o.id} type="button" className={cx('ca-side-chip', on && 'is-on')} aria-pressed={on} title={o.title} onClick={() => onPick(o.id)}>
+            <PickChip key={o.id} on={on} title={o.title} onPick={() => onPick(o.id)}>
               {f.id === 'repos' && <Icon name="book" size={12} />}
               {f.id === 'authors' && <Icon name="user" size={12} />}
               {f.id === 'prLabels' && <i className="ca-labeldot ca-prlabel-dot" style={o.color ? ({ '--prlabel': `#${o.color}` } as CSSProperties) : undefined} aria-hidden="true" />}
               {f.id === 'labels' && <LabelDot label={{ id: o.id, name: o.label, color: (o.color ?? 'gray') as LabelColor }} />}
               <span>{o.label}</span>
               {!loading && <span className="ca-side-chip-count">{o.count}</span>}
-            </button>
+            </PickChip>
           );
         })}
         {(more > 0 || all) && (

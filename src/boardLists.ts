@@ -1,6 +1,6 @@
 // What the main window's views list, worked out from the board, the sidebar's filters and the
 // search: the project's worktrees in their bays, its sessions with the pinned ones first, its
-// PRs and todos in their sections, its todos and sessions in the Kanban view's columns, and the
+// PRs and todos in their sections, a board's todos and sessions in its Kanban's columns, and the
 // counts the sidebar and the switcher show. The rules
 // are pure functions with tests (boardLists.test.ts); `useBoardLists` keeps each list until
 // what it's made from changes, so rows and memos downstream see the same lists between pushes.
@@ -8,11 +8,13 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, buildBays, bySession, byStatusTime, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sessionPrs, sideTitle, snoozedApart, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, bySession, byStatusTime, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
+import { columnsOf, isProjects, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
+import { columnOf, memberTest, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSort } from './todos';
-import type { Bay, Board, DevicesView, Label, Lane, Pr, PrItem, ProjectSummary, Session, TextHit, Todo } from './types';
+import type { Bay, Board, DevicesView, Label, Lane, PrItem, ProjectSummary, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { prIsOpen, prPlaces, prSections, waitsOnReview, type PrRowItem, type PrSort } from './ui/PrsView';
 import { helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
@@ -628,44 +630,25 @@ function ageListing<A extends string>(at: number, pinned: boolean, ages: readonl
   return ages.find((a) => lists(a.ms))?.id ?? null;
 }
 
-/** A column of the Kanban view: how far the work on its cards has got. */
-export type KanbanColumnId = 'todo' | 'progress' | 'review' | 'done';
-
-export const KANBAN_COLUMNS: KanbanColumnId[] = ['todo', 'progress', 'review', 'done'];
-export const KANBAN_WORD: Record<KanbanColumnId, string> = { todo: 'To do', progress: 'In progress', review: 'In review', done: 'Done' };
-
-/** A card on the Kanban view: a todo, with the sessions on it, or a session on no todo. */
+/** A card on a board's Kanban: a todo, with the sessions on it, or a session on no todo. */
 export type KanbanCard = TodoItem | SessionItem;
 
+/** The column the cards no column takes go in, shown only while it holds some. */
+export const NO_COLUMN = '';
+
 export interface KanbanColumn {
-  id: KanbanColumnId;
+  id: string;
   label: string;
+  /** The board's column, or null for the cards no column takes (`NO_COLUMN`). */
+  column: BoardColumn | null;
+  /** The one stage a stage column follows: its glyph, its words, and what a drop on it does. */
+  stage: Stage | null;
   cards: KanbanCard[];
 }
 
 /** How far back Done goes when the age filter says all: as far as sessions do. */
 const DONE_SPAN = 14 * 86_400_000;
 const NO_PINS: Set<string> = new Set();
-
-const isOpenForReview = (state: Pr['state'] | undefined) => state === 'open' || state === 'approved' || state === 'changes';
-
-/** Where a session on no todo stands: In review while the PR it worked on (an open one first,
- *  lanes.ts `sessionPrs`) is open and not a draft; Done once that PR merged or its turn ended
- *  saying its work landed, unless it's at work or waits on you; else In progress. */
-export function sessionStage(r: SessionItem, prs: PrItem[]): Exclude<KanbanColumnId, 'todo'> {
-  const s = r.session;
-  const worked = sessionPrs(prs, r.lane, s);
-  const pr = worked.find((p) => p.state !== 'merged' && p.state !== 'closed') ?? worked[0];
-  if (isOpenForReview(pr?.state)) return 'review';
-  const busy = s.status === 'working' || s.status === 'needs' || s.status === 'error';
-  return !busy && (pr?.state === 'merged' || s.insight?.landing === 'landed') ? 'done' : 'progress';
-}
-
-/** A todo's column: its Todo view section (todos.ts `itemSection`), Ready and Waiting both To do. */
-export function todoStage(item: TodoItem, todos: Todo[]): KanbanColumnId {
-  const section = itemSection(item, todos);
-  return section === 'ready' || section === 'waiting' ? 'todo' : section === 'in-progress' ? 'progress' : section;
-}
 
 /** How a card's session stands in its column, as Sessions sorts by status: Needs you, Your turn,
  *  Working, then the rest; a snoozed one that isn't working waits with the rest. */
@@ -681,11 +664,10 @@ export function cardLead(c: KanbanCard): Session | null {
   return c.sessions.map((p) => p.session).sort((a, b) => standing(a) - standing(b) || bySession(a, b))[0] ?? null;
 }
 
-/** In progress and In review, by whose move it is, as Sessions sorts by status: what needs you,
- *  then your turns, then what's working, each the longest first, so what waits on you is a
- *  queue; then the rest, the one you last sent a prompt first (a todo with no session by when
- *  it last changed), so cards hold still while agents work. Ties keep the order they came in:
- *  todos in yours. */
+/** By whose move it is, as Sessions sorts by status: what needs you, then your turns, then what's
+ *  working, each the longest first, so what waits on you is a queue; then the rest, the one you
+ *  last sent a prompt first (a todo with no session by when it last changed), so cards hold still
+ *  while agents work. Ties keep the order they came in: todos in yours. */
 export function byMove(cards: KanbanCard[]): KanbanCard[] {
   const leads = new Map(cards.map((c) => [c, cardLead(c)]));
   const at = (c: KanbanCard, s: Session | null) => s?.lastPromptAt ?? (c.kind === 'todo' ? c.todo.updatedAt : 0);
@@ -697,10 +679,24 @@ export function byMove(cards: KanbanCard[]): KanbanCard[] {
   });
 }
 
-/** When a done card finished: a todo when it was marked done, a session when it last did
- *  something. */
+/** When a card's work last moved on: a todo when it was marked done, else when it changed; a
+ *  session when it last did something. */
 function doneAt(c: KanbanCard): number {
   return c.kind === 'todo' ? (c.todo.doneAt ?? c.todo.updatedAt) : c.session.lastActivity;
+}
+
+/** The latest first. */
+function byLatest(cards: KanbanCard[]): KanbanCard[] {
+  return [...cards].sort((a, b) => doneAt(b) - doneAt(a) || a.key.localeCompare(b.key));
+}
+
+/** In your order: the board's for what it has placed, else the order they came in (todos in the
+ *  Todo view's order); a todo that waits goes after the rest. */
+function byHand(cards: KanbanCard[], order: readonly string[], todos: Todo[]): KanbanCard[] {
+  const at = new Map(order.map((c, i) => [c, i]));
+  const rank = (c: KanbanCard) => at.get(c.kind === 'todo' ? `todo:${c.todo.id}` : `session:${c.session.key}`) ?? Infinity;
+  const waits = (c: KanbanCard) => (c.kind === 'todo' && itemSection(c, todos) === 'waiting' ? 1 : 0);
+  return [...cards].sort((a, b) => waits(a) - waits(b) || rank(a) - rank(b));
 }
 
 /** A session worth a card of its own: running, or waiting on you, as a card lists a todo's
@@ -710,36 +706,76 @@ function current(s: Session): boolean {
   return s.live || (s.status !== 'idle' && s.status !== 'stopped');
 }
 
+export interface KanbanInput {
+  /** The todos listed (the search and filters applied), in your order. */
+  todoRows: TodoItem[];
+  todos: Todo[];
+  /** The sessions listed, the same. */
+  sessions: SessionItem[];
+  prs: PrItem[];
+  /** Done todos go back to here. */
+  doneSince: number;
+  board: BoardDoc;
+  /** What the board's rules ask of each thing in the project (boards/rules.ts `subjectsOf`). */
+  subjects: Map<string, Subject>;
+  /** Whether a card is on the board (boards/rules.ts `memberTest`). */
+  member: (card: string) => boolean;
+  now: number;
+}
+
 /**
- * The Kanban view's columns, each always there: To do, In progress, In review and Done. The cards
- * are the todos listed (`todoRows`, in your order, the search and filters applied) and the
- * sessions listed (`sessions`, the same) that are worth one (`current`, or in review) and aren't
- * on an open todo's card, which shows them, nor helpers or headless runs that don't need you
- * (lanes.ts `unattended`), which work for another session. A session on a done todo, or on one
- * the board doesn't show, has a card of its own while it's worth one. To do keeps your order,
- * Ready before Waiting; In progress and In review go by whose move it is (`byMove`); Done the
- * latest first, todos done since `doneSince`.
+ * A board's Kanban: its columns (four stages, unless it has its own), each always there, and No
+ * column after them while some card goes in none. The cards are the board's todos among those
+ * listed, and its sessions among those listed that are worth one (`current`, in review, or put on
+ * the board by hand) and aren't on an open todo's card, which shows them, nor helpers or headless
+ * runs that don't need you (lanes.ts `unattended`), which work for another session. A session is
+ * the board's when it is, or its worktree is, or a PR it worked on. Done todos go back to
+ * `doneSince`. Each column goes in its own order: yours, whose move it is, or the latest first.
  */
-export function kanbanColumns(todoRows: TodoItem[], todos: Todo[], sessions: SessionItem[], prs: PrItem[], doneSince: number): KanbanColumn[] {
-  const cols: Record<KanbanColumnId, KanbanCard[]> = { todo: [], progress: [], review: [], done: [] };
-  const waiting: TodoItem[] = [];
-  for (const r of todoRows) {
-    const stage = todoStage(r, todos);
-    if (stage === 'done' && doneAt(r) < doneSince) continue;
-    if (stage === 'todo' && itemSection(r, todos) === 'waiting') waiting.push(r);
-    else cols[stage].push(r);
+export function kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board, subjects, member, now }: KanbanInput): KanbanColumn[] {
+  const columns = columnsOf(board);
+  const todoCards = todoRows.filter((r) => member(`todo:${r.todo.id}`) && !(todoStage(r, todos) === 'done' && doneAt(r) < doneSince));
+  const onCards = new Set(todoCards.filter((c) => todoStage(c, todos) !== 'done').flatMap((c) => c.todo.sessions));
+  const viaPrs = new Set(prs.filter((p) => member(`pr:${p.key}`)).flatMap((p) => p.sessions.map((s) => s.key)));
+  const added = new Set(board.added);
+  const sessionCards = sessions.filter((r) => {
+    const card = `session:${r.session.key}`;
+    if (!(member(card) || member(`worktree:${r.lane.id}`) || viaPrs.has(r.session.key))) return false;
+    if (onCards.has(r.session.key) || unattended(r.session)) return false;
+    return added.has(card) || current(r.session) || sessionStage(r, prs) === 'review';
+  });
+  const into = new Map<string, KanbanCard[]>(columns.map((c) => [c.id, []]));
+  const loose: KanbanCard[] = [];
+  for (const c of [...todoCards, ...sessionCards]) {
+    const subject = subjects.get(c.kind === 'todo' ? `todo:${c.todo.id}` : `session:${c.session.key}`);
+    const col = subject ? columnOf(subject, columns, board.placed, now) : null;
+    (col != null ? (into.get(col) ?? loose) : loose).push(c);
   }
-  cols.todo.push(...waiting);
-  const onCards = new Set([...cols.todo, ...cols.progress, ...cols.review].flatMap((c) => (c.kind === 'todo' ? c.todo.sessions : [])));
-  for (const r of sessions) {
-    if (onCards.has(r.session.key) || unattended(r.session)) continue;
-    const stage = sessionStage(r, prs);
-    if (stage === 'review' || current(r.session)) cols[stage].push(r);
-  }
-  cols.progress = byMove(cols.progress);
-  cols.review = byMove(cols.review);
-  cols.done.sort((a, b) => doneAt(b) - doneAt(a) || a.key.localeCompare(b.key));
-  return KANBAN_COLUMNS.map((id) => ({ id, label: KANBAN_WORD[id], cards: cols[id] }));
+  // A project's own board keeps the Todo view's order; another board keeps its own.
+  const order = isProjects(board) ? [] : (board.order ?? []);
+  const sorted = (c: BoardColumn, cards: KanbanCard[]) => (c.sort === 'hand' ? byHand(cards, order, todos) : c.sort === 'move' ? byMove(cards) : byLatest(cards));
+  const out: KanbanColumn[] = columns.map((c) => ({ id: c.id, label: c.name, column: c, stage: stageOfColumn(c), cards: sorted(c, into.get(c.id) ?? []) }));
+  if (loose.length > 0) out.push({ id: NO_COLUMN, label: 'No column', column: null, stage: null, cards: byMove(loose) });
+  return out;
+}
+
+/** A board's Kanban as `codealong board show` and `move` see it (boards/useBoardAsks.ts): from
+ *  everything in its project on `lanes` (every worktree, with archived sessions left out), with
+ *  none of a window's search or filters. */
+export function kanbanOf(board: Board, lanes: Lane[], doc: BoardDoc, now: number) {
+  const project = doc.project;
+  const projectLanes = lanes.filter((l) => inProject(l, project));
+  const sessionItems = sessionItemsOf(projectLanes);
+  const laneById = new Map(lanes.map((l) => [l.id, l]));
+  const labelById = new Map(board.labels.map((l) => [l.id, l]));
+  const homes = sessionHomes(lanes);
+  const todoItems = board.todos.filter((t) => project === ALL_PROJECTS || t.project === project).map((t) => todoItem(t, laneById, homes, labelById));
+  const prs = board.prs.filter((p) => project === ALL_PROJECTS || p.project === project);
+  const subjects = subjectsOf({ todoItems, todos: board.todos, sessionItems, lanes: projectLanes, prs });
+  const member = memberTest(doc, subjects, now);
+  const sessions = shownSessionsOf(sessionItems, 0, NO_PINS, '', []);
+  const columns = kanbanColumns({ todoRows: todoItems, todos: board.todos, sessions, prs: board.prs, doneSince: now - DONE_SPAN, board: doc, subjects, member, now });
+  return { columns, subjects, member };
 }
 
 /** Needs you and Your turn per project, for the switcher's badge and menu. */
@@ -791,13 +827,15 @@ export interface ListsInput {
   /** What the sidebar narrows each view to beside its statuses (`Facets`). */
   facets: Facets;
   showDoneTodos: boolean;
-  /** The Kanban view's Done column is open. */
-  showDoneCards: boolean;
+  /** The board the Board view shows (boards/model.ts). */
+  shownBoard: BoardDoc;
+  /** Whether a column of its Kanban is open: a folded one is a rail until it's opened. */
+  columnOpen: (c: KanbanColumn) => boolean;
 }
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, prSort, todoSort, showParked, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, showDoneCards } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, prSort, todoSort, showParked, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, shownBoard, columnOpen } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
@@ -902,14 +940,22 @@ export function useBoardLists(input: ListsInput) {
   const sessionTodos = useMemo(() => todoIndex(todos, new Map()).bySession, [todos]);
   const todosFor = useCallback((k: string) => sessionTodos.get(k), [sessionTodos]);
 
-  // The Kanban view: the todos listed, and the sessions listed that no open todo's card shows,
-  // in columns by how far their work has got. Sessions have no labels, so a label shows only todos.
+  // The board the Board view shows: what its rules ask of everything in the project, and what's
+  // on it (boards/rules.ts).
+  const subjects = useMemo(() => subjectsOf({ todoItems, todos, sessionItems, lanes: projectLanes, prs: projectPrs }), [todoItems, todos, sessionItems, projectLanes, projectPrs]);
+  const member = useMemo(() => memberTest(shownBoard, subjects, now), [shownBoard, subjects, now]);
+  // Its Kanban: the board's todos listed, and its sessions listed that no open todo's card shows,
+  // in its columns. Sessions have no labels, so a label shows only todos.
   const labelled = !!facets.labels?.length;
   const cardSessions = useMemo(() => (labelled ? [] : shownSessionsOf(sessionItems, cutoff, NO_PINS, query, filter, said)), [labelled, sessionItems, cutoff, query, filter, said]);
   const doneSince = cutoff || now - DONE_SPAN;
-  const kanbanCols = useMemo(() => kanbanColumns(todoRows, todos, cardSessions, board?.prs ?? [], doneSince), [todoRows, todos, cardSessions, board?.prs, doneSince]);
-  const kanbanVisible = useMemo<ListRow[]>(() => kanbanCols.flatMap((c) => (c.id === 'done' && !showDoneCards ? [] : c.cards)), [kanbanCols, showDoneCards]);
-  const openCardCount = useMemo(() => kanbanCols.reduce((n, c) => (c.id === 'done' ? n : n + c.cards.length), 0), [kanbanCols]);
+  const kanbanCols = useMemo(
+    () => kanbanColumns({ todoRows, todos, sessions: cardSessions, prs: board?.prs ?? [], doneSince, board: shownBoard, subjects, member, now }),
+    [todoRows, todos, cardSessions, board?.prs, doneSince, shownBoard, subjects, member, now],
+  );
+  const kanbanVisible = useMemo<ListRow[]>(() => kanbanCols.flatMap((c) => (columnOpen(c) ? c.cards : [])), [kanbanCols, columnOpen]);
+  // What's open on it: the cards outside the columns that start folded (Done).
+  const openCardCount = useMemo(() => kanbanCols.reduce((n, c) => (c.column?.folded ? n : n + c.cards.length), 0), [kanbanCols]);
 
   // The sidebar's and the switcher's counts, and what each facet offers.
   const facetOptions = useMemo<Record<FacetId, FacetOption[]>>(() => ({ agents, repos: prFacets.repos, prLabels: prFacets.prLabels, authors: prFacets.authors, labels: todoLabels }), [agents, prFacets, todoLabels]);
@@ -960,6 +1006,8 @@ export function useBoardLists(input: ListsInput) {
     openTodoCount,
     todoLinks,
     todosFor,
+    subjects,
+    member,
     kanbanCols,
     kanbanVisible,
     openCardCount,

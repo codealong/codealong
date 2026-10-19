@@ -37,6 +37,7 @@ import {
   type Entities,
   type FrameItem,
   type NoteItem,
+  type OnBoard,
   type Rect,
   type RefItem,
   type RefKind,
@@ -74,6 +75,12 @@ export interface CanvasViewProps {
   doc: CanvasDoc;
   update: (fn: (doc: CanvasDoc) => CanvasDoc) => void;
   entities: Entities;
+  /** What the board holds (model.ts `OnBoard`). */
+  holds: OnBoard;
+  /** Takes cards off the board, by card id, which takes them off its canvas. */
+  onTakeOff: (cards: string[]) => void;
+  /** Puts cards on the board by hand, by card id: one added to the canvas, or put back. */
+  onPutOn: (cards: string[]) => void;
   /** Pinned worktrees, which stay on the canvas whatever their age. */
   pinned: Set<string>;
   labels: Map<string, Label>;
@@ -133,7 +140,7 @@ function readColors() {
 const clamp = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 export function CanvasView(props: CanvasViewProps) {
-  const { doc, update, entities, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, onShowPr, menuFor, onToast, onUndo, keys, onSelectItem, query, filtering, matches, fitMatches } = props;
+  const { doc, update, entities, holds, onTakeOff, onPutOn, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, onShowPr, menuFor, onToast, onUndo, keys, onSelectItem, query, filtering, matches, fitMatches } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const glCanvas = useRef<HTMLCanvasElement>(null);
@@ -453,11 +460,9 @@ export function CanvasView(props: CanvasViewProps) {
     if (selection.size === 0) return;
     const before = doc;
     const gone = [...selection].map((id) => byId.get(id)).filter(Boolean) as CanvasItem[];
-    update((d) => ({
-      ...d,
-      items: d.items.filter((it) => !selection.has(itemId(it))),
-      hidden: [...new Set([...d.hidden, ...gone.filter((it) => it.kind === 'ref').map(itemId)])],
-    }));
+    const cards = gone.filter((it) => it.kind === 'ref').map(itemId);
+    update((d) => ({ ...d, items: d.items.filter((it) => !selection.has(itemId(it))) }));
+    if (cards.length > 0) onTakeOff(cards);
     setSelection(new Set());
     const one = gone.length === 1 ? gone[0] : null;
     const message =
@@ -466,10 +471,13 @@ export function CanvasView(props: CanvasViewProps) {
         : one?.kind === 'frame'
           ? `Deleted the frame “${one.title}”.`
           : one?.kind === 'ref'
-            ? `Took “${titleOf(entities, one.ref, one.key) ?? one.title ?? 'it'}” off the canvas.`
-            : `Took ${gone.length} things off the canvas.`;
-    onUndo(message, () => update(() => before));
-  }, [selection, doc, byId, update, entities, onUndo]);
+            ? `Took “${titleOf(entities, one.ref, one.key) ?? one.title ?? 'it'}” off the board.`
+            : `Took ${gone.length} things off the board.`;
+    onUndo(message, () => {
+      if (cards.length > 0) onPutOn(cards);
+      update(() => before);
+    });
+  }, [selection, doc, byId, update, entities, onUndo, onTakeOff, onPutOn]);
 
   // One of the panels above the toolbar at a time.
   const [panel, setPanel] = useState<'tidy' | 'bring' | null>(null);
@@ -478,12 +486,12 @@ export function CanvasView(props: CanvasViewProps) {
   const runTidy = useCallback(
     (opts: TidyOptions, plan: TidyPlan) => {
       const before = doc;
-      update((d) => tidy(d, entities, Date.now(), pinned, opts));
+      update((d) => tidy(d, entities, Date.now(), pinned, opts, holds));
       onUndo(`Tidied. ${tidySummary(plan).replace(/^Nothing.*$/, '')}`.trim(), () => update(() => before), 'layout-grid');
       setTidyOpen(false);
       fitted.current = false;
     },
-    [doc, update, entities, pinned, onUndo],
+    [doc, update, entities, pinned, holds, onUndo],
   );
   const clearCanvas = useCallback(() => {
     const before = doc;
@@ -528,9 +536,10 @@ export function CanvasView(props: CanvasViewProps) {
   const addHere = useCallback(
     (ref: RefKind, key: string, at: { x: number; y: number }) => {
       update((d) => addRef(d, entities, ref, key, at, true));
+      onPutOn([refId(ref, key)]);
       setSelection(new Set([refId(ref, key)]));
     },
-    [update, entities],
+    [update, entities, onPutOn],
   );
 
   /** "Add to canvas": recent things of each kind that aren't on it, newest first. */
@@ -750,7 +759,7 @@ export function CanvasView(props: CanvasViewProps) {
       const id = itemId(hit);
       if (!selection.has(id)) setSelection(new Set([id]));
       const many = selection.has(id) && selection.size > 1;
-      const remove = { label: many ? `Take ${selection.size} off the canvas` : hit.kind === 'ref' ? 'Take off the canvas' : hit.kind === 'note' ? 'Delete note' : 'Delete frame', run: () => (many ? removeSelected() : removeOne(id)) };
+      const remove = { label: many ? `Remove ${selection.size} from the board` : hit.kind === 'ref' ? 'Remove from board' : hit.kind === 'note' ? 'Delete note' : 'Delete frame', run: () => (many ? removeSelected() : removeOne(id)) };
       if (hit.kind === 'ref') show([...(many ? [] : menuFor(hit)), 'separator', remove]);
       else if (hit.kind === 'note') show([{ label: 'Edit', run: () => setEditing(hit.id) }, { label: 'Color', items: colorItems(hit) }, 'separator', remove]);
       else show([{ label: 'Rename…', run: () => setEditing(hit.id) }, { label: 'Color', items: colorItems(hit) }, 'separator', remove]);
@@ -774,13 +783,17 @@ export function CanvasView(props: CanvasViewProps) {
   removeOneRef.current = (id: string) => {
     const before = doc;
     const it = byId.get(id);
-    update((d) => ({ ...d, items: d.items.filter((x) => itemId(x) !== id), hidden: it?.kind === 'ref' ? [...new Set([...d.hidden, id])] : d.hidden }));
+    update((d) => ({ ...d, items: d.items.filter((x) => itemId(x) !== id) }));
+    if (it?.kind === 'ref') onTakeOff([id]);
     setSelection((s) => {
       const n = new Set(s);
       n.delete(id);
       return n;
     });
-    onUndo(it?.kind === 'note' ? 'Deleted the note.' : it?.kind === 'frame' ? `Deleted the frame “${it.title}”.` : 'Took it off the canvas.', () => update(() => before));
+    onUndo(it?.kind === 'note' ? 'Deleted the note.' : it?.kind === 'frame' ? `Deleted the frame “${it.title}”.` : 'Took it off the board.', () => {
+      if (it?.kind === 'ref') onPutOn([id]);
+      update(() => before);
+    });
   };
   const removeOne = (id: string) => removeOneRef.current(id);
 
@@ -1098,7 +1111,7 @@ export function CanvasView(props: CanvasViewProps) {
         </CardPopover>
       )}
       {panel === 'bring' && <BringInPanel doc={doc} onChange={(scope) => update((d) => ({ ...d, scope }))} />}
-      {panel === 'tidy' && <TidyPanel doc={doc} entities={entities} now={now} pinned={pinned} onTidy={runTidy} onClear={clearCanvas} onClose={() => setTidyOpen(false)} />}
+      {panel === 'tidy' && <TidyPanel doc={doc} entities={entities} holds={holds} now={now} pinned={pinned} onTidy={runTidy} onClear={clearCanvas} onClose={() => setTidyOpen(false)} />}
       <div className="ca-cv-toolbar" role="toolbar" aria-label="Canvas tools" onDoubleClick={(e) => e.stopPropagation()}>
         <button type="button" className={cx('ca-cv-tool', tool === 'note' && 'is-on')} title="Note (N): click where it goes" aria-pressed={tool === 'note'} onClick={() => setTool(tool === 'note' ? 'select' : 'note')}>
           <Icon name="note" size={16} />

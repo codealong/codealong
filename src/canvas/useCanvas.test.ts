@@ -45,6 +45,6 @@ describe('readCanvas', () => {
   it('fails rather than give a read a save overtook every time', async () => {
     let n = 0;
     onRead = () => void saveCanvas('Acme', noted(`note ${++n}`));
-    await expect(readCanvas('Acme')).rejects.toThrow('The Acme canvas kept changing while it was read');
+    await expect(readCanvas('Acme')).rejects.toThrow('The canvas kept changing while it was read');
   });
 });

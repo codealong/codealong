@@ -32,6 +32,16 @@ export const strings: Codec<string[]> = {
   format: (value) => JSON.stringify(value),
 };
 
+/** Text by name, as a JSON object. What isn't text is left out of what's read. */
+export const textByName: Codec<Record<string, string>> = {
+  parse: (raw) => {
+    const v: unknown = JSON.parse(raw);
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+    return Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === 'string'));
+  },
+  format: (value) => JSON.stringify(value),
+};
+
 /** The value kept under `key`, or `fallback` when there's none, it doesn't read, or storage is off. */
 export function readStored<T, F = T>(key: string, codec: Codec<T>, fallback: F): T | F {
   try {

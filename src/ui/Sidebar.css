@@ -133,59 +133,7 @@
   gap: 6px;
   padding: 2px 8px 0;
 }
-.ca-side-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 9px;
-  box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--line-strong) 45%, transparent);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--ink-2);
-  font: var(--type-meta-strong);
-  cursor: pointer;
-}
-.ca-side-chip:hover {
-  background: var(--surface-hover);
-  color: var(--ink);
-}
-.ca-side-chip.is-on {
-  border-color: var(--ink);
-  background: var(--surface);
-  color: var(--ink);
-}
-.ca-side-chip:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--focus);
-}
-.ca-side-chip-count {
-  font: var(--type-code-sm);
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
-.ca-side-chip-count.is-attn {
-  color: var(--attn);
-}
-.ca-side-chip-count.is-alert {
-  color: var(--alert);
-}
-/* A facet's options (`SideFacetChips`): a long repo or label name shortens inside its chip, and
-   the list's "more" sits on the chips' line. */
-.ca-side-chip {
-  max-width: 100%;
-}
-.ca-side-chip > span:not(.ca-side-chip-count) {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ca-side-chip > .ca-icon,
-.ca-side-chip > .ca-labeldot {
-  flex: none;
-}
+/* A facet's options (`SideFacetChips`): the list's "more" sits on the chips' line. */
 .ca-side-more {
   height: 24px;
   padding: 0 var(--space-1);

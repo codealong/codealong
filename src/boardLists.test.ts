@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { projectBoard, type BoardColumn, type BoardDoc } from './boards/model';
+import { memberTest, subjectsOf } from './boards/rules';
 import {
   ageListingChain,
   ageListingPr,
@@ -56,10 +58,10 @@ import {
 import { needsOn } from './devices';
 import { bayOf, runsShownKey, sessionHomes } from './lanes';
 import { ALL_PROJECTS } from './quick';
-import { todoItem } from './todos';
+import { todoItem, type TodoItem } from './todos';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
-import type { Board, Lane, Pr, ProjectSummary, Session, SideGlance, TextHit, Todo } from './types';
+import type { Board, Lane, Pr, PrItem, ProjectSummary, Session, SideGlance, TextHit, Todo } from './types';
 import { familiesOf, helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
 
 const NOW = fx.NOW;
@@ -705,7 +707,12 @@ describe('the board’s lists', () => {
 });
 
 describe('the Kanban view’s columns', () => {
-  const cols = (...args: Parameters<typeof kanbanColumns>) => Object.fromEntries(kanbanColumns(...args).map((c) => [c.id, c.cards.map((r) => r.key)]));
+  /** A board's columns, by id, with the keys of their cards: a project's own board by default. */
+  const cols = (todoRows: TodoItem[], todos: Todo[], sessions: SessionItem[], prs: PrItem[], doneSince: number, board: BoardDoc = projectBoard('Acme')) => {
+    const subjects = subjectsOf({ todoItems: todoRows, todos, sessionItems: sessions, lanes: [], prs });
+    const member = memberTest(board, subjects, NOW);
+    return Object.fromEntries(kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board, subjects, member, now: NOW }).map((c) => [c.id, c.cards.map((r) => r.key)]));
+  };
   const todoOf = (t: Todo, lanes: Lane[] = []) => todoItem(t, new Map(lanes.map((l) => [l.id, l])), sessionHomes(lanes), new Map());
 
   it('puts todos where the Todo view lists them: Ready then Waiting under To do, In review by its mark or its PR', () => {
@@ -764,6 +771,34 @@ describe('the Kanban view’s columns', () => {
     const items = sessionItemsOf([l]);
     const out = cols([todoOf(todo, [l]), todoOf(lonely, [l])], [todo, lonely], items, [], 0);
     expect(out.progress).toEqual(['/r/app::claude:claude:a', 'todo:t', '/r/app::claude:claude:c', '/r/app::claude:claude:d', 'todo:lonely', '/r/app::claude:claude:e']);
+  });
+
+  it('holds on a board what its rule takes in and what was added, less what was taken off', () => {
+    const l = lane('/r/app', [session('claude:claude:in', { status: 'working' }), session('claude:claude:hand'), session('claude:claude:out', { status: 'working' })]);
+    const todos = [fx.todo({ id: 'rel', labels: ['l-rel'] }), fx.todo({ id: 'other' }), fx.todo({ id: 'off', labels: ['l-rel'] })];
+    const rows = todos.map((t) => todoOf(t, [l]));
+    const board: BoardDoc = { id: 'b-1', name: 'Release', project: 'Acme', rule: { labels: ['l-rel'] }, added: ['session:claude:claude:hand'], removed: ['todo:off'] };
+    // A session added by hand has a card though its turn ended and you've seen it.
+    expect(cols(rows, todos, sessionItemsOf([l]), [], 0, board)).toEqual({ todo: ['todo:rel'], progress: ['/r/app::claude:claude:hand'], review: [], done: [] });
+    const hand: BoardDoc = { ...board, rule: null, added: ['todo:other', 'worktree:/r/app'] };
+    // A worktree on the board brings its sessions worth a card.
+    expect(cols(rows, todos, sessionItemsOf([l]), [], 0, hand)).toEqual({ todo: ['todo:other'], progress: ['/r/app::claude:claude:in', '/r/app::claude:claude:out'], review: [], done: [] });
+  });
+
+  it('puts cards in a board’s own columns: the first whose rule takes it, else where it was put, else the first without a rule', () => {
+    const todos = [fx.todo({ id: 'bug', labels: ['l-bug'] }), fx.todo({ id: 'put' }), fx.todo({ id: 'rest' }), fx.todo({ id: 'w', dependsOn: ['rest'] })];
+    const rows = todos.map((t) => todoOf(t));
+    const columns: BoardColumn[] = [
+      { id: 'bugs', name: 'Bugs', rule: { labels: ['l-bug'] }, sort: 'move' },
+      { id: 'inbox', name: 'Inbox', sort: 'hand' },
+      { id: 'later', name: 'Later', sort: 'hand' },
+    ];
+    const board: BoardDoc = { id: 'b-1', name: 'Mine', project: 'Acme', rule: {}, added: [], removed: [], columns, placed: { 'todo:put': 'later', 'todo:bug': 'later' }, order: ['todo:rest'] };
+    // The board's own order, what waits after the rest.
+    expect(cols(rows, todos, [], [], 0, board)).toEqual({ bugs: ['todo:bug'], inbox: ['todo:rest', 'todo:w'], later: ['todo:put'] });
+    // With every column ruled, what none takes goes in No column.
+    const ruled: BoardDoc = { ...board, columns: [columns[0]] };
+    expect(cols(rows, todos, [], [], 0, ruled)).toEqual({ bugs: ['todo:bug'], '': ['todo:put', 'todo:rest', 'todo:w'] });
   });
 });
 

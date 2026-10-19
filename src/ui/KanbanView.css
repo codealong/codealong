@@ -1,5 +1,6 @@
-/* The Kanban view (KanbanView.tsx): its columns side by side, each scrolling on its own, the Done
-   rail, and where a dragged card would land. A card's face is card/CardFace.css's. */
+/* A board's Kanban (KanbanView.tsx): its columns side by side, each scrolling on its own, the rail
+   a folded column is, Add column after them, and where a dragged card would land. A card's face is
+   card/CardFace.css's. */
 
 .ca-kanban {
   flex: 1;
@@ -129,7 +130,7 @@
   font: var(--type-caption);
 }
 
-/* Done, folded: a narrow rail with its count, which opens it. */
+/* A folded column (Done, at first): a narrow rail with its count, which opens it. */
 .ca-kb-rail {
   flex: none;
   width: 36px;
@@ -152,4 +153,31 @@
   font: var(--type-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* A column's name shortens before its count does. */
+.ca-kb-head-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Add column: after the last column, as narrow as a rail. */
+.ca-kb-add {
+  flex: none;
+  align-self: flex-start;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ca-kb-add:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
 }

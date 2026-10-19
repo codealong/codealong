@@ -59,12 +59,12 @@ export interface TodoViewInput {
   clearFilters: () => void;
   setQuery: (query: string) => void;
   onDesktop: ReadonlySet<string>;
-  /** Add to canvas, or Show on canvas, for a todo's menu. */
-  canvasItem: (ref: 'todo', key: string) => MenuSpec;
+  /** Add to board, and Remove from board, for a todo's menu. */
+  boardItems: (ref: 'todo', key: string) => MenuSpec;
 }
 
 export function useTodoView(input: TodoViewInput) {
-  const { store: todoStore, selected, setSelectedKey, visible, todoVisible, todoSecs, ordered, current, projects, lanes, laneById, lanePins, selectedLane, labelPicks, unpickLabel, setShowDoneTodos, report, setToast, setTodoUndo, newSession, open, pickProject, setView, listsTodos, clearFilters, setQuery, onDesktop, canvasItem } = input;
+  const { store: todoStore, selected, setSelectedKey, visible, todoVisible, todoSecs, ordered, current, projects, lanes, laneById, lanePins, selectedLane, labelPicks, unpickLabel, setShowDoneTodos, report, setToast, setTodoUndo, newSession, open, pickProject, setView, listsTodos, clearFilters, setQuery, onDesktop, boardItems } = input;
   const runTodo = todoStore.run;
   // The todo whose panel should open its due date's picker, for Pick a date… and D.
   const [duePick, setDuePick] = useState<string | null>(null);
@@ -112,7 +112,7 @@ export function useTodoView(input: TodoViewInput) {
     setSelectedKey(`todo:${t.id}`);
   };
 
-  /** Adds a todo from the box at the top of the list, linked to what it was made from. */
+  /** Adds a todo from the box at the top of the list, linked to what it was made from. Returns its id. */
   const createTodo = (title: string, context: ComposerContext | null) => {
     const lane = context?.worktree ? laneById.get(context.worktree) : undefined;
     const project = current !== ALL_PROJECTS ? current : (lane?.project ?? '');
@@ -130,6 +130,7 @@ export function useTodoView(input: TodoViewInput) {
     runTodo({ op: 'create', todo: t });
     setSelectedKey(`todo:${t.id}`);
     setComposer({ text: '', context: null });
+    return t.id;
   };
 
   /** Opens the Todo view with the box at the top ready for a todo linked to `context`. */
@@ -232,7 +233,7 @@ export function useTodoView(input: TodoViewInput) {
       session: agent ? { ...agent, open: () => open(agent.lane, agent.session.openTarget) } : undefined,
       edit: todoEdit,
       desktop: onDesktop,
-      canvas: canvasItem('todo', t.id),
+      boards: boardItems('todo', t.id),
       remove: () => deleteTodos([t]),
     });
   };

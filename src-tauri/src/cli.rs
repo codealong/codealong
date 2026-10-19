@@ -20,7 +20,7 @@ use crate::actions::{self, params};
 use crate::api;
 use crate::attachments;
 use crate::board;
-use crate::canvas;
+use crate::boards::{self, BoardDoc, BoardOp, Rule};
 use crate::config::{self, AccountCfg, Config};
 use crate::engine;
 use crate::insights;
@@ -141,7 +141,13 @@ enum Cmd {
     Changes(ChangesArgs),
     /// Processes left over from old sessions, and this Mac's load, memory and swap, for keeping a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an agent's own process and what it runs; not one working or waiting on you, unless it's archived), older copies of a background job's attach client (`claude attach <job>` in a second tab), a harness's background processes left with no parent, and dev servers and watchers in a linked worktree no session has been active in for --after (never a repo's main checkout). With --kill it ends those, each with its child processes: it checks again that each process runs the same command first, stops a background job through its harness as Close does and asks the rest to end (SIGTERM), kills what's left after a while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it cleared, and logs each to --log. A session whose process ended keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer or is still reading after a start: without its board, every session would look old.
     Hygiene(HygieneArgs),
-    /// A project's canvas, the app's Canvas view: what its frames hold (`show`), and laying it out in frames by what the work is for (`arrange`), so your user sees the work in progress as you sum it up. Needs the app running: its main window holds the canvas.
+    /// Boards, the app's Kanban and Canvas: named sets of work in a project, each shown as Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in frames). Every project has a board of its own, named after it, that holds everything in the project; make more for a release, a fix, an investigation. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how recent, words) and what's added by hand, less what's taken off, so add the session you're in to your user's board for the work you're on (`board add <board> --session me`). Name a board by its id or its name: a name in the project of the folder you're in or --project, or one only one project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work with or without the app; `show`, `move`, `arrange` and `open` need it running, since its main window works boards out.
+    Board {
+        #[command(subcommand)]
+        cmd: BoardCmd,
+    },
+    /// `board show --as canvas` and `board arrange` on a project's own board, by the names they had before boards.
+    #[command(hide = true)]
     Canvas {
         #[command(subcommand)]
         cmd: CanvasCmd,
@@ -827,32 +833,214 @@ enum ReuseCmd {
 }
 
 #[derive(Subcommand, Debug)]
-enum CanvasCmd {
-    /// What a project's canvas holds: its frames in reading order, each with who made it (`by`: `you` drew it, a `tidy` made it, or `arrange` did), the cards (`ref`: worktree, session, todo or pr, with its key and title, `gone` once the board no longer has it) and the notes. `frame` is the id of the frame a card, note or frame sits in, null for none. `exists` is false for a project whose canvas was never shown or arranged.
-    Show(CanvasAt),
-    /// Lay a project's canvas out in frames you name, by what the work is for: a goal, a release, what waits on your user. Each frame's cards go in columns by worktree, in the order you give, its note across its top, and the frames go in rows in the order you give. Frames your user drew and notes stay where they are, with what's in them, unless a frame of yours names it. The frames and notes the last arrange made are replaced; a tidy leaves them as if your user drew them, and once they rename one it's theirs. The cards no frame names go below your frames, laid out by worktree, or come off with `--rest off`.
+enum BoardCmd {
+    /// A project's boards: its own first, then the rest as they were made, each with its id, its name, what its rule takes in, and how many cards were added and taken off by hand.
+    List(BoardAt),
+    /// Make a board. Given no rule options it holds only what's added (`board add`); with them, what they take in too (as `board rule` says), and with --everything, everything in the project. Its Kanban starts with the four stage columns (To do, In progress, In review, Done), or with --columns labels one column per label its rule names (every label, for a rule that names none) and Other, or with --columns blank one column, Inbox, to make your own beside. Prints its id.
+    New(BoardNewArgs),
+    /// What a board holds, as its user sees it: its Kanban columns, each with its cards in their order (a todo with the sessions on it, or a session on no todo the board shows), or with --as canvas its canvas's frames in reading order, each with who made it (`by`: `you` drew it, a `tidy` made it, or `arrange` did), the cards in it (`gone` once the board no longer has one) and its notes. Without a board, the project's own.
+    Show(BoardShowArgs),
+    /// Put cards on a board by hand. They stay on it whatever its rule says, until they're taken off, and come back if they were taken off.
+    Add(BoardCardsArgs),
+    /// Take cards off a board. They stay off whatever its rule says, until they're added again.
+    Remove(BoardCardsArgs),
+    /// Change what comes onto a board by itself. Each option given must hold, and one holds when a card has any of what it names: --label release --stage review takes in the todos labelled release that are in review, and the sessions on them. --everything takes in everything in the project; --hand-only nothing but what's added.
+    Rule(BoardRuleArgs),
+    /// Set a board's rule and its Kanban columns from JSON, in the shape `board show --json` prints them: {"rule": {…} | null, "columns": [{"id": "next", "name": "Next", "rule": {…}, "sort": "hand", "folded": false}] | null}. A field left out stays as it is; a rule of null takes in nothing but what's added, and columns of null are the four stages. A rule is {"kinds": ["worktree", "session", "todo", "pr"], "stages": ["todo", "progress", "review", "done"], "statuses": ["needs", "unread", "working"], "labels": [names or ids], "repos": ["owner/name"], "accounts": [names], "active": "1d" | "3d" | "7d" | "30d", "text": "words in the title"}, each part optional, every part given holding; {} takes in everything. A card goes in the first column whose rule takes it, else in the column it was put in by hand, else in the first column without a rule; `sort` is `hand` (as they're put), `move` (what needs your user first) or `latest`.
+    Set(BoardSetArgs),
+    /// Move a card on a board's Kanban to a column, doing what dragging it there does in the app: in a stage column a todo is marked ready for review, done, or reopened, and a session marked done; in a label column a todo gets the label; in a column of your own the card is put there. Starting a todo from To do starts a session in the app, so it's turned down here: run `codealong todo start` in the session that takes it on. --dry-run says what it would do without doing it.
+    Move(BoardMoveArgs),
+    /// Lay a board's canvas out in frames you name, by what the work is for: a goal, a release, what waits on your user. Each frame's cards go in columns by worktree, in the order you give, its note across its top, and the frames go in rows in the order you give. Frames your user drew and notes stay where they are, with what's in them, unless a frame of yours names it. The frames and notes the last arrange made are replaced; a tidy leaves them as if your user drew them, and once they rename one it's theirs. The cards no frame names go below your frames, laid out by worktree, or come off the canvas with `--rest off`. A card you name that isn't on the board is put on it.
     ///
-    /// The plan is JSON: {"frames": [{"title": "Release 0.8", "color": "blue", "note": "Two PRs open; the docs one waits on review.", "worktrees": ["~/src/app-release"], "sessions": ["claude:claude2:<uuid>"], "todos": ["t-abc"], "prs": ["acme/app#12"]}]}. A frame has a title and at least one card or a note; color is optional (gray, red, pink, purple, indigo, blue, teal, green). Name a worktree by its path, a session by its key or id, a todo by its id, a PR by its URL or owner/name#number; ids take a unique prefix. A worktree you list heads its sessions' column. A card named twice goes in the first frame that names it; one the board doesn't have in the project is left out and listed under `missing`. Prints each frame made with how many cards it holds (`frames`, with each frame's id) and how many other cards went below or came off (`rest`).
-    Arrange(CanvasArrangeArgs),
+    /// The plan is JSON: {"frames": [{"title": "Release 0.8", "color": "blue", "note": "Two PRs open; the docs one waits on review.", "worktrees": ["~/src/app-release"], "sessions": ["claude:claude2:<uuid>"], "todos": ["t-abc"], "prs": ["acme/app#12"]}]}. A frame has a title and at least one card or a note; color is optional (gray, red, pink, purple, indigo, blue, teal, green). Name a worktree by its path, a session by its key or id, a todo by its id, a PR by its URL or owner/name#number; ids take a unique prefix. A worktree you list heads its sessions' column. A card named twice goes in the first frame that names it; one the board's project doesn't have is left out and listed under `missing`. Prints each frame made with how many cards it holds (`frames`, with each frame's id) and how many other cards went below or came off (`rest`).
+    Arrange(BoardArrangeArgs),
+    /// Bring Codealong's main window forward on a board, as Kanban, or with --as canvas as Canvas.
+    Open(BoardShowArgs),
+    /// Rename a board. A project's own board can be renamed too.
+    Rename {
+        board: String,
+        #[arg(allow_hyphen_values = true)]
+        name: String,
+        #[command(flatten)]
+        at: BoardAt,
+    },
+    /// Delete a board, and its canvas. What was on it stays as it is everywhere else. A project's own board can't be deleted.
+    Delete {
+        board: String,
+        #[command(flatten)]
+        at: BoardAt,
+    },
 }
 
-#[derive(Args, Debug)]
-struct CanvasAt {
-    /// The project, as the app names it, or `all` for every project's canvas. Without it, the project of the worktree the current folder is in, else the one the main window shows.
+#[derive(Args, Debug, Default, Clone)]
+struct BoardAt {
+    /// The project, as the app names it, or `all` for the board of every project. Without it, the project of the worktree the current folder is in.
     #[arg(long)]
     project: Option<String>,
 }
 
 #[derive(Args, Debug)]
-struct CanvasArrangeArgs {
+struct BoardNewArgs {
+    #[arg(allow_hyphen_values = true)]
+    name: String,
     #[command(flatten)]
-    at: CanvasAt,
+    at: BoardAt,
+    #[command(flatten)]
+    rule: RuleArgs,
+    /// The Kanban columns it starts with.
+    #[arg(long, value_enum, default_value_t = ColumnsPreset::Stages)]
+    columns: ColumnsPreset,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum ColumnsPreset {
+    /// To do, In progress, In review and Done, which follow the work.
+    Stages,
+    /// One column per label, and Other.
+    Labels,
+    /// One column, Inbox.
+    Blank,
+}
+
+#[derive(Args, Debug)]
+struct BoardShowArgs {
+    /// The board: its id or its name. Without it, the project's own board.
+    board: Option<String>,
+    #[command(flatten)]
+    at: BoardAt,
+    /// As Kanban or as Canvas.
+    #[arg(long = "as", value_enum, default_value_t = boards::Layout::Kanban)]
+    layout: boards::Layout,
+}
+
+/// Cards, as the command names them. Each option takes any number.
+#[derive(Args, Debug, Default)]
+struct CardArgs {
+    /// A todo's id, or a unique start of it.
+    #[arg(long = "todo")]
+    todos: Vec<String>,
+    /// A session's key or id, a unique start of its id, or `me`.
+    #[arg(long = "session")]
+    sessions: Vec<String>,
+    /// A worktree's folder, or `.` for the one the current folder is in.
+    #[arg(long = "worktree")]
+    worktrees: Vec<String>,
+    /// A PR's URL or owner/name#number, or #number in this folder's repo.
+    #[arg(long = "pr")]
+    prs: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+struct BoardCardsArgs {
+    board: String,
+    #[command(flatten)]
+    cards: CardArgs,
+    #[command(flatten)]
+    at: BoardAt,
+}
+
+/// What a rule takes in, as options. Each takes any number, but --active and --text.
+#[derive(Args, Debug, Default)]
+struct RuleArgs {
+    /// Everything in the project.
+    #[arg(long, conflicts_with_all = ["kinds", "stages", "statuses", "labels", "repos", "accounts", "active", "text"])]
+    everything: bool,
+    /// Cards of a kind.
+    #[arg(long = "kind", value_enum)]
+    kinds: Vec<boards::Kind>,
+    /// Work at a stage: todo (not started), progress, review, done.
+    #[arg(long = "stage", value_enum)]
+    stages: Vec<boards::Stage>,
+    /// Agents in a status: needs (needs you), unread (your turn), working; a todo or a worktree by its sessions.
+    #[arg(long = "status", value_enum)]
+    statuses: Vec<boards::Status>,
+    /// A todo label's name: todos with it, and the sessions and worktrees on them.
+    #[arg(long = "label")]
+    labels: Vec<String>,
+    /// A repo, as owner/name.
+    #[arg(long = "repo")]
+    repos: Vec<String>,
+    /// An account's sessions, and the todos and worktrees they're on.
+    #[arg(long = "account")]
+    accounts: Vec<String>,
+    /// Work that moved on in the last 1d, 3d, 7d or 30d.
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(boards::ACTIVE))]
+    active: Option<String>,
+    /// Words in the title.
+    #[arg(long, allow_hyphen_values = true)]
+    text: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct BoardRuleArgs {
+    board: String,
+    #[command(flatten)]
+    rule: RuleArgs,
+    /// Nothing but what's added by hand.
+    #[arg(long, conflicts_with = "everything")]
+    hand_only: bool,
+    #[command(flatten)]
+    at: BoardAt,
+}
+
+#[derive(Args, Debug)]
+struct BoardSetArgs {
+    board: String,
+    /// The JSON: a file, or `-` to read it from stdin.
+    spec: String,
+    #[command(flatten)]
+    at: BoardAt,
+}
+
+#[derive(Args, Debug)]
+struct BoardMoveArgs {
+    board: String,
+    /// The card: one --todo, --session, --worktree or --pr.
+    #[command(flatten)]
+    card: CardArgs,
+    /// The column, by its id or its name.
+    #[arg(long)]
+    to: String,
+    /// Put it before this card in the column, as `board show` names it (todo:<id>, session:<key>), in a column in your order.
+    #[arg(long)]
+    before: Option<String>,
+    /// Say what it would do, and don't.
+    #[arg(long)]
+    dry_run: bool,
+    #[command(flatten)]
+    at: BoardAt,
+}
+
+#[derive(Args, Debug)]
+struct BoardArrangeArgs {
+    /// The board: its id or its name. Without it, the project's own board.
+    #[arg(long)]
+    board: Option<String>,
+    #[command(flatten)]
+    at: BoardAt,
     /// The plan: a JSON file, or `-` to read it from stdin.
     plan: String,
-    /// What becomes of the cards on the canvas no frame names: laid out by worktree below your frames, or taken off (Bring in puts one back once it moves on).
-    #[arg(long, value_enum, default_value_t = canvas::Rest::Keep)]
-    rest: canvas::Rest,
+    /// What becomes of the cards on the canvas no frame names: laid out by worktree below your frames, or taken off the canvas (Bring in puts one back once it moves on).
+    #[arg(long, value_enum, default_value_t = boards::Rest::Keep)]
+    rest: boards::Rest,
     /// Bring Codealong's main window forward on the canvas, with your frames in view.
+    #[arg(long)]
+    show: bool,
+}
+
+#[derive(Subcommand, Debug)]
+enum CanvasCmd {
+    Show(BoardAt),
+    Arrange(CanvasArrangeArgs),
+}
+
+#[derive(Args, Debug)]
+struct CanvasArrangeArgs {
+    #[command(flatten)]
+    at: BoardAt,
+    plan: String,
+    #[arg(long, value_enum, default_value_t = boards::Rest::Keep)]
+    rest: boards::Rest,
     #[arg(long)]
     show: bool,
 }
@@ -1388,8 +1576,9 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Terminal { cmd } => terminal_cmd(c, cmd, json),
         Cmd::Changes(args) => changes(c, &args, json),
         Cmd::Hygiene(args) => hygiene(c, &args, json),
-        Cmd::Canvas { cmd: CanvasCmd::Show(a) } => canvas_show(c, a, json),
-        Cmd::Canvas { cmd: CanvasCmd::Arrange(a) } => canvas_arrange(c, a, json),
+        Cmd::Board { cmd } => board(cmd, c, json),
+        Cmd::Canvas { cmd: CanvasCmd::Show(at) } => board(BoardCmd::Show(BoardShowArgs { board: None, at, layout: boards::Layout::Canvas }), c, json),
+        Cmd::Canvas { cmd: CanvasCmd::Arrange(a) } => board(BoardCmd::Arrange(BoardArrangeArgs { board: None, at: a.at, plan: a.plan, rest: a.rest, show: a.show }), c, json),
         Cmd::Reference => {
             print!("{}", reference_text());
             Ok(())
@@ -1422,9 +1611,487 @@ pub fn reference_text() -> String {
     out
 }
 
-// ---- the canvas ----
+// ---- boards ----
 
-/// The plan `canvas arrange` reads.
+fn board(cmd: BoardCmd, c: &mut Client, json: bool) -> Result<()> {
+    match cmd {
+        BoardCmd::List(at) => board_list(c, &at, json),
+        BoardCmd::New(a) => board_new(c, a, json),
+        BoardCmd::Show(a) => board_show(c, a, json),
+        BoardCmd::Add(a) => board_cards(c, a, true, json),
+        BoardCmd::Remove(a) => board_cards(c, a, false, json),
+        BoardCmd::Rule(a) => board_rule(c, a, json),
+        BoardCmd::Set(a) => board_set(c, a, json),
+        BoardCmd::Move(a) => board_move(c, a, json),
+        BoardCmd::Arrange(a) => board_arrange(c, a, json),
+        BoardCmd::Open(a) => {
+            let b = find_board(c, a.board.as_deref(), &a.at)?;
+            c.show(json!({ "kind": "board", "board": b.id, "project": b.project, "layout": a.layout }))?;
+            say_done(json, &b, format!("Showed {} as {}.\n", b.name, lower_debug(&a.layout)))
+        }
+        BoardCmd::Rename { board, name, at } => {
+            let b = find_board(c, Some(&board), &at)?;
+            let out = apply_board(c, BoardOp::Rename { id: b.id.clone(), name })?;
+            let now = out.board.unwrap_or(b);
+            say_done(json, &now, format!("Renamed the board {board} to {}.\n", now.name))
+        }
+        BoardCmd::Delete { board, at } => {
+            let b = find_board(c, Some(&board), &at)?;
+            apply_board(c, BoardOp::Delete { id: b.id.clone() })?;
+            say_done(json, &b, format!("Deleted the board {} from {}.\n", b.name, b.project))
+        }
+    }
+}
+
+/// What a change to a board says: the board as JSON, or a line.
+fn say_done(json: bool, b: &BoardDoc, line: String) -> Result<()> {
+    if json {
+        return print_json(b);
+    }
+    print!("{line}");
+    Ok(())
+}
+
+/// The project a board command is about: --project as the app names it (`all` for the board of
+/// every project), else the project of the worktree the current folder is in.
+fn board_project(c: &mut Client, at: &BoardAt) -> Result<Option<String>> {
+    let Some(asked) = at.project.as_deref().map(str::trim) else {
+        return Ok(std::env::current_dir().ok().and_then(|d| lane_for_path(c.board().ok()?, &d).map(|l| l.project.clone())).filter(|p| !p.is_empty()));
+    };
+    if asked.eq_ignore_ascii_case("all") || asked.eq_ignore_ascii_case(crate::route::ALL_PROJECTS) {
+        return Ok(Some(crate::route::ALL_PROJECTS.to_string()));
+    }
+    let projects: Vec<String> = c.board()?.projects.iter().map(|p| p.name.clone()).collect();
+    match projects.iter().find(|p| p.eq_ignore_ascii_case(asked)) {
+        Some(p) => Ok(Some(p.clone())),
+        None => bail!("There's no project {asked}. The projects are {}, and all.", projects.join(", ")),
+    }
+}
+
+/// The board a command names: by its id, by its name in the project it's about, or by a name only
+/// one project has. None names the project's own board.
+fn find_board(c: &mut Client, name: Option<&str>, at: &BoardAt) -> Result<BoardDoc> {
+    let project = board_project(c, at)?;
+    let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else {
+        let p = project.ok_or_else(|| anyhow!("Name a board, or give --project for the project's own board: this folder isn't in a worktree of a project."))?;
+        return Ok(boards::list(&p)?.remove(0));
+    };
+    let stored = boards::all()?;
+    if let Some(b) = stored.iter().find(|b| b.id == name) {
+        return Ok(b.clone());
+    }
+    let projects: Vec<String> = c.board()?.projects.iter().map(|p| p.name.clone()).chain(std::iter::once(crate::route::ALL_PROJECTS.to_string())).collect();
+    if let Some(p) = projects.iter().find(|p| boards::project_board_id(p) == name) {
+        return Ok(BoardDoc::of_project(p));
+    }
+    let named = |b: &BoardDoc| b.name.eq_ignore_ascii_case(name);
+    if let Some(p) = &project {
+        if let Some(b) = boards::list(p)?.into_iter().find(named) {
+            return Ok(b);
+        }
+    }
+    // A project's own board that the file doesn't have yet goes by the project's name.
+    let mut hits: Vec<BoardDoc> = stored.into_iter().filter(named).collect();
+    for p in &projects {
+        if p.eq_ignore_ascii_case(name) && !hits.iter().any(|b| b.id == boards::project_board_id(p)) {
+            hits.push(BoardDoc::of_project(p));
+        }
+    }
+    match hits.len() {
+        1 => Ok(hits.remove(0)),
+        0 => bail!("There's no board {name}{}. `codealong board list` lists a project's boards.", project.map(|p| format!(" in {p}")).unwrap_or_default()),
+        n => bail!("{n} projects have a board called {name}: give --project, or the board's id ({}).", hits.iter().map(|b| b.id.as_str()).collect::<Vec<_>>().join(", ")),
+    }
+}
+
+/// Makes a change to a board: through the app when it runs, so its windows show it at once, else
+/// in the file.
+fn apply_board(c: &mut Client, op: BoardOp) -> Result<boards::Applied> {
+    c.note();
+    if c.app.is_none() {
+        return boards::apply(op, now_ms());
+    }
+    match server::ask(&Request::BoardApply { op }) {
+        Some(Ok(v)) => serde_json::from_value(v).context("reading the app's reply"),
+        Some(Err(e)) if e.starts_with(server::UNKNOWN_REQUEST) => bail!("The Codealong that's running is older than this command and has no boards. Update it, or quit it and open it again."),
+        Some(Err(e)) => bail!("{e}"),
+        None => bail!("The app stopped answering."),
+    }
+}
+
+/// One of the main window's board requests (boards.rs `ask`).
+fn ask_board(c: &mut Client, board: &BoardDoc, ask: boards::Ask) -> Result<Value> {
+    c.note();
+    if c.app.is_none() {
+        bail!("Codealong isn't running, and its main window works boards out.");
+    }
+    match server::ask(&Request::BoardAsk { board: board.id.clone(), project: board.project.clone(), ask }) {
+        Some(Ok(v)) => Ok(v),
+        Some(Err(e)) if e.starts_with(server::UNKNOWN_REQUEST) => bail!("The Codealong that's running is older than this command and has no boards. Update it, or quit it and open it again."),
+        Some(Err(e)) => bail!("{e}"),
+        None => bail!("The app stopped answering."),
+    }
+}
+
+/// The cards the options name, as boards name them (`boards::card_id`). Every one that can't be
+/// named is said at once.
+fn card_ids(c: &mut Client, a: &CardArgs) -> Result<Vec<String>> {
+    let todos = store_of(c.board()?);
+    let mut out = Vec::new();
+    let mut wrong = Vec::new();
+    let mut add = |kind: boards::Kind, key: Result<String>| match key {
+        Ok(key) => out.push(boards::card_id(kind, &key)),
+        Err(e) => wrong.push(e.to_string()),
+    };
+    for t in &a.todos {
+        add(boards::Kind::Todo, resolve_todo(&todos, t));
+    }
+    for s in &a.sessions {
+        add(boards::Kind::Session, resolve_session(c, s));
+    }
+    for w in &a.worktrees {
+        add(boards::Kind::Worktree, resolve_worktree(c, w));
+    }
+    for p in &a.prs {
+        add(boards::Kind::Pr, board_pr(c, p));
+    }
+    if !wrong.is_empty() {
+        bail!("{}", wrong.join("\n"));
+    }
+    Ok(out)
+}
+
+/// A PR's key as the board spells it: GitHub's names ignore case, and the window's keys don't.
+fn board_pr(c: &mut Client, pr: &str) -> Result<String> {
+    resolve_pr(c, pr).map(|key| c.board().ok().and_then(|b| find_pr(b, &key)).map_or(key, |pr| pr.key.clone()))
+}
+
+fn board_cards(c: &mut Client, a: BoardCardsArgs, add: bool, json: bool) -> Result<()> {
+    let b = find_board(c, Some(&a.board), &a.at)?;
+    let cards = card_ids(c, &a.cards)?;
+    if cards.is_empty() {
+        bail!("Name the cards: --todo, --session, --worktree or --pr.");
+    }
+    let n = cards.len();
+    let op = if add { BoardOp::Add { id: b.id.clone(), cards } } else { BoardOp::Remove { id: b.id.clone(), cards } };
+    let now = apply_board(c, op)?.board.unwrap_or(b);
+    let what = format!("{n} card{}", if n == 1 { "" } else { "s" });
+    say_done(json, &now, if add { format!("Put {what} on {}.\n", now.name) } else { format!("Took {what} off {}.\n", now.name) })
+}
+
+/// A todo label by its name, whatever its case, or its id.
+fn board_label(store: &TodoStore, name: &str) -> Result<String> {
+    let name = name.trim();
+    store.labels.iter().find(|l| l.id == name || l.name.eq_ignore_ascii_case(name)).map(|l| l.id.clone()).ok_or_else(|| {
+        let names: Vec<&str> = store.labels.iter().map(|l| l.name.as_str()).collect();
+        anyhow!("There's no label called {name}.{}", if names.is_empty() { String::new() } else { format!(" The labels are {}.", names.join(", ")) })
+    })
+}
+
+/// The rule the options say, or none when they say nothing.
+fn rule_of(c: &mut Client, a: &RuleArgs) -> Result<Option<Rule>> {
+    if a.everything {
+        return Ok(Some(Rule::default()));
+    }
+    let given = !(a.kinds.is_empty() && a.stages.is_empty() && a.statuses.is_empty() && a.labels.is_empty() && a.repos.is_empty() && a.accounts.is_empty() && a.active.is_none() && a.text.as_deref().map_or(true, |t| t.trim().is_empty()));
+    if !given {
+        return Ok(None);
+    }
+    let store = store_of(c.board()?);
+    let labels = a.labels.iter().map(|n| board_label(&store, n)).collect::<Result<Vec<_>>>()?;
+    if let Some(r) = a.repos.iter().find(|r| !r.contains('/')) {
+        bail!("A repo is owner/name, not {r}.");
+    }
+    Ok(Some(Rule {
+        kinds: a.kinds.clone(),
+        stages: a.stages.clone(),
+        statuses: a.statuses.clone(),
+        labels,
+        repos: a.repos.clone(),
+        accounts: a.accounts.clone(),
+        active: a.active.clone(),
+        text: a.text.clone().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()),
+    }))
+}
+
+/// What a rule takes in, in words.
+fn rule_text(rule: Option<&Rule>, labels: &[Label]) -> String {
+    let Some(r) = rule else { return "only what's added".into() };
+    let or = |words: Vec<String>| words.join(" or ");
+    let mut parts = Vec::new();
+    if !r.kinds.is_empty() {
+        parts.push(or(r.kinds.iter().map(|k| format!("{}s", k.word()).replace("prs", "PRs")).collect()));
+    }
+    if !r.labels.is_empty() {
+        parts.push(format!("labelled {}", or(r.labels.iter().map(|id| labels.iter().find(|l| &l.id == id).map_or_else(|| id.clone(), |l| l.name.clone())).collect())));
+    }
+    if !r.stages.is_empty() {
+        let word = |s: &boards::Stage| match s {
+            boards::Stage::Todo => "not started",
+            boards::Stage::Progress => "in progress",
+            boards::Stage::Review => "in review",
+            boards::Stage::Done => "done",
+        };
+        parts.push(or(r.stages.iter().map(|s| word(s).to_string()).collect()));
+    }
+    if !r.statuses.is_empty() {
+        let word = |s: &boards::Status| match s {
+            boards::Status::Needs => "needing you",
+            boards::Status::Unread => "your turn",
+            boards::Status::Working => "working",
+        };
+        parts.push(or(r.statuses.iter().map(|s| word(s).to_string()).collect()));
+    }
+    if !r.repos.is_empty() {
+        parts.push(format!("in {}", or(r.repos.clone())));
+    }
+    if !r.accounts.is_empty() {
+        parts.push(format!("on {}", or(r.accounts.clone())));
+    }
+    if let Some(a) = &r.active {
+        parts.push(format!("active in the last {a}"));
+    }
+    if let Some(t) = &r.text {
+        parts.push(format!("titled “{t}”"));
+    }
+    if parts.is_empty() {
+        return "everything".into();
+    }
+    parts.join(", ")
+}
+
+fn board_list(c: &mut Client, at: &BoardAt, json: bool) -> Result<()> {
+    let project = board_project(c, at)?.ok_or_else(|| anyhow!("Give --project: this folder isn't in a worktree of a project."))?;
+    let list = boards::list(&project)?;
+    if json {
+        return print_json(&list);
+    }
+    let labels = store_of(c.board()?).labels;
+    let rows = list.iter().map(|b| vec![b.id.clone(), b.name.clone(), rule_text(b.rule.as_ref(), &labels), b.added.len().to_string(), b.removed.len().to_string()]).collect();
+    print!("{}", table_text(&["ID", "NAME", "TAKES IN", "ADDED", "OFF"], rows));
+    Ok(())
+}
+
+fn board_new(c: &mut Client, a: BoardNewArgs, json: bool) -> Result<()> {
+    let project = board_project(c, &a.at)?.ok_or_else(|| anyhow!("Give --project: this folder isn't in a worktree of a project."))?;
+    let rule = rule_of(c, &a.rule)?;
+    let col = |id: &str, name: &str, rule: Option<Rule>, sort: boards::Sort| boards::Column { id: id.into(), name: name.into(), rule, sort, folded: false };
+    let columns = match a.columns {
+        ColumnsPreset::Stages => None,
+        ColumnsPreset::Blank => Some(vec![col("inbox", "Inbox", None, boards::Sort::Hand)]),
+        ColumnsPreset::Labels => {
+            let store = store_of(c.board()?);
+            let named = rule.as_ref().map(|r| r.labels.clone()).unwrap_or_default();
+            let labels: Vec<&Label> = if named.is_empty() { store.labels.iter().collect() } else { named.iter().filter_map(|id| store.labels.iter().find(|l| &l.id == id)).collect() };
+            if labels.is_empty() {
+                bail!("There are no labels to make columns of. Add some with `codealong todo labels add`.");
+            }
+            let mut cols: Vec<boards::Column> = labels.iter().map(|l| col(&format!("label-{}", l.id), &l.name, Some(Rule { labels: vec![l.id.clone()], ..Default::default() }), boards::Sort::Move)).collect();
+            cols.push(col("other", "Other", None, boards::Sort::Hand));
+            Some(cols)
+        }
+    };
+    let board = BoardDoc { id: String::new(), name: a.name, rule, columns, ..BoardDoc::of_project(&project) };
+    let out = apply_board(c, BoardOp::Create { board })?;
+    let made = out.board.ok_or_else(|| anyhow!("The board wasn't made."))?;
+    if json {
+        return print_json(&made);
+    }
+    let labels = store_of(c.board()?).labels;
+    println!("Made the board {} in {}, which takes in {}: {}", made.name, made.project, rule_text(made.rule.as_ref(), &labels), made.id);
+    Ok(())
+}
+
+fn board_rule(c: &mut Client, a: BoardRuleArgs, json: bool) -> Result<()> {
+    let b = find_board(c, Some(&a.board), &a.at)?;
+    let rule = match (a.hand_only, rule_of(c, &a.rule)?) {
+        (true, _) => None,
+        (false, Some(rule)) => Some(rule),
+        (false, None) => bail!("Say what it takes in (`codealong board rule --help`), --everything, or --hand-only."),
+    };
+    let now = apply_board(c, BoardOp::Rule { id: b.id.clone(), rule })?.board.unwrap_or(b);
+    let labels = store_of(c.board()?).labels;
+    say_done(json, &now, format!("{} now takes in {}.\n", now.name, rule_text(now.rule.as_ref(), &labels)))
+}
+
+/// What `board set` reads: a rule and columns, each left as it is when it's not there.
+#[derive(serde::Deserialize, Debug, Default)]
+struct BoardSpec {
+    #[serde(default, deserialize_with = "present")]
+    rule: Option<Option<Value>>,
+    #[serde(default, deserialize_with = "present")]
+    columns: Option<Option<Vec<Value>>>,
+}
+
+/// A field that's there, null or not.
+fn present<'de, T: serde::Deserialize<'de>, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
+}
+
+/// A rule as `board set` takes it: only the parts a rule has, so a misspelled one isn't taken for
+/// everything, and labels by name or id.
+fn spec_rule(store: &TodoStore, v: &Value) -> Result<Rule> {
+    const PARTS: [&str; 8] = ["kinds", "stages", "statuses", "labels", "repos", "accounts", "active", "text"];
+    let Some(obj) = v.as_object() else { bail!("A rule is a JSON object, not {v}.") };
+    if let Some(k) = obj.keys().find(|k| !PARTS.contains(&k.as_str())) {
+        bail!("A rule has no {k}. Its parts are {}.", PARTS.join(", "));
+    }
+    let mut rule: Rule = serde_json::from_value(v.clone()).context("reading a rule")?;
+    rule.labels = rule.labels.iter().map(|n| board_label(store, n)).collect::<Result<_>>()?;
+    Ok(rule)
+}
+
+fn board_set(c: &mut Client, a: BoardSetArgs, json: bool) -> Result<()> {
+    let b = find_board(c, Some(&a.board), &a.at)?;
+    let text = read_text(None, Some(a.spec))?.unwrap_or_default();
+    let spec: BoardSpec = serde_json::from_str(&text).context("reading the JSON, which is as `codealong board set --help` shows")?;
+    if spec.rule.is_none() && spec.columns.is_none() {
+        bail!("The JSON has neither a rule nor columns.");
+    }
+    let store = store_of(c.board()?);
+    let rule = spec.rule.map(|r| r.map(|v| spec_rule(&store, &v)).transpose()).transpose()?;
+    let columns = spec
+        .columns
+        .map(|cols| {
+            cols.map(|cols| {
+                cols.into_iter()
+                    .map(|mut v| {
+                        let rule = v.get("rule").filter(|r| !r.is_null()).map(|r| spec_rule(&store, r)).transpose()?;
+                        if let Some(o) = v.as_object_mut() {
+                            // What `board show` lists in a column isn't the column's.
+                            o.remove("cards");
+                            o.remove("rule");
+                        }
+                        let mut col: boards::Column = serde_json::from_value(v).context("reading a column, which has an id and a name")?;
+                        col.rule = rule;
+                        Ok(col)
+                    })
+                    .collect::<Result<Vec<_>>>()
+            })
+            .transpose()
+        })
+        .transpose()?;
+    let mut now = b.clone();
+    if let Some(rule) = rule {
+        now = apply_board(c, BoardOp::Rule { id: b.id.clone(), rule })?.board.unwrap_or(now);
+    }
+    if let Some(columns) = columns {
+        now = apply_board(c, BoardOp::Columns { id: b.id.clone(), columns })?.board.unwrap_or(now);
+    }
+    let labels = store.labels;
+    let cols = now.columns.as_ref().map_or_else(|| "the four stages".to_string(), |cols| cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "));
+    say_done(json, &now, format!("{} takes in {}, in columns {}.\n", now.name, rule_text(now.rule.as_ref(), &labels), cols))
+}
+
+/// A board as the main window tells it (src/boards/useBoardAsks.ts).
+#[derive(serde::Deserialize, Serialize, Debug, Clone)]
+struct BoardName {
+    id: String,
+    name: String,
+    project: String,
+}
+
+/// A board's Kanban as the main window tells it.
+#[derive(serde::Deserialize, Serialize, Debug)]
+struct KanbanOutline {
+    board: BoardName,
+    rule: Option<Rule>,
+    columns: Vec<KanbanOutColumn>,
+}
+
+#[derive(serde::Deserialize, Serialize, Debug)]
+struct KanbanOutColumn {
+    id: String,
+    name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rule: Option<Rule>,
+    sort: boards::Sort,
+    #[serde(default)]
+    folded: bool,
+    cards: Vec<KanbanOutCard>,
+}
+
+#[derive(serde::Deserialize, Serialize, Debug)]
+struct KanbanOutCard {
+    #[serde(rename = "ref")]
+    kind: boards::Kind,
+    key: String,
+    title: String,
+    /// The sessions on a todo, by key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sessions: Vec<String>,
+}
+
+fn board_show(c: &mut Client, a: BoardShowArgs, json: bool) -> Result<()> {
+    let b = find_board(c, a.board.as_deref(), &a.at)?;
+    let answer = ask_board(c, &b, boards::Ask::Show { layout: a.layout })?;
+    match a.layout {
+        boards::Layout::Kanban => {
+            let out: KanbanOutline = serde_json::from_value(answer)?;
+            if json {
+                return print_json(&out);
+            }
+            let labels = store_of(c.board()?).labels;
+            print!("{}", kanban_text(&out, &labels));
+        }
+        boards::Layout::Canvas => {
+            let out: CanvasOutline = serde_json::from_value(answer)?;
+            if json {
+                return print_json(&out);
+            }
+            print!("{}", outline_text(&out));
+        }
+    }
+    Ok(())
+}
+
+fn kanban_text(o: &KanbanOutline, labels: &[Label]) -> String {
+    let mut out = format!("{}, a board in {}, takes in {}\n", o.board.name, o.board.project, rule_text(o.rule.as_ref(), labels));
+    for col in &o.columns {
+        out.push_str(&format!("\n{} ({}{})\n", col.name, col.cards.len(), if col.folded { ", folded" } else { "" }));
+        let rows: Vec<Vec<String>> = col
+            .cards
+            .iter()
+            .map(|card| {
+                let sessions = match card.sessions.len() {
+                    0 => String::new(),
+                    n => format!(" ({n} session{})", if n == 1 { "" } else { "s" }),
+                };
+                vec![format!("  {}", card.kind.word()), format!("{}{sessions}", truncate(&card.title, 60)), card.key.clone()]
+            })
+            .collect();
+        if !rows.is_empty() {
+            out.push_str(&table_text(&["", "", ""], rows).lines().skip(1).map(|l| format!("{}\n", l.trim_end())).collect::<String>());
+        }
+    }
+    out
+}
+
+/// What the main window says a move did.
+#[derive(serde::Deserialize, Serialize, Debug)]
+struct Moved {
+    /// What it did, or would do, in words.
+    said: String,
+    /// The column the card is in now, or would be.
+    column: String,
+    done: bool,
+}
+
+fn board_move(c: &mut Client, a: BoardMoveArgs, json: bool) -> Result<()> {
+    let b = find_board(c, Some(&a.board), &a.at)?;
+    let cards = card_ids(c, &a.card)?;
+    let [card] = cards.as_slice() else { bail!("Name one card to move: one --todo, --session, --worktree or --pr.") };
+    let out: Moved = serde_json::from_value(ask_board(c, &b, boards::Ask::Move { card: card.clone(), to: a.to, before: a.before, dry_run: a.dry_run })?)?;
+    if json {
+        return print_json(&out);
+    }
+    println!("{}", out.said);
+    Ok(())
+}
+
+// ---- a board's canvas ----
+
+/// The plan `board arrange` reads.
 #[derive(serde::Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct CanvasPlan {
@@ -1450,12 +2117,12 @@ struct PlanFrame {
     prs: Vec<String>,
 }
 
-/// What the main window says it arranged (useCanvasOps.ts).
+/// What the main window says it arranged (canvas/model.ts `arrange`).
 #[derive(serde::Deserialize, Serialize, Debug)]
 struct CanvasArranged {
-    project: String,
+    board: BoardName,
     frames: Vec<ArrangedFrame>,
-    missing: Vec<canvas::Card>,
+    missing: Vec<boards::Card>,
     rest: usize,
 }
 
@@ -1466,10 +2133,10 @@ struct ArrangedFrame {
     cards: usize,
 }
 
-/// What a project's canvas holds, as the main window tells it (model.ts `outline`).
+/// What a board's canvas holds, as the main window tells it (canvas/model.ts `outline`).
 #[derive(serde::Deserialize, Serialize, Debug)]
 struct CanvasOutline {
-    project: String,
+    board: BoardName,
     exists: bool,
     frames: Vec<OutlineFrame>,
     cards: Vec<OutlineCard>,
@@ -1488,7 +2155,7 @@ struct OutlineFrame {
 #[derive(serde::Deserialize, Serialize, Debug)]
 struct OutlineCard {
     #[serde(rename = "ref")]
-    kind: canvas::Kind,
+    kind: boards::Kind,
     key: String,
     title: Option<String>,
     frame: Option<String>,
@@ -1503,36 +2170,11 @@ struct OutlineNote {
     by: String,
 }
 
-/// One of the main window's canvas requests (canvas.rs `ask`), about `project`, else the project
-/// of the worktree this runs in, else the one the window shows.
-fn ask_canvas(c: &mut Client, project: Option<String>, op: canvas::Op) -> Result<Value> {
-    c.note();
-    if c.app.is_none() {
-        bail!("Codealong isn't running, and the canvas is its main window's.");
-    }
-    let project = project.or_else(|| std::env::current_dir().ok().and_then(|d| lane_for_path(c.board().ok()?, &d).map(|l| l.project.clone())).filter(|p| !p.is_empty()));
-    match server::ask(&Request::Canvas { project, op }) {
-        Some(Ok(v)) => Ok(v),
-        Some(Err(e)) if e.starts_with(server::UNKNOWN_REQUEST) => bail!("The Codealong that's running is older than this command and has no canvas requests. Update it, or quit it and open it again."),
-        Some(Err(e)) => bail!("{e}"),
-        None => bail!("The app stopped answering."),
-    }
-}
-
-fn canvas_show(c: &mut Client, a: CanvasAt, json: bool) -> Result<()> {
-    let out: CanvasOutline = serde_json::from_value(ask_canvas(c, a.project, canvas::Op::Show)?)?;
-    if json {
-        return print_json(&out);
-    }
-    print!("{}", outline_text(&out));
-    Ok(())
-}
-
 fn outline_text(o: &CanvasOutline) -> String {
     if !o.exists {
-        return format!("The {} canvas was never shown: Codealong makes it, tidied, when it's first shown or arranged.\n", o.project);
+        return format!("The {} canvas was never shown: Codealong makes it, tidied, when it's first shown or arranged.\n", o.board.name);
     }
-    let mut out = format!("The {} canvas\n", o.project);
+    let mut out = format!("The {} canvas\n", o.board.name);
     let groups = o.frames.iter().map(Some).chain(std::iter::once(None));
     for frame in groups {
         let id = frame.map(|f| f.id.as_str());
@@ -1557,7 +2199,7 @@ fn outline_text(o: &CanvasOutline) -> String {
             .iter()
             .map(|c| {
                 let title = truncate(c.title.as_deref().unwrap_or("Untitled"), 60);
-                vec![format!("  {}", lower_debug(&c.kind)), if c.gone { format!("{title} (gone)") } else { title }, c.key.clone()]
+                vec![format!("  {}", c.kind.word()), if c.gone { format!("{title} (gone)") } else { title }, c.key.clone()]
             })
             .collect();
         if !rows.is_empty() {
@@ -1570,7 +2212,7 @@ fn outline_text(o: &CanvasOutline) -> String {
 
 /// The plan's frames as the app takes them, each card named by its key on the board. Every
 /// card that can't be named is said at once, so a plan is fixed in one go.
-fn plan_frames(c: &mut Client, plan: CanvasPlan) -> Result<Vec<canvas::Frame>> {
+fn plan_frames(c: &mut Client, plan: CanvasPlan) -> Result<Vec<boards::Frame>> {
     if plan.frames.is_empty() {
         bail!("The plan has no frames.");
     }
@@ -1585,28 +2227,26 @@ fn plan_frames(c: &mut Client, plan: CanvasPlan) -> Result<Vec<canvas::Frame>> {
             wrong.push(format!("{color} isn't a color. Give one of {}.", LABEL_COLORS.join(", ")));
         }
         let mut cards = Vec::new();
-        let mut add = |kind: canvas::Kind, key: Result<String>| match key {
-            Ok(key) => cards.push(canvas::Card { kind, key }),
+        let mut add = |kind: boards::Kind, key: Result<String>| match key {
+            Ok(key) => cards.push(boards::Card { kind, key }),
             Err(e) => wrong.push(e.to_string()),
         };
         for w in &f.worktrees {
-            add(canvas::Kind::Worktree, resolve_worktree(c, w));
+            add(boards::Kind::Worktree, resolve_worktree(c, w));
         }
         for s in &f.sessions {
-            add(canvas::Kind::Session, resolve_session(c, s));
+            add(boards::Kind::Session, resolve_session(c, s));
         }
         for t in &f.todos {
-            add(canvas::Kind::Todo, resolve_todo(&todos, t));
+            add(boards::Kind::Todo, resolve_todo(&todos, t));
         }
         for p in &f.prs {
-            // As the board spells it: GitHub's names ignore case, and the window's keys don't.
-            let key = resolve_pr(c, p).map(|key| c.board().ok().and_then(|b| find_pr(b, &key)).map_or(key, |pr| pr.key.clone()));
-            add(canvas::Kind::Pr, key);
+            add(boards::Kind::Pr, board_pr(c, p));
         }
         if cards.is_empty() && f.note.as_deref().map_or(true, |n| n.trim().is_empty()) {
             wrong.push(format!("The frame {} has no cards and no note.", f.title.trim()));
         }
-        frames.push(canvas::Frame { title: f.title.trim().to_string(), color: f.color, note: f.note, cards });
+        frames.push(boards::Frame { title: f.title.trim().to_string(), color: f.color, note: f.note, cards });
     }
     if !wrong.is_empty() {
         bail!("{}", wrong.join("\n"));
@@ -1614,14 +2254,15 @@ fn plan_frames(c: &mut Client, plan: CanvasPlan) -> Result<Vec<canvas::Frame>> {
     Ok(frames)
 }
 
-fn canvas_arrange(c: &mut Client, a: CanvasArrangeArgs, json: bool) -> Result<()> {
+fn board_arrange(c: &mut Client, a: BoardArrangeArgs, json: bool) -> Result<()> {
+    let b = find_board(c, a.board.as_deref(), &a.at)?;
     let text = read_text(None, Some(a.plan))?.unwrap_or_default();
-    let plan: CanvasPlan = serde_json::from_str(&text).context("reading the plan, which is JSON as `codealong canvas arrange --help` shows")?;
+    let plan: CanvasPlan = serde_json::from_str(&text).context("reading the plan, which is JSON as `codealong board arrange --help` shows")?;
     let frames = plan_frames(c, plan)?;
-    let out: CanvasArranged = serde_json::from_value(ask_canvas(c, a.at.project, canvas::Op::Arrange { frames, rest: a.rest })?)?;
+    let out: CanvasArranged = serde_json::from_value(ask_board(c, &b, boards::Ask::Arrange { frames, rest: a.rest })?)?;
     if a.show {
         let focus: Vec<&str> = out.frames.iter().map(|f| f.id.as_str()).collect();
-        c.show(json!({ "kind": "canvas", "project": out.project, "focus": focus }))?;
+        c.show(json!({ "kind": "board", "board": out.board.id, "project": out.board.project, "layout": "canvas", "focus": focus }))?;
     }
     if json {
         return print_json(&out);
@@ -1630,22 +2271,23 @@ fn canvas_arrange(c: &mut Client, a: CanvasArrangeArgs, json: bool) -> Result<()
     Ok(())
 }
 
-fn arranged_text(a: &CanvasArranged, rest: canvas::Rest) -> String {
+fn arranged_text(a: &CanvasArranged, rest: boards::Rest) -> String {
     let cards = |n: usize| format!("{n} card{}", if n == 1 { "" } else { "s" });
     let frames: Vec<String> = a.frames.iter().map(|f| format!("{} ({})", f.title, cards(f.cards))).collect();
+    let name = &a.board.name;
     let mut out = match frames.len() {
-        0 => format!("Made no frames on the {} canvas: nothing in the plan is on its board.\n", a.project),
-        n => format!("Arranged the {} canvas in {n} frame{}: {}.\n", a.project, if n == 1 { "" } else { "s" }, frames.join(", ")),
+        0 => format!("Made no frames on the {name} canvas: nothing in the plan is on its board.\n"),
+        n => format!("Arranged the {name} canvas in {n} frame{}: {}.\n", if n == 1 { "" } else { "s" }, frames.join(", ")),
     };
     if a.rest > 0 {
         out.push_str(&match rest {
-            canvas::Rest::Keep => format!("{} no frame named went below them, by worktree.\n", cards(a.rest)),
-            canvas::Rest::Off => format!("{} no frame named came off.\n", cards(a.rest)),
+            boards::Rest::Keep => format!("{} no frame named went below them, by worktree.\n", cards(a.rest)),
+            boards::Rest::Off => format!("{} no frame named came off.\n", cards(a.rest)),
         });
     }
     if !a.missing.is_empty() {
-        let missing: Vec<String> = a.missing.iter().map(|m| format!("{} {}", lower_debug(&m.kind), m.key)).collect();
-        out.push_str(&format!("Left out, as the {} canvas's board doesn't have them: {}.\n", a.project, missing.join(", ")));
+        let missing: Vec<String> = a.missing.iter().map(|m| format!("{} {}", m.kind.word(), m.key)).collect();
+        out.push_str(&format!("Left out, as {} doesn't have them: {}.\n", a.board.project, missing.join(", ")));
     }
     out
 }
@@ -6143,16 +6785,16 @@ mod tests {
         b.todos = vec![todo("t-abc", TodoStatus::Todo, &[], &[])];
         let mut c = Client { app: None, verbose: false, cfg: None, board: Some(b), from_app: false, said: false, me: None };
         let plan = |v: Value| serde_json::from_value::<CanvasPlan>(v);
-        let card = |kind, key: &str| canvas::Card { kind, key: key.into() };
+        let card = |kind, key: &str| boards::Card { kind, key: key.into() };
         let good = plan(json!({ "frames": [{ "title": " Billing ", "color": "teal", "note": "Invoices", "prs": ["https://github.com/acme/app/pull/7"], "todos": ["t-a"], "sessions": ["claude:claude:abc"], "worktrees": ["/work/a"] }] })).unwrap();
         assert_eq!(
             plan_frames(&mut c, good).unwrap(),
-            vec![canvas::Frame {
+            vec![boards::Frame {
                 title: "Billing".into(),
                 color: Some("teal".into()),
                 note: Some("Invoices".into()),
                 // Worktrees first, so each heads its column in the order given.
-                cards: vec![card(canvas::Kind::Worktree, "/work/a"), card(canvas::Kind::Session, "claude:claude:abc123"), card(canvas::Kind::Todo, "t-abc"), card(canvas::Kind::Pr, "acme/app#7")],
+                cards: vec![card(boards::Kind::Worktree, "/work/a"), card(boards::Kind::Session, "claude:claude:abc123"), card(boards::Kind::Todo, "t-abc"), card(boards::Kind::Pr, "acme/app#7")],
             }]
         );
         let bad = plan(json!({ "frames": [{ "title": "", "color": "mauve", "sessions": ["nope"] }, { "title": "Note only", "note": "Fine" }] })).unwrap();
@@ -6169,7 +6811,7 @@ mod tests {
     #[test]
     fn a_canvas_reads_frame_by_frame() {
         let out: CanvasOutline = serde_json::from_value(json!({
-            "project": "Acme", "exists": true,
+            "board": { "id": "p:Acme", "name": "Acme", "project": "Acme" }, "exists": true,
             "frames": [{ "id": "arrange:1:0", "title": "Billing", "color": "teal", "by": "arrange", "frame": null }, { "id": "auto:repo:app", "title": "app", "color": "blue", "by": "tidy", "frame": null }],
             "cards": [
                 { "ref": "session", "key": "claude:claude:abc", "title": "Fix invoices", "frame": "arrange:1:0", "gone": false },
@@ -6189,15 +6831,53 @@ mod tests {
     #[test]
     fn an_arrangement_says_what_went_where() {
         let a = CanvasArranged {
-            project: "Acme".into(),
+            board: BoardName { id: "p:Acme".into(), name: "Acme".into(), project: "Acme".into() },
             frames: vec![ArrangedFrame { id: "arrange:1:0".into(), title: "Billing".into(), cards: 3 }, ArrangedFrame { id: "arrange:1:1".into(), title: "Site".into(), cards: 1 }],
-            missing: vec![canvas::Card { kind: canvas::Kind::Session, key: "claude:claude:gone".into() }],
+            missing: vec![boards::Card { kind: boards::Kind::Session, key: "claude:claude:gone".into() }],
             rest: 1,
         };
         assert_eq!(
-            arranged_text(&a, canvas::Rest::Keep),
-            "Arranged the Acme canvas in 2 frames: Billing (3 cards), Site (1 card).\n1 card no frame named went below them, by worktree.\nLeft out, as the Acme canvas's board doesn't have them: session claude:claude:gone.\n"
+            arranged_text(&a, boards::Rest::Keep),
+            "Arranged the Acme canvas in 2 frames: Billing (3 cards), Site (1 card).\n1 card no frame named went below them, by worktree.\nLeft out, as Acme doesn't have them: session claude:claude:gone.\n"
         );
-        assert!(arranged_text(&a, canvas::Rest::Off).contains("1 card no frame named came off."));
+        assert!(arranged_text(&a, boards::Rest::Off).contains("1 card no frame named came off."));
+    }
+
+    #[test]
+    fn a_rule_says_what_it_takes_in() {
+        let labels = vec![Label { id: "l-1".into(), name: "release".into(), color: "blue".into() }];
+        assert_eq!(rule_text(None, &labels), "only what's added");
+        assert_eq!(rule_text(Some(&Rule::default()), &labels), "everything");
+        let rule = Rule { kinds: vec![boards::Kind::Todo, boards::Kind::Pr], labels: vec!["l-1".into(), "l-gone".into()], stages: vec![boards::Stage::Review], statuses: vec![boards::Status::Needs], repos: vec!["acme/app".into()], accounts: vec!["codex".into()], active: Some("7d".into()), text: Some("login".into()) };
+        assert_eq!(rule_text(Some(&rule), &labels), "todos or PRs, labelled release or l-gone, in review, needing you, in acme/app, on codex, active in the last 7d, titled “login”");
+    }
+
+    #[test]
+    fn a_rule_from_json_has_only_a_rules_parts_and_names_labels_either_way() {
+        let store = TodoStore { todos: vec![], labels: vec![Label { id: "l-1".into(), name: "Release".into(), color: "blue".into() }] };
+        let rule = spec_rule(&store, &json!({ "labels": ["release", "l-1"], "stages": ["done"] })).unwrap();
+        assert_eq!(rule.labels, ["l-1", "l-1"]);
+        assert_eq!(rule.stages, [boards::Stage::Done]);
+        assert!(spec_rule(&store, &json!({ "label": ["release"] })).unwrap_err().to_string().contains("A rule has no label"));
+        assert!(spec_rule(&store, &json!({ "labels": ["nope"] })).is_err());
+        assert!(spec_rule(&store, &json!(["todo"])).is_err());
+        // `board set` leaves out what isn't there, and clears what's null.
+        let spec: BoardSpec = serde_json::from_value(json!({ "rule": null })).unwrap();
+        assert_eq!((spec.rule, spec.columns.is_none()), (Some(None), true));
+    }
+
+    #[test]
+    fn a_kanban_reads_column_by_column() {
+        let out: KanbanOutline = serde_json::from_value(json!({
+            "board": { "id": "b-1", "name": "Release", "project": "Acme" },
+            "rule": { "labels": ["l-1"] },
+            "columns": [
+                { "id": "todo", "name": "To do", "rule": { "stages": ["todo"] }, "sort": "hand", "cards": [{ "ref": "todo", "key": "t-1", "title": "Fix login", "sessions": ["claude:claude:abc"] }] },
+                { "id": "done", "name": "Done", "sort": "latest", "folded": true, "cards": [] }
+            ]
+        }))
+        .unwrap();
+        let labels = vec![Label { id: "l-1".into(), name: "release".into(), color: "blue".into() }];
+        assert_eq!(kanban_text(&out, &labels), "Release, a board in Acme, takes in labelled release\n\nTo do (1)\n  todo  Fix login (1 session)  t-1\n\nDone (0, folded)\n");
     }
 }

@@ -163,8 +163,8 @@ export interface SessionCan {
    *  keeps it in view meanwhile and then shows the copy (the main window's Sessions). Without
    *  this, a session that leaves a copy has left the list, as an archived one has. */
   moving?: (copy: Promise<string | null>) => void;
-  /** Add to canvas, where there's a canvas. */
-  canvas?: MenuSpec;
+  /** Add to board, and Remove from board on the board it's on, where the window has boards. */
+  boards?: MenuSpec;
   /** Shows the main window's keys beside the actions they run (`KEYS`), or its chords (`CHORDS`)
    *  where letters alone do nothing (Sessions). */
   keys?: boolean | 'chords';
@@ -475,9 +475,9 @@ export function folderMoves(from: Lane, worktrees: Lane[], run: (to: Lane) => vo
 const SESSION_MENU = [
   ['heading'],
   ['open', 'resume', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
-  ['todos'],
+  ['todos', 'boards'],
   ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'snooze', 'quiet', 'own', 'close', 'done', 'archive'],
-  ['copyId', 'copyResume', 'canvas'],
+  ['copyId', 'copyResume'],
 ] as const;
 
 /** A session's menu, as every window has it. */
@@ -485,7 +485,7 @@ export function sessionMenu(lane: Lane, s: Session, can: SessionCan): MenuSpec {
   const extras = {
     heading: can.heading ? [{ label: `${s.title} · ${lane.callsign}`, enabled: false, run: () => {} }] : [],
     todos: can.todos ?? [],
-    canvas: s.visitor ? [] : (can.canvas ?? []),
+    boards: s.visitor ? [] : (can.boards ?? []),
   };
   return laidOut(SESSION_MENU, sessionActions(lane, s, can), extras, can.keys);
 }
@@ -843,7 +843,8 @@ export interface LaneCan {
   pin?: MenuAction;
   /** What's on the desktop, as `ref:key`, for Pin to desktop. */
   desktop?: ReadonlySet<string>;
-  canvas?: MenuSpec;
+  /** Add to board, and Remove from board on the board it's on. */
+  boards?: MenuSpec;
   /** Shows the main window's keys beside the actions they run (`KEYS`). */
   keys?: boolean;
 }
@@ -912,15 +913,15 @@ export function laneActions(lane: Lane, can: LaneCan): LaneActions {
  *  links. */
 const LANE_MENU = [
   ['open', 'terminal', 'editor', 'openIn', 'finder', 'preview', 'pr', 'reveal', 'newSession', 'setPreview', 'automation'],
-  ['todos'],
+  ['todos', 'boards'],
   ['reuse', 'cleanUp'],
   ['pin', 'desktop'],
-  ['copyPath', 'copyBranch', 'copyPr', 'copyPreview', 'canvas'],
+  ['copyPath', 'copyBranch', 'copyPr', 'copyPreview'],
 ] as const;
 
 /** A worktree's menu, as every window has it. */
 export function laneMenu(lane: Lane, can: LaneCan): MenuSpec {
-  return laidOut(LANE_MENU, laneActions(lane, can), { todos: can.todos ?? [], canvas: can.canvas ?? [] }, can.keys);
+  return laidOut(LANE_MENU, laneActions(lane, can), { todos: can.todos ?? [], boards: can.boards ?? [] }, can.keys);
 }
 
 /** ⌃` opens a new terminal in the folder of what a window shows, as it opens VS Code's terminal:
@@ -1101,7 +1102,8 @@ export interface PrCan {
   /** What's on the desktop, as `ref:key`, for Pin to desktop: for a PR the board lists, which
    *  has a key. */
   desktop?: ReadonlySet<string>;
-  canvas?: MenuSpec;
+  /** Add to board, and Remove from board on the board it's on. */
+  boards?: MenuSpec;
   /** The board's lanes, for Primary session's choices: the PR's sessions in them. */
   lanes?: readonly Lane[];
 }
@@ -1143,11 +1145,11 @@ export function prMenu(pr: Pick<Pr, 'url' | 'number'> & { head?: string | null; 
     ],
     [...(can.approve ? [{ label: `Approve #${pr.number}`, run: can.approve }] : []), ...some(can.snooze), ...some(nudgeItem(pr, report)), ...some(primaryItem(pr, can.lanes, report))],
     [...some(can.pin), ...(can.desktop && pr.key ? [desktopItem('pr', pr.key, can.desktop, report)] : [])],
+    can.boards ?? [],
     [
       ...(can.showLane ? [{ label: `Show worktree ${can.showLane.lane.callsign}`, run: can.showLane.run }] : []),
       ...some(copyItem('Copy link', pr.url, 'PR link', report)),
       ...some(copyItem('Copy branch name', pr.head, 'branch name', report)),
-      ...(can.canvas ?? []),
     ],
   );
 }
@@ -1291,7 +1293,8 @@ export interface TodoCan {
   edit?: TodoEdit;
   /** What's on the desktop, as `ref:key`, for Pin to desktop. */
   desktop?: ReadonlySet<string>;
-  canvas?: MenuSpec;
+  /** Add to board, and Remove from board on the board it's on. */
+  boards?: MenuSpec;
   /** Delete todo, where it can be put back (the main window's undo). */
   remove?: () => void;
 }
@@ -1309,7 +1312,8 @@ export function todoMenu(t: Todo, can: TodoCan): MenuSpec {
     ],
     edit ? [...statusItems([t], edit), ...waitingItems([t], edit, report), ...reviewItems([t], edit), 'separator', dueItem([t], edit), ...labelsItems(t, edit), ...projectItems(t, edit)] : [],
     can.desktop ? [desktopItem('todo', t.id, can.desktop, report)] : [],
-    [copyPromptItem([t], report), ...some(copyItem('Copy todo ID', t.id, 'todo ID', report)), ...(can.canvas ?? [])],
+    can.boards ?? [],
+    [copyPromptItem([t], report), ...some(copyItem('Copy todo ID', t.id, 'todo ID', report))],
     can.remove ? [{ label: 'Delete todo', run: can.remove }] : [],
   );
 }
