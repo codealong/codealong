@@ -2,9 +2,9 @@
 // boardLists.ts `Facets`): Sort by over PRs and Todo lists them under the days they were opened or
 // added, each row's age saying so, remembers it, and leaves Todo's order alone; every PR row has
 // its repo's chip, on one line and leading the second on two, whose double-click shows only that
-// repo's PRs and picks it in the sidebar, and again shows them all; the sidebar's Repos, Labels and
-// Agents narrow PRs, Todo and Sessions (archived ones too), each pick with its count, Clear undoes
-// them, the folded rail names them, and a saved view keeps them.
+// repo's PRs and picks it in the sidebar, and again shows them all; the sidebar's Repos, Labels,
+// Authors (you first) and Agents narrow PRs, Todo and Sessions (archived ones too), each pick with
+// its count, Clear undoes them, the folded rail names them, and a saved view keeps them.
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/list-facets-check.js
 (function () {
   localStorage.removeItem('codealong.prSort');
@@ -89,6 +89,23 @@
         await until(function () { return all('.ca-prrow').length === total; }, 3000, 'every PR after Clear');
       } else {
         note('no PR has a label: Labels not tried');
+      }
+      var authors = chips('Authors');
+      if (authors.length > 0) {
+        var board = await window.__TAURI_INTERNALS__.invoke('get_board');
+        var authorOf = {};
+        board.prs.forEach(function (p) { authorOf['row-pr:' + p.key] = p.author; });
+        var names = authors.map(function (c) { return q('span', c).textContent; });
+        check('the sidebar lists who opened them, you first where you did', names.indexOf('you') <= 0, names.join(', '));
+        // Its login, from its tooltip: "PRs ana opened", or "PRs you opened, as ana".
+        var login = authors[0].title.replace(/^PRs you opened, as /, '').replace(/^PRs (.+) opened$/, '$1');
+        authors[0].click();
+        await until(function () { return all('.ca-prrow').length > 0 && all('.ca-prrow').every(function (r) { return authorOf[r.id] === login; }); }, 3000, 'the PRs ' + login + ' opened');
+        check('an author picked narrows the list to the PRs they opened', picked('Authors').length === 1, login);
+        clear('Authors').click();
+        await until(function () { return all('.ca-prrow').length === total; }, 3000, 'every PR after Clear');
+      } else {
+        note('no PR says who opened it: Authors not tried');
       }
 
       // Todo: sorted by when added, narrowed by labels.

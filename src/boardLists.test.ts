@@ -259,7 +259,7 @@ describe('the sidebar’s facets', () => {
 
   it('offers each view its own, and counts as narrowing only the picks of the view showing', () => {
     expect(facetsIn('sessions')).toEqual(['agents']);
-    expect(facetsIn('prs')).toEqual(['repos', 'prLabels']);
+    expect(facetsIn('prs')).toEqual(['repos', 'prLabels', 'authors']);
     expect(facetsIn('todo')).toEqual(['labels']);
     expect(facetsIn('kanban')).toEqual(['labels']);
     expect(facetsIn('worktrees')).toEqual([]);
@@ -274,6 +274,9 @@ describe('the sidebar’s facets', () => {
     expect(prInFacets(pr('o/a', 1, ['bug']), { repos: ['o/a'], prLabels: ['bug', 'docs'] })).toBe(true);
     expect(prInFacets(pr('o/a', 1, ['bug']), { repos: ['o/a'], prLabels: ['docs'] })).toBe(false);
     expect(prInFacets(pr('o/a', 1), { repos: ['o/b'] })).toBe(false);
+    expect(prInFacets(pr('o/a', 1, [], { author: 'ana' }), { authors: ['ana', 'bo'] })).toBe(true);
+    expect(prInFacets(pr('o/a', 1, [], { author: 'ana' }), { authors: ['bo'] })).toBe(false);
+    expect(prInFacets(pr('o/a', 1, [], { author: null }), { authors: ['bo'] })).toBe(false);
     expect(todoInFacets(todo('a', ['l1', 'l2']), { labels: ['l2'] })).toBe(true);
     expect(todoInFacets(todo('a', []), { labels: ['l2'] })).toBe(false);
   });
@@ -305,6 +308,27 @@ describe('the sidebar’s facets', () => {
       ['bug', 1],
       ['docs', 1],
     ]);
+  });
+
+  it('counts open PRs by who opened them, yours first as you', () => {
+    const rows = [
+      pr('o/app', 1, ['bug'], { author: 'ana' }),
+      pr('o/app', 2, [], { author: 'ana' }),
+      pr('o/web', 3, [], { author: 'me', mine: true }),
+      pr('o/web', 4, [], { author: 'bo', state: 'merged' }),
+      pr('o/web', 5, [], { author: null }),
+    ];
+    expect(prFacetOptions(rows, {}).authors.map((o) => [o.id, o.label, o.count])).toEqual([
+      ['me', 'you', 1],
+      ['ana', 'ana', 2],
+    ]);
+    // The other facets narrow its counts, and a pick with none left stays to unpick.
+    expect(prFacetOptions(rows, { prLabels: ['bug'], authors: ['bo'] }).authors.map((o) => [o.id, o.count])).toEqual([
+      ['ana', 1],
+      ['bo', 0],
+    ]);
+    // Picked, it narrows the others' counts.
+    expect(prFacetOptions(rows, { authors: ['me'] }).repos.map((o) => [o.id, o.count])).toEqual([['o/web', 1]]);
   });
 
   it('lists todos’ labels in your order, counting the ones not done', () => {

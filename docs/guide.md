@@ -1201,8 +1201,8 @@ selection, ⇧0 100%. Zoomed out, cards become blocks in their status color draw
 Picks the view (Sessions, Worktrees, PRs, Todo, Kanban, Canvas) and narrows it: to the devices you
 pick, to what was active in the last 24h, 3d or 7d, and to the statuses you pick (Needs you, Your
 turn, Working, In review, PR needs work; any of them). Some views have more to narrow by, each pick
-with its count: Sessions its agents (the accounts sessions run on), PRs their repos and their labels
-on GitHub, Todo and Kanban the todos' labels (a double-click on a label's chip on a todo shows only
+with its count: Sessions its agents (the accounts sessions run on), PRs their repos, their labels
+on GitHub and who opened them (you first), Todo and Kanban the todos' labels (a double-click on a label's chip on a todo shows only
 that label, as a repo's does in PRs). A long list shows its first eight and the rest under "more".
 Each view keeps its picks while another shows, and showing a row from elsewhere (a link, the quick
 panel) clears what would hide it. Devices, statuses and these toggle; within one section any of the

@@ -1,6 +1,6 @@
 // The sidebar: what the window shows and what narrows it. The view, the devices, how recently
 // things were active, their statuses, what else the view narrows by (`SideFacetChips`: agents,
-// repos, labels) and views you saved, above Settings. How Sessions, PRs and Todo are sorted, and how
+// repos, labels, authors) and views you saved, above Settings. How Sessions, PRs and Todo are sorted, and how
 // much a row says, is the bar over the list (ListBar.tsx `ListTools`). Devices, statuses and
 // facets toggle, any number of each: none picked shows all. Collapsed,
 // as it starts, it's a rail of the views and devices, whose filter button carries a badge while a
@@ -222,7 +222,7 @@ export interface SideFacet {
 const FACET_SHOWN = 8;
 
 /** A facet's options as the statuses are, toggles with counts, each with what marks it: a repo's
- *  book, a label's dot in its color. A long list shows its first few, the picked ones always. */
+ *  book, a label's dot in its color, an author's head. A long list shows its first few, the picked ones always. */
 function SideFacetChips({ facet: f, loading, onPick, onClear }: { facet: SideFacet; loading: boolean; onPick: (pick: string) => void; onClear: () => void }) {
   const [all, setAll] = useState(false);
   if (f.options.length === 0) return null;
@@ -237,6 +237,7 @@ function SideFacetChips({ facet: f, loading, onPick, onClear }: { facet: SideFac
           return (
             <button key={o.id} type="button" className={cx('ca-side-chip', on && 'is-on')} aria-pressed={on} title={o.title} onClick={() => onPick(o.id)}>
               {f.id === 'repos' && <Icon name="book" size={12} />}
+              {f.id === 'authors' && <Icon name="user" size={12} />}
               {f.id === 'prLabels' && <i className="ca-labeldot ca-prlabel-dot" style={o.color ? ({ '--prlabel': `#${o.color}` } as CSSProperties) : undefined} aria-hidden="true" />}
               {f.id === 'labels' && <LabelDot label={{ id: o.id, name: o.label, color: (o.color ?? 'gray') as LabelColor }} />}
               <span>{o.label}</span>
