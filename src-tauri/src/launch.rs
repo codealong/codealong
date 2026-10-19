@@ -523,33 +523,53 @@ impl TabLooks {
         true
     }
 
-    /// The look ended, however it went.
-    pub fn on_looked(&mut self) {
+    /// The look ended, however it went; `deferred` when the screen was locked again before every
+    /// tab opened, so another look is due.
+    pub fn on_looked(&mut self, deferred: bool) {
         self.looking = false;
+        self.due |= deferred;
     }
+}
+
+/// How a look for sessions waiting for a tab went (`show_unlocked`): the tabs that didn't open,
+/// each with why, and whether the screen was locked again before they all had.
+#[derive(Debug, Default, PartialEq)]
+pub struct Looked {
+    pub failed: Vec<String>,
+    pub deferred: bool,
 }
 
 /// Opens a tab of the terminal `profile` names for each session that started in tmux while the
 /// screen was locked and waits for one (tmux.rs `waiting_tabs`), as its start would have: beside
 /// the terminals of the worktrees near it in `lanes`, in front or behind your windows. Each waits
-/// no longer only once it's handled, so a restart partway leaves the rest for the next look. A
-/// session that ended meanwhile, or that a terminal shows already (Show in opened it, or a look
-/// cut short opened it), gets none. Says each that didn't open, whose session goes on in tmux for
-/// Show in to open.
-pub fn show_unlocked(profile: &str, new_terminal: NewTerminal, lanes: &[crate::model::Lane]) -> Vec<String> {
-    let mut failed = Vec::new();
+/// no longer only once it's handled, so a restart partway leaves the rest for the next look, and
+/// a lock partway (a tab can take a minute to open) leaves the rest, and one whose tab didn't
+/// open as it came, for the next unlock. A session that ended meanwhile, or that a terminal shows
+/// already (Show in opened it, or a look cut short opened it), gets none. Says each that didn't
+/// open otherwise, whose session goes on in tmux for Show in to open.
+pub fn show_unlocked(profile: &str, new_terminal: NewTerminal, lanes: &[crate::model::Lane]) -> Looked {
+    let mut looked = Looked::default();
     for (w, shown) in tmux::waiting_tabs() {
         if !shown {
+            if screen_locked() {
+                looked.deferred = true;
+                break;
+            }
             let near = crate::board::terminal_neighbours(lanes, &w.dir);
             let place = Placement { new_terminal, near: &near, behind: w.behind, label: Some(w.label.as_str()) };
             let opened = w.hosted.attach_line(true).ok_or_else(|| anyhow!("tmux isn't installed where Codealong looks for it.")).and_then(|line| opens_in(profile)?.run(place, &w.dir, &format!("exec {line}\n"), &[]));
-            if let Err(e) = opened {
-                failed.push(format!("{}: {e}", w.label));
+            match opened {
+                Ok(()) => {}
+                Err(_) if screen_locked() => {
+                    looked.deferred = true;
+                    break;
+                }
+                Err(e) => looked.failed.push(format!("{}: {e}", w.label)),
             }
         }
         w.hosted.handled();
     }
-    failed
+    looked
 }
 
 /// The terminal a profile names, to open something in. Says so when its app isn't here, rather
@@ -1978,7 +1998,7 @@ end run
             for (i, &(locked, marked, want)) in steps.iter().enumerate() {
                 assert_eq!(looks.on_tick(locked, marked), want, "tick {i}: locked {locked}, marked {marked}");
                 if want && ends {
-                    looks.on_looked();
+                    looks.on_looked(false);
                 }
             }
         };
@@ -1994,9 +2014,16 @@ end run
         assert!(!looks.on_tick(false, true), "one look at a time");
         assert!(!looks.on_tick(true, false));
         assert!(!looks.on_tick(false, false), "still looking");
-        looks.on_looked();
+        looks.on_looked(false);
         assert!(looks.on_tick(false, false), "the mark and the unlock that came meanwhile");
         assert!(!looks.on_tick(false, false));
+        // A look the screen locked partway through is due again, at the next tick it isn't locked,
+        // though no tick saw the lock.
+        looks.on_looked(true);
+        assert!(looks.on_tick(false, false));
+        looks.on_looked(true);
+        assert!(!looks.on_tick(true, false));
+        assert!(looks.on_tick(false, false));
     }
 
     #[test]

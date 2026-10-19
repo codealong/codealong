@@ -31,11 +31,13 @@ pub struct Setup {
     pub tmux_vars: &'static [(u32, &'static str)],
     /// Whether the screen is locked.
     pub locked: bool,
+    /// Whether the screen locks once Ghostty has been asked for a new window.
+    pub locks_after_a_window: bool,
 }
 
 impl Default for Setup {
     fn default() -> Self {
-        Setup { procs: &[], installed: true, shell_ready: true, stays: &[], ghostty_naps: false, os: crate::os::Os::MacOs, tmux_vars: &[], locked: false }
+        Setup { procs: &[], installed: true, shell_ready: true, stays: &[], ghostty_naps: false, os: crate::os::Os::MacOs, tmux_vars: &[], locked: false, locks_after_a_window: false }
     }
 }
 
@@ -235,7 +237,7 @@ pub fn hosted_config() -> Option<PathBuf> {
 }
 
 pub fn screen_locked() -> Option<bool> {
-    staged(|s| s.setup.locked)
+    staged(|s| s.setup.locked || (s.setup.locks_after_a_window && s.log.iter().any(|l| l.starts_with("GHOSTTY_NEW"))))
 }
 
 /// Every app is the active one, so no focus waits on a thread of its own to raise a tab again.
@@ -1020,8 +1022,19 @@ mod tests {
         let listed = format!(r##"{tmux} ["-S", "{HOSTED_SOCKET}", "list-panes", "-a", "-F", "#{{session_id}}\t#{{pane_id}}\t#{{session_attached}}\t#{{@codealong-tab}}\t#{{session_path}}\t#{{window_name}}"] (5s)"##);
         let unmarked = format!(r#"{tmux} ["-S", "{HOSTED_SOCKET}", "set-option", "-u", "-t", "$4", "@codealong-tab"] (5s)"#);
         let p = played(answer, || show_unlocked("ghostty", NewTerminal::Window, &[]));
-        assert_eq!(p.got, Vec::<String>::new());
+        assert_eq!(p.got, Looked::default());
         assert_eq!(p.log, [listed.clone(), tab("front"), unmarked.clone()]);
+        // Locked again after the first tab: the next waits for the next unlock, still marked.
+        const TWO: &str = "$4\t%9\t0\tfront\t/r/app\tapp · fix\n$5\t%10\t0\tfront\t/r/app\tother\n";
+        let relocks = Setup { locks_after_a_window: true, ..setup() };
+        let p = play(relocks, |s| Ok(if s.args.iter().any(|a| a == "list-panes") { TWO.to_string() } else { "ok\n".to_string() }), || show_unlocked("ghostty", NewTerminal::Window, &[]));
+        assert_eq!(p.got, Looked { failed: Vec::new(), deferred: true });
+        assert_eq!(p.log, [listed.clone(), tab("front"), unmarked.clone()]);
+        // And one whose tab failed as the screen locked keeps its mark too.
+        let relocks = Setup { locks_after_a_window: true, ..setup() };
+        let p = play(relocks, |s| if s.what == "GHOSTTY_NEW" { Err("Terminal surface model is not available".into()) } else if s.args.iter().any(|a| a == "list-panes") { Ok(TWO.to_string()) } else { Ok(String::new()) }, || show_unlocked("ghostty", NewTerminal::Window, &[]));
+        assert_eq!(p.got, Looked { failed: Vec::new(), deferred: true });
+        assert_eq!(p.log, [listed.clone(), tab("front")]);
         // One that Show in opened already gets none, and one that ended meanwhile isn't listed.
         let p = played(|s| Ok(if s.args.iter().any(|a| a == "list-panes") { WAITS.replace("\t0\t", "\t1\t") } else { String::new() }), || show_unlocked("ghostty", NewTerminal::Window, &[]));
         assert_eq!(p.log, [listed.clone(), unmarked.clone()]);
@@ -1029,7 +1042,7 @@ mod tests {
         assert_eq!(p.log, [listed]);
         // A tab that doesn't open is said, and not tried again at every look.
         let p = played(move |s| if s.what == "GHOSTTY_NEW" { Err(NOT_ALLOWED.into()) } else { answer(s) }, || show_unlocked("ghostty", NewTerminal::Window, &[]));
-        assert!(p.got.len() == 1 && p.got[0].starts_with("app · fix: Codealong isn't allowed to control Ghostty"), "{:?}", p.got);
+        assert!(!p.got.deferred && p.got.failed.len() == 1 && p.got.failed[0].starts_with("app · fix: Codealong isn't allowed to control Ghostty"), "{:?}", p.got);
         assert_eq!(p.log.last(), Some(&unmarked));
         // Told never to, a start while the screen is locked says why it can't.
         let p = play(locked(), answer, || session_run("ghostty", TmuxUse::Never, named_tab, Path::new("/r/app"), "claude\n", &[]));

@@ -136,8 +136,9 @@ pub enum Msg {
     /// why if any.
     Continued(Option<String>),
     /// Sessions started in tmux while the screen was locked shown in your terminal once it
-    /// wasn't (launch.rs `show_unlocked`), and which weren't and why if any.
-    ShownUnlocked(Option<String>),
+    /// wasn't (launch.rs `show_unlocked`): which weren't and why if any, and whether the screen
+    /// was locked again before they all were.
+    ShownUnlocked(Option<String>, bool),
     /// Sessions told what their helpers did (helpers.rs), and which weren't and why if any.
     Reported(Option<String>),
     /// A job of the automatic reviews went (autoreview.rs), and why it didn't if it didn't:
@@ -2101,8 +2102,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.continue_warning = why;
                     self.dirty = true;
                 }
-                Ok(Msg::ShownUnlocked(why)) => {
-                    self.tab_looks.on_looked();
+                Ok(Msg::ShownUnlocked(why, deferred)) => {
+                    self.tab_looks.on_looked(deferred);
                     self.show_warning = why;
                     self.dirty = true;
                 }
@@ -2656,9 +2657,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if crate::os::is_macos() && self.tab_looks.on_tick(launch::screen_locked(), launch::take_marked()) {
             let tx = self.tx.clone();
             let (terminal, new_terminal, lanes) = self.board.read().map(|b| (b.apps.terminal_id.clone(), b.apps.new_terminal, b.lanes.clone())).unwrap_or_default();
-            throttle::background("codealong-show-unlocked", move || launch::show_unlocked(&terminal, new_terminal, &lanes), move |failed| {
-                let why = failed.filter(|f| !f.is_empty()).map(|f| format!("{} It still runs in tmux; Show in opens it.", f.join("; ")));
-                let _ = tx.send(Msg::ShownUnlocked(why));
+            throttle::background("codealong-show-unlocked", move || launch::show_unlocked(&terminal, new_terminal, &lanes), move |looked| {
+                let looked = looked.unwrap_or_default();
+                let why = (!looked.failed.is_empty()).then(|| format!("{} It still runs in tmux; Show in opens it.", looked.failed.join("; ")));
+                let _ = tx.send(Msg::ShownUnlocked(why, looked.deferred));
             });
         }
         // A new account's folder appears when it first signs in; start reading it.
