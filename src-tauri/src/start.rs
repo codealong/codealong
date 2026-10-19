@@ -508,8 +508,10 @@ pub fn pick_from_group_in(
         .filter_map(|a| ordered_places(a, home).ok().filter(|p| !p.is_empty()).map(|p| (a, p)))
         .collect();
     let preferred = preferred_names(&startable.iter().map(|(a, _)| *a).collect::<Vec<_>>());
+    // A fallback group's order is its preference, so the first harness gets no more.
+    let equal = group.strategy == config::RoutingStrategy::Fallback;
     let raw: Vec<(&AccountCfg, &[Place], Option<&str>, bool)> = if group.members.is_empty() {
-        startable.iter().map(|(a, ps)| (*a, ps.as_slice(), None, preferred.contains(&a.name.as_str()))).collect()
+        startable.iter().map(|(a, ps)| (*a, ps.as_slice(), None, equal || preferred.contains(&a.name.as_str()))).collect()
     } else {
         group
             .members
@@ -1833,6 +1835,12 @@ mod tests {
         assert_eq!(picked(&cfg, &all_close, None).as_deref(), Some("claude"));
         // Keeping off a harness skips its members and keeps the order of the rest.
         assert_eq!(picked(&cfg, &roomy, Some(Harness::Codex)).as_deref(), Some("claude2"));
+        // With no members listed, every account in config order, the first's harness no better
+        // than another once all are close.
+        let every = RoutingGroupCfg { members: Vec::new(), ..group.clone() };
+        let picked_every = |us: &[Usage]| pick_from_group_in(&every, &cfg, us, &[], &[], &[], None, None, NOW, home, |_| true).map(|p| p.account);
+        assert_eq!(picked_every(&roomy).as_deref(), Some("claude"));
+        assert_eq!(picked_every(&[usage("claude", 10.0, 89.0, None), usage("claude2", 10.0, 88.0, None), usage("codex", 10.0, 86.0, None)]).as_deref(), Some("codex"));
     }
 
     #[test]

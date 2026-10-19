@@ -244,9 +244,11 @@ export function pickFromGroup(
   const refused = refusedAccounts(lanes, now);
   const preferred = preferredNames(can);
   const explicitMembers = group.members.length > 0;
+  // A fallback group's order is its preference, so the first harness gets no more.
+  const equal = group.strategy === 'fallback';
   const rawMembers = explicitMembers
     ? group.members.map((m) => ({ account: m.account, model: m.model?.trim() || null, preferred: true }))
-    : can.map((a) => ({ account: a.name, model: null, preferred: preferred.includes(a.name) }));
+    : can.map((a) => ({ account: a.name, model: null, preferred: equal || preferred.includes(a.name) }));
   const askedModel = model?.trim() || null;
   const members = rawMembers.flatMap((m) => {
     const a = can.find((x) => x.name === m.account);

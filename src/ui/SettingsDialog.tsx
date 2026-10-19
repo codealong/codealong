@@ -950,6 +950,22 @@ const ROUTING_STRATEGIES: { id: RoutingStrategy; label: string; says: string }[]
   { id: 'fallback', label: 'Fallback', says: 'Starts on the first account in the order below until it gets within the room kept for running sessions of its usage cap, then the next. Once every one is that close, the one with the most room.' },
 ];
 
+/** A fallback group's accounts in the order they're tried, each once: the editor has a row per
+ *  account, though config.toml can list one again on another model. */
+export function memberOrder(members: GroupMemberCfg[]): string[] {
+  return [...new Set(members.map((m) => m.account))];
+}
+
+/** `members` with `account` moved `by` places among the accounts in `memberOrder`, each
+ *  account's own members keeping their order; as they are when it can't go further. */
+export function movedMember(members: GroupMemberCfg[], account: string, by: -1 | 1): GroupMemberCfg[] {
+  const order = memberOrder(members);
+  const at = order.indexOf(account);
+  if (at < 0 || at + by < 0 || at + by >= order.length) return members;
+  [order[at], order[at + by]] = [order[at + by], order[at]];
+  return order.flatMap((a) => members.filter((m) => m.account === a));
+}
+
 /** The choices for the room kept below each usage cap, with a value typed in config.toml too. */
 function bufferOptions(current: number): Profile[] {
   const pcts = [...new Set([0, 2, BUFFER, 10, 15, 20, current])].sort((a, b) => a - b);
@@ -982,13 +998,7 @@ function RoutingPane({ cfg, disabled, onSave }: PaneProps) {
     useForOwnReviews: boolean;
   } | null>(null);
   const fallback = draft?.strategy === 'fallback';
-  /** Moves a fallback group's member `by` places in the order its accounts are tried. */
-  const moveMember = (at: number, by: -1 | 1) => {
-    if (!draft || at + by < 0 || at + by >= draft.members.length) return;
-    const members = [...draft.members];
-    [members[at], members[at + by]] = [members[at + by], members[at]];
-    setDraft({ ...draft, members });
-  };
+  const order = memberOrder(draft?.members ?? []);
   const [promptDraft, setPromptDraft] = useState(routing.prompt ?? '');
   useEffect(() => setPromptDraft(routing.prompt ?? ''), [routing.prompt]);
   const saveRouting = (next: RoutingCfg) => void onSave({ ...cfg, routing: next });
@@ -1125,9 +1135,9 @@ function RoutingPane({ cfg, disabled, onSave }: PaneProps) {
               <div className="ca-field">
                 <span>Accounts in this group</span>
                 <small>{fallback ? 'Tried in this order. Leave all unchecked to include every enabled account, in the order Accounts lists them.' : 'Leave all unchecked to include every enabled account.'}</small>
-                {(fallback ? [...draft.members.flatMap((m) => cfg.accounts.filter((a) => a.name === m.account)), ...cfg.accounts.filter((a) => !draft.members.some((m) => m.account === a.name))] : cfg.accounts).map((a) => {
+                {(fallback ? [...order.flatMap((n) => cfg.accounts.filter((a) => a.name === n)), ...cfg.accounts.filter((a) => !order.includes(a.name))] : cfg.accounts).map((a) => {
                   const member = draft.members.find((m) => m.account === a.name);
-                  const at = draft.members.findIndex((m) => m.account === a.name);
+                  const at = order.indexOf(a.name);
                   const startAcct = all.find((x) => x.name === a.name);
                   const baseModels = startAcct?.models ?? [];
                   const currentModel = member?.model?.trim() || null;
@@ -1185,8 +1195,8 @@ function RoutingPane({ cfg, disabled, onSave }: PaneProps) {
                           ))}
                         {fallback && member && (
                           <>
-                            <Button variant="ghost" size="sm" icon="arrow-up" aria-label={`Try ${a.name} sooner`} title="Sooner" disabled={at === 0} onClick={() => moveMember(at, -1)} />
-                            <Button variant="ghost" size="sm" icon="arrow-down" aria-label={`Try ${a.name} later`} title="Later" disabled={at === draft.members.length - 1} onClick={() => moveMember(at, 1)} />
+                            <Button variant="ghost" size="sm" icon="arrow-up" aria-label={`Try ${a.name} sooner`} title="Sooner" disabled={at === 0} onClick={() => setDraft({ ...draft, members: movedMember(draft.members, a.name, -1) })} />
+                            <Button variant="ghost" size="sm" icon="arrow-down" aria-label={`Try ${a.name} later`} title="Later" disabled={at === order.length - 1} onClick={() => setDraft({ ...draft, members: movedMember(draft.members, a.name, 1) })} />
                           </>
                         )}
                       </div>

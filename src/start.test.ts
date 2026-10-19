@@ -694,6 +694,11 @@ describe('usageCap and routing groups', () => {
     expect(picked([usage('codex', 20, 88, 100), usage('claude2', 10, 87, null), usage('claude', 10, 86, null)])).toBe('claude');
     // Keeping off a harness skips its members and keeps the order of the rest.
     expect(picked(roomy, accounts, 'codex')).toBe('claude2');
+    // With no members listed, every account in config order, the first's harness no better than
+    // another once all are close.
+    const every: RoutingGroup = { ...group, members: [] };
+    expect(pickFromGroup(every, accounts, roomy, NOW)?.account).toBe('claude');
+    expect(pickFromGroup(every, accounts, [usage('claude', 10, 89, null), usage('claude2', 10, 88, null), usage('codex', 10, 86, null)], NOW)?.account).toBe('codex');
   });
 
   it('picks from a routing group across strategies, equal member preference, and multi-model members', () => {
