@@ -355,10 +355,15 @@ they're listed but don't open. A prompt shows the images you sent with it in pla
 Codealong, pasted them into the session's terminal or attached them in the Claude or Codex app;
 click one to open it. It opens at the newest and loads older pages as you scroll up, and follows the
 session as it goes. A link to a GitHub PR, in a reply or a prompt, reads `name#123` with the PR's
-state as its icon; hovering it shows a card with where the PR stands (review, checks, branches,
-size, and whose reviews it still waits on, you first), the worktrees that hold it and the sessions
-that worked on it, each a click from its panel, and its right-click menu is the PR's. A PR the
-board doesn't list (an older one, another repo's) is asked of GitHub when its card first shows.
+state as its icon (in a tool's output it keeps its words as written); hovering it shows a card with
+where the PR stands (review, checks, branches, size, and whose reviews it still waits on, you
+first), the worktrees that hold it and the sessions that worked on it, each a click from its panel,
+and its right-click menu is the PR's. A click shows the PR in Codealong, as a click on its chip
+does: its panel in place of the session's, with the way back (in the floating windows, in PRs), on
+its Changes tab for a link to its files and on Reviews for one to a review or a comment. ⌘-click,
+or Open on GitHub in its card, opens it on GitHub instead. A PR the board doesn't list (an older
+one, another repo's) is asked of GitHub when its card first shows, and has no panel here, so a
+click opens it on GitHub. A link to a PR in a PR's description shows it the same way.
 What Codex's app draws in a reply is drawn here too, near enough. A writing block, a finished piece
 of writing such as an email, a message to paste elsewhere or a document, is a card named for its
 kind, with Copy, which copies the writing without the lines around it. An email shows its recipients

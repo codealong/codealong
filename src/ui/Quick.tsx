@@ -25,6 +25,7 @@
 // and starts, and answering is that window's.
 
 import { reuse } from '../reuse';
+import type { PrTab } from '../agentReview';
 import { aimAfter, aimAfterChange, aimedAt, aimedAtNothing, aimedByScroll, clickDoes, type Aim } from '../aim';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -1028,9 +1029,9 @@ export function Quick() {
     openUrl(url).catch((e: unknown) => reopen(() => setError(errorText(e))));
   };
 
-  const revealPr = (pr: PrItem) => {
+  const revealPr = (pr: PrItem, tab?: PrTab | null) => {
     void hideQuick();
-    void showMain({ kind: 'pr', key: pr.key });
+    void showMain({ kind: 'pr', key: pr.key, tab: tab ?? undefined });
   };
 
   /** What picking a PR does: Codealong shows it, as a session is shown, rather than GitHub. The

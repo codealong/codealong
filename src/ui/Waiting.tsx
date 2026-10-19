@@ -21,6 +21,7 @@
 // whole window drags.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PrTab } from '../agentReview';
 import { onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
 import { boardAhead, boardView, observe, renameAhead, sentWorthSaying, useAhead } from '../ahead';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -192,7 +193,7 @@ export function Waiting() {
   const openHere = (lane: Lane, target: string) => openWhere(where(lane, target), { report, from: 'main' });
   const openSession = (lane: Lane, s: Session) => openHere(lane, s.openTarget);
   const revealSession = (lane: Lane, s: Session) => void showMain({ kind: 'session', laneId: lane.id, key: s.key });
-  const revealPr = (pr: PrItem) => void showMain({ kind: 'pr', key: pr.key });
+  const revealPr = (pr: PrItem, tab?: PrTab | null) => void showMain({ kind: 'pr', key: pr.key, tab: tab ?? undefined });
   const revealLane = (lane: Lane) => void showMain({ kind: 'worktree', laneId: lane.id });
 
   /** What the window does for a session's actions (SessionCard.tsx has the rest): the one shown

@@ -581,7 +581,8 @@ window.__TAURI_INTERNALS__ = {
         if (!s) return Promise.reject(new Error("That session isn't on the board any more."));
         var item = function (kind, text, n, extra) { return Object.assign({ at: s.lastActivity - (3 - n) * 60e3, kind: kind, text: text, failed: false, cursor: n, n: 0 }, extra || {}); };
         // The reply links the PR the session worked on, if the board has one, and an older PR in
-        // its repo the board doesn't list (pr_card answers for that one).
+        // its repo the board doesn't list (pr_card answers for that one); the tool's output links
+        // the first one's files.
         var pr = (all[2].prs || []).find(function (p) { return p.sessions.some(function (x) { return x.key === key; }); });
         var older = 1;
         while (pr && all[2].prs.some(function (p) { return p.repoSlug === pr.repoSlug && p.number === older; })) older++;
@@ -589,7 +590,7 @@ window.__TAURI_INTERNALS__ = {
         return { before: null, after: 4, items: [
           item('you', s.title, 0),
           item('tool', 'Bash · `npm test`', 1, { id: 't1', input: 'npm test' }),
-          item('result', '', 2, { id: 't1', output: 'Tests  12 passed (12)' }),
+          item('result', '', 2, { id: 't1', output: 'Tests  12 passed (12)' + (pr ? '\nSee ' + pr.url + '/files' : '') }),
           item('agent', (s.excerpt || 'Done.') + links, 3),
         ] };
       });

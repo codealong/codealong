@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { prIndex, prLabel, prRefOf } from './prLinks';
+import { prIndex, prLabel, prRefOf, prTabOf } from './prLinks';
 import * as fx from './testing/fixtures';
 
 describe('prRefOf', () => {
@@ -38,6 +38,19 @@ describe('prLabel', () => {
   it('shortens a link as GitHub does, saying what part it goes to', () => {
     expect(prLabel(prRefOf('https://github.com/acme/app/pull/7')!)).toBe('app#7');
     expect(prLabel(prRefOf('https://github.com/acme/app/pull/7#issuecomment-1')!)).toBe('app#7 (comment)');
+  });
+});
+
+describe('prTabOf', () => {
+  it('opens a PR on the tab that shows what the link goes to', () => {
+    const tab = (url: string) => prTabOf(prRefOf(url)!);
+    expect(tab('https://github.com/acme/app/pull/7')).toBeNull();
+    expect(tab('https://github.com/acme/app/pull/7/files')).toBe('changes');
+    expect(tab('https://github.com/acme/app/pull/7#issuecomment-1')).toBe('review');
+    expect(tab('https://github.com/acme/app/pull/7/files#discussion_r456')).toBe('review');
+    expect(tab('https://github.com/acme/app/pull/7#pullrequestreview-789')).toBe('review');
+    expect(tab('https://github.com/acme/app/pull/7/commits/abc123')).toBeNull();
+    expect(tab('https://github.com/acme/app/pull/7/checks')).toBeNull();
   });
 });
 

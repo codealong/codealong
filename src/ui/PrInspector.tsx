@@ -18,7 +18,8 @@
 // strip that works through what waits on you.
 //
 // The description is GitHub's own rendering (`bodyHTML`), which GitHub sanitizes; the page's
-// content security policy blocks scripts on top of that. Links in it open in the browser.
+// content security policy blocks scripts on top of that. Links in it open in the browser, but
+// for one to a PR the board lists, which shows here.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { agentsVerdict, openingTab, type PrTab } from '../agentReview';
@@ -47,7 +48,9 @@ import { Tip } from './Tip';
 import { untilWords } from '../snooze';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
-import { keysIn, keysSaid } from '../platform';
+import { cmd, keysIn, keysSaid } from '../platform';
+import { prRefOf } from '../prLinks';
+import { followPrLink } from './PrLink';
 
 /** Whether a PR's details are open, for every PR, as you left them. */
 const DETAILS_KEY = 'codealong.prDetailsOpen';
@@ -60,6 +63,12 @@ const askCache = new Map<string, Record<string, number>>();
 
 /** The tab each PR showed last, kept while the window goes from one PR to the next. */
 const tabsShown = new Map<string, PrTab>();
+
+/** Has a PR's panel show `tab` when it next opens: a link to its files or to what was written on
+ *  it (PrLink.tsx). */
+export function showPrTab(key: string, tab: PrTab) {
+  tabsShown.set(key, tab);
+}
 
 /** Which of a PR's tabs shows, for its details and what's beside them: the one picked for it,
  *  else the one it showed last, else where it opens. `show` brings a tab into view from outside
@@ -314,13 +323,16 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
   const places = item.places.map((p) => ({ lane: p.lane, sessions: p.sessions, note: placeNote(p, pr.number, pr.head) }));
   const placesProps = { places, label: 'On this Mac', now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary: pr.primary ? { key: pr.primary, means: primaryWords(pr) } : null };
 
-  // Links in the description open in the browser rather than inside the app.
+  // Links in the description open in the browser rather than inside the app, but for a link to a
+  // PR, which shows here as one in a conversation does (PrLink.tsx `followPrLink`).
   const onBodyClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     const a = (e.target as Element).closest('a');
     if (!a) return;
     e.preventDefault();
     const href = a.getAttribute('href') ?? '';
-    if (/^https?:\/\//.test(href)) void openUrl(href);
+    const linked = prRefOf(href);
+    if (linked) followPrLink(href, linked, cmd(e));
+    else if (/^https?:\/\//.test(href)) void openUrl(href);
   };
 
   return (

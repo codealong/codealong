@@ -1,6 +1,8 @@
 // Links to GitHub PRs in what's written in a conversation: which PR a link is, how a bare one
-// reads (`name#123`, as GitHub shortens them), and the board's PRs by the keys links give.
+// reads (`name#123`, as GitHub shortens them), the tab of the PR's panel it opens on, and the
+// board's PRs by the keys links give.
 
+import type { PrTab } from './agentReview';
 import type { PrItem } from './types';
 
 /** A link to a PR: its repo as the link names it, its number, and the part of it linked to. */
@@ -35,6 +37,15 @@ export function prRefOf(url: string): PrRef | null {
 export function prLabel(ref: PrRef): string {
   const name = ref.slug.slice(ref.slug.indexOf('/') + 1);
   return `${name}#${ref.number}${ref.part ? ` (${ref.part})` : ''}`;
+}
+
+/** The tab of a PR's panel that shows what the link goes to: its files, or what was written on it
+ *  (a review, or a comment on it or on its code); null for the PR itself, or a part the panel has
+ *  no tab for. */
+export function prTabOf(ref: PrRef): PrTab | null {
+  if (ref.part === 'files') return 'changes';
+  if (ref.part === 'comment' || ref.part === 'review') return 'review';
+  return null;
 }
 
 /** The board's PRs by the keys links to them give: by the board's name for the repo and by the

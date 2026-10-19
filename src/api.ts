@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, SessionSpent, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { PrTab } from './agentReview';
 import type { TodoOp } from './todos';
 import { pageZoom, type ZoomStep } from './zoom';
 
@@ -1064,8 +1065,8 @@ export async function setTheme(theme: Theme): Promise<void> {
 
 /** What the floating bar, the quick panel or a card on the desktop asks the main window to show.
  *  A session's `find` is the words the quick panel found it by in what was said, which its
- *  conversation's find bar opens on. */
-export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string } | { kind: 'todo'; id: string } | { kind: 'canvas'; project: string; focus?: string[] };
+ *  conversation's find bar opens on; a PR's `tab` the one a link to a part of it goes to. */
+export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string; tab?: PrTab } | { kind: 'todo'; id: string } | { kind: 'canvas'; project: string; focus?: string[] };
 
 /** Brings the main window forward, showing a session, worktree, PR or todo if given. */
 export async function showMain(reveal: Reveal | null = null): Promise<void> {

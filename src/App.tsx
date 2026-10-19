@@ -80,6 +80,7 @@ import { useListPicks } from './useListPicks';
 import type { SelectHow } from './picks';
 import { useTodoView } from './useTodoView';
 import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
+import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
 import { ageListingChain, ageListingPr, chainOf, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, revealing, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, type Facets } from './boardLists';
@@ -796,6 +797,7 @@ export function App() {
       setHelpersShownList((prev) => revealing(prev, items, item));
       setSelectedKey(`${lane.id}::${session.key}`);
     } else if (pr) {
+      if (r.kind === 'pr' && r.tab) showPrTab(pr.key, r.tab);
       setView('prs');
       clearFilters();
       if (prInDone(pr, prPins.set)) setShowDonePrs(true);
@@ -1119,12 +1121,13 @@ export function App() {
   const openLanePr = (lane: Lane) => {
     if (lane.pr) openUrl(lane.pr.url).catch((e: unknown) => setToast(String(e)));
   };
-  /** A click on a PR's chip, wherever this window shows one. In Sessions, Worktrees and Todo, the
-   *  PR's panel shows in place of the one beside the list, with the way back to it (`drill`), so
-   *  the list stays as it was; a chip on a list's row selects the row first (`row`), so the way
-   *  back is to its panel. In PRs and on the canvas, its row or card (`reveal`). A PR the board
-   *  doesn't list has no panel here, so it opens on GitHub instead. */
-  const showPrOf = (p: Pr, row?: { key: string; select: () => void }) => {
+  /** A click on a PR's chip, or on a link to it in a panel (PrLink.tsx), wherever this window shows
+   *  one. In Sessions, Worktrees and Todo, the PR's panel shows in place of the one beside the
+   *  list, with the way back to it (`drill`), so the list stays as it was; a chip on a list's row
+   *  selects the row first (`row`), so the way back is to its panel. In PRs and on the canvas, its
+   *  row or card (`reveal`). A PR the board doesn't list has no panel here, so it opens on GitHub
+   *  instead. */
+  const showPrOf = (p: Pick<Pr, 'url'>, row?: { key: string; select: () => void }) => {
     const item = board?.prs.find((x) => x.url === p.url);
     if (!item) {
       openUrl(p.url).catch((e: unknown) => setToast(String(e)));
@@ -1621,10 +1624,14 @@ export function App() {
       { label: 'Delete', run: () => keepSaved(savedViews.filter((x) => x.id !== v.id)) },
     ]).catch((e: unknown) => setToast(String(e)));
 
-  // PR links in conversations and descriptions (PrLink.tsx): their cards show the PR and its
-  // sessions here.
+  // PR links in conversations and descriptions (PrLink.tsx): a click shows the PR as its chip
+  // does, and their cards show the PR and its sessions here.
   usePrLinks(board?.prs, lanes, {
-    showPr: (pr) => reveal.current({ kind: 'pr', key: pr.key }),
+    showPr: (pr, tab) => reveal.current({ kind: 'pr', key: pr.key, tab: tab ?? undefined }),
+    followPr: (pr, tab) => {
+      if (tab) showPrTab(pr.key, tab);
+      showPrOf(pr);
+    },
     showSession: (lane, session) => reveal.current({ kind: 'session', laneId: lane.id, key: session.key }),
     openSession: (lane, session) => open(lane, session.openTarget),
     sessionMenu: (lane, s) => sessionMenu(lane, s, 'worktree'),

@@ -8,6 +8,7 @@
 // A card in a window that floats draws at the zoom and takes its keys (`zoomKey`, zoom.ts).
 
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import type { PrTab } from '../agentReview';
 import { barNote, getBoard, prAt, showMain, zoomWindows } from '../api';
 import { boardView, lanesAhead, observe, useAhead } from '../ahead';
 import { showContextMenu } from '../contextMenu';
@@ -182,7 +183,7 @@ export interface CardHost {
   open: (lane: Lane, target: string) => void;
   /** Each shows in the main window, and the card goes away. */
   showSession: (lane: Lane, session: Session) => void;
-  showPr: (pr: PrItem) => void;
+  showPr: (pr: PrItem, tab?: PrTab | null) => void;
   showLane: (lane: Lane) => void;
   showTodo: (todo: Todo) => void;
 }
@@ -203,9 +204,9 @@ export function useCardHost({ sessionKey, anchor, live, apps, terminal, away }: 
     away();
     void showMain({ kind: 'session', laneId: l.id, key: s.key });
   };
-  const showPr = (pr: PrItem) => {
+  const showPr = (pr: PrItem, tab?: PrTab | null) => {
     away();
-    void showMain({ kind: 'pr', key: pr.key });
+    void showMain({ kind: 'pr', key: pr.key, tab: tab ?? undefined });
   };
   const showLane = (l: Lane) => {
     away();

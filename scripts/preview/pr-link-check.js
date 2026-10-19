@@ -2,8 +2,11 @@
 // lists links that PR bare and, as a Markdown link, an older one the board doesn't list. The
 // bare one reads `name#N` with the PR's icon; hovering it shows a card with the PR's title, the
 // labels the check gives it, and the session; the older one's card asks GitHub (pr_card) once and shows its answer, and its
-// link then has an icon too; a right-click has the PR's menu; Show in Codealong opens the PR in
-// the PRs view. The PR is made a merged one, whatever it is today: the PRs view lists those under
+// link then has an icon too; a right-click has the PR's menu. A ⌘-click on the listed one opens it
+// on GitHub, and so does a click on the older one, which has no panel here; a click on the listed
+// one shows its panel in the session's place, with the way back, and the link to its files in the
+// tool's output, which keeps its words, shows it on its Changes tab. Show in Codealong opens the
+// PR in the PRs view. The PR is made a merged one, whatever it is today: the PRs view lists those under
 // Merged & closed, which is folded until Show in Codealong opens it. It's also made five days
 // old, with the age filter at 24 hours, so Show in Codealong has to widen the filter to list it;
 // the session stays active in the last minute, so its row shows under that filter. Then the
@@ -130,6 +133,46 @@
     .then(function () {
       var t = texts(lastMenu());
       check("a right-click has the PR's menu", t.indexOf('Open on GitHub') >= 0 && t.indexOf('Copy link') >= 0, t.join(' | '));
+      // ⌘ held, a click opens the link on GitHub; so does one on a PR the board doesn't list.
+      var opens = calls('open_url').length;
+      links()[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }));
+      links()[1].click();
+      return until(function () { return calls('open_url').length === opens + 2; }, 3000, 'two links opened on GitHub').then(function () {
+        var urls = calls('open_url').slice(opens).map(function (c) { return c[1].url; });
+        check('a ⌘-click opens a listed PR on GitHub', urls[0] === picked.pr.url, urls[0]);
+        check('a click on a PR the board doesn’t list opens it on GitHub', urls[1] === links()[1].getAttribute('href'), urls[1]);
+        check('and the session’s panel stays', title() === picked.title && !document.querySelector('.ca-prinsp'));
+      });
+    })
+    .then(function () {
+      var opens = calls('open_url').length;
+      links()[0].click();
+      return until(function () { return document.querySelector('.ca-prinsp') && document.querySelector('.ca-panelback'); }, 3000, 'the PR’s panel in the session’s place').then(function () {
+        var shown = document.querySelector('.ca-prinsp .ca-insp-call').textContent;
+        check('a click on a listed PR’s link shows its panel in the session’s place', shown === '#' + picked.pr.number, shown);
+        check('without opening it on GitHub', calls('open_url').length === opens, JSON.stringify(last('open_url')));
+        check('with the session’s row still selected', !!row() && row().getAttribute('aria-selected') === 'true');
+        document.querySelector('.ca-panelback').click();
+        return until(function () { return !document.querySelector('.ca-prinsp') && title() === picked.title && links().length === 2; }, 3000, 'the session’s panel, back from the PR');
+      });
+    })
+    .then(function () {
+      check('its way back is the session’s panel', true);
+      document.querySelector('.ca-sessinsp .ca-thread-toolhead').click();
+      return until(function () { return document.querySelector('.ca-sessinsp .ca-thread-out a.ca-prlink'); }, 3000, 'the link in the tool’s output');
+    })
+    .then(function () {
+      var link = document.querySelector('.ca-sessinsp .ca-thread-out a.ca-prlink');
+      check('a PR link in a tool’s output keeps its words', link.textContent === picked.pr.url + '/files' && !link.querySelector('.ca-prlink-icon'), link.textContent);
+      link.click();
+      return until(function () { return document.querySelector('.ca-prinsp [role="tab"][aria-selected="true"]'); }, 3000, 'the PR’s panel, from its files’ link').then(function () {
+        var tab = document.querySelector('.ca-prinsp [role="tab"][aria-selected="true"]').textContent;
+        check('a link to its files shows the PR on its Changes tab', /^Changes/.test(tab), tab);
+        document.querySelector('.ca-panelback').click();
+        return until(function () { return !document.querySelector('.ca-prinsp') && title() === picked.title && links().length === 2; }, 3000, 'the session’s panel again');
+      });
+    })
+    .then(function () {
       hover(links()[0]);
       return until(card, 3000);
     })

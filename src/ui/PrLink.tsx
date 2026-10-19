@@ -1,9 +1,12 @@
 // A link to a GitHub PR in a conversation (Markdown.tsx) or in what you wrote
 // (DescriptionEditor.tsx). A bare one reads `name#123`, with the PR's state as its icon once
-// Codealong knows the PR. Hovering it brings up a card: where the PR stands on GitHub, the
-// worktrees that hold it and the sessions that worked on it, as the PRs view has them. A click
-// opens the link in the browser, and a right-click has the PR's menu (menus.ts). A PR's chip in a
-// session's panel (`PrChipCard`) has the same card. For an open PR the board lists, the card has
+// Codealong knows the PR; one in a tool's output keeps its words as written, without the icon.
+// Hovering it brings up a card: where the PR stands on GitHub, the worktrees that hold it and the
+// sessions that worked on it, as the PRs view has them. A click shows the PR in Codealong when
+// the board lists it, as a click on its chip does, on the tab that has what the link goes to
+// (`followPrLink`); one the board doesn't list has no panel here and opens in the browser, as
+// ⌘-click always does. A right-click has the PR's menu (menus.ts). A PR's chip in a session's
+// panel (`PrChipCard`) has the same card. For an open PR the board lists, the card has
 // the switch that has its primary session, listed first, told of what happens on it (nudges.rs).
 //
 // It costs nothing until you hover: the board already lists the PRs in your projects' repos with
@@ -13,9 +16,11 @@
 // answer is kept a while for every link to it.
 
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import type { PrTab } from '../agentReview';
 import { openUrl, prCard, setPrNudge } from '../api';
 import { absolute, agoPhrase, count } from '../format';
-import { prIndex, prRefOf, type PrRef } from '../prLinks';
+import { cmd } from '../platform';
+import { prIndex, prRefOf, prTabOf, type PrRef } from '../prLinks';
 import { nudgeWords, primaryWords, reviewersWords } from '../prStatus';
 import { errorText } from '../report';
 import { nudgeAboutFor } from '../repoSettings';
@@ -28,8 +33,12 @@ import { Button, cx, Icon, PR_ICON, PR_WORD, PrChip } from './primitives';
 
 /** What a window does with a PR link's card: showing and opening what's on it, and menus. */
 export interface PrLinkActions {
-  /** Shows the PR in the main window's PRs view. Only for a PR the board lists. */
-  showPr?: (pr: PrItem) => void;
+  /** Shows the PR in the main window's PRs view, on `tab` when the link goes to one of its parts.
+   *  Only for a PR the board lists. */
+  showPr?: (pr: PrItem, tab: PrTab | null) => void;
+  /** A click on a link to the PR: shows it as a click on its chip does, in place of the panel the
+   *  link is in (App.tsx `showPrOf`). `showPr` where there's no such place. */
+  followPr?: (pr: PrItem, tab: PrTab | null) => void;
   /** A click on a session: shows it in this window, or the main one. */
   showSession: (lane: Lane, session: Session) => void;
   /** Double-click: opens it where it runs. */
@@ -114,6 +123,23 @@ export function usePrLinks(prs: readonly PrItem[] | undefined, lanes: readonly L
   useLayoutEffect(notify, [prs, lanes, nudges?.nudgeAbout, nudges?.prStopped, nudges?.repos, nudges?.teamFiles]);
 }
 
+/** Opens a link in the browser, as this window opens one. */
+function browse(url: string) {
+  const openLink = host.actions?.openLink;
+  if (openLink) openLink(url);
+  else void openUrl(url);
+}
+
+/** A click on a link to a PR, here or in a PR's description (PrInspector.tsx): the PR in Codealong
+ *  when the board lists it, on the tab with what the link goes to (`prTabOf`), else, as with
+ *  ⌘ held (`browser`), the link in the browser. */
+export function followPrLink(url: string, ref: PrRef, browser: boolean) {
+  const listed = host.index.get(ref.key);
+  const show = host.actions?.followPr ?? host.actions?.showPr;
+  if (listed && show && !browser) show(listed, prTabOf(ref));
+  else browse(url);
+}
+
 /** A PR's card for what shows the PR, a link or a chip: the handlers its anchor takes, and the
  *  card while it's up. Without a window that says what to do with it (a page that never called
  *  usePrLinks), there's no card. */
@@ -121,19 +147,19 @@ function usePrCard(url: string, ref: PrRef) {
   const hosted = host.actions !== null;
   const c = useHoverCard();
 
-  const follow = () => {
+  const follow = (browser: boolean) => {
     c.close();
-    const openLink = host.actions?.openLink;
-    if (openLink) openLink(url);
-    else void openUrl(url);
+    followPrLink(url, ref, browser);
   };
 
-  const card = c.open && c.anchor.current ? <PrCard card={c} prRef={ref} url={url} onFollow={follow} /> : null;
+  const card = c.open && c.anchor.current ? <PrCard card={c} prRef={ref} url={url} onBrowse={() => follow(true)} /> : null;
   return { hosted, anchor: c.anchor, show: c.show, hide: c.hide, close: c.close, follow, card };
 }
 
-export function PrLink({ url, pr: ref, children }: { url: string; pr: PrRef; children: ReactNode }) {
-  const item = useSyncExternalStore(subscribe, () => host.index.get(ref.key) ?? fetched.get(ref.key)?.item);
+/** `plain` keeps the link's words as written, without the PR's state before them: one in a
+ *  tool's output, which shows every character as it was. */
+export function PrLink({ url, pr: ref, plain, children }: { url: string; pr: PrRef; plain?: boolean; children: ReactNode }) {
+  const item = useSyncExternalStore(subscribe, () => (plain ? undefined : (host.index.get(ref.key) ?? fetched.get(ref.key)?.item)));
   const c = usePrCard(url, ref);
 
   return (
@@ -145,7 +171,7 @@ export function PrLink({ url, pr: ref, children }: { url: string; pr: PrRef; chi
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          c.follow();
+          c.follow(cmd(e));
         }}
         onMouseEnter={c.hosted ? c.show : undefined}
         onMouseLeave={c.hosted ? c.hide : undefined}
@@ -222,10 +248,11 @@ interface CardProps {
   card: HoverCardState;
   prRef: PrRef;
   url: string;
-  onFollow: () => void;
+  /** Open on GitHub: the link in the browser. */
+  onBrowse: () => void;
 }
 
-function PrCard({ card, prRef: ref, url, onFollow }: CardProps) {
+function PrCard({ card, prRef: ref, url, onBrowse }: CardProps) {
   const listed = useSyncExternalStore(subscribe, () => host.index.get(ref.key));
   const lanes = useSyncExternalStore(subscribe, lanesNow);
   const asked = useSyncExternalStore(subscribe, () => fetched.get(ref.key));
@@ -356,11 +383,11 @@ function PrCard({ card, prRef: ref, url, onFollow }: CardProps) {
       )}
       <div className="ca-hovercard-foot">
         {listed && host.actions?.showPr && (
-          <Button size="sm" icon="layout-sidebar" onClick={() => act((a) => a.showPr?.(listed))}>
+          <Button size="sm" icon="layout-sidebar" onClick={() => act((a) => a.showPr?.(listed, prTabOf(ref)))}>
             Show in Codealong
           </Button>
         )}
-        <Button size="sm" icon="external" title={url} onClick={onFollow}>
+        <Button size="sm" icon="external" title={url} onClick={onBrowse}>
           Open on GitHub
         </Button>
       </div>

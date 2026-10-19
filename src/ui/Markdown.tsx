@@ -4,8 +4,9 @@
 // open in the browser; a file or an image Codealong keeps (`[name](files/…)`, `![image](images/…)`,
 // as a message sent with attachments refers to them) shows as in a prompt of yours, a chip that
 // opens it or the image in place; any other link shows as its text. A link to a GitHub PR is the PR's
-// (PrLink.tsx): a bare one reads `name#123`, and hovering it shows the PR and its sessions.
-// A tool's output isn't Markdown, but the web links in it open the same way (`linked`).
+// (PrLink.tsx): a bare one reads `name#123`, hovering it shows the PR and its sessions, and a
+// click shows the PR in Codealong. A tool's output isn't Markdown, but the web links in it open
+// the same way (`linked`), a PR's keeping its words as written.
 // The directives Codex's app draws (directives.ts) are drawn as it draws them, near enough: a
 // writing block as a card with Copy, a code comment as a card, a follow-up it offers as a button
 // that puts its prompt in the session's box, a file it cites as the file, which a click opens
@@ -32,14 +33,15 @@ const BARE = /https?:\/\/[^\s<>()`]+[^\s<>()`.,;:!?'"*_]/g;
  *  backslash too. */
 const IN_OUTPUT = /https?:\/\/[^\s<>()`"'\\]+[^\s<>()`"'\\.,;:!?*_]/g;
 
-/** A web link that opens in the browser, never in the app's own window. A bare one (`children`
- *  left out) reads as its URL, or a PR's as GitHub shortens it; `plain` keeps a PR's as it is. */
+/** A web link that opens in the browser, never in the app's own window, but for a PR's, which
+ *  shows in Codealong (PrLink.tsx). A bare one (`children` left out) reads as its URL, or a PR's as
+ *  GitHub shortens it; `plain` keeps a PR's as it is. */
 export function Link({ url, children, plain }: { url: string; children?: ReactNode; plain?: boolean }) {
-  const pr = plain ? null : prRefOf(url);
+  const pr = prRefOf(url);
   if (pr) {
     return (
-      <PrLink url={url} pr={pr}>
-        {children ?? prLabel(pr)}
+      <PrLink url={url} pr={pr} plain={plain}>
+        {children ?? (plain ? url : prLabel(pr))}
       </PrLink>
     );
   }
