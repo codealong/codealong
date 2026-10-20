@@ -22,7 +22,8 @@ it is, how to install it and how to get going. The settings file is annotated in
 ## The main window
 
 **Five views** of the current project, each in a window of its own if you like (⌘⇧N): Sessions,
-Worktrees, PRs, Todo, and its boards, each shown as Kanban or as Canvas. The project
+Worktrees, PRs, Todo, and its boards, each shown as Kanban or as Canvas (an experiment, off until
+Settings › Experimental turns it on: see *Boards*). The project
 switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them all. Add
 project… at its foot opens Settings › Projects with a new project's form, and Edit projects… the
 list. ⇧⌘S, ⇧⌘W,
@@ -1210,6 +1211,12 @@ what was asked is kept in `jev-todos.json`.
 
 ### Boards
 
+Boards are an experiment, off until Settings › Experimental turns them on (`boards = true` under
+`[experimental]` in config.toml). While they're off the sidebar has no Board, ⇧⌘K and ⇧⌘B go
+nowhere, the menus have no Add to board, a window last left on a board opens on Sessions, and
+every `codealong board` command says they're off and does nothing. What boards.json holds is kept
+either way.
+
 A board is a named set of work in a project: a release, a fix, an investigation. The Board view
 shows one, as Kanban (its todos and sessions in columns) or as Canvas (its work laid out in
 space); the toggle at the top switches between them, and ⇧⌘K and ⇧⌘B go straight to each. Every
@@ -1523,7 +1530,8 @@ and where its review goes), nudging the session that
 opened a pull request, moving a session that hits its usage limit, and telling one a lost connection
 stopped to carry on, everywhere or for one repo with its team's settings (see *Settings for one
 repo, and its team's*); Projects groups repos by pattern; Advanced turns
-the performance log on and shows where the files are. Each change is saved in its place in the file,
+the performance log on and shows where the files are; Experimental turns on features still being
+tried out, each off until you do: boards (see *Boards*). Each change is saved in its place in the file,
 so comments and order stay as you wrote them. The config.toml section edits the file itself, for
 anything the form doesn't cover, and says what's wrong when it doesn't parse.
 

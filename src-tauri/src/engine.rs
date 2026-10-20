@@ -802,13 +802,14 @@ pub fn link_opens_as(board: &Board, url: &str) -> Option<Lane> {
 
 pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     let (tx, rx) = channel();
-    // The theme, zoom and shortcuts are on the board before the first scan finishes, so windows
-    // open in them.
+    // The theme, zoom, shortcuts and experiments are on the board before the first scan
+    // finishes, so windows open in them.
     let shortcuts = config::shortcuts();
     let board = Arc::new(RwLock::new(Board {
         loading: true,
         theme: config::theme(),
         zoom: config::zoom(),
+        experimental: config::experimental(),
         quick_shortcut: shortcuts.quick_panel,
         chat_shortcut: shortcuts.chat,
         waiting_shortcut: shortcuts.waiting,
@@ -3474,6 +3475,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         crate::improve::mark(&mut board.lanes, &self.lane_checkout, &sources);
         board.improve = crate::improve::target(&board.lanes, &self.codealong_sources);
         board.jev = self.cfg.jev.clone();
+        board.experimental = self.cfg.experimental.clone();
         board.devices = self.cfg.devices.clone();
         board.project_rules = self.cfg.projects.clone();
         for lane in &mut board.lanes {

@@ -278,6 +278,10 @@ frames). Every project has a board of its own, named after it, that holds everyt
 project. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how
 recent, words in titles) and what's added by hand, less what's taken off.
 
+Boards are an experiment, off until your user turns them on in Settings › Experimental. While
+they're off every `codealong board` command says so and does nothing: leave boards alone, and if
+your user asked for one, tell them where to turn them on.
+
 - `codealong board list` lists the project's boards; `board show <board>` prints its Kanban
   columns and their cards, or with `--as canvas` its canvas's frames.
 - When you work on something your user keeps a board for, put yourself on it:

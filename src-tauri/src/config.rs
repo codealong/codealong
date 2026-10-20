@@ -53,6 +53,8 @@ pub struct Config {
     #[serde(default)]
     pub sounds: SoundsCfg,
     #[serde(default)]
+    pub experimental: ExperimentalCfg,
+    #[serde(default)]
     pub debug: DebugCfg,
     /// API prices for models prices.json doesn't have or has wrong, `[prices."<model>"]`, in
     /// dollars per million tokens (prices.rs).
@@ -81,6 +83,7 @@ impl Default for Config {
             pull_requests: PullRequestsCfg::default(),
             repos: BTreeMap::new(),
             sounds: SoundsCfg::default(),
+            experimental: ExperimentalCfg::default(),
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
         }
@@ -957,6 +960,15 @@ impl Default for UpdatesCfg {
     }
 }
 
+/// Features still being tried out, each off until you turn it on (Settings › Experimental).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ExperimentalCfg {
+    /// Boards (boards.rs): the main window's Board view, as Kanban and as Canvas, Add to board in
+    /// the menus, and `codealong board`.
+    #[serde(default)]
+    pub boards: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct DebugCfg {
     /// Appends timings to ~/Library/Logs/Codealong/perf.log (see perf.rs).
@@ -1328,6 +1340,12 @@ pub fn updates_check() -> bool {
     load().ok().flatten().map(|c| c.updates.check).unwrap_or(true)
 }
 
+/// The experiments config.toml turns on: none when there's no file yet or it has an error, as
+/// with the theme, so the windows open with them before the engine has read the settings.
+pub fn experimental() -> ExperimentalCfg {
+    load().ok().flatten().map(|c| c.experimental).unwrap_or_default()
+}
+
 /// Writes a new config.toml, for the first launch. Returns the text written, or the file's own
 /// when one appeared meanwhile, which is left as it is.
 pub fn write(cfg: &Config) -> Result<String> {
@@ -1659,6 +1677,7 @@ const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each o
 # the session that opened the PR, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
+const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`.\n";
 const REPOS_COMMENT: &str = "# Your settings for one repo's pull requests, over [reviews] and [pull_requests] and over what the repo's\n# .codealong/config.toml sets for its team. Settings › Automation sets them with the repo picked.\n";
 /// What config.toml says above `[sounds]`: where the OS keeps the sounds it can name.
 fn sounds_comment() -> String {
@@ -2180,6 +2199,18 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["sounds"]["volume"], Value::from(sounds.volume as i64));
     }
 
+    // Like [updates]: only a file that has the table or turns an experiment on gets it.
+    if cfg.experimental != ExperimentalCfg::default() || doc.get("experimental").is_some() {
+        if !doc.get("experimental").is_some_and(toml_edit::Item::is_table_like) {
+            let mut t = Table::new();
+            t.decor_mut().set_prefix(format!("\n{EXPERIMENTAL_COMMENT}"));
+            doc.insert("experimental", Item::Table(t));
+            let after = ["sounds", "pull_requests", "reviews", "sessions", "routing", "limits", "updates", "devices", "search", "jev", "shortcuts"].into_iter().find(|k| doc.get(k).is_some()).unwrap_or("shortcuts");
+            place_after(&mut doc, "experimental", after);
+        }
+        set_value(&mut doc["experimental"]["boards"], Value::from(cfg.experimental.boards));
+    }
+
     set_repos(&mut doc, &cfg.repos);
 
     ensure_table(&mut doc, "debug", &debug_comment());
@@ -2589,6 +2620,12 @@ pub fn render(cfg: &Config) -> String {
     s.push_str(&format!("your_turn = {}\n", q(&cfg.sounds.your_turn)));
     s.push_str(&format!("review_requested = {}\n", q(&cfg.sounds.review_requested)));
     s.push_str(&format!("volume = {}\n", cfg.sounds.volume));
+    if cfg.experimental != ExperimentalCfg::default() {
+        s.push('\n');
+        s.push_str(EXPERIMENTAL_COMMENT);
+        s.push_str("[experimental]\n");
+        s.push_str(&format!("boards = {}\n", cfg.experimental.boards));
+    }
     s.push_str("\n# Harness accounts. `name` is what you type and what the board shows.\n# `start` is where new sessions start: \"terminal\", \"background\", \"claude-app\", \"codex-app\" or \"codealong\". A start from the quick panel sets it.\n# `acp`: the command that runs the account's Agent Client Protocol adapter, for sessions Codealong runs itself.\n# `usage_cap`: where Auto and routing groups pass over this account for one with more room (1 to 100 percent; default 90).\n# `monthly`: what its plan costs you a month, in dollars; `per_token = true`: it pays for each token\n# at API prices. The Usage window counts both as paid.\n# `disabled = true`: Codealong starts nothing on it and leaves it out of the usage bar; its sessions still show.\n");
     for a in &cfg.accounts {
         s.push_str("\n[[accounts]]\n");
@@ -2708,6 +2745,7 @@ mod tests {
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), volume: 35 },
+            experimental: ExperimentalCfg { boards: true },
             debug: DebugCfg::default(),
             prices: BTreeMap::new(),
         };
@@ -3028,6 +3066,7 @@ mod tests {
             pull_requests: PullRequestsCfg::default(),
             repos: BTreeMap::new(),
             sounds: SoundsCfg::default(),
+            experimental: ExperimentalCfg::default(),
             debug: DebugCfg { perf_log: true },
             prices: BTreeMap::new(),
         }
@@ -3073,6 +3112,25 @@ mod tests {
         let on = Config { pull_requests: PullRequestsCfg { nudge_by_default: true, ..Default::default() }, ..full() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains("[pull_requests]\nnudge_by_default = true\n") && !out.contains("when_approved"), "{out}");
+    }
+
+    #[test]
+    fn experiments_are_off_until_the_file_turns_one_on() {
+        assert!(!toml::from_str::<Config>("").unwrap().experimental.boards);
+        let old = render(&full());
+        assert!(!old.contains("[experimental]"), "{old}");
+        assert!(!with_config(&old, &full()).unwrap().contains("[experimental]"));
+        let on = Config { experimental: ExperimentalCfg { boards: true }, ..full() };
+        let out = with_config(&old, &on).unwrap();
+        assert!(out.contains(&format!("{EXPERIMENTAL_COMMENT}[experimental]\nboards = true\n")), "{out}");
+        assert!(out.find("[sounds]").unwrap() < out.find("[experimental]").unwrap(), "{out}");
+        assert!(out.find("[experimental]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
+        assert_eq!(parse(&out).unwrap(), on);
+        assert_eq!(parse(&render(&on)).unwrap(), on);
+        // Turned off again, the table stays, saying so.
+        let off = with_config(&out, &full()).unwrap();
+        assert!(off.contains("[experimental]\nboards = false"), "{off}");
+        assert_eq!(parse(&off).unwrap(), full());
     }
 
     #[test]

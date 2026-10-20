@@ -250,8 +250,13 @@ function sampleReport(board, days, account) {
 // The board and the bar's feed as the engine hands them out before its first scan finishes
 // (PREVIEW_LOADING in preview.sh): loading, with nothing read yet but the settings. Other
 // devices (PREVIEW_DEVICES) still show, as their feeds kept from last time do.
+// Boards are on (`[experimental] boards`) whatever config.toml says, so the Board view and its
+// checks work everywhere, and off with PREVIEW_BOARDS_OFF, as a new config.toml has them.
+function withExperiments(board) {
+  return Object.assign(board, { experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__ }) });
+}
 function loadingBoard(board) {
-  return Object.assign(board, { loading: true, generatedAt: 0, projects: [], lanes: [], notices: [], githubAt: null, usage: [], pinned: [], pinnedWorktrees: [], pinnedPrs: [], prs: [], githubLogin: null, todos: [], labels: [], todoHints: {} });
+  return Object.assign(withExperiments(board), { loading: true, generatedAt: 0, projects: [], lanes: [], notices: [], githubAt: null, usage: [], pinned: [], pinnedWorktrees: [], pinnedPrs: [], prs: [], githubLogin: null, todos: [], labels: [], todoHints: {} });
 }
 function loadingFeed(feed) {
   return Object.assign(feed, { loading: true, generatedAt: 0, projects: [], items: [], recent: [], snoozed: [], reviews: [], todos: [] });
@@ -271,7 +276,7 @@ window.__TAURI_INTERNALS__ = {
         optionalJson('./notices-fixture.json'),
         optionalJson('./training-fixture.json'),
       ]).then(function (all) {
-        var board = all[1] ? withFixture(all[0], all[1]) : all[0];
+        var board = withExperiments(all[1] ? withFixture(all[0], all[1]) : all[0]);
         // Background failures from notices-fixture.json (PREVIEW_NOTICES), `untilIn` minutes
         // from now where one says when it ends.
         if (all[5]) {

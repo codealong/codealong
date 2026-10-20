@@ -14,7 +14,7 @@ import { REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { BUFFER, modelName, withLists } from '../start';
-import type { AtLogin, ChromeProfile, Config, ConfigView, GroupMemberCfg, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, WhenLimited } from '../types';
+import type { AtLogin, ChromeProfile, Config, ConfigView, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentMenu, type AgentPick } from './AgentMenu';
 import { AgentPromptBox } from './AgentPromptBox';
@@ -31,7 +31,7 @@ import { reorderKey } from '../mainKeys';
 import { errorText } from '../report';
 import { bare, cmd, keysIn, keysSaid, platform, type Platform } from '../platform';
 
-export type SettingsSection = 'general' | 'sounds' | 'accounts' | 'routing' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'file';
+export type SettingsSection = 'general' | 'sounds' | 'accounts' | 'routing' | 'automation' | 'agents' | 'devices' | 'projects' | 'jev' | 'advanced' | 'experimental' | 'file';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'settings' },
@@ -44,6 +44,7 @@ const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'projects', label: 'Projects', icon: 'folder' },
   { id: 'jev', label: 'Jev', icon: 'sparkles' },
   { id: 'advanced', label: 'Advanced', icon: 'gauge' },
+  { id: 'experimental', label: 'Experimental', icon: 'flask' },
   { id: 'file', label: 'config.toml', icon: 'file' },
 ];
 
@@ -208,6 +209,8 @@ export function SettingsDialog({ section, onSection, focus, usage, training, app
         return <JevPane jev={{ ...JEV_OFF, ...cfg.jev }} disabled={!!broken} onChange={(jev) => void save({ ...cfg, jev })} />;
       case 'advanced':
         return <AdvancedPane cfg={cfg} view={view} disabled={!!broken} onSave={save} />;
+      case 'experimental':
+        return <ExperimentalPane cfg={cfg} disabled={!!broken} onSave={save} />;
     }
   };
 
@@ -2053,6 +2056,32 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
             <dd className="ca-code">{dir}/bar.json</dd>
           </dl>
         </div>
+      </fieldset>
+    </>
+  );
+}
+
+/* ---- Experimental ---- */
+
+/** `[experimental]` as a file without the table has it: every experiment off. */
+const EXPERIMENTS_OFF: ExperimentalCfg = { boards: false };
+
+function ExperimentalPane({ cfg, disabled, onSave }: PaneProps) {
+  const experimental = { ...EXPERIMENTS_OFF, ...cfg.experimental };
+  return (
+    <>
+      <div className="ca-settings-intro">
+        <h3>Experimental</h3>
+        <p>Features still being tried out. Each is off until you turn it on, and may change or go away.</p>
+      </div>
+      <fieldset className="ca-settings-fields" disabled={disabled}>
+        <label className="ca-field ca-settings-check">
+          <CheckBox checked={experimental.boards} onChange={(on) => void onSave({ ...cfg, experimental: { ...experimental, boards: on } })} />
+          <span>Boards</span>
+          <small>
+            The Board view: a project's work as Kanban columns or laid out on a canvas, and boards of your own for a release or a fix. Add to board in the menus, and <code className="ca-ic">codealong board</code> for agents.
+          </small>
+        </label>
       </fieldset>
     </>
   );

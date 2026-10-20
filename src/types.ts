@@ -734,7 +734,15 @@ export interface Config {
   repos?: Record<string, RepoCfg>;
   /** A sound when something starts to wait on you. Older files have none: Pop, Tink, none, 60. */
   sounds?: SoundsCfg;
+  /** Features still being tried out. Older files have none: all off. */
+  experimental?: ExperimentalCfg;
   debug: { perf_log: boolean };
+}
+
+/** `[experimental]` (config.rs `ExperimentalCfg`): features still being tried out, each off until
+ *  it's turned on. `boards`: the Board view, as Kanban and as Canvas, and Add to board. */
+export interface ExperimentalCfg {
+  boards: boolean;
 }
 
 /** `[pull_requests]` (config.rs `PullRequestsCfg`). */
@@ -1214,6 +1222,9 @@ export interface Board {
   improve?: Improve;
   /** What Codealong asks Jev, from `[jev]` in config.toml. Missing on older boards. */
   jev?: JevCfg;
+  /** The experiments turned on, from `[experimental]` in config.toml. Missing on older boards:
+   *  none. */
+  experimental?: ExperimentalCfg;
   /** `[reviews]` from config.toml. Missing on older boards. */
   reviews?: ReviewsCfg;
   /** Open todos whose work Jev says looks done, by todo id. Missing on older boards. */

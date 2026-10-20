@@ -2181,6 +2181,7 @@ pub fn compose(inp: Inputs) -> Board {
         main_window_shortcut: String::new(),
         improve: Default::default(),
         jev: Default::default(),
+        experimental: Default::default(),
         reviews: Default::default(),
         todo_hints: Default::default(),
         devices: Default::default(),

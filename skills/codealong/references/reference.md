@@ -150,7 +150,9 @@ Commands:
              --project, or one only one project has. `list`, `new`, `add`, `remove`,
              `rule`, `set`, `rename` and `delete` work with or without the app; `show`,
              `move`, `arrange` and `open` need it running, since its main window works
-             boards out
+             boards out. Boards are an experiment, off until your user turns them on in
+             Settings › Experimental (`[experimental] boards = true` in config.toml);
+             until then every board command says so and does nothing
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3204,7 +3206,9 @@ for the work you're on (`board add <board> --session me`). Name a board by its i
 name: a name in the project of the folder you're in or --project, or one only one
 project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work
 with or without the app; `show`, `move`, `arrange` and `open` need it running, since its
-main window works boards out
+main window works boards out. Boards are an experiment, off until your user turns them
+on in Settings › Experimental (`[experimental] boards = true` in config.toml); until
+then every board command says so and does nothing
 
 Usage: codealong board [OPTIONS] <COMMAND>
 

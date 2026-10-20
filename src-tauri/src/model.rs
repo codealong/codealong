@@ -186,6 +186,10 @@ pub struct Board {
     pub improve: crate::improve::Improve,
     /// What Codealong asks Jev, from `[jev]` in config.toml.
     pub jev: crate::config::JevCfg,
+    /// The experiments turned on, from `[experimental]` in config.toml: boards, for the main
+    /// window's Board view and Add to board.
+    #[serde(default)]
+    pub experimental: crate::config::ExperimentalCfg,
     /// `[reviews]` from config.toml: whether PRs that wait on your review are reviewed without
     /// being asked (autoreview.rs), on which account, and whether each review is posted.
     #[serde(default)]

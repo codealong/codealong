@@ -11,7 +11,9 @@ short note saying where that work stands. Tidy can only group by worktree or by 
 group by goal, and that is the point of this skill.
 
 The `codealong` skill has every command (its SKILL.md, and `references/reference.md` for each
-command's help). Everything here needs the Codealong app running.
+command's help). Everything here needs the Codealong app running, with boards turned on: they're
+an experiment, off until your user turns them on in Settings › Experimental. While they're off,
+`codealong board` says so; stop there and tell your user where to turn them on.
 
 ## Ground rules
 

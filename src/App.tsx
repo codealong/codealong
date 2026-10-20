@@ -113,6 +113,8 @@ const WINDOW_PROJECT = typeof window !== 'undefined' ? (window.__CODEALONG_PROJE
 const PROJECT_KEY = 'codealong.project';
 const VIEW_KEY = 'codealong.view';
 const BOARD_LAYOUT_KEY = 'codealong.boardLayout';
+/** Whether boards were on (`[experimental] boards`) when the window last had the board. */
+const BOARDS_ON_KEY = 'codealong.boardsOn';
 const AGE_KEY = 'codealong.age';
 const DISMISSED_KEY = 'codealong.dismissedNotices';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
@@ -149,6 +151,8 @@ const VIEWS: { id: View; label: string; icon: string }[] = [
   { id: 'kanban', label: 'Kanban', icon: 'layout-kanban' },
   { id: 'canvas', label: 'Canvas', icon: 'layout-grid' },
 ];
+/** The views while boards are off (`[experimental] boards`): none of the Board view's. */
+const VIEWS_SANS_BOARDS = VIEWS.filter((v) => v.id !== 'kanban' && v.id !== 'canvas');
 /** What each view says until the engine has read this Mac's board once. */
 const READING: Record<View, string> = {
   sessions: 'Reading sessions…',
@@ -237,7 +241,19 @@ export function App() {
   // The session shown in Sessions as you moved it (menus.ts `moving`), and its copy's key once the
   // move says it: the panel holds it until the copy is listed, then shows the copy.
   const [moving, setMoving] = useState<{ from: SessionItem; to: string | null } | null>(null);
-  const [view, setView] = useStored<View>(VIEW_KEY, VIEW_STORED, 'sessions');
+  const [storedView, setView] = useStored<View>(VIEW_KEY, VIEW_STORED, 'sessions');
+  // Boards are an experiment, off until Settings › Experimental turns them on: till then the
+  // Board view isn't among the views, its keys go nowhere, and one remembered from when they were
+  // on shows Sessions. Until the board comes they're as the window last saw them, so it opens as
+  // it was left, with no Board coming or going in the sidebar as the board comes.
+  const boardsSaid = board ? !!board.experimental?.boards : null;
+  const [boardsSeen, setBoardsSeen] = useStored(BOARDS_ON_KEY, flag, false);
+  useEffect(() => {
+    if (boardsSaid !== null) setBoardsSeen(boardsSaid);
+  }, [boardsSaid, setBoardsSeen]);
+  const boardsOn = boardsSaid ?? boardsSeen;
+  const views = boardsOn ? VIEWS : VIEWS_SANS_BOARDS;
+  const view: View = views.some((v) => v.id === storedView) ? storedView : 'sessions';
   // The Board view's layout the sidebar's Board goes back to: the last one shown.
   const [lastLayout, setLastLayout] = useStored<BoardLayout>(BOARD_LAYOUT_KEY, LAYOUT_STORED, 'kanban');
   useEffect(() => {
@@ -595,6 +611,7 @@ export function App() {
    *  it off); and in Kanban, Remove from board for the board shown. The canvas has its own Remove
    *  from board, for what's picked on it. */
   const boardItems = (ref: RefKind, key: string): MenuSpec => {
+    if (!boardsOn) return [];
     const card = refId(ref, key);
     const offered = boardsFor(boards.boards, projectOfCard(ref, key, { lanes: rawLanes, todos: todoStore.todos, prs: board?.prs ?? [] }));
     const on = (b: BoardDoc) => (b.id === shownBoard.id ? member(card) : memberTest(b, allSubjects, now)(card));
@@ -910,8 +927,9 @@ export function App() {
   const reveal = useLatest((r: Reveal) => {
     setRevealFind(r.kind === 'session' && r.find ? { key: r.key, ask: { words: r.find, n: Date.now() } } : null);
     // A board `codealong board open` asked for, or the canvas `board arrange --show` laid out,
-    // with the frames it made in view.
+    // with the frames it made in view. The command turns these down while boards are off.
     if (r.kind === 'board') {
+      if (!boardsOn) return;
       if (current !== r.project) pickProject(r.project);
       boards.pick(r.board, r.project);
       setQuery('');
@@ -1519,7 +1537,7 @@ export function App() {
 
   useMainKeys({
     view,
-    views: VIEWS,
+    views,
     settings: settings ?? usageOf,
     previewFor,
     renaming,
@@ -1754,7 +1772,7 @@ export function App() {
   const boardShowing = view === 'kanban' || view === 'canvas';
   const layoutShown = boardShowing ? view : lastLayout;
   const boardCount = layoutShown === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openCardCount;
-  const sideViews = VIEWS.filter((v) => v.id !== 'canvas').map((v) => {
+  const sideViews = views.filter((v) => v.id !== 'canvas').map((v) => {
     const board = v.id === 'kanban';
     return {
       id: board ? 'board' : v.id,
@@ -1825,7 +1843,7 @@ export function App() {
   const applySaved = (v: SavedView) => {
     // Every field is checked against what exists now: a project or device can be gone since.
     if (v.project !== current && (v.project === ALL_PROJECTS || projects.some((p) => p.name === v.project))) pickProject(v.project);
-    const known = VIEWS.find((x) => x.id === v.view);
+    const known = views.find((x) => x.id === v.view);
     if (known) setView(known.id);
     setDeviceFilter(v.device.filter((id) => id === 'here' || devices?.devices.some((d) => d.short === id)));
     const a = AGES.find((x) => x.id === v.age);

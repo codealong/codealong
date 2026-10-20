@@ -60,6 +60,8 @@
 # PREVIEW_CANVAS=<file> opens the Canvas view on the document in it (one board's, as
 # boards.json keeps it under a board's canvas) in place of a fresh tidy. PREVIEW_BOARDS=<file>
 # lists the boards in it (scripts/preview/boards-sample.json has some) beside each project's own.
+# Boards are on whatever config.toml's `[experimental] boards` says; PREVIEW_BOARDS_OFF=1 renders
+# them off, as a new config.toml has them.
 # PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in
 # place of the snapshot's, which has no Claude numbers: reading them rate-limits.
 #
@@ -201,6 +203,12 @@ setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('code
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
 [ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
 [ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__=true;"
+# The window remembers whether boards were on, for before the board comes: as the stub has them.
+if [ -n "${PREVIEW_BOARDS_OFF:-}" ]; then
+  setup="$setup window.__PREVIEW_BOARDS_OFF__=true; localStorage.setItem('codealong.boardsOn','0');"
+else
+  setup="$setup localStorage.setItem('codealong.boardsOn','1');"
+fi
 [ -n "${PREVIEW_PLATFORM:-}" ] && setup="$setup window.__CODEALONG_PLATFORM__='$PREVIEW_PLATFORM';"
 size="${PREVIEW_SIZE:-1440,900}"
 # The windows that float over the desktop render on a stand-in for it: `on_desktop <the page's

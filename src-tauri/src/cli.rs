@@ -141,7 +141,7 @@ enum Cmd {
     Changes(ChangesArgs),
     /// Processes left over from old sessions, and this Mac's load, memory and swap, for keeping a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an agent's own process and what it runs; not one working or waiting on you, unless it's archived), older copies of a background job's attach client (`claude attach <job>` in a second tab), a harness's background processes left with no parent, and dev servers and watchers in a linked worktree no session has been active in for --after (never a repo's main checkout). With --kill it ends those, each with its child processes: it checks again that each process runs the same command first, stops a background job through its harness as Close does and asks the rest to end (SIGTERM), kills what's left after a while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it cleared, and logs each to --log. A session whose process ended keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer or is still reading after a start: without its board, every session would look old.
     Hygiene(HygieneArgs),
-    /// Boards, the app's Kanban and Canvas: named sets of work in a project, each shown as Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in frames). Every project has a board of its own, named after it, that holds everything in the project; make more for a release, a fix, an investigation. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how recent, words) and what's added by hand, less what's taken off, so add the session you're in to your user's board for the work you're on (`board add <board> --session me`). Name a board by its id or its name: a name in the project of the folder you're in or --project, or one only one project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work with or without the app; `show`, `move`, `arrange` and `open` need it running, since its main window works boards out.
+    /// Boards, the app's Kanban and Canvas: named sets of work in a project, each shown as Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in frames). Every project has a board of its own, named after it, that holds everything in the project; make more for a release, a fix, an investigation. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how recent, words) and what's added by hand, less what's taken off, so add the session you're in to your user's board for the work you're on (`board add <board> --session me`). Name a board by its id or its name: a name in the project of the folder you're in or --project, or one only one project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work with or without the app; `show`, `move`, `arrange` and `open` need it running, since its main window works boards out. Boards are an experiment, off until your user turns them on in Settings › Experimental (`[experimental] boards = true` in config.toml); until then every board command says so and does nothing.
     Board {
         #[command(subcommand)]
         cmd: BoardCmd,
@@ -1630,6 +1630,7 @@ pub fn reference_text() -> String {
 // ---- boards ----
 
 fn board(cmd: BoardCmd, c: &mut Client, json: bool) -> Result<()> {
+    boards_on(c.cfg()?)?;
     match cmd {
         BoardCmd::List(at) => board_list(c, &at, json),
         BoardCmd::New(a) => board_new(c, a, json),
@@ -1665,6 +1666,15 @@ fn board(cmd: BoardCmd, c: &mut Client, json: bool) -> Result<()> {
             say_done(json, &b, format!("Deleted the board {} from {}.\n", b.name, b.project))
         }
     }
+}
+
+/// Boards are an experiment: while it's off the app shows none, so a command that made or
+/// changed one would do so out of sight.
+fn boards_on(cfg: &Config) -> Result<()> {
+    if !cfg.experimental.boards {
+        bail!("Boards are an experiment, and they're turned off. Turn them on in Settings › Experimental, or with `boards = true` under `[experimental]` in config.toml.");
+    }
+    Ok(())
 }
 
 /// What a change to a board says: the board as JSON, or a line.
@@ -6724,6 +6734,14 @@ mod tests {
         // Once the other session ends, the checkout's todos are this one's to see.
         let b = shared_and_own(false);
         assert_eq!(ids(my_todos(&b, Some("me"), Some(&b.lanes[0]))), ["a", "c"]);
+    }
+
+    #[test]
+    fn board_commands_are_turned_down_until_boards_are_turned_on() {
+        let err = boards_on(&Config::default()).unwrap_err().to_string();
+        assert!(err.contains("Settings › Experimental") && err.contains("[experimental]"), "{err}");
+        let on = Config { experimental: crate::config::ExperimentalCfg { boards: true }, ..Config::default() };
+        assert!(boards_on(&on).is_ok());
     }
 
     #[test]
