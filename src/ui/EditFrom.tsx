@@ -6,7 +6,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { cmd, keysIn } from '../platform';
+import { splitAttachments, withAttachments } from '../todos';
 import type { Session, TranscriptItem } from '../types';
+import { AttachmentStrip } from './DescriptionEditor';
 import { Button, Dialog } from './primitives';
 
 /** What the copy is, for the dialog's lede. */
@@ -23,9 +25,15 @@ interface EditDialogProps {
   onClose: () => void;
 }
 
-/** Asks for your edit of a prompt before a copy goes on from just before it. */
+/** Asks for your edit of a prompt before a copy goes on from just before it. The images and files
+ *  it came with show in a strip under its words, as the reply box shows them, and go with the
+ *  edit unless taken out: the prompt's text refers to them as kept attachments (transcript.rs
+ *  `shown_in`), which the copy's first prompt carries as any sent from here does. */
 export function EditDialog({ session: s, prompt, onEdit, onClose }: EditDialogProps) {
-  const [text, setText] = useState(prompt.text);
+  const [{ text: words, attachments }] = useState(() => splitAttachments(prompt.text));
+  const [text, setText] = useState(words);
+  const [attached, setAttached] = useState(attachments);
+  const full = withAttachments(text, attached);
   const box = useRef<HTMLTextAreaElement>(null);
   // At the end of what you wrote, to go on from there: WebKit puts the caret at the start of a box
   // focused for the first time (primitives.tsx `BoxText`).
@@ -36,8 +44,8 @@ export function EditDialog({ session: s, prompt, onEdit, onClose }: EditDialogPr
     el.setSelectionRange(el.value.length, el.value.length);
   }, []);
   const fork = () => {
-    if (!text.trim()) return;
-    onEdit(prompt.cursor, text);
+    if (!full.trim()) return;
+    onEdit(prompt.cursor, full);
     onClose();
   };
   return (
@@ -52,7 +60,7 @@ export function EditDialog({ session: s, prompt, onEdit, onClose }: EditDialogPr
           <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" size="sm" type="submit" icon="git-fork" disabled={!text.trim()} title={keysIn('⌘⏎')}>
+          <Button variant="primary" size="sm" type="submit" icon="git-fork" disabled={!full.trim()} title={keysIn('⌘⏎')}>
             Fork and send
           </Button>
         </>
@@ -73,6 +81,11 @@ export function EditDialog({ session: s, prompt, onEdit, onClose }: EditDialogPr
           }}
         />
       </label>
+      {attached.length > 0 && (
+        <div className="ca-editdlg-attached">
+          <AttachmentStrip items={attached} onRemove={(a) => setAttached(attached.filter((x) => x.path !== a.path))} />
+        </div>
+      )}
     </Dialog>
   );
 }

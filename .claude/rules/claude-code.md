@@ -179,7 +179,7 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `--resume-session-at <uuid>` (and `--resume-drops-turn`) is for print mode only, and ignored
   elsewhere, `--bg` too (2.1.305's help), so the Agent SDK's `forkSession(id, {dir,
   upToMessageId})` writes the copy, through claude-agent-acp: `claude/mod.rs` (`fork_from`),
-  `claude/conversation.rs` (`reply_before`), `acp.rs` (`fork_point`). It copies the chain through
+  `claude/conversation.rs` (`fork_point_before`), `acp.rs` (`fork_point`). It copies the chain through
   that line with new uuids, each line marked `forkedFrom: {sessionId, messageUuid}`, titles it
   "<title> (fork)", leaves the file-history snapshots behind, and finds the transcript by the
   project of `dir`. In place, the stream-json `control_request` `rewind_conversation`

@@ -6,6 +6,10 @@
 .ca-editdlg-text {
   margin: 0 var(--space-5) var(--space-4);
 }
+/* Its images and files, under its words. */
+.ca-editdlg-attached {
+  margin: 0 var(--space-5) var(--space-4);
+}
 /* A message is prose, written as the reply box writes it, not code. */
 .ca-editdlg-text textarea {
   max-height: 50vh;

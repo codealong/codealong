@@ -1675,7 +1675,8 @@ mod tests {
     /// CODEALONG_TEST_ACP_DIR=<its folder> cargo test acp_forks -- --ignored --nocapture`. Forks
     /// it as /fork does for a Codex thread, and runs the copy on a question only the conversation
     /// it copied answers; its rollout has the answer. The copy is a real thread, remembered in
-    /// hosted.json.
+    /// hosted.json. `CODEALONG_TEST_ACP_THROUGH=<message id>` has the copy end at that message
+    /// (`fork_point`).
     #[test]
     #[ignore]
     fn acp_forks_a_session() {
@@ -1685,7 +1686,8 @@ mod tests {
         let cfg = config::current().unwrap();
         let a = cfg.accounts.iter().find(|x| x.name == account).expect("an account by that name").clone();
         init(|_| {});
-        let copy = fork(&a, id, Path::new(&dir), "Which word did I ask you to remember? Answer with the word alone, in lowercase.", None).unwrap();
+        let through = std::env::var("CODEALONG_TEST_ACP_THROUGH").ok();
+        let copy = fork(&a, id, Path::new(&dir), "Which word did I ask you to remember? Answer with the word alone, in lowercase.", through.as_deref()).unwrap();
         println!("{copy}");
         wait_until("the copy's turn to end", 240, || !state().sessions[&copy].running);
         assert!(state().sessions[&copy].error.is_none(), "{:?}", state().sessions[&copy].error);
