@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Label } from '../types';
-import { applyOp, boardName, boardsFor, boardsIn, cleanRule, columnsOf, newColumnId, presetColumns, projectBoard, ruleWords, STAGE_COLUMNS, stageOfColumn, takesAll, type BoardDoc } from './model';
+import { applyOp, boardName, boardsFor, boardsIn, followsMove, cleanRule, columnsOf, newColumnId, presetColumns, projectBoard, ruleWords, STAGE_COLUMNS, stageOfColumn, takesAll, type BoardDoc } from './model';
 
 const NOW = 1_790_000_000_000;
 const named = (id: string, name: string, over: Partial<BoardDoc> = {}): BoardDoc => ({ id, name, project: 'Acme', rule: null, added: [], removed: [], createdAt: 5, ...over });
@@ -57,6 +57,20 @@ describe('applyOp', () => {
     expect(boardsIn(moved, 'Acme').map((b) => b.id)).toEqual(['p:Acme']);
     expect(boardsIn(moved, 'Atlas').map((b) => b.id)).toEqual(['p:Atlas', 'b-1']);
     expect(applyOp(boards, { op: 'project', id: 'p:Acme', project: 'Atlas' }, NOW)).toBe(boards);
+  });
+
+  it('follows a board it moved only from the board itself, and only if the window is still there', () => {
+    const at = { project: 'Acme', showing: true, board: 'b-1' };
+    expect(followsMove('b-1', at, at)).toBe(true);
+    // Moved from its sidebar menu while Todo shows, or another board, the window stays.
+    expect(followsMove('b-1', { ...at, showing: false }, { ...at, showing: false })).toBe(false);
+    expect(followsMove('b-2', at, at)).toBe(false);
+    // All projects lists it still.
+    expect(followsMove('b-1', { ...at, project: 'All projects' }, { ...at, project: 'All projects' })).toBe(false);
+    // Gone elsewhere before the move came back, it isn't taken back.
+    expect(followsMove('b-1', at, { ...at, showing: false })).toBe(false);
+    expect(followsMove('b-1', at, { ...at, project: 'Atlas' })).toBe(false);
+    expect(followsMove('b-1', at, { ...at, board: 'b-2' })).toBe(false);
   });
 
   it('puts back what’s added, and keeps off what’s taken off, out of its column and order too', () => {

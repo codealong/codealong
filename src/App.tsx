@@ -57,7 +57,7 @@ import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kan
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type OnBoard, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
-import { boardName, boardsFor, columnsOf, holdsOf, isProjects, newBoardId, newColumnId, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
+import { boardName, boardsFor, columnsOf, followsMove, type BoardPlace, holdsOf, isProjects, newBoardId, newColumnId, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
 import { columnOf, memberTest, repoOf } from './boards/rules';
 import { useBoardAsks } from './boards/useBoardAsks';
 import { useBoards } from './boards/useBoards';
@@ -634,16 +634,19 @@ export function App() {
     if (view !== 'kanban' && view !== 'canvas') setView(lastLayout);
   };
   /** Moves a board to another project. The window follows the board it shows there, unless it
-   *  shows All projects, which lists it still. */
-  const moveBoard = (b: BoardDoc, project: string) =>
+   *  shows All projects, which lists it still (`followsMove`). */
+  const boardPlace = useLatest<BoardPlace>({ project: current, showing: view === 'kanban' || view === 'canvas', board: shownBoard.id });
+  const moveBoard = (b: BoardDoc, project: string) => {
+    const asked = boardPlace.current;
     void boards.apply({ op: 'project', id: b.id, project }).then(
       () => {
-        if (b.id !== shownBoard.id || current === ALL_PROJECTS) return;
+        if (!followsMove(b.id, asked, boardPlace.current)) return;
         boards.pick(b.id, project);
         pickProject(project);
       },
       (e: unknown) => setToast(errorText(e)),
     );
+  };
   /** A board's menu: the project's boards to show, a new one, its settings, moving it to another
    *  project as a todo moves (every project but Elsewhere, and All projects), deleting it. */
   const boardMenu = (b: BoardDoc = shownBoard) =>

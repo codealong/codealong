@@ -256,6 +256,22 @@ export function readBoard(raw: BoardDoc): BoardDoc {
   return { ...raw, rule: raw.rule ?? null, added: raw.added ?? [], removed: raw.removed ?? [] };
 }
 
+/** Where a window is, as far as following a board it moved goes. */
+export interface BoardPlace {
+  project: string;
+  /** Whether it shows the Board view (Kanban or Canvas). */
+  showing: boolean;
+  board: string;
+}
+
+/** Whether a window follows a board it moved to its new project, once the move is made: only when
+ *  it was showing that board in a project's list (All projects lists it still), and it's where it
+ *  was when it asked, so a move that comes back late doesn't take it from where it's gone since. */
+export function followsMove(board: string, asked: BoardPlace, now: BoardPlace): boolean {
+  const same = asked.project === now.project && asked.showing === now.showing && asked.board === now.board;
+  return asked.showing && asked.board === board && asked.project !== ALL_PROJECTS && same;
+}
+
 /** A board's name as a menu lists it: with its project when the window shows another (All projects). */
 export function boardName(b: BoardDoc, shown: string): string {
   return b.project === shown ? b.name : `${b.name} · ${b.project}`;
