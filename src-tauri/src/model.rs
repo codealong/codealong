@@ -393,8 +393,9 @@ pub struct AutoReview {
     pub suggests: Option<crate::github::Verdict>,
     /// The commit the agent's latest written review approved, when that review approves someone
     /// else's PR that still waits on your review (`autoreview::wants`): what's asked of you is a
-    /// sign-off, and the commits that come after it don't hold
-    /// the PR out of what waits on you while they're reviewed (autoreview.rs `apply`).
+    /// sign-off once it's of the PR's commit (prStatus.ts `agentApproves`), and one of an earlier
+    /// commit says what the agent made of it while the commits since are reviewed, which hold the
+    /// PR out of what waits on you as any new commits do (autoreview.rs `apply`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approves: Option<String>,
     /// What its review was submitted as yours as (`[reviews] submit`), and when.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentApproves, asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, withMerges, type PrFacts } from './prStatus';
+import { agentApproves, approvedBefore, asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, withMerges, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { PrComment, PrItem } from './types';
 
@@ -280,31 +280,45 @@ describe('agentApproves', () => {
   const approving = { stage: 'posted' as const, head: '309811aaaabbbb', at: 0, rounds: 1, suggests: 'approve' as const, approves: '309811aaaabbbb' };
   it('says a PR the agent approves waits on your sign-off, in its pill, its chip and its mark', () => {
     const pr = asked(approving);
-    expect(agentApproves(pr)).toBe('now');
+    expect(agentApproves(pr)).toBe(true);
     expect(prFlag(pr)).toBe('attn');
     expect(prPills(pr)[0]).toMatchObject({ text: 'Agent approves', tone: 'pass', icon: null, title: 'Codealong’s agent approves 309811a: it waits on your sign-off' });
     expect(chipWord(pr)).toBe('Agent approves');
     expect(reviewMark({ ...pr, requestedBy: 'gwen' })?.title).toBe('Your sign-off is asked for, by gwen: Codealong’s agent approves 309811a');
   });
-  it('keeps it waiting on your sign-off while the commits after the approved one are reviewed', () => {
-    const moved = asked({ ...approving, stage: 'reviewing', head: '4444444cccc', suggests: null }, { headOid: '4444444cccc' });
-    expect(agentApproves(moved)).toBe('before');
-    expect(prPills(moved)[0]).toMatchObject({ text: 'Agent approves', tone: 'pass', icon: 'hourglass' });
-    expect(prPills(moved)[0].title).toContain('approved 309811a and reviews the commits since');
+  it('says a PR held for the commits after the approved one is being reviewed again, not yours yet', () => {
+    const moved = asked({ ...approving, stage: 'reviewing', head: '4444444cccc', suggests: null, holds: true }, { headOid: '4444444cccc' });
+    expect(agentApproves(moved)).toBe(false);
+    expect(approvedBefore(moved)).toBe('309811a');
+    expect(prFlag(moved)).toBe(null);
+    expect(prPills(moved)[0]).toMatchObject({ text: 'Agent re-reviewing', tone: 'plain', icon: 'hourglass', title: 'Codealong’s agent approved 309811a and reviews the commits since: it waits on your sign-off once the agent approves them' });
     // The chip, which shows only the pill's words, says so on its mark.
-    expect(reviewMark(moved)?.title).toBe('Your sign-off is asked for: Codealong’s agent approved 309811a and reviews the commits since');
-    // Their review didn't get done: no review is coming until the next push or Try again.
+    expect(reviewMark(moved)).toMatchObject({ key: 'agent', title: 'Codealong’s agent approved 309811a and reviews the commits since: it waits on your sign-off once the agent approves them' });
+    // So does one asked for changes before, whose request GitHub keeps.
+    expect(prPills({ ...moved, state: 'changes' })[0].text).toBe('Agent re-reviewing');
+    // Their review didn't get done: it's yours to review, with no approval of what it's at.
     const missed = asked({ ...approving, stage: 'failed', head: '4444444cccc', suggests: null }, { headOid: '4444444cccc' });
-    expect(prPills(missed)[0]).toMatchObject({ text: 'Agent approves', icon: null, title: 'Codealong’s agent approved 309811a, and the commits since aren’t reviewed: it waits on your sign-off' });
+    expect([agentApproves(missed), approvedBefore(missed), prFlag(missed)]).toEqual([false, null, 'attn']);
+    expect(prPills(missed)[0].text).toBe('Review requested');
   });
   it('says nothing of a sign-off before the agent approves, or once it’s not asked of you', () => {
-    expect(agentApproves(asked({ ...approving, approves: null, suggests: 'request-changes' }))).toBe(null);
+    expect(agentApproves(asked({ ...approving, approves: null, suggests: 'request-changes' }))).toBe(false);
     expect(prPills(asked({ ...approving, approves: null, suggests: 'request-changes' }))[0].text).toBe('Review requested');
-    expect(agentApproves(asked({ ...approving, holds: true }))).toBe(null);
-    expect(agentApproves(asked(approving, { reviewRequested: false }))).toBe(null);
-    expect(agentApproves(asked(approving, { state: 'merged' }))).toBe(null);
-    // Approved on GitHub already: that's what its pill says.
-    expect(prPills(asked(approving, { state: 'approved' }))[0].text).toBe('Approved');
+    expect(agentApproves(asked({ ...approving, holds: true }))).toBe(false);
+    expect(agentApproves(asked(approving, { reviewRequested: false }))).toBe(false);
+    expect(agentApproves(asked(approving, { state: 'merged' }))).toBe(false);
+    expect(approvedBefore(asked({ ...approving, head: '4444444cccc', holds: true }, { headOid: '4444444cccc', state: 'merged' }))).toBe(null);
+  });
+  it('says where the agent stands over GitHub’s approval, and beside Ready to merge', () => {
+    expect(prPills(asked(approving, { state: 'approved' }))[0].text).toBe('Agent approves');
+    const clean = { merge: 'clean' as const, checks: { passed: 3, failed: 0, pending: 0, skipped: 0, failing: [] } };
+    expect(prPills(asked(approving, { state: 'approved', ...clean })).map((p) => p.text)).toEqual(['Agent approves', 'Ready to merge']);
+    const moved = asked({ ...approving, stage: 'reviewing', head: '4444444cccc', suggests: null, holds: true }, { headOid: '4444444cccc', state: 'approved', ...clean });
+    expect(prPills(moved).map((p) => p.text)).toEqual(['Agent re-reviewing', 'Ready to merge']);
+    expect(prPills(asked({ ...approving, approves: null, stage: 'reviewing', holds: true }, clean)).map((p) => p.text)).toEqual(['Agent reviewing', 'Ready to merge']);
+    // Without the agent, Ready to merge says it all, and Approved is GitHub's.
+    expect(prPills(asked(undefined, { state: 'approved', ...clean })).map((p) => p.text)).toEqual(['Ready to merge']);
+    expect(prPills(asked(undefined, { state: 'approved' }))[0].text).toBe('Approved');
   });
   it('says the approval over a request for changes it submitted for you before, which GitHub keeps until you approve', () => {
     const pr = asked(approving, { state: 'changes' });

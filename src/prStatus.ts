@@ -44,28 +44,21 @@ export function heldForAgent(pr: { autoReview?: { holds?: boolean } }): boolean 
   return !!pr.autoReview?.holds;
 }
 
-/** Codealong's agent approves someone else's PR that waits on your review, so what's asked of you
- *  is a sign-off (autoreview.rs `approved`): `now` when its approval is of the commit the PR is at,
- *  `before` when commits came after it, which it reviews while the PR waits on you all the same.
- *  Null while it hasn't, or while its first review holds the PR (`heldForAgent`). */
-export function agentApproves(pr: Pick<PrFacts, 'state' | 'reviewRequested' | 'autoReview' | 'headOid'>): 'now' | 'before' | null {
+type AgentFacts = Pick<PrFacts, 'state' | 'reviewRequested' | 'autoReview' | 'headOid'>;
+
+/** Codealong's agent approves the commit someone else's PR is at, and the PR waits on your review:
+ *  what's asked of you is a sign-off (autoreview.rs `approved`). */
+export function agentApproves(pr: AgentFacts): boolean {
   const a = pr.autoReview;
-  if (!a?.approves || a.holds || !pr.reviewRequested || !isOpen(pr.state)) return null;
-  return a.approves === pr.headOid ? 'now' : 'before';
+  return !!a?.approves && !a.holds && a.approves === pr.headOid && !!pr.reviewRequested && isOpen(pr.state);
 }
 
-/** What the agent's approval says of a PR that waits on your sign-off (`agentApproves`), for its
- *  pill and its chip's mark: why, and whether a review of the commits since is under way or to
- *  come (`pending`, the pill's hourglass). One that didn't get done waits for the next push, or
- *  Try again. Null without an approval. */
-function signoff(pr: Pick<PrFacts, 'state' | 'reviewRequested' | 'autoReview' | 'headOid'>): { why: string; pending: boolean } | null {
-  const how = agentApproves(pr);
+/** The commit, short, the agent approved before the PR's author pushed again, while the commits
+ *  since hold the PR out of what waits on you for their review (`heldForAgent`): not yet yours to
+ *  sign off, as only what you can act on waits on you. Null otherwise. */
+export function approvedBefore(pr: AgentFacts): string | null {
   const a = pr.autoReview;
-  if (!how || !a?.approves) return null;
-  const at = a.approves.slice(0, 7);
-  if (how === 'now') return { why: `Codealong’s agent approves ${at}`, pending: false };
-  if (a.stage === 'reviewing' || a.stage === 'queued' || a.behind) return { why: `Codealong’s agent approved ${at} and reviews the commits since`, pending: true };
-  return { why: `Codealong’s agent approved ${at}, and the commits since aren’t reviewed`, pending: false };
+  return a?.approves && a.holds && a.approves !== pr.headOid && pr.reviewRequested && isOpen(pr.state) ? a.approves.slice(0, 7) : null;
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -76,12 +69,25 @@ export function prReady(pr: PrFacts): boolean {
   return isOpen(pr.state) && pr.state !== 'draft' && pr.merge === 'clean' && pr.checks.failed === 0 && pr.checks.pending === 0;
 }
 
+const reviewPillOf = (tone: PrTone, text: string, title: string, icon: string | null = null): PrPill => ({ key: 'review', tone, icon, text, short: null, title });
+
+/** Where Codealong's agent stands on a PR that waits on your review: approving the commit it's at,
+ *  so it's yours to sign off; re-reviewing the commits pushed after one it approved; or reviewing
+ *  it. Either of the last two holds it out of what waits on you. It says more to you than GitHub's
+ *  verdict, another reviewer's approval or a request for changes the agent submitted for you
+ *  before (which GitHub keeps until you approve), and shows beside Ready to merge. */
+function agentPill(pr: PrFacts): PrPill | null {
+  if (agentApproves(pr)) return reviewPillOf('pass', 'Agent approves', `Codealong’s agent approves ${pr.autoReview?.approves?.slice(0, 7)}: it waits on your sign-off`);
+  const before = approvedBefore(pr);
+  if (before) return reviewPillOf('plain', 'Agent re-reviewing', `${rereviewWords(before)}: it waits on your sign-off once the agent approves them`, 'hourglass');
+  if (heldForAgent(pr) && isOpen(pr.state)) return reviewPillOf('plain', 'Agent reviewing', 'Codealong’s agent is reviewing it: it waits on your review once that’s done');
+  return null;
+}
+
 function reviewPill(pr: PrFacts): PrPill {
-  const pill = (tone: PrTone, text: string, title: string): PrPill => ({ key: 'review', tone, icon: null, text, short: null, title });
-  // The agent's approval says more than a request for changes it made for you before (`[reviews]
-  // submit`), which stands on GitHub until you approve: what's asked of you now is a sign-off.
-  const s = pr.state === 'open' || pr.state === 'changes' ? signoff(pr) : null;
-  if (s) return { ...pill('pass', 'Agent approves', `${s.why}: it waits on your sign-off${s.pending ? ' meanwhile' : ''}`), icon: s.pending ? 'hourglass' : null };
+  const pill = reviewPillOf;
+  const agent = pr.state === 'draft' ? null : agentPill(pr);
+  if (agent) return agent;
   switch (pr.state) {
     case 'draft':
       return pill('quiet', 'Draft', 'A draft: not ready for review yet');
@@ -92,12 +98,14 @@ function reviewPill(pr: PrFacts): PrPill {
       if (pr.merge === 'unknown') return pill('pass', 'Approved', "Approved. GitHub hasn't said yet whether it can merge");
       return pill('pass', 'Approved', 'Approved');
     default:
-      if (heldForAgent(pr)) return pill('plain', 'Agent reviewing', 'Codealong’s agent is reviewing it: it waits on your review once that’s done');
       const asked = reviewersWords(pr);
       if (asked) return pill('plain', 'Review requested', asked);
       return pill('plain', 'Awaiting review', 'Not approved yet, and nobody is asked to review it');
   }
 }
+
+/** Why a PR the agent approved before its author pushed again is held. */
+const rereviewWords = (before: string) => `Codealong’s agent approved ${before} and reviews the commits since`;
 
 /** Where a PR's review stands, as its chip marks it after its number (primitives.tsx PrChip):
  *  what the chip's color can't tell apart, an approved PR being as green as an open one. `tone`
@@ -115,11 +123,13 @@ export interface ReviewMark {
  *  to go by; the board's (`PrItem`) says what's asked of you. */
 export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'headOid'>>): ReviewMark | null {
   if (!isOpen(pr.state) || pr.state === 'draft') return null;
-  if (heldForAgent(pr)) return { key: 'agent', tone: 'pending', icon: 'hourglass', title: 'Codealong’s agent is reviewing it: it waits on your review once that’s done' };
+  if (heldForAgent(pr)) {
+    const before = approvedBefore(pr);
+    return { key: 'agent', tone: 'pending', icon: 'hourglass', title: before ? `${rereviewWords(before)}: it waits on your sign-off once the agent approves them` : 'Codealong’s agent is reviewing it: it waits on your review once that’s done' };
+  }
   if (pr.reviewRequested && !pr.snoozedUntil) {
     const by = pr.requestedBy ? `, by ${pr.requestedBy}` : '';
-    const s = signoff(pr);
-    return { key: 'asked', tone: 'attn', icon: 'eye', title: s ? `Your sign-off is asked for${by}: ${s.why}` : `Your review is asked for${by}` };
+    return { key: 'asked', tone: 'attn', icon: 'eye', title: agentApproves(pr) ? `Your sign-off is asked for${by}: Codealong’s agent approves ${pr.autoReview?.approves?.slice(0, 7)}` : `Your review is asked for${by}` };
   }
   if (pr.state === 'approved') return { key: 'approved', tone: 'pass', icon: 'user-check', title: 'Approved' };
   if (pr.state === 'changes') return { key: 'changes', tone: 'fail', icon: 'file-diff', title: 'A reviewer asked for changes' };
@@ -157,7 +167,9 @@ export function prPills(pr: PrFacts): PrPill[] {
   const c = pr.checks;
   if (prReady(pr)) {
     const why = [pr.state === 'approved' ? 'Approved' : null, c.passed > 0 ? `${plural(c.passed, 'check')} passed` : null, 'no conflicts'].filter(Boolean).join(', ');
-    return [{ key: 'ready', tone: 'ready', icon: 'merge', text: 'Ready to merge', short: null, title: `${why[0].toUpperCase()}${why.slice(1)}: GitHub can merge it` }];
+    const ready: PrPill = { key: 'ready', tone: 'ready', icon: 'merge', text: 'Ready to merge', short: null, title: `${why[0].toUpperCase()}${why.slice(1)}: GitHub can merge it` };
+    const agent = agentPill(pr);
+    return agent ? [agent, ready] : [ready];
   }
   const base = pr.base ?? 'its base';
   const pills = [reviewPill(pr), checksPill(c)].filter((p): p is PrPill => p !== null);

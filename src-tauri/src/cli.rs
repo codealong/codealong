@@ -3657,7 +3657,7 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
 /// Where a PR's agent review stands, in the words its card has (review.ts `autoReviewWords`):
 /// what was submitted for you first, since a submitted draft keeps its stage; then its reviewers'
 /// sessions and why it went as it did; then that it waits on your sign-off, when the agent approves
-/// it.
+/// its commit, or the commit it approved before.
 fn review_line(r: &crate::model::AutoReview) -> String {
     use crate::github::Verdict;
     use crate::model::ReviewStage;
@@ -3677,7 +3677,11 @@ fn review_line(r: &crate::model::AutoReview) -> String {
     };
     let who: String = r.parts.iter().map(|x| x.session.as_ref().map_or_else(|| format!(", {}", x.who), |s| format!(", {} in {s}", x.who))).collect();
     let note = r.note.as_deref().map(|n| format!(": {n}")).unwrap_or_default();
-    let signoff = r.approves.as_deref().filter(|_| !r.holds).map(|a| format!(" (it approves {}: it waits on your sign-off)", a.get(..7).unwrap_or(a))).unwrap_or_default();
+    let signoff = match r.approves.as_deref() {
+        Some(a) if a != r.head || r.behind => format!(" (it approved {} before)", a.get(..7).unwrap_or(a)),
+        Some(_) if !r.holds => " (it waits on your sign-off)".to_string(),
+        _ => String::new(),
+    };
     format!("{says}{who}{note}{signoff}")
 }
 
@@ -6739,9 +6743,9 @@ mod tests {
         // A draft submitted for you keeps its stage, and says what it went as.
         let submitted = AutoReview { submitted: Some(crate::github::Verdict::Approve), ..r.clone() };
         assert_eq!(review_line(&submitted), "Agent approved 1c1706b for you, reviewers in cursor:cursor:c1");
-        // An approval of an earlier commit leaves the PR with you while the next is reviewed.
+        // An approval of an earlier commit, while the next is reviewed.
         let reviewing = AutoReview { stage: ReviewStage::Reviewing, head: "2d2806cf".into(), approves: Some("1c1706be2657c978".into()), ..r.clone() };
-        assert_eq!(review_line(&reviewing), "Agent reviewing 2d2806c, reviewers in cursor:cursor:c1 (it approves 1c1706b: it waits on your sign-off)");
+        assert_eq!(review_line(&reviewing), "Agent reviewing 2d2806c, reviewers in cursor:cursor:c1 (it approved 1c1706b before)");
         // One whose session never began didn't start, and says why.
         let failed = AutoReview { stage: ReviewStage::Failed, parts: vec![ReviewPart { session: None, state: PartState::Failed, ..r.parts[0].clone() }], note: Some("Its session never showed up.".into()), ..r };
         assert_eq!(review_line(&failed), "Agent's review of 1c1706b didn't start, reviewers: Its session never showed up.");

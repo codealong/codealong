@@ -1606,8 +1606,8 @@ export interface AutoReview {
   /** What this round's agent would do with the PR, which its windows suggest. */
   suggests?: Verdict | null;
   /** The commit the agent's latest written review approved, when that review approves someone
-   *  else's PR: what's asked of you is a sign-off, and commits after it don't hold the PR out of
-   *  what waits on you while they're reviewed (prStatus.ts `agentApproves`). */
+   *  else's PR: what's asked of you is a sign-off once it's of the PR's commit (prStatus.ts
+   *  `agentApproves`); one of an earlier commit says why the PR is held (`approvedBefore`). */
   approves?: string | null;
   /** What its review was submitted as yours as (`[reviews] submit`), and when. */
   submitted?: Verdict | null;

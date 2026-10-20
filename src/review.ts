@@ -234,10 +234,10 @@ export function autoReviewWords(r: AutoReview, onGitHub?: { draft: boolean; subm
   const drafted = r.submitted ? null : (gone ?? (r.stage === 'drafted' && !onGitHub?.draft ? 'Only you see it until you submit it.' : null));
   const why = r.note ?? kept ?? back ?? drafted;
   const next = r.behind ? (r.stage === 'reviewing' ? 'New commits since: it reviews them once this one’s done.' : 'New commits since: it reviews them again once they settle.') : null;
-  const held = r.holds ? 'It waits on your review once the agent’s is done.' : null;
-  // An approval of an earlier commit keeps the PR waiting on your sign-off while the next is read.
-  const before = r.approves && !r.holds && (r.behind || r.approves !== r.head) ? (r.approves === r.head ? 'It waits on your sign-off meanwhile.' : `It approved ${r.approves.slice(0, 7)} before, so the PR waits on your sign-off meanwhile.`) : null;
-  const note = [why, next, held, before].filter((x): x is string => !!x).join(' ');
+  // An approval of an earlier commit says what's asked of you once the commits since are read.
+  const before = r.approves && (r.behind || r.approves !== r.head) ? r.approves.slice(0, 7) : null;
+  const held = r.holds ? (before ? `It approved ${before} before: the PR waits on your sign-off once the agent approves the commits since.` : 'It waits on your review once the agent’s is done.') : before && `It approved ${before} before.`;
+  const note = [why, next, held].filter((x): x is string => !!x).join(' ');
   if (r.submitted) return { ...submittedWords(r.submitted, at), note: note || null };
   return { icon: r.own && r.sent && r.stage === 'kept' ? 'send' : icon, says, note: note || null };
 }
@@ -258,14 +258,14 @@ export function suggestWords(v: Verdict): string {
 
 /** The line over a PR's box (PrBox.tsx): where its review stands, an agent's round and your
  *  draft review on GitHub together, else that there's none yet; `busy` while an agent reviews.
- *  `approved` is the commit the agent approved before the round the line is of, which leaves the
- *  PR waiting on your sign-off meanwhile (the round's own suggestion says the rest). */
+ *  `approved` is the commit the agent approved before the round the line is of (the round's own
+ *  suggestion says the rest). */
 export function reviewLineWords(pr: Pick<PrItem, 'autoReview' | 'mine'>, draft: Draft | null): { icon: string; says: string; busy: boolean; approved: string | null } {
   const r = pr.autoReview;
   const yours = draft ? `your draft review${draft.count > 0 ? `, ${commentsWord(draft.count)}` : ''}` : null;
   if (r) {
     const { icon, says } = autoReviewWords(r, draft ? { draft: true, submitted: null } : undefined);
-    const approved = r.approves && r.approves !== r.head && !r.holds ? r.approves.slice(0, 7) : null;
+    const approved = r.approves && r.approves !== r.head ? r.approves.slice(0, 7) : null;
     return { icon, says: yours && r.stage === 'drafted' ? `${says}: ${yours}` : says, busy: r.stage === 'reviewing', approved };
   }
   if (yours) return { icon: 'note', says: yours[0].toUpperCase() + yours.slice(1), busy: false, approved: null };

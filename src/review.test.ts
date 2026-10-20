@@ -15,11 +15,13 @@ describe('autoReviewWords', () => {
     expect(autoReviewWords(r('failed', { parts: [{ who: 'auto', state: 'failed', note: 'Its session never showed up.' }] })).says).toBe('Agent’s review of 309811a didn’t start');
     expect(autoReviewWords(r('drafted'))).toEqual({ icon: 'note', says: 'Agent drafted a review of 309811a', note: 'Only you see it until you submit it.' });
   });
-  it('says a PR the agent approved waits on your sign-off while the commits since are reviewed', () => {
+  it('says a PR the agent approved waits on your sign-off once the commits since are reviewed', () => {
     const approved = { suggests: 'approve' as const, approves: '309811aaaabbbb' };
     expect(autoReviewWords(r('posted', approved)).note).toBe(null);
-    expect(autoReviewWords(r('posted', { ...approved, behind: true })).note).toBe('New commits since: it reviews them again once they settle. It waits on your sign-off meanwhile.');
-    expect(autoReviewWords(r('reviewing', { approves: '1234567ffff', suggests: null })).note).toBe('It approved 1234567 before, so the PR waits on your sign-off meanwhile.');
+    expect(autoReviewWords(r('posted', { ...approved, behind: true, holds: true })).note).toBe('New commits since: it reviews them again once they settle. It approved 309811a before: the PR waits on your sign-off once the agent approves the commits since.');
+    expect(autoReviewWords(r('reviewing', { approves: '1234567ffff', suggests: null, holds: true })).note).toBe('It approved 1234567 before: the PR waits on your sign-off once the agent approves the commits since.');
+    // Their review didn't get done, so it's yours: what the agent made of the commit before.
+    expect(autoReviewWords(r('failed', { approves: '1234567ffff', note: 'Its session is gone.' })).note).toBe('Its session is gone. It approved 1234567 before.');
     // The line over the box names the commit it approved, when its round is of a later one.
     expect(reviewLineWords({ autoReview: r('reviewing', { approves: '1234567ffff' }), mine: false }, null)).toMatchObject({ says: 'Agent reviewing 309811a', approved: '1234567' });
     expect(reviewLineWords({ autoReview: r('posted', approved), mine: false }, null).approved).toBe(null);
