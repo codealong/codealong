@@ -95,30 +95,33 @@ Commands:
              every session on a loop (an orchestrator: the skill's
              references/orchestrate.md). Sessions that started (`new`), began a turn
              (`working`), wait on their user (`waiting`: a call to allow, a question, an
-             error), ended a turn (`finished`) or stopped (`stopped`), each with its
-             worktree, PRs, todos and `lastPromptAt` (when its user last prompted it,
-             for `session suggest` and `session tag`; a message from another session or
-             from Codealong doesn't move it), and for the first --texts of them, waiting
-             ones first, what began its latest turn and its reply: `prompt` is its
-             user's latest prompt, or a message sent after it, whose sender `promptFrom`
-             names (`agent` for another session, `codealong` for Codealong's own); PRs
-             in your repos opened, out of draft, approved, sent back, merged or closed,
-             or asking your review (`prs`, null when they can't be read); todos added,
-             started, done, reopened or set waiting; worktrees a second agent started
-             working in (`shared`; not an app's chats, which are listed together for
-             having no folder of yours). Headless runs (`claude -p`, `codex exec`, which
-             a script or an agent started and reads itself) aren't sessions there, nor a
-             second agent: they're counted by the worktree they ran in (`headless`).
-             With them, every session that waits on you now (`waiting`, as `sessions
-             --waiting` lists them), each saying whether it has suggested replies or a
-             tag, and `helper` when it works for another agent or a PR (`start
-             --helper`, an automatic review), whose reply is that agent's or PR's to
-             read, not a question for you. It prints a `cursor`: give it to --since next
-             time, and what changed is told by difference from what this look saw, so a
-             busy app or a GitHub error never makes a session or a PR look new. What it
-             couldn't read is said in `notes`, and told once it can be. Without --since,
-             or with a duration, it goes by times alone, which can't tell a review's
-             change. The session running it is left out
+             error), ended a turn (`finished`) or stopped (`stopped`), a turn that
+             another session's message, Codealong's, a background command's report or a
+             scheduled wakeup began among them, each with its worktree, PRs, todos and
+             `lastPromptAt` (when its user last prompted it, for `session suggest` and
+             `session tag`; a message from another session or from Codealong doesn't
+             move it), and for the first --texts of them, waiting ones first, what began
+             its latest turn and its reply: `prompt` is its user's latest prompt, or a
+             message sent after it, whose sender `promptFrom` names (`agent` for another
+             session, `codealong` for Codealong's own); PRs in your repos opened, out of
+             draft, approved, sent back, merged or closed, or asking your review (`prs`,
+             null when they can't be read); todos added, started, done, reopened or set
+             waiting; worktrees a second agent started working in (`shared`; not an
+             app's chats, which are listed together for having no folder of yours).
+             Headless runs (`claude -p`, `codex exec`, which a script or an agent
+             started and reads itself) aren't sessions there, nor a second agent:
+             they're counted by the worktree they ran in (`headless`). With them, every
+             session that waits on you now (`waiting`, as `sessions --waiting` lists
+             them), each saying whether it has suggested replies or a tag, why Codealong
+             took away ones it had (`untagged`, `unsuggested`: it was sent a prompt, or
+             a turn of its started, since), and `helper` when it works for another agent
+             or a PR (`start --helper`, an automatic review), whose reply is that
+             agent's or PR's to read, not a question for you. It prints a `cursor`: give
+             it to --since next time, and what changed is told by difference from what
+             this look saw, so a busy app or a GitHub error never makes a session or a
+             PR look new. What it couldn't read is said in `notes`, and told once it can
+             be. Without --since, or with a duration, it goes by times alone, which
+             can't tell a review's change. The session running it is left out
   hygiene    Processes left over from old sessions, and this Mac's load, memory and
              swap, for keeping a Mac with many agents usable. It lists: the processes of
              sessions quiet for --after (an agent's own process and what it runs; not
@@ -1206,15 +1209,16 @@ Commands:
               session until they pick. Give --prompt-at the session's `lastPromptAt` as
               you read it: they're turned down if the user replied since (they'd answer
               the turn before), or while it takes a turn. They stay until something is
-              sent to the session or a turn of its starts; suggesting again replaces
-              them, and --clear takes them away. Write each as the user would send it,
-              in their words and ready to go as it is: short, and the best first. Say
-              why, or what to weigh, in --note. A session that asks its user questions
-              (`session pending` shows them, with their choices) takes no replies, which
-              would only decline them: --pick picks one of a question's own choices
-              instead, with why in a few words after it, and its question box shows it
-              picked, with why beside it, to answer with one click. The session's
-              `suggestions` in `session show` and `sessions` are the ones it has now
+              sent to the session or a turn of its starts (`changes` says which, as
+              `unsuggested`); suggesting again replaces them, and --clear takes them
+              away. Write each as the user would send it, in their words and ready to go
+              as it is: short, and the best first. Say why, or what to weigh, in --note.
+              A session that asks its user questions (`session pending` shows them, with
+              their choices) takes no replies, which would only decline them: --pick
+              picks one of a question's own choices instead, with why in a few words
+              after it, and its question box shows it picked, with why beside it, to
+              answer with one click. The session's `suggestions` in `session show` and
+              `sessions` are the ones it has now
   tag         Tag a session with your read of where it stands, in the words Codealong's
               rows use, after reading its conversation (`session transcript`): whether
               its last reply asks its user something, how far its code change got,
@@ -1227,9 +1231,10 @@ Commands:
               or off. Say only what you read: a field left out stays Jev's. Give
               --prompt-at the session's `lastPromptAt` as you read it: the tag is turned
               down if the user replied since, or while it takes a turn, and goes once
-              anything is sent to it or a turn of its starts; tagging again replaces it,
-              and --clear takes it away. The session's `insight` in `session show` and
-              `sessions` is the read it shows now, Jev's, yours (`by`) or both
+              anything is sent to it or a turn of its starts (`changes` says which, as
+              `untagged`); tagging again replaces it, and --clear takes it away. The
+              session's `insight` in `session show` and `sessions` is the read it shows
+              now, Jev's, yours (`by`) or both
   rename      Name a session where its harness keeps names (Claude Code's /rename, a
               Codex thread's name, an OpenCode session's title), so the harness shows
               the name as Codealong does
@@ -1586,15 +1591,15 @@ shows them above the session's box, wherever that shows; picking one sends it as
 user's own message, and the user can type their own instead. Nothing reaches the session
 until they pick. Give --prompt-at the session's `lastPromptAt` as you read it: they're
 turned down if the user replied since (they'd answer the turn before), or while it takes
-a turn. They stay until something is sent to the session or a turn of its starts;
-suggesting again replaces them, and --clear takes them away. Write each as the user
-would send it, in their words and ready to go as it is: short, and the best first. Say
-why, or what to weigh, in --note. A session that asks its user questions (`session
-pending` shows them, with their choices) takes no replies, which would only decline
-them: --pick picks one of a question's own choices instead, with why in a few words
-after it, and its question box shows it picked, with why beside it, to answer with one
-click. The session's `suggestions` in `session show` and `sessions` are the ones it has
-now
+a turn. They stay until something is sent to the session or a turn of its starts
+(`changes` says which, as `unsuggested`); suggesting again replaces them, and --clear
+takes them away. Write each as the user would send it, in their words and ready to go as
+it is: short, and the best first. Say why, or what to weigh, in --note. A session that
+asks its user questions (`session pending` shows them, with their choices) takes no
+replies, which would only decline them: --pick picks one of a question's own choices
+instead, with why in a few words after it, and its question box shows it picked, with
+why beside it, to answer with one click. The session's `suggestions` in `session show`
+and `sessions` are the ones it has now
 
 Usage: codealong session suggest [OPTIONS] <KEY> [REPLIES]...
 
@@ -1655,9 +1660,10 @@ it and the note; an orchestrator going over its sessions tags them so the user s
 glance where each stands, with `[jev] sessions` on or off. Say only what you read: a
 field left out stays Jev's. Give --prompt-at the session's `lastPromptAt` as you read
 it: the tag is turned down if the user replied since, or while it takes a turn, and goes
-once anything is sent to it or a turn of its starts; tagging again replaces it, and
---clear takes it away. The session's `insight` in `session show` and `sessions` is the
-read it shows now, Jev's, yours (`by`) or both
+once anything is sent to it or a turn of its starts (`changes` says which, as
+`untagged`); tagging again replaces it, and --clear takes it away. The session's
+`insight` in `session show` and `sessions` is the read it shows now, Jev's, yours (`by`)
+or both
 
 Usage: codealong session tag [OPTIONS] <KEY>
 
@@ -3058,27 +3064,30 @@ Options:
 What changed since an earlier look, for an agent that keeps watch over every session on
 a loop (an orchestrator: the skill's references/orchestrate.md). Sessions that started
 (`new`), began a turn (`working`), wait on their user (`waiting`: a call to allow, a
-question, an error), ended a turn (`finished`) or stopped (`stopped`), each with its
-worktree, PRs, todos and `lastPromptAt` (when its user last prompted it, for `session
-suggest` and `session tag`; a message from another session or from Codealong doesn't
-move it), and for the first --texts of them, waiting ones first, what began its latest
-turn and its reply: `prompt` is its user's latest prompt, or a message sent after it,
-whose sender `promptFrom` names (`agent` for another session, `codealong` for
-Codealong's own); PRs in your repos opened, out of draft, approved, sent back, merged or
-closed, or asking your review (`prs`, null when they can't be read); todos added,
-started, done, reopened or set waiting; worktrees a second agent started working in
-(`shared`; not an app's chats, which are listed together for having no folder of yours).
-Headless runs (`claude -p`, `codex exec`, which a script or an agent started and reads
-itself) aren't sessions there, nor a second agent: they're counted by the worktree they
-ran in (`headless`). With them, every session that waits on you now (`waiting`, as
-`sessions --waiting` lists them), each saying whether it has suggested replies or a tag,
-and `helper` when it works for another agent or a PR (`start --helper`, an automatic
-review), whose reply is that agent's or PR's to read, not a question for you. It prints
-a `cursor`: give it to --since next time, and what changed is told by difference from
-what this look saw, so a busy app or a GitHub error never makes a session or a PR look
-new. What it couldn't read is said in `notes`, and told once it can be. Without --since,
-or with a duration, it goes by times alone, which can't tell a review's change. The
-session running it is left out
+question, an error), ended a turn (`finished`) or stopped (`stopped`), a turn that
+another session's message, Codealong's, a background command's report or a scheduled
+wakeup began among them, each with its worktree, PRs, todos and `lastPromptAt` (when its
+user last prompted it, for `session suggest` and `session tag`; a message from another
+session or from Codealong doesn't move it), and for the first --texts of them, waiting
+ones first, what began its latest turn and its reply: `prompt` is its user's latest
+prompt, or a message sent after it, whose sender `promptFrom` names (`agent` for another
+session, `codealong` for Codealong's own); PRs in your repos opened, out of draft,
+approved, sent back, merged or closed, or asking your review (`prs`, null when they
+can't be read); todos added, started, done, reopened or set waiting; worktrees a second
+agent started working in (`shared`; not an app's chats, which are listed together for
+having no folder of yours). Headless runs (`claude -p`, `codex exec`, which a script or
+an agent started and reads itself) aren't sessions there, nor a second agent: they're
+counted by the worktree they ran in (`headless`). With them, every session that waits on
+you now (`waiting`, as `sessions --waiting` lists them), each saying whether it has
+suggested replies or a tag, why Codealong took away ones it had (`untagged`,
+`unsuggested`: it was sent a prompt, or a turn of its started, since), and `helper` when
+it works for another agent or a PR (`start --helper`, an automatic review), whose reply
+is that agent's or PR's to read, not a question for you. It prints a `cursor`: give it
+to --since next time, and what changed is told by difference from what this look saw, so
+a busy app or a GitHub error never makes a session or a PR look new. What it couldn't
+read is said in `notes`, and told once it can be. Without --since, or with a duration,
+it goes by times alone, which can't tell a review's change. The session running it is
+left out
 
 Usage: codealong changes [OPTIONS]
 

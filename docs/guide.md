@@ -2222,8 +2222,11 @@ shows exactly as Jev's read does, in the same chips and status, and stands over 
 same moment where the agent said; a field it left out stays Jev's. The chip's tooltip says who
 tagged it and the note. A tag is for the reply the agent read: one written after you'd replied
 since, or while the session takes a turn, is turned down, and it goes once anything is sent to the
-session or a turn of its starts; tagging again replaces it. Tags are kept in tags.json; a session
-on another device keeps its tag on its Mac.
+session or a turn of its starts; tagging again replaces it. A turn may start with nothing of yours:
+another session's message, Codealong's, a background command's report or a scheduled wakeup.
+Tags are kept in tags.json, and so is what moved a session on when its tag went, which `codealong
+changes` gives as `untagged` until it's tagged again (suggested replies the same way, as
+`unsuggested`). A session on another device keeps its tag on its Mac.
 
 ### Commands left running
 
@@ -2634,11 +2637,13 @@ codealong skill.
 Its two commands are for any agent. `codealong changes` says what changed since the cursor an
 earlier run printed: sessions that started, began or ended a turn, wait on you or stopped, each with
 what began its latest turn and its reply (your latest prompt, or a message another session or
-Codealong sent after it, marked as theirs); PRs opened, out of draft, approved, sent back, merged or closed; todos
+Codealong sent after it, marked as theirs), a turn that ran wholly between two runs with no prompt
+of yours among them, told by its status beginning again with something done since; PRs opened, out of draft, approved, sent back, merged or closed; todos
 added, started, done or set waiting; worktrees a second agent started working in (not an app's
 chats, listed together only for having no folder of yours); and how many headless runs (*Headless
 runs*) changed in each folder, rather than a line each. With them comes every session that waits on
-you now, and whether each has suggestions or a tag. It tells by difference from what that run saw,
+you now, whether each has suggestions or a tag, and why Codealong took away ones it had. It tells
+by difference from what that run saw,
 kept for a week in `changes.json`, so a busy app or GitHub not answering never makes a session or a
 PR look new, nor a todo look removed while the app starts: what it couldn't read it says, and tells
 once it can. `--cursor-file` keeps the cursor in a file, so a tick is one command. `codealong hygiene` lists

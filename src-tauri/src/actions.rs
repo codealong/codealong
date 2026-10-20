@@ -780,11 +780,12 @@ fn unarchives(from: &From, archived: bool) -> bool {
     archived && !matches!(from, From::Command(_))
 }
 
-/// Takes away the replies suggested for a session, when it has any.
+/// Takes away the replies suggested for a session, when it has any, as its user sent it a prompt
+/// or an answer.
 fn forget_suggested(engine: &Handle, key: &str) {
     let at = crate::suggestions::current().sessions.get(key).map(|g| g.at);
     let Some(at) = at else { return };
-    match crate::suggestions::forget(&[(key.to_string(), at)]) {
+    match crate::suggestions::forget(&[(key.to_string(), at, crate::board::MovedOn::Prompt { at: crate::util::now_ms() })]) {
         Ok(true) => {
             engine.suggested(false);
         }

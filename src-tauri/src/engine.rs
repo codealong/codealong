@@ -1588,13 +1588,14 @@ impl Engine {
     }
 
     /// Forgets the tags on sessions that have moved on since: something was sent to them since
-    /// they were read, or a turn of theirs started since they were tagged (`tags::holds`).
+    /// they were read, or a turn of theirs started since they were tagged (`tags::moved_on`),
+    /// keeping which for `codealong changes` to say.
     fn forget_stale_tags(&self, board: &Board) {
         let store = tags::current();
         if store.sessions.is_empty() {
             return;
         }
-        let stale: Vec<(String, i64)> = store.sessions.iter().filter(|(key, t)| board.session(key).is_some_and(|(_, s)| !tags::holds(s, t))).map(|(key, t)| (key.clone(), t.at)).collect();
+        let stale: Vec<_> = store.sessions.iter().filter_map(|(key, t)| board.session(key).and_then(|(_, s)| tags::moved_on(s, t)).map(|moved| (key.clone(), t.at, moved))).collect();
         if stale.is_empty() {
             return;
         }
@@ -1619,14 +1620,16 @@ impl Engine {
     }
 
     /// Forgets the replies suggested for sessions that have moved on since: something was sent to
-    /// them since they were read, or a turn of theirs started since they were suggested. A turn that started and then ended would hold them again
-    /// by `board::suggestions_hold` alone, so they're forgotten as soon as it's seen.
+    /// them since they were read, or a turn of theirs started since they were suggested
+    /// (`suggestions::moved_on`), keeping which for `codealong changes` to say. A turn that
+    /// started and then ended would hold them again by `board::suggestions_hold` alone, so
+    /// they're forgotten as soon as it's seen.
     fn forget_stale_suggestions(&self, board: &Board) {
         let store = suggestions::current();
         if store.sessions.is_empty() {
             return;
         }
-        let stale: Vec<(String, i64)> = store.sessions.iter().filter(|(key, g)| board.session(key).is_some_and(|(_, s)| !board::suggestions_hold(s, g))).map(|(key, g)| (key.clone(), g.at)).collect();
+        let stale: Vec<_> = store.sessions.iter().filter_map(|(key, g)| board.session(key).and_then(|(_, s)| suggestions::moved_on(s, g)).map(|moved| (key.clone(), g.at, moved))).collect();
         if stale.is_empty() {
             return;
         }

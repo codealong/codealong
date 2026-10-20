@@ -3,9 +3,10 @@
 //! the session's box shows them to send with a click (SessionReply.tsx). Nothing reaches the
 //! session until you pick one. Kept in `suggestions.json` next to the config, by session key, until
 //! something is sent to the session or a turn of its starts (`board::suggestions_hold`,
-//! `Engine::forget_stale_suggestions`), and a week at most. The app writes it, and the command
-//! does when the app isn't running, under the file's lock; the engine reads it again when it
-//! changes (`current`). For questions a session asks, the suggestion is choices of their own,
+//! `Engine::forget_stale_suggestions`), and a week at most. What moved a session on is kept in
+//! their place (`Store::gone`), so `codealong changes` can say why a session it lists has none
+//! now. The app writes it, and the command does when the app isn't running, under the file's
+//! lock; the engine reads it again when it changes (`current`). For questions a session asks, the suggestion is choices of their own,
 //! picked in its question box for you to answer with (`picked`), not replies.
 
 use std::collections::BTreeMap;
@@ -17,8 +18,9 @@ use serde::{Deserialize, Serialize};
 
 use codealong_peer::api::Question;
 
+use crate::board::MovedOn;
 use crate::config::support_dir;
-use crate::model::Suggestions;
+use crate::model::{Session, Suggestions};
 use crate::store;
 use crate::util::DAY_MS;
 
@@ -39,6 +41,10 @@ pub struct Store {
     /// By the key of the session they're for.
     #[serde(default)]
     pub sessions: BTreeMap<String, Suggestions>,
+    /// What moved on the sessions whose suggestions the engine took away (`forget`), by their
+    /// keys, until they're suggested replies again, and a week at most.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub gone: BTreeMap<String, MovedOn>,
 }
 
 pub fn path() -> PathBuf {
@@ -168,8 +174,14 @@ fn same(a: &str, b: &str) -> bool {
     plain(a) == plain(b)
 }
 
+/// What moved its session on since these were suggested, if anything did (`board::moved_on`): what
+/// `board::suggestions_hold` goes by.
+pub fn moved_on(s: &Session, g: &Suggestions) -> Option<MovedOn> {
+    crate::board::moved_on(s, g.prompt_at.unwrap_or(g.at), g.at)
+}
+
 /// Gives the session `key` these suggestions, in place of any it had, or with none takes its
-/// away. Says whether that changed anything.
+/// away, and forgets what moved it on before. Says whether that changed anything.
 pub fn set(key: &str, suggested: Option<Suggestions>) -> Result<bool> {
     set_in(&path(), key, suggested, crate::util::now_ms())
 }
@@ -177,27 +189,33 @@ pub fn set(key: &str, suggested: Option<Suggestions>) -> Result<bool> {
 fn set_in(path: &Path, key: &str, suggested: Option<Suggestions>, now: i64) -> Result<bool> {
     let mut changed = false;
     change_in(path, now, |s| {
+        let moved = s.gone.remove(key).is_some();
         changed = match suggested {
             Some(g) => s.sessions.insert(key.to_string(), g.clone()).is_none_or(|old| old != g),
             None => s.sessions.remove(key).is_some(),
         };
-        changed
+        changed || moved
     })?;
     Ok(changed)
 }
 
 /// Takes away the suggestions of these sessions, when they were suggested at the time given with
-/// each, so that ones suggested again since stay. Says whether that changed anything.
-pub fn forget(stale: &[(String, i64)]) -> Result<bool> {
+/// each, so that ones suggested again since stay, keeping what moved each session on in their
+/// place. Says whether that changed anything.
+pub fn forget(stale: &[(String, i64, MovedOn)]) -> Result<bool> {
     forget_in(&path(), stale, crate::util::now_ms())
 }
 
-fn forget_in(path: &Path, stale: &[(String, i64)], now: i64) -> Result<bool> {
+fn forget_in(path: &Path, stale: &[(String, i64, MovedOn)], now: i64) -> Result<bool> {
     let mut changed = false;
     change_in(path, now, |s| {
-        let before = s.sessions.len();
-        s.sessions.retain(|key, g| !stale.iter().any(|(k, at)| k == key && *at == g.at));
-        changed = s.sessions.len() != before;
+        for (key, at, moved) in stale {
+            if s.sessions.get(key).is_some_and(|g| g.at == *at) {
+                s.sessions.remove(key);
+                s.gone.insert(key.clone(), *moved);
+                changed = true;
+            }
+        }
         changed
     })?;
     Ok(changed)
@@ -211,6 +229,7 @@ fn change_in(path: &Path, now: i64, f: impl FnOnce(&mut Store) -> bool) -> Resul
         let changed = f(s);
         if changed {
             s.sessions.retain(|_, g| now - g.at < KEEP_MS);
+            s.gone.retain(|_, m| now - m.at() < KEEP_MS);
         }
         changed
     });
@@ -315,16 +334,26 @@ mod tests {
         assert!(set_in(&p, "codex:codex:b", Some(suggested(now - 1)), now).unwrap());
         let read: Store = store::read(&p, WHAT).unwrap().unwrap();
         assert_eq!(read.sessions.keys().collect::<Vec<_>>(), vec!["claude:claude:a", "codex:codex:b"]);
-        // Forgetting what was suggested then leaves what's been suggested since.
-        assert!(!forget_in(&p, &[("claude:claude:a".into(), now - 5)], now).unwrap());
-        assert!(forget_in(&p, &[("claude:claude:a".into(), now)], now).unwrap());
-        // None takes them away; a week on, the rest go with the next change.
+        // Forgetting what was suggested then leaves what's been suggested since, and keeps what
+        // moved the session on until it's suggested replies again.
+        let prompt = MovedOn::Prompt { at: now + 5 };
+        assert!(!forget_in(&p, &[("claude:claude:a".into(), now - 5, prompt)], now).unwrap());
+        assert!(forget_in(&p, &[("claude:claude:a".into(), now, prompt)], now).unwrap());
+        let read: Store = store::read(&p, WHAT).unwrap().unwrap();
+        assert_eq!((read.sessions.contains_key("claude:claude:a"), read.gone.get("claude:claude:a")), (false, Some(&prompt)));
+        assert!(set_in(&p, "claude:claude:a", Some(suggested(now)), now).unwrap());
+        let read: Store = store::read(&p, WHAT).unwrap().unwrap();
+        assert!(read.gone.is_empty());
+        // None takes them away; a week on, the rest go with the next change, and so does what
+        // moved a session on.
         assert!(set_in(&p, "codex:codex:b", None, now).unwrap());
         assert!(!set_in(&p, "codex:codex:b", None, now).unwrap());
+        assert!(forget_in(&p, &[("claude:claude:a".into(), now, MovedOn::Turn { at: now - 8 * DAY_MS })], now - 8 * DAY_MS).unwrap());
         set_in(&p, "claude:claude:old", Some(suggested(now - 8 * DAY_MS)), now - 8 * DAY_MS).unwrap();
         set_in(&p, "claude:claude:new", Some(suggested(now)), now).unwrap();
         let read: Store = store::read(&p, WHAT).unwrap().unwrap();
         assert_eq!(read.sessions.keys().collect::<Vec<_>>(), vec!["claude:claude:new"]);
+        assert!(read.gone.is_empty());
         // A file that doesn't read is left as it is.
         std::fs::write(&p, "not json").unwrap();
         assert!(set_in(&p, "claude:claude:a", Some(suggested(now)), now).is_err());

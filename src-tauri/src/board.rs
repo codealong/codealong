@@ -1379,14 +1379,48 @@ pub fn run_started_by<'a>(pid: u32, parent: impl Fn(u32) -> Option<u32>, under: 
     })
 }
 
-/// Whether replies suggested for a session still answer where it stands: it's been sent nothing
-/// since the prompt whose reply the suggester read (`prompt_at`; a prompt of yours, from Codealong
-/// or where it runs), and no turn of its has started since they were suggested. A turn that
-/// started after them has moved on from what they answered, even once it ends, so the engine
-/// forgets them once it sees one (`Engine::forget_stale_suggestions`). Ones from Macs that didn't
-/// say what was read go by when they were suggested.
+/// What moved a session on from where it stood when an agent gave its word on it (a tag, replies
+/// suggested), so that word no longer answers where it stands. The engine keeps it as it takes
+/// the word away (`tags::Store::gone`, `suggestions::Store::gone`), for `codealong changes` to
+/// say why a session that had one has none now.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", tag = "by")]
+pub enum MovedOn {
+    /// Its user sent it a prompt after the agent read it (its `last_prompt_at`), or an answer.
+    Prompt { at: i64 },
+    /// A turn of its started after the word was given, at this time. A message from another
+    /// session or from Codealong, a background command's report and a scheduled wakeup start one
+    /// without moving its `last_prompt_at`.
+    Turn { at: i64 },
+}
+
+impl MovedOn {
+    pub fn at(&self) -> i64 {
+        match self {
+            MovedOn::Prompt { at } | MovedOn::Turn { at } => *at,
+        }
+    }
+}
+
+/// What moved the session on from an agent's word on it given at `at`, about the reply to the
+/// prompt it sent at `prompt_at`: a prompt sent since, or a turn started since the word was
+/// given. A turn that started after it has moved on from what it answered, even once it ends, so
+/// the engine takes the word away once it sees one (`Engine::forget_stale_tags`,
+/// `Engine::forget_stale_suggestions`). None while the word holds; a turn the agent read it in
+/// started before it.
+pub fn moved_on(s: &Session, prompt_at: i64, at: i64) -> Option<MovedOn> {
+    if s.last_prompt_at > prompt_at {
+        return Some(MovedOn::Prompt { at: s.last_prompt_at });
+    }
+    s.status_since.filter(|since| s.status == Status::Working && *since > at).map(|since| MovedOn::Turn { at: since })
+}
+
+/// Whether replies suggested for a session still answer where it stands (`moved_on`): it's been
+/// sent nothing since the prompt whose reply the suggester read (`prompt_at`; a prompt of yours,
+/// from Codealong or where it runs), and no turn of its has started since they were suggested.
+/// Ones from Macs that didn't say what was read go by when they were suggested.
 pub fn suggestions_hold(s: &Session, g: &Suggestions) -> bool {
-    s.last_prompt_at <= g.prompt_at.unwrap_or(g.at) && !(s.status == Status::Working && s.status_since.is_some_and(|since| since > g.at))
+    moved_on(s, g.prompt_at.unwrap_or(g.at), g.at).is_none()
 }
 
 /// Why replies for a session are turned down, given its last prompt as the suggester read it, or
@@ -3338,6 +3372,25 @@ mod tests {
         let picked = Suggestions { replies: vec![], picks: [("Push it?".to_string(), vec!["Yes".to_string()])].into(), ..suggested.clone() };
         assert_eq!(with(&Session { status: Status::Needs, ..ended.clone() }, Some(&picked)), Some(picked.clone()));
         assert_eq!(with(&Session { status: Status::Working, status_since: Some(NOW - 5 * MIN), ..ended.clone() }, Some(&picked)), None);
+    }
+
+    #[test]
+    fn what_moved_a_session_on_says_when() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude2");
+        let ended = claude_session(&a, Some(&reg("idle", NOW - 20 * MIN)), Some(&tr()), NOW - 30 * MIN, NOW, &Quiet::default()).unwrap();
+        let ended = Session { last_prompt_at: NOW - 30 * MIN, ..ended };
+        // Read with its prompt of 30 minutes ago the last, tagged 10 minutes ago.
+        let (read, at) = (NOW - 30 * MIN, NOW - 10 * MIN);
+        assert_eq!(moved_on(&ended, read, at), None);
+        assert_eq!(moved_on(&Session { last_prompt_at: NOW - 5 * MIN, ..ended.clone() }, read, at), Some(MovedOn::Prompt { at: NOW - 5 * MIN }));
+        // A turn its user's prompt didn't start (a scheduled wakeup, another session's message).
+        let woke = Session { status: Status::Working, status_since: Some(NOW - 2 * MIN), ..ended.clone() };
+        assert_eq!(moved_on(&woke, read, at), Some(MovedOn::Turn { at: NOW - 2 * MIN }));
+        // The turn it was read in is where it stands.
+        assert_eq!(moved_on(&Session { status_since: Some(NOW - 20 * MIN), ..woke.clone() }, read, at), None);
+        // A prompt says so over the turn it started.
+        assert_eq!(moved_on(&Session { last_prompt_at: NOW - 2 * MIN, ..woke }, read, at), Some(MovedOn::Prompt { at: NOW - 2 * MIN }));
     }
 
     #[test]

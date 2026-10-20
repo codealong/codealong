@@ -70,7 +70,10 @@ tick*. Otherwise start at *Starting*.
    `lastPromptAt` and, for the first dozen, what began its latest turn (`prompt`; `promptFrom`
    says when another session or Codealong sent it rather than your user) and its `reply`;
    `waiting`, every session that waits on your user now, each saying whether it has suggestions
-   or a tag and whether it's a `helper` (*Reading, tagging and suggesting*); `prs` opened,
+   or a tag, why Codealong took away ones you gave it (`untagged`, `unsuggested`: your user sent
+   it something, or a turn of its started, which another session's message, Codealong's, a
+   background command's report or a scheduled wakeup starts without moving `lastPromptAt`), and
+   whether it's a `helper` (*Reading, tagging and suggesting*); `prs` opened,
    approved, sent back, merged or closed; `todos`; `shared`, worktrees a second agent started
    working in; and `headless`, how many headless runs (`claude -p`, `codex exec`, which a
    script or an agent ran and reads itself) changed in each folder. Those aren't sessions to read

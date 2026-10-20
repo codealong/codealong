@@ -7,9 +7,10 @@
 //!
 //! Kept in `tags.json` next to the config, by session key, while the tag answers where the
 //! session stands: until something is sent to it or a turn of its starts (`holds`, as replies
-//! suggested for it are held), and a week at most. The app writes it, and the command does when
-//! the app isn't running, under the file's lock; the engine reads it again when it changes
-//! (`current`).
+//! suggested for it are held), and a week at most. What moved a session on is kept in its place
+//! (`Store::gone`), so `codealong changes` can say why a session it lists has no tag now. The app
+//! writes it, and the command does when the app isn't running, under the file's lock; the engine
+//! reads it again when it changes (`current`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -18,9 +19,10 @@ use std::sync::{Arc, Mutex};
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::board::MovedOn;
 use crate::config::support_dir;
 use crate::insights::{BACKGROUND, LANDING};
-use crate::model::{Session, SessionInsight, Status};
+use crate::model::{Session, SessionInsight};
 use crate::store;
 use crate::util::DAY_MS;
 
@@ -48,6 +50,10 @@ pub struct Store {
     /// By the key of the session they're on.
     #[serde(default)]
     pub sessions: BTreeMap<String, Tag>,
+    /// What moved on the sessions whose tags the engine took away (`forget`), by their keys,
+    /// until they're tagged again, and a week at most.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub gone: BTreeMap<String, MovedOn>,
 }
 
 pub fn path() -> PathBuf {
@@ -55,10 +61,14 @@ pub fn path() -> PathBuf {
 }
 
 /// Whether a tag still answers where its session stands: no prompt sent since the agent read it,
-/// and no turn started since it was put on (a turn moves on from what was read, even once it
-/// ends, so the engine forgets the tag once it sees one: `Engine::forget_stale_tags`).
+/// and no turn started since it was put on (`board::moved_on`).
 pub fn holds(s: &Session, t: &Tag) -> bool {
-    s.last_prompt_at <= t.prompt_at && !(s.status == Status::Working && s.status_since.is_some_and(|since| since > t.at))
+    moved_on(s, t).is_none()
+}
+
+/// What moved its session on since the tag was put on, if anything did (`board::moved_on`).
+pub fn moved_on(s: &Session, t: &Tag) -> Option<MovedOn> {
+    crate::board::moved_on(s, t.prompt_at, t.at)
 }
 
 /// An agent's read as the request gives it, checked: each field as `SessionInsight` has it, by
@@ -102,8 +112,8 @@ pub fn read(p: &crate::actions::params::Tag) -> Result<Option<SessionInsight>> {
     Ok(Some(SessionInsight { by: filled(&p.by), by_title: filled(&p.by_title), note, ..tag }))
 }
 
-/// Puts this tag on the session `key`, in place of any it had, or with none takes its away.
-/// Says whether that changed anything.
+/// Puts this tag on the session `key`, in place of any it had, or with none takes its away, and
+/// forgets what moved it on before. Says whether that changed anything.
 pub fn set(key: &str, tag: Option<Tag>) -> Result<bool> {
     set_in(&path(), key, tag, crate::util::now_ms())
 }
@@ -111,27 +121,33 @@ pub fn set(key: &str, tag: Option<Tag>) -> Result<bool> {
 fn set_in(path: &Path, key: &str, tag: Option<Tag>, now: i64) -> Result<bool> {
     let mut changed = false;
     change_in(path, now, |s| {
+        let moved = s.gone.remove(key).is_some();
         changed = match tag {
             Some(t) => s.sessions.insert(key.to_string(), t.clone()).is_none_or(|old| old != t),
             None => s.sessions.remove(key).is_some(),
         };
-        changed
+        changed || moved
     })?;
     Ok(changed)
 }
 
 /// Takes away the tags of these sessions, when they were put on at the time given with each, so
-/// that ones put on again since stay. Says whether that changed anything.
-pub fn forget(stale: &[(String, i64)]) -> Result<bool> {
+/// that ones put on again since stay, keeping what moved each session on in its place. Says
+/// whether that changed anything.
+pub fn forget(stale: &[(String, i64, MovedOn)]) -> Result<bool> {
     forget_in(&path(), stale, crate::util::now_ms())
 }
 
-fn forget_in(path: &Path, stale: &[(String, i64)], now: i64) -> Result<bool> {
+fn forget_in(path: &Path, stale: &[(String, i64, MovedOn)], now: i64) -> Result<bool> {
     let mut changed = false;
     change_in(path, now, |s| {
-        let before = s.sessions.len();
-        s.sessions.retain(|key, t| !stale.iter().any(|(k, at)| k == key && *at == t.at));
-        changed = s.sessions.len() != before;
+        for (key, at, moved) in stale {
+            if s.sessions.get(key).is_some_and(|t| t.at == *at) {
+                s.sessions.remove(key);
+                s.gone.insert(key.clone(), *moved);
+                changed = true;
+            }
+        }
         changed
     })?;
     Ok(changed)
@@ -145,6 +161,7 @@ fn change_in(path: &Path, now: i64, f: impl FnOnce(&mut Store) -> bool) -> Resul
         let changed = f(s);
         if changed {
             s.sessions.retain(|_, t| now - t.at < KEEP_MS);
+            s.gone.retain(|_, m| now - m.at() < KEEP_MS);
         }
         changed
     });
@@ -174,7 +191,7 @@ pub fn current() -> Arc<Store> {
 mod tests {
     use super::*;
     use crate::actions::params;
-    use crate::model::Harness;
+    use crate::model::{Harness, Status};
 
     fn tag(at: i64) -> Tag {
         Tag { insight: SessionInsight { finished: Some(1.0), by: Some("claude:claude:boss".into()), ..Default::default() }, at, prompt_at: at - 1000 }
@@ -218,9 +235,16 @@ mod tests {
         assert!(set_in(&p, "codex:codex:b", Some(tag(now - 1)), now).unwrap());
         let read: Store = store::read(&p, WHAT).unwrap().unwrap();
         assert_eq!(read.sessions.keys().collect::<Vec<_>>(), vec!["claude:claude:a", "codex:codex:b"]);
-        // Forgetting what was tagged then leaves what's been tagged since.
-        assert!(!forget_in(&p, &[("claude:claude:a".into(), now - 5)], now).unwrap());
-        assert!(forget_in(&p, &[("claude:claude:a".into(), now)], now).unwrap());
+        // Forgetting what was tagged then leaves what's been tagged since, and keeps what moved
+        // the session on until it's tagged again.
+        let turn = MovedOn::Turn { at: now + 5 };
+        assert!(!forget_in(&p, &[("claude:claude:a".into(), now - 5, turn)], now).unwrap());
+        assert!(forget_in(&p, &[("claude:claude:a".into(), now, turn)], now).unwrap());
+        let read: Store = store::read(&p, WHAT).unwrap().unwrap();
+        assert_eq!((read.sessions.contains_key("claude:claude:a"), read.gone.get("claude:claude:a")), (false, Some(&turn)));
+        assert!(!set_in(&p, "claude:claude:a", None, now).unwrap(), "it has no tag to take away, and what moved it on goes");
+        let read: Store = store::read(&p, WHAT).unwrap().unwrap();
+        assert!(read.gone.is_empty());
         // None takes it away; a week on, the rest go with the next change.
         assert!(set_in(&p, "codex:codex:b", None, now).unwrap());
         assert!(!set_in(&p, "codex:codex:b", None, now).unwrap());

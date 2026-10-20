@@ -27,6 +27,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::api;
+use crate::board::MovedOn;
 use crate::model::{Board, Lane, Origin, PrItem, PrState, Session, Status};
 use crate::todos::{Todo, TodoStatus};
 use crate::util::DAY_MS;
@@ -81,6 +82,12 @@ pub struct SessionMark {
     /// Its `last_prompt_at`: a different one says a turn ran in between.
     #[serde(default)]
     pub prompt_at: i64,
+    /// Its `status_since` and `last_activity`: both later say a turn ran in between that no
+    /// prompt of its user's began (`turned`). None in a mark kept before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<i64>,
+    #[serde(default)]
+    pub activity: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -207,6 +214,12 @@ pub struct SessionRow {
     pub suggested: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tagged_by: Option<String>,
+    /// Why it has no tag, or no suggested replies, where it had them until Codealong took them
+    /// away because it moved on (`untagged_and_unsuggested`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub untagged: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unsuggested: Option<String>,
     /// It works for another agent (`start --helper`, an automatic review), not for its user.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub helper: bool,
@@ -250,6 +263,11 @@ pub struct WaitingRow {
     pub last_prompt_at: i64,
     pub suggested: bool,
     pub tagged: bool,
+    /// Why it has no tag, or no suggested replies, as on its changed row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub untagged: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unsuggested: Option<String>,
     /// It's among this look's changed sessions, with what it said there.
     pub changed: bool,
     /// It works for another agent (`start --helper`, an automatic review), not for its user: it
@@ -383,7 +401,7 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
             if s.archived {
                 continue;
             }
-            marks.insert(s.key.clone(), SessionMark { status: s.status, prompt_at: s.last_prompt_at });
+            marks.insert(s.key.clone(), SessionMark { status: s.status, prompt_at: s.last_prompt_at, since: s.status_since, activity: s.last_activity });
             if sight.me == Some(s.key.as_str()) || !in_project(&lane.project) {
                 continue;
             }
@@ -417,6 +435,8 @@ pub fn compare(sight: &Sight, earlier: Option<&Look>, since: i64, now: i64) -> (
             last_prompt_at: s.last_prompt_at,
             suggested: s.suggestions.is_some(),
             tagged: s.insight.as_ref().is_some_and(|i| i.by.is_some()),
+            untagged: None,
+            unsuggested: None,
             changed: changed.contains(s.key.as_str()),
             helper: s.helper.is_some(),
         })
@@ -556,7 +576,7 @@ pub fn session_change(s: &Session, mark: Option<&SessionMark>, since: i64) -> Op
     };
     match mark {
         Some(m) => {
-            let new_turn = m.prompt_at != s.last_prompt_at;
+            let new_turn = m.prompt_at != s.last_prompt_at || turned(s, m);
             let changed = match s.status {
                 Status::Needs | Status::Error => !waits(m.status) || new_turn,
                 Status::Working => m.status != Status::Working || new_turn,
@@ -567,6 +587,38 @@ pub fn session_change(s: &Session, mark: Option<&SessionMark>, since: i64) -> Op
         }
         None if s.started_at.is_some_and(|t| t >= since) => Some(New),
         None => (s.last_activity >= since).then_some(now),
+    }
+}
+
+/// Whether its status began again since its mark, with something done since: a turn ran in
+/// between that no prompt of its user's began, or its `last_prompt_at` would say so. Another
+/// session's message, Codealong's, a background command's report and a scheduled wakeup each
+/// start one. A snooze that ended or a mark of unread moves when its status began, but does
+/// nothing. A mark kept before says neither.
+fn turned(s: &Session, m: &SessionMark) -> bool {
+    m.since.zip(s.status_since).is_some_and(|(was, now)| now > was) && s.last_activity > m.activity
+}
+
+/// Says on each row why a session that had a tag or replies suggested for it has none now, where
+/// Codealong took them away because it moved on: what the engine kept as it did
+/// (`tags::Store::gone`, `suggestions::Store::gone`), by session key.
+pub fn untagged_and_unsuggested(out: &mut Changes, untagged: &BTreeMap<String, MovedOn>, unsuggested: &BTreeMap<String, MovedOn>) {
+    let why = |gone: &BTreeMap<String, MovedOn>, key: &str, has: bool| gone.get(key).filter(|_| !has).map(moved_on_words);
+    for r in &mut out.sessions {
+        r.untagged = why(untagged, &r.key, r.tagged_by.is_some());
+        r.unsuggested = why(unsuggested, &r.key, r.suggested);
+    }
+    for w in &mut out.waiting {
+        w.untagged = why(untagged, &w.key, w.tagged);
+        w.unsuggested = why(unsuggested, &w.key, w.suggested);
+    }
+}
+
+/// Why an agent's word on a session was taken away, for the agent to read it again.
+fn moved_on_words(m: &MovedOn) -> String {
+    match m {
+        MovedOn::Prompt { at } => format!("Taken away as its user sent it a prompt or an answer at {at}, after it was read."),
+        MovedOn::Turn { at } => format!("Taken away as a turn of its started at {at}, after it was given. A message from another session or from Codealong, a background command's report or a scheduled wakeup starts one without moving lastPromptAt."),
     }
 }
 
@@ -615,6 +667,8 @@ fn session_row(change: SessionChange, s: &Session, lane: &Lane, board: &Board) -
         reply: None,
         suggested: s.suggestions.is_some(),
         tagged_by: s.insight.as_ref().and_then(|i| i.by.clone()),
+        untagged: None,
+        unsuggested: None,
         helper: s.helper.is_some(),
     }
 }
@@ -807,7 +861,7 @@ mod tests {
     }
 
     fn mark(status: Status, prompt_at: i64) -> SessionMark {
-        SessionMark { status, prompt_at }
+        SessionMark { status, prompt_at, since: None, activity: prompt_at }
     }
 
     #[test]
@@ -829,6 +883,49 @@ mod tests {
         assert_eq!(session_change(&s("a", Status::Working, t), Some(&mark(Status::Working, t)), since), None);
         assert_eq!(session_change(&s("a", Status::Stopped, t), Some(&mark(Status::Idle, t)), since), Some(SessionChange::Stopped));
         assert_eq!(session_change(&s("a", Status::Stopped, t), Some(&mark(Status::Stopped, t)), since), None);
+    }
+
+    #[test]
+    fn a_turn_no_prompt_began_is_told_by_its_status_beginning_again() {
+        let t = NOW - 30 * MIN;
+        let since = NOW - 15 * MIN;
+        // Your turn since its prompt's turn ended; a scheduled wakeup or another session's
+        // message ran a turn between the looks, its prompt the same.
+        let then = SessionMark { since: Some(t + MIN), activity: t + MIN, ..mark(Status::Unread, t) };
+        let woke = Session { status_since: Some(NOW - 2 * MIN), last_activity: NOW - 2 * MIN, ..s("a", Status::Unread, t) };
+        assert_eq!(session_change(&woke, Some(&then), since), Some(SessionChange::Finished));
+        assert_eq!(session_change(&Session { status: Status::Idle, ..woke.clone() }, Some(&then), since), Some(SessionChange::Finished), "and you've seen it");
+        assert_eq!(session_change(&Session { status: Status::Needs, ..woke.clone() }, Some(&SessionMark { status: Status::Needs, ..then.clone() }), since), Some(SessionChange::Waiting), "waiting on you again, for something else");
+        assert_eq!(session_change(&Session { status: Status::Working, ..woke.clone() }, Some(&SessionMark { status: Status::Working, ..then.clone() }), since), Some(SessionChange::Working), "another turn");
+        // As it was: nothing.
+        let still = Session { status_since: Some(t + MIN), last_activity: t + MIN, ..s("a", Status::Unread, t) };
+        assert_eq!(session_change(&still, Some(&then), since), None);
+        // A snooze that ended, or a mark of unread, moves when its status began and does nothing.
+        let snoozed = Session { status_since: Some(NOW - 2 * MIN), ..still.clone() };
+        assert_eq!(session_change(&snoozed, Some(&SessionMark { status: Status::Idle, ..then.clone() }), since), None);
+        // Nor does activity alone (a line its harness wrote by itself), or a mark kept before.
+        assert_eq!(session_change(&Session { last_activity: NOW - MIN, ..still }, Some(&then), since), None);
+        assert_eq!(session_change(&woke, Some(&mark(Status::Unread, t)), since), None);
+    }
+
+    #[test]
+    fn says_why_a_session_has_no_tag_or_suggestions_now() {
+        let t = NOW - 30 * MIN;
+        let suggested = Session { suggestions: Some(Default::default()), ..s("c", Status::Unread, t) };
+        let b = board(vec![s("a", Status::Unread, t), s("b", Status::Unread, t), suggested], vec![]);
+        let sight = Sight { board: &b, sessions: true, prs: true, todos: true, me: None, project: None };
+        let (mut out, _) = compare(&sight, None, NOW - 60 * MIN, NOW);
+        let gone: BTreeMap<String, MovedOn> = [("a".to_string(), MovedOn::Turn { at: NOW - 5 * MIN }), ("c".to_string(), MovedOn::Prompt { at: NOW - 4 * MIN })].into();
+        untagged_and_unsuggested(&mut out, &gone, &gone);
+        let w = |key: &str| out.waiting.iter().find(|w| w.key == key).unwrap().clone();
+        assert!(w("a").untagged.unwrap().contains(&format!("a turn of its started at {}", NOW - 5 * MIN)));
+        assert!(w("a").unsuggested.is_some());
+        assert_eq!((w("b").untagged, w("b").unsuggested), (None, None), "it had none");
+        // Suggested replies again since: only the tag is gone.
+        assert!(w("c").untagged.unwrap().contains(&format!("a prompt or an answer at {}", NOW - 4 * MIN)));
+        assert_eq!(w("c").unsuggested, None);
+        let row = out.sessions.iter().find(|r| r.key == "a").unwrap();
+        assert_eq!(row.untagged, w("a").untagged);
     }
 
     #[test]
