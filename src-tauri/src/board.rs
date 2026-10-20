@@ -1142,6 +1142,7 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         authored_by: p.authored_by,
         labels: p.labels.clone(),
         auto_review: None,
+        last_review: p.last_review.clone(),
     }
 }
 
@@ -2356,6 +2357,7 @@ mod tests {
             reviewers_asked: Vec::new(),
             authored_by: None,
             labels: Vec::new(),
+            last_review: None,
         }
     }
 

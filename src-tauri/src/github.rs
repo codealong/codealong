@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use crate::model::{Checks, Harness, Merge, PrLabel, PrState};
+use crate::model::{Checks, Harness, LastReview, LastReviewState, Merge, PrLabel, PrState};
 use crate::procs;
 use crate::util::{now_ms, parse_rfc3339_ms};
 
@@ -49,6 +49,8 @@ pub struct PrRaw {
     pub authored_by: Option<Harness>,
     /// Its labels, in the order of their names (`labels_of`).
     pub labels: Vec<PrLabel>,
+    /// The review you last submitted on it (`last_review_of`).
+    pub last_review: Option<LastReview>,
 }
 
 /// One repo's PRs, and who `gh` is signed in as.
@@ -109,6 +111,7 @@ fragment pr on PullRequest {
   author { login }
   headRepositoryOwner { login }
   labels(first: 100, orderBy: {field: NAME, direction: ASC}) { nodes { name color description } }
+  viewerLatestReview { state submittedAt commit { oid } }
   commits(last: 1) { nodes { commit { message statusCheckRollup { contexts(first: 100) { nodes {
     __typename
     ... on CheckRun { name status conclusion }
@@ -434,7 +437,23 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         reviewers_asked: Vec::new(),
         authored_by,
         labels: labels_of(n),
+        last_review: last_review_of(n),
     })
+}
+
+/// The review you last submitted on a PR. GitHub's `viewerLatestReview` is one object, which costs
+/// no points, and it leaves out a draft of yours: with one begun after an approval, it still gave
+/// the approval (2026-10-20). A state it doesn't say, or a draft after all, is no review.
+fn last_review_of(n: &Value) -> Option<LastReview> {
+    let r = n.get("viewerLatestReview").filter(|r| !r.is_null())?;
+    let state = match r.get("state").and_then(Value::as_str)? {
+        "APPROVED" => LastReviewState::Approved,
+        "CHANGES_REQUESTED" => LastReviewState::Changes,
+        "COMMENTED" => LastReviewState::Commented,
+        "DISMISSED" => LastReviewState::Dismissed,
+        _ => return None,
+    };
+    Some(LastReview { state, commit: r.pointer("/commit/oid").and_then(Value::as_str).map(String::from), at: r.get("submittedAt").and_then(Value::as_str).and_then(parse_rfc3339_ms) })
 }
 
 /// A PR's labels. A color that isn't six hex digits is left empty, since it goes into a window's
@@ -1149,17 +1168,7 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
     comments.sort_by(|a, b| b.at.cmp(&a.at).then(a.id.cmp(&b.id)));
 
     let list: Vec<Value> = serde_json::from_str(files).unwrap_or_default();
-    let files: Vec<PrFile> = list
-        .iter()
-        .map(|f| PrFile {
-            path: f.get("filename").and_then(Value::as_str).unwrap_or_default().to_string(),
-            status: f.get("status").and_then(Value::as_str).unwrap_or("modified").to_string(),
-            additions: f.get("additions").and_then(Value::as_u64).unwrap_or(0),
-            deletions: f.get("deletions").and_then(Value::as_u64).unwrap_or(0),
-            patch: f.get("patch").and_then(Value::as_str).map(String::from),
-            previous: f.get("previous_filename").and_then(Value::as_str).map(String::from),
-        })
-        .collect();
+    let files: Vec<PrFile> = list.iter().map(file_of).collect();
     Ok(PrDetail {
         body: pr.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
         body_html: pr.get("bodyHTML").and_then(Value::as_str).unwrap_or_default().to_string(),
@@ -1171,6 +1180,19 @@ pub fn parse_detail(graph: &str, files: &str) -> Result<PrDetail> {
         more_files: files.len() >= 100,
         files,
     })
+}
+
+/// A changed file as REST lists it: a PR's files (`pulls/<n>/files`) and a comparison's
+/// (`compare/<a>...<b>`) alike.
+fn file_of(f: &Value) -> PrFile {
+    PrFile {
+        path: f.get("filename").and_then(Value::as_str).unwrap_or_default().to_string(),
+        status: f.get("status").and_then(Value::as_str).unwrap_or("modified").to_string(),
+        additions: f.get("additions").and_then(Value::as_u64).unwrap_or(0),
+        deletions: f.get("deletions").and_then(Value::as_u64).unwrap_or(0),
+        patch: f.get("patch").and_then(Value::as_str).map(String::from),
+        previous: f.get("previous_filename").and_then(Value::as_str).map(String::from),
+    }
 }
 
 /// What a conversation about a PR reads of it (side.rs `ask_pr`), which has no `gh` of its own
@@ -1215,6 +1237,41 @@ fn changes_of(out: &str) -> Result<Option<String>> {
         }
     }
     Ok(Some(diff))
+}
+
+/// What changed on a PR's branch from commit `from` to `to`, for its Changes tab since the review
+/// you last gave it: the files with their diffs, as `detail` has a PR's, and how many commits came
+/// after `from`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Since {
+    /// `to` follows from `from`. It doesn't once the branch was rebased or force-pushed, which
+    /// leaves nothing to compare: the files would hold the base's changes too, so none are given.
+    pub follows: bool,
+    pub commits: u64,
+    pub files: Vec<PrFile>,
+    /// A comparison gives its first 300 files.
+    pub more_files: bool,
+}
+
+/// `Since` from GitHub's comparison (REST, no GraphQL points). A page of one commit is asked for:
+/// the files and the count of commits come whole on the first page all the same (checked
+/// 2026-10-20: 105 files and 74 commits, with one commit listed).
+pub fn since(slug: &str, from: &str, to: &str) -> Result<Since> {
+    let out = procs::run("gh", &["api", &format!("repos/{slug}/compare/{from}...{to}?per_page=1")], None, Duration::from_secs(60)).map_err(|e| anyhow!("GitHub: {e}"))?;
+    since_of(&out)
+}
+
+/// `since` from GitHub's answer: `ahead` where `to` follows from `from`, `identical` where they're
+/// one commit; `behind` and `diverged` where it doesn't.
+fn since_of(out: &str) -> Result<Since> {
+    let v: Value = serde_json::from_str(out)?;
+    if !matches!(v.get("status").and_then(Value::as_str), Some("ahead" | "identical")) {
+        return Ok(Since { follows: false, commits: 0, files: Vec::new(), more_files: false });
+    }
+    let files: Vec<PrFile> = v.get("files").and_then(Value::as_array).into_iter().flatten().map(file_of).collect();
+    let commits = v.get("total_commits").or_else(|| v.get("ahead_by")).and_then(Value::as_u64).unwrap_or(0);
+    Ok(Since { follows: true, commits, more_files: files.len() >= 300, files })
 }
 
 /// A PR's whole diff as `gh pr diff` gives it (REST, no GraphQL points).
@@ -1536,11 +1593,14 @@ impl Verdict {
 }
 
 /// What a review did: submitted your draft review, with this many comments, or a review of its
-/// own.
-#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize)]
+/// own. `commit` is the draft's, which the review is of: it can be older than the PR's head, where
+/// a review of its own is of the head.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reviewed {
     pub draft: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
 }
 
 /// The arguments `gh pr review` is given for a verdict with its text, as `review` runs it.
@@ -1581,7 +1641,7 @@ pub fn review_with(slug: &str, number: u64, verdict: Verdict, body: &str, draft:
             sent["body"] = text.into();
         }
         graphql(SUBMIT_REVIEW, sent).map_err(failed)?;
-        return Ok(Reviewed { draft: Some(draft.count) });
+        return Ok(Reviewed { draft: Some(draft.count), commit: draft.commit.clone() });
     }
     let args = review_args(number, verdict, body, slug)?;
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -1647,6 +1707,35 @@ mod tests {
         assert!(diff.contains("diff --git a/logo.png b/logo.png\n(GitHub shows no diff"), "{diff}");
         assert_eq!(changes_of(r#"{"status":"diverged","files":[]}"#).unwrap(), None);
         assert!(changes_of("not json").is_err());
+    }
+
+    #[test]
+    fn what_changed_since_your_review_is_a_comparison_unless_the_branch_was_rewritten() {
+        let ahead = r#"{"status":"ahead","ahead_by":3,"behind_by":0,"total_commits":3,"commits":[{"sha":"a"}],"files":[{"filename":"src/a.rs","status":"modified","additions":2,"deletions":1,"patch":"@@ -1 +1,2 @@\n-a\n+b\n+c"},{"filename":"src/b.rs","status":"renamed","additions":0,"deletions":0,"previous_filename":"src/old.rs"}]}"#;
+        let s = since_of(ahead).unwrap();
+        assert!(s.follows && !s.more_files);
+        assert_eq!(s.commits, 3);
+        assert_eq!(s.files.iter().map(|f| (f.path.as_str(), f.status.as_str(), f.additions, f.patch.is_some(), f.previous.as_deref())).collect::<Vec<_>>(), [("src/a.rs", "modified", 2, true, None), ("src/b.rs", "renamed", 0, false, Some("src/old.rs"))]);
+        let same = since_of(r#"{"status":"identical","ahead_by":0,"total_commits":0,"files":[]}"#).unwrap();
+        assert!(same.follows && same.commits == 0 && same.files.is_empty());
+        for status in ["diverged", "behind"] {
+            let s = since_of(&format!(r#"{{"status":"{status}","ahead_by":4,"behind_by":9,"total_commits":4,"files":[{{"filename":"x"}}]}}"#)).unwrap();
+            assert!(!s.follows && s.files.is_empty() && s.commits == 0, "{status}");
+        }
+        assert!(since_of("not json").is_err());
+    }
+
+    #[test]
+    fn reads_your_last_review_and_the_commit_it_was_of() {
+        let pr = |latest: &str| -> Value { serde_json::from_str(&format!(r#"{{"number":7,"viewerLatestReview":{latest}}}"#)).unwrap() };
+        let approved = pr(r#"{"state":"APPROVED","submittedAt":"2026-10-12T09:30:00Z","commit":{"oid":"abc1234"}}"#);
+        assert_eq!(last_review_of(&approved), Some(LastReview { state: LastReviewState::Approved, commit: Some("abc1234".into()), at: parse_rfc3339_ms("2026-10-12T09:30:00Z") }));
+        let dismissed = pr(r#"{"state":"DISMISSED","submittedAt":"2026-10-11T08:00:00Z","commit":null}"#);
+        assert_eq!(last_review_of(&dismissed).map(|r| (r.state, r.commit)), Some((LastReviewState::Dismissed, None)));
+        // None before any review of yours, and a draft isn't one.
+        assert_eq!(last_review_of(&pr("null")), None);
+        assert_eq!(last_review_of(&pr(r#"{"state":"PENDING","submittedAt":null,"commit":{"oid":"abc1234"}}"#)), None);
+        assert!(PR_FIELDS.contains("viewerLatestReview { state submittedAt commit { oid } }"), "{PR_FIELDS}");
     }
 
     #[test]
@@ -1735,7 +1824,7 @@ mod tests {
         with(true);
         let done = review("o/r", 7, Verdict::Approve, "LGTM");
         procs::stand_in::set(None);
-        assert_eq!(done.unwrap(), Reviewed { draft: Some(3) });
+        assert_eq!(done.unwrap(), Reviewed { draft: Some(3), commit: Some("322941c630688648510901d3a5b2e77bfc2c7ae8".into()) });
         let calls = std::mem::take(&mut *sent.lock().unwrap());
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[1].1["query"], SUBMIT_REVIEW);
@@ -1759,7 +1848,7 @@ mod tests {
         with(false);
         let done = review("o/r", 7, Verdict::Comment, "A thought");
         procs::stand_in::set(None);
-        assert_eq!(done.unwrap(), Reviewed { draft: None });
+        assert_eq!(done.unwrap(), Reviewed { draft: None, commit: None });
         let calls = std::mem::take(&mut *sent.lock().unwrap());
         assert_eq!(calls[1].0.join(" "), "pr review 7 --comment -R o/r --body A thought");
 
@@ -1769,7 +1858,7 @@ mod tests {
         with(false);
         let done = review_with("o/r", 7, Verdict::Approve, "", Some(&draft));
         procs::stand_in::set(None);
-        assert_eq!(done.unwrap(), Reviewed { draft: Some(3) });
+        assert_eq!(done.unwrap(), Reviewed { draft: Some(3), commit: Some("322941c630688648510901d3a5b2e77bfc2c7ae8".into()) });
         let calls = std::mem::take(&mut *sent.lock().unwrap());
         assert_eq!(calls.len(), 1);
         assert_eq!((calls[0].1["query"].as_str(), calls[0].1["variables"]["review"].as_str()), (Some(SUBMIT_REVIEW), Some("PRR_1")));

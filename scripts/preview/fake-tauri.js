@@ -486,6 +486,15 @@ window.__TAURI_INTERNALS__ = {
     // review of yours (pr_draft) unless a check says so, so none is submitted with one.
     if (cmd === 'review_pr') return args.body === 'fail' ? Promise.reject(new Error('GitHub said no')) : Promise.resolve({ draft: null });
     if (cmd === 'pr_draft') return Promise.resolve({ draft: null, submitted: null });
+    // What changed since your last review of a PR (github.rs `since`): two commits that changed
+    // pr-detail.json's first two files, or none when a check sets `__sinceRewritten`, as after a
+    // force push.
+    if (cmd === 'pr_since') {
+      if (window.__sinceRewritten) return Promise.resolve({ follows: false, commits: 0, files: [], moreFiles: false });
+      return fetch('./pr-detail.json').then(function (r) { return r.ok ? r.json() : { files: [] }; }).then(function (d) {
+        return { follows: true, commits: 2, files: (d.files || []).slice(0, 2), moreFiles: false };
+      });
+    }
     // A check can have config.toml refuse an account's start (Make default in the quick panel).
     if (cmd === 'keep_start_place' && window.__failKeepPlace) return Promise.reject(new Error('config.toml doesn’t parse'));
     // A PR's merge box (prmerge.rs `MergeBox`) for a PR the board lists: ready to squash and

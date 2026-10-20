@@ -3,7 +3,7 @@
 // they fold into a single "Ready to merge". The PRs view also flags the rows that are your move.
 
 import { count } from './format';
-import type { AutoReview, Checks, Merge, NudgeAbout, PrComment, PrItem, PrState, PrStopped } from './types';
+import type { AutoReview, Checks, LastReview, Merge, NudgeAbout, PrComment, PrItem, PrState, PrStopped } from './types';
 
 /** A pill's color: green for approved and passing, amber for what needs you, red for failing. */
 export type PrTone = 'ready' | 'pass' | 'attn' | 'alert' | 'plain' | 'quiet' | 'merged';
@@ -31,8 +31,74 @@ export interface PrFacts {
    *  for, Awaiting review while nobody's is. */
   reviewRequested?: boolean;
   reviewersAsked?: string[];
-  /** The commit it's at, which says whether an approval of the agent's is of it (`agentApproves`). */
+  /** The commit it's at, which says whether an approval of the agent's is of it (`agentApproves`),
+   *  and whether yours is (`yourReview`). */
   headOid?: string;
+  /** The review you last gave it, and whether it's yours, which you don't review (`yourReview`). */
+  lastReview?: LastReview;
+  mine?: boolean;
+}
+
+/** Your last review of a PR against the commit it's at (`PrItem.lastReview`): `current` when it's
+ *  of that commit and still stands, which a dismissed one doesn't. Null without one, and on a PR
+ *  of yours, which you don't review. */
+export function yourReview(pr: Pick<PrFacts, 'lastReview' | 'headOid' | 'mine'>): { review: LastReview; current: boolean } | null {
+  const r = pr.lastReview;
+  if (!r || pr.mine) return null;
+  return { review: r, current: r.state !== 'dismissed' && !!r.commit && r.commit === pr.headOid };
+}
+
+/** Your approval of the commit a PR's at, where that's your last review of it: Approve reads
+ *  Approved, and another press is another approval. */
+export function yourApproval(pr: Pick<PrFacts, 'lastReview' | 'headOid' | 'mine'>): LastReview | null {
+  const y = yourReview(pr);
+  return y?.current && y.review.state === 'approved' ? y.review : null;
+}
+
+/** Your approval of the commit a PR's at, or request for changes on it: what you'd do with it is
+ *  said, so what an agent suggests you do no longer shows (PrBox.tsx). */
+export function yourVerdictStands(pr: Pick<PrFacts, 'lastReview' | 'headOid' | 'mine'>): boolean {
+  const y = yourReview(pr);
+  return !!y?.current && (y.review.state === 'approved' || y.review.state === 'changes');
+}
+
+/** The commit your last review of a PR was of, where the PR has moved on from it: what its
+ *  changes since are compared with (since.ts). Null where it's of the commit the PR's at, where
+ *  either commit isn't known, and without one. */
+export function reviewedBefore(pr: Pick<PrFacts, 'lastReview' | 'headOid' | 'mine'>): string | null {
+  const y = yourReview(pr);
+  return y && !y.current && y.review.commit && pr.headOid && y.review.commit !== pr.headOid ? y.review.commit : null;
+}
+
+/** What your last review of a PR said, by its commit (`You approved abc1234`), with its icon. */
+export function yourReviewSaid(r: LastReview): { icon: string; says: string } {
+  const at = r.commit ? r.commit.slice(0, 7) : 'it';
+  return {
+    approved: { icon: 'check', says: `You approved ${at}` },
+    changes: { icon: 'alert', says: `You asked for changes on ${at}` },
+    commented: { icon: 'message-circle', says: `You commented on ${at}` },
+    dismissed: { icon: 'x', says: `Your review of ${at} was dismissed` },
+  }[r.state];
+}
+
+/** Your last review of a PR in a sentence, for a pill's or chip's title: what it said, and
+ *  whether it's of the commit the PR's at. Null without one. */
+export function yourReviewNote(pr: Pick<PrFacts, 'lastReview' | 'headOid' | 'mine'>): string | null {
+  const y = yourReview(pr);
+  if (!y) return null;
+  const { says } = yourReviewSaid(y.review);
+  if (y.current) return `${says}, the commit it’s at.`;
+  return y.review.commit && pr.headOid && y.review.state !== 'dismissed' ? `${says}, and it’s had commits since.` : `${says}.`;
+}
+
+/** A PR that asks for your review after you gave one: Re-review, saying what yours was and whether
+ *  commits came since, and who asked. Null when it doesn't ask, or you hadn't reviewed it. */
+function reReviewPill(pr: PrFacts): PrPill | null {
+  if (!pr.reviewRequested || !isOpen(pr.state) || pr.state === 'draft') return null;
+  const note = yourReviewNote(pr);
+  if (!note) return null;
+  const asked = reviewersWords(pr);
+  return { key: 'review', tone: 'plain', icon: 'repeat', text: 'Re-review', short: null, title: `Your review is asked for again. ${note}${asked ? ` ${asked}.` : ''}` };
 }
 
 const isOpen = (state: PrState) => state !== 'merged' && state !== 'closed';
@@ -77,7 +143,8 @@ const reviewPillOf = (tone: PrTone, text: string, title: string, icon: string | 
  *  verdict, another reviewer's approval or a request for changes the agent submitted for you
  *  before (which GitHub keeps until you approve), and shows beside Ready to merge. */
 function agentPill(pr: PrFacts): PrPill | null {
-  if (agentApproves(pr)) return reviewPillOf('pass', 'Agent approves', `Codealong’s agent approves ${pr.autoReview?.approves?.slice(0, 7)}: it waits on your sign-off`);
+  const yours = yourReviewNote(pr);
+  if (agentApproves(pr)) return reviewPillOf('pass', 'Agent approves', `Codealong’s agent approves ${pr.autoReview?.approves?.slice(0, 7)}: it waits on your sign-off${yours ? `. ${yours}` : ''}`);
   const before = approvedBefore(pr);
   if (before) return reviewPillOf('plain', 'Agent re-reviewing', `${rereviewWords(before)}: it waits on your sign-off once the agent approves them`, 'hourglass');
   if (heldForAgent(pr) && isOpen(pr.state)) return reviewPillOf('plain', 'Agent reviewing', 'Codealong’s agent is reviewing it: it waits on your review once that’s done');
@@ -88,15 +155,22 @@ function reviewPill(pr: PrFacts): PrPill {
   const pill = reviewPillOf;
   const agent = pr.state === 'draft' ? null : agentPill(pr);
   if (agent) return agent;
+  // Asked for again after you gave yours, which says more than who it waits on or that it's
+  // approved, your approval perhaps.
+  const again = reReviewPill(pr);
+  if (again) return again;
+  const yours = yourReviewNote(pr);
   switch (pr.state) {
     case 'draft':
       return pill('quiet', 'Draft', 'A draft: not ready for review yet');
     case 'changes':
       return pill('attn', 'Changes requested', 'A reviewer asked for changes');
-    case 'approved':
-      if (pr.merge === 'blocked') return pill('pass', 'Approved', 'Approved, but something the repo requires still holds back the merge');
-      if (pr.merge === 'unknown') return pill('pass', 'Approved', "Approved. GitHub hasn't said yet whether it can merge");
-      return pill('pass', 'Approved', 'Approved');
+    case 'approved': {
+      const and = yours ? `. ${yours}` : '';
+      if (pr.merge === 'blocked') return pill('pass', 'Approved', `Approved, but something the repo requires still holds back the merge${and}`);
+      if (pr.merge === 'unknown') return pill('pass', 'Approved', `Approved. GitHub hasn't said yet whether it can merge${and}`);
+      return pill('pass', 'Approved', `Approved${and}`);
+    }
     default:
       const asked = reviewersWords(pr);
       if (asked) return pill('plain', 'Review requested', asked);
@@ -121,7 +195,7 @@ export interface ReviewMark {
  *  reviewing it, approved, or changes asked for. None while it only awaits review, for a draft,
  *  whose icon says so, or once it's merged or closed. A worktree's PR (`Pr`) has only its state
  *  to go by; the board's (`PrItem`) says what's asked of you. */
-export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'headOid'>>): ReviewMark | null {
+export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'headOid' | 'lastReview' | 'mine'>>): ReviewMark | null {
   if (!isOpen(pr.state) || pr.state === 'draft') return null;
   if (heldForAgent(pr)) {
     const before = approvedBefore(pr);
@@ -129,7 +203,10 @@ export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'rev
   }
   if (pr.reviewRequested && !pr.snoozedUntil) {
     const by = pr.requestedBy ? `, by ${pr.requestedBy}` : '';
-    return { key: 'asked', tone: 'attn', icon: 'eye', title: agentApproves(pr) ? `Your sign-off is asked for${by}: Codealong’s agent approves ${pr.autoReview?.approves?.slice(0, 7)}` : `Your review is asked for${by}` };
+    const yours = yourReviewNote(pr);
+    const again = yours ? ' again' : '';
+    const asked = agentApproves(pr) ? `Your sign-off is asked for${again}${by}: Codealong’s agent approves ${pr.autoReview?.approves?.slice(0, 7)}` : `Your review is asked for${again}${by}`;
+    return { key: 'asked', tone: 'attn', icon: 'eye', title: yours ? `${asked}. ${yours}` : asked };
   }
   if (pr.state === 'approved') return { key: 'approved', tone: 'pass', icon: 'user-check', title: 'Approved' };
   if (pr.state === 'changes') return { key: 'changes', tone: 'fail', icon: 'file-diff', title: 'A reviewer asked for changes' };
@@ -168,8 +245,11 @@ export function prPills(pr: PrFacts): PrPill[] {
   if (prReady(pr)) {
     const why = [pr.state === 'approved' ? 'Approved' : null, c.passed > 0 ? `${plural(c.passed, 'check')} passed` : null, 'no conflicts'].filter(Boolean).join(', ');
     const ready: PrPill = { key: 'ready', tone: 'ready', icon: 'merge', text: 'Ready to merge', short: null, title: `${why[0].toUpperCase()}${why.slice(1)}: GitHub can merge it` };
-    const agent = agentPill(pr);
-    return agent ? [agent, ready] : [ready];
+    // Where the agent stands goes beside it, else, asked for your review again, Re-review: it's
+    // likely your approval of an earlier commit that has it ready, and a review it waits on
+    // isn't to be taken for one done.
+    const first = agentPill(pr) ?? reReviewPill(pr);
+    return first ? [first, ready] : [ready];
   }
   const base = pr.base ?? 'its base';
   const pills = [reviewPill(pr), checksPill(c)].filter((p): p is PrPill => p !== null);

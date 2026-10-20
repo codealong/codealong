@@ -37,7 +37,7 @@ import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
 import { relaned, sessionHeadline, stuckMidTurn, unreadable } from './lanes';
-import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LogoStatus, MergeOp, PrItem, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
+import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LastReview, LogoStatus, MergeOp, PrItem, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
 
 /** A message the board shows no sign of this long after it went stops showing its session as
  *  working; if the session isn't working either, the thread says it may not have reached it. */
@@ -72,8 +72,9 @@ export type Change =
   | { kind: 'review-snooze'; keys: string[]; until: number | null }
   /** A PR (by its key) merged: merged from when it was made, and waiting on no review. */
   | { kind: 'pr-merge'; key: string }
-  /** Your review of a PR (by its key) submitted: it waits on your review no more. */
-  | { kind: 'pr-review'; key: string }
+  /** Your review of a PR (by its key) submitted: it waits on your review no more, and shows
+   *  yours, of `commit` where that's known (a draft's), else of the commit it's at. */
+  | { kind: 'pr-review'; key: string; verdict: Verdict; commit: string | null }
   | { kind: 'archive'; key: string; archived: boolean }
   /** Named, as the board will show it. */
   | { kind: 'rename'; key: string; title: string }
@@ -274,11 +275,13 @@ function reviewSnoozes(changes: Ahead[]): Map<string, number | null> {
   return until;
 }
 
-/** The PRs this window's changes review, by PR key. */
-function reviewed(changes: Ahead[]): Set<string> {
-  const keys = new Set<string>();
-  for (const a of changes) if (a.change.kind === 'pr-review') keys.add(a.change.key);
-  return keys;
+/** The PRs this window's changes review, by PR key, each with the review as it shows: the commit
+ *  it's of where that's known (a draft's), else the one the PR's at. */
+function reviewed(changes: Ahead[]): Map<string, { state: LastReview['state']; commit: string | null; at: number }> {
+  const done = new Map<string, { state: LastReview['state']; commit: string | null; at: number }>();
+  const said = { approve: 'approved', 'request-changes': 'changes', comment: 'commented' } as const;
+  for (const a of changes) if (a.change.kind === 'pr-review') done.set(a.change.key, { state: said[a.change.verdict], commit: a.change.commit, at: a.at });
+  return done;
 }
 
 /** When each PR this window's changes merge was merged, by PR key. */
@@ -302,7 +305,11 @@ export function prsAhead(prs: PrItem[], changes: Ahead[]): PrItem[] {
     let next = p;
     const at = merged.get(p.key);
     if (at !== undefined && p.state !== 'merged' && p.state !== 'closed') next = { ...next, state: 'merged', mergedAt: at, closedAt: at, reviewRequested: false, snoozedUntil: null };
-    if (done.has(p.key) && next.reviewRequested) next = { ...next, reviewRequested: false };
+    const review = done.get(p.key);
+    if (review && next.reviewRequested) next = { ...next, reviewRequested: false };
+    // Yours shows until the board has it, or one given after it (the engine's, ghpoll.rs
+    // `on_approved`, is a moment later).
+    if (review && !p.mine && !((next.lastReview?.at ?? -Infinity) >= review.at)) next = { ...next, lastReview: { state: review.state, commit: review.commit ?? next.headOid ?? null, at: review.at } };
     if (until.has(p.key) && next.reviewRequested && next.state !== 'merged' && next.state !== 'closed') {
       const snooze = until.get(p.key) ?? null;
       if ((next.snoozedUntil ?? null) !== snooze) next = { ...next, snoozedUntil: snooze };
@@ -770,10 +777,11 @@ function merging(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op
 }
 
 /** Reviews a PR as you (`reviewPr`): it's out of what waits on your review in every window as
- *  it's asked, and back, with why, if GitHub refuses it. The engine takes it out as GitHub has it
+ *  it's asked, showing your review (of `commit`, a draft's, where that isn't the commit the PR's
+ *  at), and back, with why, if GitHub refuses it. The engine does the same as GitHub has it
  *  (ghpoll.rs `on_approved`) and shows that before it answers, so the change goes a while after. */
-export function reviewAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, verdict: Verdict, body: string, agents = false): Promise<Reviewed> {
-  const a = made({ kind: 'pr-review', key: pr.key });
+export function reviewAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, verdict: Verdict, body: string, agents = false, commit: string | null = null): Promise<Reviewed> {
+  const a = made({ kind: 'pr-review', key: pr.key, verdict, commit });
   put(a, true);
   return reviewPr(pr.repoSlug, pr.number, verdict, body, agents).then(
     (done) => {

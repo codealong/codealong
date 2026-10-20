@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { againFor, askAccount, askAccounts, askOn, autoReviewWords, groupReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewsRunIn, suggestWords } from './review';
+import { againFor, askAccount, askAccounts, askOn, autoReviewWords, groupReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewsRunIn, sinceNote, sinceWords, suggestWords } from './review';
 import * as fx from './testing/fixtures';
-import type { AutoReview, Lane, PrItem, StartAccount } from './types';
+import type { AutoReview, Draft, Lane, LastReview, PrItem, Since, StartAccount } from './types';
 
 describe('autoReviewWords', () => {
   const r = (stage: AutoReview['stage'], more: Partial<AutoReview> = {}): AutoReview => ({ stage, head: '309811aaaabbbb', at: 0, rounds: 1, ...more });
@@ -59,11 +59,39 @@ describe('autoReviewWords', () => {
   });
   it('says over the box where the review stands, with your draft', () => {
     const draft = { id: 'R', body: 'x', commit: null, url: null, comments: [], count: 3 };
-    expect(reviewLineWords({ autoReview: r('drafted'), mine: false }, draft)).toEqual({ icon: 'note', says: 'Agent drafted a review of 309811a: your draft review, 3 comments', busy: false, approved: null });
-    expect(reviewLineWords({ autoReview: r('reviewing'), mine: false }, null)).toEqual({ icon: 'eye', says: 'Agent reviewing 309811a', busy: true, approved: null });
+    expect(reviewLineWords({ autoReview: r('drafted'), mine: false }, draft)).toEqual({ icon: 'note', says: 'Agent drafted a review of 309811a: your draft review, 3 comments', busy: false, approved: null, agent: null, since: null });
+    expect(reviewLineWords({ autoReview: r('reviewing'), mine: false }, null)).toEqual({ icon: 'eye', says: 'Agent reviewing 309811a', busy: true, approved: null, agent: null, since: null });
     expect(reviewLineWords({ autoReview: undefined, mine: false }, draft).says).toBe('Your draft review, 3 comments');
     expect(reviewLineWords({ autoReview: undefined, mine: false }, null).says).toBe('No review of yours yet');
     expect(reviewLineWords({ autoReview: undefined, mine: true }, null).says).toBe('No agent review of your PR');
+  });
+  it('leads the line over the box with your own last review, by whether it’s of the commit the PR’s at', () => {
+    const head = '309811aaaabbbb';
+    const yours = (state: LastReview['state'], commit: string | null = head): LastReview => ({ state, commit, at: 5 });
+    const line = (lastReview: LastReview, autoReview?: AutoReview, draft: Draft | null = null) => reviewLineWords({ autoReview, mine: false, headOid: head, lastReview }, draft);
+    // Of the commit it's at: it says so, and the agent's round is for the line's title.
+    expect(line(yours('approved'), r('posted', { suggests: 'approve' }))).toEqual({ icon: 'check', says: 'You approved 309811a, its latest commit', busy: false, approved: null, agent: 'Agent reviewed 309811a and commented', since: null });
+    expect(line(yours('changes')).says).toBe('You asked for changes on 309811a, its latest commit');
+    expect(line(yours('commented')).icon).toBe('message-circle');
+    // Of an earlier one: the line offers what changed since, while the agent reviews the new ones.
+    expect(line(yours('approved', '1234567ffff'), r('reviewing'))).toMatchObject({ says: 'You approved 1234567', busy: true, agent: 'Agent reviewing 309811a', since: '1234567ffff' });
+    // Dismissed, it stands no more, of whichever commit.
+    expect(line(yours('dismissed'))).toMatchObject({ icon: 'x', says: 'Your review of 309811a was dismissed', since: null });
+    expect(line(yours('dismissed', '1234567ffff')).since).toBe('1234567ffff');
+    // Your draft follows it.
+    expect(line(yours('approved', '1234567ffff'), undefined, { id: 'R', body: '', commit: null, url: null, comments: [], count: 1 }).says).toBe('You approved 1234567 · your draft review, 1 comment');
+    // Not on a PR of yours, which you don't review.
+    expect(reviewLineWords({ autoReview: undefined, mine: true, headOid: head, lastReview: yours('commented') }, null).says).toBe('No agent review of your PR');
+  });
+  it('says what changed since your review in the pill beside the line, and under Changes', () => {
+    const since = (commits: number, files: number, follows = true): Since => ({ follows, commits, files: Array.from({ length: files }, (_, i) => ({ path: `f${i}`, status: 'modified', additions: 1, deletions: 0, patch: null })), moreFiles: false });
+    expect(sinceWords('1234567ffff', null)).toEqual({ text: 'New commits', title: 'Show what changed since your review of 1234567, under Changes' });
+    expect(sinceWords('1234567ffff', since(3, 2))).toEqual({ text: '3 new commits', title: 'Show what changed since your review of 1234567: 2 files, under Changes' });
+    expect(sinceWords('1234567ffff', since(0, 0, false)).text).toBe('Rewritten since');
+    expect(sinceNote('1234567ffff', null)).toBe('Reading what changed since your review of 1234567…');
+    expect(sinceNote('1234567ffff', since(1, 2))).toBe('1 commit since your review of 1234567.');
+    expect(sinceNote('1234567ffff', since(2, 0))).toBe('2 commits since your review of 1234567, which changed no file.');
+    expect(sinceNote('1234567ffff', since(0, 0, false))).toMatch(/^The branch was rebased or force-pushed since your review of 1234567/);
   });
   it('says a draft that is no longer one on GitHub was submitted, or thrown away', () => {
     expect(autoReviewWords(r('drafted'), { draft: true, submitted: null }).note).toBe(null);

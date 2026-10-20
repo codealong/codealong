@@ -5,7 +5,12 @@
 // takes to the PR's Reviews tab.
 //
 // The box has two sides, Review and Ask, a switch at its foot, each with a draft of its own kept
-// per PR while the window goes from one PR to the next. Review's verdicts are Request changes,
+// per PR while the window goes from one PR to the next. Once you've reviewed the PR, the line
+// leads with your last review (`PrItem.lastReview`, shown as you give it): of the commit it's at,
+// it says so, Approve reads Approved (another press is another approval) and the agent's
+// suggestion goes; of an earlier one, a pill beside the line says how many commits came since and
+// shows what they changed under Changes (since.ts).
+// Review's verdicts are Request changes,
 // Comment and Approve, the one the agent suggests (`AutoReview.suggests`) marked so; a comment or
 // a request for changes needs something to say, which your draft review on GitHub can hold, and a
 // verdict on a PR you have a draft of submits it, comments and all, what's written going before
@@ -28,12 +33,14 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { reviewAhead } from '../ahead';
-import { agentsVerdict, agentsWords } from '../agentReview';
+import { agentsVerdict, agentsWords, type PrTab } from '../agentReview';
 import { prSideAsk } from '../api';
+import { agoPhrase } from '../format';
 import { commentsWord, readAgain, reviewedWords, saysSomething, useYourReview, verdictWords } from '../prDraft';
-import { mayApprove } from '../prStatus';
+import { mayApprove, yourApproval, yourReview, yourVerdictStands } from '../prStatus';
 import { errorText, type Report } from '../report';
-import { againFor, againTitle, askAccounts, askOn, reviewLineWords, suggestWords, tryAgain } from '../review';
+import { againFor, againTitle, approvedWords, askAccounts, askOn, reviewLineWords, sinceWords, suggestWords, tryAgain } from '../review';
+import { showSince, useSince } from '../since';
 import { notAsked, showSides, startingSide, useKept, useSide, useSideView, type SideView } from '../side';
 import { useStartAccounts, useStartGroups } from '../startAccounts';
 import { AUTO, isAuto, modelName, ownModels } from '../start';
@@ -190,7 +197,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     } else {
       setSending(verdict);
     }
-    reviewAhead(pr, verdict, body, withAgents)
+    reviewAhead(pr, verdict, body, withAgents, draft?.commit ?? (withAgents ? (pr.autoReview?.head ?? null) : null))
       .then(
         (done) => {
           report.info(reviewedWords(verdict, pr.number, done, withAgents));
@@ -265,28 +272,55 @@ function conversationOn(c: Side, accounts: StartAccount[]): string | null {
   return [model, c.effort ? `${c.effort} effort` : null].filter(Boolean).join(' · ') || null;
 }
 
-/** Where the PR's review stands, over its box: a click shows its Reviews tab. An agent review
- *  that didn't get done says why on hover, and has Try again beside it (`againFor`). */
-function ReviewLine({ pr, draft, onShowReview, onTryAgain }: { pr: PrItem; draft: Draft | null; onShowReview: () => void; onTryAgain: () => void }) {
-  const { icon, says, busy, approved } = reviewLineWords(pr, draft);
-  const suggests = pr.autoReview?.suggests;
+/** Where the PR's review stands, over its box: a click shows its Reviews tab. Your own last
+ *  review leads once you've given one, and where commits came after it, a pill says how many and
+ *  shows what they changed under Changes (since.ts). An agent review that didn't get done says why
+ *  on hover, and has Try again beside it (`againFor`). */
+function ReviewLine({ pr, draft, now, onShow, onTryAgain }: { pr: PrItem; draft: Draft | null; now: number; onShow: (tab: PrTab) => void; onTryAgain: () => void }) {
+  const { icon, says, busy, approved, agent, since } = reviewLineWords(pr, draft);
+  const changed = useSince(pr.repoSlug, since, since ? (pr.headOid ?? null) : null);
+  // The agent's suggestion, unless your own approval or request for changes of the commit the
+  // PR's at has said what you'd do.
+  const suggests = yourVerdictStands(pr) || pr.autoReview?.submitted ? null : pr.autoReview?.suggests;
+  // When yours was given: beside it where it's of the commit the PR's at (it confirms the one you
+  // just gave), else on hover, the pill and the agent's suggestion having the room.
+  const yours = yourReview(pr);
+  const at = yours?.review.at ?? null;
+  const when = at != null ? agoPhrase(at, now) : null;
   const again = againFor(pr);
   const why = again ? pr.autoReview?.note : null;
+  const pill = since ? sinceWords(since, changed?.since ?? null) : null;
   return (
     <div className="ca-prbox-standing">
-      <button type="button" className={cx('ca-prbox-line', busy && 'is-busy')} title={why ? `${why}\n\nShow its Reviews tab` : 'Show its Reviews tab'} onClick={onShowReview}>
+      <button type="button" className={cx('ca-prbox-line', busy && 'is-busy', yours?.current && `is-${yours.review.state}`)} title={[when && `${says}, ${when}`, agent, why, 'Show its Reviews tab'].filter(Boolean).join('\n\n')} onClick={() => onShow('review')}>
         <Icon name={icon} size={12} />
         <span className="ca-prbox-line-says">{says}</span>
-        {suggests && !pr.autoReview?.submitted && <span className={cx('ca-prbox-suggests', `is-${suggests}`)}>{suggestWords(suggests)}</span>}
+        {when && yours?.current && <span className="ca-prbox-line-when">{when}</span>}
+        {agent && busy && <span className="ca-prbox-suggests">Agent reviewing</span>}
+        {suggests && <span className={cx('ca-prbox-suggests', `is-${suggests}`)}>{agent ? `Agent ${suggestWords(suggests).toLowerCase()}` : suggestWords(suggests)}</span>}
         {approved && !suggests && (
           <span className="ca-prbox-suggests is-approve" title={`The agent approved ${approved}, a commit before the one this review is of`}>
             {suggestWords('approve')} {approved}
           </span>
         )}
-        <span className="ca-prbox-line-go">
-          Review
-          <Icon name="chevron-right" size={11} />
-        </span>
+      </button>
+      {since && pill && (
+        <button
+          type="button"
+          className="ca-prbox-since"
+          title={pill.title}
+          onClick={() => {
+            showSince(pr.key, true);
+            onShow('changes');
+          }}
+        >
+          <Icon name="commit" size={12} />
+          {pill.text}
+        </button>
+      )}
+      <button type="button" className="ca-prbox-line-go" title="Show its Reviews tab" tabIndex={-1} onClick={() => onShow('review')}>
+        Review
+        <Icon name="chevron-right" size={11} />
       </button>
       {again && (
         <button type="button" className="ca-linkbtn ca-prbox-again" title={againTitle(again)} onClick={onTryAgain}>
@@ -307,19 +341,21 @@ export interface PrBoxProps {
   ownKeys?: boolean;
   /** A verdict goes on to what waits next (a card's window). */
   goesOn?: boolean;
-  /** Shows the PR's Reviews tab. */
-  onShowReview: () => void;
+  /** Shows one of the PR's tabs: Reviews from the line over the box, Changes from its pill. */
+  onShow: (tab: PrTab) => void;
   className?: string;
 }
 
 /** What Auto means beside Ask, on its line. */
 const ASK_AUTO = 'The account the quick panel’s Auto would start, among those that can answer: one with room, the one whose week resets soonest. On its own model and effort.';
 
-export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, onShowReview, className }: PrBoxProps) {
+export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, onShow, className }: PrBoxProps) {
   const { asking, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, note, sending, agents } = b;
   const text = asking ? b.askText : b.reviewText;
   const setText = asking ? b.setAskText : b.setReviewText;
-  const suggests = pr.autoReview && !pr.autoReview.submitted ? pr.autoReview.suggests : null;
+  const suggests = pr.autoReview && !pr.autoReview.submitted && !yourVerdictStands(pr) ? pr.autoReview.suggests : null;
+  // You approved the commit it's at: Approve says so, and another press is another approval.
+  const approvedNow = reviewable ? yourApproval(pr) : null;
   // The button the agent's suggestion is, marked as such.
   const suggested = (v: Verdict) => (suggests === v ? { icon: 'sparkles', why: `The agent suggests this. ` } : null);
   const notReviewable = pr.mine ? 'GitHub doesn’t let you approve your own PR' : 'It’s closed';
@@ -333,7 +369,7 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
       : agents === 'comment'
         ? `${keys.comment} comments with the agent’s review${onward} · ${keys.approve} approves anyway`
         : reviewable
-          ? `${keys.approve} approves${withDraft}${onward} · ${keys.comment} comments`
+          ? `${keys.approve} approves${approvedNow ? ' again' : ''}${withDraft}${onward} · ${keys.comment} comments`
           : stillOpen
             ? `${notReviewable}; ${keys.comment} comments${withDraft}`
             : 'It’s closed; a comment still goes to the PR';
@@ -354,12 +390,12 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
   };
   const changes = button('request-changes', 'Request changes', 'Ask for changes, with what’s written');
   const comment = button('comment', 'Comment', 'Comment with what’s written');
-  const approve = button('approve', 'Approve', 'Approve');
+  const approve = approvedNow && sending !== 'approve' ? { ...button('approve', 'Approved', 'Approve'), title: `${approvedWords(approvedNow, b.now)}${withDraft}` } : button('approve', 'Approve', 'Approve');
   return (
     <>
       {asking && <SideStrip key={`side:${pr.key}`} sideKey={pr.key} words={prSides(pr, answerer)} />}
       <div className={cx('ca-composer', 'ca-prreview-box', asking && 'is-aside', className)}>
-        <ReviewLine pr={pr} draft={draft} onShowReview={onShowReview} onTryAgain={b.tryAgain} />
+        <ReviewLine pr={pr} draft={draft} now={b.now} onShow={onShow} onTryAgain={b.tryAgain} />
         <div
           className="ca-composer-field"
           onMouseDown={(e) => {
@@ -453,7 +489,7 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
                 {comment.label}
               </Button>
               {reviewable && (
-                <Button variant={agents ? 'secondary' : 'primary'} size="sm" icon={approve.icon ?? 'check'} disabled={!!sending} title={`${approve.title} (${keys.approve})`} onClick={() => b.review('approve')}>
+                <Button variant={agents || approvedNow ? 'secondary' : 'primary'} size="sm" icon={approve.icon ?? 'check'} disabled={!!sending} title={`${approve.title} (${keys.approve})`} onClick={() => b.review('approve')}>
                   {approve.label}
                 </Button>
               )}

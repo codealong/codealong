@@ -20,7 +20,7 @@ import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lan
 import { readDraft, writeDraft } from './drafts';
 import { bayOf, stuckMidTurn } from './lanes';
 import * as fx from './testing/fixtures';
-import type { BarFeed, BarItem, BarRecent, BarSnoozed, Lane, Session, TranscriptItem } from './types';
+import type { BarFeed, BarItem, BarRecent, BarSnoozed, Lane, Session, TranscriptItem, Verdict } from './types';
 
 const NOW = 1_790_200_000_000;
 
@@ -205,11 +205,25 @@ describe('boardAhead', () => {
     const asked = fx.prItem({ number: 1, reviewRequested: true, snoozedUntil: null });
     const other = fx.prItem({ number: 2 });
     const board = fx.board({ lanes: [lane([session('a', 'idle')])], prs: [asked, other], logoStatus: 'needs' });
-    const out = boardAhead(board, [change({ kind: 'pr-review', key: asked.key })]);
+    const out = boardAhead(board, [change({ kind: 'pr-review', key: asked.key, verdict: 'approve', commit: null })]);
     expect(out.prs[0]).toMatchObject({ reviewRequested: false, state: asked.state });
     expect(out.prs[1]).toBe(other);
     expect(out.logoStatus).toBe('idle');
-    expect(boardAhead(board, [change({ kind: 'pr-review', key: other.key })])).toBe(board);
+  });
+
+  it('shows the review you gave a PR at once, until the board has it', () => {
+    const pr = fx.prItem({ number: 1, headOid: 'c0ffee1aaaa', lastReview: { state: 'approved', commit: '0ld0ld0', at: NOW - 86_400_000 } });
+    const board = fx.board({ prs: [pr] });
+    const gave = (verdict: Verdict, commit: string | null) => boardAhead(board, [change({ kind: 'pr-review', key: pr.key, verdict, commit })]).prs[0].lastReview;
+    // Of the commit it's at, unless it was a draft's, begun on another.
+    expect(gave('approve', null)).toEqual({ state: 'approved', commit: 'c0ffee1aaaa', at: NOW });
+    expect(gave('request-changes', 'bead123')).toEqual({ state: 'changes', commit: 'bead123', at: NOW });
+    expect(gave('comment', null)?.state).toBe('commented');
+    // The board's own, once it has yours or a later one, is what shows; a PR of yours has none.
+    const shown = { ...board, prs: [{ ...pr, lastReview: { state: 'approved' as const, commit: 'c0ffee1aaaa', at: NOW + 400 } }] };
+    expect(boardAhead(shown, [change({ kind: 'pr-review', key: pr.key, verdict: 'approve', commit: null })])).toBe(shown);
+    const mine = { ...board, prs: [{ ...pr, mine: true, lastReview: undefined }] };
+    expect(boardAhead(mine, [change({ kind: 'pr-review', key: pr.key, verdict: 'comment', commit: null })])).toBe(mine);
   });
 });
 
@@ -243,7 +257,7 @@ describe('settled', () => {
   });
 
   it('keeps a review a while after the engine answered, its board showing it by then', () => {
-    const a = change({ kind: 'pr-review', key: 'o/r#1' });
+    const a = change({ kind: 'pr-review', key: 'o/r#1', verdict: 'approve', commit: null });
     expect(settled(a, view(NOW + 90_000), NOW + 9_000)).toBe(a);
     const done = { ...a, doneAt: NOW + 3_000 };
     expect(settled(done, view(NOW + 9_000), NOW + 9_000)).toBe(done);
@@ -454,7 +468,7 @@ describe('barAhead', () => {
 
   it('takes a review given here off the bar', () => {
     const f = { ...feed([item('w', 'working', NOW)]), reviews: [fx.barReview({ key: 'o/r#1' }), fx.barReview({ key: 'o/r#2' })] };
-    const out = barAhead(f, [change({ kind: 'pr-review', key: 'o/r#1' })]);
+    const out = barAhead(f, [change({ kind: 'pr-review', key: 'o/r#1', verdict: 'approve', commit: null })]);
     expect([out.reviews.map((r) => r.key), out.logoStatus]).toEqual([['o/r#2'], 'needs']);
   });
 

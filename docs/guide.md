@@ -938,6 +938,23 @@ instead; a draft of only your own line comments isn't told apart. It never merge
 from before, with `auto_approve = true`, reads as `submit = "approve"`. A review of a PR of yours
 whose agent would approve it isn't handed back to its session.
 
+#### Reviewing again
+
+Codealong keeps the review you last submitted on each PR, from GitHub (a draft doesn't count), and
+the commit it was of, so a PR that asks for your review again says whether you've reviewed what's
+there now. Once you've reviewed a PR, the line over its box leads with your review: "You approved
+c0ffee1, its latest commit" and when, where it's of the commit the PR's at, the agent's suggestion
+gone and Approve, in the box and in the panel's row of buttons, reading Approved (another press is
+another approval: ⌘⏎ approves again); or "You approved 1234567" where commits came after it, with
+the agent's suggestion for them and a pill saying how many ("2 new commits"). The review shows as
+you give it, before GitHub is asked again. A dismissed review says so. The pill shows the Changes
+tab with only what changed since your review: the commits after it, compared on GitHub, which a
+switch beside Files changed (All, Since 1234567) turns back to every change. Where the branch was
+rebased or force-pushed since, there's nothing to compare (the pill says Rewritten since), and
+Changes shows every change, saying why. In the PRs view and the PR's header, a PR that asks for
+your review after you gave one reads Re-review, its tooltip saying what yours was and whether
+commits came since, ahead of Ready to merge where your earlier approval is what has it ready.
+
 #### Settings for one repo, and its team's
 
 Settings › Automation has a picker at its top: Everywhere, or one of the repos checked out here

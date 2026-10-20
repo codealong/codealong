@@ -791,6 +791,7 @@ nudge_about = "feedback-and-checks"
             authored_by: None,
             labels: Vec::new(),
             auto_review: None,
+            last_review: None,
         }
     }
 

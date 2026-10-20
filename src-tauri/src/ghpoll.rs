@@ -10,8 +10,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::board::{self, LaneSeed};
-use crate::github::{self, Failure, Glance, Points, PrRaw, RepoPrs, Requested, Stamp};
-use crate::model::{Notice, PrState};
+use crate::github::{self, Failure, Glance, Points, PrRaw, RepoPrs, Requested, Stamp, Verdict};
+use crate::model::{LastReview, Notice, PrState};
 use crate::throttle;
 use crate::util::now_ms;
 
@@ -228,8 +228,9 @@ pub struct GhPoll {
     /// What the poll on its way has answered for, and whether its glance was answered: at its
     /// end, what a poll answered at a glance didn't read stands as it was, with nothing wrong.
     heard: (bool, HashSet<String>),
-    /// PRs you approved here (slug, number) and when, until GitHub is asked after it.
-    approved_here: HashMap<(String, u64), Instant>,
+    /// PRs you reviewed here (slug, number), when, and your review as the board shows it, until
+    /// GitHub is asked after it.
+    approved_here: HashMap<(String, u64), (Instant, Option<LastReview>)>,
     /// PRs you merged here (slug, number), when, and when by the clock, until GitHub is asked
     /// after it.
     merged_here: HashMap<(String, u64), (Instant, i64)>,
@@ -545,19 +546,24 @@ impl GhPoll {
         }
     }
 
-    /// `gh` has approved a PR: the board stops asking you to review it, and GitHub is asked for
-    /// the rest (it may be approved now, and ready to merge). True when the board has changed.
-    pub fn on_approved(&mut self, slug: String, number: u64, seeds: &[LaneSeed], now: Now) -> bool {
+    /// `gh` has reviewed a PR as you, any verdict: the board stops asking you to review it and
+    /// shows your review, of `commit` (a draft's, else the commit the PR's at), and GitHub is asked
+    /// for the rest (it may be approved now, and ready to merge). True when the board has changed.
+    pub fn on_approved(&mut self, slug: String, number: u64, verdict: Verdict, commit: Option<String>, seeds: &[LaneSeed], now: Now) -> bool {
         let mut dirty = false;
+        let mut shown = None;
         if let Some(pr) = self.prs.get_mut(&slug).and_then(|prs| prs.iter_mut().find(|p| p.number == number)) {
             pr.review_requested = false;
+            let review = LastReview { state: verdict.into(), commit: commit.or_else(|| pr.head_oid.clone()), at: Some(now.ms) };
+            pr.last_review = Some(review.clone());
+            shown = Some(review);
             dirty = true;
         }
         if let Some(prs) = self.requested.get_mut(&slug) {
             prs.retain(|p| p.number != number);
             dirty = true;
         }
-        self.approved_here.insert((slug, number), now.at);
+        self.approved_here.insert((slug, number), (now.at, shown));
         self.on_changed(seeds, now);
         dirty
     }
@@ -589,10 +595,10 @@ impl GhPoll {
     fn on_repo(&mut self, slug: String, result: Result<RepoPrs, Failure>, now: Now) -> bool {
         match result {
             Ok(mut repo) => {
-                // An answer to a request sent before you approved a PR here still asks for your
-                // review; one sent after has GitHub's word on it.
+                // An answer to a request sent before you reviewed a PR here still asks for your
+                // review, without it; one sent after has GitHub's word on it.
                 let asked = self.schedule.last;
-                self.approved_here.retain(|(s, n), at| {
+                self.approved_here.retain(|(s, n), (at, review)| {
                     if *s != slug {
                         return true;
                     }
@@ -601,6 +607,9 @@ impl GhPoll {
                     }
                     if let Some(pr) = repo.prs.iter_mut().find(|p| p.number == *n) {
                         pr.review_requested = false;
+                        if review.is_some() {
+                            pr.last_review = review.clone();
+                        }
                     }
                     true
                 });
@@ -654,7 +663,7 @@ impl GhPoll {
         // As with a repo's own PRs (`on_repo`): an answer asked for before you approved a PR
         // here still lists it.
         let asked = self.schedule.last;
-        self.approved_here.retain(|(s, n), at| {
+        self.approved_here.retain(|(s, n), (at, _)| {
             if asked.is_some_and(|t| t >= *at) {
                 return false;
             }
@@ -696,7 +705,7 @@ impl GhPoll {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Checks, Merge, Origin, PrState};
+    use crate::model::{Checks, LastReviewState, Merge, Origin, PrState};
     use std::path::PathBuf;
     use std::sync::mpsc::channel;
 
@@ -760,6 +769,7 @@ mod tests {
             reviewers_asked: Vec::new(),
             authored_by: None,
             labels: Vec::new(),
+            last_review: None,
         }
     }
 
@@ -1094,19 +1104,23 @@ mod tests {
         let mut gh = quiet();
         let slug = "sprucehq/spark".to_string();
         let asked = |gh: &GhPoll| gh.prs()[&slug][0].review_requested;
-        let answer = |requested: bool| Event::Repo(slug.clone(), Ok(RepoPrs { login: Some("gwen".into()), prs: vec![PrRaw { review_requested: requested, ..pr(1089) }] }), None);
-        gh.prs.insert(slug.clone(), vec![pr(1089)]);
+        let answer = |requested: bool| Event::Repo(slug.clone(), Ok(RepoPrs { login: Some("gwen".into()), prs: vec![PrRaw { review_requested: requested, head_oid: Some("c0ffee1".into()), ..pr(1089) }] }), None);
+        gh.prs.insert(slug.clone(), vec![PrRaw { head_oid: Some("c0ffee1".into()), ..pr(1089) }]);
+        let yours = |gh: &GhPoll| gh.prs()[&slug][0].last_review.clone();
         let sent = clock();
 
         // A poll is on its way when you approve.
         gh.schedule.inflight = true;
         gh.schedule.last = Some(sent.at);
-        assert!(gh.on_approved(slug.clone(), 1089, &[], after(sent, 1)));
+        assert!(gh.on_approved(slug.clone(), 1089, Verdict::Approve, None, &[], after(sent, 1)));
         assert!(!asked(&gh), "the board stops asking at once");
+        let approved = LastReview { state: LastReviewState::Approved, commit: Some("c0ffee1".into()), at: Some(after(sent, 1).ms) };
+        assert_eq!(yours(&gh), Some(approved.clone()), "and shows your approval, of the commit it's at");
         assert!(gh.schedule.again, "GitHub is asked again once the poll returns");
         // That poll was answered before GitHub had your review.
         assert!(gh.on_event(answer(true), &[], after(sent, 2)));
         assert!(!asked(&gh), "an answer asked for before the approval doesn't bring it back");
+        assert_eq!(yours(&gh), Some(approved), "nor take your review away");
         assert!(!gh.on_event(Event::PollEnded, &[], after(sent, 2)), "the end of a poll changes nothing on the board");
         assert!(!gh.schedule.inflight && !gh.schedule.again);
         assert!(gh.schedule.all, "and everything is read then, whatever its glance says");
@@ -1115,7 +1129,12 @@ mod tests {
         gh.schedule.last = Some(after(sent, 3).at);
         gh.on_event(answer(true), &[], after(sent, 4));
         assert!(asked(&gh));
+        assert_eq!(yours(&gh), None);
         assert!(gh.approved_here.is_empty());
+
+        // A draft's review is of the commit the draft was begun on.
+        assert!(gh.on_approved(slug.clone(), 1089, Verdict::RequestChanges, Some("bead123".into()), &[], after(sent, 5)));
+        assert_eq!(yours(&gh).map(|r| (r.state, r.commit)), Some((LastReviewState::Changes, Some("bead123".into()))));
     }
 
     #[test]
@@ -1135,7 +1154,7 @@ mod tests {
 
         // Approved here: gone at once, and an answer asked for before doesn't bring it back.
         gh.schedule.inflight = true;
-        assert!(gh.on_approved("SparkHQ/spark".into(), 7, &seeds, after(sent, 1)));
+        assert!(gh.on_approved("SparkHQ/spark".into(), 7, Verdict::Comment, None, &seeds, after(sent, 1)));
         assert!(gh.requested()["SparkHQ/spark"].is_empty());
         gh.on_event(found(), &seeds, after(sent, 2));
         assert!(gh.requested().get("SparkHQ/spark").is_none_or(|prs| prs.is_empty()));

@@ -7,11 +7,13 @@
 
 import { reviewAgain, reviewInCodex, reviewNow } from './api';
 import type { MenuAction } from './contextMenu';
+import { agoPhrase, count } from './format';
 import { FRESH_SIDES } from './harness';
 import { commentsWord, submittedWord } from './prDraft';
+import { reviewedBefore, yourReview, yourReviewSaid } from './prStatus';
 import { errorText, type Report } from './report';
 import { autoPick, isGroup, pickFromGroup } from './start';
-import type { AutoReview, Draft, Lane, PrItem, ReviewsCfg, ReviewStart, RoutingGroup, StartAccount, StartPlace, Usage, Verdict } from './types';
+import type { AutoReview, Draft, Lane, LastReview, PrItem, ReviewsCfg, ReviewStart, RoutingGroup, Since, StartAccount, StartPlace, Usage, Verdict } from './types';
 
 /** One entry of the Review with menu: a round on `account`, or on the reviewer Settings names for
  *  none; or Codex's own review page. */
@@ -256,18 +258,55 @@ export function suggestWords(v: Verdict): string {
   return { approve: 'Suggests approving', 'request-changes': 'Suggests changes', comment: 'Suggests a comment' }[v];
 }
 
-/** The line over a PR's box (PrBox.tsx): where its review stands, an agent's round and your
- *  draft review on GitHub together, else that there's none yet; `busy` while an agent reviews.
- *  `approved` is the commit the agent approved before the round the line is of (the round's own
- *  suggestion says the rest). */
-export function reviewLineWords(pr: Pick<PrItem, 'autoReview' | 'mine'>, draft: Draft | null): { icon: string; says: string; busy: boolean; approved: string | null } {
+/** The line over a PR's box (PrBox.tsx): where its review stands. Once you've reviewed it, your
+ *  last review leads (prStatus.ts `yourReview`): of the commit the PR's at, it says so, and of an
+ *  earlier one, `since` is that commit, whose changes since the line offers. The agent's round is
+ *  then `agent`, for the line's title, and your draft review on GitHub follows yours. Without one,
+ *  it's an agent's round and your draft together, else that there's none yet. `busy` while an
+ *  agent reviews. `approved` is the commit the agent approved before the round the line is of
+ *  (the round's own suggestion says the rest), where your review doesn't lead. */
+export function reviewLineWords(pr: Pick<PrItem, 'autoReview' | 'mine' | 'lastReview' | 'headOid'>, draft: Draft | null): { icon: string; says: string; busy: boolean; approved: string | null; agent: string | null; since: string | null } {
   const r = pr.autoReview;
   const yours = draft ? `your draft review${draft.count > 0 ? `, ${commentsWord(draft.count)}` : ''}` : null;
-  if (r) {
-    const { icon, says } = autoReviewWords(r, draft ? { draft: true, submitted: null } : undefined);
-    const approved = r.approves && r.approves !== r.head ? r.approves.slice(0, 7) : null;
-    return { icon, says: yours && r.stage === 'drafted' ? `${says}: ${yours}` : says, busy: r.stage === 'reviewing', approved };
+  const agent = r ? autoReviewWords(r, draft ? { draft: true, submitted: null } : undefined) : null;
+  const busy = r?.stage === 'reviewing';
+  const mine = yourReview(pr);
+  if (mine) {
+    const { icon, says } = yourReviewSaid(mine.review);
+    const at = mine.current ? `${says}, its latest commit` : says;
+    return { icon, says: yours ? `${at} · ${yours}` : at, busy, approved: null, agent: agent?.says ?? null, since: reviewedBefore(pr) };
   }
-  if (yours) return { icon: 'note', says: yours[0].toUpperCase() + yours.slice(1), busy: false, approved: null };
-  return { icon: 'eye', says: pr.mine ? 'No agent review of your PR' : 'No review of yours yet', busy: false, approved: null };
+  if (r && agent) {
+    const approved = r.approves && r.approves !== r.head ? r.approves.slice(0, 7) : null;
+    return { icon: agent.icon, says: yours && r.stage === 'drafted' ? `${agent.says}: ${yours}` : agent.says, busy, approved, agent: null, since: null };
+  }
+  if (yours) return { icon: 'note', says: yours[0].toUpperCase() + yours.slice(1), busy: false, approved: null, agent: null, since: null };
+  return { icon: 'eye', says: pr.mine ? 'No agent review of your PR' : 'No review of yours yet', busy: false, approved: null, agent: null, since: null };
+}
+
+/** What Approve says on hover where you approved the commit the PR's at (prStatus.ts
+ *  `yourApproval`): when, and that another press is another approval. */
+export function approvedWords(r: LastReview, now: number): string {
+  return `You approved ${r.commit?.slice(0, 7) ?? 'it'}, the commit it’s at${r.at != null ? `, ${agoPhrase(r.at, now)}` : ''}. Approving again adds another approval`;
+}
+
+/** What the pill beside the line over a PR's box says of the changes since your review of an
+ *  earlier commit (`reviewLineWords`'s `since`), as GitHub's comparison has them (`Since`), and
+ *  what a click on it shows. Before the comparison is read, only that there are new commits. */
+export function sinceWords(commit: string, since: Since | null): { text: string; title: string } {
+  const at = commit.slice(0, 7);
+  if (since && !since.follows) return { text: 'Rewritten since', title: `The branch was rebased or force-pushed since your review of ${at}, so what changed since can’t be told apart: Changes shows all of it` };
+  const text = since ? count(since.commits, 'new commit') : 'New commits';
+  return { text, title: `Show what changed since your review of ${at}${since ? `: ${count(since.files.length, 'file')}${since.moreFiles ? ' or more' : ''}` : ''}, under Changes` };
+}
+
+/** What the Changes tab says under its heading while it shows what changed since your review of
+ *  `commit` (PrFiles.tsx `SinceScope`): that it's being read, how many commits, or why it shows
+ *  every change instead. */
+export function sinceNote(commit: string, since: Since | null): string {
+  const at = commit.slice(0, 7);
+  if (!since) return `Reading what changed since your review of ${at}…`;
+  if (!since.follows) return `The branch was rebased or force-pushed since your review of ${at}, so what changed since can’t be told apart: these are all its changes.`;
+  const files = since.files.length === 0 ? ', which changed no file' : since.moreFiles ? `; the first ${since.files.length} files they changed` : '';
+  return `${count(since.commits, 'commit')} since your review of ${at}${files}.`;
 }

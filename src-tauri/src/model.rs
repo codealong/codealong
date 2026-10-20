@@ -325,6 +325,42 @@ pub struct PrItem {
     /// Where Codealong's own review of it stands, once it's had one (autoreview.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_review: Option<AutoReview>,
+    /// The review you last submitted on it, once you have (github.rs `last_review_of`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_review: Option<LastReview>,
+}
+
+/// The review you last submitted on a PR, as GitHub has it (`viewerLatestReview`, which leaves a
+/// draft out): what it said and the commit it was of, which tells a PR whose review is asked of
+/// you again after you gave it from one you've reviewed as it is.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LastReview {
+    pub state: LastReviewState,
+    /// The commit it was of; none where GitHub doesn't say.
+    pub commit: Option<String>,
+    pub at: Option<i64>,
+}
+
+/// What your last review of a PR said. One GitHub dismissed (by hand, or by new commits where the
+/// repo dismisses stale approvals) no longer says which it was.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LastReviewState {
+    Approved,
+    Changes,
+    Commented,
+    Dismissed,
+}
+
+impl From<crate::github::Verdict> for LastReviewState {
+    fn from(v: crate::github::Verdict) -> Self {
+        match v {
+            crate::github::Verdict::Approve => LastReviewState::Approved,
+            crate::github::Verdict::RequestChanges => LastReviewState::Changes,
+            crate::github::Verdict::Comment => LastReviewState::Commented,
+        }
+    }
 }
 
 /// Where a round of Codealong's automatic review of a PR stands (autoreview.rs).

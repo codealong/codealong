@@ -2218,8 +2218,8 @@ fn submit(engine: &Handle, pr: &PrItem, head: &str, verdict: Verdict, text: Opti
         Err(why) => return Went::NotSubmitted(why),
     };
     match crate::github::review_with(&pr.repo_slug, pr.number, verdict, &body, draft.as_ref()) {
-        Ok(_) => {
-            engine.approved(&pr.repo_slug, pr.number);
+        Ok(done) => {
+            engine.approved(&pr.repo_slug, pr.number, verdict, done.commit);
             Went::Submitted
         }
         Err(e) => Went::PostFailed(format!("{e:#}")),
@@ -2280,7 +2280,7 @@ pub fn submit_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, verdic
         Ok(done) => {
             let said = r.told(&job, Went::Submitted, now_ms());
             drop(r);
-            engine.approved(&pr.repo_slug, pr.number);
+            engine.approved(&pr.repo_slug, pr.number, verdict, done.commit.clone());
             engine.reviewed(said);
             Ok(done)
         }
@@ -2531,6 +2531,7 @@ mod tests {
             authored_by: None,
             labels: Vec::new(),
             auto_review: None,
+            last_review: None,
         }
     }
 

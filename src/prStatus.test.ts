@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { agentApproves, approvedBefore, asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, withMerges, type PrFacts } from './prStatus';
+import { agentApproves, approvedBefore, asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewedBefore, reviewMark, reviewersWords, withMerges, yourReview, yourVerdictStands, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
-import type { PrComment, PrItem } from './types';
+import type { LastReview, PrComment, PrItem } from './types';
 
 const checks = fx.checks;
 const facts = (f: Partial<PrFacts> = {}): PrFacts => ({ state: 'open', checks: checks({ passed: 12 }), merge: 'blocked', base: 'main', ...f });
@@ -24,6 +24,21 @@ describe('prPills', () => {
     // A draft, or a review that's in, says so whoever is asked.
     expect(prPills(facts({ state: 'draft', reviewersAsked: ['ana'] }))[0].text).toBe('Draft');
     expect(prPills(facts({ state: 'changes', reviewersAsked: ['ana'] }))[0].text).toBe('Changes requested');
+  });
+
+  it('says Re-review where your review is asked for again after you gave one, ready to merge or not', () => {
+    const head = 'c0ffee1aaaa';
+    const yours = (state: LastReview['state'], commit = '1234567ffff'): Partial<PrFacts> => ({ headOid: head, lastReview: { state, commit, at: 5 } });
+    expect(prPills(facts({ reviewRequested: true, reviewersAsked: ['ana'], ...yours('approved') }))[0]).toMatchObject({ text: 'Re-review', icon: 'repeat', title: 'Your review is asked for again. You approved 1234567, and it’s had commits since. Waiting on a review from you and ana.' });
+    expect(prPills(facts({ reviewRequested: true, ...yours('commented', head) }))[0].title).toBe('Your review is asked for again. You commented on c0ffee1, the commit it’s at. Waiting on a review from you.');
+    // Your approval of an earlier commit is likely what has it ready: Re-review goes first.
+    expect(texts({ state: 'approved', merge: 'clean', reviewRequested: true, ...yours('approved') })).toEqual([['Re-review', 'plain'], ['Ready to merge', 'ready']]);
+    expect(prPills(facts({ state: 'approved', merge: 'blocked', reviewRequested: true, ...yours('dismissed') }))[0].title).toMatch(/^Your review is asked for again\. Your review of 1234567 was dismissed\./);
+    // Not asked of you again, it says what yours was where it says the PR's approved.
+    expect(prPills(facts({ state: 'approved', merge: 'unknown', ...yours('approved', head) }))[0]).toMatchObject({ text: 'Approved', title: "Approved. GitHub hasn't said yet whether it can merge. You approved c0ffee1, the commit it’s at." });
+    // Never on a PR of yours, nor one you hadn't reviewed.
+    expect(prPills(facts({ reviewRequested: true, mine: true, ...yours('commented') }))[0].text).toBe('Review requested');
+    expect(prPills(facts({ reviewRequested: true }))[0].text).toBe('Review requested');
   });
 
   it("doesn't call it ready on an approval and passing checks alone", () => {
@@ -230,6 +245,25 @@ describe('reviewMark', () => {
     expect(reviewMark(item({ state: 'approved', mine: false, reviewRequested: true, requestedBy: 'gwen' }))).toMatchObject({ key: 'asked', tone: 'attn', title: 'Your review is asked for, by gwen' });
     expect(key({ state: 'approved', mine: false, reviewRequested: true, snoozedUntil: Date.now() + 60_000 })).toBe('approved');
     expect(key({ mine: false, reviewRequested: true, autoReview: { stage: 'reviewing', head: 'abc', at: 0, rounds: 1, holds: true } })).toBe('agent');
+    // Asked again after you gave yours.
+    expect(reviewMark(item({ mine: false, reviewRequested: true, requestedBy: 'gwen', headOid: 'c0ffee1aaaa', lastReview: { state: 'approved', commit: '1234567ffff', at: 5 } }))?.title).toBe('Your review is asked for again, by gwen. You approved 1234567, and it’s had commits since.');
+  });
+
+  it('knows whether your last review is of the commit the PR’s at', () => {
+    const at = (lastReview: LastReview | undefined, more: Partial<PrFacts> = {}) => ({ headOid: 'c0ffee1aaaa', lastReview, mine: false, ...more });
+    const of = (state: LastReview['state'], commit: string | null): LastReview => ({ state, commit, at: 5 });
+    expect(yourReview(at(of('approved', 'c0ffee1aaaa')))?.current).toBe(true);
+    expect(yourReview(at(of('approved', '1234567ffff')))?.current).toBe(false);
+    expect(yourReview(at(of('dismissed', 'c0ffee1aaaa')))?.current).toBe(false);
+    expect(yourReview(at(of('approved', null)))?.current).toBe(false);
+    expect(yourReview(at(undefined))).toBe(null);
+    expect(yourReview(at(of('commented', 'c0ffee1aaaa'), { mine: true }))).toBe(null);
+    // What's compared since: the commit of an earlier one, of whichever kind.
+    expect(reviewedBefore(at(of('dismissed', '1234567ffff')))).toBe('1234567ffff');
+    expect(reviewedBefore(at(of('approved', 'c0ffee1aaaa')))).toBe(null);
+    expect(reviewedBefore(at(of('approved', '1234567ffff'), { headOid: undefined }))).toBe(null);
+    // An approval or a request for changes of the commit it's at says what you'd do; a comment doesn't.
+    expect([yourVerdictStands(at(of('approved', 'c0ffee1aaaa'))), yourVerdictStands(at(of('changes', 'c0ffee1aaaa'))), yourVerdictStands(at(of('commented', 'c0ffee1aaaa'))), yourVerdictStands(at(of('approved', '1234567ffff')))]).toEqual([true, true, false, false]);
   });
 
   it('marks nothing on a draft or a PR that’s done', () => {

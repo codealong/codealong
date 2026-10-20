@@ -985,6 +985,7 @@ mod tests {
             authored_by: None,
             labels: Vec::new(),
             auto_review: None,
+            last_review: None,
         }
     }
 

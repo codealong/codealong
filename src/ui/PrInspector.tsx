@@ -26,12 +26,14 @@ import { agentsVerdict, openingTab, type PrTab } from '../agentReview';
 import { below, showContextMenu } from '../contextMenu';
 import { openPrFile, openUrl, prCommentAsks, prDetail } from '../api';
 import { useEditorIcons } from '../editors';
-import { absolute, ago } from '../format';
+import { absolute, ago, count } from '../format';
 import { prFileMenu } from '../menus';
 import { fileOnGitHub, firstChanged, parsePatch } from '../prFiles';
-import { asksFor, commentsToAsk, mayApprove, primaryWords } from '../prStatus';
+import { asksFor, commentsToAsk, mayApprove, primaryWords, reviewedBefore, yourApproval } from '../prStatus';
 import { openFromOthers, reviewersOf, reviewsCount } from '../prReviews';
 import { useYourReview, verdictWords } from '../prDraft';
+import { approvedWords, sinceNote } from '../review';
+import { readSinceAgain, showSince, useSince, useSinceShown } from '../since';
 import type { Report } from '../report';
 import type { Board, Lane, PrDetail, PrFile, PrItem, Session, TeamFile, Usage } from '../types';
 import { PrReview } from './AgentReview';
@@ -199,10 +201,12 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
   // What's read of your draft by the details below: approving submits it.
   const draft = useYourReview(pr, false)?.review?.draft;
   // Approve is for any open PR but yours, asked for or not; it's filled when it's asked of you,
-  // unless the agent suggests otherwise and its review goes from the box in one press.
+  // unless the agent suggests otherwise and its review goes from the box in one press. Where you
+  // approved the commit it's at, it reads Approved, and another press is another approval.
+  const approved = mayApprove(pr) ? yourApproval(pr) : null;
   const lead = mayApprove(pr) && (
-    <Button variant={requested && !agentsVerdict(pr, !!draft) ? 'primary' : 'secondary'} icon="check" disabled={approving} title={verdictWords('approve', draft) ?? (requested ? undefined : 'Approve it as you, though your review wasn’t asked for')} onClick={onApprove}>
-      {approving ? 'Approving…' : 'Approve'}
+    <Button variant={requested && !approved && !agentsVerdict(pr, !!draft) ? 'primary' : 'secondary'} icon="check" disabled={approving} title={approved ? approvedWords(approved, details.now) : (verdictWords('approve', draft) ?? (requested ? undefined : 'Approve it as you, though your review wasn’t asked for'))} onClick={onApprove}>
+      {approving ? 'Approving…' : approved ? 'Approved' : 'Approve'}
     </Button>
   );
   const trail = (
@@ -225,7 +229,7 @@ export function PrInspector({ approving, onApprove, onReview, onSnooze, report, 
       <div className="ca-prinsp ca-prpanel-body">
         <PrDetails {...details} keys report={report} tabs={tabs} lead={lead} trail={trail} />
       </div>
-      <PrBoxView pr={pr} box={box} keys={{ approve: keysSaid('⌘⏎'), comment: keysSaid('⌥⌘⏎') }} ownKeys onShowReview={() => tabs.show('review')} />
+      <PrBoxView pr={pr} box={box} keys={{ approve: keysSaid('⌘⏎'), comment: keysSaid('⌥⌘⏎') }} ownKeys onShow={tabs.show} />
     </aside>
   );
 }
@@ -291,6 +295,31 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
   }, [cacheKey, pr.repoSlug, pr.number]);
 
   const detail = state.key === cacheKey ? state.detail : undefined;
+
+  // What changed since your last review, where the PR has moved on from its commit: Changes
+  // shows it in place of every change while you have it do so.
+  const reviewed = reviewedBefore(pr);
+  const sinceOn = useSinceShown(pr.key);
+  const since = useSince(pr.repoSlug, reviewed, reviewed ? (pr.headOid ?? null) : null);
+  const changedSince = reviewed && sinceOn && since?.since?.follows ? since.since : null;
+  const sinceScope = reviewed
+    ? {
+        commit: reviewed,
+        on: sinceOn,
+        onPick: (on: boolean) => showSince(pr.key, on),
+        title: `Only what changed since your review of ${reviewed.slice(0, 7)}${since?.since?.follows ? `: ${count(since.since.commits, 'commit')}` : ''}`,
+        note: since?.error ? (
+          <>
+            Couldn’t read what changed since {reviewed.slice(0, 7)}: {since.error}{' '}
+            <button type="button" className="ca-linkbtn" onClick={() => pr.headOid && readSinceAgain(pr.repoSlug, reviewed, pr.headOid)}>
+              Try again
+            </button>
+          </>
+        ) : (
+          sinceNote(reviewed, since?.since ?? null)
+        ),
+      }
+    : undefined;
 
   // Once the comments are showing, Jev says which ask for a change (when that's on); the markers
   // arrive after, so the panel never waits on it.
@@ -487,7 +516,18 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
 
       <div ref={(el) => void (panels.current.changes = el)} className="ca-prtab-panel" role="tabpanel" id={`${idBase}-changes`} aria-labelledby={`${idBase}-changes-tab`} hidden={tab !== 'changes'}>
         {detail ? (
-          <PrFiles key={pr.key} ref={files} prKey={pr.key} files={detail.files} total={pr.changedFiles} more={detail.moreFiles} keys={keys} onShow={() => pick('changes')} opener={opener} />
+          <PrFiles
+            key={pr.key}
+            ref={files}
+            prKey={pr.key}
+            files={changedSince ? changedSince.files : detail.files}
+            total={changedSince ? changedSince.files.length : pr.changedFiles}
+            more={changedSince ? changedSince.moreFiles : detail.moreFiles}
+            keys={keys}
+            onShow={() => pick('changes')}
+            opener={opener}
+            since={sinceScope}
+          />
         ) : (
           <section className="ca-insp-sec">{error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Loading…</p>}</section>
         )}

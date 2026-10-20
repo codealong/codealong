@@ -1456,7 +1456,7 @@ fn pr_review(engine: &Handle, c: &Call) -> Result<Value, String> {
     let found = crate::github::your_review(&p.repo, p.number).map_err(|e| format!("Couldn't look for a draft review of yours on #{}, which a review would submit: {}", p.number, words(e)))?.draft;
     draft_shown(found.as_ref().map(|d| (d.stamp(), d.count as u64, d.comments.len() as u64)), p.draft.as_deref(), p.number)?;
     let reviewed = crate::github::review_with(&p.repo, p.number, verdict, &p.body, found.as_ref()).map_err(words)?;
-    engine.approved(&p.repo, p.number);
+    engine.approved(&p.repo, p.number, verdict, reviewed.commit.clone());
     serde_json::to_value(codealong_peer::pr::Reviewed { draft: reviewed.draft.map(|n| n as u64) }).map_err(words)
 }
 

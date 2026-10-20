@@ -85,9 +85,10 @@ pub enum Msg {
     /// A PR you merged from Codealong, by its slug on the board and its number. The reply is the
     /// time of the board that shows it, published at once.
     Merged(String, u64, Sender<i64>),
-    /// A PR you approved from Codealong, by its slug on the board and its number. The reply is
+    /// A PR you reviewed from Codealong, by its slug on the board and its number, with the
+    /// verdict and the commit it was of where that isn't the PR's head (a draft's). The reply is
     /// the time of the board that shows it, published at once.
-    Approved(String, u64, Sender<i64>),
+    Approved(String, u64, github::Verdict, Option<String>, Sender<i64>),
     /// Sessions marked seen. With a reply, the time of the board that shows it, published at once.
     MarkSeen(Vec<String>, Option<Sender<i64>>),
     /// Sessions to mark unread, and where to say when the board shows it.
@@ -267,11 +268,12 @@ impl Handle {
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
-    /// A PR you've just approved stops asking for your review now, not at the next poll. Returns
-    /// the time of the board that shows it, as `mark_seen_shown` does.
-    pub fn approved(&self, slug: &str, number: u64) -> Option<i64> {
+    /// A PR you've just reviewed stops asking for your review now, not at the next poll, and
+    /// shows your review: `verdict`, of `commit` where that's a draft's, else of the PR's head.
+    /// Returns the time of the board that shows it, as `mark_seen_shown` does.
+    pub fn approved(&self, slug: &str, number: u64, verdict: github::Verdict, commit: Option<String>) -> Option<i64> {
         let (tx, rx) = channel();
-        self.tx.send(Msg::Approved(slug.to_string(), number, tx)).ok()?;
+        self.tx.send(Msg::Approved(slug.to_string(), number, verdict, commit, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
     }
 
@@ -2043,8 +2045,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
                 }
-                Ok(Msg::Approved(slug, number, reply)) => {
-                    self.dirty |= self.github.on_approved(slug, number, &self.seeds, Now::real());
+                Ok(Msg::Approved(slug, number, verdict, commit, reply)) => {
+                    self.dirty |= self.github.on_approved(slug, number, verdict, commit, &self.seeds, Now::real());
                     // Now rather than on the next tick: the button waits for it.
                     self.publish();
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));

@@ -92,6 +92,16 @@
   color: var(--ink-3);
   font: var(--type-meta);
 }
+/* Under the heading while it shows the changes since your review: being read, why they can't be
+   told apart, or that no file changed. */
+.ca-prfiles-since {
+  margin: 0 0 6px;
+  color: var(--ink-2);
+  font: var(--type-meta);
+}
+.ca-prfiles-top > .ca-segctl {
+  flex: none;
+}
 
 /* Changed files and their diffs. */
 .ca-prfiles {

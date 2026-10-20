@@ -1503,6 +1503,27 @@ export interface PrItem {
   labels?: PrLabel[];
   /** Where Codealong's own review of it stands, once it's had one (autoreview.rs). */
   autoReview?: AutoReview;
+  /** The review you last submitted on it, once you have (model.rs `LastReview`). */
+  lastReview?: LastReview;
+}
+
+/** The review you last submitted on a PR, as GitHub has it (model.rs `LastReview`): a draft isn't
+ *  one. A dismissed one no longer says what it said. */
+export interface LastReview {
+  state: 'approved' | 'changes' | 'commented' | 'dismissed';
+  /** The commit it was of; null where GitHub doesn't say. */
+  commit: string | null;
+  at: number | null;
+}
+
+/** What changed on a PR's branch since a commit (github.rs `Since`): nothing to compare, with no
+ *  files, where the branch was rebased or force-pushed since (`follows` false). */
+export interface Since {
+  follows: boolean;
+  commits: number;
+  files: PrFile[];
+  /** A comparison gives its first 300 files. */
+  moreFiles: boolean;
 }
 
 /** Where a round of Codealong's automatic review of a PR stands (model.rs `ReviewStage`):
@@ -1555,9 +1576,11 @@ export interface YourReview {
   submitted: { state: string; at: number | null; url: string | null } | null;
 }
 
-/** What a review did (github.rs `Reviewed`): submitted your draft, with this many comments. */
+/** What a review did (github.rs `Reviewed`): submitted your draft, with this many comments, of
+ *  the draft's commit. */
 export interface Reviewed {
   draft: number | null;
+  commit?: string;
 }
 
 /** A comment on one line of a PR's code: the file, and the line's number in its new version. */

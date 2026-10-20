@@ -8,7 +8,9 @@
 // it filters, the files it lists open and close together. ⌘F goes to the filter where the
 // window says so (`keys`) and it's for the PR's panel or card (findKeys.ts), and so does a click
 // on the file count over the details (`FilesFinder`), each showing the tab first (`onShow`).
-// What's typed is kept for each PR while the window shows another.
+// What's typed is kept for each PR while the window shows another. Where the PR has had commits
+// since your last review of it, a switch beside the heading shows only what changed since
+// (`SinceScope`, since.ts), which the pill beside the line over its box turns on.
 //
 // A diff has each line's numbers before and after (prFiles.ts `parsePatch`), one under the other
 // (unified) or, where the list is wide enough, side by side (split), its code in its language's
@@ -284,6 +286,18 @@ export interface FilesFinder {
   find: () => void;
 }
 
+/** The changes since your last review of the PR (since.ts), which the list shows in place of all
+ *  of them while `on`, its caller handing it their files: the commit your review was of, what the
+ *  switch says of them, and what's said under the heading meanwhile (being read, why they can't
+ *  be told apart, or that no file changed). */
+export interface SinceScope {
+  commit: string;
+  on: boolean;
+  onPick: (on: boolean) => void;
+  title: string;
+  note: ReactNode | null;
+}
+
 interface PrFilesProps {
   /** The PR's key, for what's typed in its filter. */
   prKey: string;
@@ -297,6 +311,8 @@ interface PrFilesProps {
   onShow?: () => void;
   /** Where the window can open the files outside it. */
   opener?: FileOpener;
+  /** A switch between all its changes and those since your review, where it's had commits since. */
+  since?: SinceScope;
 }
 
 /** Whether `el` is at least `px` wide, as it's drawn and as it changes. It's measured again as it
@@ -320,7 +336,7 @@ function useWide(el: { readonly current: Element | null }, px: number): boolean 
   return wide;
 }
 
-export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ prKey, files, total, more, keys = false, onShow, opener }, ref) {
+export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ prKey, files, total, more, keys = false, onShow, opener, since }, ref) {
   const [query, setQuery] = useState(() => queries.get(prKey) ?? '');
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [active, setActive] = useState(-1);
@@ -401,6 +417,17 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
     <section className="ca-insp-sec ca-prfiles-sec" aria-label="Files changed" ref={section}>
       <div className="ca-prfiles-top" ref={top}>
         <h4 className="ca-label">Files changed · {count}</h4>
+        {since && (
+          <Seg<'all' | 'since'>
+            label="Which changes"
+            value={since.on ? 'since' : 'all'}
+            onPick={(v) => since.onPick(v === 'since')}
+            options={[
+              { id: 'all', label: 'All', title: 'Every change the PR makes' },
+              { id: 'since', label: `Since ${since.commit.slice(0, 7)}`, title: since.title },
+            ]}
+          />
+        )}
         {filtering && rows.length > 1 && rows.length <= OPEN_ALL && (
           <button type="button" className="ca-linkbtn" onClick={openAll}>
             {allOpen ? 'Close all' : 'Open all'}
@@ -473,6 +500,7 @@ export const PrFiles = forwardRef<FilesFinder, PrFilesProps>(function PrFiles({ 
           )}
         </label>
       </div>
+      {since?.on && since.note && <p className="ca-prfiles-since">{since.note}</p>}
       <div className="ca-prfiles">{named.map((h, i) => row(h, i))}</div>
       {mentioned.length > 0 && (
         <>

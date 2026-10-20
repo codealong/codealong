@@ -90,6 +90,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--pr-side", takes: "<owner/name> <number> <account> <question> [a follow-up…] [--model <model>] [--effort <level>]", run: pr_side },
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
     Mode { flag: "--pr-draft", takes: "<owner/name> <number>", run: |_, rest| { let (repo, number) = repo_and_number(rest)?; Ok(pretty(&crate::github::your_review(repo, number).map_err(failed)?)) } },
+    Mode { flag: "--pr-since", takes: "<owner/name> <commit> <commit>", run: |_, rest| match rest { [repo, from, to] => Ok(pretty(&github::since(repo, from, to).map_err(failed)?)), _ => Err(Stop::Usage) } },
     Mode { flag: "--pr", takes: "<owner/name> <number>", run: pr },
     Mode { flag: "--merge-box", takes: "<owner/name> <number>", run: merge_box },
     Mode { flag: "--review-plan", takes: "<owner/name> <number>", run: review_plan },

@@ -43,6 +43,13 @@
 .ca-prbox-line.is-busy > .ca-icon {
   color: var(--logo-working);
 }
+/* Your approval of the commit the PR's at, or request for changes on it, in its verdict's color. */
+.ca-prbox-line.is-approved > .ca-icon {
+  color: var(--pr-open);
+}
+.ca-prbox-line.is-changes > .ca-icon {
+  color: var(--attn);
+}
 .ca-prbox-line-says {
   flex: 0 1 auto;
   min-width: 0;
@@ -50,16 +57,46 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* When your review, which leads the line, was given. */
+.ca-prbox-line-when {
+  flex: none;
+  color: var(--ink-3);
+}
+/* Reviews, at the line's end: the line's own way there, which lights with it. */
 .ca-prbox-line-go {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 2px;
-  margin-left: auto;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
   color: var(--ink-3);
   font: var(--type-meta-strong);
+  cursor: pointer;
 }
-.ca-prbox-line:hover .ca-prbox-line-go {
+.ca-prbox-line-go:hover,
+.ca-prbox-standing:has(> .ca-prbox-line:hover) > .ca-prbox-line-go {
+  color: var(--ink);
+}
+/* The commits since your review of an earlier one: a click shows what they changed. */
+.ca-prbox-since {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--attn-tint);
+  color: var(--attn);
+  font: var(--type-meta-strong);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ca-prbox-since:hover {
+  background: var(--surface-hover);
   color: var(--ink);
 }
 

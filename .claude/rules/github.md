@@ -107,3 +107,12 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   with made-up ids (`NOT_FOUND` after the document's checked; a made-up field is refused first),
   not run for real: submitting would reach the PR's people. Codealong's hidden mark is kept through
   an edit of the draft's text (`unmarked`), since the next round looks for it.
+- The review you last submitted on a PR, on every PR the board reads: `viewerLatestReview { state
+  submittedAt commit { oid } }` in `PR_FIELDS` (`last_review_of`), one object, so no points (a
+  60-PR search with it cost 1, 2026-10-20). It leaves out a draft: with a pending review made on a
+  PR whose latest was an approval, it still gave the approval (made and deleted again, 2026-10-20).
+  Its states are `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED` and `DISMISSED`; a dismissed one keeps
+  its commit. Submitting a review moves the PR's `updatedAt`, so the next glance reads it; a review
+  given here shows at once (`ghpoll.rs` `on_approved`). What changed since its commit is REST
+  `compare/<commit>...<head>?per_page=1` (`since`): the files and `total_commits` come whole on the
+  first page with one commit listed (105 files and 74 commits, 2026-10-20).
