@@ -269,7 +269,8 @@ export interface Entities {
   prs: Map<string, PrItem>;
 }
 
-/** `lanes` are the project's, as the window shows them; todos and PRs are picked by `inProject`.
+/** `lanes` are the project's, as the window shows them; todos and PRs are picked by `inProject`,
+ *  so a todo in no project is on All projects' boards alone, as it's in All projects' lists alone.
  *  Archived sessions are left out but `archived`, those the board has by hand (boardLists.ts
  *  `archivedOn`). */
 export function entitiesOf(board: Board | null, lanes: Lane[], todos: Todo[], inProject: (project: string) => boolean, archived: readonly Placed[] = []): Entities {
@@ -278,7 +279,7 @@ export function entitiesOf(board: Board | null, lanes: Lane[], todos: Todo[], in
   return {
     lanes: new Map(lanes.map((l) => [l.id, l])),
     sessions,
-    todos: new Map(todos.filter((t) => !t.project || inProject(t.project)).map((t) => [t.id, t])),
+    todos: new Map(todos.filter((t) => inProject(t.project)).map((t) => [t.id, t])),
     prs: new Map((board?.prs ?? []).filter((p) => inProject(p.project)).map((p) => [p.key, p])),
   };
 }

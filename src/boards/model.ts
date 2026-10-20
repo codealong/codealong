@@ -82,6 +82,7 @@ export interface BoardDoc {
 export type BoardOp =
   | { op: 'create'; board: BoardDoc }
   | { op: 'rename'; id: string; name: string }
+  | { op: 'project'; id: string; project: string }
   | { op: 'delete'; id: string }
   | { op: 'add'; id: string; cards: string[] }
   | { op: 'remove'; id: string; cards: string[] }
@@ -207,6 +208,11 @@ export function applyOp(boards: BoardDoc[], op: BoardOp, now: number): BoardDoc[
   switch (op.op) {
     case 'rename':
       next = { ...b, name: cleanName(op.name) || b.name };
+      break;
+    case 'project':
+      // A project's own board stays in its project.
+      if (isProjects(b)) return boards;
+      next = { ...b, project: op.project.trim() || b.project };
       break;
     case 'add': {
       const fresh = op.cards.filter((c) => !b.added.includes(c));

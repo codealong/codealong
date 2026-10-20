@@ -24,7 +24,7 @@ import { reuse } from './reuse';
 import { usePins } from './pins';
 import { reviewItems as reviewItemsFor, tryAgain } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
-import { itemPrimaryHolds, statusSection, todoAgent, todoInFilter, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
+import { itemPrimaryHolds, statusSection, todoAgent, todoInFilter, todoProjects, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
 import { repoReviews } from './repoSettings';
 import type { DevicesView, Lane, Pr, PrItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
@@ -633,13 +633,26 @@ export function App() {
     boards.pick(id);
     if (view !== 'kanban' && view !== 'canvas') setView(lastLayout);
   };
-  /** A board's menu: the project's boards to show, a new one, its settings, deleting it. */
+  /** Moves a board to another project. The window follows the board it shows there, unless it
+   *  shows All projects, which lists it still. */
+  const moveBoard = (b: BoardDoc, project: string) =>
+    void boards.apply({ op: 'project', id: b.id, project }).then(
+      () => {
+        if (b.id !== shownBoard.id || current === ALL_PROJECTS) return;
+        boards.pick(b.id, project);
+        pickProject(project);
+      },
+      (e: unknown) => setToast(errorText(e)),
+    );
+  /** A board's menu: the project's boards to show, a new one, its settings, moving it to another
+   *  project as a todo moves (every project but Elsewhere, and All projects), deleting it. */
   const boardMenu = (b: BoardDoc = shownBoard) =>
     void showContextMenu([
       ...boards.boards.map((x) => ({ label: boardName(x, current), checked: x.id === shownBoard.id && (view === 'kanban' || view === 'canvas'), run: () => showBoard(x.id) })),
       'separator',
       { label: 'New board…', run: () => setBoardEdit({ board: null }) },
       { label: `Settings of ${b.name}…`, run: () => setBoardEdit({ board: b }) },
+      ...(isProjects(b) ? [] : [{ label: 'Move to project', items: [...todoProjects(projects), ALL_PROJECTS].map((p) => ({ label: p, checked: b.project === p, run: () => moveBoard(b, p) })) }]),
       ...(b.columns ? [{ label: 'Kanban columns back to the stages', run: () => void applyBoard({ op: 'columns', id: b.id, columns: null }) }] : []),
       ...(isProjects(b)
         ? []

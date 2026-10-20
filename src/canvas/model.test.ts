@@ -79,6 +79,13 @@ describe('sync', () => {
     expect(at(sync(all, e, NOW, new Set(), onBoard([], ['session:s1'])), 'session:s1')).toBeUndefined();
   });
 
+  it('has a todo in no project on All projects’ boards alone, as their lists have it', () => {
+    const todos = [todo('mine'), todo('theirs', { project: 'Atlas' }), todo('loose', { project: '' })];
+    const ids = (inProject: (p: string) => boolean) => [...entitiesOf(null, [], todos, inProject).todos.keys()];
+    expect(ids((p) => p === 'Acme')).toEqual(['mine']);
+    expect(ids(() => true)).toEqual(['mine', 'theirs', 'loose']);
+  });
+
   it('brings on an archived session or a helper put on the board by hand, and no other', () => {
     const marked = session('marked', { archived: true, status: 'stopped' });
     const helper = session('review', { helper: { parent: 's1' } });

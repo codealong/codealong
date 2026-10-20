@@ -864,6 +864,15 @@ enum BoardCmd {
         #[command(flatten)]
         at: BoardAt,
     },
+    /// Move a board to another project, or with `all` to All projects. It shows that project's work from then on, and keeps what it has by hand: it says which of those cards won't show there (`notShown` in its JSON). A project's own board stays in its project.
+    Project {
+        board: String,
+        /// The project to move it to, as the app names it, or `all`.
+        #[arg(allow_hyphen_values = true)]
+        to: String,
+        #[command(flatten)]
+        at: BoardAt,
+    },
     /// Delete a board, and its canvas. What was on it stays as it is everywhere else. A project's own board can't be deleted.
     Delete {
         board: String,
@@ -1638,6 +1647,14 @@ fn board(cmd: BoardCmd, c: &mut Client, json: bool) -> Result<()> {
             let now = out.board.unwrap_or(b);
             say_done(json, &now, format!("Renamed the board {board} to {}.\n", now.name))
         }
+        BoardCmd::Project { board, to, at } => {
+            let b = find_board(c, Some(&board), &at)?;
+            let to = board_project(c, &BoardAt { project: Some(to) })?.ok_or_else(|| anyhow!("Name the project to move it to."))?;
+            let now = apply_board(c, BoardOp::Project { id: b.id.clone(), project: to })?.board.unwrap_or(b);
+            // What it has by hand stays on it, though another project's won't show there.
+            let added = now.added.clone();
+            say_unshown(c, json, &now, &added, format!("Moved {} to {}.\n", now.name, now.project))
+        }
         BoardCmd::Delete { board, at } => {
             let b = find_board(c, Some(&board), &at)?;
             apply_board(c, BoardOp::Delete { id: b.id.clone() })?;
@@ -1793,14 +1810,20 @@ fn board_cards(c: &mut Client, a: BoardCardsArgs, add: bool, json: bool) -> Resu
     if !add {
         return say_done(json, &now, format!("Took {what} off {}.\n", now.name));
     }
+    say_unshown(c, json, &now, &cards, format!("Put {what} on {}.\n", now.name))
+}
+
+/// What a change to a board did, and which of `cards` won't show on it (`unshown`): `notShown`
+/// beside the board in JSON.
+fn say_unshown(c: &mut Client, json: bool, now: &BoardDoc, cards: &[String], line: String) -> Result<()> {
     let board = c.board()?;
-    let unshown: Vec<Unshown> = cards.iter().filter_map(|card| unshown(board, &now, card)).collect();
+    let unshown: Vec<Unshown> = cards.iter().filter_map(|card| unshown(board, now, card)).collect();
     if json {
-        let mut out = serde_json::to_value(&now)?;
+        let mut out = serde_json::to_value(now)?;
         out["notShown"] = serde_json::to_value(&unshown)?;
         return print_json(&out);
     }
-    print!("Put {what} on {}.\n{}", now.name, unshown_text(&unshown));
+    print!("{line}{}", unshown_text(&unshown));
     Ok(())
 }
 
@@ -1834,11 +1857,7 @@ fn unshown(board: &Board, doc: &BoardDoc, card: &str) -> Option<Unshown> {
     let (title, why) = match kind {
         boards::Kind::Session => all_sessions(board).into_iter().find(|(s, _)| s.key == key).map(|(s, l)| (s.title.clone(), lane_why(l)))?,
         boards::Kind::Worktree => board.lanes.iter().find(|l| l.id == key).map(|l| (l.callsign.clone(), lane_why(l)))?,
-        // A todo of no project is on every project's canvas, and no project's Kanban.
-        boards::Kind::Todo => board.todos.iter().find(|t| t.id == key).map(|t| {
-            let why = if t.project.is_empty() && !every { Some(format!("has no project, so it shows on {}'s canvas but not its Kanban", doc.name)) } else { elsewhere(&t.project) };
-            (t.title.clone(), why)
-        })?,
+        boards::Kind::Todo => board.todos.iter().find(|t| t.id == key).map(|t| (t.title.clone(), elsewhere(&t.project)))?,
         boards::Kind::Pr => board.prs.iter().find(|p| p.key == key).map(|p| (format!("#{} {}", p.number, p.title), elsewhere(&p.project)))?,
     };
     let title = if title.trim().is_empty() { "Untitled".to_string() } else { truncate(&title, 60) };
@@ -6733,7 +6752,7 @@ mod tests {
         assert_eq!(why(&release, "session:site").as_deref(), Some("is in Atlas, and Release shows what's in Northwind"));
         assert_eq!(why(&release, "todo:t-there").as_deref(), Some("is in Atlas, and Release shows what's in Northwind"));
         assert_eq!(why(&release, "session:chat").as_deref(), Some("is outside your projects, and Release shows what's in Northwind"));
-        assert_eq!(why(&release, "todo:t-none").as_deref(), Some("has no project, so it shows on Release's canvas but not its Kanban"));
+        assert_eq!(why(&release, "todo:t-none").as_deref(), Some("is in no project, and Release shows what's in Northwind"));
         // The board of every project leaves out only what's outside your projects and needs nothing of you.
         let every = BoardDoc::of_project(crate::route::ALL_PROJECTS);
         for card in ["session:site", "session:chat", "todo:t-there", "todo:t-none"] {

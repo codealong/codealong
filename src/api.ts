@@ -1729,6 +1729,8 @@ export interface BoardApplied {
   board: BoardDoc | null;
   id: string;
   project: string;
+  /** The project it left, when it moved to this one. */
+  left?: string;
 }
 
 /** A change to a board (boards.rs `apply`). Every window then reads its project's boards again. */

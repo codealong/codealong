@@ -242,6 +242,9 @@ pub enum BoardOp {
     /// A new board. An id that's empty or taken is replaced.
     Create { board: BoardDoc },
     Rename { id: String, name: String },
+    /// Moves a board to another project, or to All projects: it shows that project's work from
+    /// then on.
+    Project { id: String, project: String },
     Delete { id: String },
     /// Puts cards on the board by hand, back on it if they were taken off.
     Add { id: String, cards: Vec<String> },
@@ -265,18 +268,21 @@ impl BoardOp {
     pub fn board(&self) -> &str {
         match self {
             BoardOp::Create { board } => &board.id,
-            BoardOp::Rename { id, .. } | BoardOp::Delete { id } | BoardOp::Add { id, .. } | BoardOp::Remove { id, .. } | BoardOp::Rule { id, .. } | BoardOp::Columns { id, .. } | BoardOp::Place { id, .. } | BoardOp::Order { id, .. } => id,
+            BoardOp::Rename { id, .. } | BoardOp::Project { id, .. } | BoardOp::Delete { id } | BoardOp::Add { id, .. } | BoardOp::Remove { id, .. } | BoardOp::Rule { id, .. } | BoardOp::Columns { id, .. } | BoardOp::Place { id, .. } | BoardOp::Order { id, .. } => id,
         }
     }
 }
 
-/// What a change did: the board as it is now, or none once it's deleted, and its project.
+/// What a change did: the board as it is now, or none once it's deleted, and its project, and
+/// the project it left when it moved to this one.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Applied {
     pub board: Option<BoardDoc>,
     pub id: String,
     pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<String>,
 }
 
 /// The file as it is, or for none yet, the canvases kept before there were boards.
@@ -442,6 +448,7 @@ fn check_rule(rule: Option<&Rule>) -> Result<()> {
 
 fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -> String) -> Result<(bool, Applied)> {
     let id = op.board().to_string();
+    let mut left = None;
     let changed = match op {
         BoardOp::Create { mut board } => {
             board.name = clean_name(&board.name)?;
@@ -462,7 +469,7 @@ fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -
                 board.added_at.entry(c.clone()).or_insert(now);
             }
             board.created_at = now;
-            let out = Applied { board: Some(board.clone().listed()), id: board.id.clone(), project: board.project.clone() };
+            let out = Applied { board: Some(board.clone().listed()), id: board.id.clone(), project: board.project.clone(), left: None };
             file.boards.push(board);
             return Ok((true, out));
         }
@@ -477,7 +484,7 @@ fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -
                 bail!("A project's own board can't be deleted.");
             }
             let gone = file.boards.remove(at);
-            return Ok((true, Applied { board: None, id, project: gone.project }));
+            return Ok((true, Applied { board: None, id, project: gone.project, left: None }));
         }
         BoardOp::Rename { id, name } => {
             let name = clean_name(&name)?;
@@ -487,6 +494,26 @@ fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -
             let changed = b.name != name;
             b.name = name;
             changed
+        }
+        BoardOp::Project { id, project } => {
+            let project = project.trim().to_string();
+            if project.is_empty() {
+                bail!("A board needs a project.");
+            }
+            // A project's own board is named for its project, whose everything it holds.
+            if id.starts_with(PROJECT_PREFIX) {
+                bail!("A project's own board stays in its project.");
+            }
+            let b = board_mut(file, &id)?;
+            let (name, from) = (b.name.clone(), b.project.clone());
+            if from == project {
+                false
+            } else {
+                name_free(file, &project, &name, &id)?;
+                board_mut(file, &id)?.project = project;
+                left = Some(from);
+                true
+            }
         }
         BoardOp::Add { id, cards: given } => {
             let given = cards(&given)?;
@@ -560,7 +587,7 @@ fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -
         }
     };
     let b = file.boards.iter().find(|b| b.id == id).expect("changed above");
-    Ok((changed, Applied { board: Some(b.clone().listed()), id, project: b.project.clone() }))
+    Ok((changed, Applied { board: Some(b.clone().listed()), id, project: b.project.clone(), left }))
 }
 
 // ---- `codealong board show|move|arrange` ----
@@ -681,7 +708,10 @@ pub fn answer(id: u64, answer: Result<Value, String>) {
 /// Tells every window a board changed, so each reads its project's boards again
 /// (src/boards/useBoards.ts). `from` is the window that changed it, which has it already.
 pub fn changed(app: &AppHandle, applied: &Applied, from: Option<&str>) {
-    let _ = app.emit("boards-changed", serde_json::json!({ "project": applied.project, "id": applied.id, "from": from }));
+    // A board that moved is told to the windows of the project it left too, which list it no more.
+    for project in std::iter::once(&applied.project).chain(applied.left.as_ref()) {
+        let _ = app.emit("boards-changed", serde_json::json!({ "project": project, "id": applied.id, "from": from }));
+    }
 }
 
 #[cfg(test)]
@@ -788,6 +818,28 @@ mod tests {
     }
 
     #[test]
+    fn a_board_moves_to_another_project_with_what_it_has_and_says_the_one_it_left() {
+        let mut file = file_with(vec![BoardDoc { added: vec!["todo:t-1".into()], ..named("b-1", "Release", "Northwind") }, named("b-2", "Release", "Atlas"), named("b-3", "Later", "Atlas")]);
+        let to = |id: &str, project: &str| BoardOp::Project { id: id.into(), project: project.into() };
+        let (changed, out) = run(&mut file, to("b-3", "Northwind")).unwrap();
+        assert!(changed);
+        assert_eq!((out.project.as_str(), out.left.as_deref()), ("Northwind", Some("Atlas")));
+        assert_eq!(file.boards[2].project, "Northwind");
+        // Already there, it doesn't move.
+        let (changed, out) = run(&mut file, to("b-3", "Northwind")).unwrap();
+        assert!(!changed && out.left.is_none());
+        // Where a board has its name, or the project is called that, it can't go.
+        assert!(run(&mut file, to("b-1", "Atlas")).unwrap_err().to_string().contains("Atlas already has a board called Release"));
+        assert!(run(&mut file, BoardOp::Rename { id: "b-3".into(), name: "Atlas".into() }).is_ok());
+        assert!(run(&mut file, to("b-3", "Atlas")).is_err());
+        // A project's own board stays, and so does one moved nowhere.
+        assert!(run(&mut file, to("p:Northwind", "Atlas")).is_err());
+        assert!(run(&mut file, to("b-1", " ")).is_err());
+        let (_, out) = run(&mut file, to("b-1", crate::route::ALL_PROJECTS)).unwrap();
+        assert_eq!(out.board.unwrap().added, ["todo:t-1"]);
+    }
+
+    #[test]
     fn columns_need_ids_of_their_own_and_what_was_put_in_one_thats_gone_goes_back_to_the_rules() {
         let mut file = file_with(vec![named("b-1", "Release", "Northwind")]);
         let col = |id: &str| Column { id: id.into(), name: id.to_uppercase(), rule: None, sort: Sort::Hand, folded: false };
@@ -847,6 +899,8 @@ mod tests {
         assert_eq!(op, BoardOp::Place { id: "b-1".into(), card: "todo:t-1".into(), column: Some("next".into()) });
         let op: BoardOp = serde_json::from_value(json!({ "op": "add", "id": "b-1", "cards": ["pr:acme/app#7"] })).unwrap();
         assert_eq!(op.board(), "b-1");
+        let op: BoardOp = serde_json::from_value(json!({ "op": "project", "id": "b-1", "project": "Atlas" })).unwrap();
+        assert_eq!(op, BoardOp::Project { id: "b-1".into(), project: "Atlas".into() });
     }
 
     #[test]

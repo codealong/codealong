@@ -1188,11 +1188,16 @@ project has a board of its own, named after it, that holds everything in the pro
 Board view starts as the Kanban and Canvas of the whole project. In the sidebar, Board is the
 project's own board, with the boards you make under it, and New board under them while a board
 shows; a board's right-click (or the menu on its name at the top) makes a new one, changes what it
-takes in, renames it, puts its Kanban back on the stages, or deletes it, which leaves what was on
-it as it was. Under All projects the sidebar lists every project's boards after its own, each
-with its project beside it, and a board shows its own project's work there as it does in its
-project: its Kanban, its canvas, and a todo made on it, which goes in its project. Add to board ›
-offers there the boards that would show the thing: All projects' and its own project's.
+takes in, renames it, moves it to another project or to All projects (Move to project ›, as a
+todo's menu moves a todo; `codealong board project` too), puts its Kanban back on the stages, or
+deletes it, which leaves what was on it as it was. A project's own board stays in its project.
+Boards and todos are in a project the same way: each is in one, or in none, made under All
+projects, and lives there alone. Under All projects the sidebar lists every project's boards
+after its own, each with its project beside it, and a board shows its own project's work there as
+it does in its project: its Kanban, its canvas, and a todo made on it, which goes in its project.
+A todo in no project shows on All projects' boards alone, as it's in All projects' Todo view
+alone. Add to board › offers there the boards that would show the thing: All projects' and its
+own project's.
 
 A board holds what its rule takes in, as the work moves on, and what you add by hand, less what
 you take off. A rule picks by kind (todos, sessions, worktrees, PRs), stage (To do, In progress, In

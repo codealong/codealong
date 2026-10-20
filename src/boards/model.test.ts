@@ -49,6 +49,16 @@ describe('applyOp', () => {
     expect(applyOp(one, { op: 'add', id: 'b-gone', cards: ['todo:t-2'] }, NOW)).toBe(one);
   });
 
+  it('moves a board to another project with what it has, but not a project’s own', () => {
+    const boards = [named('b-1', 'Release', { added: ['todo:t-1'] }), projectBoard('Acme')];
+    const moved = applyOp(boards, { op: 'project', id: 'b-1', project: 'Atlas' }, NOW);
+    expect(moved[0]).toEqual({ ...boards[0], project: 'Atlas' });
+    // It leaves the project's list for the other's.
+    expect(boardsIn(moved, 'Acme').map((b) => b.id)).toEqual(['p:Acme']);
+    expect(boardsIn(moved, 'Atlas').map((b) => b.id)).toEqual(['p:Atlas', 'b-1']);
+    expect(applyOp(boards, { op: 'project', id: 'p:Acme', project: 'Atlas' }, NOW)).toBe(boards);
+  });
+
   it('puts back what’s added, and keeps off what’s taken off, out of its column and order too', () => {
     let boards = [named('b-1', 'Release')];
     boards = applyOp(boards, { op: 'add', id: 'b-1', cards: ['session:s1'] }, NOW);

@@ -143,6 +143,7 @@ function boardOp(op) {
     if (b) {
       var gone = function (list) { return (list || []).filter(function (c) { return op.cards.indexOf(c) < 0; }); };
       if (op.op === 'rename') b.name = op.name;
+      if (op.op === 'project' && b.id.indexOf('p:') !== 0) b.project = op.project;
       if (op.op === 'rule') b.rule = op.rule;
       if (op.op === 'columns') b.columns = op.columns;
       if (op.op === 'order') b.order = op.order;

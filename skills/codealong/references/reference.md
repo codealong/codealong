@@ -3259,6 +3259,10 @@ Commands:
   open     Bring Codealong's main window forward on a board, as Kanban, or with --as
            canvas as Canvas
   rename   Rename a board. A project's own board can be renamed too
+  project  Move a board to another project, or with `all` to All projects. It shows that
+           project's work from then on, and keeps what it has by hand: it says which of
+           those cards won't show there (`notShown` in its JSON). A project's own board
+           stays in its project
   delete   Delete a board, and its canvas. What was on it stays as it is everywhere
            else. A project's own board can't be deleted
   help     Print this message or the help of the given subcommand(s)
@@ -3792,6 +3796,40 @@ Arguments:
 
   <NAME>
           
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --project <PROJECT>
+          The project, as the app names it, or `all` for the board of every project.
+          Without it, the project of the worktree the current folder is in
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong board project
+
+```
+Move a board to another project, or with `all` to All projects. It shows that project's
+work from then on, and keeps what it has by hand: it says which of those cards won't
+show there (`notShown` in its JSON). A project's own board stays in its project
+
+Usage: codealong board project [OPTIONS] <BOARD> <TO>
+
+Arguments:
+  <BOARD>
+          
+
+  <TO>
+          The project to move it to, as the app names it, or `all`
 
 Options:
       --json
