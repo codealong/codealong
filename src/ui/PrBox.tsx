@@ -279,7 +279,7 @@ function ReviewLine({ pr, draft, onShowReview, onTryAgain }: { pr: PrItem; draft
         <span className="ca-prbox-line-says">{says}</span>
         {suggests && !pr.autoReview?.submitted && <span className={cx('ca-prbox-suggests', `is-${suggests}`)}>{suggestWords(suggests)}</span>}
         {approved && !suggests && (
-          <span className="ca-prbox-suggests is-approve" title={`It approved ${approved} before, so the PR waits on your sign-off meanwhile`}>
+          <span className="ca-prbox-suggests is-approve" title={`The agent approved ${approved}, a commit before the one this review is of`}>
             {suggestWords('approve')} {approved}
           </span>
         )}

@@ -3649,7 +3649,7 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
         println!("Its primary session is told of what happens on it while it runs ({why}`codealong pr nudge {} --off` stops that).", p.key);
     }
     if let Some(r) = &p.auto_review {
-        println!("Review: {}", review_line(r));
+        println!("Review: {}", review_line(r, p.head_oid.as_deref()));
     }
     Ok(())
 }
@@ -3657,8 +3657,8 @@ fn pr_show(c: &mut Client, pr: &str, json: bool) -> Result<()> {
 /// Where a PR's agent review stands, in the words its card has (review.ts `autoReviewWords`):
 /// what was submitted for you first, since a submitted draft keeps its stage; then its reviewers'
 /// sessions and why it went as it did; then that it waits on your sign-off, when the agent approves
-/// its commit, or the commit it approved before.
-fn review_line(r: &crate::model::AutoReview) -> String {
+/// the commit the PR is at (`head`), or the commit it approved before.
+fn review_line(r: &crate::model::AutoReview, head: Option<&str>) -> String {
     use crate::github::Verdict;
     use crate::model::ReviewStage;
     let at = r.head.get(..7).unwrap_or(&r.head);
@@ -3678,7 +3678,7 @@ fn review_line(r: &crate::model::AutoReview) -> String {
     let who: String = r.parts.iter().map(|x| x.session.as_ref().map_or_else(|| format!(", {}", x.who), |s| format!(", {} in {s}", x.who))).collect();
     let note = r.note.as_deref().map(|n| format!(": {n}")).unwrap_or_default();
     let signoff = match r.approves.as_deref() {
-        Some(a) if a != r.head || r.behind => format!(" (it approved {} before)", a.get(..7).unwrap_or(a)),
+        Some(a) if head != Some(a) => format!(" (it approved {} before)", a.get(..7).unwrap_or(a)),
         Some(_) if !r.holds => " (it waits on your sign-off)".to_string(),
         _ => String::new(),
     };
@@ -6739,16 +6739,21 @@ mod tests {
         use crate::model::{AutoReview, PartState, ReviewPart, ReviewStage};
         let part = ReviewPart { who: "reviewers".into(), session: Some("cursor:cursor:c1".into()), state: PartState::Done, note: None };
         let r = AutoReview { stage: ReviewStage::Drafted, head: "1c1706be2657c978".into(), parts: vec![part], at: 0, comment: None, note: None, rounds: 1, behind: false, holds: false, own: false, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None };
-        assert_eq!(review_line(&r), "Agent drafted a review of 1c1706b, reviewers in cursor:cursor:c1");
+        let at = Some("1c1706be2657c978");
+        assert_eq!(review_line(&r, at), "Agent drafted a review of 1c1706b, reviewers in cursor:cursor:c1");
         // A draft submitted for you keeps its stage, and says what it went as.
         let submitted = AutoReview { submitted: Some(crate::github::Verdict::Approve), ..r.clone() };
-        assert_eq!(review_line(&submitted), "Agent approved 1c1706b for you, reviewers in cursor:cursor:c1");
-        // An approval of an earlier commit, while the next is reviewed.
+        assert_eq!(review_line(&submitted, at), "Agent approved 1c1706b for you, reviewers in cursor:cursor:c1");
+        // An approval of the PR's commit is yours to sign off.
+        let approving = AutoReview { stage: ReviewStage::Posted, suggests: Some(crate::github::Verdict::Approve), approves: Some("1c1706be2657c978".into()), ..r.clone() };
+        assert_eq!(review_line(&approving, at), "Agent reviewed 1c1706b and commented, reviewers in cursor:cursor:c1 (it waits on your sign-off)");
+        // One of an earlier commit isn't: the PR moved on, whether or not a review of it is under way.
+        assert_eq!(review_line(&approving, Some("2d2806cf")), "Agent reviewed 1c1706b and commented, reviewers in cursor:cursor:c1 (it approved 1c1706b before)");
         let reviewing = AutoReview { stage: ReviewStage::Reviewing, head: "2d2806cf".into(), approves: Some("1c1706be2657c978".into()), ..r.clone() };
-        assert_eq!(review_line(&reviewing), "Agent reviewing 2d2806c, reviewers in cursor:cursor:c1 (it approved 1c1706b before)");
+        assert_eq!(review_line(&reviewing, Some("2d2806cf")), "Agent reviewing 2d2806c, reviewers in cursor:cursor:c1 (it approved 1c1706b before)");
         // One whose session never began didn't start, and says why.
         let failed = AutoReview { stage: ReviewStage::Failed, parts: vec![ReviewPart { session: None, state: PartState::Failed, ..r.parts[0].clone() }], note: Some("Its session never showed up.".into()), ..r };
-        assert_eq!(review_line(&failed), "Agent's review of 1c1706b didn't start, reviewers: Its session never showed up.");
+        assert_eq!(review_line(&failed, at), "Agent's review of 1c1706b didn't start, reviewers: Its session never showed up.");
     }
 
     #[test]
