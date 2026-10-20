@@ -87,6 +87,17 @@
         key(q('.ca-picker-filter'), { key: 'ArrowRight' });
         await until(function () { return /Extra/.test(chip(rows(form)[0]).textContent); }, 5000, 'the effort a step up');
       }
+      // The menu opens inside the member's row: a drag or ⌃⌘↓ in it is the menu's, not the row's.
+      var filter = q('.ca-picker-filter', rows(form)[0]);
+      var inside = middle(filter);
+      pointer(filter, 'pointerdown', inside.x, inside.y);
+      pointer(filter, 'pointermove', inside.x, inside.y + 40);
+      await wait(50);
+      var sortedFromMenu = !!q('.ca-routing-members.is-sorting', form);
+      pointer(filter, 'pointerup', inside.x, inside.y + 40);
+      key(filter, { key: 'ArrowDown', ctrlKey: true, metaKey: true });
+      await wait(50);
+      check('a drag or ⌃⌘↓ in a member’s open menu leaves the order alone', !sortedFromMenu && order().join() === [names[0], names[1]].join(), sortedFromMenu + ' ' + order().join());
       chip(rows(form)[0]).click();
       var use = field(/^Use this group for/, form);
       check('Use this group for says it’s Auto routing’s and Automation’s setting', /same settings as Auto routing above and the reviewers in Automation/.test(use.textContent), use.textContent);

@@ -1236,16 +1236,18 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
                   <div ref={membersList} className={cx('ca-routing-members', sort.sorting && 'is-sorting')}>
                     {draft.members.map((m, i) => {
                       const drag = draft.members.length > 1 && !disabled ? sort.sortProps(i, draft.members) : null;
+                      // Its agent menu opens inside the row, and a press or a key there is the menu's.
+                      const inMenu = (target: EventTarget) => target instanceof Element && !!target.closest('.ca-picker');
                       return (
                         <div
                           key={i}
                           className={cx('ca-routing-member', drag?.className)}
                           style={drag?.style}
-                          onPointerDown={drag?.onPointerDown}
+                          onPointerDown={drag ? (e) => !inMenu(e.target) && drag.onPointerDown(e) : undefined}
                           onKeyDown={(e) => {
-                            // ⌃⌘↑ ⌃⌘↓ on any of its buttons, not in a menu it opened.
+                            // ⌃⌘↑ ⌃⌘↓ on any of its buttons.
                             const by = drag ? reorderKey(e.nativeEvent) : 0;
-                            if (!by || !e.currentTarget.contains(e.target as Node)) return;
+                            if (!by || inMenu(e.target)) return;
                             const next = movedMember(draft.members, i, by);
                             if (next === draft.members) return;
                             e.preventDefault();
