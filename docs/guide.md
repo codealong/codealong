@@ -1412,9 +1412,10 @@ GitHub; the PR's right-click menu copies its link. ⏎ or ⇥ on a PR under Revi
 in the waiting window, and ⇥ on a session answers it there; the panel puts itself away. The last row
 starts a new session with what you typed as its prompt. ⏎ does the selected row, ⌘⏎ always starts,
 ⌥⏎ shows a todo or a PR under Review requested in Codealong, ⌘1 to ⌘9 do a row, Escape closes. Each
-open starts empty, so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing (kept
-as you type, so a relaunch doesn't lose it), then earlier prompts you sent, started or saved, and ↓
-goes forward again. The panel keeps one size whatever it lists (smaller only on a screen too short
+open starts empty, so ⏎ goes to what needs you; ↑ brings back what you'd typed before closing, with
+the images attached to it and Improve Codealong's pictures of the windows when you wrote it there
+(kept as you type, so a relaunch doesn't lose them), then earlier prompts you sent, started or
+saved, and ↓ goes forward again. The panel keeps one size whatever it lists (smaller only on a screen too short
 for it): the list scrolls within it, the row that starts a new session stays above the bar, and the
 bar's menus open over the list. A click does a row
 only when you moved the pointer onto it: one the list moved under a pointer that stayed put (as
@@ -1702,7 +1703,9 @@ with a picture of every Codealong window that's up (the main window, project win
 bar or the bar in the notch, the peek, the waiting window, kept sessions, cards on the desktop; the
 panel itself aside) as attachments, each named for its window. Describe what to change and start as
 usual (the worktree, account, model and place are yours to change): the prompt is what you wrote,
-then the pictures, so the agent sees what you saw. A picture you take off the strip stays out. The
+then the pictures, so the agent sees what you saw. A picture you take off the strip stays out. What
+you wrote and didn't start is the panel's draft with its pictures: ↑ in the panel brings both back,
+starting in Codealong's source again, after it closes or Codealong relaunches. The
 pictures are each window's own drawing, asked of WebKit, so macOS asks no screen-recording
 permission, and they're kept as attachments are (`images/`).
 

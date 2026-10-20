@@ -16,7 +16,7 @@ import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } f
 import { prFlag } from './prStatus';
 import type { Codec } from './stored';
 import { platform } from './platform';
-import type { Board, DeviceFound, DeviceView, Lane, PrItem, PrState, RoutePick, Session, Status, TextHit, Todo } from './types';
+import type { Attachment, Board, DeviceFound, DeviceView, Lane, PrItem, PrState, RoutePick, Session, Status, TextHit, Todo } from './types';
 
 export const ALL_PROJECTS = 'All projects';
 /** What the panel's empty box says, and the box in the main window's title bar that opens it. */
@@ -690,12 +690,14 @@ export function recallList(draft: string | null, history: string[]): string[] {
 export interface QuickDraft {
   text: string;
   todos: string[];
+  /** Improve Codealong's pictures of the windows, when it was written over them (improve.ts). */
+  shots?: Attachment[];
 }
 
 /** The draft the next open leaves: what's typed, or else the draft there already, since sending,
  *  starting or saving empties the input without making a draft of nothing. */
-export function nextDraft(text: string, todos: string[], draft: QuickDraft | null): QuickDraft | null {
-  return text.trim() ? { text, todos } : draft;
+export function nextDraft(text: string, todos: string[], draft: QuickDraft | null, shots: Attachment[] = []): QuickDraft | null {
+  return text.trim() ? { text, todos, ...(shots.length > 0 ? { shots } : {}) } : draft;
 }
 
 /** A draft as it's kept across restarts, as JSON; no draft takes the key out. */
@@ -703,12 +705,19 @@ export const draftCodec: Codec<QuickDraft | null> = {
   parse: (raw) => {
     const v: unknown = JSON.parse(raw);
     if (typeof v !== 'object' || v === null) return undefined;
-    const { text, todos } = v as { text?: unknown; todos?: unknown };
+    const { text, todos, shots } = v as { text?: unknown; todos?: unknown; shots?: unknown };
     if (typeof text !== 'string') return undefined;
-    return { text, todos: Array.isArray(todos) ? todos.filter((t): t is string => typeof t === 'string') : [] };
+    const kept = Array.isArray(shots) ? shots.filter(isShot) : [];
+    return { text, todos: Array.isArray(todos) ? todos.filter((t): t is string => typeof t === 'string') : [], ...(kept.length > 0 ? { shots: kept } : {}) };
   },
   format: (draft) => (draft?.text.trim() ? JSON.stringify(draft) : null),
 };
+
+function isShot(v: unknown): v is Attachment {
+  if (typeof v !== 'object' || v === null) return false;
+  const { kind, path, name } = v as { kind?: unknown; path?: unknown; name?: unknown };
+  return kind === 'image' && typeof path === 'string' && path.startsWith('images/') && typeof name === 'string';
+}
 
 /** The start row's title: where it starts, as Jev's start suggestions say theirs (start.ts
  *  `startTitleWords`, null before there's a worktree), and the todos it's for. */

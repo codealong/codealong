@@ -477,6 +477,17 @@ describe('prompt history', () => {
     expect(draftCodec.parse('{"todos":[]}')).toBeUndefined();
     expect(draftCodec.parse('"x"')).toBeUndefined();
   });
+  it('keeps Improve Codealong’s pictures with the draft written over them', () => {
+    const shots = [{ kind: 'image' as const, path: 'images/aaa.png', name: 'Main window' }];
+    expect(nextDraft('the bar is too tall', [], null, shots)).toEqual({ text: 'the bar is too tall', todos: [], shots });
+    expect(nextDraft('', [], null, shots)).toBeNull();
+    const d = { text: 'the bar is too tall', todos: [], shots };
+    expect(draftCodec.parse(draftCodec.format(d)!)).toEqual(d);
+    // A draft without pictures is written as it was before they were kept.
+    expect(draftCodec.format(nextDraft('x', [], null, []))).toBe('{"text":"x","todos":[]}');
+    const odd = '{"text":"x","shots":[{"kind":"image","path":"images/b.png","name":"Bar"},{"kind":"image","path":"/etc/passwd","name":"x"},{"kind":"file","path":"files/c/d","name":"d"},3]}';
+    expect(draftCodec.parse(odd)).toEqual({ text: 'x', todos: [], shots: [{ kind: 'image', path: 'images/b.png', name: 'Bar' }] });
+  });
 });
 
 describe('findPrs', () => {

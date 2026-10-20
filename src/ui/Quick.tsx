@@ -273,6 +273,10 @@ export function Quick() {
   // Improve Codealong (improve.ts): the pictures of the windows the engine took as it opened the
   // panel, which go into the prompt; null when the panel is open for anything else.
   const [improve, setImprove] = useState<{ shots: Attachment[] } | null>(null);
+  const improveNow = useLatest(improve);
+  // While ↑ shows a draft written over Improve's pictures: the pictures the panel had before it,
+  // which walking on brings back, and where it was starting, when it wasn't open for Improve.
+  const recalledOver = useRef<{ improve: { shots: Attachment[] } | null; place: { project: string; laneId: string | null; device: string | null; asChat: boolean } | null } | null>(null);
   // Opened by the chat shortcut: on Codealong's chats, which the worktree picker calls No project,
   // until another is picked, and the hint names that shortcut.
   const [asChat, setAsChat] = useState(false);
@@ -313,7 +317,7 @@ export function Quick() {
   // What you'd typed when you last closed the panel without acting on it. Every open starts empty,
   // so the list is what needs you and ⏎ goes to it; ↑ in the empty input brings the draft back.
   // It's kept on every change as the next open would leave it (below), so a relaunch brings it
-  // back too.
+  // back too, with Improve Codealong's pictures when it was written over them.
   const [draft, setDraft] = useState<QuickDraft | null>(() => readStored(DRAFT_KEY, draftCodec, null));
   // Prompts you sent, started or saved, newest first, kept across restarts. ↑ walks back through
   // the draft and then these; `recall` is where it is, and holds while the text is what it
@@ -371,6 +375,7 @@ export function Quick() {
         // board has them, with the pictures the engine took of the windows.
         const improving = ctx.improve && typeof ctx.improve === 'object' ? ctx.improve : null;
         setImprove(improving);
+        recalledOver.current = null;
         improveFollowed.current = false;
         setAsChat(!!ctx.chat);
         const at = improving ? (b?.improve?.laneId ?? null) : (ctx.laneId ?? null);
@@ -379,7 +384,8 @@ export function Quick() {
         setTodoIds(ctx.todos ?? (ctx.todo ? [ctx.todo] : []));
         const typed = fullPromptNow.current;
         const typedFor = todoIdsNow.current;
-        setDraft((d) => nextDraft(typed, typedFor, d));
+        const typedOver = improveNow.current?.shots;
+        setDraft((d) => nextDraft(typed, typedFor, d, typedOver));
         loadPrompt(ctx.prompt ?? '');
         setSendTo(null);
         setRecall(null);
@@ -464,7 +470,7 @@ export function Quick() {
       offHidden();
     };
     // Once: the refs and setters are the same objects on every render.
-  }, [fullPromptNow, todoIdsNow, setAgent, setEffort, setPlace, setNewWorktree]);
+  }, [fullPromptNow, todoIdsNow, improveNow, setAgent, setEffort, setPlace, setNewWorktree]);
 
   useEffect(
     () =>
@@ -913,8 +919,8 @@ export function Quick() {
   });
   const recallable = useMemo(() => recallList(draft?.text ?? null, history), [draft, history]);
   useEffect(() => {
-    writeStored(DRAFT_KEY, draftCodec, nextDraft(fullPrompt, todoIds, draft));
-  }, [fullPrompt, todoIds, draft]);
+    writeStored(DRAFT_KEY, draftCodec, nextDraft(fullPrompt, todoIds, draft, improve?.shots));
+  }, [fullPrompt, todoIds, draft, improve]);
   const active = activeKey && keys.includes(activeKey) ? activeKey : startLeads && !inSendTo ? COMPOSE : keys[0];
 
   useEffect(() => {
@@ -1427,7 +1433,35 @@ export function Quick() {
       const next = at < 0 ? '' : recallable[at];
       const shownText = loadPrompt(next);
       setRecall(at < 0 ? null : at);
-      setTodoIds(at === 0 && draft && recallable[0] === draft.text ? draft.todos : []);
+      const fromDraft = at === 0 && draft && recallable[0] === draft.text ? draft : null;
+      setTodoIds(fromDraft?.todos ?? []);
+      // A draft written over Improve Codealong's pictures brings them back, and with them the
+      // start in Codealong's source; walking on puts back the panel's own pictures and place.
+      if (fromDraft?.shots) {
+        if (!recalledOver.current) {
+          recalledOver.current = { improve, place: improve ? null : { project, laneId, device, asChat } };
+          if (!improve) {
+            // Where an Improve open starts: the source's worktree, or none until it's found.
+            const at = board?.improve?.laneId ?? null;
+            setLaneId(at);
+            setDevice(at ? shortOf(at) : null);
+            if (board?.improve?.project) setProject(board.improve.project);
+            setAsChat(false);
+            improveFollowed.current = false;
+          }
+        }
+        setImprove({ shots: fromDraft.shots });
+      } else if (recalledOver.current) {
+        const before = recalledOver.current;
+        recalledOver.current = null;
+        setImprove(before.improve);
+        if (before.place) {
+          setProject(before.place.project);
+          setLaneId(before.place.laneId);
+          setDevice(before.place.device);
+          setAsChat(before.place.asChat);
+        }
+      }
       setActiveKey(null);
       window.requestAnimationFrame(() => el.setSelectionRange(shownText.length, shownText.length));
       return;
