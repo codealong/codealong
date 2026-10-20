@@ -206,7 +206,10 @@ Codealong (over the account's ACP adapter, which `codealong install` adds); an O
 in its service, so OpenCode must be running. The session's first message has no Edit from here,
 since a copy from before it would have nothing in it: start a new session instead. A Codex copy
 goes back to the start of the turn your message was in, so a message sent into a running turn
-takes the turn's earlier messages with it. `codealong session fork <session> <message> --from
+takes the turn's earlier messages with it. Claude Code can't go back from a message on a part of
+the conversation the session went back from (with Esc Esc in its terminal), nor from one right
+after a message sent while the agent worked that it hasn't answered yet; it says so rather than
+leave out what came between. `codealong session fork <session> <message> --from
 <cursor>` does the same, the cursor being the message's as `codealong session transcript` prints
 it.
 

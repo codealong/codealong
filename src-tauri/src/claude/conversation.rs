@@ -331,37 +331,25 @@ pub(super) fn idle_since(home: &Path, s: &crate::model::Session) -> Option<i64> 
 /// The longest prompt line read: one with pasted images runs to megabytes.
 const PROMPT_LINE_MAX: u64 = 64 * 1024 * 1024;
 
-/// Where a copy that leaves out a prompt of yours ends (`fork_point_before`), as claude-agent-acp
-/// names a message (acp.rs `fork_point`).
-#[derive(Debug, PartialEq)]
-pub struct ForkPoint {
-    /// The last message before the prompt.
-    pub exact: String,
-    /// The agent's last message before it, which may be `exact`. The adapter looks for the point
-    /// among the SDK's `getSessionMessages`, which lists only the branch the session is on now,
-    /// and then among the agent's messages on every branch; so for a prompt on a branch the
-    /// session was rewound from, only this one is found. None when the chain has none.
-    pub reply: Option<String>,
-}
-
 /// Where a copy that leaves out your prompt at `cursor` ends (`Adapter::fork_from`), found up the
-/// prompt's own chain of `parentUuid`s, since a rewind leaves another branch in the file. Its
-/// point is the last message before the prompt that the SDK's `getSessionMessages` lists:
-/// `user` and `assistant` lines but no meta lines, and the prompts sent while the agent worked
-/// (`queued_command` attachments) that a reply follows, as user messages, but no other
-/// attachment. An agent's message goes by its API id (`message.id`, its line's `uuid` where it
-/// has none), a queued prompt by its `source_uuid` where it has one, anything else by its
-/// `uuid`. So a tool's result just before a prompt sent while the agent worked goes with the
-/// copy, where a cut at the call before it would leave the call unanswered, and so does a prompt
-/// sent just before that one; another session's message there (a meta line) doesn't. None when
-/// the chain starts without one: the session's first prompt, or the first since a compaction,
-/// which starts the chain again.
-pub fn fork_point_before(path: &Path, cursor: u64) -> anyhow::Result<Option<ForkPoint>> {
+/// prompt's own chain of `parentUuid`s, since a rewind leaves another branch in the file: the
+/// last message before the prompt, as claude-agent-acp names it (acp.rs `fork_point`). It looks
+/// the point up among the SDK's `getSessionMessages` for the branch the session is on now, which
+/// lists `user` and `assistant` lines but no meta lines, and the prompts sent while the agent
+/// worked (`queued_command` attachments) that a reply follows, as user messages, but no other
+/// attachment; on other branches, only among the agent's messages. An agent's message goes by
+/// its API id (`message.id`, its line's `uuid` where it has none), a queued prompt by its
+/// `source_uuid` where it has one, anything else by its `uuid`. So a tool's result just before a
+/// prompt sent while the agent worked goes with the copy, where a cut at the call before it would
+/// leave the call unanswered, and so does a prompt sent just before that one; another session's
+/// message there (a meta line) doesn't. None when the chain starts without one: the session's
+/// first prompt, or the first since a compaction, which starts the chain again.
+pub fn fork_point_before(path: &Path, cursor: u64) -> anyhow::Result<Option<String>> {
     let line = read_line_at(path, cursor, PROMPT_LINE_MAX).ok_or_else(|| anyhow::anyhow!("Codealong couldn't read that message in the session's transcript."))?;
     let prompt: Value = serde_json::from_str(&line)?;
     let parent = |v: &Value| v.get("parentUuid").and_then(Value::as_str).map(String::from);
     let Some(mut looking_for) = parent(&prompt) else { return Ok(None) };
-    let (mut exact, mut reply) = (None, None);
+    let mut found = None;
     // A line's parent was written before it, so the chain is read back from the prompt.
     scan_lines_back(path, 0, cursor, |line| {
         if !line.contains(looking_for.as_str()) {
@@ -372,23 +360,16 @@ pub fn fork_point_before(path: &Path, cursor: u64) -> anyhow::Result<Option<Fork
             return false;
         }
         let flag = |at: &str| v.pointer(at).and_then(Value::as_bool) == Some(true);
-        let named = match v.get("type").and_then(Value::as_str) {
+        found = match v.get("type").and_then(Value::as_str) {
             _ if flag("/isSidechain") => None,
-            Some("assistant") => {
-                let id = v.pointer("/message/id").and_then(Value::as_str).unwrap_or(looking_for.as_str()).to_string();
-                reply = Some(id.clone());
-                Some(id)
-            }
+            Some("assistant") => Some(v.pointer("/message/id").and_then(Value::as_str).unwrap_or(looking_for.as_str()).to_string()),
             Some("user") if !flag("/isMeta") => Some(looking_for.clone()),
             Some("attachment") if v.pointer("/attachment/type").and_then(Value::as_str) == Some("queued_command") && !flag("/attachment/isMeta") => {
                 Some(v.pointer("/attachment/source_uuid").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or(looking_for.as_str()).to_string())
             }
             _ => None,
         };
-        if exact.is_none() {
-            exact = named;
-        }
-        if reply.is_some() {
+        if found.is_some() {
             return true;
         }
         match parent(&v) {
@@ -399,7 +380,7 @@ pub fn fork_point_before(path: &Path, cursor: u64) -> anyhow::Result<Option<Fork
             None => true,
         }
     });
-    Ok(exact.map(|exact| ForkPoint { exact, reply }))
+    Ok(found)
 }
 
 /// Marks the prompts among `items` that Claude Code took back. Only a prompt with nothing from
@@ -587,8 +568,8 @@ mod tests {
     }
 
     /// Edit from here copies a transcript through the last message before your prompt that
-    /// claude-agent-acp lists, up the prompt's own chain (a rewind leaves the branch it went back
-    /// from in the file), with the agent's last message for a prompt on such a branch.
+    /// claude-agent-acp lists, up the prompt's own chain: a rewind leaves the branch it went back
+    /// from in the file.
     #[test]
     fn a_fork_from_your_prompt_goes_through_the_message_before_it_on_its_chain() {
         let meta = |uuid: &str, parent: &str| chained("user", uuid, Some(parent), "2026-09-30T00:16:20.000Z", serde_json::json!({ "isMeta": true, "message": { "role": "user", "content": "<cross-session-message from-name=\"Codealong\">PR #7 was approved.</cross-session-message>" } }));
@@ -622,20 +603,19 @@ mod tests {
         let path = dir.join("s1.jsonl");
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
         let at = |n: usize| lines[..n].iter().map(|l| l.len() as u64 + 1).sum::<u64>();
-        let point = |n: usize| fork_point_before(&path, at(n)).unwrap().map(|p| (p.exact, p.reply.unwrap_or_default()));
-        let is = |exact: &str, reply: &str| Some((exact.to_string(), reply.to_string()));
-        assert_eq!(point(3), is("msg_1", "msg_1"));
-        assert_eq!(point(6), is("msg_1", "msg_1"), "not msg_2, on the branch rewound from");
+        let point = |n: usize| fork_point_before(&path, at(n)).unwrap();
+        assert_eq!(point(3).as_deref(), Some("msg_1"));
+        assert_eq!(point(6).as_deref(), Some("msg_1"), "not msg_2, on the branch rewound from");
         // A prompt right after another keeps it.
-        assert_eq!(point(8), is("p3", "msg_1"));
+        assert_eq!(point(8).as_deref(), Some("p3"));
         assert_eq!(point(0), None);
         // A compaction starts the chain again.
         assert_eq!(point(10), None);
-        assert_eq!(point(13), is("r1", "msg_3"), "the call's result, not the call");
+        assert_eq!(point(13).as_deref(), Some("r1"), "the call's result, not the call");
         // A queued prompt is named as the SDK names it: by its source, where it has one.
-        assert_eq!(point(14), is("s1", "msg_3"));
-        assert_eq!(point(15), is("q2", "msg_3"));
-        assert_eq!(point(18), is("msg_4", "msg_4"), "past what the SDK doesn't list");
+        assert_eq!(point(14).as_deref(), Some("s1"));
+        assert_eq!(point(15).as_deref(), Some("q2"));
+        assert_eq!(point(18).as_deref(), Some("msg_4"), "past what the SDK doesn't list");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

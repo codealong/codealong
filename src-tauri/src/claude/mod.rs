@@ -421,20 +421,21 @@ impl crate::harness::Adapter for ClaudeCode {
     /// help). The copy goes on in the folder its transcript was started in, which is where the
     /// SDK looks for the transcript, as `--resume` does. What's copied is the transcript the
     /// conversation was read from, which for a copy not yet written is the one it continues.
-    /// A point the adapter doesn't find (the prompt is on a branch the session was rewound from,
-    /// `ForkPoint::reply`) is refused before anything is copied, and the copy then ends at the
-    /// agent's last message instead, leaving out what came after it.
+    /// A point the adapter doesn't find is refused before anything is copied, and said in words
+    /// of what it was: a cut anywhere else would leave out what came between, a call's result or
+    /// a prompt of yours, with nothing to say so.
     fn fork_from(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, cursor: u64, prompt: &str) -> anyhow::Result<Option<String>> {
         let path = record(self, ctx, s)?;
-        let point = conversation::fork_point_before(&path, cursor)?.ok_or_else(|| crate::harness::nothing_before(Harness::Claude))?;
+        let through = conversation::fork_point_before(&path, cursor)?.ok_or_else(|| crate::harness::nothing_before(Harness::Claude))?;
         let cwd = transcript_cwd(&path).map(PathBuf::from).filter(|p| p.is_dir()).unwrap_or_else(|| cwd.to_path_buf());
         let id = path.file_stem().and_then(|n| n.to_str()).unwrap_or(&s.id);
-        let fork = |through: &str| crate::acp::fork(ctx.account, id, &cwd, prompt, Some(through));
-        match (fork(&point.exact), point.reply.as_deref()) {
+        match crate::acp::fork(ctx.account, id, &cwd, prompt, Some(&through)) {
             // claude-agent-acp 0.81.2 answers "Invalid params: Fork point message <id> was not
             // found in session <id>" (checked 2026-10-20).
-            (Err(e), Some(reply)) if reply != point.exact && e.to_string().contains(&format!("{} was not found", point.exact)) => fork(reply),
-            (got, _) => got,
+            Err(e) if e.to_string().contains(&format!("{through} was not found")) => Err(anyhow::anyhow!(
+                "Claude Code can't go back to just before that message: what comes before it isn't in the conversation as the session has it now. It's on a part the session went back from, or comes after a message sent while the agent worked that it hasn't answered yet. Edit another message instead."
+            )),
+            got => got,
         }
         .map(Some)
     }
