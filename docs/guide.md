@@ -1909,7 +1909,11 @@ check, ⋯), the session's whole menu on ⋯ and on a right-click, its conversat
 sends it a message where it runs (⏎ sends and stays, to watch the reply; ⌘⏎ sends and goes on to the
 next), or what it waits on you to allow, with Allow and Deny (⌘⏎ allows, ⌘⌫ denies). A PR shows with
 its details and a box that reviews it (⌘⏎ approves, ⌥⌘⏎ comments, Review with… starts Codealong's
-review on an account, as below). The box's other side, Ask (or `/side` and a question on Review), puts
+review on an account, as below). A click on a session's PR chip, or on a link to a PR in its
+conversation, shows that PR here in the session's place, waiting on your review or not, with a link
+back to the session over its title; once it's merged, reviewed or snoozed, the window goes back to
+the session rather than on, and says there how the PR went. Show in Codealong, in the PR's menu,
+still opens it in the main window. The box's other side, Ask (or `/side` and a question on Review), puts
 questions about the PR to an agent on a Claude Code or Codex account (Auto's, on its own model and
 effort, or one picked beside Ask in the agent menu, with a model and effort of its own): Codealong
 hands it the PR's description, discussion and whole diff, it runs in a
@@ -2081,6 +2085,12 @@ takes its place at once, in every window (the notch's count, the bar's pill, the
 going to GitHub behind it; one GitHub refuses comes back round with what you wrote, and the strip
 says why. What you wrote stays with the PR until it goes, so
 skipping and coming back loses nothing. ⌘E on a review skips it, as there's nothing to mark seen.
+A click on a session's PR chip, or on a link to a PR in its conversation, shows that PR's card in
+the notch too, in the session's place, whether it waits on your review or not, with a link back to
+the session over its title (⌃- goes back as well). Merged, reviewed or snoozed there, the PR goes
+back to the session rather than on, and the session's strip says how the PR went, as a PR shown
+from a session's panel in the main window leads back to it. The strip has Snooze only while your
+review is asked for, and Show in Codealong in the PR's menu still opens it in the main window.
 The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session leaves what
 waits on you and the next takes its place; with none left the notch closes. Drag the session's
 bottom corners or its bottom edge to size it: the notch stays centered, so a corner pulled out

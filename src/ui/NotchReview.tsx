@@ -8,10 +8,15 @@
 // Approved, commented on, asked for changes, snoozed or handed to a review session, the PR leaves
 // what waits on you and the next takes its place; with none left the notch closes.
 //
+// Any PR the board lists shows here the same way from a session's PR chip, or from a link to it in
+// the session's conversation (`from`): its card leads back to the session, and the notch goes back
+// there once the PR has left (PrCard.tsx).
+//
 // The card reads its PR from the board while it's up (cardHost.ts `useLivePr`): the pill carries
 // only the PR's key and title.
 
 import { useEffect, useRef } from 'react';
+import { prCardItem } from '../boardLists';
 import { showContextMenu } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
@@ -19,8 +24,7 @@ import { errorText } from '../report';
 import { repoReviews } from '../repoSettings';
 import type { Lane, Session } from '../types';
 import { useCardHost, useLivePr } from './cardHost';
-import { PrCard, type PrWindowCan } from './PrCard';
-import { prPlaces, type PrRowItem } from './PrsView';
+import { PrCard, type CameFrom, type PrWindowCan } from './PrCard';
 import type { Notice, Queue } from './SessionPanel';
 
 interface NotchReviewProps {
@@ -36,6 +40,10 @@ interface NotchReviewProps {
   onKeys: () => void;
   /** Shows a session in the notch in its place: one that worked on the PR. */
   onShow: (key: string) => void;
+  /** The session it was shown in place of, from its chip, and the way back there, which says how
+   *  the PR went (NotchStageState `returnFrom`). */
+  from: CameFrom | null;
+  onReturn: (said?: string) => void;
   onClose: () => void;
   /** The PR left what waits on you, and how: on to the next. */
   onLeft: (key: string, done: menus.Left) => void;
@@ -47,7 +55,7 @@ interface NotchReviewProps {
   zoom?: number;
 }
 
-export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onLeft, onFailed, onGone, zoom }: NotchReviewProps) {
+export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, onShow, from, onReturn, onClose, onLeft, onFailed, onGone, zoom }: NotchReviewProps) {
   const live = useLivePr(prKey, true);
   const gone = useRef(onGone);
   gone.current = onGone;
@@ -65,17 +73,8 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
   const { pr } = live;
   if (!pr) return null;
 
-  // Where it lives on this Mac, as the PR panel shows it (PrsView.tsx `prPlaces`).
-  const holding = live.lanes.filter((l) => pr.lanes.includes(l.id));
-  const sessions = pr.sessions.flatMap((x) => {
-    const lane = live.lanes.find((l) => l.id === x.lane);
-    const session = lane?.sessions.find((s) => s.key === x.key);
-    return lane && session ? [{ lane, session }] : [];
-  });
-  const item: PrRowItem = { kind: 'pr', key: pr.key, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
-
   /** What the notch does for the PR's actions: what takes it off the bar goes on to the next that
-   *  waits on you. */
+   *  waits on you, or back to the session it was shown from. */
   const can: PrWindowCan = { report, open: host.open, reveal: () => host.showPr(pr), left: (done) => onLeft(pr.key, done), failed: (why) => onFailed(pr.key, why) };
   const sessionCan = (l: Lane, s: Session): menus.SessionCan => ({ report, open: host.open, terminal, reveal: () => host.showSession(l, s), editors: apps ? { apps, icons } : undefined, desktop: onDesktop });
   const show = (spec: Parameters<typeof showContextMenu>[0]) => void showContextMenu(spec).catch((e: unknown) => report.error(errorText(e)));
@@ -89,7 +88,8 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
     >
       <PrCard
         key={pr.key}
-        item={item}
+        // Where it lives on this Mac, as the PR panel shows it.
+        item={prCardItem(pr, live.lanes)}
         now={now}
         zoom={zoom}
         apps={apps}
@@ -98,6 +98,7 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
         reviews={repoReviews(live.board, pr.repoSlug)}
         teamFiles={live.board?.teamFiles}
         can={can}
+        from={from ? { ...from, onBack: onReturn } : undefined}
         outgoing={pr.key !== prKey}
         queue={queue}
         notice={notice}

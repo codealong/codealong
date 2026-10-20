@@ -14,8 +14,11 @@
 // along what waits, and ⌃- ⌃⇧- go back and forward through the ones looked at here
 // (history.ts). The session's own shortcuts (⌃⌘A, ⌃⌘R, ⌃⌘P) are its card's.
 //
-// What's around a session (its worktree, todos and PRs) shows in the main window, which comes
-// forward beside this one; a session it came from, or that came of it, shows here in its place.
+// What's around a session (its worktree and todos) shows in the main window, which comes forward
+// beside this one; a session it came from, or that came of it, shows here in its place, and so
+// does a PR from its chip or from a link to it in the conversation: its card leads back to the
+// session, and once the PR is merged, reviewed or snoozed the window goes back there rather than
+// on (PrCard.tsx `from`), as the main window's panel does.
 //
 // The window has no title bar (waiting.rs): the card's strip is one, and with nothing shown the
 // whole window drags.
@@ -24,6 +27,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PrTab } from '../agentReview';
 import { onWaitingHidden, onWaitingOpen, showMain, waitingAsked, type WaitingOpen } from '../api';
 import { boardAhead, boardView, observe, renameAhead, sentWorthSaying, useAhead } from '../ahead';
+import { prCardItem } from '../boardLists';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import { followBoard } from '../followBoard';
@@ -41,9 +45,9 @@ import { repoReviews } from '../repoSettings';
 import type { Board, Lane, PrItem, Session } from '../types';
 import { shownSession, useWaitingQueue } from '../useWaitingQueue';
 import { dialogUp } from './focusTrap';
-import { PrCard, type PrWindowCan } from './PrCard';
+import { PrCard, type CameFrom, type PrWindowCan } from './PrCard';
+import { showPrTab } from './PrInspector';
 import { usePrLinks } from './PrLink';
-import { prPlaces, type PrRowItem } from './PrsView';
 import { SessionCard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
 import { Reading } from './Tip';
@@ -68,6 +72,11 @@ export function Waiting() {
   const [readFor, setReadFor] = useState(-1);
   // The session or PR shown, by its key; none shows the first that waits, or says nothing does.
   const [key, setKey] = useState<string | null>(null);
+  // The session the PR `pr` was shown in place of, from its chip or a link in its conversation.
+  const [from, setFrom] = useState<(CameFrom & { pr: string }) | null>(null);
+  // Each PR shown that way, with its session: gone back and forward to (⌃- ⌃⇧-), it leads back
+  // to the session as it did.
+  const fromChips = useRef(new Map<string, CameFrom>());
   // The session shown with its name ready to change.
   const [renameKey, setRenameKey] = useState<string | null>(null);
   const now = useNow(30_000);
@@ -103,18 +112,21 @@ export function Waiting() {
     }
     return null;
   }, [board, key]);
-  // A PR waiting on your review, shown while the board lists it.
+  // A PR waiting on your review, or one shown from a session's chip, while the board lists it.
   const reviewing = useMemo(() => (board && key && !replying ? (board.prs.find((p) => p.key === key) ?? null) : null), [board, key, replying]);
+  const cameFrom = from && from.pr === key ? from : null;
   // What it works through. Snoozed ones wait their time (quick.ts `groupOf`).
   const queue = useMemo(() => (board ? queueRows(board, ALL_PROJECTS) : []), [board]);
   const answerable = useMemo(() => new Set(board ? [...board.lanes.flatMap((l) => l.sessions.filter((s) => !s.archived).map((s) => s.key)), ...board.prs.map((p) => p.key)] : []), [board]);
   const shownKey = replying?.session.key ?? reviewing?.key ?? null;
   const looked = useSessionHistory(up ? shownKey : null, (k) => answerable.has(k), LOOKED_KEY);
 
-  /** Shows a session or a review here, in place of the one shown. */
-  const show = (k: string, rename = false) => {
+  /** Shows a session or a PR here, in place of the one shown: a PR in place of the session `at`,
+   *  when it was shown from one. */
+  const show = (k: string, rename = false, at: CameFrom | null = null) => {
     setKey(k);
     setRenameKey(rename ? k : null);
+    setFrom(at && { ...at, pr: k });
   };
 
   const way = useWaitingQueue<QueueRow>({
@@ -125,7 +137,7 @@ export function Waiting() {
     show: (row) => show(row.key),
     travel: (dir) => {
       const to = dir === 'back' ? looked.goBack() : looked.goForward();
-      if (to) show(to);
+      if (to) show(to, false, fromChips.current.get(to) ?? null);
       return to !== null;
     },
   });
@@ -148,12 +160,14 @@ export function Waiting() {
         fresh();
         setKey(asked.key);
         setRenameKey(asked.rename ? asked.key : null);
+        setFrom(null);
         return;
       }
       if (wasUp && shownNow.current) return;
       fresh();
       setKey(null);
       setRenameKey(null);
+      setFrom(null);
     };
     const offOpen = onWaitingOpen(apply);
     const offHidden = onWaitingHidden(() => {
@@ -168,14 +182,16 @@ export function Waiting() {
   }, [fresh, upNow, shownNow]);
 
   // With nothing shown, or one that's gone from the board, the first that waits takes the window,
-  // once the board's been read since it was brought up.
+  // once the board's been read since it was brought up; a PR shown from a session's chip goes
+  // back to the session.
   const first = way.first;
   const read = readFor === opened;
+  const backTo = cameFrom?.key ?? null;
   useEffect(() => {
     if (!up || !read || !board || board.loading || (key !== null && (replying || reviewing))) return;
     setRenameKey(null);
-    setKey(first ? QUEUE_READS.keyOf(first) : null);
-  }, [up, read, board, key, replying, reviewing, first]);
+    setKey(backTo ?? (first ? QUEUE_READS.keyOf(first) : null));
+  }, [up, read, board, key, replying, reviewing, first, backTo]);
 
   /** Done with the one shown and nothing else waits: the window says so. */
   const went = (to: 'on' | 'last' | 'stay' | 'away') => {
@@ -219,16 +235,20 @@ export function Waiting() {
     });
     return liveOrLatest(found);
   };
-  /** A PR as its card shows it: with where it lives on this Mac (PrsView.tsx `prPlaces`). */
-  const reviewItem = (pr: PrItem): PrRowItem => {
-    const lanes = board?.lanes ?? [];
-    const holding = lanes.filter((l) => pr.lanes.includes(l.id));
-    const sessions = pr.sessions.flatMap((x) => {
-      const lane = lanes.find((l) => l.id === x.lane);
-      const session = lane?.sessions.find((s) => s.key === x.key);
-      return lane && session ? [{ lane, session }] : [];
-    });
-    return { kind: 'pr', key: pr.key, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
+  /** A click on the chip of the session shown's PR, or on a link to it in the conversation: the
+   *  PR here in the session's place, on the tab the link goes to. */
+  const followPr = (pr: PrItem, tab: PrTab | null = null) => {
+    if (!replying) return;
+    if (tab) showPrTab(pr.key, tab);
+    const at: CameFrom = { key: replying.session.key, title: replying.session.title };
+    fromChips.current.set(pr.key, at);
+    show(pr.key, false, at);
+  };
+  /** Back from a PR shown that way to its session, saying there how the PR went. */
+  const returnFrom = (said?: string) => {
+    if (!cameFrom) return;
+    show(cameFrom.key);
+    if (said) way.say({ text: said, error: false }, cameFrom.key);
   };
   const reviewCan = (pr: PrItem): PrWindowCan => ({
     report,
@@ -246,10 +266,12 @@ export function Waiting() {
     },
   });
 
-  // PR links in a conversation shown here (PrLink.tsx): a session on a PR's card shows here too,
-  // and the PR in the main window.
+  // PR links in a conversation shown here (PrLink.tsx): a click on one shows the PR here as its
+  // chip does, a session on a PR's card shows here too, and Show in Codealong the PR in the main
+  // window.
   usePrLinks(board?.prs, board?.lanes, {
     showPr: revealPr,
+    followPr: replying ? followPr : undefined,
     showSession: (_lane, s) => show(s.key),
     openSession,
     sessionMenu: (lane, s) => showMenu(sessionMenu(lane, s)),
@@ -305,6 +327,7 @@ export function Waiting() {
           onShowLane={revealLane}
           onShowTodo={(t) => void showMain({ kind: 'todo', id: t.id })}
           onShowPr={revealPr}
+          onFollowPr={followPr}
           prCan={(pr) => {
             const on = prSession(pr);
             return { session: on ? { ...on, open: () => openSession(on.lane, on.session) } : undefined };
@@ -337,7 +360,8 @@ export function Waiting() {
       ) : reviewing ? (
         <PrCard
           key={reviewing.key}
-          item={reviewItem(reviewing)}
+          // Where it lives on this Mac, as the PR panel shows it.
+          item={prCardItem(reviewing, board?.lanes ?? [])}
           now={now}
           zoom={board?.zoom}
           apps={apps}
@@ -346,6 +370,7 @@ export function Waiting() {
           reviews={repoReviews(board, reviewing.repoSlug)}
           teamFiles={board?.teamFiles}
           can={reviewCan(reviewing)}
+          from={cameFrom ? { ...cameFrom, onBack: returnFrom } : undefined}
           autoFocus
           queue={way.queue}
           notice={way.notice}

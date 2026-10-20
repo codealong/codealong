@@ -1,6 +1,6 @@
-// A PR waiting on your review as a card of its own, wherever a window works through what waits
-// on you with a PR among the sessions: under the pills of the bar docked in the notch
-// (NotchReview.tsx) and in the waiting window (Waiting.tsx). It's the PR panel's details
+// A PR as a card of its own, wherever a window works through what waits on you with a PR among
+// the sessions: under the pills of the bar docked in the notch (NotchReview.tsx) and in the
+// waiting window (Waiting.tsx). It's the PR panel's details
 // (PrInspector.tsx `PrDetails`) with what's the same in both done once: the strip over the header
 // with what's commonly done to the PR as buttons that say their keys, the box at its foot that
 // reviews it, the PR's menu on a right-click, and its chords (menus.ts `PR_CHORDS`): ⌘⏎
@@ -20,14 +20,23 @@
 // review stands, which shows its Reviews tab; a verdict's keys work from either of its sides.
 // Its ⋯ is the details' own, on the title's line, as the PR panel has it.
 //
+// Those windows show any PR the board lists this way, not only one waiting on your review: a
+// click on a session's PR chip, or on a link to the PR in its conversation, shows the PR's card in
+// the session's place (`from`), as the main window's panel does (MainPanel.tsx `drill`). The card
+// then leads back to the session, and once the PR has left as above, the window goes back to it
+// rather than on to what waits next, saying there how the PR went. Snooze is on the strip only
+// while your review is asked for.
+//
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong, what it does once the PR has left, and what it adds (a queue).
 
 import { useEffect, useRef, type ReactNode } from 'react';
 import { openUrl } from '../api';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
+import { middleTruncate } from '../format';
 import { useLatest } from '../latest';
 import * as menus from '../menus';
+import { wentWords } from '../queue';
 import { errorText, type Report } from '../report';
 import { reviewItems } from '../review';
 import { reviewSnoozeMenu } from '../snooze';
@@ -37,7 +46,7 @@ import { zoomKey } from './cardHost';
 import { PrBoxView, usePrBox } from './PrBox';
 import { PrDetails, usePrTab } from './PrInspector';
 import type { PrRowItem } from './PrsView';
-import { cx } from './primitives';
+import { cx, type PanelBackTo } from './primitives';
 import { Hotkey, QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue } from './SessionPanel';
 
 /** What a window does for a PR's actions, less what the card knows for every window. */
@@ -83,15 +92,29 @@ interface PrCardProps {
   apps?: Board['apps'];
   /** The repos' team files, for its Reviews tab (AgentReview.tsx). */
   teamFiles?: TeamFile[];
+  /** The session it's shown in place of, and the way back to it, which says there how the PR
+   *  went once it's left; the window goes back in place of `can.left`. */
+  from?: CameFrom & { onBack: (said?: string) => void };
+}
+
+/** The session a PR's card was shown in place of: a click on its PR chip, or on a link to the PR
+ *  in its conversation. */
+export interface CameFrom {
+  key: string;
+  title: string;
 }
 
 /** How the window says the PR left with each verdict. */
 const LEFT: Record<Verdict, menus.Left> = { approve: 'approved', comment: 'commented on', 'request-changes': 'changes requested' };
 
-export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, zoom, apps, teamFiles }: PrCardProps) {
+export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false, queue, notice, hotkeys, autoFocus, onShowSession, onOpenSession, onShowLane, onLaneMenu, onSessionMenu, zoom, apps, teamFiles, from }: PrCardProps) {
   const { pr } = item;
   const { report } = can;
-  const box = usePrBox(pr, { report, usage, now, autoFocus, onSent: (verdict) => can.left?.(LEFT[verdict]), onFailed: can.failed });
+  // Where the window goes once the PR has left: back to the session it was shown from, else on.
+  const leave: ((done: menus.Left) => void) | undefined = from ? (done) => from.onBack(wentWords(`#${pr.number}`, `${done}.`)) : can.left;
+  const after = from ? 'back' : leave ? 'on' : undefined;
+  const back: PanelBackTo | undefined = from && { label: middleTruncate(from.title, 40), onBack: () => from.onBack() };
+  const box = usePrBox(pr, { report, usage, now, autoFocus, onSent: (verdict) => leave?.(LEFT[verdict]), onFailed: can.failed });
   const { reviewable, stillOpen, review } = box;
   const tabs = usePrTab(pr);
   const onDesktop = menus.useDesktopPins();
@@ -99,7 +122,7 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
   const open = (url: string) => void openUrl(url).catch((e: unknown) => report.error(errorText(e)));
   const show = (spec: MenuSpec, at?: { x: number; y: number }) => void showContextMenu(spec, at).catch((e: unknown) => report.error(errorText(e)));
 
-  const reviewWith = reviewItems(pr, lanes, box.accounts, usage, report, () => can.left?.('review started'), now, reviews, box.groups);
+  const reviewWith = reviewItems(pr, lanes, box.accounts, usage, report, () => leave?.('review started'), now, reviews, box.groups);
   const actions: menus.PrActions = {
     approve: reviewable ? { label: `Approve #${pr.number}`, run: () => review('approve') } : undefined,
     comment: stillOpen ? { label: 'Comment', run: () => review('comment') } : undefined,
@@ -111,7 +134,7 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
       pr,
       now,
       (act) => {
-        can.left?.('snoozed');
+        leave?.('snoozed');
         act.catch((e: unknown) => report.error(errorText(e)));
       },
       true,
@@ -155,18 +178,18 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
       at,
     );
 
-  // A merge leaves what waits on you as a review does: the window goes on at once, and one GitHub
-  // refuses comes back round.
-  const left = can.left;
-  const goesOn = left && { left: () => left('merged'), failed: (why: string) => (can.failed ? can.failed(why) : report.error(why)) };
+  // A merge leaves what waits on you as a review does: the window goes on (or back) at once, and
+  // one GitHub refuses comes back round.
+  const goesOn = leave && { left: () => leave('merged'), failed: (why: string) => (can.failed ? can.failed(why) : report.error(why)) };
   const sign = (name: keyof typeof menus.PR_CHORDS) => menus.chordSigns(menus.PR_CHORDS[name] ?? '');
   const notReviewable = pr.mine ? 'GitHub doesn’t let you approve your own PR' : 'It’s closed';
   const snooze = actions.snooze;
+  const then = after ? `, and go ${after}` : '';
   const buttons: ReactNode = (
     <>
-      <Hotkey label="Approve" keys={sign('approve')} title={actions.approve ? 'Approve it, with what’s written on Review as the review’s text, and go on' : notReviewable} run={actions.approve && (() => actions.approve?.run())} />
-      <Hotkey label="Comment" keys={sign('comment')} title={actions.comment ? 'Comment on it with what’s written on Review, and go on' : 'It’s closed'} run={actions.comment && (() => actions.comment?.run())} />
-      <Hotkey label="Snooze" keys={snoozeRange()} title={snooze ? `Snooze the review: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'The review can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
+      <Hotkey label="Approve" keys={sign('approve')} title={actions.approve ? `Approve it, with what’s written on Review as the review’s text${then}` : notReviewable} run={actions.approve && (() => actions.approve?.run())} />
+      <Hotkey label="Comment" keys={sign('comment')} title={actions.comment ? `Comment on it with what’s written on Review${then}` : 'It’s closed'} run={actions.comment && (() => actions.comment?.run())} />
+      {snooze && <Hotkey label="Snooze" keys={snoozeRange()} title={`Snooze the review: it waits apart until its time comes. ${snoozeKeys(snooze)}`} run={(el) => void showContextMenu(snooze.items, below(el)).catch(() => {})} />}
       <Hotkey label="Review with" keys={sign('review')} title={actions.review ? `Start Codealong’s review of it on an account${actions.review.items[0] && actions.review.items[0] !== 'separator' && !('items' in actions.review.items[0]) ? `; the key starts it: ${actions.review.items[0].label}` : ''}` : 'No account can start a review here'} run={actions.review && ((el) => void showContextMenu(actions.review?.items ?? [], below(el)).catch(() => {}))} />
       <Hotkey label="GitHub" keys={sign('github')} title="Open it on GitHub" run={() => actions.github.run()} />
     </>
@@ -185,9 +208,9 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
     >
       <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} buttons={buttons} />
       <div className="ca-prreview-body ca-prinsp">
-        <PrDetails item={item} now={now} onMenu={menu} keys goesOn={goesOn} tabs={tabs} report={report} apps={apps} teamFiles={teamFiles} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
+        <PrDetails item={item} now={now} onMenu={menu} keys goesOn={goesOn} back={back} tabs={tabs} report={report} apps={apps} teamFiles={teamFiles} onShowSession={onShowSession} onOpenSession={onOpenSession} onShowLane={onShowLane} onLaneMenu={onLaneMenu} onSessionMenu={onSessionMenu} />
       </div>
-      <PrBoxView pr={pr} box={box} keys={{ approve: sign('approve'), comment: sign('comment') }} goesOn={!!can.left} onShow={tabs.show} />
+      <PrBoxView pr={pr} box={box} keys={{ approve: sign('approve'), comment: sign('comment') }} after={after} onShow={tabs.show} />
     </div>
   );
 }

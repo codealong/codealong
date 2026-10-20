@@ -339,8 +339,9 @@ export interface PrBoxProps {
   /** ⌘⏎ approves (else comments) and ⌥⌘⏎ comments from the box itself, where the window has no
    *  chords of its own for them (the panel). */
   ownKeys?: boolean;
-  /** A verdict goes on to what waits next (a card's window). */
-  goesOn?: boolean;
+  /** Where the window goes after a verdict: on to what waits next, or back to the session the PR
+   *  was shown from (a card's window, PrCard.tsx). */
+  after?: 'on' | 'back';
   /** Shows one of the PR's tabs: Reviews from the line over the box, Changes from its pill. */
   onShow: (tab: PrTab) => void;
   className?: string;
@@ -349,7 +350,7 @@ export interface PrBoxProps {
 /** What Auto means beside Ask, on its line. */
 const ASK_AUTO = 'The account the quick panel’s Auto would start, among those that can answer: one with room, the one whose week resets soonest. On its own model and effort.';
 
-export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, onShow, className }: PrBoxProps) {
+export function PrBoxView({ pr, box: b, keys, ownKeys = false, after, onShow, className }: PrBoxProps) {
   const { asking, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, note, sending, agents } = b;
   const text = asking ? b.askText : b.reviewText;
   const setText = asking ? b.setAskText : b.setReviewText;
@@ -359,7 +360,7 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
   // The button the agent's suggestion is, marked as such.
   const suggested = (v: Verdict) => (suggests === v ? { icon: 'sparkles', why: `The agent suggests this. ` } : null);
   const notReviewable = pr.mine ? 'GitHub doesn’t let you approve your own PR' : 'It’s closed';
-  const onward = goesOn ? ' and goes on' : '';
+  const onward = after ? ` and goes ${after}` : '';
   const withDraft = draft ? ` with your draft review${draft.count > 0 ? ` and its ${commentsWord(draft.count)}` : ''}` : '';
   // Where the agent's review goes in one press, the line says that press first, and that
   // approving is still there.

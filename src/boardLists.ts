@@ -560,6 +560,12 @@ export function prRowOf(pr: PrItem, laneById: Map<string, Lane>, sessionIndex: M
   return { kind: 'pr', key: `pr:${pr.key}`, pr, lane: holding[0] ?? null, sessions, places: prPlaces(holding, sessions) };
 }
 
+/** A PR as a card in another window shows it (PrCard.tsx: the notch, the waiting window), from
+ *  the worktrees that window has, as the PRs view lists it. */
+export function prCardItem(pr: PrItem, lanes: Lane[]): PrRowItem {
+  return prRowOf(pr, new Map(lanes.map((l) => [l.id, l])), sessionIndexOf(lanes));
+}
+
 /** The PRs the PRs view shows: updated since the cutoff or pinned, matching the search and the filters. */
 export function prRowsOf(prs: PrItem[], cutoff: number, pinned: Set<string>, query: string, filter: readonly Filter[], laneById: Map<string, Lane>, sessionIndex: Map<string, { lane: Lane; session: Session }>, said: Said = NO_HITS): PrRowItem[] {
   return prs

@@ -9,9 +9,11 @@
 // ⌘- ⌘0 zoom it as they do the board's windows (zoom.ts, cardHost.ts `zoomKey`).
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
-// Codealong, what it does once the session has left (the peek goes away, the waiting window goes
-// on to the next), and what it adds (a queue, a pin that keeps it on the desktop). The card holds
-// Merge and done…'s dialog (MergeDone.tsx) for every one of them, for its menus and its header.
+// Codealong (a click on a PR's chip shows the PR's card in the session's place in the notch and
+// the waiting window, PrCard.tsx, and the PR in the main window from the peek), what it does once
+// the session has left (the peek goes away, the waiting window goes on to the next), and what it
+// adds (a queue, a pin that keeps it on the desktop). The card holds Merge and done…'s dialog
+// (MergeDone.tsx) for every one of them, for its menus and its header.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { openUrl, setPinned } from '../api';
@@ -57,8 +59,12 @@ interface SessionCardProps extends Pick<SessionPanelProps, 'zoom' | 'queue' |'no
   onShowSession: (lane: Lane, session: Session) => void;
   onShowLane: (lane: Lane) => void;
   onShowTodo: (todo: Todo) => void;
-  /** Shows a PR the board lists in the main window: Show in Codealong, in its menu. */
+  /** Shows a PR the board lists in the main window: Show in Codealong, in its menu, and a click
+   *  on its chip without `onFollowPr`. */
   onShowPr?: (pr: PrItem) => void;
+  /** A click on the chip of a PR the board lists: shows its card in this window, in the session's
+   *  place (PrCard.tsx `from`). */
+  onFollowPr?: (pr: PrItem) => void;
   /** More of the menu of a PR the board lists, where the window has more (its session). */
   prCan?: (pr: PrItem) => Partial<menus.PrCan>;
 }
@@ -76,7 +82,7 @@ function pinItem(board: CardBoard | null | undefined, s: Session, report: Report
   return { label: on ? 'Unpin session' : 'Pin session', run: () => void save() };
 }
 
-export function SessionCard({ lane, session, apps, now, board, can, canFor, outgoing = false, onShowSession, onShowLane, onShowTodo, onShowPr, prCan, renaming, ...panel }: SessionCardProps) {
+export function SessionCard({ lane, session, apps, now, board, can, canFor, outgoing = false, onShowSession, onShowLane, onShowTodo, onShowPr, onFollowPr, prCan, renaming, ...panel }: SessionCardProps) {
   const { report } = can;
   const icons = useEditorIcons(apps);
   const onDesktop = menus.useDesktopPins();
@@ -129,10 +135,12 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
     const item = board?.prs.find((p) => p.url === pr.url);
     show(menus.prMenu(item ?? pr, { report, reveal: item && onShowPr ? () => onShowPr(item) : undefined, desktop: onDesktop, ...(item ? prCan?.(item) : undefined) }));
   };
-  /** A click on a PR's chip: the PR in the main window, or on GitHub when the board doesn't list it. */
+  /** A click on a PR's chip: the PR here or in the main window, or on GitHub when the board
+   *  doesn't list it. */
+  const follow = onFollowPr ?? onShowPr;
   const showPr = (pr: Pr) => {
     const item = board?.prs.find((p) => p.url === pr.url);
-    if (item && onShowPr) onShowPr(item);
+    if (item && follow) follow(item);
     else open(pr.url);
   };
 
@@ -152,7 +160,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
       onThreadMenu={(items) => show([...items, 'separator', ...menus.sessionMenu(lane, session, mine)])}
       onShowLane={onShowLane}
       prs={context.prs}
-      onShowPr={onShowPr && showPr}
+      onShowPr={follow && showPr}
       onOpenPr={(pr) => open(pr.url)}
       onPrMenu={prMenu}
       todos={context.todos}

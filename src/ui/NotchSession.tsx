@@ -20,12 +20,16 @@
 //
 // A PR waiting on your review takes the same place (NotchReview.tsx), among the sessions in the
 // bar's order (bar.ts `notchRows`): the keys go from a session to a review and on as one list.
+// So does any PR a click on a session's PR chip, or on a link to the PR in its conversation,
+// shows: its card leads back to the session, and once the PR is merged, reviewed or snoozed the
+// notch goes back there rather than on (PrCard.tsx `from`), as the main window's panel does.
 //
 // `useNotchStage` is the bar's part: which session or review shows, the queue and the keys.
 // `NotchSession` is a session's card, which reads its session from the board while it's up
 // (cardHost.ts).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { PrTab } from '../agentReview';
 import { keepNotchSession, notchKeys, onNotchKeys, sessionAt } from '../api';
 import { renameAhead, sentWorthSaying } from '../ahead';
 import { currentRow, notchRows, ROW_READS, waitingRows, type NotchRow } from '../bar';
@@ -33,10 +37,12 @@ import { useSessionHistory } from '../history';
 import { seenable } from '../lanes';
 import type { Left } from '../menus';
 import { errorText } from '../report';
-import type { BarItem, BarReview, Board } from '../types';
+import type { BarItem, BarReview, Board, PrItem } from '../types';
 import { useWaitingQueue } from '../useWaitingQueue';
 import { useCardHost, useLiveSession, type Told } from './cardHost';
 import { dialogUp } from './focusTrap';
+import type { CameFrom } from './PrCard';
+import { showPrTab } from './PrInspector';
 import { SessionCard, type WindowCan } from './SessionCard';
 import type { Notice, Queue } from './SessionPanel';
 import { chordMod, held } from '../platform';
@@ -66,9 +72,17 @@ export interface NotchStageState {
   notice: Notice | null;
   /** Back to the session looked at before it; null with none. */
   back: (() => void) | null;
+  /** The session the PR shown was shown in place of (`showPr`); null for any other. */
+  from: CameFrom | null;
   /** Shows a session or a review by its key, with the keyboard; `rename` with a session's name
    *  ready to change. */
   show: (key: string, rename?: boolean) => void;
+  /** Shows the PR `key` in place of the session `from`: a click on its PR chip, or on a link to
+   *  it in the session's conversation. */
+  showPr: (key: string, from: CameFrom) => void;
+  /** Back from a PR shown that way to its session, which says `said` on its strip: how the PR
+   *  went. */
+  returnFrom: (said?: string) => void;
   /** Shows it, or puts it away if it's the one showing: a click on its pill. */
   toggle: (key: string) => void;
   /** A click on the notch itself: it opens on the current one, or puts the one showing away.
@@ -97,7 +111,7 @@ export interface NotchStageState {
  *  PRs waiting on your review; `known` says whether the bar still has a key, in any of its pills;
  *  `docked` while the bar is in the notch. */
 export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (key: string) => boolean, docked: boolean): NotchStageState {
-  const [shown, setShown] = useState<{ key: string; kind: NotchRow['kind']; rename: boolean } | null>(null);
+  const [shown, setShown] = useState<{ key: string; kind: NotchRow['kind']; rename: boolean; from: CameFrom | null } | null>(null);
   const [open, setOpen] = useState(false);
   const [keys, setKeys] = useState(false);
   const linger = useRef<number | null>(null);
@@ -109,11 +123,17 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   const shownNow = useRef<string | null>(null);
   // The one shown last, which a click on the notch comes back to while it still waits on you.
   const last = useRef<string | null>(null);
+  // The session the PR showing was shown in place of, as of the last call.
+  const fromNow = useRef<CameFrom | null>(null);
+  // The PRs shown from a session's chip, with the session each was shown from: the bar lists only
+  // those waiting on your review, and these are still there to go back and forward to, leading
+  // back to their session as they did.
+  const fromChips = useRef(new Map<string, CameFrom>());
 
   // Back and forward through the sessions looked at here, as in the main window. One the bar no
   // longer has is passed over.
   const key = open ? (shown?.key ?? null) : null;
-  const history = useSessionHistory(key, known, HISTORY_KEY);
+  const history = useSessionHistory(key, (k) => known(k) || fromChips.current.has(k), HISTORY_KEY);
 
   // The way through what waits on you (useWaitingQueue.ts), over the bar's own list: the pills
   // and reviews that wait, with ⌥↑ ⌥↓ along all of them. One that leaves the bar takes the notch
@@ -132,26 +152,45 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
     show: (to) => show(to.key),
     travel: (dir) => {
       const to = dir === 'back' ? history.goBack() : history.goForward();
-      if (to) show(to);
+      if (to) place(to, false, fromChips.current.get(to) ?? null);
       return to !== null;
     },
   });
   const { fresh, onKey: onQueueKey, run, answered, left: leftQueue, say, again } = queue;
 
-  const show = useCallback(
-    (key: string, rename = false) => {
+  const place = useCallback(
+    (key: string, rename: boolean, from: CameFrom | null) => {
       if (linger.current != null) window.clearTimeout(linger.current);
       linger.current = null;
       // Opening on one starts afresh; going on from one to the next keeps what's been dealt with.
       if (shownNow.current === null) fresh();
       shownNow.current = key;
       last.current = key;
-      setShown({ key, kind: rowsNow.current.find((r) => r.key === key)?.kind ?? kindOf(key), rename });
+      fromNow.current = from;
+      setShown({ key, kind: rowsNow.current.find((r) => r.key === key)?.kind ?? kindOf(key), rename, from });
       setOpen(true);
       setKeys(true);
       void notchKeys(true);
     },
     [fresh],
+  );
+  const show = useCallback((key: string, rename = false) => place(key, rename, null), [place]);
+  const showPr = useCallback(
+    (key: string, from: CameFrom) => {
+      fromChips.current.set(key, from);
+      place(key, false, from);
+    },
+    [place],
+  );
+  const returnFrom = useCallback(
+    (said?: string) => {
+      // Not once the notch has closed, nor from anything else shown since.
+      const from = fromNow.current;
+      if (!from || shownNow.current === null) return;
+      show(from.key);
+      if (said) say({ text: said, error: false }, from.key);
+    },
+    [show, say],
   );
 
   const close = useCallback(() => {
@@ -265,7 +304,7 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
 
   const back = history.back ? () => void run('historyBack') : null;
 
-  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, back, show, toggle, press, close, takeKeys, next, left, failed, unsent };
+  return { key: shown?.key ?? null, kind: shown?.kind ?? 'session', open, keys, rename: shown?.rename ?? false, queue: queue.queue, notice: queue.notice, back, from: shown?.from ?? null, show, showPr, returnFrom, toggle, press, close, takeKeys, next, left, failed, unsent };
 }
 
 interface NotchSessionProps {
@@ -283,6 +322,9 @@ interface NotchSessionProps {
   onKeys: () => void;
   /** Shows another session in its place: one it came from, or that came of it. */
   onShow: (key: string) => void;
+  /** Shows a PR the board lists in its place, from its chip or a link to it (NotchStageState
+   *  `showPr`). */
+  onShowPr: (key: string, from: CameFrom) => void;
   onClose: () => void;
   /** Sent or allowed with ⌘⏎, and what took it off the bar: on to the next. */
   onNext: (done: string, from: string) => void;
@@ -296,7 +338,7 @@ interface NotchSessionProps {
   zoom?: number;
 }
 
-export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onClose, onNext, onLeft, onUnsent, onGone, zoom }: NotchSessionProps) {
+export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, keys, onKeys, onShow, onShowPr, onClose, onNext, onLeft, onUnsent, onGone, zoom }: NotchSessionProps) {
   // The session as the engine has it, asked for as it's shown; the one before stays until it
   // comes, so going from one to the next never shows an empty notch.
   const [told, setTold] = useState<(Told & { apps: Board['apps'] }) | null>(null);
@@ -320,7 +362,15 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
   }, [sessionKey]);
 
   const live = useLiveSession(told, true);
-  const host = useCardHost({ sessionKey: told?.session.key ?? null, live, apps: told?.apps, terminal: told?.apps.terminal ?? 'Terminal', away: onClose });
+  // A click on a PR's chip, or on a link to it in the conversation: the PR in the session's
+  // place, on the tab the link goes to.
+  const followPr = (pr: PrItem, tab: PrTab | null = null) => {
+    const s = live.session;
+    if (!s) return;
+    if (tab) showPrTab(pr.key, tab);
+    onShowPr(pr.key, { key: s.key, title: s.title });
+  };
+  const host = useCardHost({ sessionKey: told?.session.key ?? null, live, apps: told?.apps, terminal: told?.apps.terminal ?? 'Terminal', away: onClose, followPr });
   // The session whose name its own menu asked to change.
   const [renameAsked, setRenameAsked] = useState<string | null>(null);
   // A name asked for from a pill's menu is asked once.
@@ -377,6 +427,7 @@ export function NotchSession({ sessionKey, rename, now, queue, notice, onBack, k
         onShowLane={host.showLane}
         onShowTodo={host.showTodo}
         onShowPr={host.showPr}
+        onFollowPr={followPr}
         autoFocus
         keys
         queue={queue}

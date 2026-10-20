@@ -901,10 +901,17 @@ export function Bar() {
                 keys={stage.keys}
                 onKeys={stage.takeKeys}
                 onShow={stage.show}
+                from={stage.from}
+                onReturn={stage.returnFrom}
                 onClose={stage.close}
                 onLeft={stage.left}
                 onFailed={stage.failed}
                 onGone={(key) => {
+                  // One shown from a session's chip goes back to the session, saying so there.
+                  if (stage.from) {
+                    stage.returnFrom(`${key} is no longer on the board.`);
+                    return;
+                  }
                   stage.close();
                   setFailed({ anchor: 'reviews', message: `${key} no longer waits on your review.` });
                 }}
@@ -921,6 +928,7 @@ export function Bar() {
                 keys={stage.keys}
                 onKeys={stage.takeKeys}
                 onShow={stage.show}
+                onShowPr={stage.showPr}
                 onClose={stage.close}
                 onNext={stage.next}
                 onLeft={stage.left}

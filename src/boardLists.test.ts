@@ -27,6 +27,7 @@ import {
   prInDone,
   prInFilter,
   prInQuery,
+  prCardItem,
   projectActions,
   projectsOf,
   prRowOf,
@@ -991,5 +992,19 @@ describe('familiesOf', () => {
       ['b', []],
       ['c', ['c1']],
     ]);
+  });
+});
+
+describe('prCardItem', () => {
+  it('finds where a PR lives among the worktrees a window has, as the PRs view does', () => {
+    const s = session('claude:me:s1');
+    const holds = lane('/r/atlas', [s]);
+    const visited = lane('/r/kestrel', [session('claude:me:s2')]);
+    const pr = fx.prItem({ number: 7, lanes: [holds.id], sessions: [{ lane: holds.id, key: s.key }] });
+    const item = prCardItem(pr, [visited, holds]);
+    expect(item.pr).toBe(pr);
+    expect(item.lane?.id).toBe(holds.id);
+    expect(item.sessions.map((x) => x.session.key)).toEqual([s.key]);
+    expect(item.places.map((p) => [p.lane.id, p.holds, p.sessions.length])).toEqual([[holds.id, true, 1]]);
   });
 });
