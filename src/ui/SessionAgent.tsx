@@ -59,8 +59,15 @@ interface SessionAgentProps {
   onDone: () => void;
 }
 
-/** A line that moves the session to another account: `move|<account>`, which no agent id is. */
-const MOVE = 'move|';
+/** A line that moves the session to another account: `:move:<account>`, which no agent id can
+ *  be, an account's name being letters, numbers, dots, dashes and underscores (config.rs). */
+const MOVE = ':move:';
+
+/** The account a line of the chip's menu moves the session to, or null for a line of its own
+ *  account's (`<account>|<model>`, whatever the account is named). */
+export function moveTarget(id: string): string | null {
+  return id.startsWith(MOVE) ? id.slice(MOVE.length) : null;
+}
 
 /** Whether there's anything to pick for a session that isn't running: more than one place, or a
  *  model. */
@@ -154,8 +161,9 @@ export function SessionAgent({ session: s, account, live, resume, moves, onMove,
       foot={foot}
       onStep={resume && efforts.length > 0 ? (delta) => resume.onPicks({ ...resume.picks, effort: effortStep(efforts, resume.picks.effort, delta) }) : undefined}
       onPick={(id) => {
-        if (id.startsWith(MOVE)) {
-          onMove?.(id.slice(MOVE.length));
+        const to = moveTarget(id);
+        if (to !== null) {
+          onMove?.(to);
           return;
         }
         const { model: picked } = parseAgent(id);

@@ -37,6 +37,17 @@
   localStorage.setItem('codealong.preview.peek', picked.key);
   localStorage.removeItem('codealong.draft.' + picked.key);
   localStorage.removeItem('codealong.resumed');
+  // Its account has as many levels as Codex's, the most any harness has, for the narrow box below.
+  var codexLevels = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(function (id) { return { id: id, label: id }; });
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd) {
+    var got = real.apply(this, arguments);
+    if (cmd !== 'start_options') return got;
+    return got.then(function (o) {
+      o.accounts.forEach(function (a) { if (a.name === picked.account && a.harness === picked.harness) a.efforts = codexLevels; });
+      return o;
+    });
+  };
 
   var chip = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip'); };
   var menu = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu .ca-picker'); };
@@ -86,6 +97,19 @@
       check('its menu’s Runs in row offers the places its account’s sessions go on in', places().join(', ') === offered.map(function (p) { return p.label; }).join(', '), places().join(', '));
       check('each says what it is on hover', options().every(function (o) { return !!o.title; }), options().map(function (o) { return o.textContent + ': ' + o.title; }).join(' | '));
       check('the menu opens upward, over the conversation', menu().getBoundingClientRect().bottom <= chip().getBoundingClientRect().top + 1, menu().getBoundingClientRect().bottom + ' / ' + chip().getBoundingClientRect().top);
+      return closeMenu();
+    })
+    .then(function () {
+      // In a box as narrow as a card gets, every effort (Codex's many) and place is still in the
+      // menu: the rows wrap.
+      q('.ca-peek .ca-composer').style.width = '360px';
+      return openMenu();
+    })
+    .then(function () {
+      var edge = menu().getBoundingClientRect();
+      var out = all('.ca-picker-foot button', menu()).filter(function (b) { var r = b.getBoundingClientRect(); return r.left < edge.left - 1 || r.right > edge.right + 1; });
+      check('in a narrow box, every effort and place fits the menu', out.length === 0, out.map(function (b) { return b.textContent + ' to ' + Math.round(b.getBoundingClientRect().right) + ' of ' + Math.round(edge.right); }).join(', '));
+      q('.ca-peek .ca-composer').style.width = '';
       return closeMenu();
     })
     .then(function () { return pickPlace(labelOf('background')); })
