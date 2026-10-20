@@ -165,18 +165,38 @@ describe('findSessions', () => {
     ]);
   });
 
-  it('looks through archived sessions only when asked, listing them after all the others', () => {
+  it('looks through archived sessions only when asked, listing them after the others that match as closely', () => {
     const withGone = board([
       lane('app2', [
         session('s1', 'idle', NOW - 100, { title: 'Fix the login flake' }),
         session('gone', 'needs', NOW, { title: 'Login copy', archived: true }),
         session('gone2', 'idle', NOW - 5, { title: 'Old login work', archived: true }),
+        session('mention', 'unread', NOW - 1, { title: 'Upgrade deps' }),
       ]),
     ]);
-    expect(findSessions(withGone, ALL_PROJECTS, 'login').map((r) => r.key)).toEqual(['s1']);
-    // An archived one comes after the idle one, though it needs you and is the latest.
-    expect(findSessions(withGone, ALL_PROJECTS, 'login', 9, new Map(), 'with').map((r) => r.key)).toEqual(['s1', 'gone', 'gone2']);
-    expect(findSessions(withGone, ALL_PROJECTS, 'login', 9, new Map(), 'only').map((r) => r.key)).toEqual(['gone', 'gone2']);
+    const said = new Map([['mention', { key: 'mention', snippet: 'after the login change', you: false, at: NOW }]]);
+    expect(findSessions(withGone, ALL_PROJECTS, 'login', 9, said).map((r) => r.key)).toEqual(['s1', 'mention']);
+    // An archived title comes after the idle one, though it needs you and is the latest, and
+    // before the session that only mentions the word.
+    expect(findSessions(withGone, ALL_PROJECTS, 'login', 9, said, 'with').map((r) => r.key)).toEqual(['s1', 'gone', 'gone2', 'mention']);
+    expect(findSessions(withGone, ALL_PROJECTS, 'login', 9, said, 'only').map((r) => r.key)).toEqual(['gone', 'gone2']);
+  });
+
+  it('puts the session whose title or name is the words first, then titles and names that have them', () => {
+    const named = board([
+      lane('app2', [
+        session('quoted', 'needs', NOW, { title: 'Fix the kestrel import' }),
+        session('longer', 'working', NOW - 10, { title: 'Harbor watch for northwind' }),
+        session('by-name', 'idle', NOW - 20, { title: 'Release notes', name: 'Nightly harbor watch' }),
+        // The words split between its title and its name: what describes it has them.
+        session('split', 'unread', NOW - 5, { title: 'Harbor cleanup', name: 'Night watch' }),
+        session('exact', 'stopped', NOW - 9000, { title: 'Harbor  Watch', archived: true }),
+      ]),
+    ]);
+    const said = new Map([['quoted', { key: 'quoted', snippet: 'ask the harbor watch first', you: false, at: NOW }]]);
+    expect(findSessions(named, ALL_PROJECTS, 'harbor watch', 9, said, 'with').map((r) => r.key)).toEqual(['exact', 'longer', 'by-name', 'split', 'quoted']);
+    // A name that is the words is as close as a title that is.
+    expect(findSessions(named, ALL_PROJECTS, 'nightly harbor watch', 9, said, 'with')[0].key).toBe('by-name');
   });
 
   it('marks where the words are in the title', () => {
@@ -223,6 +243,8 @@ describe('sendTargets', () => {
   it('finds sessions by what’s typed in its box, what was said in them too, Jev’s picks first', () => {
     const said = new Map([['done', { key: 'done', snippet: 'the login retries', you: false, at: NOW }]]);
     expect(sendTargets(b, ALL_PROJECTS, 'login', [], said).rows.map((r) => r.key)).toEqual(['busy', 'old', 'done']);
+    // An archived one whose title has the words comes before one that only mentions them.
+    expect(sendTargets(b, ALL_PROJECTS, 'login', [], said, 'with').rows.map((r) => r.key)).toEqual(['busy', 'old', 'gone', 'done']);
     const picked = sendTargets(b, ALL_PROJECTS, 'login', [{ id: 'done', p: 0.4 }], said).rows;
     expect(picked.map((r) => r.key)).toEqual(['done', 'busy', 'old']);
     expect(picked[0].said?.text).toBe('the login retries');

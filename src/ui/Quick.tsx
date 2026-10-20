@@ -130,7 +130,7 @@ const PROJECT_KEY = 'codealong.quick.project';
 const HISTORY_KEY = 'codealong.quick.history';
 /** What you'd typed and not acted on, so a relaunch (a new build) doesn't lose it. */
 const DRAFT_KEY = 'codealong.quick.draft';
-/** Whether a search lists archived sessions too, under the others. */
+/** Whether a search lists archived sessions too, after the others that match as closely. */
 const ARCHIVED_KEY = 'codealong.quick.archived';
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
@@ -1882,7 +1882,7 @@ export function Quick() {
                       {(s.group === 'found' || s.group === 'sendto') && (
                         <label
                           className="ca-check ca-quick-archived"
-                          title={keysIn(withArchived ? 'Searches list archived sessions after the others. ⇧⌘A leaves them out' : `Searches leave archived sessions out${archivedFound > 0 ? `; ${archivedFound} ${archivedFound === 1 ? 'matches' : 'match'} this one` : ''}. ⇧⌘A lists them`)}
+                          title={keysIn(withArchived ? 'Searches list archived sessions too, after the others that match as closely. ⇧⌘A leaves them out' : `Searches leave archived sessions out${archivedFound > 0 ? `; ${archivedFound} ${archivedFound === 1 ? 'matches' : 'match'} this one` : ''}. ⇧⌘A lists them`)}
                           // The keyboard stays in the box.
                           onMouseDown={(e) => e.preventDefault()}
                         >

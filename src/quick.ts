@@ -240,32 +240,39 @@ export const TEXT_SEARCH_MIN = 3;
 
 /**
  * Sessions with every typed word somewhere in what describes them, or in what was said in them
- * (`said`, the text search's hits by session key), best first: those whose title has them all,
- * then the rest of what describes them, then what was said, the best match first there (the
- * words as typed beat them apart); within each by status (needs you, your turn, working, the
- * rest, snoozed ones among the rest), then the most recently active. Archived sessions are left out, unless `archived` asks
- * for them: then they come after all the others, in the same order among themselves.
+ * (`said`, the text search's hits by session key), best first by how closely the words name each,
+ * as `codealong sessions find` ranks them (cli.rs `Match`): a title or name that is the words,
+ * then a title or name that has them all, then the rest of what describes it, then what was said,
+ * the best match first there (the words as typed beat them apart). Archived sessions are left
+ * out unless `archived` asks for them, and then come after the others that match as closely: a
+ * session you find by its title comes before those that only mention it, archived or not. Within
+ * each, by status (needs you, your turn, working, the rest, snoozed ones among the rest), then the
+ * most recently active.
  */
 export function findSessions(board: Board, project: string, query: string, limit = MAX_ROWS, said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without'): SessionRow[] {
   const words = queryWords(query);
   if (words.length === 0) return [];
+  const asked = words.join(' ');
   const found = sessionsIn(board, project, archived).flatMap(({ lane, session: s }) => {
     // Marks only for a session that matches: a long prompt has hundreds of words, and looking for
     // each in every session's title was most of what a key cost.
     const row = (): SessionRow => ({ kind: 'session', key: s.key, group: 'found', lane, session: s, marks: titleMarks(s.title, words) });
-    if (hasWords(s.title.toLowerCase(), words)) return [{ row: row(), tier: 0, score: 0 }];
+    // Each name on its own: words split between a title and a name don't name the session.
+    const names = s.name ? [s.title, s.name] : [s.title];
+    const named = names.filter((n) => hasWords(n.toLowerCase(), words));
+    if (named.length > 0) return [{ row: row(), tier: named.some((n) => queryWords(n).join(' ') === asked) ? 0 : 1, score: 0 }];
     const pr = lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '';
-    const hay = [s.title, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr].join('\n').toLowerCase();
-    if (hasWords(hay, words)) return [{ row: row(), tier: 1, score: 0 }];
+    const hay = [...names, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr].join('\n').toLowerCase();
+    if (hasWords(hay, words)) return [{ row: row(), tier: 2, score: 0 }];
     const hit = said.get(s.key);
     if (!hit) return [];
-    return [{ row: { ...row(), said: saidLine(hit, words) }, tier: 2, score: hit.score ?? 0 }];
+    return [{ row: { ...row(), said: saidLine(hit, words) }, tier: 3, score: hit.score ?? 0 }];
   });
   return found
     .sort(
       (a, b) =>
-        Number(a.row.session.archived) - Number(b.row.session.archived) ||
         a.tier - b.tier ||
+        Number(a.row.session.archived) - Number(b.row.session.archived) ||
         b.score - a.score ||
         statusRank(a.row.session) - statusRank(b.row.session) ||
         b.row.session.lastActivity - a.row.session.lastActivity ||
@@ -286,7 +293,8 @@ export const SEND_TO = 40;
  * (`findSessions`, by what was said in them too), Jev's first in its order, the rest in theirs.
  * Helpers and headless runs are left out while they don't need you, as the empty panel leaves
  * them out: their agent or script talks to them, not you. Archived ones are left out unless
- * `archived` asks for them, and come last. `count` is how many there are in all.
+ * `archived` asks for them: then they come last with nothing typed, and with words where
+ * `findSessions` puts them (Jev never picks one, route.rs). `count` is how many there are in all.
  */
 export function sendTargets(board: Board, project: string, words: string, picks: RoutePick[], said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without', limit = SEND_TO): { rows: SessionRow[]; count: number } {
   const likely = new Map(picks.map((x) => [x.id, x.p]));
@@ -296,12 +304,12 @@ export function sendTargets(board: Board, project: string, words: string, picks:
     queryWords(words).length > 0
       ? findSessions(board, project, words, Infinity, said, archived)
       : sessionsIn(board, project, archived)
-          .sort((a, b) => b.session.lastPromptAt - a.session.lastPromptAt || a.session.key.localeCompare(b.session.key))
+          .sort((a, b) => Number(a.session.archived) - Number(b.session.archived) || b.session.lastPromptAt - a.session.lastPromptAt || a.session.key.localeCompare(b.session.key))
           .map(({ lane, session }): SessionRow => ({ kind: 'session', key: session.key, group: 'sendto', lane, session, marks: [] }));
   const all = found
     .filter((r) => !unattended(r.session))
     .map((r, i) => ({ r, i }))
-    .sort((a, b) => Number(a.r.session.archived) - Number(b.r.session.archived) || at(a.r) - at(b.r) || a.i - b.i)
+    .sort((a, b) => at(a.r) - at(b.r) || a.i - b.i)
     .map(({ r }): SessionRow => {
       const p = likely.get(r.session.key);
       return { ...r, group: 'sendto', ...(p != null ? { p } : {}) };
