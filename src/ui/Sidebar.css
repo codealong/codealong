@@ -139,6 +139,15 @@
   padding: 0 var(--space-1);
 }
 
+/* A board made in the project, under the Board view, which is the project's own: in from it as
+   far as its label, and New board after them. */
+.ca-side-subboard {
+  padding-left: 30px;
+}
+.ca-side-subboard .ca-icon {
+  margin-left: -20px;
+}
+
 /* Save this view, and New board under the boards: quieter than what they add to. */
 .ca-side-save,
 .ca-side-newboard {

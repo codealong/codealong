@@ -1718,6 +1718,11 @@ export function App() {
 
   // The sidebar: the views with their counts, the statuses to narrow them to, and what narrows
   // the view now, for the collapsed rail's badge.
+  // What the board shown holds, in the layout the Board view shows it in, or would: its open cards
+  // in Kanban, its cards on the canvas.
+  const boardShowing = view === 'kanban' || view === 'canvas';
+  const layoutShown = boardShowing ? view : lastLayout;
+  const boardCount = layoutShown === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openCardCount;
   const sideViews = VIEWS.filter((v) => v.id !== 'canvas').map((v) => {
     const board = v.id === 'kanban';
     return {
@@ -1725,7 +1730,7 @@ export function App() {
       label: board ? 'Board' : v.label,
       icon: v.icon,
       // The Board's keys are those of the layout a click on it shows: the one showing, else the last.
-      kbd: menus.chordKeys(VIEW_CHORDS[board ? (view === 'kanban' || view === 'canvas' ? view : lastLayout) : v.id]),
+      kbd: menus.chordKeys(VIEW_CHORDS[board ? layoutShown : v.id]),
       count:
         v.id === 'worktrees'
           ? recentLanes.length
@@ -1734,9 +1739,9 @@ export function App() {
             : v.id === 'todo'
               ? openTodoCount
               : board
-                ? view === 'canvas'
-                  ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '')
-                  : openCardCount
+                ? isProjects(shownBoard)
+                  ? boardCount
+                  : ''
                 : githubPrs === 'coming' && openPrCount === 0
                   ? ''
                   : openPrCount,
@@ -1744,7 +1749,17 @@ export function App() {
       badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,
     };
   });
-  const sideBoards: SideBoard[] = boards.boards.map((b) => ({ id: b.id, name: b.name, title: ruleWords(b.rule, todoStore.labels) }));
+  // The boards made in the project go under the Board view, which is its own board. The one it
+  // shows has the view's keys beside it, which go back to it, and its count while it shows.
+  const sideBoards: SideBoard[] = boards.boards
+    .filter((b) => !isProjects(b))
+    .map((b) => ({
+      id: b.id,
+      name: b.name,
+      title: ruleWords(b.rule, todoStore.labels),
+      count: boardShowing && b.id === shownBoard.id ? boardCount : undefined,
+      kbd: b.id === shownBoard.id ? menus.chordKeys(VIEW_CHORDS[layoutShown]) : undefined,
+    }));
   const sideStatuses: SideStatus[] = [
     { id: 'needs', label: 'Needs you', glyph: 'needs', count: counts.needs, tone: 'attn' },
     { id: 'unread', label: 'Your turn', glyph: 'unread', count: counts.unread },
@@ -1925,9 +1940,9 @@ export function App() {
           view={view === 'kanban' || view === 'canvas' ? 'board' : view}
           onView={(id) => setView(id === 'board' ? lastLayout : (id as View))}
           boards={sideBoards}
-          board={shownBoard.id}
-          onBoard={showBoard}
-          onBoardMenu={(id) => boardMenu(boards.boards.find((b) => b.id === id))}
+          board={isProjects(shownBoard) ? null : shownBoard.id}
+          onBoard={(id) => showBoard(id ?? boards.boards[0].id)}
+          onBoardMenu={(id) => boardMenu(id === null ? boards.boards[0] : boards.boards.find((b) => b.id === id))}
           onNewBoard={() => setBoardEdit({ board: null })}
           devices={devices}
           deviceFilter={deviceFilter}

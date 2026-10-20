@@ -1149,10 +1149,11 @@ A board is a named set of work in a project: a release, a fix, an investigation.
 shows one, as Kanban (its todos and sessions in columns) or as Canvas (its work laid out in
 space); the toggle at the top switches between them, and ⇧⌘K and ⇧⌘B go straight to each. Every
 project has a board of its own, named after it, that holds everything in the project, so the
-Board view starts as the Kanban and Canvas of the whole project. The sidebar lists the project's
-boards under Boards; New board makes one, and a board's right-click (or the menu on its name at
-the top) changes what it takes in, renames it, puts its Kanban back on the stages, or deletes it,
-which leaves what was on it as it was.
+Board view starts as the Kanban and Canvas of the whole project. In the sidebar, Board is the
+project's own board, with the boards you make under it, and New board under them while a board
+shows; a board's right-click (or the menu on its name at the top) makes a new one, changes what it
+takes in, renames it, puts its Kanban back on the stages, or deletes it, which leaves what was on
+it as it was.
 
 A board holds what its rule takes in, as the work moves on, and what you add by hand, less what
 you take off. A rule picks by kind (todos, sessions, worktrees, PRs), stage (To do, In progress, In

@@ -6,7 +6,7 @@
 // as it starts, it's a rail of the views and devices, whose filter button carries a badge while a
 // filter narrows the view. The project stays in the switcher at top left.
 
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
 import type { FacetId, FacetOption } from '../boardLists';
 import type { DeviceFilter } from '../devices';
 import { agoPhrase } from '../format';
@@ -46,12 +46,16 @@ export interface SideStatus {
   title?: string;
 }
 
-/** One of the project's boards, under the Board view (boards/model.ts). */
+/** A board you made, under the Board view, which is the project's own board (boards/model.ts). */
 export interface SideBoard {
   id: string;
   name: string;
   /** What it takes in, in words. */
   title: string;
+  /** Its count, while the Board view shows it. */
+  count?: number | string;
+  /** The keys that go to it: the Board view's, while it's the board that view shows. */
+  kbd?: string[];
 }
 
 interface SidebarProps {
@@ -61,11 +65,14 @@ interface SidebarProps {
   views: SideView[];
   view: string;
   onView: (id: string) => void;
-  /** The project's boards, its own first, listed under the Board view, and the one it shows. */
+  /** The boards made in the project, listed under the Board view (the project's own board), and
+   *  the one it shows: null for its own. */
   boards: SideBoard[];
-  board: string;
-  onBoard: (id: string) => void;
-  onBoardMenu: (id: string) => void;
+  board: string | null;
+  /** Shows a board: one made in the project, or null for its own. */
+  onBoard: (id: string | null) => void;
+  /** A board's menu: null for the project's own. */
+  onBoardMenu: (id: string | null) => void;
   onNewBoard: () => void;
   /** Linked devices; the device filter shows only with at least one. */
   devices: DevicesView | null | undefined;
@@ -124,17 +131,45 @@ function Open(p: SidebarProps) {
     <nav className="ca-side" aria-label="Sidebar">
       <div className="ca-side-scroll">
         <div className="ca-label ca-side-label">View</div>
-        {p.views.map((v) => (
-          <NavItem key={v.id} icon={v.icon} label={v.label} count={v.count === '' || p.loading ? undefined : (v.count as number)} badge={v.badge} badgeTitle={v.badgeTitle} kbd={v.kbd} active={p.view === v.id} title={keysIn('⌃Tab goes to the next view')} onClick={() => p.onView(v.id)} />
-        ))}
-        <div className="ca-label ca-side-label">Boards</div>
-        {p.boards.map((b) => (
-          <NavItem key={b.id} icon="layout-board" label={b.name} active={p.view === 'board' && p.board === b.id} title={`${b.title}. Right-click for its settings`} onClick={() => p.onBoard(b.id)} onContextMenu={() => p.onBoardMenu(b.id)} />
-        ))}
-        <button type="button" className="ca-nav ca-side-newboard" onClick={p.onNewBoard}>
-          <Icon name="plus" size={14} />
-          <span className="ca-nav-label">New board</span>
-        </button>
+        {p.views.map((v) =>
+          v.id !== 'board' ? (
+            <NavItem key={v.id} icon={v.icon} label={v.label} count={v.count === '' || p.loading ? undefined : (v.count as number)} badge={v.badge} badgeTitle={v.badgeTitle} kbd={v.kbd} active={p.view === v.id} title={keysIn('⌃Tab goes to the next view')} onClick={() => p.onView(v.id)} />
+          ) : (
+            // The Board view is the project's own board; the boards made in it go under it.
+            <Fragment key={v.id}>
+              {/* The Board view's keys go to the board it shows: they're said beside that one. */}
+              <NavItem
+                icon={v.icon}
+                label={v.label}
+                count={v.count === '' || p.loading ? undefined : (v.count as number)}
+                kbd={p.board === null ? v.kbd : undefined}
+                active={p.view === 'board' && p.board === null}
+                title={keysIn('⌃Tab goes to the next view')}
+                onClick={() => p.onBoard(null)}
+                onContextMenu={() => p.onBoardMenu(null)}
+              />
+              {p.boards.map((b) => (
+                <NavItem
+                  key={b.id}
+                  className="ca-side-subboard"
+                  label={b.name}
+                  count={b.count === '' || b.count == null || p.loading ? undefined : (b.count as number)}
+                  kbd={b.kbd}
+                  active={p.view === 'board' && p.board === b.id}
+                  title={`${b.title}. Right-click for its settings`}
+                  onClick={() => p.onBoard(b.id)}
+                  onContextMenu={() => p.onBoardMenu(b.id)}
+                />
+              ))}
+              {p.view === 'board' && (
+                <button type="button" className="ca-nav ca-side-subboard ca-side-newboard" onClick={p.onNewBoard}>
+                  <Icon name="plus" size={12} />
+                  <span className="ca-nav-label">New board</span>
+                </button>
+              )}
+            </Fragment>
+          ),
+        )}
         {showDevices && p.devices && (
           <>
             <SideLabel label="Devices" onClear={p.deviceFilter.length > 0 ? p.onClearDevices : undefined} />
