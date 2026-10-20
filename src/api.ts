@@ -286,6 +286,10 @@ export interface PrFileAsk {
   /** As a diff beside where its branch began, or the file at `line` in the worktree that holds the PR. */
   how: 'diff' | 'file';
   line?: number | null;
+  /** The commit a diff's side before is read at in place of where its branch began: the one your
+   *  last review was of, while Changes shows what changed since (`path`, `previous` and `status`
+   *  are then the comparison's). */
+  since?: string | null;
 }
 
 /** Opens one of a PR's changed files in your editor (prdiff.rs): it can wait on GitHub for the

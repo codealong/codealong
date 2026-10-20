@@ -2,7 +2,8 @@
 //! or the file itself at a line.
 //!
 //! The diff is the file where the PR's branch left its base (their merge base, as GitHub's own
-//! diff has it) beside the file as the PR has it. When a worktree on this Mac holds the PR
+//! diff has it), or at the commit you last reviewed while Changes shows what changed since
+//! (`Ask::since`), beside the file as the PR has it. When a worktree on this Mac holds the PR
 //! (`PrItem.lanes`), that side is the worktree's own file, so what you change there is the real
 //! thing, and it has whatever you haven't pushed yet; otherwise it's the file at the PR's head.
 //! What's read from GitHub (`gh api …/contents`) goes into files of its own under the system's
@@ -39,6 +40,10 @@ pub struct Ask {
     pub how: String,
     /// The line a file opens at.
     pub line: Option<u64>,
+    /// The commit a diff's side before is read at in place of the merge base: the one your last
+    /// review was of, where Changes shows what changed since (`path`, `previous` and `status` are
+    /// then the comparison's, so a file the PR added before it reads as there).
+    pub since: Option<String>,
 }
 
 /// A path the PR names, made safe to put under a folder: relative, without `..`.
@@ -190,13 +195,14 @@ fn sides(ask: &Ask, slug: &str, number: u64, e: &Ends, worktree: Option<&Path>, 
         Some(p) => p.to_string(),
         None => ask.path.clone(),
     };
+    let from = ask.since.as_deref().filter(|c| !c.is_empty()).unwrap_or(&e.base);
     let old = if ask.status == "added" {
         let file = empty_at(store, slug, number, &path);
         keep(&file, || Ok(Vec::new()))?;
         file
     } else {
-        let file = kept_at(store, slug, number, &e.base, &relative(&before)?);
-        keep(&file, || read(&before, &e.base))?;
+        let file = kept_at(store, slug, number, from, &relative(&before)?);
+        keep(&file, || read(&before, from))?;
         file
     };
     let new = match worktree.and_then(|w| in_worktree(w, &path)) {
@@ -272,7 +278,24 @@ mod tests {
     }
 
     fn ask(path: &str, status: &str, previous: Option<&str>) -> Ask {
-        Ask { pr: "acme/app#7".into(), path: path.into(), previous: previous.map(String::from), status: status.into(), how: "diff".into(), line: None }
+        Ask { pr: "acme/app#7".into(), path: path.into(), previous: previous.map(String::from), status: status.into(), how: "diff".into(), line: None, since: None }
+    }
+
+    #[test]
+    fn what_changed_since_your_review_is_read_from_the_commit_you_reviewed() {
+        let store = crate::fixtures::scratch("prdiff-since");
+        let e = Ends { head: "bbbbbbb2".into(), base: "aaaaaaa2".into() };
+        let asked = RefCell::new(Vec::new());
+        let read = |path: &str, sha: &str| {
+            asked.borrow_mut().push(format!("{path}@{sha}"));
+            Ok(Vec::new())
+        };
+        // A file the PR added before your review and changed after it is "modified" since, and
+        // there at the commit you reviewed, which the merge base doesn't have.
+        let since = Ask { since: Some("ccccccc2".into()), ..ask("src/new.ts", "modified", None) };
+        let (old, _) = sides(&since, "acme/app", 7, &e, None, &store, &read).unwrap();
+        assert_eq!(old, kept_at(&store, "acme/app", 7, "ccccccc2", Path::new("src/new.ts")));
+        assert_eq!(*asked.borrow(), ["src/new.ts@ccccccc2", "src/new.ts@bbbbbbb2"]);
     }
 
     #[test]

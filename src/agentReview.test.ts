@@ -76,6 +76,11 @@ describe('agentsVerdict', () => {
     // A review of yours settled the request, or the agent's draft went from GitHub.
     expect(agentsVerdict(pr({}, { reviewRequested: false }), false)).toBeNull();
     expect(agentsVerdict(pr({ stage: 'drafted' }), false)).toBeNull();
+    // Asked again, after you approved the commit it's at: your verdict stands over the agent's.
+    expect(agentsVerdict(pr({}, { lastReview: { state: 'approved', commit: 'abc', at: 5 } }), false)).toBeNull();
+    // A comment of yours, or a review of an earlier commit, leaves it.
+    expect(agentsVerdict(pr({}, { lastReview: { state: 'commented', commit: 'abc', at: 5 } }), false)).toBe('request-changes');
+    expect(agentsVerdict(pr({}, { lastReview: { state: 'approved', commit: 'old', at: 5 } }), false)).toBe('request-changes');
   });
 
   it('says what goes with it', () => {

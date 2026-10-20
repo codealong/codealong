@@ -151,7 +151,7 @@ export interface PrDetailsProps {
 
 /** How the PR's changed files open outside the window: as a diff in the editor that opens one,
  *  at a line in yours where a worktree here holds the PR, and on GitHub. */
-function fileOpener(item: PrRowItem, apps: Board['apps'] | undefined, icons: ReturnType<typeof useEditorIcons>, report: Report): FileOpener {
+function fileOpener(item: PrRowItem, apps: Board['apps'] | undefined, icons: ReturnType<typeof useEditorIcons>, report: Report, since: string | null): FileOpener {
   const { pr } = item;
   const holds = item.places.find((p) => p.holds);
   const diff = apps?.diffEditor ?? null;
@@ -159,12 +159,13 @@ function fileOpener(item: PrRowItem, apps: Board['apps'] | undefined, icons: Ret
   const failed = (e: unknown) => report.error(errorText(e));
   const open = (f: PrFile, how: 'diff' | 'file', line?: number | null) => {
     if (how === 'diff' && diff) report.info(`Opening the diff of ${f.path.split('/').pop()} in ${diff.name}…`);
-    openPrFile({ pr: pr.key, path: f.path, previous: f.previous, status: f.status, how, line }).catch(failed);
+    openPrFile({ pr: pr.key, path: f.path, previous: f.previous, status: f.status, how, line, since }).catch(failed);
   };
   const github = (f: PrFile) => void fileOnGitHub(pr.url, f.path).then(openUrl).catch(failed);
   return {
     diff: diff && { name: diff.name, icon: icons[diff.id]?.url },
     file: yours && { name: yours.name, icon: icons[yours.id]?.url },
+    before: since ? `${since.slice(0, 7)}, which you last reviewed` : 'where its branch began',
     after: holds ? `your copy in ${holds.lane.callsign}` : 'the PR’s',
     open,
     github,
@@ -241,7 +242,6 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
   // Its details, open or not as you left them for every PR.
   const [open, toggleOpen] = useDetailsOpen(DETAILS_KEY);
   const icons = useEditorIcons(apps);
-  const opener = report && fileOpener(item, apps, icons, report);
   const files = useRef<FilesFinder>(null);
   const idBase = `prtab${useId().replace(/:/g, '')}`;
 
@@ -302,6 +302,9 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
   const sinceOn = useSinceShown(pr.key);
   const since = useSince(pr.repoSlug, reviewed, reviewed ? (pr.headOid ?? null) : null);
   const changedSince = reviewed && sinceOn && since?.since?.follows ? since.since : null;
+  // Its files open in your editor beside where its branch began, or, showing what changed since
+  // your review, beside the commit you reviewed, which the files' own words are of.
+  const opener = report && fileOpener(item, apps, icons, report, changedSince ? reviewed : null);
   const sinceScope = reviewed
     ? {
         commit: reviewed,

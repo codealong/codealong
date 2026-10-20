@@ -1,12 +1,17 @@
 /* A PR's box (PrBox.tsx), at the foot of its panel and its cards: the line over it saying where
-   the PR's review stands, which shows its Reviews tab, with Try again beside it for an agent
-   review that didn't get done, and the agent's suggestion there and in the Reviews tab. The box
+   the PR's review stands, which shows its Reviews tab, with the pill counting the commits since
+   your review and Try again for an agent review that didn't get done beside it, and the agent's
+   suggestion there and in the Reviews tab. The box
    itself is a reply box (SessionReply.css), its buttons PrCard.css's. */
 
+/* Where it's too narrow for all of it on one line, what follows the words goes onto the next,
+   rather than squeezing them away: in the line, the agent's tag; beside it, the pill, Reviews and
+   Try again. */
 .ca-prbox-standing {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: 2px var(--space-2);
   min-width: 0;
 }
 .ca-prbox-standing > .ca-prbox-line {
@@ -20,8 +25,9 @@
 
 .ca-prbox-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: 2px var(--space-2);
   min-width: 0;
   padding: 2px 4px;
   border: 0;

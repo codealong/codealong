@@ -55,7 +55,9 @@ export interface FileOpener {
   diff: FileEditor | null;
   /** Your editor, where a worktree on this Mac holds the PR: a file opens there at a line. */
   file: FileEditor | null;
-  /** Where a diff's side after comes from, for its button's tooltip. */
+  /** Where a diff's sides come from, for its button's tooltip: where its branch began, or the
+   *  commit you last reviewed while the list shows what changed since. */
+  before: string;
   after: string;
   open: (file: PrFile, how: 'diff' | 'file', line?: number | null) => void;
   github: (file: PrFile) => void;
@@ -203,7 +205,7 @@ function FileRow({ hit, open, active, words, view, opener, onToggle }: { hit: Fi
   }, [active]);
   const editor = opener?.file;
   const onLine = opener && editor ? { title: (n: number) => `Open in ${editor.name} at line ${n}`, run: (n: number) => opener.open(file, 'file', n) } : undefined;
-  const diffTitle = opener?.diff && `Open the diff in ${opener.diff.name}: where its branch began, beside ${opener.after}`;
+  const diffTitle = opener?.diff && `Open the diff in ${opener.diff.name}: ${opener.before}, beside ${opener.after}`;
   return (
     <div ref={row} className={cx('ca-prfile', open && 'is-open', active && 'is-active')}>
       <div
