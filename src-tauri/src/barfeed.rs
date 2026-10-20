@@ -139,6 +139,9 @@ pub struct BarReview {
     pub since: i64,
     /// The PR's last update, which a card showing it refetches on.
     pub updated_at: i64,
+    /// Codealong's agent approves it (autoreview.rs `approved`): what's asked of you is a sign-off.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub approves: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -236,6 +239,7 @@ pub fn feed(board: &Board) -> BarFeed {
             requested_by: p.requested_by.clone(),
             since: p.requested_at.unwrap_or(p.updated_at),
             updated_at: p.updated_at,
+            approves: p.auto_review.as_ref().is_some_and(|a| a.approves.is_some()),
         })
         .collect();
 

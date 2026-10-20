@@ -31,6 +31,8 @@ export interface PrFacts {
    *  for, Awaiting review while nobody's is. */
   reviewRequested?: boolean;
   reviewersAsked?: string[];
+  /** The commit it's at, which says whether an approval of the agent's is of it (`agentApproves`). */
+  headOid?: string;
 }
 
 const isOpen = (state: PrState) => state !== 'merged' && state !== 'closed';
@@ -40,6 +42,16 @@ const isOpen = (state: PrState) => state !== 'merged' && state !== 'closed';
  *  `PrItem::waits_on_review`). */
 export function heldForAgent(pr: { autoReview?: { holds?: boolean } }): boolean {
   return !!pr.autoReview?.holds;
+}
+
+/** Codealong's agent approves someone else's PR that waits on your review, so what's asked of you
+ *  is a sign-off (autoreview.rs `approved`): `now` when its approval is of the commit the PR is at,
+ *  `before` when commits came after it, which it reviews while the PR waits on you all the same.
+ *  Null while it hasn't, or while its first review holds the PR (`heldForAgent`). */
+export function agentApproves(pr: Pick<PrFacts, 'state' | 'reviewRequested' | 'autoReview' | 'headOid'>): 'now' | 'before' | null {
+  const a = pr.autoReview;
+  if (!a?.approves || a.holds || !pr.reviewRequested || !isOpen(pr.state)) return null;
+  return a.approves === pr.headOid ? 'now' : 'before';
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -63,6 +75,18 @@ function reviewPill(pr: PrFacts): PrPill {
       return pill('pass', 'Approved', 'Approved');
     default:
       if (heldForAgent(pr)) return pill('plain', 'Agent reviewing', 'Codealong’s agent is reviewing it: it waits on your review once that’s done');
+      switch (agentApproves(pr)) {
+        case 'now':
+          return pill('pass', 'Agent approves', `Codealong’s agent approves ${pr.autoReview?.approves?.slice(0, 7)}: it waits on your sign-off`);
+        case 'before': {
+          const a = pr.autoReview;
+          const at = a?.approves?.slice(0, 7);
+          // The hourglass says a review of the commits since is under way or to come; one that
+          // didn't get done waits for the next push, or Try again.
+          if (a?.stage === 'reviewing' || a?.stage === 'queued' || a?.behind) return { ...pill('pass', 'Agent approves', `Codealong’s agent approved ${at} and reviews the commits since: it waits on your sign-off meanwhile`), icon: 'hourglass' };
+          return pill('pass', 'Agent approves', `Codealong’s agent approved ${at}, and the commits since aren’t reviewed: it waits on your sign-off`);
+        }
+      }
       const asked = reviewersWords(pr);
       if (asked) return pill('plain', 'Review requested', asked);
       return pill('plain', 'Awaiting review', 'Not approved yet, and nobody is asked to review it');
@@ -83,10 +107,13 @@ export interface ReviewMark {
  *  reviewing it, approved, or changes asked for. None while it only awaits review, for a draft,
  *  whose icon says so, or once it's merged or closed. A worktree's PR (`Pr`) has only its state
  *  to go by; the board's (`PrItem`) says what's asked of you. */
-export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview'>>): ReviewMark | null {
+export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'headOid'>>): ReviewMark | null {
   if (!isOpen(pr.state) || pr.state === 'draft') return null;
   if (heldForAgent(pr)) return { key: 'agent', tone: 'pending', icon: 'hourglass', title: 'Codealong’s agent is reviewing it: it waits on your review once that’s done' };
-  if (pr.reviewRequested && !pr.snoozedUntil) return { key: 'asked', tone: 'attn', icon: 'eye', title: pr.requestedBy ? `Your review is asked for, by ${pr.requestedBy}` : 'Your review is asked for' };
+  if (pr.reviewRequested && !pr.snoozedUntil) {
+    const by = pr.requestedBy ? `, by ${pr.requestedBy}` : '';
+    return { key: 'asked', tone: 'attn', icon: 'eye', title: agentApproves(pr) ? `Your sign-off is asked for${by}: Codealong’s agent approves it` : `Your review is asked for${by}` };
+  }
   if (pr.state === 'approved') return { key: 'approved', tone: 'pass', icon: 'user-check', title: 'Approved' };
   if (pr.state === 'changes') return { key: 'changes', tone: 'fail', icon: 'file-diff', title: 'A reviewer asked for changes' };
   return null;

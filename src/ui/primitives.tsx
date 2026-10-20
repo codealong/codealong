@@ -870,7 +870,7 @@ export function PanelBack({ back }: { back: PanelBackTo }) {
  *  (prStatus.ts `reviewMark`), but approved or changes asked for where it says in words where it
  *  stands, as the PR's header leads with it (`chipWord`: Ready to merge, Review requested…); the
  *  board's PR (`PrItem`) also says what's asked of you and of others. */
-export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onOpen, inRow = false }: { pr: Pr & Partial<Pick<PrItem, 'reviewRequested' | 'reviewersAsked' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'base'>>; compact?: boolean; titled?: boolean; onMenu?: () => void; onShow?: () => void; onOpen?: () => void; inRow?: boolean }) {
+export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onOpen, inRow = false }: { pr: Pr & Partial<Pick<PrItem, 'reviewRequested' | 'reviewersAsked' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'base' | 'headOid'>>; compact?: boolean; titled?: boolean; onMenu?: () => void; onShow?: () => void; onOpen?: () => void; inRow?: boolean }) {
   const c = pr.checks;
   const open = pr.state !== 'merged' && pr.state !== 'closed';
   const word = chipWord(pr);

@@ -839,7 +839,13 @@ for the PR while that can go on. Two run at once at most;
 a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
 or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
 notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;
-it stays under Review requested, saying Agent reviewing, and its Reviews tab has a dot. The PR's
+it stays under Review requested, saying Agent reviewing, and its Reviews tab has a dot. Once the
+agent's latest review approves it, what's asked of you is a sign-off: its pill says Agent approves,
+and the commits its author pushes after that don't take it back out of what waits on you while the
+agent reviews them (the pill has an hourglass then, and the line over its box says which commit it
+approved), so agents can go back and forth on a PR while it stays in your queue for the last word.
+A review of those commits that asks for changes ends that: submitted as yours (`[reviews] submit`)
+it takes the PR off your list, and otherwise the pill says Review requested again. The PR's
 Reviews tab, in its panel and in its card in the notch and the waiting window, says where its latest
 round stands, with the session that wrote it a click away, and shows your draft as GitHub has it
 (see *Your review*); without a draft (a comment, or one you submitted) it shows the review the agent
@@ -993,7 +999,8 @@ copies its PR's link too. Colored pills say where each PR stands: its review, it
 conflicts or an out-of-date branch, or one green Ready to merge when GitHub says it can be merged
 now. The review pill says Review requested while anyone's review is asked for (yours or another's;
 its tooltip names them), Awaiting review while nobody's is, else Draft, Changes requested,
-Approved, or Agent reviewing while Codealong's agent is on it. Rows that are your move are marked at the left edge, as a session that needs you is: amber for a review asked of you or
+Approved, Agent reviewing while Codealong's agent is on it, or Agent approves when its review
+approves a PR that waits on yours, with an hourglass while it reviews commits that came after. Rows that are your move are marked at the left edge, as a session that needs you is: amber for a review asked of you or
 something to fix, red for failing checks, green for your PRs that are ready to merge. On one line a
 PR's row is its number and title, its labels as they fit, then its repo's chip, its pills and its
 size at the line's end (on a narrow list the size gives way, then the pills say less); on two lines

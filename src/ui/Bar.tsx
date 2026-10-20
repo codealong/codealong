@@ -182,9 +182,9 @@ function ReviewsPill({ prs, peeked, onOpen, measure }: { prs: BarReview[]; peeke
 }
 
 /** A PR that waits on your review as its menu item and tooltip line say it: its number and
- *  title, its repo, and who asked. */
+ *  title, its repo, who asked, and that it's a sign-off when Codealong's agent approves it. */
 function reviewLabel(p: BarReview): string {
-  return [`#${p.number} ${p.title}`, p.repo, p.requestedBy ? `asked by ${p.requestedBy}` : ''].filter(Boolean).join(' · ');
+  return [`#${p.number} ${p.title}`, p.repo, p.requestedBy ? `asked by ${p.requestedBy}` : '', p.approves ? 'agent approves' : ''].filter(Boolean).join(' · ');
 }
 
 /** The rest of the sessions started in the last day, as one pill: a click drops a menu of them. */

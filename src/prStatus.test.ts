@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, withMerges, type PrFacts } from './prStatus';
+import { agentApproves, asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, withMerges, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { PrComment, PrItem } from './types';
 
@@ -263,5 +263,36 @@ describe('heldForAgent', () => {
     expect(prFlag(done)).toBe('attn');
     expect(prPills(done)[0].text).toBe('Review requested');
     expect(prFlag(asked(undefined))).toBe('attn');
+  });
+});
+
+describe('agentApproves', () => {
+  const asked = (autoReview: PrItem['autoReview'], more: Partial<PrItem> = {}) => item({ mine: false, reviewRequested: true, headOid: '309811aaaabbbb', autoReview, ...more });
+  const approving = { stage: 'posted' as const, head: '309811aaaabbbb', at: 0, rounds: 1, suggests: 'approve' as const, approves: '309811aaaabbbb' };
+  it('says a PR the agent approves waits on your sign-off, in its pill, its chip and its mark', () => {
+    const pr = asked(approving);
+    expect(agentApproves(pr)).toBe('now');
+    expect(prFlag(pr)).toBe('attn');
+    expect(prPills(pr)[0]).toMatchObject({ text: 'Agent approves', tone: 'pass', icon: null, title: 'Codealong’s agent approves 309811a: it waits on your sign-off' });
+    expect(chipWord(pr)).toBe('Agent approves');
+    expect(reviewMark({ ...pr, requestedBy: 'gwen' })?.title).toBe('Your sign-off is asked for, by gwen: Codealong’s agent approves it');
+  });
+  it('keeps it waiting on your sign-off while the commits after the approved one are reviewed', () => {
+    const moved = asked({ ...approving, stage: 'reviewing', head: '4444444cccc', suggests: null }, { headOid: '4444444cccc' });
+    expect(agentApproves(moved)).toBe('before');
+    expect(prPills(moved)[0]).toMatchObject({ text: 'Agent approves', tone: 'pass', icon: 'hourglass' });
+    expect(prPills(moved)[0].title).toContain('approved 309811a and reviews the commits since');
+    // Their review didn't get done: no review is coming until the next push or Try again.
+    const missed = asked({ ...approving, stage: 'failed', head: '4444444cccc', suggests: null }, { headOid: '4444444cccc' });
+    expect(prPills(missed)[0]).toMatchObject({ text: 'Agent approves', icon: null, title: 'Codealong’s agent approved 309811a, and the commits since aren’t reviewed: it waits on your sign-off' });
+  });
+  it('says nothing of a sign-off before the agent approves, or once it’s not asked of you', () => {
+    expect(agentApproves(asked({ ...approving, approves: null, suggests: 'request-changes' }))).toBe(null);
+    expect(prPills(asked({ ...approving, approves: null, suggests: 'request-changes' }))[0].text).toBe('Review requested');
+    expect(agentApproves(asked({ ...approving, holds: true }))).toBe(null);
+    expect(agentApproves(asked(approving, { reviewRequested: false }))).toBe(null);
+    expect(agentApproves(asked(approving, { state: 'merged' }))).toBe(null);
+    // Approved on GitHub already: that's what its pill says.
+    expect(prPills(asked(approving, { state: 'approved' }))[0].text).toBe('Approved');
   });
 });

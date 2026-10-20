@@ -226,7 +226,9 @@ export function autoReviewWords(r: AutoReview, onGitHub?: { draft: boolean; subm
   const why = r.note ?? kept ?? back ?? drafted;
   const next = r.behind ? (r.stage === 'reviewing' ? 'New commits since: it reviews them once this one’s done.' : 'New commits since: it reviews them again once they settle.') : null;
   const held = r.holds ? 'It waits on your review once the agent’s is done.' : null;
-  const note = [why, next, held].filter((x): x is string => !!x).join(' ');
+  // An approval of an earlier commit keeps the PR waiting on your sign-off while the next is read.
+  const before = r.approves && !r.holds && (r.behind || r.approves !== r.head) ? (r.approves === r.head ? 'It waits on your sign-off meanwhile.' : `It approved ${r.approves.slice(0, 7)} before, so the PR waits on your sign-off meanwhile.`) : null;
+  const note = [why, next, held, before].filter((x): x is string => !!x).join(' ');
   if (r.submitted) return { ...submittedWords(r.submitted, at), note: note || null };
   return { icon: r.own && r.sent && r.stage === 'kept' ? 'send' : icon, says, note: note || null };
 }

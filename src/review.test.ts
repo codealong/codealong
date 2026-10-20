@@ -15,6 +15,14 @@ describe('autoReviewWords', () => {
     expect(autoReviewWords(r('failed', { parts: [{ who: 'auto', state: 'failed', note: 'Its session never showed up.' }] })).says).toBe('Agent’s review of 309811a didn’t start');
     expect(autoReviewWords(r('drafted'))).toEqual({ icon: 'note', says: 'Agent drafted a review of 309811a', note: 'Only you see it until you submit it.' });
   });
+  it('says a PR the agent approved waits on your sign-off while the commits since are reviewed', () => {
+    const approved = { suggests: 'approve' as const, approves: '309811aaaabbbb' };
+    expect(autoReviewWords(r('posted', approved)).note).toBe(null);
+    expect(autoReviewWords(r('posted', { ...approved, behind: true })).note).toBe('New commits since: it reviews them again once they settle. It waits on your sign-off meanwhile.');
+    expect(autoReviewWords(r('reviewing', { approves: '1234567ffff', suggests: null })).note).toBe('It approved 1234567 before, so the PR waits on your sign-off meanwhile.');
+    // Before it approved anything, new commits hold the PR for their review.
+    expect(autoReviewWords(r('posted', { behind: true, holds: true })).note).toBe('New commits since: it reviews them again once they settle. It waits on your review once the agent’s is done.');
+  });
   it('says where a review of a PR of yours went back to, or why it hasn’t', () => {
     expect(autoReviewWords(r('kept', { own: true, sent: 'k' }), undefined, 'Add teams')).toEqual({ icon: 'send', says: 'Agent reviewed 309811a', note: 'It went back to “Add teams”.' });
     expect(autoReviewWords(r('kept', { own: true, sent: 'k' })).note).toBe('It went back to the session that opened the PR.');

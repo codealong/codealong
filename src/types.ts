@@ -1594,6 +1594,10 @@ export interface AutoReview {
   sendable?: string | null;
   /** What this round's agent would do with the PR, which its windows suggest. */
   suggests?: Verdict | null;
+  /** The commit the agent's latest written review approved, when that review approves someone
+   *  else's PR: what's asked of you is a sign-off, and commits after it don't hold the PR out of
+   *  what waits on you while they're reviewed (prStatus.ts `agentApproves`). */
+  approves?: string | null;
   /** What its review was submitted as yours as (`[reviews] submit`), and when. */
   submitted?: Verdict | null;
   submittedAt?: number | null;
@@ -1922,6 +1926,8 @@ export interface BarReview {
   since: number;
   /** The PR's last update: the card showing it reads it again when this moves. */
   updatedAt: number;
+  /** Codealong's agent approves it: what's asked of you is a sign-off (prStatus.ts `agentApproves`). */
+  approves?: boolean;
 }
 
 /** A PR the board lists, with the worktrees that hold it and the ones its sessions are listed

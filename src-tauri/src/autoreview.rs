@@ -50,7 +50,8 @@
 //! up a round in the session it never found, wherever that showed (`Reviewer::take_up`). A start
 //! that couldn't reach GitHub to read the PR (`github::unreachable`: the network back from sleep,
 //! GitHub struggling) isn't a round yet: it's tried again a few times first (`START_TRIES`). Until a
-//! PR's round is done the PR is out of what waits on you (`apply`, `AutoReview::holds`). Where
+//! PR's round is done the PR is out of what waits on you (`apply`, `AutoReview::holds`), unless the
+//! agent approved it already: then it waits on your sign-off while new commits are reviewed. Where
 //! each PR stands is kept in reviews.json next to the config (`Store`), which this keeps in memory
 //! and saves whole, and the engine reads for the PRs' cards (`apply`). A round keeps its reviewer's
 //! turn as a part (`Part`), as it did when several could review one PR.
@@ -1288,8 +1289,11 @@ pub fn nest_own(lanes: &mut [Lane], prs: &[PrItem]) {
 /// the agent's review is done. It's held while its commit has had no round yet, for `HOLD_MS` at
 /// most from when your review was asked for or the PR last changed, and while its commit's round
 /// is under way, for as long from when that began; a round that's done, or didn't get done, hands
-/// it to you. A PR of yours is never held: it says where its review went back to, or why it
-/// hasn't, and whether the session that opened it can be sent it now.
+/// it to you. Once the agent's latest review approves it (`approved`), new commits don't take it
+/// back: it waits on your sign-off while they're reviewed, and leaves only when a round of them
+/// asks for something else, as a request for changes submitted as yours does. A PR of yours is
+/// never held: it says where its review went back to, or why it hasn't, and whether the session
+/// that opened it can be sent it now.
 pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, settings: &crate::teamfile::RepoSettings, lanes: &[Lane], now: i64) {
     for pr in prs {
         let cfg = settings.reviews(global, pr);
@@ -1299,12 +1303,13 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, settings: &
         let head = pr.head_oid.clone().unwrap_or_default();
         let since = pr.requested_at.unwrap_or(0).max(pr.updated_at);
         let own = pr.mine;
+        let approves = t.filter(|_| !own).and_then(approved);
         let holds = wanted
             && !own
             && match t.and_then(|t| t.rounds.iter().rev().find(|r| r.head == head)) {
                 // Until its review is submitted as yours, when it's to be.
-                Some(r) => (r.stage == ReviewStage::Reviewing && now - r.at < HOLD_MS) || (submit_due(cfg, pr, r, &head).is_some() && now - r.at < HOLD_MS),
-                None => now - since < HOLD_MS,
+                Some(r) => (r.stage == ReviewStage::Reviewing && approves.is_none() && now - r.at < HOLD_MS) || (submit_due(cfg, pr, r, &head).is_some() && now - r.at < HOLD_MS),
+                None => approves.is_none() && now - since < HOLD_MS,
             };
         pr.auto_review = match t.and_then(|t| t.rounds.last().map(|r| (t, r))) {
             Some((t, r)) => Some(AutoReview {
@@ -1315,6 +1320,7 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, settings: &
                 comment: r.comment.clone().or_else(|| t.rounds.iter().rev().find_map(|r| r.comment.clone())),
                 note: if own { back_note(r, cfg, &head) } else { r.submitted.as_ref().and_then(not_submitted).or_else(|| r.note.clone()) },
                 suggests: round_verdict(r),
+                approves: approves.map(str::to_string),
                 submitted: r.submitted.as_ref().filter(|s| s.failed.is_none()).map(|s| s.verdict),
                 submitted_at: r.submitted.as_ref().filter(|s| s.failed.is_none()).map(|s| s.at),
                 rounds: t.rounds.len(),
@@ -1325,10 +1331,18 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, settings: &
                 sent_at: r.sent.as_ref().filter(|s| s.failed.is_none()).map(|s| s.at),
                 sendable: (own && r.stage == ReviewStage::Kept).then(|| origin(lanes, pr)).flatten().filter(|(_, s)| can_take(s)).map(|(_, s)| s.key.clone()),
             }),
-            None if wanted => Some(AutoReview { stage: ReviewStage::Queued, head, parts: Vec::new(), at: since, comment: None, note: None, rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None, suggests: None, submitted: None, submitted_at: None }),
+            None if wanted => Some(AutoReview { stage: ReviewStage::Queued, head, parts: Vec::new(), at: since, comment: None, note: None, rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None }),
             None => None,
         };
     }
+}
+
+/// The commit the agent's latest written review of a PR approved, when that review approves it.
+/// A round that wrote nothing (under way, passed on, never done) doesn't count, so a review of new
+/// commits still to come or cut short leaves the earlier approval standing.
+fn approved(t: &Tracked) -> Option<&str> {
+    let r = t.rounds.iter().rev().find(|r| r.parts.iter().any(|p| p.state == PartState::Done && p.review.is_some()))?;
+    (round_verdict(r) == Some(Verdict::Approve)).then_some(r.head.as_str())
 }
 
 /// A round's reviewers, each with its session, for a PR's card and for `codealong pr review`.
@@ -3005,6 +3019,57 @@ mod tests {
         assert_eq!(p.auto_review.as_ref().map(|a| (a.stage, a.behind, a.holds)), Some((ReviewStage::Posted, true, true)));
         r.store.prs.get_mut("o/r#7").unwrap().rounds.push(Round::new(NEXT, ReviewStage::Failed, NOW + 11));
         assert!(shown(&r.store, moved, true, NOW + 12).waits_on_review());
+    }
+
+    /// Agents go back and forth on a PR before you sign it off: once the agent's latest review
+    /// approves it, it waits on your sign-off, and the author's commits after that don't take it
+    /// back out while they're reviewed. A round of them that asks for something else does.
+    #[test]
+    fn an_approved_pr_waits_on_your_sign_off_while_new_commits_are_reviewed() {
+        let fresh = |head: &str| PrItem { requested_at: Some(NOW - 60_000), updated_at: NOW - 60_000, ..pr(7, head) };
+        let shown = |store: &Store, p: PrItem, cfg: &ReviewsCfg, at: i64| {
+            let mut prs = vec![p];
+            apply(&mut prs, store, cfg, &Default::default(), &[], at);
+            prs.remove(0)
+        };
+        let round = |head: &str, stage: ReviewStage, review: Option<&str>, at: i64| {
+            let state = if review.is_some() { PartState::Done } else { PartState::Reviewing };
+            Round { parts: vec![Part { state, review: review.map(str::to_string), ..started(AUTO, S, at) }], ..Round::new(head, stage, at) }
+        };
+        let mut store = Store::default();
+        fn rounds(store: &mut Store) -> &mut Vec<Round> {
+            &mut store.prs.entry("o/r#7".into()).or_default().rounds
+        }
+        rounds(&mut store).push(round(HEAD, ReviewStage::Posted, Some("Looks right.\n\nVerdict: approve"), NOW));
+        let p = shown(&store, fresh(HEAD), &on(), NOW + 1);
+        assert!(p.waits_on_review());
+        assert_eq!(p.auto_review.as_ref().and_then(|a| a.approves.as_deref()), Some(HEAD));
+        // The author pushes again: still yours to sign off while the commits settle and are read.
+        let moved = PrItem { updated_at: NOW + 2, ..fresh(NEXT) };
+        let p = shown(&store, moved.clone(), &on(), NOW + 3);
+        assert!(p.waits_on_review(), "an approval keeps it with you as new commits come");
+        assert_eq!(p.auto_review.as_ref().map(|a| (a.behind, a.approves.as_deref())), Some((true, Some(HEAD))));
+        rounds(&mut store).push(round(NEXT, ReviewStage::Reviewing, None, NOW + 4));
+        assert!(shown(&store, moved.clone(), &on(), NOW + 5).waits_on_review(), "and while they're reviewed");
+        // They're approved too: the sign-off is of the new commit.
+        rounds(&mut store).last_mut().unwrap().parts[0] = Part { state: PartState::Done, review: Some("Verdict: approve".into()), ..started(AUTO, S, NOW + 4) };
+        rounds(&mut store).last_mut().unwrap().stage = ReviewStage::Posted;
+        let p = shown(&store, moved.clone(), &on(), NOW + 6);
+        assert_eq!(p.auto_review.as_ref().and_then(|a| a.approves.as_deref()), Some(NEXT));
+        // A round that asks for changes ends it: submitted as yours, the PR is held until it's gone.
+        rounds(&mut store).last_mut().unwrap().parts[0].review = Some("Verdict: request changes".into());
+        let p = shown(&store, moved.clone(), &on(), NOW + 7);
+        assert!(p.waits_on_review() && p.auto_review.as_ref().unwrap().approves.is_none(), "changes are left to you");
+        let submitting = ReviewsCfg { submit: ReviewSubmit::RequestChanges, ..on() };
+        assert!(!shown(&store, moved.clone(), &submitting, NOW + 7).waits_on_review());
+        // And the commits after a request for changes are held for their review again.
+        let again = PrItem { updated_at: NOW + 8, ..fresh("3333333cccc") };
+        assert!(!shown(&store, again, &on(), NOW + 9).waits_on_review());
+        // A PR of yours says nothing of a sign-off: you can't approve it.
+        let mut store = Store::default();
+        rounds(&mut store).push(round(HEAD, ReviewStage::Kept, Some("Verdict: approve"), NOW));
+        let p = shown(&store, PrItem { mine: true, ..fresh(HEAD) }, &on(), NOW + 1);
+        assert!(p.auto_review.is_some_and(|a| a.approves.is_none()));
     }
 
     #[test]
