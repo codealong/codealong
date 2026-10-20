@@ -350,6 +350,12 @@ pub struct Tracked {
 }
 
 impl Tracked {
+    /// Every session a round of its reviews asked, and the one kept for its next round.
+    fn asked(&self) -> impl Iterator<Item = &str> {
+        let parts = self.rounds.iter().flat_map(|r| &r.parts).filter_map(|p| p.session.as_deref());
+        self.sessions.values().map(String::as_str).chain(parts)
+    }
+
     /// The commit its last review that got done was of, for what changed since.
     fn done_head(&self) -> Option<&str> {
         self.rounds.iter().rev().find(|r| matches!(r.stage, ReviewStage::Posted | ReviewStage::Drafted | ReviewStage::Kept)).map(|r| r.head.as_str())
@@ -1287,8 +1293,7 @@ fn end(r: &mut Round, stage: ReviewStage, note: Option<String>, now: i64) {
 pub fn reviewers<'a>(store: &'a Store, sessions: &[Session]) -> HashMap<String, &'a str> {
     let mut out = HashMap::new();
     for (pr, t) in &store.prs {
-        let asked = t.rounds.iter().flat_map(|r| &r.parts).filter_map(|p| p.session.as_deref());
-        for key in t.sessions.values().map(String::as_str).chain(asked) {
+        for key in t.asked() {
             out.insert(key.to_string(), pr.as_str());
         }
     }
@@ -1335,13 +1340,22 @@ pub fn nest_own(lanes: &mut [Lane], prs: &[PrItem]) {
 /// about the work the session is handed its review of anyway, most often an answer to what the
 /// session asked it, so its message claims the session's own permission class, as a helper's
 /// does (send.rs `from_its_helper`), rather than being held for you. Only a session a round of
-/// the PR's asked counts (`AutoReview::parts`), not one taken for its review by its first prompt
-/// alone (`reviewers`), which any session could open with; and only while it's still the PR's
-/// on the board, not one you made your own.
+/// the PR's reviews asked counts, in any round (`Tracked::asked`): one whose start named it, or,
+/// for a harness that names its sessions itself, the one found where it started, of its account,
+/// whose first prompt names the PR (`found`), which a session started about then by chance
+/// doesn't, as one `origins::resolve` matches might. Not one taken for a review by its first
+/// prompt alone (`reviewers`), which any session could open with; and only while it's still the
+/// PR's on the board, not one you made your own. reviews.json is read only for a session the
+/// board takes for a review.
 pub fn reviews_for(board: &Board, global: &ReviewsCfg, from: &str, to: &str) -> bool {
-    let Some(key) = board.session(from).and_then(|(_, s)| s.helper.as_ref()?.pr.as_deref()) else { return false };
+    let Some(key) = board.session(from).and_then(|(_, s)| s.helper.as_ref()?.pr.clone()) else { return false };
+    asked_to_review(board, &crate::store::read_or_default(&path()), global, &key, from, to)
+}
+
+/// `reviews_for`, with reviews.json read: `from` reviews PR `key` for `to`.
+fn asked_to_review(board: &Board, store: &Store, global: &ReviewsCfg, key: &str, from: &str, to: &str) -> bool {
+    let asked = store.prs.get(key).is_some_and(|t| t.asked().any(|s| s == from));
     let Some(pr) = board.prs.iter().find(|p| p.mine && pr_key(&p.key) == key) else { return false };
-    let asked = pr.auto_review.as_ref().is_some_and(|a| a.parts.iter().any(|p| p.session.as_deref() == Some(from)));
     asked && origin(&board.lanes, pr).is_some_and(|(_, s)| s.key == to) && board.repo_settings.reviews(global, pr).own.send
 }
 
@@ -2800,34 +2814,40 @@ mod tests {
     }
 
     /// The review of a PR of yours writes to the session that opened it as that session's helper
-    /// does (send.rs `from_its_helper`), closed PR or open, while handing reviews back is on; a
-    /// session taken for a review by its first prompt alone doesn't.
+    /// does (send.rs `from_its_helper`), closed PR or open, while handing reviews back is on,
+    /// whichever round asked it; a session taken for a review by its first prompt alone doesn't.
     #[test]
     fn a_review_of_your_pr_writes_to_its_session_as_a_helper() {
         let review = |key: &str| Session { helper: Some(crate::model::Helper { pr: Some("o/r#7".into()), ..Default::default() }), ..fixtures::session(key) };
+        // Its round done, and the next one's start failed: it's still the PR's review.
         let mut round = Round::new(HEAD, ReviewStage::Kept, NOW);
         round.parts = vec![started(AUTO, S, NOW)];
-        let store = Store { prs: [("o/r#7".to_string(), Tracked { sessions: [(AUTO.to_string(), S.to_string())].into(), rounds: vec![round] })].into() };
-        let board_with = |pr: PrItem, cfg: &ReviewsCfg| {
-            let mut b = board(vec![pr], vec![fixtures::session(MAKER), fixtures::session("claude:claude:other"), review(S), review("codex:codex:guessed")]);
-            apply(&mut b.prs, &store, cfg, &Default::default(), &Default::default(), &b.lanes, NOW);
+        let mut next = Round::new(NEXT, ReviewStage::Failed, NOW + 1);
+        next.parts = vec![Part::failed(AUTO, "no account".into(), NOW + 1)];
+        let tracked = |sessions: BTreeMap<String, String>| Tracked { sessions, rounds: vec![round.clone(), next.clone()] };
+        let store = Store { prs: [("o/r#7".to_string(), tracked(BTreeMap::new()))].into() };
+        let board_with = |pr: PrItem| {
+            let mut b = board(vec![pr], vec![fixtures::session(MAKER), fixtures::session("claude:claude:other"), review(S), review("codex:codex:kept"), review("codex:codex:guessed")]);
             nest_own(&mut b.lanes, &b.prs);
             b
         };
-        let b = board_with(mine(7, HEAD), &own());
-        assert!(reviews_for(&b, &own(), S, MAKER));
-        assert!(!reviews_for(&b, &own(), S, "claude:claude:other"));
-        assert!(!reviews_for(&b, &own(), "codex:codex:guessed", MAKER));
-        assert!(!reviews_for(&b, &own(), MAKER, MAKER));
-        let closed = board_with(PrItem { state: PrState::Closed, ..mine(7, HEAD) }, &own());
-        assert!(reviews_for(&closed, &own(), S, MAKER));
+        let asked = |b: &Board, store: &Store, cfg: &ReviewsCfg, from: &str, to: &str| asked_to_review(b, store, cfg, "o/r#7", from, to);
+        let b = board_with(mine(7, HEAD));
+        assert!(asked(&b, &store, &own(), S, MAKER));
+        assert!(!asked(&b, &store, &own(), S, "claude:claude:other"));
+        assert!(!asked(&b, &store, &own(), "codex:codex:guessed", MAKER));
+        assert!(!asked(&b, &store, &own(), MAKER, MAKER));
+        // The session kept for its next round.
+        let kept = Store { prs: [("o/r#7".to_string(), tracked([(AUTO.to_string(), "codex:codex:kept".to_string())].into()))].into() };
+        assert!(asked(&b, &kept, &own(), "codex:codex:kept", MAKER));
+        assert!(asked(&board_with(PrItem { state: PrState::Closed, ..mine(7, HEAD) }), &store, &own(), S, MAKER));
         // Handing reviews back off: held for you, as any agent's message.
         let quiet = ReviewsCfg { own: crate::config::OwnReviewsCfg { send: false, ..own().own }, ..own() };
-        assert!(!reviews_for(&board_with(mine(7, HEAD), &quiet), &quiet, S, MAKER));
+        assert!(!asked(&b, &store, &quiet, S, MAKER));
         // A PR that waits on your review has no session of yours to write to.
-        assert!(!reviews_for(&board_with(pr(7, HEAD), &own()), &own(), S, MAKER));
-        // Made your own, it's the PR's review no more.
-        let mut owned = board_with(mine(7, HEAD), &own());
+        assert!(!asked(&board_with(pr(7, HEAD)), &store, &own(), S, MAKER));
+        // Made your own, it's the PR's review no more, and reviews.json isn't read for it.
+        let mut owned = board_with(mine(7, HEAD));
         owned.lanes[0].sessions.iter_mut().filter(|s| s.key == S).for_each(|s| s.helper = None);
         assert!(!reviews_for(&owned, &own(), S, MAKER));
     }
