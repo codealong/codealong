@@ -2089,8 +2089,9 @@ A click on a session's PR chip, or on a link to a PR in its conversation, shows 
 the notch too, in the session's place, whether it waits on your review or not, with a link back to
 the session over its title (⌃- goes back as well). Merged, reviewed or snoozed there, the PR goes
 back to the session rather than on, and the session's strip says how the PR went, as a PR shown
-from a session's panel in the main window leads back to it. The strip has Snooze only while your
-review is asked for, and Show in Codealong in the PR's menu still opens it in the main window.
+from a session's panel in the main window leads back to it. Snooze is dimmed on the strip while
+your review isn't asked for, and Show in Codealong in the PR's menu still opens it in the main
+window. One the queue goes on to later, as a review, leads back nowhere, however you come back to it.
 The pill of the one shown is marked. Marked seen, snoozed, closed or archived, a session leaves what
 waits on you and the next takes its place; with none left the notch closes. Drag the session's
 bottom corners or its bottom edge to size it: the notch stays centered, so a corner pulled out

@@ -1,9 +1,10 @@
 // Checks a PR shown in the waiting window from a session's PR chip (Waiting.tsx, PrCard.tsx
 // `from`): a click on the chip shows the PR's card in the session's place rather than the main
-// window, with a link back to the session, the box saying a verdict goes back, and the strip
-// without Snooze, since the PR asks no review of yours; the link goes back; ⌃- goes back too and
-// ⌃⇧- forward to the PR, which still leads back; and ⌘⏎ approves it and goes back to the session
-// rather than on to the next that waits, the strip saying there how the PR went.
+// window, with a link back to the session, the box saying a verdict goes back, and Snooze dimmed
+// on the strip, since the PR asks no review of yours; the link goes back; ⌃- goes back too and
+// ⌃⇧- forward to the PR, which still leads back; a review started from it with ⌃⌘R that starts
+// after ⌘[ went elsewhere leaves the window where it went; and ⌘⏎ approves it and goes back to the
+// session rather than on to the next that waits, the strip saying there how the PR went.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-pr-check.js
 (function () {
   var now = Date.now();
@@ -12,6 +13,8 @@
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
+    // A review on an account takes a moment to start.
+    if (cmd === 'review_pr_now') return new Promise(function (resolve) { setTimeout(function () { resolve(null); }, 1500); });
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
       // Once: a PR one of the board's sessions worked on, that session, and another session.
@@ -28,7 +31,8 @@
           });
         });
         board.lanes.forEach(function (l) {
-          l.sessions.forEach(function (s) { if (!picked.b && picked.a && !l.hidden && !s.visitor && !s.archived && s.key !== picked.a) picked.b = s.key; });
+          // Not a helper's or a headless run's, which a finished turn leaves out of what waits.
+          l.sessions.forEach(function (s) { if (!picked.b && picked.a && !l.hidden && !s.visitor && !s.archived && !s.helper && !s.headless && s.key !== picked.a) picked.b = s.key; });
         });
       }
       // The session with the PR needs you, the other's turn ended after it; nothing else waits,
@@ -74,8 +78,9 @@
       var back = backLink();
       check('its card leads back to the session', !!back && back.textContent.trim() === 'Queue A', back ? back.textContent : 'no link back');
       var labels = all('.ca-hotkeys .ca-hotkey').map(function (b) { return b.textContent; });
-      check('the strip has the PR’s actions, without Snooze for a review nobody asked of you', labels[0] === 'Approve⌘⏎' && labels[1] === 'Comment⌥⌘⏎' && !labels.some(function (l) { return l.indexOf('Snooze') === 0; }), labels.join('|'));
-      check('the box says a verdict goes back', /approves and goes back/.test(q('.ca-prreview').textContent), q('.ca-prreview').textContent.slice(-300));
+      var snooze = all('.ca-hotkeys .ca-hotkey').filter(function (b) { return b.textContent.indexOf('Snooze') === 0; })[0];
+      check('the strip has the PR’s actions, Snooze dimmed for a review nobody asked of you', labels[0] === 'Approve⌘⏎' && labels[1] === 'Comment⌥⌘⏎' && !!snooze && snooze.disabled, labels.join('|'));
+      check('the box says a verdict goes back', /approves( again)? and goes back/.test(q('.ca-prreview').textContent), q('.ca-prreview').textContent.slice(-300));
       backLink().click();
       return onSession('Queue A');
     })
@@ -96,8 +101,30 @@
     .then(function () {
       check('⌃- goes back to the session and ⌃⇧- forward to the PR', true);
       check('and the PR still leads back', !!backLink());
-      return wait(300);
+      // ⌃⌘R starts a review on an account, which takes a moment; meanwhile ⌘[ goes to another
+      // that waits (the last, from a PR the queue doesn't list), and the review's start doesn't
+      // bring the window back to the session.
+      var start = all('.ca-hotkeys .ca-hotkey').filter(function (b) { return b.textContent.indexOf('Review with') === 0; })[0];
+      if (!start || start.disabled) {
+        note('no account can start a review here: a late review start not tried');
+        return null;
+      }
+      var before = calls('review_pr_now').length;
+      key(window, { key: 'r', code: 'KeyR', metaKey: true, ctrlKey: true });
+      return until(function () { return calls('review_pr_now').length === before + 1; }, 2000, '⌃⌘R')
+        .then(function () {
+          key(window, { key: '[', code: 'BracketLeft', metaKey: true });
+          return onSession('Queue B');
+        })
+        .then(function () { return wait(2500); })
+        .then(function () {
+          check('a review that starts after you’ve gone on leaves you where you went', sessionTitle() === 'Queue B', sessionTitle());
+          key(window, { key: 'ArrowUp', altKey: true, shiftKey: true });
+          return onSession('Queue A');
+        })
+        .then(function () { return wait(300).then(openPr); });
     })
+    .then(function () { return wait(300); })
     .then(function () {
       var box = q('.ca-prreview-box textarea');
       box.focus();

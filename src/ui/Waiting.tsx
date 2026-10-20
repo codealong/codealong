@@ -75,7 +75,8 @@ export function Waiting() {
   // The session the PR `pr` was shown in place of, from its chip or a link in its conversation.
   const [from, setFrom] = useState<(CameFrom & { pr: string }) | null>(null);
   // Each PR shown that way, with its session: gone back and forward to (⌃- ⌃⇧-), it leads back
-  // to the session as it did.
+  // to the session as it did, unless it was shown some other way since (a review the queue went
+  // on to).
   const fromChips = useRef(new Map<string, CameFrom>());
   // The session shown with its name ready to change.
   const [renameKey, setRenameKey] = useState<string | null>(null);
@@ -127,6 +128,8 @@ export function Waiting() {
     setKey(k);
     setRenameKey(rename ? k : null);
     setFrom(at && { ...at, pr: k });
+    if (at) fromChips.current.set(k, at);
+    else fromChips.current.delete(k);
   };
 
   const way = useWaitingQueue<QueueRow>({
@@ -149,6 +152,7 @@ export function Waiting() {
   // afresh, before a render would say it was put away.
   const upNow = useRef(true);
   const shownNow = useLatest(shownKey);
+  const cameFromNow = useLatest(cameFrom);
   const fresh = way.fresh;
   useEffect(() => {
     const apply = (asked: WaitingOpen | null) => {
@@ -240,15 +244,15 @@ export function Waiting() {
   const followPr = (pr: PrItem, tab: PrTab | null = null) => {
     if (!replying) return;
     if (tab) showPrTab(pr.key, tab);
-    const at: CameFrom = { key: replying.session.key, title: replying.session.title };
-    fromChips.current.set(pr.key, at);
-    show(pr.key, false, at);
+    show(pr.key, false, { key: replying.session.key, title: replying.session.title });
   };
-  /** Back from a PR shown that way to its session, saying there how the PR went. */
-  const returnFrom = (said?: string) => {
-    if (!cameFrom) return;
-    show(cameFrom.key);
-    if (said) way.say({ text: said, error: false }, cameFrom.key);
+  /** Back from the PR `pr` shown that way to its session, saying there how the PR went; nothing
+   *  once another shows, as a review started from it can say so after you've moved on. */
+  const returnFrom = (pr: string, said?: string) => {
+    const at = cameFromNow.current;
+    if (!at || at.pr !== pr || shownNow.current !== pr) return;
+    show(at.key);
+    if (said) way.say({ text: said, error: false }, at.key);
   };
   const reviewCan = (pr: PrItem): PrWindowCan => ({
     report,
@@ -370,7 +374,7 @@ export function Waiting() {
           reviews={repoReviews(board, reviewing.repoSlug)}
           teamFiles={board?.teamFiles}
           can={reviewCan(reviewing)}
-          from={cameFrom ? { ...cameFrom, onBack: returnFrom } : undefined}
+          from={cameFrom ? { ...cameFrom, onBack: (said) => returnFrom(reviewing.key, said) } : undefined}
           autoFocus
           queue={way.queue}
           notice={way.notice}

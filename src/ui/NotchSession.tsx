@@ -80,9 +80,9 @@ export interface NotchStageState {
   /** Shows the PR `key` in place of the session `from`: a click on its PR chip, or on a link to
    *  it in the session's conversation. */
   showPr: (key: string, from: CameFrom) => void;
-  /** Back from a PR shown that way to its session, which says `said` on its strip: how the PR
-   *  went. */
-  returnFrom: (said?: string) => void;
+  /** Back from the PR `key` shown that way to its session, which says `said` on its strip: how
+   *  the PR went. Nothing once another shows. */
+  returnFrom: (key: string, said?: string) => void;
   /** Shows it, or puts it away if it's the one showing: a click on its pill. */
   toggle: (key: string) => void;
   /** A click on the notch itself: it opens on the current one, or puts the one showing away.
@@ -127,7 +127,8 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
   const fromNow = useRef<CameFrom | null>(null);
   // The PRs shown from a session's chip, with the session each was shown from: the bar lists only
   // those waiting on your review, and these are still there to go back and forward to, leading
-  // back to their session as they did.
+  // back to their session as they did. One shown since some other way (a review the queue went
+  // on to) leads nowhere.
   const fromChips = useRef(new Map<string, CameFrom>());
 
   // Back and forward through the sessions looked at here, as in the main window. One the bar no
@@ -167,6 +168,8 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
       shownNow.current = key;
       last.current = key;
       fromNow.current = from;
+      if (from) fromChips.current.set(key, from);
+      else fromChips.current.delete(key);
       setShown({ key, kind: rowsNow.current.find((r) => r.key === key)?.kind ?? kindOf(key), rename, from });
       setOpen(true);
       setKeys(true);
@@ -175,18 +178,13 @@ export function useNotchStage(items: BarItem[], reviews: BarReview[], known: (ke
     [fresh],
   );
   const show = useCallback((key: string, rename = false) => place(key, rename, null), [place]);
-  const showPr = useCallback(
-    (key: string, from: CameFrom) => {
-      fromChips.current.set(key, from);
-      place(key, false, from);
-    },
-    [place],
-  );
+  const showPr = useCallback((key: string, from: CameFrom) => place(key, false, from), [place]);
   const returnFrom = useCallback(
-    (said?: string) => {
-      // Not once the notch has closed, nor from anything else shown since.
+    (key: string, said?: string) => {
+      // Only while that PR shows: a review started from it can say so after you've moved on, or
+      // after the notch has closed.
       const from = fromNow.current;
-      if (!from || shownNow.current === null) return;
+      if (!from || shownNow.current !== key) return;
       show(from.key);
       if (said) say({ text: said, error: false }, from.key);
     },

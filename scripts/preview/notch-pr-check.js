@@ -1,10 +1,12 @@
 // Checks a PR shown in the notch from a session's PR chip (NotchSession.tsx, NotchReview.tsx,
 // PrCard.tsx `from`): a click on the chip shows the PR's card in the session's place rather than
-// the main window, with a link back to the session, the box saying a verdict goes back, and the
-// strip without Snooze, since the PR asks no review of yours; its menu still shows it in
+// the main window, with a link back to the session, the box saying a verdict goes back, and
+// Snooze dimmed on the strip, since the PR asks no review of yours; its menu still shows it in
 // Codealong; the link goes back to the session; ⌃- goes back too and ⌃⇧- forward to the PR again,
-// which the bar doesn't list; and ⌘⏎ approves it and goes back to the session rather than on to
-// the one that waited longer, the strip saying there how the PR went.
+// which the bar doesn't list; a review started from it with ⌃⌘R that starts after you've gone to
+// another session leaves you there; once the PR waits on your review and the queue goes on to it,
+// it leads back nowhere, ⌃- back to it too; and ⌘⏎ approves it and goes back to the session
+// rather than on to the one that waited longer, the strip saying there how the PR went.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=150000 scripts/preview.sh notch '' scripts/preview/notch-pr-check.js
 (function () {
   var calls = sent;
@@ -50,7 +52,10 @@
     Object.assign({}, other, { group: 'needs', status: 'needs', asks: false, snoozedUntil: null, since: 500, hidden: false }),
     Object.assign({}, other, { key: at.session.key, title: at.session.title, account: at.session.account, laneId: at.lane.id, callsign: at.lane.callsign, project: at.lane.project, openTarget: at.session.openTarget, target: null, detail: null, group: 'needs', status: 'needs', asks: false, snoozedUntil: null, since: 1000, hidden: false }),
   ] : [];
-  var feed = Promise.resolve(Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] }));
+  var plain = Object.assign({}, f, { loading: false, items: items, recent: [], snoozed: [], reviews: [], todos: [] });
+  var feed = Promise.resolve(plain);
+  // The same with the PR waiting on your review, for the queue to go on to it.
+  var asking = pr && Object.assign({}, plain, { reviews: [{ key: pr.key, number: pr.number, title: pr.title, repo: pr.repo, repoSlug: pr.repoSlug, url: pr.url, project: pr.project, requestedBy: 'ana', since: 2000, updatedAt: pr.updatedAt }] });
   var said = {};
   items.forEach(function (i) {
     said[i.key] = { title: i.title, status: 'needs', asks: false, snoozedUntil: null, archived: false, live: true, surface: 'cli', hosted: false, pid: 4242, attachCommand: null };
@@ -59,6 +64,8 @@
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd) {
     var p = real.apply(this, arguments);
+    // A review on an account takes a moment to start.
+    if (cmd === 'review_pr_now') return new Promise(function (resolve) { setTimeout(function () { resolve(null); }, 1500); });
     if (cmd !== 'get_board') return p;
     return p.then(function (b) {
       b.lanes.forEach(function (l) {
@@ -70,6 +77,8 @@
   };
 
   var showsSession = function () { return is('session') && sessionTitle().indexOf(at.session.title.slice(0, 20)) === 0; };
+  var showsOther = function () { return is('session') && sessionTitle().indexOf(other.title.slice(0, 20)) === 0; };
+  var stripButton = function (label) { return Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent.indexOf(label) === 0; })[0]; };
   var showsPr = function () { return is('session') && prNumber() === '#' + pr.number; };
   var chip = function () {
     return Array.prototype.filter.call(document.querySelectorAll('.ca-notch-session .ca-prchipcard button.ca-pr'), function (b) { return b.textContent.indexOf('#' + pr.number) >= 0; })[0];
@@ -107,9 +116,9 @@
       var back = backLink();
       check('its card leads back to the session', !!back && at.session.title.indexOf(back.textContent.replace('…', '').trim().slice(0, 12)) === 0, back ? back.textContent : 'no link back');
       var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
-      check('the strip has the PR’s actions, without Snooze for a review nobody asked of you', labels[0] === 'Approve⌘⏎' && labels[1] === 'Comment⌥⌘⏎' && !labels.some(function (l) { return l.indexOf('Snooze') === 0; }), labels.join('|'));
+      check('the strip has the PR’s actions, Snooze dimmed for a review nobody asked of you', labels[0] === 'Approve⌘⏎' && labels[1] === 'Comment⌥⌘⏎' && !!stripButton('Snooze') && stripButton('Snooze').disabled, labels.join('|'));
       var card = document.querySelector('.ca-notch-session .ca-prreview');
-      check('the box says a verdict goes back', /approves and goes back/.test(card.textContent), card.textContent.slice(-300));
+      check('the box says a verdict goes back', /approves( again)? and goes back/.test(card.textContent), card.textContent.slice(-300));
       return menuOf(document.querySelector('.ca-notch-session .ca-prreview .ca-prinsp-title'));
     })
     .then(function (labels) {
@@ -134,8 +143,57 @@
     .then(function () {
       check('⌃- goes back to the session and ⌃⇧- forward to the PR', true);
       check('and the PR still leads back', !!backLink());
-      return wait(300);
+      // ⌃⌘R starts a review on an account, which takes a moment; meanwhile you go to another
+      // session, and the review's start doesn't bring the notch back to this one's.
+      var start = stripButton('Review with');
+      if (!start || start.disabled) {
+        note('no account can start a review here: a late review start not tried');
+        return null;
+      }
+      var before = calls('review_pr_now').length;
+      key({ key: 'r', code: 'KeyR', metaKey: true, ctrlKey: true });
+      return until(function () { return calls('review_pr_now').length === before + 1; }, 2000, '⌃⌘R')
+        .then(function () {
+          pill(other.key).click();
+          return until(showsOther, 3000, 'the other session');
+        })
+        .then(function () { return wait(2500); })
+        .then(function () {
+          check('a review that starts after you’ve gone on leaves you where you went', showsOther(), sessionTitle());
+        });
     })
+    .then(function () {
+      // The PR comes to wait on your review: from the session, ⌘] goes on to it as the queue's,
+      // and it leads back nowhere, then or when ⌃- comes back to it.
+      window.__emit('bar-feed', asking);
+      pill(at.session.key).click();
+      return until(showsSession, 3000, 'the session again');
+    })
+    .then(function () { return wait(500); })
+    .then(function () {
+      key({ key: ']', code: 'BracketRight', metaKey: true });
+      return until(showsPr, 3000, '⌘] on to the PR waiting on your review');
+    })
+    .then(function () { return wait(1300); })
+    .then(function () {
+      check('the queue’s way to it leads back nowhere', !backLink());
+      key({ key: ']', code: 'BracketRight', metaKey: true });
+      return until(function () { return is('session') && !showsPr(); }, 3000, '⌘] on from it');
+    })
+    .then(function () { return wait(300); })
+    .then(function () {
+      key({ key: '-', code: 'Minus', ctrlKey: true });
+      return until(showsPr, 3000, '⌃- back to the PR');
+    })
+    .then(function () {
+      check('nor does ⌃- back to it, the queue having shown it last', !backLink());
+      // It no longer waits on you; from its chip it leads back again.
+      window.__emit('bar-feed', plain);
+      pill(at.session.key).click();
+      return until(showsSession, 3000, 'the session, for the last time');
+    })
+    .then(function () { return wait(300).then(openPr); })
+    .then(function () { return wait(300); })
     .then(function () {
       var box = document.querySelector('.ca-notch-session .ca-prreview-box textarea');
       box.focus();

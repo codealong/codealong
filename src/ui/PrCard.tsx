@@ -24,8 +24,8 @@
 // click on a session's PR chip, or on a link to the PR in its conversation, shows the PR's card in
 // the session's place (`from`), as the main window's panel does (MainPanel.tsx `drill`). The card
 // then leads back to the session, and once the PR has left as above, the window goes back to it
-// rather than on to what waits next, saying there how the PR went. Snooze is on the strip only
-// while your review is asked for.
+// rather than on to what waits next, saying there how the PR went. Snooze is dimmed on the strip
+// while your review isn't asked for.
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong, what it does once the PR has left, and what it adds (a queue).
@@ -189,7 +189,7 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
     <>
       <Hotkey label="Approve" keys={sign('approve')} title={actions.approve ? `Approve it, with what’s written on Review as the review’s text${then}` : notReviewable} run={actions.approve && (() => actions.approve?.run())} />
       <Hotkey label="Comment" keys={sign('comment')} title={actions.comment ? `Comment on it with what’s written on Review${then}` : 'It’s closed'} run={actions.comment && (() => actions.comment?.run())} />
-      {snooze && <Hotkey label="Snooze" keys={snoozeRange()} title={`Snooze the review: it waits apart until its time comes. ${snoozeKeys(snooze)}`} run={(el) => void showContextMenu(snooze.items, below(el)).catch(() => {})} />}
+      <Hotkey label="Snooze" keys={snoozeRange()} title={snooze ? `Snooze the review: it waits apart until its time comes. ${snoozeKeys(snooze)}` : pr.reviewRequested ? 'The review can’t be snoozed' : 'Your review isn’t asked for: there’s nothing to snooze'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
       <Hotkey label="Review with" keys={sign('review')} title={actions.review ? `Start Codealong’s review of it on an account${actions.review.items[0] && actions.review.items[0] !== 'separator' && !('items' in actions.review.items[0]) ? `; the key starts it: ${actions.review.items[0].label}` : ''}` : 'No account can start a review here'} run={actions.review && ((el) => void showContextMenu(actions.review?.items ?? [], below(el)).catch(() => {}))} />
       <Hotkey label="GitHub" keys={sign('github')} title="Open it on GitHub" run={() => actions.github.run()} />
     </>

@@ -909,7 +909,7 @@ export function Bar() {
                 onGone={(key) => {
                   // One shown from a session's chip goes back to the session, saying so there.
                   if (stage.from) {
-                    stage.returnFrom(`${key} is no longer on the board.`);
+                    stage.returnFrom(key, `${key} is no longer on the board.`);
                     return;
                   }
                   stage.close();

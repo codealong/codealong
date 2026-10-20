@@ -43,7 +43,7 @@ interface NotchReviewProps {
   /** The session it was shown in place of, from its chip, and the way back there, which says how
    *  the PR went (NotchStageState `returnFrom`). */
   from: CameFrom | null;
-  onReturn: (said?: string) => void;
+  onReturn: (key: string, said?: string) => void;
   onClose: () => void;
   /** The PR left what waits on you, and how: on to the next. */
   onLeft: (key: string, done: menus.Left) => void;
@@ -98,7 +98,7 @@ export function NotchReview({ prKey, now, queue, notice, onBack, keys, onKeys, o
         reviews={repoReviews(live.board, pr.repoSlug)}
         teamFiles={live.board?.teamFiles}
         can={can}
-        from={from ? { ...from, onBack: onReturn } : undefined}
+        from={from ? { ...from, onBack: (said) => onReturn(pr.key, said) } : undefined}
         outgoing={pr.key !== prKey}
         queue={queue}
         notice={notice}
