@@ -9,17 +9,19 @@
 // commit's title and message as GitHub would write them for that method, to change, the email it
 // goes under, and whether the branch goes with it. ⌘⏎ in them confirms and Escape puts them away.
 // Bringing the branch up to date, taking it out of draft, turning auto-merge off, leaving the
-// queue and deleting a merged branch are a press each, as on GitHub.
+// queue and deleting a merged branch are a press each, as on GitHub. The commit's fields
+// (`CommitFields`, `useCommit`) and the method kept per repo (`useMethod`) are Merge and close…'s
+// too (MergeClose.tsx).
 //
 // The box is read when it shows (prmerge.rs `merge_box`), kept for the PR as long as it isn't
 // updated, read again a few times while GitHub works out whether it can merge, and again after
 // each thing done here. What was done, or why it wasn't, shows under the row.
 
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from 'react';
 import { mergeAhead } from '../ahead';
 import { mergeBox, openUrl } from '../api';
 import { below, showContextMenu, type MenuSpec } from '../contextMenu';
-import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, rereads, standing, type Tone } from '../merge';
+import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, rereads, standing, type MergeMode, type Tone } from '../merge';
 import { errorText } from '../report';
 import { flag, readStored, writeStored } from '../stored';
 import type { MergeBox as Box, MergeMethod, MergeOp, PrItem } from '../types';
@@ -35,7 +37,7 @@ const cache = new Map<string, Box>();
 const RECHECK_MS = 3000;
 const RECHECKS = 3;
 
-const TONE_ICON: Record<Tone, string> = { ok: 'check', wait: 'clock', bad: 'alert', done: 'merge' };
+export const TONE_ICON: Record<Tone, string> = { ok: 'check', wait: 'clock', bad: 'alert', done: 'merge' };
 
 /** What's being done, for the button that does it. */
 type Doing = MergeOp['op'] | null;
@@ -140,26 +142,16 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
   const said = standing(box, pr);
   const [bypassing, setBypassing] = useState(false);
   const mode = mainMode(can, bypassing);
-  const [picked, setPicked] = useState<MergeMethod | null>(() => readStored<Record<string, MergeMethod>>(METHODS_KEY, methodsByRepo, {})[pr.repoSlug] ?? null);
+  const [picked, pickFor] = useMethod(pr.repoSlug);
   const method = pickMethod(box, picked);
   const [writing, setWriting] = useState(false);
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const [email, setEmail] = useState<string | null>(box.defaultEmail);
-  const [deleteBranch, setDeleteBranch] = useState(() => readStored(DELETE_KEY, flag, false));
+  const commit = useCommit(box);
+  const { title, body, email, deleteBranch, fill } = commit;
   const [doing, setDoing] = useState<Doing>(null);
   const titleBox = useRef<HTMLInputElement>(null);
 
-  /** The commit as GitHub would write it for `m`, in the fields. */
-  const fill = (m: MergeMethod) => {
-    const text = commitText(box, m);
-    setTitle(text?.title ?? '');
-    setBody(text?.body ?? '');
-  };
-
   const pick = (m: MergeMethod) => {
-    setPicked(m);
-    writeStored(METHODS_KEY, methodsByRepo, { ...readStored<Record<string, MergeMethod>>(METHODS_KEY, methodsByRepo, {}), [pr.repoSlug]: m });
+    pickFor(m);
     if (writing) fill(m);
   };
 
@@ -213,7 +205,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
       titleBox.current?.focus();
       return;
     }
-    writeStored(DELETE_KEY, flag, deleteBranch);
+    commit.keep();
     act(opFor(box, mode, { method, title, body, email, deleteBranch }));
   };
 
@@ -233,11 +225,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
   };
 
   const show = (items: MenuSpec, el: Element) => void showContextMenu(items, below(el)).catch((e: unknown) => setNote({ text: errorText(e), error: true }));
-  const methodMenu = (el: Element) =>
-    show(
-      (['merge', 'squash', 'rebase'] as const).map((m) => ({ label: METHOD[m].label, checked: m === method, enabled: box.methods.includes(m), run: () => pick(m) })),
-      el,
-    );
+  const methodMenu = (el: Element) => show(methodItems(box, method, pick), el);
   const updateMenu = (el: Element) =>
     show(
       [
@@ -246,9 +234,6 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
       ],
       el,
     );
-  const emailMenu = (el: Element) => show(box.emails.map((e) => ({ label: e, checked: e === email, run: () => setEmail(e) })), el);
-
-  const writes = method !== 'rebase';
   const ready = said.tone === 'ok' && mode === 'merge';
   const busyWord = doing === 'merge' ? 'Merging…' : doing === 'auto' ? 'Turning on…' : doing === 'enqueue' ? 'Queuing…' : null;
   const tone = box.state === 'MERGED' ? 'merged' : said.tone;
@@ -336,35 +321,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
         <div className="ca-merge-write">
           {mode === 'bypass' && <p className="ca-merge-warn">It merges now, without waiting for its requirements: past the repo’s rules.</p>}
           {mode === 'auto' && <p className="ca-meta">GitHub merges it with this commit once its requirements are met.</p>}
-          {writes ? (
-            <>
-              <label className="ca-field">
-                <span>Commit title</span>
-                <input ref={titleBox} value={title} spellCheck={false} disabled={!!doing} onChange={(e) => setTitle(e.target.value)} onKeyDown={onFieldKey} />
-              </label>
-              <label className="ca-field">
-                <span>Commit message</span>
-                <textarea value={body} rows={Math.min(10, Math.max(3, body.split('\n').length + 1))} spellCheck={false} disabled={!!doing} onChange={(e) => setBody(e.target.value)} onKeyDown={onFieldKey} />
-              </label>
-            </>
-          ) : (
-            <p className="ca-meta">{METHOD.rebase.what}</p>
-          )}
-          <div className="ca-merge-opts">
-            {writes && box.emails.length > 1 && (
-              <button type="button" className="ca-modelmenu-chip" title="The email the commit goes under" aria-haspopup="menu" disabled={!!doing} onClick={(e) => emailMenu(e.currentTarget)}>
-                <span>{email ?? 'Email'}</span>
-                <Icon name="chevron-down" size={12} />
-              </button>
-            )}
-            {deletesWith(box, mode) && (
-              <label className={cx('ca-check', doing && 'is-disabled')}>
-                <CheckBox checked={deleteBranch} disabled={!!doing} onChange={setDeleteBranch} onKeyDown={onFieldKey} />
-                Delete <code className="ca-ic">{box.branch}</code> once merged
-              </label>
-            )}
-            {box.deletesBranch && mode !== 'auto' && box.branchRef && <span className="ca-meta">GitHub deletes {box.branch} once it merges.</span>}
-          </div>
+          <CommitFields box={box} mode={mode} method={method} commit={commit} busy={!!doing} titleRef={titleBox} onKey={onFieldKey} onError={(why) => setNote({ text: why, error: true })} />
           <div className="ca-merge-confirm">
             <Button variant="primary" size="sm" icon="merge" disabled={!!doing} onClick={confirm} title={keysIn(`${confirmLabel(mode, method)} (⌘⏎)`)}>
               {busyWord ?? confirmLabel(mode, method)}
@@ -381,5 +338,89 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
         </p>
       )}
     </div>
+  );
+}
+
+/** The method picked for merges in a repo, kept for the next (`METHODS_KEY`), and the way to pick
+ *  another: null until one is, when the box starts on GitHub's (merge.ts `pickMethod`). */
+export function useMethod(repoSlug: string): [MergeMethod | null, (m: MergeMethod) => void] {
+  const [picked, setPicked] = useState<MergeMethod | null>(() => readStored<Record<string, MergeMethod>>(METHODS_KEY, methodsByRepo, {})[repoSlug] ?? null);
+  const pick = (m: MergeMethod) => {
+    setPicked(m);
+    writeStored(METHODS_KEY, methodsByRepo, { ...readStored<Record<string, MergeMethod>>(METHODS_KEY, methodsByRepo, {}), [repoSlug]: m });
+  };
+  return [picked, pick];
+}
+
+/** The ways of merging as a menu, the one in use checked and those the repo doesn't allow dimmed. */
+export function methodItems(box: Pick<Box, 'methods'>, method: MergeMethod | null, pick: (m: MergeMethod) => void): MenuSpec {
+  return (['merge', 'squash', 'rebase'] as const).map((m) => ({ label: METHOD[m].label, checked: m === method, enabled: box.methods.includes(m), run: () => pick(m) }));
+}
+
+/** The commit a merge goes in with, as it's written before it's confirmed: its title and message
+ *  as GitHub would write them for a method (`fill`; `first`'s from the start), the email it goes
+ *  under, and whether the branch goes with it, the last way that was left (`keep`, as a merge is
+ *  confirmed). */
+export function useCommit(box: Box, first: MergeMethod | null = null) {
+  const [title, setTitle] = useState(() => (first && commitText(box, first)?.title) ?? '');
+  const [body, setBody] = useState(() => (first && commitText(box, first)?.body) ?? '');
+  const [email, setEmail] = useState<string | null>(box.defaultEmail);
+  const [deleteBranch, setDeleteBranch] = useState(() => readStored(DELETE_KEY, flag, false));
+  /** The commit as GitHub would write it for `m`, in the fields. */
+  const fill = (m: MergeMethod) => {
+    const text = commitText(box, m);
+    setTitle(text?.title ?? '');
+    setBody(text?.body ?? '');
+  };
+  const keep = () => writeStored(DELETE_KEY, flag, deleteBranch);
+  return { title, setTitle, body, setBody, email, setEmail, deleteBranch, setDeleteBranch, fill, keep };
+}
+
+export type Commit = ReturnType<typeof useCommit>;
+
+/** The commit's fields, under the box's row as a merge is confirmed and in Merge and close…
+ *  (MergeClose.tsx): its title and message, or what a rebase does, which writes none; the email
+ *  it goes under, where there's a choice; and whether the branch goes with it. `onKey` hears
+ *  the keys in them; `onError` why the email's menu didn't show. */
+export function CommitFields({ box, mode, method, commit, busy, titleRef, onKey, onError }: { box: Box; mode: MergeMode; method: MergeMethod; commit: Commit; busy: boolean; titleRef?: Ref<HTMLInputElement>; onKey?: (e: ReactKeyboardEvent) => void; onError: (why: string) => void }) {
+  const { title, setTitle, body, setBody, email, setEmail, deleteBranch, setDeleteBranch } = commit;
+  const writes = method !== 'rebase';
+  const emailMenu = (el: Element) =>
+    void showContextMenu(
+      box.emails.map((e) => ({ label: e, checked: e === email, run: () => setEmail(e) })),
+      below(el),
+    ).catch((e: unknown) => onError(errorText(e)));
+  return (
+    <>
+      {writes ? (
+        <>
+          <label className="ca-field">
+            <span>Commit title</span>
+            <input ref={titleRef} value={title} spellCheck={false} disabled={busy} onChange={(e) => setTitle(e.target.value)} onKeyDown={onKey} />
+          </label>
+          <label className="ca-field">
+            <span>Commit message</span>
+            <textarea value={body} rows={Math.min(10, Math.max(3, body.split('\n').length + 1))} spellCheck={false} disabled={busy} onChange={(e) => setBody(e.target.value)} onKeyDown={onKey} />
+          </label>
+        </>
+      ) : (
+        <p className="ca-meta">{METHOD.rebase.what}</p>
+      )}
+      <div className="ca-merge-opts">
+        {writes && box.emails.length > 1 && (
+          <button type="button" className="ca-modelmenu-chip" title="The email the commit goes under" aria-haspopup="menu" disabled={busy} onClick={(e) => emailMenu(e.currentTarget)}>
+            <span>{email ?? 'Email'}</span>
+            <Icon name="chevron-down" size={12} />
+          </button>
+        )}
+        {deletesWith(box, mode) && (
+          <label className={cx('ca-check', busy && 'is-disabled')}>
+            <CheckBox checked={deleteBranch} disabled={busy} onChange={setDeleteBranch} onKeyDown={onKey} />
+            Delete <code className="ca-ic">{box.branch}</code> once merged
+          </label>
+        )}
+        {box.deletesBranch && mode !== 'auto' && box.branchRef && <span className="ca-meta">GitHub deletes {box.branch} once it merges.</span>}
+      </div>
+    </>
   );
 }

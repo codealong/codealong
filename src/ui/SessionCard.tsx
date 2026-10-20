@@ -10,9 +10,10 @@
 //
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong, what it does once the session has left (the peek goes away, the waiting window goes
-// on to the next), and what it adds (a queue, a pin that keeps it on the desktop).
+// on to the next), and what it adds (a queue, a pin that keeps it on the desktop). The card holds
+// Merge and close…'s dialog (MergeClose.tsx) for every one of them, for its menus and its header.
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { openUrl, setPinned } from '../api';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
@@ -24,6 +25,7 @@ import { useStartAccounts } from '../startAccounts';
 import type { Board, Lane, Pr, PrItem, Session, Todo } from '../types';
 import { zoomKey } from './cardHost';
 import { dialogUp } from './focusTrap';
+import { MergeCloseDialog } from './MergeClose';
 import { SessionPanel, type SessionPanelProps } from './SessionPanel';
 
 /** What the card reads from the board: what's around the session, and what's pinned in Sessions. */
@@ -78,8 +80,17 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
   const { report } = can;
   const icons = useEditorIcons(apps);
   const onDesktop = menus.useDesktopPins();
+  const [mergingClose, setMergingClose] = useState<menus.MergeCloseAsk | null>(null);
   /** A window's part for a session, with the card's: the same menu in every window. */
-  const whole = (s: Session, base: WindowCan): menus.SessionCan => ({ ...base, terminal: apps.terminal, editors: { apps, icons }, desktop: onDesktop, pin: pinItem(board, s, report), keys: 'chords' });
+  const whole = (s: Session, base: WindowCan): menus.SessionCan => ({
+    ...base,
+    terminal: apps.terminal,
+    editors: { apps, icons },
+    desktop: onDesktop,
+    pin: pinItem(board, s, report),
+    mergeClose: board ? { prs: board.prs, ask: setMergingClose } : undefined,
+    keys: 'chords',
+  });
   const mine = whole(session, can);
   // Where one that isn't running goes on (Resume in, Carry on) is its account's places, which a
   // window reads once: the card shows them as they come in.
@@ -149,6 +160,7 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
       lineage={context.lineage}
       onShowSession={onShowSession}
       onSessionMenu={(l, s) => show(menus.sessionMenu(l, s, whole(s, canFor(l, s))))}
+      dialog={mergingClose && <MergeCloseDialog ask={mergingClose} onClose={() => setMergingClose(null)} />}
     />
   );
 }

@@ -98,6 +98,9 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
   onThreadMenu?: (items: MenuSpec) => void;
   /** What the conversation's find bar opens on: the words a search found it by in what was said. */
   find?: FindAsk | null;
+  /** A dialog the window holds for the session (Merge and close…, SessionCard.tsx), drawn with
+   *  the panel, at a card's zoom, as Move's is. */
+  dialog?: ReactNode;
 }
 
 /** What the strip says at its left: what the window said (how the one before went, or how
@@ -220,7 +223,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   );
 }
 
-export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, onThreadMenu, find, ...header }: SessionPanelProps) {
+export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, autoFocus, keys, onSending, onSent, onFailed, onAnswered, onDone, onLoaded, onThreadMenu, find, dialog, ...header }: SessionPanelProps) {
   const { lane, session: s, apps, now, onOpen, onMenu, device, renaming } = header;
   const terminal = apps.terminal;
   const openIt = () => onOpen(s.openTarget);
@@ -273,6 +276,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
             <Reply session={s} terminal={terminal} runIn={folder ?? undefined} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} sayKeys={!!hotkeys} moves={moves} onMove={ask} />
           )}
           {moves && moving?.key === key && <MoveDialog session={s} moves={moves} to={moving.to} terminal={terminal} onClose={() => setMoving(null)} />}
+          {dialog}
     </>
   );
   if (variant === 'card') {

@@ -1,0 +1,19 @@
+/* Merge and close… (MergeClose.tsx): the dialog that asks before a session's PR merges and the
+   session is done with. Its fields and where the PR stands are MergeBox.css's. */
+
+.ca-dialog.ca-mergeclosedlg {
+  width: min(560px, 100%);
+}
+.ca-mergeclosedlg-method {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font: var(--type-meta-strong);
+  color: var(--ink-2);
+}
+/* Why the merge didn't go, at the foot's start, beside the buttons. */
+.ca-mergeclosedlg-error {
+  min-width: 0;
+  margin-right: var(--space-3);
+}

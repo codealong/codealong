@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead, quietAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeCloseAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import { setPlatform } from './platform';
 import type { Report } from './report';
@@ -530,6 +530,81 @@ describe('PRs picked together', () => {
   it('offers no approval where the window can’t give one, nor where none can be given', () => {
     expect(prsActions([asked, other], { report }).approve).toBeUndefined();
     expect(labels(prsMenu([mine, merged], { report, approve: noop }))).toEqual(['Open 2 PRs on GitHub', '-', 'Copy links', 'Copy branch names']);
+  });
+});
+
+describe('Merge and close', () => {
+  const ready = (over: Partial<PrItem> = {}): PrItem => fx.prItem({ key: 'acme/api#7', repoSlug: 'acme/api', number: 7, state: 'approved', merge: 'clean', primary: 'claude:c:1', ...over });
+  const settled = () => new Promise((r) => setTimeout(r, 0));
+
+  it('is for the primary session of a PR that’s ready to merge, and no other', () => {
+    const s = session();
+    expect(mergesWith([ready()], s)?.key).toBe('acme/api#7');
+    // Another session is its primary; the PR waits on a review, its checks, its conflicts; it's merged.
+    expect(mergesWith([ready({ primary: 'claude:c:2' })], s)).toBeUndefined();
+    expect(mergesWith([ready({ primary: undefined })], s)).toBeUndefined();
+    expect(mergesWith([ready({ merge: 'blocked' })], s)).toBeUndefined();
+    expect(mergesWith([ready({ checks: fx.checks({ pending: 1 }) })], s)).toBeUndefined();
+    expect(mergesWith([ready({ merge: 'conflicts' })], s)).toBeUndefined();
+    expect(mergesWith([ready({ state: 'draft' })], s)).toBeUndefined();
+    expect(mergesWith([ready({ state: 'merged' })], s)).toBeUndefined();
+    // An archived session is done with already.
+    expect(mergesWith([ready()], { ...s, archived: true })).toBeUndefined();
+    // The one that's ready, of several it's the primary of.
+    expect(mergesWith([ready({ key: 'acme/api#6', number: 6, merge: 'behind' }), ready()], s)?.number).toBe(7);
+  });
+
+  it('asks in the window’s dialog, from the menu, after Mark as done', () => {
+    const asked: MergeCloseAsk[] = [];
+    const can: SessionCan = { ...base, mergeClose: { prs: [ready()], ask: (a) => asked.push(a) } };
+    const menu = labels(sessionMenu(lane(), session(), can));
+    expect(menu.slice(menu.indexOf('Mark as done'), menu.indexOf('Archive') + 1)).toEqual(['Mark as done', 'Merge #7 and close…', 'Archive']);
+    sessionActions(lane(), session(), can).mergeClose?.run();
+    expect(asked.map((a) => [a.session.key, a.pr.key])).toEqual([['claude:c:1', 'acme/api#7']]);
+    // Not where the window has no dialog for it, nor for a PR that isn't ready.
+    expect(sessionActions(lane(), session(), base).mergeClose).toBeUndefined();
+    expect(sessionActions(lane(), session(), { ...can, mergeClose: { prs: [ready({ merge: 'blocked' })], ask: noop } }).mergeClose).toBeUndefined();
+  });
+
+  it('marks the session done once merged, ending work under way, and says the merge with it', async () => {
+    const ask = vi.mocked(doneAhead);
+    ask.mockReset();
+    const said: string[] = [];
+    const left: string[] = [];
+    const undone: string[] = [];
+    let asked: MergeCloseAsk | undefined;
+    const can: SessionCan = { ...base, report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, left: (d) => left.push(d), mergeClose: { prs: [ready()], ask: (a) => (asked = a) } };
+    const working = session({ status: 'working' });
+
+    // The main window: Undo, with what the merge said first.
+    ask.mockResolvedValueOnce({ done: true, message: 'Done with “Fix login”: its turn is stopped, its terminal is closed and it’s archived.', at: 5 });
+    sessionActions(lane(), working, { ...can, undoDone: (m) => undone.push(m) }).mergeClose?.run();
+    asked?.then('Squashed and merged #7.', false);
+    await settled();
+    expect(ask).toHaveBeenLastCalledWith('claude:c:1', true);
+    expect(left).toEqual(['done']);
+    expect(undone).toEqual(['Squashed and merged #7. Done with “Fix login”: its turn is stopped, its terminal is closed and it’s archived.']);
+    expect(said).toEqual([]);
+
+    // A floating window says only what didn't go as asked: a branch that stayed.
+    ask.mockResolvedValueOnce({ done: true, message: 'Done with “Fix login”: it’s archived.', at: 6 });
+    sessionActions(lane(), session(), can).mergeClose?.run();
+    asked?.then('Merged #7, but couldn’t delete its branch: Reference does not exist', true);
+    await settled();
+    expect(said).toEqual(['Merged #7, but couldn’t delete its branch: Reference does not exist Done with “Fix login”: it’s archived.']);
+    said.length = 0;
+    ask.mockResolvedValueOnce({ done: true, message: 'Done with “Fix login”: it’s archived.', at: 7 });
+    sessionActions(lane(), session(), can).mergeClose?.run();
+    asked?.then('Merged #7.', false);
+    await settled();
+    expect(said).toEqual([]);
+
+    // What the engine turns down is said as an error, after the merge that went.
+    ask.mockRejectedValueOnce('That session isn’t on the board any more.');
+    sessionActions(lane(), session(), can).mergeClose?.run();
+    asked?.then('Merged #7.', false);
+    await settled();
+    expect(said).toEqual(['error: Merged #7. That session isn’t on the board any more.']);
   });
 });
 
