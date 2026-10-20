@@ -34,8 +34,8 @@ const cache = new Map<string, Box>();
 
 /** How often, and how many times, it's read again while GitHub works out whether it can merge, or
  *  says otherwise than the board. */
-const RECHECK_MS = 3000;
-const RECHECKS = 3;
+export const RECHECK_MS = 3000;
+export const RECHECKS = 3;
 
 export const TONE_ICON: Record<Tone, string> = { ok: 'check', wait: 'clock', bad: 'alert', done: 'merge' };
 

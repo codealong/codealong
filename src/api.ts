@@ -238,17 +238,21 @@ export async function mergeBox(repo: string, number: number): Promise<MergeBox> 
 }
 
 /** What the merge box's act did: what GitHub couldn't do after (a branch that stayed), and for a
- *  merge, the time of the first board that shows the PR merged. */
+ *  merge, the time of the first board that shows the PR merged. For Merge and close…, what marking
+ *  its session done said, or why it wasn't done. */
 export interface MergeDone {
   note: string | null;
   shownAt: number | null;
+  done?: Done;
+  doneError?: string;
 }
 
 /** Does what the merge box asked to PR `number` of `repo` (node id `id`) as you, once GitHub has
- *  done it. A merge goes through ahead.ts `mergeAhead`, which shows it at once. */
-export async function mergePr(repo: string, number: number, id: string, op: MergeOp): Promise<MergeDone> {
+ *  done it, and with `done` (Merge and close…) marks that session done once it's merged. A merge
+ *  goes through ahead.ts `mergeAhead`, which shows it at once. */
+export async function mergePr(repo: string, number: number, id: string, op: MergeOp, done?: string): Promise<MergeDone> {
   if (!inTauri) throw new Error('Merging needs the app.');
-  return invoke<MergeDone>('merge_pr', { repo, number, id, op });
+  return invoke<MergeDone>('merge_pr', { repo, number, id, op, done: done ?? null });
 }
 
 export async function reviewInCodex(url: string): Promise<void> {

@@ -32,7 +32,7 @@
 // One that went but that nothing shows the session took says so in the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done } from './api';
+import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
@@ -729,12 +729,38 @@ export function snoozeReviewsAhead(keys: string[], until: number | null): Promis
  *  branch that stayed). */
 export function mergeAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp): Promise<string | null> {
   if (op.op !== 'merge') return mergePr(pr.repoSlug, pr.number, id, op).then((d) => d.note);
+  return merging(pr, id, op).then((d) => d.note);
+}
+
+/** Merge and close… (ui/MergeClose.tsx): merges a PR as `mergeAhead` does, and once it's merged
+ *  the engine marks the session `key` done, ending work under way too, so that's done even when
+ *  the window that asked has gone by then. The session shows seen and archived as the answer says
+ *  it's done, as Mark as done does (`doneAhead`). */
+export function mergeDoneAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp & { op: 'merge' }, key: string): Promise<MergeDone> {
+  return merging(pr, id, op, key).then((d) => {
+    if (d.done?.done) {
+      const changes: Change[] = [
+        { kind: 'seen', keys: [key] },
+        { kind: 'archive', key, archived: true },
+      ];
+      for (const change of changes) {
+        const a = made(change);
+        put(a, true);
+        answered(a.id, d.done.at ?? null);
+      }
+    }
+    return d;
+  });
+}
+
+/** A merge, shown merged in every window as it's asked, and back with why when GitHub refuses it. */
+function merging(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: string, op: MergeOp, done?: string): Promise<MergeDone> {
   const a = made({ kind: 'pr-merge', key: pr.key });
   put(a, true);
-  return mergePr(pr.repoSlug, pr.number, id, op).then(
+  return mergePr(pr.repoSlug, pr.number, id, op, done).then(
     (d) => {
       answered(a.id, d.shownAt);
-      return d.note;
+      return d;
     },
     (e: unknown) => {
       drop(a.id, true);

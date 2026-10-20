@@ -4,21 +4,23 @@
 // merge goes in with: the method kept for the repo, the commit as GitHub would write it, the
 // email it goes under and whether the branch goes with it. It reads the box as it opens and says
 // why when GitHub won't merge the PR now; the box itself has the rest (auto-merge, the queue,
-// merging past the rules). Once GitHub has merged it, the session is marked done (menus.ts
-// `sessionActions`), any work under way ended too, as the dialog says; a merge GitHub turns down
-// leaves the session as it was and the dialog up, saying why. The main window holds the dialog
-// (App.tsx), and so does a session's card in the other windows (SessionCard.tsx).
+// merging past the rules); while GitHub is still working out whether it can merge, it reads the
+// box again, as the box does. Once GitHub has merged it, the engine marks the session done in the
+// same request (ahead.ts `mergeDoneAhead`), any work under way ended too, as the dialog says, so
+// a window closed meanwhile doesn't leave it half done; menus.ts says how it went. A merge GitHub
+// turns down leaves the session as it was and the dialog up, saying why. The main window holds
+// the dialog (App.tsx), and so does a session's card in the other windows (SessionCard.tsx).
 
 import { useEffect, useState } from 'react';
-import { mergeAhead } from '../ahead';
+import { mergeDoneAhead } from '../ahead';
 import { mergeBox } from '../api';
 import { below, showContextMenu } from '../contextMenu';
 import { middleTruncate } from '../format';
-import { doneWords, METHOD, offers, opFor, pickMethod, standing } from '../merge';
+import { doneWords, METHOD, offers, opFor, pickMethod, rereads, standing } from '../merge';
 import { whatDoneDoes, type MergeCloseAsk } from '../menus';
 import { errorText } from '../report';
 import type { MergeBox as Box, MergeMethod, Session } from '../types';
-import { CommitFields, methodItems, TONE_ICON, useCommit, useMethod } from './MergeBox';
+import { CommitFields, methodItems, RECHECK_MS, RECHECKS, TONE_ICON, useCommit, useMethod } from './MergeBox';
 import { Button, Dialog, Icon } from './primitives';
 
 /** What the dialog says it does: merges the PR into its base, then marks the session done, and
@@ -44,18 +46,28 @@ interface MergeCloseDialogProps {
 export function MergeCloseDialog({ ask, onClose }: MergeCloseDialogProps) {
   const { pr } = ask;
   const [read, setRead] = useState<{ box?: Box; error?: string }>({});
+  const [again, setAgain] = useState(0);
   useEffect(() => {
     let live = true;
     mergeBox(pr.repoSlug, pr.number)
       .then((box) => live && setRead({ box }))
-      .catch((e: unknown) => live && setRead({ error: errorText(e) }));
+      // Read before, the box stays as it was.
+      .catch((e: unknown) => live && setRead((was) => ({ box: was.box, error: errorText(e) })));
     return () => {
       live = false;
     };
-  }, [pr.repoSlug, pr.number]);
+  }, [pr.repoSlug, pr.number, again]);
+  // GitHub works out whether a PR can merge when it's first asked, and can take a moment to agree
+  // with the board that it's ready: read again a few times, as the merge box does.
+  const checking = !!read.box && rereads(read.box, pr) && again < RECHECKS;
+  useEffect(() => {
+    if (!checking) return;
+    const t = window.setTimeout(() => setAgain((n) => n + 1), RECHECK_MS);
+    return () => window.clearTimeout(t);
+  }, [checking, again]);
 
-  // Read, it's a dialog of its own, which takes the keyboard on its confirm button.
-  if (read.box) return <Ready ask={ask} box={read.box} onClose={onClose} />;
+  // Read, it's a dialog of its own, which takes the keyboard on its confirm button once it merges.
+  if (read.box) return <Ready key={offers(read.box).merge ? 'merges' : 'waits'} ask={ask} box={read.box} checking={checking} onClose={onClose} />;
   return (
     <Dialog
       className="ca-mergeclosedlg"
@@ -78,7 +90,8 @@ export function MergeCloseDialog({ ask, onClose }: MergeCloseDialogProps) {
   );
 }
 
-function Ready({ ask, box, onClose }: { ask: MergeCloseAsk; box: Box; onClose: () => void }) {
+/** `checking`: GitHub is still working out whether it can merge, and the box is read again. */
+function Ready({ ask, box, checking, onClose }: { ask: MergeCloseAsk; box: Box; checking: boolean; onClose: () => void }) {
   const { pr } = ask;
   const [picked, keepMethod] = useMethod(pr.repoSlug);
   const method = pickMethod(box, picked);
@@ -102,12 +115,13 @@ function Ready({ ask, box, onClose }: { ask: MergeCloseAsk; box: Box; onClose: (
     }
     commit.keep();
     const op = opFor(box, 'merge', { method, title: commit.title, body: commit.body, email: commit.email, deleteBranch: commit.deleteBranch });
+    if (op.op !== 'merge') return;
     setBusy(true);
     setError(null);
-    mergeAhead(pr, box.id, op).then(
-      (warning) => {
+    mergeDoneAhead(pr, box.id, op, ask.session.key).then(
+      (d) => {
         onClose();
-        ask.then(warning ?? doneWords(op, pr.number, box.branch), warning != null);
+        ask.then(d.note ?? doneWords(op, pr.number, box.branch), d.note != null, d);
       },
       (e: unknown) => {
         setBusy(false);
@@ -131,7 +145,7 @@ function Ready({ ask, box, onClose }: { ask: MergeCloseAsk; box: Box; onClose: (
             Cancel
           </Button>
           <Button variant="primary" size="sm" type="submit" icon="merge" disabled={!merges || busy} autoFocus title={method ? METHOD[method].what : undefined}>
-            {busy ? 'Merging…' : 'Merge and close'}
+            {busy ? 'Merging and closing…' : 'Merge and close'}
           </Button>
         </>
       }
@@ -160,7 +174,7 @@ function Ready({ ask, box, onClose }: { ask: MergeCloseAsk; box: Box; onClose: (
             <Icon name={box.state === 'CLOSED' ? 'pr-closed' : TONE_ICON[said.tone]} size={16} stroke={2} />
             <div>
               <strong>{said.says}</strong>
-              <span>{said.more ? `${said.more} ` : ''}Its merge box on the PR has what GitHub offers now.</span>
+              <span>{[said.more, !checking && 'Its merge box on the PR has what GitHub offers now.'].filter(Boolean).join(' ')}</span>
             </div>
           </div>
         )}

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead, quietAhead } from './ahead';
-import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done } from './api';
+import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
 import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeCloseAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
@@ -535,7 +535,6 @@ describe('PRs picked together', () => {
 
 describe('Merge and close', () => {
   const ready = (over: Partial<PrItem> = {}): PrItem => fx.prItem({ key: 'acme/api#7', repoSlug: 'acme/api', number: 7, state: 'approved', merge: 'clean', primary: 'claude:c:1', ...over });
-  const settled = () => new Promise((r) => setTimeout(r, 0));
 
   it('is for the primary session of a PR that’s ready to merge, and no other', () => {
     const s = session();
@@ -566,45 +565,37 @@ describe('Merge and close', () => {
     expect(sessionActions(lane(), session(), { ...can, mergeClose: { prs: [ready({ merge: 'blocked' })], ask: noop } }).mergeClose).toBeUndefined();
   });
 
-  it('marks the session done once merged, ending work under way, and says the merge with it', async () => {
-    const ask = vi.mocked(doneAhead);
-    ask.mockReset();
+  it('says what the merge and the session’s ending came to, as Mark as done says it', () => {
     const said: string[] = [];
     const left: string[] = [];
     const undone: string[] = [];
     let asked: MergeCloseAsk | undefined;
     const can: SessionCan = { ...base, report: { error: (m) => said.push(`error: ${m}`), info: (m) => said.push(m) }, left: (d) => left.push(d), mergeClose: { prs: [ready()], ask: (a) => (asked = a) } };
-    const working = session({ status: 'working' });
+    const merged = (done: Partial<MergeDone>): MergeDone => ({ note: null, shownAt: 4, ...done });
 
     // The main window: Undo, with what the merge said first.
-    ask.mockResolvedValueOnce({ done: true, message: 'Done with “Fix login”: its turn is stopped, its terminal is closed and it’s archived.', at: 5 });
-    sessionActions(lane(), working, { ...can, undoDone: (m) => undone.push(m) }).mergeClose?.run();
-    asked?.then('Squashed and merged #7.', false);
-    await settled();
-    expect(ask).toHaveBeenLastCalledWith('claude:c:1', true);
+    sessionActions(lane(), session({ status: 'working' }), { ...can, undoDone: (m) => undone.push(m) }).mergeClose?.run();
+    asked?.then('Squashed and merged #7.', false, merged({ done: { done: true, message: 'Done with “Fix login”: its turn is stopped, its terminal is closed and it’s archived.', at: 5 } }));
     expect(left).toEqual(['done']);
     expect(undone).toEqual(['Squashed and merged #7. Done with “Fix login”: its turn is stopped, its terminal is closed and it’s archived.']);
     expect(said).toEqual([]);
 
-    // A floating window says only what didn't go as asked: a branch that stayed.
-    ask.mockResolvedValueOnce({ done: true, message: 'Done with “Fix login”: it’s archived.', at: 6 });
+    // A floating window says only what didn't go as asked: a branch that stayed, a terminal left open.
     sessionActions(lane(), session(), can).mergeClose?.run();
-    asked?.then('Merged #7, but couldn’t delete its branch: Reference does not exist', true);
-    await settled();
-    expect(said).toEqual(['Merged #7, but couldn’t delete its branch: Reference does not exist Done with “Fix login”: it’s archived.']);
-    said.length = 0;
-    ask.mockResolvedValueOnce({ done: true, message: 'Done with “Fix login”: it’s archived.', at: 7 });
+    asked?.then('Merged #7, but couldn’t delete its branch: Reference does not exist', true, merged({ done: { done: true, message: 'Done with “Fix login”: it’s archived.', at: 6 } }));
     sessionActions(lane(), session(), can).mergeClose?.run();
-    asked?.then('Merged #7.', false);
-    await settled();
-    expect(said).toEqual([]);
+    asked?.then('Merged #7.', false, merged({ done: { done: true, message: 'Done with “Fix login”: it’s archived. It’s still open in the Claude app.', noted: true, at: 7 } }));
+    sessionActions(lane(), session(), can).mergeClose?.run();
+    asked?.then('Merged #7.', false, merged({ done: { done: true, message: 'Done with “Fix login”: it’s archived.', at: 8 } }));
+    expect(said).toEqual(['Merged #7, but couldn’t delete its branch: Reference does not exist Done with “Fix login”: it’s archived.', 'Merged #7. Done with “Fix login”: it’s archived. It’s still open in the Claude app.']);
 
-    // What the engine turns down is said as an error, after the merge that went.
-    ask.mockRejectedValueOnce('That session isn’t on the board any more.');
+    // One the engine didn't mark done stays where it was, and says why after the merge that went.
+    said.length = 0;
+    left.length = 0;
     sessionActions(lane(), session(), can).mergeClose?.run();
-    asked?.then('Merged #7.', false);
-    await settled();
+    asked?.then('Merged #7.', false, merged({ doneError: 'That session isn’t on the board any more.' }));
     expect(said).toEqual(['error: Merged #7. That session isn’t on the board any more.']);
+    expect(left).toEqual([]);
   });
 });
 

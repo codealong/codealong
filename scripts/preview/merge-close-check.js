@@ -2,9 +2,11 @@
 // primary of a PR ready to merge has it beside the PR's chip in its header, and in its menu after
 // Mark as done. It opens a dialog that says what it does, with the commit GitHub would write for
 // the way kept for the repo (squash, GitHub's pick here) and the keyboard on its button. Cancel
-// merges nothing; a merge GitHub refuses says why in the dialog and leaves the session alone.
-// Merged, the dialog goes and the session is marked done, work under way ended too. Once the PR
-// isn't ready (merged, say), neither the button nor the item is there. A real session is made
+// merges nothing. While GitHub is still working out whether it can merge, the dialog says so and
+// reads it again, its button taking the keyboard once it can. A merge GitHub refuses says why in
+// the dialog and leaves the session alone. Merged, the dialog goes, and the request that merged
+// it had the engine mark the session done, work under way ended too, rather than the window. Once
+// the PR isn't ready (merged, say), neither the button nor the item is there. A real session is made
 // the primary of a real PR, made ready; the peek's card holds the dialog (SessionCard.tsx), the
 // main window's Sessions App.tsx.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/merge-close-check.js
@@ -45,8 +47,14 @@
   localStorage.setItem('codealong.preview.peek', key);
   // Ready until it's merged, which a check below says it is.
   var merged = false;
+  // GitHub still working out whether it can merge, the next time the box is read.
+  var unsure = false;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd === 'merge_box' && unsure) {
+      unsure = false;
+      return real(cmd, args, options).then(function (b) { return Object.assign(b, { mergeable: 'UNKNOWN', mergeState: 'UNKNOWN' }); });
+    }
     var got = real(cmd, args, options);
     if (cmd !== 'get_board') return got;
     return got.then(function (b) {
@@ -93,9 +101,11 @@
   (async function () {
     try {
       say('merge close check: waiting for the session');
+      var rowOf = function () { return document.getElementById('row-' + home.id + '::' + key); };
+      await until(function () { return peek() || rowOf(); }, 20000, 'neither the peek nor a row in Sessions for “' + picked.title + '”');
       if (!peek()) {
         // In Sessions, its row picked.
-        var row = await until(function () { return document.getElementById('row-' + home.id + '::' + key); }, 20000, 'no row in Sessions for “' + picked.title + '”');
+        var row = rowOf();
         row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
         row.click();
         await until(function () { var t = q('.ca-sessinsp-title'); return t && t.textContent === picked.title; }, 5000, 'Sessions didn’t show “' + picked.title + '”');
@@ -137,9 +147,15 @@
       await until(function () { return !dialog(); }, 3000, 'Cancel left the dialog up');
       check('Cancel merges nothing', calls('merge_pr').length === 0 && calls('session_done').length === 0, calls('merge_pr').length + ' merges');
 
-      // From the header: refused, then merged.
+      // From the header, GitHub still working it out: read again until it can merge.
+      unsure = true;
       mergeButton().click();
-      await until(function () { var b = confirm(); return b && !b.disabled ? b : null; }, 5000, 'the header’s button opened no dialog to merge from');
+      var still = await until(function () { return q('.ca-mergeclosedlg .ca-merge-standing strong'); }, 5000, 'the dialog said nothing while GitHub worked it out');
+      check('while GitHub works out whether it can merge, the dialog says so and can’t merge yet', still.textContent === 'Checking whether it can merge…' && confirm().disabled, still.textContent);
+      go = await until(function () { var b = confirm(); return b && !b.disabled ? b : null; }, 8000, 'the dialog never read the box again');
+      check('read again, it can, and its button has the keyboard', document.activeElement === go, document.activeElement ? document.activeElement.outerHTML.slice(0, 80) : 'nothing');
+
+      // Refused, then merged.
       type(titleField(), 'fail');
       submit();
       var error = await until(function () { return q('.ca-mergeclosedlg .ca-form-error'); }, 5000, 'a refused merge said nothing');
@@ -147,12 +163,10 @@
       check('and leaves the session as it was', calls('session_done').length === 0 && !!dialog(), calls('session_done').length + ' done');
       type(titleField(), 'Ship it (#' + pr.number + ')');
       submit();
-      await until(function () { return calls('session_done').length > 0; }, 5000, 'merged, the session wasn’t marked done');
+      await until(function () { return !dialog(); }, 5000, 'the dialog stayed up');
       var op = sent('merge_pr').pop();
       check('it merges the PR with what was written', !!op && op.repo === pr.repoSlug && op.number === pr.number && op.op.op === 'merge' && op.op.method === 'squash' && op.op.title === 'Ship it (#' + pr.number + ')', JSON.stringify(op));
-      var asked = sent('session_done').pop();
-      check('then marks the session done, ending what’s under way', asked.key === key && asked.stop === true, JSON.stringify(asked));
-      await until(function () { return !dialog(); }, 3000, 'the dialog stayed up');
+      check('and the same request marks the session done, not the window', op.done === key && calls('session_done').length === 0, op.done + ', ' + calls('session_done').length + ' asked by the window');
     } catch (e) {
       return stopped(e);
     }

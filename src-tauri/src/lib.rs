@@ -1120,15 +1120,23 @@ struct MergeDone {
     note: Option<String>,
     /// The time of the first board that shows the PR merged, for a merge.
     shown_at: Option<i64>,
+    /// Merge and close…: what marking its session done said (actions.rs `done`), or why that
+    /// wasn't done (`done_error`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    done: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    done_error: Option<String>,
 }
 
 /// Does what the merge box asked to a PR as you: merges it, turns auto-merge on or off, queues it,
 /// updates or deletes its branch, takes it out of draft. Returns once GitHub has done it. A PR
 /// merged shows merged on the board at once (`engine::Handle::merged`); for anything else PRs are
-/// read again.
+/// read again. With `done` (Merge and close…, src/ui/MergeClose.tsx), the session that key names
+/// is marked done once GitHub has merged the PR, work under way ended too, here rather than by the
+/// window, which may have closed by then (a kept session's ⌘W, the peek going).
 #[tauri::command]
-async fn merge_pr(engine: State<'_, engine::Handle>, repo: String, number: u64, id: String, op: prmerge::Op) -> Result<MergeDone, String> {
-    let engine = engine.inner().clone();
+async fn merge_pr(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, repo: String, number: u64, id: String, op: prmerge::Op, done: Option<String>) -> Result<MergeDone, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
     blocking(move || {
         let acted = prmerge::act(number, &id, &op).map_err(words)?;
         let shown_at = if acted.merged {
@@ -1137,7 +1145,15 @@ async fn merge_pr(engine: State<'_, engine::Handle>, repo: String, number: u64, 
             engine.pr_changed();
             None
         };
-        Ok(MergeDone { note: acted.note, shown_at })
+        let (done, done_error) = match done {
+            Some(key) if acted.merged => match actions::run(&engine, &peers, api::SESSION_DONE, &key, actions::params::Done { stop: true, ..Default::default() }) {
+                Ok(answer) => (Some(answer), None),
+                Err(e) => (None, Some(e)),
+            },
+            Some(_) => (None, Some(format!("GitHub didn't say #{number} merged, so its session is left as it was."))),
+            None => (None, None),
+        };
+        Ok(MergeDone { note: acted.note, shown_at, done, done_error })
     })
     .await?
 }

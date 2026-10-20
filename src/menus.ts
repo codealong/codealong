@@ -6,10 +6,11 @@
 // seen, snooze, quiet, close, mark done, archive, fork, move, pin to the desktop, copy) is done here, and
 // says how it went through the window's `Report`: a toast in the main window, a note on the bar.
 // Merge and close…, for a PR's primary session once the PR is ready to merge, asks first in the
-// window's own dialog (ui/MergeClose.tsx), which merges it; marking the session done after is here.
+// window's own dialog (ui/MergeClose.tsx), which merges it and has the engine mark the session
+// done; saying how that went is here.
 
 import { useEffect, useState } from 'react';
-import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop } from './api';
+import { closeSession, desktopPins, expandAttachments, forkSession, getAccounts, inPreview, moveSession, moveSessionTo, onDesktopPins, openUrl, ownSessions, pinToDesktop, resumeSession, sessionCancel, setPrNudge, setPrPrimary, setReusable, showQuick, unpinFromDesktop, type MergeDone } from './api';
 import { archiveAhead, doneAhead, quietAhead, seenAhead, unreadAhead } from './ahead';
 import type { MenuAction, MenuGroup, MenuImage, MenuSpec } from './contextMenu';
 import { shortOf } from './devices';
@@ -176,14 +177,15 @@ export interface SessionCan {
 }
 
 /** What a window's Merge and close… dialog asks about: the session, the PR it's the primary
- *  session of, and what's done with the session once the dialog has merged the PR. */
+ *  session of, and what's said once the dialog has merged the PR and the engine marked the
+ *  session done with it (ahead.ts `mergeDoneAhead`). */
 export interface MergeCloseAsk {
   lane: Lane;
   session: Session;
   pr: PrItem;
-  /** Marks the session done, with what the merge said (`merged`) leading what's said of it, and
-   *  whether that was more than it merged (a branch that stayed). */
-  then: (merged: string, noted: boolean) => void;
+  /** Says how both went, what the merge said (`merged`) first, and whether that was more than it
+   *  merged (a branch that stayed). */
+  then: (merged: string, noted: boolean, d: MergeDone) => void;
 }
 
 /** The PR that Merge and close… merges for `s`: one it's the primary session of (board.rs
@@ -239,8 +241,8 @@ export interface SessionActions {
   /** Done with it: it ends as far as Codealong can end it, and is marked seen and archived. */
   done?: MenuAction;
   /** Merge #N and close…: it's the primary session of a PR that's ready to merge (`mergesWith`).
-   *  The window's dialog asks first and merges it, and then it's done with as Mark as done does,
-   *  work under way ended too, since the dialog said it would be. */
+   *  The window's dialog asks first and merges it, and then the engine marks it done as Mark as
+   *  done does, work under way ended too, since the dialog said it would be. */
   mergeClose?: MenuAction;
   archive: MenuAction;
   copyId: MenuAction;
@@ -342,19 +344,15 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
       })
       .catch((e: unknown) => report.error(errorText(e)));
   };
-  // Merged from the window's dialog: done with as Mark as done is, though work under way ends
-  // with it, which the dialog said. A floating window says only what didn't go as asked, the
-  // session leaving its list for the rest, as Mark as done does there.
-  const mergedDone = (merged: string, noted: boolean) => {
+  // Merged from the window's dialog, and marked done with it: said as Mark as done says it, so a
+  // floating window says only what didn't go as asked, the session leaving its list for the rest.
+  const mergedDone = (merged: string, noted: boolean, d: MergeDone) => {
+    const r = d.done;
+    if (!r?.done) return report.error(`${merged} ${r?.message ?? d.doneError ?? ''}`.trim());
     can.left?.('done');
-    busy(`Wrapping up ${s.title}…`, doneAhead(s.key, true))
-      .then((r) => {
-        const message = `${merged} ${r.message}`;
-        if (!r.done) report.error(message);
-        else if (can.undoDone) can.undoDone(message);
-        else if (r.noted || noted) report.info(message);
-      })
-      .catch((e: unknown) => report.error(`${merged} ${errorText(e)}`));
+    const message = `${merged} ${r.message}`;
+    if (can.undoDone) can.undoDone(message);
+    else if (r.noted || noted) report.info(message);
   };
   const merges = can.mergeClose && mergesWith(can.mergeClose.prs, s);
   return {

@@ -16,7 +16,7 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, type Ahead, type View } from './ahead';
+import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf, stuckMidTurn } from './lanes';
 import * as fx from './testing/fixtures';
@@ -563,7 +563,16 @@ describe('mergeAhead', () => {
   it('hands the engine the merge, and what GitHub couldn’t do after', async () => {
     api.mergePr.mockResolvedValueOnce({ note: 'Merged #7, but couldn’t delete its branch: gone', shownAt: NOW });
     await expect(mergeAhead(pr, 'PR_7', merge)).resolves.toBe('Merged #7, but couldn’t delete its branch: gone');
-    expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', merge);
+    expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', merge, undefined);
+  });
+
+  it('has the engine mark a session done with the merge, for Merge and close…', async () => {
+    const answer = { note: null, shownAt: NOW, done: { done: true, message: 'Done with “Fix it”: it’s archived.', at: NOW } };
+    api.mergePr.mockResolvedValueOnce(answer);
+    await expect(mergeDoneAhead(pr, 'PR_7', merge, 'claude:c:1')).resolves.toEqual(answer);
+    expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', merge, 'claude:c:1');
+    api.mergePr.mockRejectedValueOnce(new Error('Couldn’t merge #7: Head branch was modified.'));
+    await expect(mergeDoneAhead(pr, 'PR_7', merge, 'claude:c:1')).rejects.toThrow('Head branch was modified.');
   });
 
   it('says why GitHub refused it', async () => {
