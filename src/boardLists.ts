@@ -760,7 +760,8 @@ export function kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board
     const card = `todo:${r.todo.id}`;
     return member(card) && (added.has(card) || !(todoStage(r, todos) === 'done' && doneAt(r) < doneSince));
   });
-  const onCards = new Set(todoCards.filter((c) => todoStage(c, todos) !== 'done').flatMap((c) => c.todo.sessions));
+  // What an open todo's card lists, which has no archived session: one of those goes on a card of its own.
+  const onCards = new Set(todoCards.filter((c) => todoStage(c, todos) !== 'done').flatMap((c) => c.sessions.map((p) => p.session.key)));
   const viaPrs = new Set(prs.filter((p) => member(`pr:${p.key}`)).flatMap((p) => p.sessions.map((s) => s.key)));
   const sessionCards = sessions.filter((r) => {
     const card = `session:${r.session.key}`;

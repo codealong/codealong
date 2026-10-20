@@ -1820,7 +1820,11 @@ fn unshown(board: &Board, doc: &BoardDoc, card: &str) -> Option<Unshown> {
     let (title, why) = match kind {
         boards::Kind::Session => all_sessions(board).into_iter().find(|(s, _)| s.key == key).map(|(s, l)| (s.title.clone(), lane_why(l)))?,
         boards::Kind::Worktree => board.lanes.iter().find(|l| l.id == key).map(|l| (l.callsign.clone(), lane_why(l)))?,
-        boards::Kind::Todo => board.todos.iter().find(|t| t.id == key).map(|t| (t.title.clone(), elsewhere(&t.project)))?,
+        // A todo of no project is on every project's canvas, and no project's Kanban.
+        boards::Kind::Todo => board.todos.iter().find(|t| t.id == key).map(|t| {
+            let why = if t.project.is_empty() && !every { Some(format!("has no project, so it shows on {}'s canvas but not its Kanban", doc.name)) } else { elsewhere(&t.project) };
+            (t.title.clone(), why)
+        })?,
         boards::Kind::Pr => board.prs.iter().find(|p| p.key == key).map(|p| (format!("#{} {}", p.number, p.title), elsewhere(&p.project)))?,
     };
     let title = if title.trim().is_empty() { "Untitled".to_string() } else { truncate(&title, 60) };
@@ -6614,7 +6618,7 @@ mod tests {
     fn board_add_says_which_cards_wont_show_as_they_are_outside_the_boards_project() {
         let at = |id: &str, project: &str, hidden: bool, key: &str| Lane { project: project.into(), hidden, ..lane(id, vec![session(key, true, None)]) };
         let lanes = vec![at("/r/app", "Northwind", false, "app"), at("/r/chats", board::ELSEWHERE, false, "chat"), at("/r/notes", board::ELSEWHERE, true, "note"), at("/r/site", "Atlas", false, "site")];
-        let todos = vec![Todo { project: "Northwind".into(), ..todo("t-here", TodoStatus::Done, &[], &[]) }, Todo { project: "Atlas".into(), ..todo("t-there", TodoStatus::Todo, &[], &[]) }];
+        let todos = vec![Todo { project: "Northwind".into(), ..todo("t-here", TodoStatus::Done, &[], &[]) }, Todo { project: "Atlas".into(), ..todo("t-there", TodoStatus::Todo, &[], &[]) }, todo("t-none", TodoStatus::Todo, &[], &[])];
         let b = Board { lanes, todos, ..Board::default() };
         let release = BoardDoc { name: "Release".into(), ..BoardDoc::of_project("Northwind") };
         let why = |doc: &BoardDoc, card: &str| unshown(&b, doc, card).map(|u| u.why);
@@ -6625,9 +6629,10 @@ mod tests {
         assert_eq!(why(&release, "session:site").as_deref(), Some("is in Atlas, and Release shows what's in Northwind"));
         assert_eq!(why(&release, "todo:t-there").as_deref(), Some("is in Atlas, and Release shows what's in Northwind"));
         assert_eq!(why(&release, "session:chat").as_deref(), Some("is outside your projects, and Release shows what's in Northwind"));
+        assert_eq!(why(&release, "todo:t-none").as_deref(), Some("has no project, so it shows on Release's canvas but not its Kanban"));
         // The board of every project leaves out only what's outside your projects and needs nothing of you.
         let every = BoardDoc::of_project(crate::route::ALL_PROJECTS);
-        for card in ["session:site", "session:chat", "todo:t-there"] {
+        for card in ["session:site", "session:chat", "todo:t-there", "todo:t-none"] {
             assert_eq!(why(&every, card), None, "{card}");
         }
         assert_eq!(why(&every, "session:note").as_deref(), Some("is outside your projects, which All projects shows only while it needs you"));

@@ -813,6 +813,15 @@ describe('the Kanban view’s columns', () => {
     expect(own.columns.flatMap((c) => c.cards.map((r) => r.key))).toEqual(['/r/app::claude:claude:lead']);
   });
 
+  it('gives an archived session on an open todo a card of its own, as the todo’s card doesn’t list it', () => {
+    const marked = session('claude:claude:marked', { archived: true, status: 'stopped' });
+    const l = lane('/r/app', [marked]);
+    const todos = [fx.todo({ id: 'open', project: 'Acme', status: 'in-progress', sessions: [marked.key] })];
+    const doc: BoardDoc = { ...projectBoard('Acme'), added: ['session:claude:claude:marked'] };
+    const { columns } = kanbanOf(fx.board({ lanes: [l], todos }), [l], doc, NOW);
+    expect(Object.fromEntries(columns.map((c) => [c.id, c.cards.map((r) => r.key)]))).toEqual({ todo: [], progress: ['todo:open'], review: [], done: ['/r/app::claude:claude:marked'] });
+  });
+
   it('keeps the sessions a board has by hand however old, as the age filter does pins', () => {
     const old = session('claude:claude:old', { lastActivity: NOW - 30 * DAY });
     const l = lane('/r/app', [old, session('claude:claude:also-old', { lastActivity: NOW - 30 * DAY })]);
