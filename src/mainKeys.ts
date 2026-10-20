@@ -166,6 +166,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   };
   const vertical = e.key === 'ArrowUp' || e.key === 'ArrowDown';
   const toTerminal = chordPressed(menus.CHORDS.terminal ?? '', e);
+  const mergeDone = chordPressed(menus.CHORDS.mergeDone ?? '', e);
   const toView = viewOfKey(e, VIEWS);
   // ⌘= and ⌘- zoom the window and ⌘0 puts it back, as in VS Code, from any field or sheet. The
   // canvas has them for its own zoom wherever its keys work: not in a field or the panel beside it.
@@ -199,8 +200,9 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   // has, which open a row's places further on.
   const fieldDigit = platform() === 'mac' ? mod && e.altKey && !!digit : projectKey;
   // A text field, a todo's title or description say, keeps its keys but for the window's own ⌘
-  // ones, ⌃-, ⌃`, a view's ⌃ and digit, and Sessions' box for the list's chords.
-  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !findKey && !historyChord(e) && !toTerminal && !toView && !fieldDigit && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions')))) return;
+  // ones, ⌃-, ⌃`, a view's ⌃ and digit, and Sessions' box for the list's chords and the session's
+  // ⌘E, ⇧⌘E and ⇧⌘M.
+  if (inField(document.activeElement, searchRef.current) && !(inBox && listChord(e)) && !prMaxKey && !findKey && !historyChord(e) && !toTerminal && !toView && !fieldDigit && !(mergeDone && view === 'sessions') && !(mod && (key === 'k' || key === 'p' || e.key === ',' || ((e.code === 'BracketRight' || e.code === 'BracketLeft' || key === 'e') && view === 'sessions')))) return;
   if (mod && e.key === ',') {
     e.preventDefault();
     openSettings();
@@ -253,7 +255,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // ⇧⌘M asks to merge the selected session's PR and mark the session done (menus.ts `CHORDS`,
   // Merge and done…), where it's the primary session of a PR that's ready to merge.
-  if (chordPressed(menus.CHORDS.mergeDone ?? '', e)) {
+  if (mergeDone) {
     e.preventDefault();
     if (picking || selected?.kind !== 'agent') return;
     const act = actionsRef.current.session(selected.lane, selected.session, 'session').mergeDone;

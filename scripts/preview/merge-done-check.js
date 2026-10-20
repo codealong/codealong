@@ -1,7 +1,7 @@
 // Checks Merge and done… (ui/MergeDone.tsx, menus.ts `mergeDone`): a session that's the
 // primary of a PR ready to merge has it in its menu after Mark as done, with its key (⇧⌘M), and
 // where the session has the strip over it (Sessions), first on the strip, before Seen, saying the
-// key, the strip still one line with it; never in its header. It opens a dialog that says what it does, with the commit GitHub
+// key, the strip no taller for it; never in its header. It opens a dialog that says what it does, with the commit GitHub
 // would write for the way kept for the repo (squash, GitHub's pick here) and the keyboard on its
 // button. Cancel merges nothing. ⇧⌘M opens it too, in both windows. While GitHub is still working
 // out whether it can merge, the dialog says so and reads it again, waiting for a read slower than
@@ -11,10 +11,12 @@
 // too, rather than the window. Once the PR isn't ready (merged, say), neither the strip's button
 // nor the item is there, the strip's other buttons where they were, and ⇧⌘M opens nothing. A real
 // session is made the primary of a real PR, made ready; the peek's card holds the dialog
-// (SessionCard.tsx), the main window's Sessions App.tsx.
+// (SessionCard.tsx), the main window's Sessions App.tsx. In Sessions ⇧⌘M works from the session's
+// box too, as ⇧⌘E does. Its keys are the platform's (PREVIEW_PLATFORM=linux: Ctrl+Shift+M).
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/merge-done-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/merge-done-check.js
 (function () {
+  var linux = window.__CODEALONG_PLATFORM__ === 'linux' || /\bLinux\b/.test(navigator.userAgent);
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
   localStorage.removeItem('codealong.sessionPanelMax');
@@ -111,8 +113,8 @@
       await wait(250);
     }
   };
-  // ⇧⌘M, as the window hears it.
-  var mergeKey = function () { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'M', code: 'KeyM', metaKey: true, shiftKey: true, bubbles: true, cancelable: true })); };
+  // ⇧⌘M (Ctrl+Shift+M on Linux), pressed where the keyboard is, or at the window.
+  var mergeKey = function (at) { (at || window).dispatchEvent(new KeyboardEvent('keydown', { key: 'M', code: 'KeyM', metaKey: !linux, ctrlKey: linux, shiftKey: true, bubbles: true, cancelable: true })); };
   var dialog = function () { return q('.ca-mergedonedlg'); };
   var confirm = function () { return q('.ca-mergedonedlg .ca-btn--primary'); };
   var footButton = function (text) { return all('.ca-mergedonedlg .ca-dialog-foot button').filter(function (b) { return b.textContent === text; })[0]; };
@@ -141,14 +143,15 @@
       var at = labels.indexOf(item);
       check('the session’s menu has it, after Mark as done', at > 0 && labels[at - 1] === 'Mark as done', labels.join(' | '));
       var accel = (lastMenu().filter(function (i) { return i.text === item; })[0] || {}).accelerator;
-      check('with its key', accel === 'Shift+Cmd+M', String(accel));
+      check('with its key', accel === (linux ? 'Ctrl+Shift+M' : 'Shift+Cmd+M'), String(accel));
       check('never in the session’s header', !inHeader());
       var doneAt = null;
+      var stripHeight = null;
       if (stripped) {
         var button = await until(mergeButton, 5000, 'no Merge and done on the strip over “' + picked.title + '”');
-        check('the strip has it first, before Seen, saying its key', all('.ca-hotkeys .ca-hotkey')[0] === button && stripButton('Seen') && !!(button.compareDocumentPosition(stripButton('Seen')) & Node.DOCUMENT_POSITION_FOLLOWING) && (q('kbd', button) || {}).textContent === '⇧⌘M', button.textContent);
-        check('and the strip keeps to one line with it', q('.ca-hotkeys').getBoundingClientRect().height < 30, String(q('.ca-hotkeys').getBoundingClientRect().height));
+        check('the strip has it first, before Seen, saying its key', all('.ca-hotkeys .ca-hotkey')[0] === button && stripButton('Seen') && !!(button.compareDocumentPosition(stripButton('Seen')) & Node.DOCUMENT_POSITION_FOLLOWING) && (q('kbd', button) || {}).textContent === (linux ? 'Ctrl+Shift+M' : '⇧⌘M'), button.textContent);
         doneAt = stripButton('Done').getBoundingClientRect().left;
+        stripHeight = q('.ca-hotkeys').getBoundingClientRect().height;
       } else {
         note('no strip over the session here: the strip’s button not tried');
       }
@@ -161,6 +164,7 @@
       if (stripped) {
         var gone = await until(function () { return !mergeButton(); }, 5000).then(function () { return true; }, function () { return false; });
         check('and from the strip, its other buttons where they were', gone && stripButton('Done').getBoundingClientRect().left === doneAt, stripButton('Done').getBoundingClientRect().left + ' vs ' + doneAt);
+        check('it took no line of the strip’s own', q('.ca-hotkeys').getBoundingClientRect().height === stripHeight, stripHeight + ' with it, ' + q('.ca-hotkeys').getBoundingClientRect().height + ' without');
       }
       mergeKey();
       await wait(300);
@@ -186,10 +190,12 @@
       await until(function () { return !dialog(); }, 3000, 'Cancel left the dialog up');
       check('Cancel merges nothing', calls('merge_pr').length === 0 && calls('session_done').length === 0, calls('merge_pr').length + ' merges');
       if (stripped) {
-        // ⇧⌘M, where the strip says it.
-        mergeKey();
-        await until(dialog, 3000, '⇧⌘M opened no dialog');
-        check('⇧⌘M opens it too', true);
+        // ⇧⌘M, where the strip says it, from the session's box as from anywhere.
+        var box = q('.ca-sessinsp .ca-composer textarea');
+        if (box) box.focus();
+        mergeKey(box || undefined);
+        await until(dialog, 3000, '⇧⌘M opened no dialog' + (box ? ' from the session’s box' : ''));
+        check('⇧⌘M opens it too, from the session’s box', !!box, box ? 'from the box' : 'no box to press it in');
         footButton('Cancel').click();
         await until(function () { return !dialog(); }, 3000, 'Cancel left the dialog up');
       }
