@@ -213,7 +213,22 @@ impl Part {
 
     /// The model it reviews on, as its name (`Seat::who`) has it after the account.
     fn model(&self) -> Option<&str> {
-        self.who.split_once(' ').map(|(_, m)| m)
+        self.on().0
+    }
+
+    /// The effort it reviews at, as its name has it last (`at xhigh`).
+    fn effort(&self) -> Option<&str> {
+        self.on().1
+    }
+
+    /// The model and effort its name (`Seat::who`) has after the account.
+    fn on(&self) -> (Option<&str>, Option<&str>) {
+        let rest = self.who.split_once(' ').map_or("", |(_, r)| r);
+        let (model, effort) = match rest.strip_prefix("at ") {
+            Some(e) => ("", Some(e)),
+            None => rest.split_once(" at ").map_or((rest, None), |(m, e)| (m, Some(e))),
+        };
+        (Some(model).filter(|m| !m.is_empty()), effort)
     }
 
     /// When it was last asked: first, or told to carry on.
@@ -398,8 +413,9 @@ pub struct Seat {
     pub account: Option<String>,
     /// None: the account's own.
     pub model: Option<String>,
-    /// None: the account's own, or the routing group's member's. Not in `who`: a reviewer at
-    /// another effort goes on in the session it has.
+    /// None: the account's own, or the routing group's member's. In `who` as the model is, so a
+    /// reviewer at another effort has a session of its own: one kept running would go on at the
+    /// effort it has.
     pub effort: Option<String>,
     pub session: Option<String>,
     /// The harness Auto keeps off: the one of the session that opened a PR of yours, so another
@@ -415,7 +431,8 @@ fn seat(cfg: &ReviewsCfg, t: Option<&Tracked>) -> Seat {
 fn named_seat(account: &str, model: &str, effort: &str, t: Option<&Tracked>) -> Seat {
     let some = |s: &str| Some(s.trim()).filter(|s| !s.is_empty()).map(String::from);
     let (account, model, effort) = (some(account), some(model), some(effort));
-    let who = [account.as_deref().unwrap_or(AUTO), model.as_deref().unwrap_or("")].join(" ").trim().to_string();
+    let at = effort.as_deref().map(|e| format!("at {e}"));
+    let who = [Some(account.as_deref().unwrap_or(AUTO)), model.as_deref(), at.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(" ");
     Seat { session: t.and_then(|t| t.sessions.get(&who).cloned()), who, account, model, effort, avoid: None }
 }
 
@@ -472,8 +489,9 @@ pub enum Job {
     Review { pr: PrItem, head: String, since: Option<String>, seat: Seat, by_hand: bool },
     /// The round's part `part` ended its turn in `session`: read the review it wrote after `at`.
     Read { pr: PrItem, head: String, part: usize, session: String, at: i64 },
-    /// The round's part `part` was cut off partway in `session`: tell it to carry on, on `model`.
-    CarryOn { pr: PrItem, head: String, part: usize, session: String, model: Option<String> },
+    /// The round's part `part` was cut off partway in `session`: tell it to carry on, on `model`
+    /// at `effort`.
+    CarryOn { pr: PrItem, head: String, part: usize, session: String, model: Option<String>, effort: Option<String> },
     /// Post the round's review, written by `agent`. `round`: when the round began, which tells its
     /// review from another of the same commit in your draft (`draft_mark`).
     Post { pr: PrItem, head: String, review: String, agent: String, round: i64 },
@@ -799,7 +817,7 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
         match board.session(&k) {
             Some((_, s)) if turn_ended(s, p.at) => return Next::Job(Job::Read { pr: pr.clone(), head: r.head.clone(), part: i, session: k, at: p.at }),
             Some((_, s)) if p.cut_off_in(s) && p.carried_on.len() < CARRY_ONS => {
-                return Next::Job(Job::CarryOn { pr: pr.clone(), head: r.head.clone(), part: i, session: k, model: p.model().map(String::from) });
+                return Next::Job(Job::CarryOn { pr: pr.clone(), head: r.head.clone(), part: i, session: k, model: p.model().map(String::from), effort: p.effort().map(String::from) });
             }
             Some((_, s)) if p.cut_off_in(s) => {
                 fail(p, &format!("Its turn was cut off partway again after it was told to carry on {CARRY_ONS} times."));
@@ -1992,8 +2010,9 @@ fn read(engine: &Handle, session: &str, at: i64) -> Went {
 }
 
 /// Tells a reviewer whose turn was cut off partway to carry on, as another round's prompt is
-/// handed to it (`hand`): where it runs, else where `[reviews] start` lets it go on, on `model`.
-fn carry_on(engine: &Handle, pr: &PrItem, session: &str, model: Option<&str>) -> Went {
+/// handed to it (`hand`): where it runs, else where `[reviews] start` lets it go on, on `model`
+/// at `effort`.
+fn carry_on(engine: &Handle, pr: &PrItem, session: &str, model: Option<&str>, effort: Option<&str>) -> Went {
     let board = engine.board();
     let cfg = match crate::config::current() {
         Ok(c) => c,
@@ -2002,7 +2021,7 @@ fn carry_on(engine: &Handle, pr: &PrItem, session: &str, model: Option<&str>) ->
     let pr = board.prs.iter().find(|p| p.key == pr.key).unwrap_or(pr);
     // Before it goes: the turn it starts may be cut off again before this is told how it went.
     let at = now_ms();
-    match hand(engine, &board, &cfg, pr, session, model, None, crate::start::CARRY_ON.to_string()) {
+    match hand(engine, &board, &cfg, pr, session, model, effort, crate::start::CARRY_ON.to_string()) {
         Ok((session, pending)) => Went::CarriedOn { session, pending, at },
         Err(e) => Went::Failed(format!("Its turn was cut off partway, and {e}.")),
     }
@@ -2405,7 +2424,7 @@ pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
     let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
         Job::Review { pr, head, since, seat, by_hand } => review(engine, pr, head, since.as_deref(), seat, *by_hand),
         Job::Read { session, at, .. } => read(engine, session, *at),
-        Job::CarryOn { pr, session, model, .. } => carry_on(engine, pr, session, model.as_deref()),
+        Job::CarryOn { pr, session, model, effort, .. } => carry_on(engine, pr, session, model.as_deref(), effort.as_deref()),
         Job::Post { pr, head, review, agent, round } => post(engine, pr, head, review, agent, *round),
         Job::Send { .. } => send(engine, &job, false),
         Job::Submit { pr, head, verdict, text } => submit(engine, pr, head, *verdict, text.as_deref()),
@@ -2496,7 +2515,7 @@ mod tests {
                     format!("review {} {} since {:?} by {}{session}{hand}", pr.number, short(head), since.as_deref().map(short), seat.who)
                 }
                 Job::Read { pr, part, session, .. } => format!("read {} part {part} in {session}", pr.number),
-                Job::CarryOn { pr, part, session, model, .. } => format!("carry on {} part {part} in {session} on {model:?}", pr.number),
+                Job::CarryOn { pr, part, session, model, effort, .. } => format!("carry on {} part {part} in {session} on {model:?} at {effort:?}", pr.number),
                 Job::Post { pr, review, agent, .. } => format!("post {} {review:?} by {agent}", pr.number),
                 Job::Send { pr, head, session, agent, .. } => format!("send {} {} by {agent} to {session}", pr.number, short(head)),
                 Job::Submit { pr, head, verdict, text } => format!("{} {} {}{}", verdict.verb(), pr.number, short(head), text.as_deref().map(|t| format!(" saying {t:?}")).unwrap_or_default()),
@@ -2952,9 +2971,16 @@ mod tests {
         assert_eq!(seat(&cfg("claude", ""), Some(&t)).session, None);
         assert_eq!(seat(&cfg("", ""), None), Seat { who: AUTO.into(), account: None, model: None, effort: None, session: None, avoid: None });
         assert_eq!(seat(&cfg("", "opus"), None).who, "auto opus");
-        // Its effort goes with it, and keeps the session it has: it isn't in the name.
+        // Its effort is in its name, as its model is: another effort is another session.
         let at = seat(&ReviewsCfg { effort: " xhigh ".into(), ..cfg("claude", "opus") }, Some(&t));
-        assert_eq!((at.effort.as_deref(), at.session.as_deref()), (Some("xhigh"), Some(S)));
+        assert_eq!((at.who.as_str(), at.effort.as_deref(), at.session.as_deref()), ("claude opus at xhigh", Some("xhigh"), None));
+        assert_eq!(seat(&ReviewsCfg { effort: "high".into(), ..cfg("", "") }, None).who, "auto at high");
+        // And its part reads them back for a turn cut off partway.
+        let part = |who: &str| Part::asked(who, None, None, 0);
+        assert_eq!(part("claude opus at xhigh").on(), (Some("opus"), Some("xhigh")));
+        assert_eq!(part("claude at high").on(), (None, Some("high")));
+        assert_eq!(part("auto opus").on(), (Some("opus"), None));
+        assert_eq!(part("claude").on(), (None, None));
         // Its instructions are config.toml's, else Codealong's.
         assert_eq!(instructions(&cfg("", "")), INSTRUCTIONS);
         assert_eq!(instructions(&ReviewsCfg { prompt: "  Start two subagents.  ".into(), ..cfg("", "") }), "Start two subagents.");
@@ -3454,36 +3480,36 @@ mod tests {
     /// place is kept for the PR's next round.
     #[test]
     fn a_reviewer_cut_off_partway_is_told_to_carry_on() {
-        let cfg = ReviewsCfg { model: "opus".into(), ..on() };
+        let cfg = ReviewsCfg { model: "opus".into(), effort: "high".into(), ..on() };
         let cut = |at: i64| Session { live: false, cut_off: Some(at), ..session(Status::Error, at) };
         let asked = || {
             let mut r = Reviewer::default();
             let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &cfg, NOW);
-            r.told(&jobs[0], Went::Started(vec![started("auto opus", S, NOW)]), NOW).unwrap();
+            r.told(&jobs[0], Went::Started(vec![started("auto opus at high", S, NOW)]), NOW).unwrap();
             r
         };
         // Told to carry on from a moment after it was cut off at `when`, and heard back from later.
         let carried = |r: &mut Reviewer, when: i64, to: &str| {
             let job = r.due(&board(vec![pr(7, HEAD)], vec![cut(when)]), &cfg, when + 1).pop().expect("a carry-on");
-            assert_eq!(kinds(std::slice::from_ref(&job)), [format!("carry on 7 part 0 in {S} on Some(\"opus\")")]);
+            assert_eq!(kinds(std::slice::from_ref(&job)), [format!("carry on 7 part 0 in {S} on Some(\"opus\") at Some(\"high\")")]);
             r.told(&job, Went::CarriedOn { session: Some(to.into()), pending: None, at: when + 1 }, when + 30_000).unwrap();
         };
         let mut r = asked();
         carried(&mut r, NOW + 60_000, S);
         assert!(r.due(&board(vec![pr(7, HEAD)], vec![cut(NOW + 60_000)]), &cfg, NOW + 90_001).is_empty(), "told already");
         let more = board(vec![pr(7, HEAD), pr(8, HEAD), pr(9, HEAD)], vec![cut(NOW + 60_000)]);
-        assert_eq!(kinds(&r.due(&more, &cfg, NOW + 90_002)), ["review 8 1111111 since None by auto opus"], "its place is kept while it starts");
+        assert_eq!(kinds(&r.due(&more, &cfg, NOW + 90_002)), ["review 8 1111111 since None by auto opus at high"], "its place is kept while it starts");
         let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 120_000)]);
         assert_eq!(kinds(&r.due(&done, &cfg, NOW + 120_001)), [format!("read 7 part 0 in {S}")]);
 
         let mut r = asked();
         carried(&mut r, NOW + 60_000, S);
         let again = r.due(&board(vec![pr(7, HEAD)], vec![cut(NOW + 60_010)]), &cfg, NOW + 90_001);
-        assert_eq!(kinds(&again), [format!("carry on 7 part 0 in {S} on Some(\"opus\")")], "cut off before the carry-on was heard from");
+        assert_eq!(kinds(&again), [format!("carry on 7 part 0 in {S} on Some(\"opus\") at Some(\"high\")")], "cut off before the carry-on was heard from");
 
         let mut r = asked();
         let jobs = r.due(&board(vec![pr(7, HEAD), pr(8, HEAD), pr(9, HEAD)], vec![cut(NOW + 60_000)]), &cfg, NOW + 60_001);
-        assert_eq!(kinds(&jobs), [format!("carry on 7 part 0 in {S} on Some(\"opus\")"), "review 8 1111111 since None by auto opus".into()]);
+        assert_eq!(kinds(&jobs), [format!("carry on 7 part 0 in {S} on Some(\"opus\") at Some(\"high\")"), "review 8 1111111 since None by auto opus at high".into()]);
 
         let mut r = asked();
         let mut when = NOW;
@@ -3499,7 +3525,7 @@ mod tests {
         let mut r = asked();
         carried(&mut r, NOW + 60_000, "claude:claude:copy");
         let t = &r.store.prs["o/r#7"];
-        assert_eq!((t.sessions["auto opus"].as_str(), t.rounds[0].parts[0].session.as_deref()), ("claude:claude:copy", Some("claude:claude:copy")));
+        assert_eq!((t.sessions["auto opus at high"].as_str(), t.rounds[0].parts[0].session.as_deref()), ("claude:claude:copy", Some("claude:claude:copy")));
 
         // One that can't go on ends the round, saying why.
         let mut r = asked();

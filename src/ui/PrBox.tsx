@@ -363,7 +363,7 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
         <div
           className="ca-composer-field"
           onMouseDown={(e) => {
-            if ((e.target as Element).closest('button, textarea')) return;
+            if ((e.target as Element).closest('button, textarea, .ca-picker')) return;
             e.preventDefault();
             b.box.current?.focus();
           }}

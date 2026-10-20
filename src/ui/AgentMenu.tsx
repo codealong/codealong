@@ -5,8 +5,8 @@
 // `RoutingPane`), an automation's agent (AgentPromptBox.tsx), and who answers questions about a PR
 // (PrBox.tsx), the last two with Auto and the routing groups over the accounts (`AutoOffer`). The
 // quick panel's start row opens the same sections and rows in a picker of its own, which its keys
-// drive. A session's own box picks only among its account's models (ModelMenu.tsx `ModelMenu`):
-// another account is a move.
+// drive, and a session's box has its own chip (SessionAgent.tsx) with the same lines and rows,
+// what its menu offers going by what can be done with the session, another account being a move.
 //
 // No model is Auto's: the account's own, or the best other with room once that one's own limit is
 // nearly used (start.ts `autoModel`, start.rs `auto_model`), so its line says Auto.
