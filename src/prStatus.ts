@@ -3,13 +3,13 @@
 // they fold into a single "Ready to merge". The PRs view also flags the rows that are your move.
 
 import { count } from './format';
-import type { AutoReview, Checks, LastReview, Merge, NudgeAbout, PrComment, PrItem, PrState, PrStopped } from './types';
+import type { AutoReview, Checks, LastReview, Merge, NudgeAbout, PrComment, PrItem, PrState, PrStopped, StaleApproval } from './types';
 
 /** A pill's color: green for approved and passing, amber for what needs you, red for failing. */
 export type PrTone = 'ready' | 'pass' | 'attn' | 'alert' | 'plain' | 'quiet' | 'merged';
 
 export interface PrPill {
-  key: 'ready' | 'review' | 'checks' | 'merge' | 'state';
+  key: 'ready' | 'review' | 'stale' | 'checks' | 'merge' | 'state';
   tone: PrTone;
   icon: string | null;
   text: string;
@@ -37,6 +37,8 @@ export interface PrFacts {
   /** The review you last gave it, and whether it's yours, which you don't review (`yourReview`). */
   lastReview?: LastReview;
   mine?: boolean;
+  /** Approved only by approvals of an earlier commit (`staleWords`). */
+  staleApproval?: StaleApproval;
 }
 
 /** Your last review of a PR against the commit it's at (`PrItem.lastReview`): `current` when it's
@@ -89,6 +91,21 @@ export function yourReviewNote(pr: Pick<PrFacts, 'lastReview' | 'headOid' | 'min
   const { says } = yourReviewSaid(y.review);
   if (y.current) return `${says}, the commit it’s at.`;
   return y.review.commit && pr.headOid && y.review.state !== 'dismissed' ? `${says}, and it’s had commits since.` : `${says}.`;
+}
+
+/** Names as a sentence lists them: `ana`, `ana and ken`, `ana, ken and sam`. */
+const listed = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]);
+
+/** A PR approved only before its latest commits, in a sentence, for its mark's and pill's titles:
+ *  who approved which commit, and that GitHub still counts it, which is why it can read Ready to
+ *  merge. Null for a PR that isn't approved, or is approved as it is. */
+export function staleWords(pr: Pick<PrFacts, 'state' | 'staleApproval'>): string | null {
+  const s = pr.state === 'approved' ? pr.staleApproval : undefined;
+  if (!s) return null;
+  const at = s.commit.slice(0, 7);
+  const who = s.by.length > 0 ? listed(s.by) : 'A reviewer';
+  if (s.by.length > 1) return `Approved before its latest commits: ${who} approved earlier ones, the latest ${at}. GitHub still counts the approvals, as the repo doesn’t dismiss them when commits come.`;
+  return `Approved before its latest commits: ${who} approved ${at}. GitHub still counts the approval, as the repo doesn’t dismiss it when commits come.`;
 }
 
 /** A PR that asks for your review after you gave one: Re-review, saying what yours was and whether
@@ -178,6 +195,13 @@ function reviewPill(pr: PrFacts): PrPill {
   }
 }
 
+/** An approved PR's approvals are all of an earlier commit (`staleWords`): it goes after the pill
+ *  they make it, Approved or Ready to merge, which stays first, as GitHub says it. */
+function stalePill(pr: PrFacts): PrPill | null {
+  const title = staleWords(pr);
+  return title ? { key: 'stale', tone: 'attn', icon: 'history', text: 'Stale approval', short: '', title } : null;
+}
+
 /** Why a PR the agent approved before its author pushed again is held. */
 const rereviewWords = (before: string) => `Codealong’s agent approved ${before} and reviews the commits since`;
 
@@ -185,17 +209,18 @@ const rereviewWords = (before: string) => `Codealong’s agent approved ${before
  *  what the chip's color can't tell apart, an approved PR being as green as an open one. `tone`
  *  is the chip's checks' (`.ca-checks.is-…`). */
 export interface ReviewMark {
-  key: 'asked' | 'agent' | 'approved' | 'changes';
+  key: 'asked' | 'agent' | 'approved' | 'stale' | 'changes';
   tone: 'attn' | 'pending' | 'pass' | 'fail';
   icon: string;
   title: string;
 }
 
 /** The chip's review mark: your review asked for (unless snoozed), Codealong's agent still
- *  reviewing it, approved, or changes asked for. None while it only awaits review, for a draft,
- *  whose icon says so, or once it's merged or closed. A worktree's PR (`Pr`) has only its state
- *  to go by; the board's (`PrItem`) says what's asked of you. */
-export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'headOid' | 'lastReview' | 'mine'>>): ReviewMark | null {
+ *  reviewing it, approved, approved only before its latest commits, or changes asked for. None
+ *  while it only awaits review, for a draft, whose icon says so, or once it's merged or closed. A
+ *  worktree's PR (`Pr`) has only its state and its approvals to go by; the board's (`PrItem`)
+ *  says what's asked of you. */
+export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'headOid' | 'lastReview' | 'mine' | 'staleApproval'>>): ReviewMark | null {
   if (!isOpen(pr.state) || pr.state === 'draft') return null;
   if (heldForAgent(pr)) {
     const before = approvedBefore(pr);
@@ -208,6 +233,8 @@ export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'rev
     const asked = agentApproves(pr) ? `Your sign-off is asked for${again}${by}: Codealong’s agent approves ${pr.autoReview?.approves?.slice(0, 7)}` : `Your review is asked for${again}${by}`;
     return { key: 'asked', tone: 'attn', icon: 'eye', title: yours ? `${asked}. ${yours}` : asked };
   }
+  const stale = staleWords(pr);
+  if (stale) return { key: 'stale', tone: 'attn', icon: 'history', title: stale };
   if (pr.state === 'approved') return { key: 'approved', tone: 'pass', icon: 'user-check', title: 'Approved' };
   if (pr.state === 'changes') return { key: 'changes', tone: 'fail', icon: 'file-diff', title: 'A reviewer asked for changes' };
   return null;
@@ -220,8 +247,7 @@ export function reviewersWords(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 
   if (!isOpen(pr.state)) return null;
   const names = [...(pr.reviewRequested ? ['you'] : []), ...(pr.reviewersAsked ?? [])];
   if (names.length === 0) return null;
-  const said = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
-  return `Waiting on a review from ${said}`;
+  return `Waiting on a review from ${listed(names)}`;
 }
 
 function checksPill(c: Checks): PrPill | null {
@@ -237,7 +263,8 @@ function checksPill(c: Checks): PrPill | null {
   return null;
 }
 
-/** The pills for a PR, in a fixed order so they line up down a list: review, checks, merge. */
+/** The pills for a PR, in a fixed order so they line up down a list: review, checks, merge, with
+ *  a stale approval after the pill it qualifies. */
 export function prPills(pr: PrFacts): PrPill[] {
   if (pr.state === 'merged') return [{ key: 'state', tone: 'merged', icon: null, text: 'Merged', short: null, title: 'Merged' }];
   if (pr.state === 'closed') return [{ key: 'state', tone: 'quiet', icon: null, text: 'Closed', short: null, title: 'Closed without merging' }];
@@ -249,10 +276,10 @@ export function prPills(pr: PrFacts): PrPill[] {
     // likely your approval of an earlier commit that has it ready, and a review it waits on
     // isn't to be taken for one done.
     const first = agentPill(pr) ?? reReviewPill(pr);
-    return first ? [first, ready] : [ready];
+    return [first, ready, stalePill(pr)].filter((p): p is PrPill => p !== null);
   }
   const base = pr.base ?? 'its base';
-  const pills = [reviewPill(pr), checksPill(c)].filter((p): p is PrPill => p !== null);
+  const pills = [reviewPill(pr), stalePill(pr), checksPill(c)].filter((p): p is PrPill => p !== null);
   if (pr.merge === 'conflicts') {
     pills.push({ key: 'merge', tone: 'attn', icon: 'alert', text: 'Conflicts', short: '', title: `Conflicts with ${base}: resolve them before it can merge` });
   } else if (pr.merge === 'behind') {

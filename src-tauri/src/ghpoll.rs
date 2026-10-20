@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use crate::board::{self, LaneSeed};
 use crate::github::{self, Failure, Glance, Points, PrRaw, RepoPrs, Requested, Stamp, Verdict};
-use crate::model::{LastReview, Notice, PrState};
+use crate::model::{LastReview, LastReviewState, Notice, PrState};
 use crate::throttle;
 use crate::util::now_ms;
 
@@ -251,6 +251,15 @@ pub struct GhPoll {
     login: Option<String>,
     schedule: Schedule,
     names: Names,
+}
+
+/// A PR as the board shows it once you've reviewed it here, until GitHub's answer has your review:
+/// an approval of the commit it's at leaves none of its approvals stale.
+fn shown_review(pr: &mut PrRaw, review: LastReview) {
+    if review.state == LastReviewState::Approved && review.commit.is_some() && review.commit == pr.head_oid {
+        pr.stale_approval = None;
+    }
+    pr.last_review = Some(review);
 }
 
 /// A PR as the board shows it once you've merged it here: merged then, and waiting on no review.
@@ -555,7 +564,7 @@ impl GhPoll {
         if let Some(pr) = self.prs.get_mut(&slug).and_then(|prs| prs.iter_mut().find(|p| p.number == number)) {
             pr.review_requested = false;
             let review = LastReview { state: verdict.into(), commit: commit.or_else(|| pr.head_oid.clone()), at: Some(now.ms) };
-            pr.last_review = Some(review.clone());
+            shown_review(pr, review.clone());
             shown = Some(review);
             dirty = true;
         }
@@ -607,8 +616,8 @@ impl GhPoll {
                     }
                     if let Some(pr) = repo.prs.iter_mut().find(|p| p.number == *n) {
                         pr.review_requested = false;
-                        if review.is_some() {
-                            pr.last_review = review.clone();
+                        if let Some(review) = review {
+                            shown_review(pr, review.clone());
                         }
                     }
                     true
@@ -705,7 +714,7 @@ impl GhPoll {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Checks, LastReviewState, Merge, Origin, PrState};
+    use crate::model::{Checks, LastReviewState, Merge, Origin, PrState, StaleApproval};
     use std::path::PathBuf;
     use std::sync::mpsc::channel;
 
@@ -770,6 +779,7 @@ mod tests {
             authored_by: None,
             labels: Vec::new(),
             last_review: None,
+            stale_approval: None,
         }
     }
 
@@ -1135,6 +1145,27 @@ mod tests {
         // A draft's review is of the commit the draft was begun on.
         assert!(gh.on_approved(slug.clone(), 1089, Verdict::RequestChanges, Some("bead123".into()), &[], after(sent, 5)));
         assert_eq!(yours(&gh).map(|r| (r.state, r.commit)), Some((LastReviewState::Changes, Some("bead123".into()))));
+    }
+
+    #[test]
+    fn an_approval_here_of_the_commit_a_pr_is_at_leaves_none_stale() {
+        let mut gh = quiet();
+        let slug = "sprucehq/spark".to_string();
+        let stale = Some(StaleApproval { by: vec!["ana".into()], commit: "a11ce55".into() });
+        let shown = |gh: &GhPoll| gh.prs()[&slug][0].stale_approval.clone();
+        gh.prs.insert(slug.clone(), vec![PrRaw { head_oid: Some("c0ffee1".into()), stale_approval: stale.clone(), ..pr(1089) }]);
+        let sent = clock();
+        // A comment, or a review of a draft begun on an earlier commit, approves nothing new.
+        gh.on_approved(slug.clone(), 1089, Verdict::Comment, None, &[], after(sent, 1));
+        gh.on_approved(slug.clone(), 1089, Verdict::Approve, Some("a11ce55".into()), &[], after(sent, 2));
+        assert_eq!(shown(&gh), stale);
+        gh.on_approved(slug.clone(), 1089, Verdict::Approve, None, &[], after(sent, 3));
+        assert_eq!(shown(&gh), None, "an approval of the commit it's at");
+        // And so does an answer asked for before GitHub had it.
+        gh.schedule.last = Some(sent.at);
+        let answer = Event::Repo(slug.clone(), Ok(RepoPrs { login: Some("gwen".into()), prs: vec![PrRaw { head_oid: Some("c0ffee1".into()), stale_approval: stale, ..pr(1089) }] }), None);
+        gh.on_event(answer, &[], after(sent, 4));
+        assert_eq!(shown(&gh), None, "an answer from before it");
     }
 
     #[test]

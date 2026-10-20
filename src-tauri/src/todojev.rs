@@ -432,7 +432,7 @@ mod tests {
     }
 
     fn pr(state: PrState) -> Pr {
-        Pr { number: 7, title: "Stream exports".into(), url: String::new(), state, checks: Default::default(), merge: Default::default(), updated_at: 0, merged_at: None, closed_at: None }
+        Pr { number: 7, title: "Stream exports".into(), url: String::new(), state, checks: Default::default(), merge: Default::default(), updated_at: 0, merged_at: None, closed_at: None, stale_approval: None }
     }
 
     fn board(lanes: Vec<Lane>) -> Board {

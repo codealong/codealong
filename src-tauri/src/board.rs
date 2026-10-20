@@ -929,6 +929,7 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
         updated_at: pick.updated_at,
         merged_at: pick.merged_at,
         closed_at: pick.closed_at,
+        stale_approval: pick.stale_approval.clone(),
     })
 }
 
@@ -1143,6 +1144,7 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
         labels: p.labels.clone(),
         auto_review: None,
         last_review: p.last_review.clone(),
+        stale_approval: p.stale_approval.clone(),
     }
 }
 
@@ -2358,6 +2360,7 @@ mod tests {
             authored_by: None,
             labels: Vec::new(),
             last_review: None,
+            stale_approval: None,
         }
     }
 
@@ -2777,7 +2780,7 @@ mod tests {
         let git = |dirty: u32, ahead: u32| GitInfo { dirty, base_ahead: Some(ahead), ..Default::default() };
         let base = claude_session(&acct("claude"), Some(&reg("idle", NOW)), Some(&tr()), 0, NOW, &Quiet::default()).unwrap();
         let with = |status: Status| Session { status, live: true, ..base.clone() };
-        let pr_in = |state: PrState| Pr { number: 1, title: String::new(), url: String::new(), state, checks: Checks::default(), merge: Merge::Unknown, updated_at: 0, merged_at: None, closed_at: None };
+        let pr_in = |state: PrState| Pr { number: 1, title: String::new(), url: String::new(), state, checks: Checks::default(), merge: Merge::Unknown, updated_at: 0, merged_at: None, closed_at: None, stale_approval: None };
         let clean = git(0, 0);
         assert_eq!(reuse_of(None, Some(&clean), &[]), Reuse::Free);
         // An agent sitting idle there doesn't hold it; one at work does.

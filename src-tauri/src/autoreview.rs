@@ -2532,6 +2532,7 @@ mod tests {
             labels: Vec::new(),
             auto_review: None,
             last_review: None,
+            stale_approval: None,
         }
     }
 

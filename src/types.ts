@@ -295,6 +295,19 @@ export interface Pr {
   updatedAt: number;
   mergedAt: number | null;
   closedAt: number | null;
+  /** It's approved only by approvals of an earlier commit than the one it's at (github.rs
+   *  `stale_approval_of`). Other Macs' older builds don't send it. */
+  staleApproval?: StaleApproval;
+}
+
+/** Approvals a PR has from before its latest commits, which GitHub still counts where the repo
+ *  doesn't dismiss them: a merge would take in commits none of them saw (model.rs
+ *  `StaleApproval`). */
+export interface StaleApproval {
+  /** Who gave them, by login. */
+  by: string[];
+  /** The commit the latest of them was of. */
+  commit: string;
 }
 
 export interface GitInfo {
@@ -1505,6 +1518,8 @@ export interface PrItem {
   autoReview?: AutoReview;
   /** The review you last submitted on it, once you have (model.rs `LastReview`). */
   lastReview?: LastReview;
+  /** It's approved only by approvals of an earlier commit (`Pr.staleApproval`). */
+  staleApproval?: StaleApproval;
 }
 
 /** The review you last submitted on a PR, as GitHub has it (model.rs `LastReview`): a draft isn't

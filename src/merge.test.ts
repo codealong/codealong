@@ -34,12 +34,18 @@ const box = (over: Partial<MergeBox> = {}): MergeBox => ({
 });
 
 const checks = (over: Partial<Checks> = {}): Checks => ({ passed: 11, failed: 0, pending: 0, skipped: 0, failing: [], ...over });
-const pr = (over: Partial<Checks> = {}) => ({ base: 'main', checks: checks(over), repoSlug: 'acme/app' });
+const pr = (over: Partial<Checks> = {}) => ({ base: 'main', checks: checks(over), repoSlug: 'acme/app', state: 'approved' as const });
 
 describe('standing', () => {
   it('says a clean PR is ready, with what made it so', () => {
     expect(standing(box(), pr())).toEqual({ tone: 'ok', says: 'Ready to merge', more: 'Approved, 11 checks passed.' });
     expect(standing(box({ reviewDecision: null }), pr({ passed: 0 }))).toEqual({ tone: 'ok', says: 'Ready to merge', more: undefined });
+  });
+
+  it('says whose approval a ready PR goes on when it’s of an earlier commit', () => {
+    const stale = { ...pr(), staleApproval: { by: ['ken'], commit: 'a11ce55e6aa9' } };
+    expect(standing(box(), stale)).toEqual({ tone: 'ok', says: 'Ready to merge', more: '11 checks passed. Approved before its latest commits: ken approved a11ce55. GitHub still counts the approval, as the repo doesn’t dismiss it when commits come.' });
+    expect(standing(box({ mergeState: 'UNSTABLE' }), { ...stale, checks: checks({ pending: 1 }) }).more).toBe('1 running, which the repo doesn’t require. Approved before its latest commits: ken approved a11ce55. GitHub still counts the approval, as the repo doesn’t dismiss it when commits come.');
   });
 
   it('says what holds a blocked PR back', () => {

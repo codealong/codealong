@@ -882,7 +882,8 @@ export function PanelBack({ back }: { back: PanelBackTo }) {
  *  GitHub, or with `inRow`, on a list's row, a double-click does. Without `titled`, it has no
  *  tooltip: a card shows instead (PrLink.tsx). Its review shows as a mark after its number
  *  (prStatus.ts `reviewMark`), but approved or changes asked for where it says in words where it
- *  stands, as the PR's header leads with it (`chipWord`: Ready to merge, Review requested…); the
+ *  stands, as the PR's header leads with it (`chipWord`: Ready to merge, Review requested…). An
+ *  approval of an earlier commit is marked beside the words too, which say what GitHub says; the
  *  board's PR (`PrItem`) also says what's asked of you and of others. */
 export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onOpen, inRow = false }: { pr: Pr & Partial<Pick<PrItem, 'reviewRequested' | 'reviewersAsked' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'base' | 'headOid'>>; compact?: boolean; titled?: boolean; onMenu?: () => void; onShow?: () => void; onOpen?: () => void; inRow?: boolean }) {
   const c = pr.checks;
@@ -891,7 +892,7 @@ export function PrChip({ pr, compact = false, titled = true, onMenu, onShow, onO
   const title = `#${pr.number} ${word}: ${pr.title}`;
   const twice = onShow && onOpen ? { run: onOpen, does: 'open it on GitHub' } : undefined;
   const found = reviewMark(pr);
-  const mark = found && (compact || found.key === 'asked' || found.key === 'agent') ? found : null;
+  const mark = found && (compact || found.key === 'asked' || found.key === 'agent' || found.key === 'stale') ? found : null;
   return (
     <Chip kind="pr" className={`ca-pr--${pr.state}`} title={titled ? title : undefined} does={onShow ? 'show it in Codealong' : 'open it on GitHub'} act={onShow ?? onOpen} twice={twice} inRow={inRow} onMenu={onMenu}>
       <Icon name={PR_ICON[pr.state]} size={12} stroke={1.75} />

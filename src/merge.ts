@@ -10,6 +10,7 @@
 // ready, and a merged or closed PR's branch deleted. The method is picked per repo and kept, GitHub's
 // own pick for you until then.
 
+import { staleWords } from './prStatus';
 import type { Codec } from './stored';
 import type { Checks, MergeBox, MergeMethod, MergeOp, PrItem } from './types';
 
@@ -71,8 +72,10 @@ function clause(parts: string[]): string {
   return s && `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 }
 
-/** Where the PR stands for merging, as the box says it above what it offers. */
-export function standing(box: MergeBox, pr: Pick<PrItem, 'base' | 'checks' | 'repoSlug'>): Standing {
+/** Where the PR stands for merging, as the box says it above what it offers. Approved only before
+ *  its latest commits, it's still ready, as GitHub says, and the box says whose approval it goes on
+ *  (prStatus.ts `staleWords`). */
+export function standing(box: MergeBox, pr: Pick<PrItem, 'base' | 'checks' | 'repoSlug' | 'state' | 'staleApproval'>): Standing {
   const base = pr.base ?? 'its base';
   if (box.state === 'MERGED') return { tone: 'done', says: box.mergedBy ? `Merged by ${box.mergedBy}` : 'Merged' };
   if (box.state === 'CLOSED') return { tone: 'done', says: 'Closed without merging' };
@@ -96,12 +99,17 @@ export function standing(box: MergeBox, pr: Pick<PrItem, 'base' | 'checks' | 're
       ].filter((x): x is string => !!x);
       return { tone: pr.checks.failed > 0 || box.reviewDecision === 'CHANGES_REQUESTED' ? 'bad' : 'wait', says: 'Merging is blocked', more: cant ?? (why.length > 0 ? `${clause(why)}.` : 'The repo’s rules hold it back.') };
     }
-    case 'UNSTABLE':
-      return { tone: 'ok', says: 'Ready to merge', more: cant ?? `${clause(checksWords(pr.checks)) || 'Some checks haven’t passed'}, which the repo doesn’t require.` };
+    case 'UNSTABLE': {
+      const said = `${clause(checksWords(pr.checks)) || 'Some checks haven’t passed'}, which the repo doesn’t require.`;
+      return { tone: 'ok', says: 'Ready to merge', more: cant ?? [said, staleWords(pr)].filter(Boolean).join(' ') };
+    }
     case 'CLEAN':
     case 'HAS_HOOKS': {
-      const good = [box.reviewDecision === 'APPROVED' && 'approved', pr.checks.passed > 0 && `${pr.checks.passed} ${pr.checks.passed === 1 ? 'check' : 'checks'} passed`].filter((x): x is string => !!x);
-      return { tone: 'ok', says: 'Ready to merge', more: cant ?? (good.length > 0 ? `${clause(good)}.` : undefined) };
+      // A stale approval says itself that it's approved.
+      const stale = staleWords(pr);
+      const good = [box.reviewDecision === 'APPROVED' && !stale && 'approved', pr.checks.passed > 0 && `${pr.checks.passed} ${pr.checks.passed === 1 ? 'check' : 'checks'} passed`].filter((x): x is string => !!x);
+      const said = [good.length > 0 && `${clause(good)}.`, stale].filter((x): x is string => !!x).join(' ');
+      return { tone: 'ok', says: 'Ready to merge', more: cant ?? (said || undefined) };
     }
     default:
       return { tone: 'wait', says: 'Checking whether it can merge…', more: cant };

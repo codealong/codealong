@@ -1227,7 +1227,7 @@ mod tests {
     fn a_todo_is_in_review_while_its_pr_is_with_its_reviewers() {
         use crate::fixtures::{lane, session};
         use crate::model::{Pr, PrState};
-        let pr = |state: PrState| Some(Pr { number: 7, title: String::new(), url: String::new(), state, checks: Default::default(), merge: Default::default(), updated_at: 0, merged_at: None, closed_at: None });
+        let pr = |state: PrState| Some(Pr { number: 7, title: String::new(), url: String::new(), state, checks: Default::default(), merge: Default::default(), updated_at: 0, merged_at: None, closed_at: None, stale_approval: None });
         let mut t = Todo { status: TodoStatus::InProgress, worktrees: vec!["/r/app".into()], ..todo("a") };
         let with = |state: PrState| [Lane { pr: pr(state), ..lane("/r/app", Vec::new()) }];
         assert!(is_in_review(&t, &with(PrState::Open)) && is_in_review(&t, &with(PrState::Changes)) && is_in_review(&t, &with(PrState::Approved)));

@@ -211,6 +211,10 @@ describe('the named chips', () => {
     expect(chip({ state: 'open' }, true)).not.toContain('ca-prmark');
     // The word says it already.
     expect(chip({ state: 'approved' }, false)).not.toContain('ca-prmark');
+    // An approval of an earlier commit is marked either way: the word is GitHub's, Ready to merge.
+    const stale = { state: 'approved', merge: 'clean', staleApproval: { by: ['ana'], commit: 'a11ce55e6aa9' } };
+    expect(chip(stale, true)).toContain('<span class="ca-checks ca-prmark is-attn" title="Approved before its latest commits: ana approved a11ce55.');
+    expect(chip(stale, false)).toMatch(/Ready to merge<\/span><\/span><span class="ca-checks ca-prmark is-attn" title="Approved before its latest commits/);
     // What's asked of you, which no word says, shows either way.
     const asked = renderToStaticMarkup(createElement(PrChip, { pr: fx.prItem({ number: 12, state: 'approved', reviewRequested: true }) }));
     expect(asked).toContain('<span class="ca-checks ca-prmark is-attn" title="Your review is asked for">');

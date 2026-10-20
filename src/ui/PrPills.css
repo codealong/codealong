@@ -11,20 +11,22 @@
   flex: none;
 }
 /* In a row the pills get the room the line has (see .ca-prrow-fit), and short of room they say
-   less: first the checks keep only their count ("3 failing" becomes 3), then Conflicts or Out of
-   date keeps only its icon, its word giving way with an ellipsis in between. Their titles and
+   less: first the checks keep only their count ("3 failing" becomes 3), then Conflicts, Out of
+   date or Stale approval keeps only its icon, its word giving way with an ellipsis in between. Their titles and
    the PR panel still say it all. The widths fit the widest sets of pills: three with the checks
    shortened, three in full, and two in full. */
 .ca-prrow .ca-prpills {
   flex: 0 1 auto;
   min-width: 0;
 }
-.ca-prrow .ca-prpill--merge {
+.ca-prrow .ca-prpill--merge,
+.ca-prrow .ca-prpill--stale {
   flex: 0 1 auto;
   box-sizing: border-box;
   min-width: 25px;
 }
-.ca-prrow .ca-prpill--merge > .ca-prpill-text {
+.ca-prrow .ca-prpill--merge > .ca-prpill-text,
+.ca-prrow .ca-prpill--stale > .ca-prpill-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -41,7 +43,8 @@
   }
 }
 @container prfit (max-width: 220px) {
-  .ca-prpills[data-count='3'] > .ca-prpill--merge > .ca-prpill-text {
+  .ca-prpills[data-count='3'] > .ca-prpill--merge > .ca-prpill-text,
+  .ca-prpills[data-count='3'] > .ca-prpill--stale > .ca-prpill-text {
     display: none;
   }
 }

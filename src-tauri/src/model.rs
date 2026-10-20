@@ -328,6 +328,9 @@ pub struct PrItem {
     /// The review you last submitted on it, once you have (github.rs `last_review_of`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_review: Option<LastReview>,
+    /// It's approved only by approvals of an earlier commit (github.rs `stale_approval_of`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_approval: Option<StaleApproval>,
 }
 
 /// The review you last submitted on a PR, as GitHub has it (`viewerLatestReview`, which leaves a

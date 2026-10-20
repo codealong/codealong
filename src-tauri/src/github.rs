@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use crate::model::{Checks, Harness, LastReview, LastReviewState, Merge, PrLabel, PrState};
+use crate::model::{Checks, Harness, LastReview, LastReviewState, Merge, PrLabel, PrState, StaleApproval};
 use crate::procs;
 use crate::util::{now_ms, parse_rfc3339_ms};
 
@@ -51,6 +51,9 @@ pub struct PrRaw {
     pub labels: Vec<PrLabel>,
     /// The review you last submitted on it (`last_review_of`).
     pub last_review: Option<LastReview>,
+    /// Approved only by approvals of an earlier commit (`stale_approval_of`). Asked only of open
+    /// PRs.
+    pub stale_approval: Option<StaleApproval>,
 }
 
 /// One repo's PRs, and who `gh` is signed in as.
@@ -89,13 +92,17 @@ query($requested: String!) {
 }
 "#;
 
-/// Whose reviews an open PR still waits on (`asked_of`, `asked_of_whom`), and who asked for the
-/// latest of them (`asker_of`). A team's name costs no points: GitHub charges for connections,
-/// not fields.
+/// Whose reviews an open PR still waits on (`asked_of`, `asked_of_whom`), who asked for the
+/// latest of them (`asker_of`), and the reviews that stand on it, which say whether its approvals
+/// are of the commit it's at (`stale_approval_of`). A team's name costs no points: GitHub charges
+/// for connections, not fields. The standing reviews are a point for a hundred PRs, as any
+/// connection is (a repo's `QUERY` went from 6 to 7, 2026-10-20), and a PR has a review from each
+/// of its reviewers there at most, so twenty is all of them.
 const ASKED_FIELDS: &str = r#"
 fragment asked on PullRequest {
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
   timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { __typename ... on User { login } } } } }
+  latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state submittedAt author { login } commit { oid } } }
 }
 "#;
 
@@ -438,7 +445,28 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         authored_by,
         labels: labels_of(n),
         last_review: last_review_of(n),
+        stale_approval: (state == PrState::Approved).then(|| stale_approval_of(n)).flatten(),
     })
+}
+
+/// The approvals an approved PR has, where none is of the commit it's at: the repo doesn't dismiss
+/// an approval when commits come (GitHub's "dismiss stale approvals"), so GitHub goes on counting
+/// it, and can call the PR ready to merge with commits no reviewer approved. Read from its
+/// `latestOpinionatedReviews` from people who may write to the repo, the ones that count, each
+/// reviewer's latest that approved or asked for changes. None while one of them approves the
+/// commit it's at, or one whose commit GitHub doesn't say, which can't be told stale; and for a
+/// PR whose reviews weren't asked for, a merged or closed one.
+fn stale_approval_of(n: &Value) -> Option<StaleApproval> {
+    let head = n.get("headRefOid").and_then(Value::as_str)?;
+    let reviews = n.pointer("/latestOpinionatedReviews/nodes").and_then(Value::as_array)?;
+    let approvals: Vec<&Value> = reviews.iter().filter(|r| r.get("state").and_then(Value::as_str) == Some("APPROVED")).collect();
+    let commit = |r: &Value| r.pointer("/commit/oid").and_then(Value::as_str).map(String::from);
+    if approvals.is_empty() || approvals.iter().any(|r| commit(r).is_none_or(|c| c == head)) {
+        return None;
+    }
+    let latest = approvals.iter().max_by_key(|r| r.get("submittedAt").and_then(Value::as_str).and_then(parse_rfc3339_ms))?;
+    let by = approvals.iter().filter_map(|r| r.pointer("/author/login").and_then(Value::as_str).map(String::from)).collect();
+    Some(StaleApproval { by, commit: commit(latest)? })
 }
 
 /// The review you last submitted on a PR. GitHub's `viewerLatestReview` is one object, which costs
@@ -1736,6 +1764,31 @@ mod tests {
         assert_eq!(last_review_of(&pr("null")), None);
         assert_eq!(last_review_of(&pr(r#"{"state":"PENDING","submittedAt":null,"commit":{"oid":"abc1234"}}"#)), None);
         assert!(PR_FIELDS.contains("viewerLatestReview { state submittedAt commit { oid } }"), "{PR_FIELDS}");
+    }
+
+    #[test]
+    fn an_approval_of_an_earlier_commit_is_stale_until_one_approves_the_head() {
+        let review = |state: &str, who: &str, at: &str, oid: &str| format!(r#"{{"state":"{state}","submittedAt":"{at}","author":{{"login":"{who}"}},"commit":{oid}}}"#);
+        let pr = |reviews: &[String]| -> Value { serde_json::from_str(&format!(r#"{{"headRefOid":"c0ffee1","latestOpinionatedReviews":{{"nodes":[{}]}}}}"#, reviews.join(","))).unwrap() };
+        let ana = review("APPROVED", "ana", "2026-10-19T23:38:11Z", r#"{"oid":"a11ce55"}"#);
+        let ken = review("APPROVED", "ken", "2026-10-18T10:00:00Z", r#"{"oid":"0be11ed"}"#);
+        // Both approved before the PR's latest commit: named, with the latest one's commit.
+        assert_eq!(stale_approval_of(&pr(&[ken.clone(), ana.clone()])), Some(StaleApproval { by: vec!["ken".into(), "ana".into()], commit: "a11ce55".into() }));
+        // One that approves the commit it's at is enough, and one whose commit GitHub doesn't say
+        // can't be told stale.
+        assert_eq!(stale_approval_of(&pr(&[ana.clone(), review("APPROVED", "ken", "2026-10-20T08:00:00Z", r#"{"oid":"c0ffee1"}"#)])), None);
+        assert_eq!(stale_approval_of(&pr(&[ana.clone(), review("APPROVED", "ken", "2026-10-20T08:00:00Z", "null")])), None);
+        // A request for changes approves nothing, and a PR without its reviews read says nothing.
+        assert_eq!(stale_approval_of(&pr(&[review("CHANGES_REQUESTED", "ken", "2026-10-20T08:00:00Z", r#"{"oid":"c0ffee1"}"#), ana.clone()])).map(|s| s.by), Some(vec!["ana".to_string()]));
+        assert_eq!(stale_approval_of(&pr(&[review("CHANGES_REQUESTED", "ken", "2026-10-20T08:00:00Z", r#"{"oid":"0be11ed"}"#)])), None);
+        assert_eq!(stale_approval_of(&serde_json::json!({ "headRefOid": "c0ffee1" })), None);
+        // Only an approved PR's are: one whose review GitHub says still waits has none that count.
+        let node = |decision: &str| -> Value {
+            serde_json::from_str(&format!(r#"{{"number":231,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":"{decision}","headRefName":"b","headRefOid":"c0ffee1","latestOpinionatedReviews":{{"nodes":[{ana}]}}}}"#)).unwrap()
+        };
+        assert_eq!(parse_pr(&node("APPROVED")).and_then(|p| p.stale_approval).map(|s| s.commit), Some("a11ce55".into()));
+        assert_eq!(parse_pr(&node("REVIEW_REQUIRED")).and_then(|p| p.stale_approval), None);
+        assert!(ASKED_FIELDS.contains("latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state submittedAt author { login } commit { oid } } }"), "{ASKED_FIELDS}");
     }
 
     #[test]

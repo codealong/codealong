@@ -59,8 +59,10 @@ list stays as it was; a click on the row goes back too. The same holds for a ses
 or todo's panel: a click on the PR's or todo's row is its own panel again. From PRs, the canvas (its card, when the canvas has one) and the floating
 windows, it's the PR's row in PRs. A click waits a quarter of a second for a second one, so a
 double-click doesn't show the PR first. After the number, a mark says where its review stands:
-approved, changes asked for, your review asked for (amber), or Codealong's agent still reviewing
-it; a chip that says its state in words (a session's header) marks only the last two.
+approved, approved only before its latest commits (an amber clock), changes asked for, your review
+asked for (amber), or Codealong's agent still reviewing it; a chip that says its state in words (a
+session's header) marks only the last three, so Ready to merge, which is GitHub's word, shows the
+clock beside it when the approval that has it ready is of an earlier commit.
 A right-click (or ⌃-click) opens a row's menu and leaves the selection where it was; the row is
 ringed while its menu is up. A right-click on the header of a
 panel (a session's, a worktree's, a PR's, a todo's, or the rows picked together) is its row's menu,
@@ -1050,6 +1052,11 @@ Approved. On a PR that waits on your review, where Codealong's agent stands come
 GitHub's Approved or Changes requested and before Ready to merge: Agent reviewing while it's on
 it, Agent approves when its review approves the commit the PR is at (yours to sign off), or Agent
 re-reviewing while it reviews the commits pushed after one it approved (not yet in your queue).
+A PR whose approvals are all of an earlier commit than the one it's at has an amber Stale approval
+after its Approved or Ready to merge, its tooltip saying who approved which commit: a repo that
+doesn't dismiss approvals when commits come goes on counting them, so GitHub would merge commits
+no reviewer approved. The merge box says so under Ready to merge. One approval of the commit it's
+at is enough to clear it, yours given here at once.
 Rows that are your move are marked at the left edge, as a session that needs you is: amber for a review asked of you or
 something to fix, red for failing checks, green for your PRs that are ready to merge. On one line a
 PR's row is its number and title, its labels as they fit, then its repo's chip, its pills and its

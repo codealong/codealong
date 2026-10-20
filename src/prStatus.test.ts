@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentApproves, approvedBefore, asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewedBefore, reviewMark, reviewersWords, withMerges, yourReview, yourVerdictStands, type PrFacts } from './prStatus';
+import { agentApproves, approvedBefore, asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewedBefore, reviewMark, reviewersWords, staleWords, withMerges, yourReview, yourVerdictStands, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { LastReview, PrComment, PrItem } from './types';
 
@@ -15,6 +15,19 @@ describe('prPills', () => {
     expect(prPills(ready).map((p) => [p.text, p.tone, p.title])).toEqual([['Ready to merge', 'ready', 'Approved, 12 checks passed, no conflicts: GitHub can merge it']]);
     // A repo that requires no review.
     expect(prPills(facts({ merge: 'clean', checks: checks() }))[0].title).toBe('No conflicts: GitHub can merge it');
+  });
+
+  it('says a stale approval after what it makes the PR, which stays first as GitHub says it', () => {
+    const stale = { by: ['ana'], commit: 'a11ce55e6aa9' };
+    expect(texts({ state: 'approved', merge: 'clean', staleApproval: stale })).toEqual([['Ready to merge', 'ready'], ['Stale approval', 'attn']]);
+    expect(prPills(facts({ state: 'approved', merge: 'clean', staleApproval: stale }))[1]).toMatchObject({ key: 'stale', icon: 'history', short: '', title: 'Approved before its latest commits: ana approved a11ce55. GitHub still counts the approval, as the repo doesn’t dismiss it when commits come.' });
+    expect(texts({ state: 'approved', checks: checks({ passed: 3, pending: 2 }), staleApproval: stale })).toEqual([['Approved', 'pass'], ['Stale approval', 'attn'], ['2 running', 'plain']]);
+    expect(chipWord(facts({ state: 'approved', merge: 'clean', staleApproval: stale }))).toBe('Ready to merge');
+    // Only an approved PR's approvals make it anything.
+    expect(texts({ state: 'changes', staleApproval: stale }).map(([t]) => t)).not.toContain('Stale approval');
+    expect(staleWords({ state: 'approved', staleApproval: { by: ['ana', 'ken'], commit: 'a11ce55e6aa9' } })).toBe('Approved before its latest commits: ana and ken approved earlier ones, the latest a11ce55. GitHub still counts the approvals, as the repo doesn’t dismiss them when commits come.');
+    expect(staleWords({ state: 'approved', staleApproval: { by: [], commit: 'a11ce55e6aa9' } })).toMatch(/^Approved before its latest commits: A reviewer approved a11ce55\./);
+    expect(staleWords({ state: 'approved' })).toBe(null);
   });
 
   it('says Review requested while anyone is asked to review it, Awaiting review while nobody is', () => {
@@ -237,6 +250,9 @@ describe('reviewMark', () => {
 
   it('marks what the chip’s color can’t tell apart', () => {
     expect(key({ state: 'approved' })).toBe('approved');
+    expect(reviewMark(item({ state: 'approved', staleApproval: { by: ['ana'], commit: 'a11ce55e6aa9' } }))).toMatchObject({ key: 'stale', tone: 'attn', icon: 'history', title: expect.stringMatching(/^Approved before its latest commits: ana approved a11ce55\./) });
+    // A worktree's PR has its approvals too.
+    expect(reviewMark(fx.pr({ state: 'approved', staleApproval: { by: ['ana'], commit: 'a11ce55e6aa9' } }))?.key).toBe('stale');
     expect(key({ state: 'changes' })).toBe('changes');
     expect(key({ state: 'open' })).toBe(null);
   });
@@ -244,6 +260,7 @@ describe('reviewMark', () => {
   it('puts a review asked of you first, unless it’s snoozed, and the agent’s before that', () => {
     expect(reviewMark(item({ state: 'approved', mine: false, reviewRequested: true, requestedBy: 'gwen' }))).toMatchObject({ key: 'asked', tone: 'attn', title: 'Your review is asked for, by gwen' });
     expect(key({ state: 'approved', mine: false, reviewRequested: true, snoozedUntil: Date.now() + 60_000 })).toBe('approved');
+    expect(key({ state: 'approved', mine: false, reviewRequested: true, staleApproval: { by: ['ana'], commit: 'a11ce55e6aa9' } })).toBe('asked');
     expect(key({ mine: false, reviewRequested: true, autoReview: { stage: 'reviewing', head: 'abc', at: 0, rounds: 1, holds: true } })).toBe('agent');
     // Asked again after you gave yours.
     expect(reviewMark(item({ mine: false, reviewRequested: true, requestedBy: 'gwen', headOid: 'c0ffee1aaaa', lastReview: { state: 'approved', commit: '1234567ffff', at: 5 } }))?.title).toBe('Your review is asked for again, by gwen. You approved 1234567, and it’s had commits since.');

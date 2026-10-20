@@ -751,6 +751,7 @@ mod tests {
             labels: Vec::new(),
             auto_review: None,
             last_review: None,
+            stale_approval: None,
         }
     }
 
@@ -947,7 +948,7 @@ mod tests {
             let mut l = crate::fixtures::lane("/there", sessions);
             l.device = Some(DeviceTag { name: "Studio".into(), short: "st".into(), color: "blue".into(), online, last_seen: None });
             (l.repo_slug, l.repo_slug_now) = (Some("O/R".into()), Some("o/renamed".into()));
-            l.pr = number.map(|number| Pr { number, title: String::new(), url: String::new(), state: PrState::Open, checks: Checks::default(), merge: Merge::Unknown, updated_at: 0, merged_at: None, closed_at: None });
+            l.pr = number.map(|number| Pr { number, title: String::new(), url: String::new(), state: PrState::Open, checks: Checks::default(), merge: Merge::Unknown, updated_at: 0, merged_at: None, closed_at: None, stale_approval: None });
             l
         };
         assert_eq!(running_elsewhere(&[lane(true, Some(7), vec![live(B)])]), BTreeSet::from(["o/r#7".to_string(), "o/renamed#7".to_string()]));

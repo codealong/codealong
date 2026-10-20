@@ -825,6 +825,22 @@ pub struct Pr {
     pub updated_at: i64,
     pub merged_at: Option<i64>,
     pub closed_at: Option<i64>,
+    /// It's approved, but by approvals of an earlier commit than the one it's at, which GitHub
+    /// still counts where the repo doesn't dismiss them when commits come. Builds before
+    /// 2026-10-20 don't send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_approval: Option<StaleApproval>,
+}
+
+/// Approvals a PR has from before its latest commits (codealong's github.rs `stale_approval_of`):
+/// GitHub counts them toward its review, and a merge would take in commits none of them saw.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StaleApproval {
+    /// Who gave them, by login.
+    pub by: Vec<String>,
+    /// The commit the latest of them was of.
+    pub commit: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
