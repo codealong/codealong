@@ -250,6 +250,15 @@ describe('sendTargets', () => {
     expect(picked[0].said?.text).toBe('the login retries');
   });
 
+  it('doesn’t take a session archived since Jev answered for a pick', () => {
+    // The panel keeps Jev's answer while the board changes under it.
+    const stale = [{ id: 'gone', p: 0.7 }];
+    const empty = sendTargets(b, ALL_PROJECTS, '', stale, new Map(), 'with').rows;
+    expect(empty.map((r) => r.key)).toEqual(['elsewhere', 'done', 'busy', 'old', 'gone']);
+    expect(empty[4].p).toBeUndefined();
+    expect(sendTargets(b, ALL_PROJECTS, 'login', stale, new Map(), 'with').rows.map((r) => r.key)).toEqual(['busy', 'old', 'gone']);
+  });
+
   it('keeps to the project, and lists at most the limit while counting them all', () => {
     expect(sendTargets(b, 'Globex', '', []).rows.map((r) => r.key)).toEqual(['elsewhere']);
     const few = sendTargets(b, ALL_PROJECTS, '', [], new Map(), 'without', 2);

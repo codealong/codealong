@@ -294,12 +294,14 @@ export const SEND_TO = 40;
  * Helpers and headless runs are left out while they don't need you, as the empty panel leaves
  * them out: their agent or script talks to them, not you. Archived ones are left out unless
  * `archived` asks for them: then they come last with nothing typed, and with words where
- * `findSessions` puts them (Jev never picks one, route.rs). `count` is how many there are in all.
+ * `findSessions` puts them. Jev doesn't pick an archived session (route.rs), and one archived
+ * since Jev answered isn't taken for a pick. `count` is how many there are in all.
  */
 export function sendTargets(board: Board, project: string, words: string, picks: RoutePick[], said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without', limit = SEND_TO): { rows: SessionRow[]; count: number } {
   const likely = new Map(picks.map((x) => [x.id, x.p]));
   const rank = new Map(picks.map((x, i) => [x.id, i]));
-  const at = (r: SessionRow) => rank.get(r.session.key) ?? Infinity;
+  // The panel keeps Jev's answer while the board moves on: a pick archived since isn't one.
+  const at = (r: SessionRow) => (r.session.archived ? Infinity : (rank.get(r.session.key) ?? Infinity));
   const found =
     queryWords(words).length > 0
       ? findSessions(board, project, words, Infinity, said, archived)
@@ -311,7 +313,7 @@ export function sendTargets(board: Board, project: string, words: string, picks:
     .map((r, i) => ({ r, i }))
     .sort((a, b) => at(a.r) - at(b.r) || a.i - b.i)
     .map(({ r }): SessionRow => {
-      const p = likely.get(r.session.key);
+      const p = r.session.archived ? undefined : likely.get(r.session.key);
       return { ...r, group: 'sendto', ...(p != null ? { p } : {}) };
     });
   return { rows: all.slice(0, limit), count: all.length };
