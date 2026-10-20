@@ -68,7 +68,8 @@
 //! (`clean`) isn't sent, nor one of a commit the PR has moved on from: the next round's is. The
 //! PR's Review tab sends one by hand (`send_now`). A review's session is a helper of its PR
 //! (`reviewers`), and of a PR of yours that session's as well (`nest_own`), so it's listed under
-//! the session it goes back to.
+//! the session it goes back to, and while sending is on, what it says to that session isn't held
+//! for you, as a helper's isn't (`reviews_for`).
 //!
 //! Every review ends on what its agent would do with the PR, a `Verdict:` line (`verdict_of`):
 //! approve, ask for changes, or comment, which the PR's windows suggest beside its verdicts.
@@ -1327,6 +1328,21 @@ pub fn nest_own(lanes: &mut [Lane], prs: &[PrItem]) {
             h.parent = Some(parent.clone());
         }
     }
+}
+
+/// Whether session `from` is the automatic review of a PR of yours that goes back to session `to`
+/// (`origin`), with `[reviews.own] send` on for the PR's repo. What it says to that session is
+/// about the work the session is handed its review of anyway, most often an answer to what the
+/// session asked it, so its message claims the session's own permission class, as a helper's
+/// does (send.rs `from_its_helper`), rather than being held for you. Only a session a round of
+/// the PR's asked counts (`AutoReview::parts`), not one taken for its review by its first prompt
+/// alone (`reviewers`), which any session could open with; and only while it's still the PR's
+/// on the board, not one you made your own.
+pub fn reviews_for(board: &Board, global: &ReviewsCfg, from: &str, to: &str) -> bool {
+    let Some(key) = board.session(from).and_then(|(_, s)| s.helper.as_ref()?.pr.as_deref()) else { return false };
+    let Some(pr) = board.prs.iter().find(|p| p.mine && pr_key(&p.key) == key) else { return false };
+    let asked = pr.auto_review.as_ref().is_some_and(|a| a.parts.iter().any(|p| p.session.as_deref() == Some(from)));
+    asked && origin(&board.lanes, pr).is_some_and(|(_, s)| s.key == to) && board.repo_settings.reviews(global, pr).own.send
 }
 
 /// Each PR's automatic review, for its card, from reviews.json (`Store`): its latest round, else
@@ -2781,6 +2797,39 @@ mod tests {
         apply(&mut prs, &r.store, &own(), &Default::default(), &Default::default(), &done(Status::Idle).lanes, NOW + 68_000);
         let a = prs[0].auto_review.clone().unwrap();
         assert_eq!((a.stage, a.own, a.holds, a.sent.as_deref(), a.sent_at, a.note.as_deref(), a.sendable.as_deref()), (ReviewStage::Kept, true, false, Some(MAKER), Some(NOW + 67_000), None, Some(MAKER)));
+    }
+
+    /// The review of a PR of yours writes to the session that opened it as that session's helper
+    /// does (send.rs `from_its_helper`), closed PR or open, while handing reviews back is on; a
+    /// session taken for a review by its first prompt alone doesn't.
+    #[test]
+    fn a_review_of_your_pr_writes_to_its_session_as_a_helper() {
+        let review = |key: &str| Session { helper: Some(crate::model::Helper { pr: Some("o/r#7".into()), ..Default::default() }), ..fixtures::session(key) };
+        let mut round = Round::new(HEAD, ReviewStage::Kept, NOW);
+        round.parts = vec![started(AUTO, S, NOW)];
+        let store = Store { prs: [("o/r#7".to_string(), Tracked { sessions: [(AUTO.to_string(), S.to_string())].into(), rounds: vec![round] })].into() };
+        let board_with = |pr: PrItem, cfg: &ReviewsCfg| {
+            let mut b = board(vec![pr], vec![fixtures::session(MAKER), fixtures::session("claude:claude:other"), review(S), review("codex:codex:guessed")]);
+            apply(&mut b.prs, &store, cfg, &Default::default(), &Default::default(), &b.lanes, NOW);
+            nest_own(&mut b.lanes, &b.prs);
+            b
+        };
+        let b = board_with(mine(7, HEAD), &own());
+        assert!(reviews_for(&b, &own(), S, MAKER));
+        assert!(!reviews_for(&b, &own(), S, "claude:claude:other"));
+        assert!(!reviews_for(&b, &own(), "codex:codex:guessed", MAKER));
+        assert!(!reviews_for(&b, &own(), MAKER, MAKER));
+        let closed = board_with(PrItem { state: PrState::Closed, ..mine(7, HEAD) }, &own());
+        assert!(reviews_for(&closed, &own(), S, MAKER));
+        // Handing reviews back off: held for you, as any agent's message.
+        let quiet = ReviewsCfg { own: crate::config::OwnReviewsCfg { send: false, ..own().own }, ..own() };
+        assert!(!reviews_for(&board_with(mine(7, HEAD), &quiet), &quiet, S, MAKER));
+        // A PR that waits on your review has no session of yours to write to.
+        assert!(!reviews_for(&board_with(pr(7, HEAD), &own()), &own(), S, MAKER));
+        // Made your own, it's the PR's review no more.
+        let mut owned = board_with(mine(7, HEAD), &own());
+        owned.lanes[0].sessions.iter_mut().filter(|s| s.key == S).for_each(|s| s.helper = None);
+        assert!(!reviews_for(&owned, &own(), S, MAKER));
     }
 
     #[test]

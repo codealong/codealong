@@ -327,19 +327,19 @@ impl<'a> Message<'a> {
 
 /// Whether an agent's message comes from a helper the session it goes to started
 /// (`codealong start --helper`), by a start that said which session it made
-/// (`origins::Store::known_helper_of`). What such a helper says is the work its session asked of
-/// it, which the session reads with `codealong session wait` anyway, so its message claims the
-/// session's own class, as yours does, rather than being held for you. Any other agent's
-/// message still claims only what its own session has: a helper found only by matching its
-/// start to the next session in its worktree (`origins::resolve`), which may be another one
-/// started about then, and an automatic review shown under the PR's opener (autoreview.rs
-/// `nest_own`), whose reply reaches the opener only as `[reviews.own] send` says. And it must
-/// still be that session's helper on the board: one you made your own (`Session::helper` gone,
-/// state.rs `own`) is a session like any other.
-fn from_its_helper(board: &Board, origins: &crate::origins::Store, sender: &Sender, to: &str) -> bool {
+/// (`origins::Store::known_helper_of`), or from the automatic review of a PR that session opened,
+/// which is handed back to it (autoreview.rs `reviews_for`). What such a helper says is the work
+/// its session asked of it, which the session reads with `codealong session wait` or is sent
+/// anyway, so its message claims the session's own class, as yours does, rather than being held
+/// for you. Any other agent's message still claims only what its own session has: a helper found
+/// only by matching its start to the next session in its worktree (`origins::resolve`), which
+/// may be another one started about then. And it must still be that session's helper on the
+/// board: one you made your own (`Session::helper` gone, state.rs `own`) is a session like any
+/// other.
+fn from_its_helper(board: &Board, cfg: &Config, origins: &crate::origins::Store, sender: &Sender, to: &str) -> bool {
     let Sender::Agent(Some(from)) = sender else { return false };
     let helps = board.session(from).is_some_and(|(_, s)| s.helper.as_ref().and_then(|h| h.parent.as_deref()) == Some(to));
-    helps && origins.known_helper_of(from) == Some(to)
+    (helps && origins.known_helper_of(from) == Some(to)) || crate::autoreview::reviews_for(board, &cfg.reviews, from, to)
 }
 
 /// How a prompt reaches a session, tried in order until one works.
@@ -631,7 +631,7 @@ fn deliver(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: &
     let account = cfg.accounts.iter().find(|a| a.name == session.account).ok_or_else(|| anyhow!("There's no account named {} in config.toml.", session.account))?;
     let origins = crate::origins::current();
     let mut msg = Message::new(board, cfg, text, sender, now);
-    if from_its_helper(board, &origins, sender, session_key) {
+    if from_its_helper(board, cfg, &origins, sender, session_key) {
         msg.bypasses = true;
     }
     if session.hosted {
@@ -1333,18 +1333,19 @@ mod tests {
         let of = |key: &str, parent: Option<&str>| Session { key: key.into(), helper: parent.map(|p| crate::model::Helper { parent: Some(p.into()), ..Default::default() }), ..Session::new(Harness::Codex, "codex", key) };
         let helpers = ["codex:codex:rev", "codex:codex:matched", "codex:codex:started", "codex:codex:review"].map(|k| of(k, Some("claude:claude:boss")));
         let board = Board { lanes: vec![crate::fixtures::lane("/r", [vec![of("claude:claude:boss", None)], helpers.to_vec()].concat())], ..Board::default() };
-        let from = |k: &str| Sender::Agent(Some(k.into()));
-        assert!(from_its_helper(&board, &origins, &from("codex:codex:rev"), "claude:claude:boss"));
-        // To any other session, or from any other agent, an automatic review among them: as before.
-        assert!(!from_its_helper(&board, &origins, &from("codex:codex:rev"), "codex:codex:other"));
-        assert!(!from_its_helper(&board, &origins, &from("codex:codex:matched"), "claude:claude:boss"));
-        assert!(!from_its_helper(&board, &origins, &from("codex:codex:started"), "claude:claude:boss"));
-        assert!(!from_its_helper(&board, &origins, &from("codex:codex:review"), "claude:claude:boss"));
-        assert!(!from_its_helper(&board, &origins, &Sender::Agent(None), "claude:claude:boss"));
-        assert!(!from_its_helper(&board, &origins, &Sender::Elsewhere, "claude:claude:boss"));
+        let (cfg, from) = (Config::default(), |k: &str| Sender::Agent(Some(k.into())));
+        assert!(from_its_helper(&board, &cfg, &origins, &from("codex:codex:rev"), "claude:claude:boss"));
+        // To any other session, or from any other agent, among them a review no round of a PR
+        // asked (autoreview.rs `reviews_for` has the ones that are): as before.
+        assert!(!from_its_helper(&board, &cfg, &origins, &from("codex:codex:rev"), "codex:codex:other"));
+        assert!(!from_its_helper(&board, &cfg, &origins, &from("codex:codex:matched"), "claude:claude:boss"));
+        assert!(!from_its_helper(&board, &cfg, &origins, &from("codex:codex:started"), "claude:claude:boss"));
+        assert!(!from_its_helper(&board, &cfg, &origins, &from("codex:codex:review"), "claude:claude:boss"));
+        assert!(!from_its_helper(&board, &cfg, &origins, &Sender::Agent(None), "claude:claude:boss"));
+        assert!(!from_its_helper(&board, &cfg, &origins, &Sender::Elsewhere, "claude:claude:boss"));
         // Made your own, it's a helper no more, whatever its start said.
         let owned = Board { lanes: vec![crate::fixtures::lane("/r", vec![of("claude:claude:boss", None), of("codex:codex:rev", None)])], ..Board::default() };
-        assert!(!from_its_helper(&owned, &origins, &from("codex:codex:rev"), "claude:claude:boss"));
+        assert!(!from_its_helper(&owned, &cfg, &origins, &from("codex:codex:rev"), "claude:claude:boss"));
     }
 
     /// One of a harness's own ways in is sent by the harness, with whose the message is and

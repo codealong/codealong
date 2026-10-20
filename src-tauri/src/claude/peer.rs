@@ -9,10 +9,10 @@
 //! an agent there may have asked for it, and from an agent only when the agent's own session skips
 //! permission prompts too, as Claude Code's own messages between sessions claim their sender's
 //! class, or when the agent is a helper the session it writes to started, by a start that said
-//! which session it made (send.rs `from_its_helper`), whose message is work that session asked
-//! for and would read anyway. So an agent can't use
-//! Codealong to get past the hold of a session it doesn't work for, and a Claude app
-//! session is told nothing rather than holding a message no one will see.
+//! which session it made, or the automatic review of a PR that session opened (send.rs
+//! `from_its_helper`), whose message is work that session asked for and would read anyway. So an
+//! agent can't use Codealong to get past the hold of a session it doesn't work for, and a Claude
+//! app session is told nothing rather than holding a message no one will see.
 
 use std::io::Write;
 use std::os::unix::net::UnixStream;

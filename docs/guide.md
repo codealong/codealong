@@ -915,8 +915,11 @@ agent's words never reach it typed in as yours), to fix what holds up and say wh
 that it isn't asked to merge. A review that found nothing to raise isn't sent, nor one of a commit
 the PR has moved on from: the next round's is. A send that doesn't go is tried a few times and then
 said. The Reviews tab says where each review went or why it hasn't, and Send hands the latest to the
-session by hand while it runs here, whatever `send` says. New commits are reviewed again once the
-branch holds still, as above, so a session that fixes what was raised has its fixes looked at.
+session by hand while it runs here, whatever `send` says. While `send` is on, the reviewer's own
+messages to that session (an answer to what it asked about the review, say) aren't held for you to
+allow when it skips permission prompts, as a helper's aren't (see *Helpers*). New commits are
+reviewed again once the branch holds still, as above, so a session that fixes what was raised has
+its fixes looked at.
 
 #### Your review
 
@@ -2441,10 +2444,13 @@ half an hour, and after that, for up to a day, only one that opens with the prom
 with and whose process began as the start did (or, its process gone, that began then itself, as
 one found only once the app is opened again): a terminal UI can stop on a screen of its own
 before it makes its session (Codex's question about its background server) until you answer it. A session whose process
-began before a start was asked for is never that start's. So is an automatic review's, whose reply reaches the PR's opener only
-as `[reviews.own] send` says, and that of a helper you made your own; a start another Mac asks
-for makes no helper. A message from any other agent is held there, as before, unless the agent's
-own session skips them too.
+began before a start was asked for is never that start's. A helper you made your own is held as any
+agent is, and a start another Mac asks for makes no helper. The automatic review of a PR a session
+opened isn't held either, while `[reviews.own] send` hands reviews back (see *Reviews of your own
+pull requests*): it's listed under that session, which is sent its review anyway, and what it says
+there is about that review, often an answer to what the session asked it. Only a session a round of
+the PR's reviews asked counts, not one taken for a review by its first prompt alone. A message from
+any other agent is held there, as before, unless the agent's own session skips them too.
 
 A message from another agent, or one Codealong sends by itself, reaches a Codex session that's
 taking a turn in its terminal or in the Codex app in that turn, which reads it at its next step, as
