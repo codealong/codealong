@@ -796,10 +796,11 @@ pub fn pick(cfg: &Config, board: Option<&Board>, account: &str, place: Option<Pl
     } else {
         (account.to_string(), model.map(str::to_string), effort.map(str::to_string))
     };
+    // Looked up with a place given too: another device's dry run goes no further than this.
+    let acct = cfg.accounts.iter().find(|x| x.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
     let place = match place {
         Some(p) => p,
         None => {
-            let acct = cfg.accounts.iter().find(|x| x.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
             let places = ordered_places(acct, home).map_err(|why| anyhow!(why))?;
             let hidden = helper.then(|| out_of_sight(acct, home)).flatten();
             hidden.or(places.first().copied()).ok_or_else(|| anyhow!("{account} can't start a session from here."))?
@@ -2122,6 +2123,8 @@ mod tests {
         assert_eq!((group.account.as_str(), group.place), ("codex", Place::CodexApp));
         let nobody = StartPick { account: "claude9".into(), ..asked("~/northwind", "") };
         assert_eq!(picked(&board, &cfg, &nobody, NOW, home).unwrap_err().to_string(), "There's no account named claude9.");
+        let nobody_there = StartPick { place: Some(Place::Background), ..nobody };
+        assert_eq!(picked(&board, &cfg, &nobody_there, NOW, home).unwrap_err().to_string(), "There's no account named claude9.");
         // A helper here starts out of sight, without a place asked for.
         assert_eq!(super::pick(&cfg, None, "claude", None, None, None, true, NOW, home).unwrap().place, Place::Background);
     }
