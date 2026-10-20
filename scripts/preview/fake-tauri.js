@@ -124,9 +124,13 @@ function boardsRead() {
     return (window.__boards = window.__boards || (list || []));
   });
 }
+// All projects lists every project's boards but their own (boards.rs `listed`).
 function boardsFor(project) {
   return boardsRead().then(function (all) {
-    return all.filter(function (b) { return b.project === project || b.project === '$project'; }).map(function (b) { return Object.assign({}, b, { project: project }); });
+    var every = project === 'All projects';
+    return all
+      .filter(function (b) { return b.project === project || b.project === '$project' || (every && b.id.indexOf('p:') !== 0); })
+      .map(function (b) { return Object.assign({}, b, { project: b.project === '$project' ? project : b.project }); });
   });
 }
 function boardOp(op) {

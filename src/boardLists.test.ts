@@ -16,6 +16,8 @@ import {
   inPinOrder,
   addedSessions,
   archivedOn,
+  boardPart,
+  projectOfCard,
   kanbanColumns,
   kanbanOf,
   laneInQuery,
@@ -820,6 +822,35 @@ describe('the Kanban view’s columns', () => {
     const doc: BoardDoc = { ...projectBoard('Acme'), added: ['session:claude:claude:marked'] };
     const { columns } = kanbanOf(fx.board({ lanes: [l], todos }), [l], doc, NOW);
     expect(Object.fromEntries(columns.map((c) => [c.id, c.cards.map((r) => r.key)]))).toEqual({ todo: [], progress: ['todo:open'], review: [], done: ['/r/app::claude:claude:marked'] });
+  });
+
+  it('shows a project’s board under All projects from that project’s work alone', () => {
+    const here = lane('/r/app', [session('claude:claude:here')]);
+    const there = lane('/r/site', [session('claude:claude:there')], { project: 'Atlas' });
+    const todos = [fx.todo({ id: 'mine', project: 'Acme' }), fx.todo({ id: 'theirs', project: 'Atlas' }), fx.todo({ id: 'loose' })];
+    const items = todos.map((t) => todoItem(t, new Map(), new Map(), new Map()));
+    const prs = [fx.prItem({ key: 'acme/app#1', project: 'Acme' }), fx.prItem({ key: 'atlas/site#2', project: 'Atlas' })];
+    const all: Parameters<typeof boardPart>[2] = { lanes: [here, there], sessions: sessionItemsOf([here, there]), todoItems: items, todoRows: items.slice(0, 2), prs };
+    const acme = boardPart('Acme', ALL_PROJECTS, all, [here, there]);
+    expect(acme.lanes).toEqual([here]);
+    expect(acme.sessions.map((r) => r.session.key)).toEqual(['claude:claude:here']);
+    expect(acme.todoItems.map((r) => r.todo.id)).toEqual(['mine']);
+    expect(acme.todoRows.map((r) => r.todo.id)).toEqual(['mine']);
+    expect(acme.prs.map((p) => p.key)).toEqual(['acme/app#1']);
+    // A board of the project shown, or of All projects, is of what the window has.
+    expect(boardPart(ALL_PROJECTS, ALL_PROJECTS, all, [here, there])).toBe(all);
+    expect(boardPart('Acme', 'Acme', all, [here, there])).toBe(all);
+  });
+
+  it('knows which project a thing on a board is in', () => {
+    const here = lane('/r/app', [session('claude:claude:here')]);
+    const there = lane('/r/site', [session('claude:claude:there')], { project: 'Atlas' });
+    const has = { homes: sessionHomes([here, there]), laneById: new Map([here, there].map((l) => [l.id, l])), todos: [fx.todo({ id: 't', project: 'Atlas' })], prs: [fx.prItem({ key: 'acme/app#1', project: 'Acme' })] };
+    expect(projectOfCard('session', 'claude:claude:there', has)).toBe('Atlas');
+    expect(projectOfCard('worktree', '/r/app', has)).toBe('Acme');
+    expect(projectOfCard('todo', 't', has)).toBe('Atlas');
+    expect(projectOfCard('pr', 'acme/app#1', has)).toBe('Acme');
+    expect(projectOfCard('session', 'claude:claude:gone', has)).toBeNull();
   });
 
   it('keeps the sessions a board has by hand however old, as the age filter does pins', () => {

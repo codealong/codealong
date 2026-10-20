@@ -1,12 +1,13 @@
-// The boards of the project a window shows, and the one it shows: read from the engine as the
-// project changes and whenever a board changes, here, in another window or from the command
-// (boards.rs `changed`). A change made here shows at once (model.ts `applyOp`) and goes to the
+// The boards of the project a window shows (under All projects, every project's), and the one it
+// shows: read from the engine as the project changes and whenever a board changes, here, in
+// another window or from the command (boards.rs `changed`). A change made here shows at once (model.ts `applyOp`) and goes to the
 // engine; once the changes still on their way have landed, what the engine has is read again, so
 // a change it turned down goes away with the error it says.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { boardOp, boardsList, onBoardsChanged, type BoardApplied } from '../api';
 import { useLatest } from '../latest';
+import { ALL_PROJECTS } from '../quick';
 import { textByName, useStored } from '../stored';
 import { applyOp, boardsIn, readBoard, type BoardDoc, type BoardOp } from './model';
 
@@ -47,7 +48,8 @@ export function useBoards(project: string): BoardsHandle {
     setHeld((h) => (h?.project === project ? h : { project, boards: [] }));
     read(project);
   }, [project, read]);
-  useEffect(() => onBoardsChanged((c) => c.project === project && read(project)), [project, read]);
+  // All projects lists every project's boards, so a change to any of them is its.
+  useEffect(() => onBoardsChanged((c) => (c.project === project || project === ALL_PROJECTS) && read(project)), [project, read]);
 
   const boards = useMemo(() => boardsIn(held?.project === project ? held.boards : [], project), [held, project]);
   const board = boards.find((b) => b.id === picked[project]) ?? boards[0];

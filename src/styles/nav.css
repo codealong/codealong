@@ -11,6 +11,10 @@
 .ca-nav.is-child { font-family: var(--font-mono); font-size: 12px; }
 .ca-nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-nav-count { font: var(--type-code-sm); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* What a row says beside its label (NavItem's note: a board's project under All projects): right
+   after the label, quieter, and the first to go when the row is short of room. */
+.ca-nav-label:has(+ .ca-nav-note) { flex: 0 1 auto; }
+.ca-nav-note { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-meta); color: var(--ink-3); }
 .ca-nav-count.is-attn { color: var(--attn); }
 /* A view's keys (NavItem's kbd) take its count's place while the pointer is on its row. */
 .ca-nav .ca-kbds { display: none; }

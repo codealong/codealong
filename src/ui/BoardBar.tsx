@@ -15,6 +15,8 @@ const LAYOUTS: { id: BoardLayout; label: string; icon: string; title: string }[]
 
 interface BoardBarProps {
   board: BoardDoc;
+  /** Its project, when the window shows another (All projects): it's that project's work. */
+  project: string | null;
   layout: BoardLayout;
   labels: Label[];
   onLayout: (layout: BoardLayout) => void;
@@ -24,7 +26,7 @@ interface BoardBarProps {
   onEdit: () => void;
 }
 
-export function BoardBar({ board, layout, labels, onLayout, onMenu, onEdit }: BoardBarProps) {
+export function BoardBar({ board, project, layout, labels, onLayout, onMenu, onEdit }: BoardBarProps) {
   return (
     <div className="ca-boardbar" role="toolbar" aria-label="Board">
       <button type="button" className="ca-boardbar-name" title="Show another board, or make one" aria-haspopup="menu" onClick={onMenu} onContextMenu={(e) => (e.preventDefault(), onMenu())}>
@@ -33,6 +35,7 @@ export function BoardBar({ board, layout, labels, onLayout, onMenu, onEdit }: Bo
       </button>
       <Seg className="ca-boardbar-layout" label="Show as" look="both" iconSize={14} options={LAYOUTS} value={layout} onPick={onLayout} />
       <button type="button" className="ca-linkbtn ca-boardbar-takes" title="What it takes in by itself: change it" onClick={onEdit}>
+        {project && `In ${project}: `}
         {ruleWords(board.rule, labels)}
         {board.added.length > 0 && ` · ${board.added.length} added`}
         {board.removed.length > 0 && ` · ${board.removed.length} taken off`}

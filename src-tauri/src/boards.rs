@@ -319,6 +319,8 @@ fn change<R>(f: impl FnOnce(&mut BoardsFile) -> Result<(bool, R)>) -> Result<R> 
 }
 
 /// A project's boards, its own first and then the rest as they were made, without their canvases.
+/// All projects lists every project's after its own, as it lists every project's sessions: a
+/// board shows its own project's work wherever it's shown (src/boardLists.ts `useBoardLists`).
 pub fn list(project: &str) -> Result<Vec<BoardDoc>> {
     Ok(listed(&read()?, project))
 }
@@ -326,8 +328,10 @@ pub fn list(project: &str) -> Result<Vec<BoardDoc>> {
 fn listed(file: &BoardsFile, project: &str) -> Vec<BoardDoc> {
     let own = project_board_id(project);
     let mut out = vec![file.boards.iter().find(|b| b.id == own).cloned().unwrap_or_else(|| BoardDoc::of_project(project)).listed()];
-    let mut rest: Vec<&BoardDoc> = file.boards.iter().filter(|b| b.project == project && b.id != own).collect();
-    rest.sort_by_key(|b| b.created_at);
+    let every = project == crate::route::ALL_PROJECTS;
+    let mut rest: Vec<&BoardDoc> = file.boards.iter().filter(|b| b.id != own && (b.project == project || (every && !b.is_projects()))).collect();
+    // Under All projects, its own boards first, then each project's in turn.
+    rest.sort_by(|a, b| (a.project != project).cmp(&(b.project != project)).then_with(|| a.project.cmp(&b.project)).then(a.created_at.cmp(&b.created_at)));
     out.extend(rest.into_iter().map(|b| b.clone().listed()));
     out
 }
@@ -714,6 +718,17 @@ mod tests {
         assert_eq!(boards.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["p:Northwind", "b-1"]);
         assert_eq!(boards[0].rule, Some(Rule::default()));
         assert!(boards[0].is_projects());
+    }
+
+    #[test]
+    fn all_projects_lists_every_projects_boards_after_its_own_but_their_own_boards() {
+        let all = crate::route::ALL_PROJECTS;
+        let mut atlas = BoardDoc::of_project("Atlas");
+        atlas.name = "Atlas, renamed".into();
+        let file = file_with(vec![named("b-3", "Later", "Northwind"), atlas, named("b-2", "Ideas", all), BoardDoc { created_at: 1, ..named("b-1", "Release", "Northwind") }, named("b-4", "Site", "Atlas")]);
+        let ids = |p: &str| listed(&file, p).into_iter().map(|b| b.id).collect::<Vec<_>>();
+        assert_eq!(ids(all), [format!("p:{all}"), "b-2".into(), "b-4".into(), "b-1".into(), "b-3".into()]);
+        assert_eq!(ids("Northwind"), ["p:Northwind", "b-1", "b-3"]);
     }
 
     #[test]

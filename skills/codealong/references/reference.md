@@ -3200,7 +3200,8 @@ Usage: codealong board [OPTIONS] <COMMAND>
 Commands:
   list     A project's boards: its own first, then the rest as they were made, each with
            its id, its name, what its rule takes in, and how many cards were added and
-           taken off by hand
+           taken off by hand. With --project all, every project's boards after its own
+           (but each project's own board), as the app lists them under All projects
   new      Make a board. Given no rule options it holds only what's added (`board add`);
            with them, what they take in too (as `board rule` says), and with
            --everything, everything in the project. Its Kanban starts with the four
@@ -3280,7 +3281,9 @@ Options:
 
 ```
 A project's boards: its own first, then the rest as they were made, each with its id,
-its name, what its rule takes in, and how many cards were added and taken off by hand
+its name, what its rule takes in, and how many cards were added and taken off by hand.
+With --project all, every project's boards after its own (but each project's own board),
+as the app lists them under All projects
 
 Usage: codealong board list [OPTIONS]
 

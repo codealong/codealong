@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Label } from '../types';
-import { applyOp, boardsIn, cleanRule, columnsOf, newColumnId, presetColumns, projectBoard, ruleWords, STAGE_COLUMNS, stageOfColumn, takesAll, type BoardDoc } from './model';
+import { applyOp, boardName, boardsFor, boardsIn, cleanRule, columnsOf, newColumnId, presetColumns, projectBoard, ruleWords, STAGE_COLUMNS, stageOfColumn, takesAll, type BoardDoc } from './model';
 
 const NOW = 1_790_000_000_000;
 const named = (id: string, name: string, over: Partial<BoardDoc> = {}): BoardDoc => ({ id, name, project: 'Acme', rule: null, added: [], removed: [], createdAt: 5, ...over });
@@ -15,6 +15,22 @@ describe('a project’s boards', () => {
     expect(list.map((b) => b.id)).toEqual(['p:Acme', 'b-1', 'b-2']);
     expect(list[0]).toEqual(projectBoard('Acme'));
     expect(takesAll(list[0].rule)).toBe(true);
+  });
+
+  it('lists every project’s boards under All projects, after its own, but each project’s own board', () => {
+    const all = 'All projects';
+    const boards = [named('b-3', 'Later'), { ...projectBoard('Atlas'), name: 'Atlas, renamed' }, named('b-2', 'Ideas', { project: all }), named('b-1', 'Release', { createdAt: 1 }), named('b-4', 'Site', { project: 'Atlas' })];
+    expect(boardsIn(boards, all).map((b) => b.id)).toEqual([`p:${all}`, 'b-2', 'b-1', 'b-3', 'b-4']);
+    expect(boardsIn(boards, 'Acme').map((b) => b.id)).toEqual(['p:Acme', 'b-1', 'b-3']);
+  });
+
+  it('offers a thing the boards that would show it, and names another project’s board with its project', () => {
+    const boards = [projectBoard('All projects'), named('b-2', 'Ideas', { project: 'All projects' }), named('b-1', 'Release'), named('b-4', 'Site', { project: 'Atlas' })];
+    expect(boardsFor(boards, 'Atlas').map((b) => b.id)).toEqual(['p:All projects', 'b-2', 'b-4']);
+    expect(boardsFor(boards, '').map((b) => b.id)).toEqual(['p:All projects', 'b-2']);
+    expect(boardsFor(boards, null)).toBe(boards);
+    expect(boardName(boards[3], 'All projects')).toBe('Site · Atlas');
+    expect(boardName(boards[3], 'Atlas')).toBe('Site');
   });
 
   it('has the four stage columns until it has its own', () => {

@@ -10,6 +10,7 @@ import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
 import { AGENT_BAY, buildBays, bySession, byStatusTime, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
+import type { RefKind } from './canvas/model';
 import { columnsOf, isProjects, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
 import { columnOf, memberTest, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
@@ -295,6 +296,42 @@ export function archivedIn(lanes: Lane[], project: string, query = '', said: Sai
 export function archivedOn(lanes: Lane[], doc: BoardDoc): SessionItem[] {
   const added = new Set(doc.added);
   return archivedIn(lanes, doc.project).filter((r) => added.has(`session:${r.session.key}`));
+}
+
+/** What the board shown is worked out from. */
+export interface BoardPart {
+  lanes: Lane[];
+  sessions: SessionItem[];
+  /** Every todo, and those listed (the search and filters applied). */
+  todoItems: TodoItem[];
+  todoRows: TodoItem[];
+  prs: PrItem[];
+}
+
+/** What the board shown is worked out from, of what the window has for the project it shows:
+ *  all of it on one of that project's boards, and under All projects, on another project's
+ *  board, only that project's, as a board shows its own project's work wherever it's shown.
+ *  `lanes` are every project's. */
+export function boardPart(boardProject: string, current: string, here: BoardPart, lanes: Lane[]): BoardPart {
+  if (boardProject === current) return here;
+  const own = lanes.filter((l) => inProject(l, boardProject));
+  const ofIt = (r: TodoItem) => r.todo.project === boardProject;
+  return { lanes: own, sessions: sessionItemsOf(own), todoItems: here.todoItems.filter(ofIt), todoRows: here.todoRows.filter(ofIt), prs: here.prs.filter((p) => p.project === boardProject) };
+}
+
+/** The project a thing on a board is in: a session's or a worktree's by its worktree, a todo's or
+ *  a PR's its own; null for one the board doesn't have. */
+export function projectOfCard(ref: RefKind, key: string, has: { homes: Map<string, Placed>; laneById: Map<string, Lane>; todos: Todo[]; prs: PrItem[] }): string | null {
+  switch (ref) {
+    case 'session':
+      return has.homes.get(key)?.lane.project ?? null;
+    case 'worktree':
+      return has.laneById.get(key)?.project ?? null;
+    case 'todo':
+      return has.todos.find((t) => t.id === key)?.project ?? null;
+    case 'pr':
+      return has.prs.find((p) => p.key === key)?.project ?? null;
+  }
 }
 
 /** The keys of the sessions a board has by hand, which the age filter leaves on its Kanban as it
@@ -969,11 +1006,16 @@ export function useBoardLists(input: ListsInput) {
   const sessionTodos = useMemo(() => todoIndex(todos, new Map()).bySession, [todos]);
   const todosFor = useCallback((k: string) => sessionTodos.get(k), [sessionTodos]);
 
-  // The board the Board view shows: what its rules ask of everything in the project, the archived
-  // sessions it has by hand among it, and what's on it (boards/rules.ts).
+  // The board the Board view shows: what its rules ask of everything in its project, the archived
+  // sessions it has by hand among it, and what's on it (boards/rules.ts). Under All projects a
+  // project's board is of that project's work alone (`boardPart`).
+  const part = useMemo(
+    () => boardPart(shownBoard.project, current, { lanes: projectLanes, sessions: sessionItems, todoItems, todoRows, prs: projectPrs }, lanes),
+    [shownBoard.project, current, projectLanes, sessionItems, todoItems, todoRows, projectPrs, lanes],
+  );
   const boardArchived = useMemo(() => archivedOn(rawLanes, shownBoard), [rawLanes, shownBoard]);
-  const boardSessions = useMemo(() => (boardArchived.length > 0 ? [...sessionItems, ...boardArchived] : sessionItems), [sessionItems, boardArchived]);
-  const subjects = useMemo(() => subjectsOf({ todoItems, todos, sessionItems: boardSessions, lanes: projectLanes, prs: projectPrs }), [todoItems, todos, boardSessions, projectLanes, projectPrs]);
+  const boardSessions = useMemo(() => (boardArchived.length > 0 ? [...part.sessions, ...boardArchived] : part.sessions), [part.sessions, boardArchived]);
+  const subjects = useMemo(() => subjectsOf({ todoItems: part.todoItems, todos, sessionItems: boardSessions, lanes: part.lanes, prs: part.prs }), [part.todoItems, todos, boardSessions, part.lanes, part.prs]);
   const member = useMemo(() => memberTest(shownBoard, subjects, now), [shownBoard, subjects, now]);
   // Its Kanban: the board's todos listed, and its sessions listed that no open todo's card shows,
   // in its columns, those it has by hand whatever their age. Sessions have no labels, so a label
@@ -983,8 +1025,8 @@ export function useBoardLists(input: ListsInput) {
   const cardSessions = useMemo(() => (labelled ? [] : shownSessionsOf(boardSessions, cutoff, handSessions, query, filter, said)), [labelled, boardSessions, cutoff, handSessions, query, filter, said]);
   const doneSince = cutoff || now - DONE_SPAN;
   const kanbanCols = useMemo(
-    () => kanbanColumns({ todoRows, todos, sessions: cardSessions, prs: board?.prs ?? [], doneSince, board: shownBoard, subjects, member, now }),
-    [todoRows, todos, cardSessions, board?.prs, doneSince, shownBoard, subjects, member, now],
+    () => kanbanColumns({ todoRows: part.todoRows, todos, sessions: cardSessions, prs: board?.prs ?? [], doneSince, board: shownBoard, subjects, member, now }),
+    [part.todoRows, todos, cardSessions, board?.prs, doneSince, shownBoard, subjects, member, now],
   );
   const kanbanVisible = useMemo<ListRow[]>(() => kanbanCols.flatMap((c) => (columnOpen(c) ? c.cards : [])), [kanbanCols, columnOpen]);
   // What's open on it: the cards outside the columns that start folded (Done).
@@ -1041,6 +1083,7 @@ export function useBoardLists(input: ListsInput) {
     todosFor,
     subjects,
     member,
+    boardLanes: part.lanes,
     boardArchived,
     kanbanCols,
     kanbanVisible,

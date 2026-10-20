@@ -834,7 +834,7 @@ enum ReuseCmd {
 
 #[derive(Subcommand, Debug)]
 enum BoardCmd {
-    /// A project's boards: its own first, then the rest as they were made, each with its id, its name, what its rule takes in, and how many cards were added and taken off by hand.
+    /// A project's boards: its own first, then the rest as they were made, each with its id, its name, what its rule takes in, and how many cards were added and taken off by hand. With --project all, every project's boards after its own (but each project's own board), as the app lists them under All projects.
     List(BoardAt),
     /// Make a board. Given no rule options it holds only what's added (`board add`); with them, what they take in too (as `board rule` says), and with --everything, everything in the project. Its Kanban starts with the four stage columns (To do, In progress, In review, Done), or with --columns labels one column per label its rule names (every label, for a rule that names none) and Other, or with --columns blank one column, Inbox, to make your own beside. Prints its id.
     New(BoardNewArgs),
@@ -1931,8 +1931,20 @@ fn board_list(c: &mut Client, at: &BoardAt, json: bool) -> Result<()> {
         return print_json(&list);
     }
     let labels = store_of(c.board()?).labels;
-    let rows = list.iter().map(|b| vec![b.id.clone(), b.name.clone(), rule_text(b.rule.as_ref(), &labels), b.added.len().to_string(), b.removed.len().to_string()]).collect();
-    print!("{}", table_text(&["ID", "NAME", "TAKES IN", "ADDED", "OFF"], rows));
+    // All projects lists every project's boards, so each says its project.
+    let every = project == crate::route::ALL_PROJECTS;
+    let rows = list
+        .iter()
+        .map(|b| {
+            let mut row = vec![b.id.clone(), b.name.clone(), rule_text(b.rule.as_ref(), &labels), b.added.len().to_string(), b.removed.len().to_string()];
+            if every {
+                row.insert(2, b.project.clone());
+            }
+            row
+        })
+        .collect();
+    let heads: &[&str] = if every { &["ID", "NAME", "PROJECT", "TAKES IN", "ADDED", "OFF"] } else { &["ID", "NAME", "TAKES IN", "ADDED", "OFF"] };
+    print!("{}", table_text(heads, rows));
     Ok(())
 }
 

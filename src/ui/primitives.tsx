@@ -1020,6 +1020,8 @@ export function ReorderHint() {
 
 interface NavItemProps {
   label: string;
+  /** Said beside the label, quieter: a board's project under All projects. */
+  note?: string;
   icon?: string;
   glyph?: Status;
   count?: number;
@@ -1039,7 +1041,7 @@ interface NavItemProps {
   onContextMenu?: () => void;
 }
 
-export function NavItem({ label, icon, glyph, count, active, child, tone, lead, badge, badgeTitle, kbd, className, title, onClick, onContextMenu }: NavItemProps) {
+export function NavItem({ label, note, icon, glyph, count, active, child, tone, lead, badge, badgeTitle, kbd, className, title, onClick, onContextMenu }: NavItemProps) {
   return (
     <button
       type="button"
@@ -1057,6 +1059,7 @@ export function NavItem({ label, icon, glyph, count, active, child, tone, lead, 
     >
       {lead ?? (glyph ? <StatusGlyph status={glyph} size={10} title="" /> : icon ? <Icon name={icon} size={14} /> : null)}
       <span className="ca-nav-label">{label}</span>
+      {note && <span className="ca-nav-note">{note}</span>}
       {badge ? (
         <span className="ca-nav-badge" title={badgeTitle}>
           {badge}

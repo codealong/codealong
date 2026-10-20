@@ -50,6 +50,8 @@ export interface SideStatus {
 export interface SideBoard {
   id: string;
   name: string;
+  /** Its project, when it isn't the one shown: under All projects, every project's boards are listed. */
+  project?: string;
   /** What it takes in, in words. */
   title: string;
   /** Its count, while the Board view shows it. */
@@ -153,6 +155,7 @@ function Open(p: SidebarProps) {
                   key={b.id}
                   className="ca-side-subboard"
                   label={b.name}
+                  note={b.project}
                   count={b.count === '' || b.count == null || p.loading ? undefined : (b.count as number)}
                   kbd={b.kbd}
                   active={p.view === 'board' && p.board === b.id}

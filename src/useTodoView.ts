@@ -112,10 +112,11 @@ export function useTodoView(input: TodoViewInput) {
     setSelectedKey(`todo:${t.id}`);
   };
 
-  /** Adds a todo from the box at the top of the list, linked to what it was made from. Returns its id. */
-  const createTodo = (title: string, context: ComposerContext | null) => {
+  /** Adds a todo from the box at the top of the list, linked to what it was made from, in `inProject`
+   *  (a board's, whatever the window shows) or the window's. Returns its id. */
+  const createTodo = (title: string, context: ComposerContext | null, inProject = current) => {
     const lane = context?.worktree ? laneById.get(context.worktree) : undefined;
-    const project = current !== ALL_PROJECTS ? current : (lane?.project ?? '');
+    const project = inProject !== ALL_PROJECTS ? inProject : (lane?.project ?? '');
     const t = newTodo(
       {
         title,

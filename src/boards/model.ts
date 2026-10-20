@@ -7,6 +7,7 @@
 // (`applyOp`, which does what boards.rs `apply_to` does), so the window shows it at once.
 
 import type { OnBoard, RefKind } from '../canvas/model';
+import { ALL_PROJECTS } from '../quick';
 import type { Label } from '../types';
 
 /** How far a card's work has got, as the stage columns have it (rules.ts `stageOf`). */
@@ -249,8 +250,25 @@ export function readBoard(raw: BoardDoc): BoardDoc {
   return { ...raw, rule: raw.rule ?? null, added: raw.added ?? [], removed: raw.removed ?? [] };
 }
 
-/** A project's boards as they're listed: its own first, then the rest as they were made. */
+/** A board's name as a menu lists it: with its project when the window shows another (All projects). */
+export function boardName(b: BoardDoc, shown: string): string {
+  return b.project === shown ? b.name : `${b.name} · ${b.project}`;
+}
+
+/** The boards that show a thing of `project` once it's put on them: every project's board and its
+ *  own project's (a board shows only its project's work); every one, for a thing whose project
+ *  isn't known. */
+export function boardsFor(boards: BoardDoc[], project: string | null): BoardDoc[] {
+  return project == null ? boards : boards.filter((b) => b.project === ALL_PROJECTS || b.project === project);
+}
+
+/** A project's boards as they're listed: its own first, then the rest as they were made. All
+ *  projects lists every project's after its own, but each project's own board, as the engine
+ *  sends them (boards.rs `listed`): a board shows its own project's work wherever it's shown. */
 export function boardsIn(boards: BoardDoc[], project: string): BoardDoc[] {
   const own = boards.find((b) => b.id === projectBoardId(project)) ?? projectBoard(project);
-  return [own, ...boards.filter((b) => b.project === project && b.id !== own.id).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))];
+  const every = project === ALL_PROJECTS;
+  const rest = boards.filter((b) => b.id !== own.id && (b.project === project || (every && !isProjects(b))));
+  const order = (a: BoardDoc, b: BoardDoc) => Number(a.project !== project) - Number(b.project !== project) || (a.project < b.project ? -1 : a.project > b.project ? 1 : 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0);
+  return [own, ...rest.sort(order)];
 }

@@ -57,7 +57,7 @@ import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kan
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type OnBoard, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
-import { columnsOf, holdsOf, isProjects, newBoardId, newColumnId, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
+import { boardName, boardsFor, columnsOf, holdsOf, isProjects, newBoardId, newColumnId, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
 import { columnOf, memberTest, repoOf } from './boards/rules';
 import { useBoardAsks } from './boards/useBoardAsks';
 import { useBoards } from './boards/useBoards';
@@ -90,7 +90,7 @@ import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, revealing, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { improveTitle } from './improve';
@@ -510,6 +510,7 @@ export function App() {
     todosFor,
     subjects,
     member,
+    boardLanes,
     boardArchived,
     kanbanCols,
     kanbanVisible,
@@ -563,10 +564,12 @@ export function App() {
     [projectNow],
   );
 
-  // The board's canvas: its document, kept up to date with what the board holds once it's been shown.
+  // The board's canvas: its document, kept up to date with what the board holds once it's been
+  // shown. It's of the board's project's work, which under All projects isn't the window's.
+  const boardProject = shownBoard.project;
   const canvasEntities = useMemo(
-    () => entitiesOf(board, projectLanes, todoStore.todos, (p) => current === ALL_PROJECTS || p === current, boardArchived),
-    [board, projectLanes, todoStore.todos, current, boardArchived],
+    () => entitiesOf(board, boardLanes, todoStore.todos, (p) => boardProject === ALL_PROJECTS || p === boardProject, boardArchived),
+    [board, boardLanes, todoStore.todos, boardProject, boardArchived],
   );
   const holds = useMemo<OnBoard>(() => holdsOf(shownBoard, member), [member, shownBoard]);
   const canvas = useCanvas(shownBoard.id, view === 'canvas', !loading, canvasEntities, now, lanePins.set, holds);
@@ -585,11 +588,13 @@ export function App() {
     setView('canvas');
     setCanvasFocus((f) => ({ ids: [id], n: (f?.n ?? 0) + 1 }));
   };
-  /** Add to board ›, each of the project's boards checked when it holds the thing (a pick puts it
-   *  on or takes it off); and in Kanban, Remove from board for the board shown. The canvas has
-   *  its own Remove from board, for what's picked on it. */
+  /** Add to board ›, each of the project's boards that would show the thing (under All projects,
+   *  every project's and its own project's) checked when it holds it (a pick puts it on or takes
+   *  it off); and in Kanban, Remove from board for the board shown. The canvas has its own Remove
+   *  from board, for what's picked on it. */
   const boardItems = (ref: RefKind, key: string): MenuSpec => {
     const card = refId(ref, key);
+    const offered = boardsFor(boards.boards, projectOfCard(ref, key, { homes, laneById, todos: todoStore.todos, prs: board?.prs ?? [] }));
     const on = (b: BoardDoc) => (b.id === shownBoard.id ? member(card) : memberTest(b, subjects, now)(card));
     const put = (b: BoardDoc, yes: boolean) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: [card] });
     const remove: MenuSpec = view === 'kanban' && member(card) ? [{ label: 'Remove from board', run: () => put(shownBoard, false) }] : [];
@@ -597,7 +602,7 @@ export function App() {
       {
         label: 'Add to board',
         items: [
-          ...boards.boards.map((b) => ({ label: b.name, checked: on(b), run: () => put(b, !on(b)) })),
+          ...offered.map((b) => ({ label: boardName(b, current), checked: on(b), run: () => put(b, !on(b)) })),
           'separator',
           { label: 'New board with it…', run: () => setBoardEdit({ board: null, with: card }) },
         ],
@@ -629,7 +634,7 @@ export function App() {
   /** A board's menu: the project's boards to show, a new one, its settings, deleting it. */
   const boardMenu = (b: BoardDoc = shownBoard) =>
     void showContextMenu([
-      ...boards.boards.map((x) => ({ label: x.name, checked: x.id === shownBoard.id && (view === 'kanban' || view === 'canvas'), run: () => showBoard(x.id) })),
+      ...boards.boards.map((x) => ({ label: boardName(x, current), checked: x.id === shownBoard.id && (view === 'kanban' || view === 'canvas'), run: () => showBoard(x.id) })),
       'separator',
       { label: 'New board…', run: () => setBoardEdit({ board: null }) },
       { label: `Settings of ${b.name}…`, run: () => setBoardEdit({ board: b }) },
@@ -809,6 +814,8 @@ export function App() {
     const fresh = { card: 'todo:', ref: 'todo' as const, title: '', activity: now, stage: 'todo' as const, statuses: [], labels: (facets.labels ?? []).slice(0, 1), repos: [], accounts: [] };
     return columnOf(fresh, columnsOf(shownBoard), undefined, now);
   }, [shownBoard, facets.labels, now]);
+  // A todo made on a board's Kanban is in the board's project, which under All projects may not be the window's.
+  const todoProject = view === 'kanban' ? boardProject : current;
   const todoComposer = (
     <TodoComposer
       ref={composerRef}
@@ -817,10 +824,10 @@ export function App() {
       context={composer.context}
       onClearContext={() => setComposer((c) => ({ ...c, context: null }))}
       onCreate={(title) => {
-        const id = createTodo(title, composer.context);
+        const id = createTodo(title, composer.context, todoProject);
         if (view === 'kanban' && !takesAll(shownBoard.rule)) void applyBoard({ op: 'add', id: shownBoard.id, cards: [`todo:${id}`] });
       }}
-      where={current === ALL_PROJECTS ? (composer.context?.worktree ? (laneById.get(composer.context.worktree)?.project ?? null) : 'no project') : null}
+      where={current !== ALL_PROJECTS ? null : todoProject !== ALL_PROJECTS ? todoProject : composer.context?.worktree ? (laneById.get(composer.context.worktree)?.project ?? null) : 'no project'}
     />
   );
   // The Kanban view's arrows: up and down a column, left and right across them (kanban.ts).
@@ -1754,14 +1761,16 @@ export function App() {
       badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,
     };
   });
-  // The boards made in the project go under the Board view, which is its own board. The one it
-  // shows has the view's keys beside it, which go back to it, and its count while it shows.
+  // The boards made in the project go under the Board view, which is its own board (under All
+  // projects, every project's, each saying its project). The one it shows has the view's keys
+  // beside it, which go back to it, and its count while it shows.
   const sideBoards: SideBoard[] = boards.boards
     .filter((b) => !isProjects(b))
     .map((b) => ({
       id: b.id,
       name: b.name,
-      title: ruleWords(b.rule, todoStore.labels),
+      project: b.project !== current ? b.project : undefined,
+      title: `${b.project !== current ? `In ${b.project}: ` : ''}${ruleWords(b.rule, todoStore.labels)}`,
       count: boardShowing && b.id === shownBoard.id ? boardCount : undefined,
       kbd: b.id === shownBoard.id ? menus.chordKeys(VIEW_CHORDS[layoutShown]) : undefined,
     }));
@@ -1992,7 +2001,7 @@ export function App() {
           {!loading && (view === 'sessions' || view === 'prs' || view === 'todo' || view === 'kanban' || view === 'canvas' || findShown) && (
             <ListBar>
               {(view === 'kanban' || view === 'canvas') && (
-                <BoardBar board={shownBoard} layout={boardLayout} labels={todoStore.labels} onLayout={setView} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
+                <BoardBar board={shownBoard} project={shownBoard.project !== current ? shownBoard.project : null} layout={boardLayout} labels={todoStore.labels} onLayout={setView} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
               )}
               {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
               {view === 'prs' && (
