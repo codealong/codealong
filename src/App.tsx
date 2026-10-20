@@ -583,14 +583,15 @@ export function App() {
   );
 
   // The board's canvas: its document, kept up to date with what the board holds once it's been
-  // shown. It's of the board's project's work, which under All projects isn't the window's.
+  // shown. It's of the board's project's work, which under All projects isn't the window's. While
+  // boards are off it's left as it is, nothing saved, and catches up once they're on again.
   const boardProject = shownBoard.project;
   const canvasEntities = useMemo(
     () => entitiesOf(board, boardLanes, todoStore.todos, (p) => boardProject === ALL_PROJECTS || p === boardProject, boardArchived),
     [board, boardLanes, todoStore.todos, boardProject, boardArchived],
   );
   const holds = useMemo<OnBoard>(() => holdsOf(shownBoard, member), [member, shownBoard]);
-  const canvas = useCanvas(shownBoard.id, view === 'canvas', !loading, canvasEntities, now, lanePins.set, holds);
+  const canvas = useCanvas(shownBoard.id, view === 'canvas', !loading && boardsOn, canvasEntities, now, lanePins.set, holds);
   /** A change to a board, here at once; what the engine turns down is said in a toast. */
   const applyBoard = useCallback((op: Parameters<typeof boards.apply>[0]) => boards.apply(op).catch((e: unknown) => setToast(errorText(e))), [boards, setToast]);
   const [canvasFocus, setCanvasFocus] = useState<{ ids: string[]; n: number } | null>(null);

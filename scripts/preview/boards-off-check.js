@@ -1,14 +1,24 @@
 // Checks that boards are an experiment (`[experimental] boards`, App.tsx `boardsOn`). Off, as a
 // new config.toml has them, in a window that last saw them on: once the board comes the sidebar
 // lists no Board, a window remembered on the Kanban shows Sessions, ⇧⌘K and ⇧⌘B go nowhere, a
-// session's menu has no Add to board, and the window remembers them off. On: the sidebar lists
-// Board, the menu has Add to board, and ⇧⌘K shows the Kanban. Either way Settings ›
-// Experimental's Boards box saves the other way to config.toml.
+// session's menu has no Add to board, the window remembers them off, and a canvas saved before
+// isn't brought up to date and saved out of sight. On: the sidebar lists Board, the menu has Add to
+// board, the canvas is kept up to date while another view shows, and ⇧⌘K shows the Kanban. Either
+// way Settings › Experimental's Boards box saves the other way to config.toml.
 //   PREVIEW_BOARDS_OFF=1 scripts/preview.sh kanban '' scripts/preview/boards-off-check.js
 //   scripts/preview.sh sessions '' scripts/preview/boards-off-check.js
 (function () {
   var off = !!window.__PREVIEW_BOARDS_OFF__;
   localStorage.setItem('codealong.boardsOn', '1');
+  // A canvas saved empty, which the board's recent work would be brought onto (useCanvas.ts).
+  var real = window.__TAURI_INTERNALS__.invoke;
+  window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd === 'canvas_load') {
+      window.__calls.push([cmd, args, options]);
+      return Promise.resolve({ version: 1, items: [] });
+    }
+    return real(cmd, args, options);
+  };
   var nav = function (root, label) {
     return all(root + ' .ca-nav').filter(function (b) { var l = b.querySelector('.ca-nav-label'); return l && l.textContent === label; })[0];
   };
@@ -35,6 +45,12 @@
         var adds = labels.some(function (l) { return l.indexOf('Add to board') === 0; });
         check(off ? 'a session’s menu has no Add to board' : 'a session’s menu has Add to board', adds !== off, labels.join(' | '));
       });
+    })
+    // Past the canvas's wait before it saves.
+    .then(function () { return wait(1500); })
+    .then(function () {
+      var saves = calls('canvas_save').length;
+      check(off ? 'the canvas isn’t brought up to date or saved' : 'the canvas is kept up to date while another view shows', (saves === 0) === off, saves + ' saves, ' + calls('canvas_load').length + ' loads');
     })
     .then(function () { return press('K'); })
     .then(function () {
