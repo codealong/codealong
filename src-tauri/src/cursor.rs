@@ -186,14 +186,26 @@ pub struct Chat {
     /// must (whether to trust the folder, to allow a workspace's MCP servers) before it does,
     /// and writes none of that down.
     pub unwritten: bool,
-    /// The command line's chat folder (`chats/<hash>/<id>`), and its transcript.
+    /// The command line's chat folder (`chats/<hash>/<id>`), and its transcript, with when that
+    /// was last written.
     pub dir: Option<PathBuf>,
     pub transcript: Option<PathBuf>,
+    pub transcript_at: Option<i64>,
     /// What its latest messages say.
     pub tail: Tail,
 }
 
 impl Chat {
+    /// When its conversation last changed, which a chat at rest has stood still since: for the
+    /// command line's, its transcript's last write or its newest prompt, since its database is
+    /// written for a mode switched too, which says nothing new; for the app's, its last write.
+    pub fn said_at(&self) -> i64 {
+        match self.transcript_at {
+            Some(at) if self.cli => at.max(self.tail.last_at.unwrap_or(0)),
+            _ => self.last_updated,
+        }
+    }
+
     /// The app says a turn of it is under way.
     pub fn generating(&self) -> bool {
         self.status == "generating"
@@ -963,7 +975,8 @@ pub fn read_cli_chats(home: &Path, since_ms: i64, keep: &HashSet<String>) -> Vec
             if meta.subagent {
                 continue;
             }
-            out.push(Chat { id, title: meta.name, cwd: side.cwd, created_at: meta.created_at.unwrap_or(written), last_updated: written, model: meta.model, mode: meta.mode, approval: meta.approval, cli: true, dir: Some(dir), transcript, ..Chat::default() });
+            let transcript_at = transcript.as_deref().and_then(crate::util::mtime_ms);
+            out.push(Chat { id, title: meta.name, cwd: side.cwd, created_at: meta.created_at.unwrap_or(written), last_updated: written, model: meta.model, mode: meta.mode, approval: meta.approval, cli: true, dir: Some(dir), transcript, transcript_at, ..Chat::default() });
         }
     }
     out.sort_by(|a, b| b.last_updated.cmp(&a.last_updated));

@@ -716,7 +716,7 @@ pub fn cursor_session(account: &AccountCfg, c: &crate::cursor::Chat, process: Op
         reply_head: c.tail.last_text.clone(),
         first_prompt: c.tail.first_prompt.clone(),
         started_at: Some(c.created_at).filter(|t| *t > 0),
-        status_since: if under_way { Some(last_prompt_at) } else { Some(c.last_updated) },
+        status_since: if under_way { Some(last_prompt_at) } else { Some(c.said_at()) },
         last_prompt_at,
         last_activity: c.last_updated,
         excerpt,
@@ -1386,11 +1386,12 @@ pub fn run_started_by<'a>(pid: u32, parent: impl Fn(u32) -> Option<u32>, under: 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "by")]
 pub enum MovedOn {
-    /// Its user sent it a prompt after the agent read it (its `last_prompt_at`), or an answer.
+    /// It was sent a prompt after the agent read it (its `last_prompt_at`), or its user answered
+    /// it from Codealong.
     Prompt { at: i64 },
     /// A turn of its started after the word was given, at this time. A message from another
-    /// session or from Codealong, a background command's report and a scheduled wakeup start one
-    /// without moving its `last_prompt_at`.
+    /// session or from Codealong, a background command's report or a scheduled wakeup can start
+    /// one without moving its `last_prompt_at`.
     Turn { at: i64 },
 }
 
@@ -3987,6 +3988,11 @@ mod tests {
         // Gone: what it left is yours to read, and a new terminal resumes it.
         let s = cursor_session(&a, &c, None, true, 0, NOW);
         assert_eq!((s.status, s.live, s.open_target.as_str()), (Status::Unread, false, "s|cursor:cursor:c2|resume"));
+        // At rest since its transcript's last write: a mode switched later writes only its
+        // database, which is activity but no new status.
+        let switched = Chat { last_updated: NOW - 1_000, transcript_at: Some(NOW - 2_000), ..c.clone() };
+        let s = cursor_session(&a, &switched, None, true, 0, NOW);
+        assert_eq!((s.status_since, s.last_activity), (Some(NOW - 2_000), NOW - 1_000));
         // Started, with its chat not written yet: starting, then waiting on what it asks first in
         // its terminal, where it's opened, and with no chat to resume.
         let review = Chat { id: "c3".into(), cli: true, unwritten: true, created_at: NOW - 5_000, last_updated: NOW - 5_000, ..Default::default() };

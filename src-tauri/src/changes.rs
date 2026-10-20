@@ -591,9 +591,8 @@ pub fn session_change(s: &Session, mark: Option<&SessionMark>, since: i64) -> Op
 }
 
 /// Whether its status began again since its mark, with something done since: a turn ran in
-/// between that no prompt of its user's began, or its `last_prompt_at` would say so. Another
-/// session's message, Codealong's, a background command's report and a scheduled wakeup each
-/// start one. A snooze that ended or a mark of unread moves when its status began, but does
+/// between that its `last_prompt_at` doesn't say, as another session's message, Codealong's, a
+/// background command's report or a scheduled wakeup can start. A snooze that ended or a mark of unread moves when its status began, but does
 /// nothing. A mark kept before says neither.
 fn turned(s: &Session, m: &SessionMark) -> bool {
     m.since.zip(s.status_since).is_some_and(|(was, now)| now > was) && s.last_activity > m.activity
@@ -617,8 +616,8 @@ pub fn untagged_and_unsuggested(out: &mut Changes, untagged: &BTreeMap<String, M
 /// Why an agent's word on a session was taken away, for the agent to read it again.
 fn moved_on_words(m: &MovedOn) -> String {
     match m {
-        MovedOn::Prompt { at } => format!("Taken away as its user sent it a prompt or an answer at {at}, after it was read."),
-        MovedOn::Turn { at } => format!("Taken away as a turn of its started at {at}, after it was given. A message from another session or from Codealong, a background command's report or a scheduled wakeup starts one without moving lastPromptAt."),
+        MovedOn::Prompt { at } => format!("Taken away as it was sent a prompt or an answer at {at}, after it was read."),
+        MovedOn::Turn { at } => format!("Taken away as a turn of its started at {at}, after it was given. A message from another session or from Codealong, a background command's report or a scheduled wakeup can start one without moving lastPromptAt."),
     }
 }
 
@@ -922,7 +921,7 @@ mod tests {
         assert!(w("a").unsuggested.is_some());
         assert_eq!((w("b").untagged, w("b").unsuggested), (None, None), "it had none");
         // Suggested replies again since: only the tag is gone.
-        assert!(w("c").untagged.unwrap().contains(&format!("a prompt or an answer at {}", NOW - 4 * MIN)));
+        assert!(w("c").untagged.unwrap().contains(&format!("sent a prompt or an answer at {}", NOW - 4 * MIN)));
         assert_eq!(w("c").unsuggested, None);
         let row = out.sessions.iter().find(|r| r.key == "a").unwrap();
         assert_eq!(row.untagged, w("a").untagged);
