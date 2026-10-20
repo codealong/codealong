@@ -68,13 +68,17 @@
 .ca-modelmenu-chip:disabled:hover {
   background: transparent;
 }
-/* Where it can't be switched from here, it's only said. */
+/* Where it can't be switched from here, it's only said, on the chip's line: the account and the
+   model after it are centered on its height, as the chip's are, since the model's type has a
+   line of its own. */
 .ca-modelmenu-said {
   display: inline-flex;
+  align-items: center;
   min-width: 0;
+  height: 26px;
   padding: 0 8px;
   color: var(--ink-3);
-  font: 500 12px/26px var(--font-sans);
+  font: var(--type-meta-strong);
   white-space: nowrap;
 }
 /* The effort after the model, spaced as the chip's flex gap spaces it. */

@@ -244,7 +244,6 @@ describe('the stylesheets', () => {
     '.ca-nav-badge': { font: '600 10px/16px var(--font-mono)', why: "a count in a round 16px badge, on the badge's height" },
     '.ca-projswitch-badge': { font: '600 10px/16px var(--font-mono)', why: "a count in a round 16px badge, on the badge's height (as .ca-nav-badge)" },
     '.ca-rail-badge': { font: '600 9px/14px var(--font-mono)', why: "a count in the rail's 14px badge, on the badge's height, over an icon" },
-    '.ca-modelmenu-said': { font: '500 12px/26px var(--font-sans)', why: "a model that can't be switched from here, said on the 26px line of the chip it stands in for" },
     '.ca-meter-value': { font: '600 24px/24px var(--font-display)', why: "a usage meter's figure: numeral's face at the size the meter has room for" },
     '.ca-cv-callsign': { font: '600 15px/18px var(--font-display)', why: "a card's callsign: callsign's face on the card's 18px first line, smaller than a lane's" },
     '.ca-cv-farlabel': { font: '600 12px/16px var(--font-display)', why: "a card's name over a canvas zoomed far out, scaled with the zoom" },

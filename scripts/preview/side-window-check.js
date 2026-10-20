@@ -111,6 +111,16 @@
     check('a click on its title shows the session in Codealong, and the window stays', !!title && shown.reveal && shown.reveal.kind === 'session' && shown.reveal.key === key && calls('kept_close').length === 0, JSON.stringify(shown));
     check('with nothing open it says so', /^Nothing open on the side/.test(q('.ca-sidestrip-doing').textContent) && labels() === 'Close', labels());
     check('over a box that asks on the side', aside() && box().getAttribute('aria-placeholder') === 'Ask on the side' && /throwaway copy/.test(noteText()), noteText());
+    // The copy's account, model and effort are said, not picked, on one line: measured by their
+    // words, since each one's box is the chip's height whatever line its words are on.
+    var words = function (el) { var r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect(); };
+    var said = q('.ca-composer-buttons .ca-modelmenu-said');
+    var detail = said && q('.ca-modelmenu-detail', said);
+    if (detail) {
+      var a = words(q('.ca-account-name', said));
+      var d = words(detail);
+      check('its account and the model after it sit on one line', Math.abs(a.top - d.top) <= 1 && Math.abs(a.bottom - d.bottom) <= 1, 'account ' + Math.round(a.top) + '–' + Math.round(a.bottom) + ', model ' + Math.round(d.top) + '–' + Math.round(d.bottom));
+    } else note('the session says no model, so its chip has no line to keep');
     await ask('why a queue?');
     check('a question asks the copy, and sends the session nothing', calls('side_ask')[0][1].text === 'why a queue?' && calls('send_to_session').length === 0 && turns()[0].indexOf('why a queue?') === 0);
     check('the box is still the side conversation’s', aside() && box().value === '');
