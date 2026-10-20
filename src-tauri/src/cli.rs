@@ -598,13 +598,16 @@ enum SessionCmd {
         #[arg(allow_hyphen_values = true)]
         name: String,
     },
-    /// Fork a session into a copy that goes on in the background, as /fork in its box in Codealong does: a Claude Code background job, an OpenCode session, or a Codex thread Codealong runs (that one needs the app running). The session carries on unaware. Given a prompt, the copy starts on it; without one it waits for its first message. Prints the copy's key when its harness says it at once.
+    /// Fork a session into a copy that goes on in the background, as /fork in its box in Codealong does: a Claude Code background job, an OpenCode session, or a Codex thread Codealong runs (that one needs the app running). The session carries on unaware. Given a prompt, the copy starts on it; without one it waits for its first message. With --from, the copy goes only up to just before a prompt of the session's and starts on PROMPT in its place, as Edit from here on a message in Codealong does (Claude Code and Codex copies then run in Codealong, which needs the app). Prints the copy's key when its harness says it at once.
     Fork {
         /// The session: its key, its id, a unique start of its id, or `me`.
         key: String,
         /// What the copy starts on.
         #[arg(allow_hyphen_values = true)]
         prompt: Option<String>,
+        /// A prompt's `cursor`, as `session transcript` prints it: the copy leaves out that prompt and all after it, and PROMPT goes in its place. Only the conversation goes back: files stay as they are.
+        #[arg(long, value_name = "CURSOR", requires = "prompt")]
+        from: Option<u64>,
     },
     /// For the Codealong plugin's hooks, with the hook's input on stdin. `permission-request`
     /// hands Claude Code's permission request to the app, to be answered from Codealong as well
@@ -1559,7 +1562,8 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Session { cmd: SessionCmd::Suggest(a) } => session_suggest(c, a, json),
         Cmd::Session { cmd: SessionCmd::Tag(a) } => session_tag(c, a, json),
         Cmd::Session { cmd: SessionCmd::Rename { key, name } } => session_act(c, &key, api::SESSION_RENAME, params::Rename { name, ..Default::default() }, json),
-        Cmd::Session { cmd: SessionCmd::Fork { key, prompt } } => session_act(c, &key, api::SESSION_FORK, params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
+        Cmd::Session { cmd: SessionCmd::Fork { key, prompt, from: Some(cursor) } } => session_act(c, &key, api::SESSION_EDIT, params::Edit { cursor, prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
+        Cmd::Session { cmd: SessionCmd::Fork { key, prompt, from: None } } => session_act(c, &key, api::SESSION_FORK, params::Fork { prompt: prompt.unwrap_or_default(), ..Default::default() }, json),
         Cmd::Session { cmd: SessionCmd::Hook { event } } => {
             session_hook(&event);
             Ok(())
@@ -6356,7 +6360,11 @@ mod tests {
         let cli = Cli::try_parse_from(["codealong", "session", "fork", "abc"]).unwrap();
         assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Fork { prompt: None, .. } }));
         let cli = Cli::try_parse_from(["codealong", "session", "fork", "abc", "Try it with the cache off"]).unwrap();
-        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Fork { prompt: Some(ref p), .. } } if p.starts_with("Try")));
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Fork { prompt: Some(ref p), from: None, .. } } if p.starts_with("Try")));
+        let cli = Cli::try_parse_from(["codealong", "session", "fork", "abc", "Try it with the cache off", "--from", "18342"]).unwrap();
+        assert!(matches!(cli.cmd, Cmd::Session { cmd: SessionCmd::Fork { prompt: Some(_), from: Some(18342), .. } }));
+        // From a prompt, the copy needs what to start on in its place.
+        assert!(Cli::try_parse_from(["codealong", "session", "fork", "abc", "--from", "18342"]).is_err());
     }
 
     #[test]

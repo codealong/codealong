@@ -67,7 +67,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--remove-worktree", takes: "<worktree folder> [--dry-run]", run: remove_worktree },
     Mode { flag: "--send", takes: "<session key> <text> [--now]", run: send_text },
     Mode { flag: "--tell", takes: "<session key> <text>", run: tell },
-    Mode { flag: "--fork", takes: "<session key> [prompt]", run: fork },
+    Mode { flag: "--fork", takes: "<session key> [prompt] [--from <cursor>]", run: fork },
     Mode { flag: "--switch-model", takes: "<session key> <model>", run: switch_model },
     Mode { flag: "--switch-effort", takes: "<session key> <level>", run: switch_effort },
     Mode { flag: "--resume", takes: "<session key> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>]", run: resume },
@@ -349,10 +349,16 @@ fn tell(_: &Args, rest: &[String]) -> Done {
     Ok(send::send(&board, &cfg, key, text, send::Sender::Codealong, false).map_err(failed)?.message)
 }
 
-fn fork(_: &Args, rest: &[String]) -> Done {
+fn fork(args: &Args, rest: &[String]) -> Done {
     let [key, more @ ..] = rest else { return Err(Stop::Usage) };
-    let prompt = more.first().map(String::as_str).unwrap_or("");
-    Ok(pretty(&act(api::SESSION_FORK, key, params::Fork { prompt: prompt.to_string(), ..Default::default() })?))
+    let prompt = more.first().filter(|p| !p.starts_with("--")).cloned().unwrap_or_default();
+    match args.option("--from") {
+        Some(cursor) => {
+            let cursor = cursor.parse().map_err(|_| Stop::Usage)?;
+            Ok(pretty(&act(api::SESSION_EDIT, key, params::Edit { cursor, prompt, ..Default::default() })?))
+        }
+        None => Ok(pretty(&act(api::SESSION_FORK, key, params::Fork { prompt, ..Default::default() })?)),
+    }
 }
 
 fn switch_model(_: &Args, rest: &[String]) -> Done {

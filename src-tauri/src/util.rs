@@ -97,7 +97,13 @@ pub fn read_head(p: &Path, max: usize) -> Option<String> {
 
 /// Reads the first line of a file, however long, up to `max` bytes.
 pub fn read_first_line(p: &Path, max: u64) -> Option<String> {
-    let f = File::open(p).ok()?;
+    read_line_at(p, 0, max)
+}
+
+/// Reads the line that starts at `at` in a file, however long, up to `max` bytes.
+pub fn read_line_at(p: &Path, at: u64, max: u64) -> Option<String> {
+    let mut f = File::open(p).ok()?;
+    f.seek(SeekFrom::Start(at)).ok()?;
     let mut reader = BufReader::new(f.take(max));
     let mut line = String::new();
     reader.read_line(&mut line).ok()?;

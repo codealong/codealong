@@ -883,14 +883,20 @@ fn set_option(a: &AccountCfg, key: &str, category: &str, value: &str) -> Result<
 
 /// Forks session `id` into a new one Codealong runs (`session/fork`): a copy of its
 /// conversation that goes on in `cwd`, on `prompt` when there's one. Returns the copy's key.
-pub fn fork(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str) -> Result<String> {
+/// With `through`, the copy goes only as far as that message of the agent's, and everything after
+/// it is left out (`fork_point`).
+pub fn fork(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str, through: Option<&str>) -> Result<String> {
     in_app()?;
     let harness = Harness::from_config(&a.harness);
     let ag = agent(a)?;
     if !ag.can("fork") {
         bail!("{}'s agent can't fork a session.", a.name);
     }
-    let r = ag.request("session/fork", session_params(&ag, cwd, Some(id)), Some(REQUEST_TIMEOUT))?;
+    let mut params = session_params(&ag, cwd, Some(id));
+    if let Some(message) = through {
+        params["_meta"] = fork_point(message);
+    }
+    let r = ag.request("session/fork", params, Some(REQUEST_TIMEOUT))?;
     let copy = r.get("sessionId").and_then(Value::as_str).ok_or_else(|| anyhow!("{}'s agent made no copy.", a.name))?.to_string();
     let key = key_of(harness, &a.name, &copy);
     let cwd_s = cwd.to_string_lossy().into_owned();
@@ -904,6 +910,17 @@ pub fn fork(a: &AccountCfg, id: &str, cwd: &Path, prompt: &str) -> Result<String
     }
     notify(Change::Board);
     Ok(key)
+}
+
+/// The `_meta` that has a `session/fork` copy only as far as `message`. ACP has no word for where
+/// a fork ends; both adapters take the one JetBrains' AIR sends (claude-agent-acp 0.81.2's
+/// `fork-session.js` `forkPoint`, codex-acp 1.13.1's `readAirForkPoint`). claude-agent-acp
+/// finds the assistant message by its API id (`message.id`) and copies the transcript through
+/// its last line (the SDK's `forkSession` `upToMessageId`); codex-acp finds the turn holding an
+/// item with that id and copies through the turn (`thread/fork` `lastTurnId`). Each refuses an
+/// id it doesn't find.
+fn fork_point(message: &str) -> Value {
+    json!({ "jetbrains": { "air": { "fork": { "version": 1, "messageId": message } } } })
 }
 
 /// The id of a session's config option in `category` (ACP's `model`, `thought_level`) when it
@@ -1632,6 +1649,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Both adapters read where a fork ends from JetBrains' AIR `_meta`, at version 1.
+    #[test]
+    fn a_fork_ends_where_both_adapters_read_it() {
+        assert_eq!(fork_point("msg_1"), json!({ "jetbrains": { "air": { "fork": { "version": 1, "messageId": "msg_1" } } } }));
+    }
+
     /// Against a real adapter: `CODEALONG_TEST_ACP_RESUME=<key of a session in hosted.json>
     /// cargo test acp_resumes -- --ignored --nocapture`. Sends to a session this process never
     /// started, as after a restart: it's resumed in a new adapter process first.
@@ -1662,10 +1685,35 @@ mod tests {
         let cfg = config::current().unwrap();
         let a = cfg.accounts.iter().find(|x| x.name == account).expect("an account by that name").clone();
         init(|_| {});
-        let copy = fork(&a, id, Path::new(&dir), "Which word did I ask you to remember? Answer with the word alone, in lowercase.").unwrap();
+        let copy = fork(&a, id, Path::new(&dir), "Which word did I ask you to remember? Answer with the word alone, in lowercase.", None).unwrap();
         println!("{copy}");
         wait_until("the copy's turn to end", 240, || !state().sessions[&copy].running);
         assert!(state().sessions[&copy].error.is_none(), "{:?}", state().sessions[&copy].error);
+    }
+
+    /// Against a real harness: `CODEALONG_TEST_EDIT=<key of a session of your own>
+    /// CODEALONG_TEST_EDIT_CURSOR=<a prompt's cursor, from codealong session transcript>
+    /// CODEALONG_TEST_ACP_DIR=<its folder> cargo test forks_from_a_prompt -- --ignored
+    /// --nocapture`. Does what Edit from here does (`Adapter::fork_from`) on a question only the
+    /// conversation before that prompt answers, and waits for a copy Codealong runs to answer.
+    /// The copy is a real session: archive it after.
+    #[test]
+    #[ignore]
+    fn forks_from_a_prompt() {
+        let (Ok(key), Ok(cursor), Ok(dir)) = (std::env::var("CODEALONG_TEST_EDIT"), std::env::var("CODEALONG_TEST_EDIT_CURSOR"), std::env::var("CODEALONG_TEST_ACP_DIR")) else { return };
+        let mut parts = key.splitn(3, ':');
+        let (harness, account, id) = (Harness::from_config(parts.next().unwrap()), parts.next().unwrap(), parts.next().unwrap());
+        let cfg = config::current().unwrap();
+        let a = cfg.accounts.iter().find(|x| x.name == account).expect("an account by that name").clone();
+        init(|_| {});
+        let s = crate::model::Session::new(harness, account, id);
+        let prompt = std::env::var("CODEALONG_TEST_EDIT_PROMPT").unwrap_or_else(|_| "What was the last thing I asked you before this? Answer in one short sentence.".into());
+        let copy = crate::harness::adapter(harness).fork_from(&crate::harness::Ctx { account: &a }, &s, Path::new(&dir), cursor.parse().unwrap(), &prompt).unwrap().expect("the copy's key");
+        println!("{copy}");
+        if hosts(&copy) {
+            wait_until("the copy's turn to end", 240, || !state().sessions[&copy].running);
+            assert!(state().sessions[&copy].error.is_none(), "{:?}", state().sessions[&copy].error);
+        }
     }
 
     /// Against a real adapter: `CODEALONG_TEST_ACP_ADOPT=<key of a session of your own that isn't

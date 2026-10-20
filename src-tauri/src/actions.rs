@@ -234,6 +234,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::START, here: start, there: start_there, back: started_back, prompt: Some("/spec/prompt"), ..ANY },
     // A fork answers as a start does, with the copy by the key it has on its device.
     Request { name: api::SESSION_FORK, here: fork, back: started_back, prompt: Some("/prompt"), ..ANY },
+    Request { name: api::SESSION_EDIT, here: fork_from, back: started_back, prompt: Some("/prompt"), ..ANY },
     Request { name: api::SESSION_RESUME, here: resume, command: resume_is_its_users, prompt: Some("/prompt"), ..ANY },
     Request { name: api::SESSION_MODEL, here: switch_model, ..ANY },
     Request { name: api::SESSION_EFFORT, here: switch_effort, ..ANY },
@@ -333,7 +334,7 @@ pub fn run_on(engine: &Handle, peers: &Peers, name: &str, device: Option<&str>, 
 pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, params: impl Serialize) -> Result<Value, String> {
     let params = to_value(params)?;
     let req = asked(from, name, &params)?;
-    if name == api::SESSION_FORK || name == FORK_TERMINAL {
+    if name == api::SESSION_FORK || name == api::SESSION_EDIT || name == FORK_TERMINAL {
         let (device, own) = on.split();
         let key = device.map(|d| peerfeed::remote_key(d, own)).unwrap_or_else(|| own.to_string());
         ensure_fork_not_blocked(&engine.board(), &key, from)?;
@@ -495,7 +496,7 @@ fn elsewhere(req: &Request, from: &From) -> Result<(), String> {
 /// checking a link by hand): what it may ask for about a session here, and what it may have
 /// another device do. A request this table doesn't know is the other device's to refuse.
 pub fn command_may_ask(name: &str, params: &Value) -> Result<(), String> {
-    if name == api::SESSION_FORK {
+    if name == api::SESSION_FORK || name == api::SESSION_EDIT {
         return Err("Use `codealong session fork` so the session's automation setting is checked before forwarding.".into());
     }
     // Asked by hand, a start would go as it was written, with this device's todos in it, and
@@ -1080,6 +1081,14 @@ fn fork(engine: &Handle, c: &Call) -> Result<Value, String> {
     let board = engine.board();
     ensure_fork_not_blocked(&board, c.session()?, c.from)?;
     to_value(crate::start::fork_background(&board, &cfg()?, c.session()?, &p.prompt).map_err(words)?)
+}
+
+/// Forks it from before a prompt of yours, your edit of it in its place (`start::fork_from`).
+fn fork_from(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Edit = c.read()?;
+    let board = engine.board();
+    ensure_fork_not_blocked(&board, c.session()?, c.from)?;
+    to_value(crate::start::fork_from(&board, &cfg()?, c.session()?, p.cursor, &p.prompt).map_err(words)?)
 }
 
 /// Forks it into a new terminal in its folder (`start::fork`).

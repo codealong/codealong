@@ -175,6 +175,18 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   without a prompt it prints `(idle — send a prompt to start)` and has no transcript until its
   first prompt, so the board shows it with the conversation it copies
   (`claude::registry::resumed_from`).
+- A copy that goes only as far as a point in the conversation (Edit from here):
+  `--resume-session-at <uuid>` (and `--resume-drops-turn`) is for print mode only, and ignored
+  elsewhere, `--bg` too (2.1.305's help), so the Agent SDK's `forkSession(id, {dir,
+  upToMessageId})` writes the copy, through claude-agent-acp: `claude/mod.rs` (`fork_from`),
+  `claude/conversation.rs` (`reply_before`), `acp.rs` (`fork_point`). It copies the chain through
+  that line with new uuids, each line marked `forkedFrom: {sessionId, messageUuid}`, titles it
+  "<title> (fork)", leaves the file-history snapshots behind, and finds the transcript by the
+  project of `dir`. In place, the stream-json `control_request` `rewind_conversation`
+  (`target_message_uuid`, `interrupt_if_running`…) rewinds a session, but only its process's stdin
+  and Remote Control take it, not the daemon's socket; `--rewind-files <user message id>` (with
+  `--resume`, no prompt) puts the files back as they were at a message. Checked on a Haiku
+  session, 2026-10-20: the copy answered from the turn before the cut, not the one after.
 - A turn refused at a usage limit is an `assistant` line with `isApiErrorMessage`, `error:
   "rate_limit"`, `apiErrorStatus: 429` and `quotaLimits`: `claude/transcript.rs` (`limit_of`).
   Its `message.model` is `"<synthetic>"`, its `quotaLimits` also says `status: "rejected"` and

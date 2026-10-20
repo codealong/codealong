@@ -40,6 +40,10 @@ export const MOVES_ACCOUNTS: readonly Harness[] = ['claude'];
  *  card's box (harness.rs `fresh_side`): Claude Code, headless, and Codex, on an app-server. */
 export const FRESH_SIDES: readonly Harness[] = ['claude', 'codex'];
 
+/** The harnesses whose sessions fork from before a prompt, your edit of it in its place (harness.rs
+ *  `fork_from`): Claude Code and Codex through the copy Codealong runs, OpenCode in its service. */
+export const EDITS: readonly Harness[] = ['claude', 'codex', 'opencode'];
+
 /** The harnesses whose sessions move to another folder as themselves (harness.rs
  *  `move_folder`): Claude Code, which goes on with a session wherever `--resume` runs. */
 export const MOVES_FOLDERS: readonly Harness[] = ['claude'];

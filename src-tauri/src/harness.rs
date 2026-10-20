@@ -294,6 +294,17 @@ pub trait Adapter: Sync {
         bail!("{} can't fork a session in the background.", self.harness().word())
     }
 
+    /// What Edit from here does: a copy of the session's conversation up to just before your
+    /// prompt at `cursor` (its item's `cursor` in `conversation`), going on with no window coming
+    /// forward in `cwd` on `prompt`, your edit of that prompt. The session itself is left as it
+    /// is, and so are the files: only the conversation goes back. Returns the copy's key, when the
+    /// harness has said it. A prompt with nothing of the agent's before it can't be gone back to
+    /// this way: the copy would have nothing in it. `src/harness.ts` `EDITS` lists the harnesses
+    /// that have one.
+    fn fork_from(&self, _ctx: &Ctx, _session: &Session, _cwd: &Path, _cursor: u64, _prompt: &str) -> Result<Option<String>> {
+        bail!("{} can't fork a session from an earlier message.", self.harness().word())
+    }
+
     /// Where its sessions' requests go, as `host:port`: a session whose turn a lost connection
     /// ended (`Session::connection_lost`) is told to carry on once this can be reached
     /// (reconnect.rs). None where its sessions are never marked so.
@@ -949,6 +960,11 @@ pub fn session_name(raw: &str) -> Result<String> {
         bail!("A session's name can't be empty.");
     }
     Ok(name.to_string())
+}
+
+/// Why a prompt with nothing of the agent's before it can't be forked from (`Adapter::fork_from`).
+pub fn nothing_before(h: Harness) -> anyhow::Error {
+    anyhow::anyhow!("Nothing of {}'s comes before that message, so a copy from there would be empty. Start a new session with your edit instead.", h.word())
 }
 
 /// Whether a session is in the middle of a turn that a Stop would end: working, or stuck mid-turn.

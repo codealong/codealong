@@ -31,8 +31,9 @@ import { seenable } from '../lanes';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
 import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
-import type { Sent, Session } from '../types';
+import type { Sent, Session, TranscriptItem } from '../types';
 import { cardZoom } from '../zoom';
+import { EditDialog } from './EditFrom';
 import { MoveDialog } from './MoveAccount';
 import { Button, cx, Icon, OneLine, Rich } from './primitives';
 import { runFolder } from './RunButton';
@@ -248,6 +249,10 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
   const moves = header.actions?.moveAccounts;
   const [moving, setMoving] = useState<{ key: string; to: string | null } | null>(null);
   const ask = (to: string | null) => setMoving({ key, to });
+  // Edit from here asks for your edit first (EditFrom.tsx), where the session's Mac takes requests
+  // from here, as its box does, and only for the session it was asked for.
+  const edit = replies ? header.actions?.edit : undefined;
+  const [editing, setEditing] = useState<{ key: string; prompt: TranscriptItem } | null>(null);
   const body = (
     <>
           <QueueStrip queue={queue} notice={notice} hotkeys={hotkeys} session={s} actions={header.actions} onSeen={header.onSeen} />
@@ -263,6 +268,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
             onMenu={onThreadMenu}
             find={find}
             tips={variant === 'panel'}
+            onEdit={edit && ((prompt) => setEditing({ key, prompt }))}
             fallback={
               s.excerpt ? (
                 <p className="ca-sessinsp-now">
@@ -283,6 +289,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
             <Reply session={s} terminal={terminal} runIn={folder ?? undefined} onOpen={openIt} autoFocus={autoFocus && !renaming} keys={keys} onSending={onSending} onSent={onSent} onFailed={onFailed} onAnswered={onAnswered} onNext={goesOn ? onDone : undefined} sayKeys={!!hotkeys} moves={moves} onMove={ask} />
           )}
           {moves && moving?.key === key && <MoveDialog session={s} moves={moves} to={moving.to} terminal={terminal} onClose={() => setMoving(null)} />}
+          {edit && editing?.key === key && <EditDialog session={s} prompt={editing.prompt} onEdit={edit} onClose={() => setEditing(null)} />}
           {dialog}
     </>
   );

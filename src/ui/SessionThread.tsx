@@ -141,6 +141,19 @@ export function heads(last: Speaker, kind: 'you' | 'agent' | 'codealong' | 'peer
   return kind !== last.kind || (at > 0 && last.at > 0 && at - last.at >= PAUSE);
 }
 
+/** Your prompts Edit from here can go back to (`SessionThreadProps.onEdit`), by key: ones you
+ *  wrote, not commands you ran nor prompts the session took back, with something of the agent's
+ *  before them, which there may be above a page that doesn't begin at the session's start. */
+export function editablePrompts(items: TranscriptItem[], fromStart: boolean): Set<string> {
+  const out = new Set<string>();
+  let answered = !fromStart;
+  for (const it of items) {
+    if (it.kind === 'agent' || it.kind === 'tool') answered = true;
+    else if (it.kind === 'you' && answered && !it.withdrawn && it.input == null && it.text.trim()) out.add(keyOf(it));
+  }
+  return out;
+}
+
 /** The messages that show who said them and when, and who spoke last, for one streaming in after
  *  them. A note between two messages (a message held for you to allow, the conversation
  *  compacted) starts afresh, and a prompt the session took back always heads itself, to say so,
@@ -291,8 +304,9 @@ function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; re
  *  them. A command you ran in the session's shell with `!` shows as the command, which can run
  *  again, and what it printed (`result`). A right-click gives `onMenu` Copy for what you'd
  *  selected and Copy message for the message as it was written, markdown and all, which marks
- *  the message for a moment once it's copied. A command has its own Copy. */
-function Said({ item, result, now, label, head, onPutBack, onMenu }: { item: TranscriptItem; result?: TranscriptItem; now: number; label: ReactNode; head: boolean; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void }) {
+ *  the message for a moment once it's copied, and for a prompt of yours that can be gone back to,
+ *  Edit from here… (`onEdit`). A command has its own Copy. */
+function Said({ item, result, now, label, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; now: number; label: ReactNode; head: boolean; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
   const ran = item.kind === 'you' && item.input != null;
   // Copying it went wrong: said under it for a moment, where it was asked for.
   const [unCopied, setUnCopied] = useState(false);
@@ -313,6 +327,7 @@ function Said({ item, result, now, label, head, onPutBack, onMenu }: { item: Tra
     const items: MenuSpec = [];
     if (selected) items.push({ label: 'Copy', accelerator: 'Cmd+C', run: () => copy(selected, false) });
     if (item.text.trim() && !ran) items.push({ label: 'Copy message', run: () => copy(item.text, true) });
+    if (onEdit) items.push('separator', { label: 'Edit from here…', run: onEdit });
     if (items.length === 0) return;
     e.preventDefault();
     onMenu(items);
@@ -486,9 +501,13 @@ interface SessionThreadProps {
   find?: FindAsk | null;
   /** While its agent works, a tip comes on the right of the line that says so now and then (Working.tsx). */
   tips?: boolean;
+  /** Edit from here… on a prompt of yours (EditFrom.tsx), where the session's harness can fork
+   *  from before one. Only a prompt with something of the agent's before it has it: a copy from
+   *  before the first would have nothing in it. */
+  onEdit?: (prompt: TranscriptItem) => void;
 }
 
-export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run, onMenu, find, tips = false }: SessionThreadProps) {
+export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run, onMenu, find, tips = false, onEdit }: SessionThreadProps) {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [before, setBefore] = useState<number | null>(null);
   // `before` as soon as it's set, for laying out pages that must begin where the last ones did.
@@ -826,6 +845,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
 
   const rows = useMemo(() => rowsOf(items), [items]);
   const headings = useMemo(() => headingsOf(items), [items]);
+  const editable = useMemo(() => editablePrompts(items, before == null), [items, before]);
   // Your messages to it still on their way, less the ones its record has now.
   const ahead = useAhead();
   const sends = useMemo(() => ahead.filter((a) => a.change.kind === 'send' && a.change.key === s.key), [ahead, s.key]);
@@ -937,7 +957,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                 const again = it.withdrawn && answeredBelow ? () => putBack(s.key, keyOf(it), it.text, true) : undefined;
                 // What Codealong or another session sent says so, apart from yours and the agent's.
                 const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? peerLabel(it) : s.account;
-                return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={label} head={headings.headed.has(keyOf(it))} onPutBack={again} onMenu={onMenu} />;
+                const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
+                return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={label} head={headings.headed.has(keyOf(it))} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
               {showing.map((a) => (
                 <Unsaid key={a.id} ahead={a} onOpen={onOpen} />

@@ -16,7 +16,8 @@ on 2026-09-27. Paths are under `src-tauri/src/`.
   `sessionCapabilities.fork`, `session/set_config_option`, the `session/update`s it reads and
   `session/request_permission` with its answers: `acp.rs` (header, `Agent::initialize`,
   `start`, `adopt`, `fork`, `load`, `run_turn`, `cancel`, `on_update`, `on_permission`, `answer`). Other
-  updates it passes over include `usage_update` and `session_info_update`.
+  updates it passes over include `usage_update` and `session_info_update`. ACP has no word for
+  where a fork ends; both adapters take JetBrains AIR's `_meta` for it (`acp.rs` `fork_point`).
 - `@agentclientprotocol/claude-agent-acp` 0.81.2 (the Claude Agent SDK and its own `claude`),
   run with the account's folder as `CLAUDE_CONFIG_DIR`, but none for `~/.claude`, whose sign-in
   a named folder's keychain item doesn't hold (`claude/mod.rs` `usual_folder`, `acp_launch`;

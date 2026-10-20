@@ -40,7 +40,8 @@ a change to what's sent shows there. What each harness records and accepts is in
      whose the message is and whether it goes in now (`send::Delivery`); `typed_attachments`,
      `clears_before_typing`, `takes_messages`, and for Send now `steers` and `sends_now_with`
      (the keys typed in place of Return);
-   - acting on it: `fork`, `fork_background`, `moves_accounts` with `move_to` and
+   - acting on it: `fork`, `fork_background`, `fork_from` (a copy from before a prompt of
+     yours, Edit from here), `moves_accounts` with `move_to` and
      `move_to_background` (to another of its accounts), `move_folder` and
      `move_folder_background` (to another folder, as itself), `side` and `fresh_side` (a
      throwaway conversation of a session's, or one of its own about a PR), `stop`,
@@ -95,6 +96,7 @@ a change to what's sent shows there. What each harness records and accepts is in
    is known by its path in repos.rs (`callsign`, `origin`, with an `Origin` of its own in
    codealong-peer); `board::session_headline`'s words for an approval, mirrored in
    `src/lanes.ts`; and the UI's own lists, which the engine doesn't send: names and apps in
-   `src/harness.ts` (and there which can answer questions about a PR, `FRESH_SIDES`), which
+   `src/harness.ts` (and there which can answer questions about a PR, `FRESH_SIDES`, and which
+   fork from before a prompt, `EDITS`), which
    sessions take `/fork` and `/side` in `src/slash.ts`, a new account's defaults and help in
    `src/ui/AccountsSection.tsx`, the reply box's words in `src/ui/SessionReply.tsx`.

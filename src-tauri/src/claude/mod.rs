@@ -415,6 +415,20 @@ impl crate::harness::Adapter for ClaudeCode {
         Ok(id.map(|id| Session::key_for(Harness::Claude, &ctx.account.name, &id)))
     }
 
+    /// Codealong runs the copy (claude-agent-acp), whose SDK writes it without running a turn,
+    /// cut at the agent's last message before your prompt (`conversation::reply_before`). A
+    /// background job can't cut one: `--resume-session-at` is for print mode only (2.1.305's
+    /// help). The copy goes on in the folder its transcript was started in, which is where the
+    /// SDK looks for the transcript, as `--resume` does. What's copied is the transcript the
+    /// conversation was read from, which for a copy not yet written is the one it continues.
+    fn fork_from(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, cursor: u64, prompt: &str) -> anyhow::Result<Option<String>> {
+        let path = record(self, ctx, s)?;
+        let through = conversation::reply_before(&path, cursor)?.ok_or_else(|| crate::harness::nothing_before(Harness::Claude))?;
+        let cwd = transcript_cwd(&path).map(PathBuf::from).filter(|p| p.is_dir()).unwrap_or_else(|| cwd.to_path_buf());
+        let id = path.file_stem().and_then(|n| n.to_str()).unwrap_or(&s.id);
+        crate::acp::fork(ctx.account, id, &cwd, prompt, Some(&through)).map(Some)
+    }
+
     /// `--resume` takes a transcript's path as well as a session's ID (2.1.287), from any
     /// account's folder, and the copy is written under the account that runs it. Another org's
     /// account goes on with it, signed thinking blocks and all (checked 2026-10-02: a Sonnet

@@ -1,0 +1,13 @@
+/* Edit from here (EditFrom.tsx): the dialog with your message to rewrite. */
+
+.ca-dialog.ca-editdlg {
+  width: min(560px, 100%);
+}
+.ca-editdlg-text {
+  margin: 0 var(--space-5) var(--space-4);
+}
+/* A message is prose, written as the reply box writes it, not code. */
+.ca-editdlg-text textarea {
+  max-height: 50vh;
+  font: var(--type-reading);
+}

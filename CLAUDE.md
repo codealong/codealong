@@ -101,9 +101,9 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   <account>` (turns training off at its provider, as the usage bar's flag does),
   `--snapshot --done <key> [--stop]` (ends it as Mark as done does, without archiving),
   `--snapshot --remove-worktree <folder> [--dry-run]` (only where nothing would be lost),
-  `--snapshot --fork <key> [prompt]` (a copy to remove after), `--snapshot --move <key>
-  <account | worktree folder>`, `--snapshot --resume <key> <place> [prompt] [--model <model>]`
-  (one that isn't running), `--snapshot --switch-model <key> <model>` and
+  `--snapshot --fork <key> [prompt] [--from <cursor>]` (a copy to remove after),
+  `--snapshot --move <key> <account | worktree folder>`, `--snapshot --resume <key> <place>
+  [prompt] [--model <model>]` (one that isn't running), `--snapshot --switch-model <key> <model>` and
   `--snapshot --switch-effort <key> <level>` (one that is, or a Codex app thread),
   `--snapshot --side <key> <question> [follow-ups]` and `--snapshot --pr-side <owner/name>
   <number> <account> <question> [follow-ups]` (spend usage).

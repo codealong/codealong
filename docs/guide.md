@@ -194,6 +194,22 @@ coming forward, and you stay on the session: a Claude Code copy is a background 
 copy runs in its service, and a Codex copy runs In Codealong (over its ACP adapter). Whatever
 follows `/fork` is the copy's first prompt; with nothing, the copy waits for one.
 
+#### Edit from here
+
+To change something you said to a Claude Code, Codex or OpenCode session, right-click your message
+in its conversation and pick Edit from here…. A dialog holds the message as you wrote it; edit it
+and Fork and send (⌘⏎). A copy of the session goes on from just before that message, with your
+edit in its place and nothing that came after it, while the session itself stays as it was. Only
+the conversation goes back: files the agent changed since stay changed. Where the window was
+showing the session, it shows the copy once it's listed. A Claude Code or Codex copy runs In
+Codealong (over the account's ACP adapter, which `codealong install` adds); an OpenCode copy runs
+in its service, so OpenCode must be running. The session's first message has no Edit from here,
+since a copy from before it would have nothing in it: start a new session instead. A Codex copy
+goes back to the start of the turn your message was in, so a message sent into a running turn
+takes the turn's earlier messages with it. `codealong session fork <session> <message> --from
+<cursor>` does the same, the cursor being the message's as `codealong session transcript` prints
+it.
+
 #### Move to another account
 
 Move to, in a Claude Code session's right-click menu, moves it to another of your Claude Code

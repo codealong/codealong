@@ -17,7 +17,7 @@ import { shortOf } from './devices';
 import { dueChoices } from './due';
 import { count } from './format';
 import { folderMenu, openInMenu, opensInEditor, terminalTarget, type AppIcons, type Apps } from './editors';
-import { HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
+import { EDITS, HARNESS_WORD, MOVES_ACCOUNTS, MOVES_FOLDERS, renames } from './harness';
 import { chromeLabel, openLabel } from './open';
 import { closable, exitsItsOwnWay, seenable, stoppable, unreadable } from './lanes';
 import { chordPressed, QUEUE_CHORDS, type Key } from './queue';
@@ -164,7 +164,8 @@ export interface SessionCan {
   /** It's moving, and `copy` gives the key of the session that goes on in its place (start.rs
    *  `move_to`), or null when there's none: it moved as itself, or the move failed. The window
    *  keeps it in view meanwhile and then shows the copy (the main window's Sessions). Without
-   *  this, a session that leaves a copy has left the list, as an archived one has. */
+   *  this, a session that leaves a copy has left the list, as an archived one has. Edit from here
+   *  says the same of its copy, which goes on with your edit while the session stays. */
   moving?: (copy: Promise<string | null>) => void;
   /** Add to board, and Remove from board on the board it's on, where the window has boards. */
   boards?: MenuSpec;
@@ -213,6 +214,10 @@ export interface SessionActions {
   reply?: MenuAction;
   newSession?: MenuAction;
   fork?: MenuAction;
+  /** Edit from here: a copy goes on from just before your prompt at `cursor`, `prompt` (your
+   *  edit) in its place (start.rs `fork_from`); the session stays as it was. A prompt's own menu
+   *  offers it (SessionThread.tsx), and its dialog asks for the edit (EditFrom.tsx). */
+  edit?: (cursor: number, prompt: string) => void;
   move?: MenuAction | MenuGroup;
   /** To another worktree on this Mac, or a chat of its own, as itself. */
   moveFolder?: MenuGroup;
@@ -279,6 +284,15 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
         if (started?.message) report.info(started.message);
       })
       .catch((e: unknown) => report.error(errorText(e)));
+  // A window that follows the session shows the copy once it's listed, as it does a moved one's.
+  const edit = (cursor: number, prompt: string) => {
+    const copy = busy(`Forking ${s.title}…`, forkSession(s.key, { prompt, from: cursor })).then((started) => {
+      if (started?.message) report.info(started.message);
+      return started?.key ?? null;
+    });
+    can.moving?.(copy.catch(() => null));
+    copy.catch((e: unknown) => report.error(errorText(e)));
+  };
   // A session that moves out is archived, and the copy that goes on in its place is what a window
   // that follows it shows (`moving`); elsewhere, or with no copy, it has left the list. `leaves`
   // says whether it goes even when the move names no copy. Moving, it offers no other move
@@ -369,6 +383,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     newSession: newSessionItem(lane, can.newSession),
     // Forks open in a terminal, where only sessions that resume in one can go.
     fork: s.resumeCommand ? { label: 'Fork in terminal', run: () => void fork() } : undefined,
+    edit: EDITS.includes(s.harness) ? edit : undefined,
     move:
       moveTo.length > 1
         ? { label: `Move${goesOn} to`, items: moveTo.map((to) => moveItem(to, to === suggested ? `${to} (has room)` : to)) }

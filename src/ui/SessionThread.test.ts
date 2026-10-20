@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../types';
-import { headingsOf, peerLabel, rowsOf } from './SessionThread';
+import { editablePrompts, headingsOf, peerLabel, rowsOf } from './SessionThread';
 
 let at = 0;
 const step = (kind: TranscriptItem['kind'], more: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: 0, kind, text: kind, failed: false, cursor: ++at, n: 0, ...more });
@@ -76,5 +76,18 @@ describe('headingsOf', () => {
   it('says who spoke last, for a message streaming in', () => {
     expect(headingsOf([step('you', { at: MIN }), step('agent', { at: 2 * MIN }), call('a', undefined)]).last).toEqual({ kind: 'agent', at: 2 * MIN });
     expect(headingsOf([]).last).toEqual({ kind: null, at: 0 });
+  });
+});
+
+describe('editablePrompts', () => {
+  const offered = (items: TranscriptItem[], fromStart: boolean) => items.map((it) => editablePrompts(items, fromStart).has(`${it.cursor}:${it.n}`));
+
+  it('offers Edit from here on your prompts with something of the agent’s before them', () => {
+    const items = [step('you'), step('agent'), step('you'), call('a'), step('you', { withdrawn: true }), step('you', { input: 'ls', text: '! ls' }), step('you', { text: ' ' }), step('peer'), step('you')];
+    expect(offered(items, true)).toEqual([false, false, true, false, false, false, false, false, true]);
+  });
+
+  it('on the first prompt of a page too, when the page isn’t the session’s start', () => {
+    expect(offered([step('you'), step('agent')], false)).toEqual([true, false]);
   });
 });

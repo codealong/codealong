@@ -508,6 +508,39 @@ pub(super) fn is_turn_event(v: &Value) -> bool {
     matches!(kind, Some("task_started" | "task_complete" | "turn_aborted"))
 }
 
+/// The id of a message in the turn before the one your prompt at `cursor` is in: what a copy
+/// that leaves that prompt out goes through, since codex-acp forks through the whole turn that
+/// holds the item it's named (acp.rs `fork_point`). The ids are those `thread/read` gives its
+/// items, which a rollout has in its `item_completed` lines. None when no turn comes before; an
+/// error when one does but the rollout names none of its items, as an older Codex's doesn't.
+pub(super) fn item_before_turn(rollout: &Path, cursor: u64) -> anyhow::Result<Option<String>> {
+    // Read back from the prompt: first to its own turn's start, then to an item of an earlier turn.
+    let mut in_turn = false;
+    let mut earlier_turn = false;
+    let mut item = None;
+    scan_lines_back(rollout, 0, cursor, |line| {
+        if !line.contains("\"task_started\"") && !(in_turn && line.contains("\"item_completed\"")) {
+            return false;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+        let Some(p) = event_payload(&v) else { return false };
+        match p.get("type").and_then(Value::as_str) {
+            Some("task_started") if !in_turn => in_turn = true,
+            Some("task_started") => earlier_turn = true,
+            Some("item_completed") if in_turn => {
+                let said = matches!(p.pointer("/item/type").and_then(Value::as_str), Some("AgentMessage" | "UserMessage"));
+                item = p.pointer("/item/id").and_then(Value::as_str).filter(|id| said && !id.is_empty()).map(String::from);
+            }
+            _ => {}
+        }
+        item.is_some()
+    });
+    if item.is_none() && earlier_turn {
+        anyhow::bail!("This thread's record doesn't name its messages as Codex now does, so Codealong can't go back to one.");
+    }
+    Ok(item)
+}
+
 /// The request in a prompt you sent: a `user_message` event, or a completed `UserMessage` item,
 /// which is how newer Codex versions record it.
 fn prompt_of(payload: &Value) -> Option<String> {
@@ -1103,6 +1136,42 @@ mod tests {
         apply_events(&mut info, &format!("{PROMPT_ITEM}\n"));
         assert_eq!(info.last_user_message.as_deref(), Some("Find the forwarded Spur issue and diagnose it"));
         assert_eq!(info.last_prompt_at, parse_rfc3339_ms("2026-09-24T18:04:01.042Z"));
+    }
+
+    /// Edit from here copies a thread through the turn before your prompt's, named by an item of
+    /// it, so a prompt sent into a running turn goes back to that turn's start too.
+    #[test]
+    fn a_fork_from_your_prompt_goes_through_the_turn_before() {
+        let event = |payload: Value| serde_json::json!({ "timestamp": "2026-10-20T21:13:31.036Z", "type": "event_msg", "payload": payload }).to_string();
+        let started = |turn: &str| event(serde_json::json!({ "type": "task_started", "turn_id": turn }));
+        let item = |turn: &str, kind: &str, id: &str| event(serde_json::json!({ "type": "item_completed", "turn_id": turn, "item": { "type": kind, "id": id } }));
+        let prompt = |text: &str| event(serde_json::json!({ "type": "user_message", "message": text }));
+        let lines = [
+            started("t1"),
+            prompt("Fix the parser"),
+            item("t1", "UserMessage", "u1"),
+            item("t1", "AgentMessage", "msg_a1"),
+            item("t1", "Reasoning", "rs_1"),
+            event(serde_json::json!({ "type": "task_complete" })),
+            started("t2"),
+            prompt("Now test it"),
+            item("t2", "AgentMessage", "msg_a2"),
+            prompt("And the docs"),
+        ];
+        let dir = crate::fixtures::scratch("codex-fork-from");
+        let path = dir.join("rollout.jsonl");
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let at = |n: usize| lines[..n].iter().map(|l| l.len() as u64 + 1).sum::<u64>();
+        assert_eq!(item_before_turn(&path, at(7)).unwrap().as_deref(), Some("msg_a1"));
+        // Sent into the running turn: back to its start, through the turn before.
+        assert_eq!(item_before_turn(&path, at(9)).unwrap().as_deref(), Some("msg_a1"));
+        assert_eq!(item_before_turn(&path, at(1)).unwrap(), None);
+        // An older Codex wrote no items: there was a turn before, but nothing names it.
+        let old = [started("t1"), prompt("Fix the parser"), started("t2"), prompt("Now test it")];
+        std::fs::write(&path, old.join("\n") + "\n").unwrap();
+        let at = |n: usize| old[..n].iter().map(|l| l.len() as u64 + 1).sum::<u64>();
+        assert!(item_before_turn(&path, at(3)).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

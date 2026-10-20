@@ -1242,8 +1242,11 @@ Commands:
               box in Codealong does: a Claude Code background job, an OpenCode session,
               or a Codex thread Codealong runs (that one needs the app running). The
               session carries on unaware. Given a prompt, the copy starts on it; without
-              one it waits for its first message. Prints the copy's key when its harness
-              says it at once
+              one it waits for its first message. With --from, the copy goes only up to
+              just before a prompt of the session's and starts on PROMPT in its place,
+              as Edit from here on a message in Codealong does (Claude Code and Codex
+              copies then run in Codealong, which needs the app). Prints the copy's key
+              when its harness says it at once
   help        Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1765,8 +1768,11 @@ Options:
 Fork a session into a copy that goes on in the background, as /fork in its box in
 Codealong does: a Claude Code background job, an OpenCode session, or a Codex thread
 Codealong runs (that one needs the app running). The session carries on unaware. Given a
-prompt, the copy starts on it; without one it waits for its first message. Prints the
-copy's key when its harness says it at once
+prompt, the copy starts on it; without one it waits for its first message. With --from,
+the copy goes only up to just before a prompt of the session's and starts on PROMPT in
+its place, as Edit from here on a message in Codealong does (Claude Code and Codex
+copies then run in Codealong, which needs the app). Prints the copy's key when its
+harness says it at once
 
 Usage: codealong session fork [OPTIONS] <KEY> [PROMPT]
 
@@ -1778,6 +1784,11 @@ Arguments:
           What the copy starts on
 
 Options:
+      --from <CURSOR>
+          A prompt's `cursor`, as `session transcript` prints it: the copy leaves out
+          that prompt and all after it, and PROMPT goes in its place. Only the
+          conversation goes back: files stay as they are
+
       --json
           JSON output. The default when stdout isn't a terminal
 

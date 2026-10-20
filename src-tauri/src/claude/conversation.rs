@@ -12,7 +12,7 @@ use super::peer::{FROM_CODEALONG, FROM_YOU};
 use super::registry::session_entry;
 use super::transcript::{prompt_words, tool_request, typed_text, you_typed, SEND_FILE};
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item};
-use crate::util::{one_line, parse_rfc3339_ms, read_range};
+use crate::util::{one_line, parse_rfc3339_ms, read_line_at, read_range, scan_lines_back};
 
 /// One transcript line as conversation items (transcript.rs): a prompt you typed, the agent's
 /// text and tool calls, a tool's result by the call's id, and notes.
@@ -326,6 +326,47 @@ pub(super) fn idle_since(home: &Path, s: &crate::model::Session) -> Option<i64> 
     reg.status_updated_at
 }
 
+/* ---- Where a fork from before a prompt ends ---- */
+
+/// The longest prompt line read: one with pasted images runs to megabytes.
+const PROMPT_LINE_MAX: u64 = 64 * 1024 * 1024;
+
+/// The agent's last message before your prompt at `cursor`: what a copy that leaves the prompt
+/// out goes through (`Adapter::fork_from`). It's found up the prompt's own chain of
+/// `parentUuid`s, since a rewind leaves another branch in the file, and named by its API id
+/// (`message.id`, its line's `uuid` where it has none), which is how claude-agent-acp names the
+/// message a fork ends at (acp.rs `fork_point`). None when the chain starts without one: the
+/// session's first prompt, or the first since a compaction, which starts the chain again.
+pub fn reply_before(path: &Path, cursor: u64) -> anyhow::Result<Option<String>> {
+    let line = read_line_at(path, cursor, PROMPT_LINE_MAX).ok_or_else(|| anyhow::anyhow!("Codealong couldn't read that message in the session's transcript."))?;
+    let prompt: Value = serde_json::from_str(&line)?;
+    let parent = |v: &Value| v.get("parentUuid").and_then(Value::as_str).map(String::from);
+    let Some(mut looking_for) = parent(&prompt) else { return Ok(None) };
+    let mut found = None;
+    // A line's parent was written before it, so the chain is read back from the prompt.
+    scan_lines_back(path, 0, cursor, |line| {
+        if !line.contains(looking_for.as_str()) {
+            return false;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+        if v.get("uuid").and_then(Value::as_str) != Some(looking_for.as_str()) {
+            return false;
+        }
+        if v.get("type").and_then(Value::as_str) == Some("assistant") {
+            found = v.pointer("/message/id").and_then(Value::as_str).or(Some(looking_for.as_str())).map(String::from);
+            return true;
+        }
+        match parent(&v) {
+            Some(p) => {
+                looking_for = p;
+                false
+            }
+            None => true,
+        }
+    });
+    Ok(found)
+}
+
 /// Marks the prompts among `items` that Claude Code took back. Only a prompt with nothing from
 /// the agent after it can have been, so the others aren't read again.
 pub(super) fn mark_taken_back(path: &Path, items: &mut [Item], idle_since: Option<i64>) {
@@ -503,6 +544,43 @@ mod tests {
 
     fn fate(lines: &[String]) -> Option<Fate> {
         fate_of(lines.iter().map(String::as_str)).map(|(f, _)| f)
+    }
+
+    /// A reply's part, with the API id its message's parts share.
+    fn part(uuid: &str, parent: &str, message: &str) -> String {
+        chained("assistant", uuid, Some(parent), "2026-09-30T00:16:10.000Z", serde_json::json!({ "message": { "id": message, "role": "assistant", "content": [{ "type": "text", "text": "Done." }] } }))
+    }
+
+    /// Edit from here copies a transcript through the agent's last message before your prompt,
+    /// up the prompt's own chain: a rewind leaves the branch it went back from in the file.
+    #[test]
+    fn a_fork_from_your_prompt_goes_through_the_reply_before_it_on_its_chain() {
+        let lines = [
+            prompt("p1", None, "Fix the parser"),
+            part("a1", "p1", "msg_1"),
+            part("a2", "a1", "msg_1"),
+            prompt("p2", Some("a2"), "Now test it"),
+            attachment("x1", "p2"),
+            part("a3", "x1", "msg_2"),
+            // Rewound to before "Now test it", and asked again.
+            prompt("p3", Some("a2"), "Now lint it"),
+            attachment("x2", "p3"),
+            prompt("p4", Some("x2"), "And the docs"),
+            chained("system", "c1", None, "2026-09-30T00:17:00.000Z", serde_json::json!({ "subtype": "compact_boundary" })),
+            prompt("p5", Some("c1"), "Go on"),
+        ];
+        let dir = crate::fixtures::scratch("claude-fork-from");
+        let path = dir.join("s1.jsonl");
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let at = |n: usize| lines[..n].iter().map(|l| l.len() as u64 + 1).sum::<u64>();
+        assert_eq!(reply_before(&path, at(3)).unwrap().as_deref(), Some("msg_1"));
+        assert_eq!(reply_before(&path, at(6)).unwrap().as_deref(), Some("msg_1"), "not msg_2, on the branch rewound from");
+        // Two prompts with no reply between them go back to the same reply.
+        assert_eq!(reply_before(&path, at(8)).unwrap().as_deref(), Some("msg_1"));
+        assert_eq!(reply_before(&path, at(0)).unwrap(), None);
+        // A compaction starts the chain again.
+        assert_eq!(reply_before(&path, at(10)).unwrap(), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

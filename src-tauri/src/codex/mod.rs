@@ -188,7 +188,15 @@ impl crate::harness::Adapter for Codex {
     /// Codex has no background of its own: Codealong runs the copy over the account's ACP
     /// adapter, which forks the thread through its app-server (`acp::fork`).
     fn fork_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
-        crate::acp::fork(ctx.account, &s.id, cwd, prompt).map(Some)
+        crate::acp::fork(ctx.account, &s.id, cwd, prompt, None).map(Some)
+    }
+
+    /// The copy goes through the turn before your prompt's, so through the last of its items the
+    /// rollout recorded (`rollout::item_before_turn`), and Codealong runs it as it runs a
+    /// background fork. A prompt sent into a turn already running goes back to that turn's start.
+    fn fork_from(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, cwd: &Path, cursor: u64, prompt: &str) -> anyhow::Result<Option<String>> {
+        let through = rollout::item_before_turn(&record(self, ctx, s)?, cursor)?.ok_or_else(|| crate::harness::nothing_before(Harness::Codex))?;
+        crate::acp::fork(ctx.account, &s.id, cwd, prompt, Some(&through)).map(Some)
     }
 
     /// An ephemeral fork of the thread on an app-server of Codealong's own, as Codex's `/side`

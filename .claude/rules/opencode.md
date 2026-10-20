@@ -46,7 +46,10 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   neither): `opencode.rs` (`read_sessions_from`).
 - Forking through the service, the copy's answer and the refusal of an empty session:
   `opencode.rs` (`OpenCode::fork`, `forked_id`, `opens_the_fork_its_service_made`). `{before:
-  <message id>}` copies only what came before that message. The command line can't fork.
+  <message id>}` copies only what came before that message (Edit from here: `fork_from`,
+  `message_before`). The command line can't fork. `POST /api/session/<id>/revert` (with
+  `/revert/stage` and `/revert/commit`) takes a session back to a message in place, its files too
+  from OpenCode's snapshots (its `Session.Revert` schema; not tried).
 - Permission requests: `GET /api/session/<id>/permission` lists them (`id` `per_…`, `action`
   such as `shell`, `resources` such as the command, `source.id` the tool call), and a reply
   (`opencode.rs`, `permission_request`, `OpenCode::answer`) moves the TUI on as if you'd

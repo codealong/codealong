@@ -244,6 +244,15 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `terminal_args`, `pair_terminals`); `originator`, `codex/rollout.rs` (`parse_meta`); starting,
   resuming and forking, `codex/mod.rs` (`start_in_terminal`, `resume`, `fork`); Return steering
   and Tab queueing, `codex/mod.rs` (`steers`); the `@` list in its box, `send.rs` (`boxed`).
+- Going back to a point in a thread (0.162.1's schema, `codex app-server generate-json-schema`):
+  `thread/fork` takes `lastTurnId`, the copy going through that turn (not one in progress), and
+  `beforeTurnId`, which the published schema leaves out; `thread/revert {threadId,
+  beforeTurnId}` cuts a paginated thread's own history there, sends `thread/reverted`, and leaves
+  the files as they are. The TUI's Esc Esc edits a previous message itself. Edit from here forks
+  through codex-acp, which copies through the turn holding an item it's named (acp.rs
+  `fork_point`), by the ids the rollout's `item_completed` lines give them: `codex/rollout.rs`
+  (`item_before_turn`), `codex/mod.rs` (`fork_from`). Checked on a two-turn `exec` thread,
+  2026-10-20: the copy answered from the turn before the cut.
 - Links that fill a prompt in (`codex://threads/new?path=<folder>&prompt=<text>`,
   `codex://threads/<uuid>?prompt=`) and the projects a new folder is added to: `codex/mod.rs`
   (`app_link`, `start_in_app`), `codex/ipc.rs` (`InApp`), `codex/rollout.rs`

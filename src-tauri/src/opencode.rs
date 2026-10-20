@@ -1201,18 +1201,25 @@ impl crate::harness::Adapter for OpenCode {
     /// Its command line can't fork, but its service can: the copy is a session of its own
     /// (no parent), named "<title> (fork #1)", which the terminal UI then opens.
     fn fork(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<crate::harness::Typed> {
-        let (_, id) = fork_in_service(ctx.account, s)?;
+        let (_, id) = fork_in_service(ctx.account, s, None)?;
         Ok(fork_into(ctx.account, &id))
     }
 
     /// The service makes the copy and runs it, as it runs every session: the prompt goes to it
     /// as a message sent to a session does, and a terminal can open it later.
     fn fork_background(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, _cwd: &Path, prompt: &str) -> anyhow::Result<Option<String>> {
-        let (svc, id) = fork_in_service(ctx.account, s)?;
-        if !prompt.trim().is_empty() {
-            let body = prompt_body(prompt.trim(), false);
-            post(&svc, &format!("/api/session/{}/prompt", urlencoding::encode(&id)), &body).map_err(|e| anyhow::anyhow!("OpenCode forked {} but didn't take the prompt: {e}", s.title))?;
-        }
+        let (svc, id) = fork_in_service(ctx.account, s, None)?;
+        prompt_fork(&svc, s, &id, prompt)?;
+        Ok(Some(Session::key_for(Harness::Opencode, &ctx.account.name, &id)))
+    }
+
+    /// The service copies what came before your prompt's message (`fork` with `before`), and the
+    /// copy goes on as a background fork does.
+    fn fork_from(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, _cwd: &Path, cursor: u64, prompt: &str) -> anyhow::Result<Option<String>> {
+        let db = open(&ctx.account.home_path().join("opencode.db")).ok_or_else(|| anyhow::anyhow!("Codealong couldn't read OpenCode's database."))?;
+        let before = message_before(&db, &s.id, cursor)?.ok_or_else(|| crate::harness::nothing_before(Harness::Opencode))?;
+        let (svc, id) = fork_in_service(ctx.account, s, Some(&before))?;
+        prompt_fork(&svc, s, &id, prompt)?;
         Ok(Some(Session::key_for(Harness::Opencode, &ctx.account.name, &id)))
     }
 
@@ -1270,12 +1277,34 @@ fn forked_id(answer: &Value) -> Option<String> {
     answer.get("data")?.get("id")?.as_str().map(String::from)
 }
 
-/// Has the service copy session `s`, and returns the service and the copy's id.
-fn fork_in_service(account: &crate::config::AccountCfg, s: &crate::model::Session) -> anyhow::Result<(Service, String)> {
+/// Has the service copy session `s`, only what came before message `before` when there's one,
+/// and returns the service and the copy's id.
+fn fork_in_service(account: &crate::config::AccountCfg, s: &crate::model::Session, before: Option<&str>) -> anyhow::Result<(Service, String)> {
     let svc = service(&account.home_path()).ok_or_else(|| anyhow::anyhow!("OpenCode's service isn't running, so Codealong can't fork {}. Open OpenCode and try again.", s.title))?;
-    let got = post(&svc, &format!("/api/session/{}/fork", urlencoding::encode(&s.id)), &serde_json::json!({})).map_err(|e| anyhow::anyhow!("OpenCode couldn't fork {}: {e}", s.title))?;
+    let body = before.map_or_else(|| serde_json::json!({}), |m| serde_json::json!({ "before": m }));
+    let got = post(&svc, &format!("/api/session/{}/fork", urlencoding::encode(&s.id)), &body).map_err(|e| anyhow::anyhow!("OpenCode couldn't fork {}: {e}", s.title))?;
     let id = forked_id(&got).ok_or_else(|| anyhow::anyhow!("OpenCode forked {} but didn't say what it called the copy.", s.title))?;
     Ok((svc, id))
+}
+
+/// Sends a fork its first prompt, when there's one, as a message sent to a session goes.
+fn prompt_fork(svc: &Service, s: &crate::model::Session, copy: &str, prompt: &str) -> anyhow::Result<()> {
+    if !prompt.trim().is_empty() {
+        let body = prompt_body(prompt.trim(), false);
+        post(svc, &format!("/api/session/{}/prompt", urlencoding::encode(copy)), &body).map_err(|e| anyhow::anyhow!("OpenCode forked {} but didn't take the prompt: {e}", s.title))?;
+    }
+    Ok(())
+}
+
+/// The id of your message at `seq` (a conversation item's `cursor`), which a fork copies what
+/// came before; None when none of the agent's messages came before it, so the copy would be
+/// empty.
+fn message_before(db: &Connection, session: &str, seq: u64) -> anyhow::Result<Option<String>> {
+    let id: String = db
+        .query_row("SELECT id FROM session_message WHERE session_id = ?1 AND seq = ?2 AND type = 'user'", rusqlite::params![session, seq as i64], |r| r.get(0))
+        .map_err(|_| anyhow::anyhow!("That message isn't one of yours in OpenCode's record of the session."))?;
+    let answered: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM session_message WHERE session_id = ?1 AND seq < ?2 AND type = 'assistant')", rusqlite::params![session, seq as i64], |r| r.get(0)).unwrap_or(false);
+    Ok(answered.then_some(id))
 }
 
 /// Opens the terminal UI on `id`, a fork the service has made.
@@ -1387,6 +1416,21 @@ mod tests {
         old.execute_batch("CREATE TABLE account (id TEXT PRIMARY KEY, email TEXT NOT NULL, url TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);").unwrap();
         assert_eq!(sign_in_note_in(&old, true), None);
         assert_eq!(sign_in_note_in(&old, false).as_deref(), Some("Free models only"));
+    }
+
+    /// Edit from here forks what came before your message, by its id, and only once the agent
+    /// has said something before it: a copy of nothing is a new session.
+    #[test]
+    fn a_fork_from_your_message_copies_what_came_before_it() {
+        let db = db_with(
+            "INSERT INTO session_message VALUES ('msg_1', 'ses_a', 'user', 1, 1, 1, '{\"text\":\"Fix it\"}'), ('msg_2', 'ses_a', 'assistant', 2, 2, 2, '{}'), \
+             ('msg_3', 'ses_a', 'user', 3, 3, 3, '{\"text\":\"Now test it\"}'), ('msg_4', 'ses_b', 'user', 3, 3, 3, '{}');",
+        );
+        assert_eq!(message_before(&db, "ses_a", 3).unwrap().as_deref(), Some("msg_3"));
+        assert_eq!(message_before(&db, "ses_a", 1).unwrap(), None);
+        // Only a message of yours, and in that session.
+        assert!(message_before(&db, "ses_a", 2).is_err());
+        assert!(message_before(&db, "ses_a", 9).is_err());
     }
 
     #[test]

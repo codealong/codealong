@@ -63,6 +63,12 @@ pub const SESSION_WAY: &str = "session-way";
 /// one, answering `Started`. Macs before 2026-09-30 refuse it: their forks open in a terminal,
 /// which needs someone at the Mac.
 pub const SESSION_FORK: &str = "session-fork";
+/// Forks a session (`key`) from before a prompt of yours, your edit of it in its place: a copy of
+/// its conversation up to just before the prompt whose item has `cursor` goes on without a window,
+/// on `prompt`, answering `Started`. The session itself is left as it is. Its own request, not a
+/// field of `session-fork`, which a Mac before 2026-10-20 would take and fork the whole
+/// conversation; such a Mac refuses this as a request it doesn't know.
+pub const SESSION_EDIT: &str = "session-edit";
 /// Goes on with a session that isn't running (`key`) where `resume` says, on `prompt` when
 /// there's one, answering how it went as a send does (`Sent`). A `session-send` to one goes on
 /// in a terminal. Macs before 2026-10-06 refuse it as a request they don't know.
@@ -341,6 +347,17 @@ pub mod params {
         pub prompt: String,
     }
 
+    /// `session-edit`: the copy goes up to just before the prompt whose conversation item has
+    /// `cursor` (`Item::cursor`), and starts on `prompt` in its place.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Edit {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub cursor: u64,
+        pub prompt: String,
+    }
+
     /// Sessions by key: `mark-seen`, `mark-unread`, `session-watch`.
     #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
     #[serde(default)]
@@ -494,7 +511,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 38] = [
+pub const REQUESTS: [(&str, Reach); 39] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -524,6 +541,7 @@ pub const REQUESTS: [(&str, Reach); 38] = [
     (SESSION_CANCEL, Reach::Control),
     (START, Reach::Control),
     (SESSION_FORK, Reach::Control),
+    (SESSION_EDIT, Reach::Control),
     (SESSION_RESUME, Reach::Control),
     (SESSION_MODEL, Reach::Control),
     (SESSION_EFFORT, Reach::Control),
@@ -1138,6 +1156,7 @@ mod tests {
         assert_eq!(v(&params::Archive { key: key(), archived: false }), json!({ "key": "claude:claude:abc", "archived": false }));
         assert_eq!(v(&params::Rename { key: String::new(), name: "Fix it".into() }), json!({ "name": "Fix it" }));
         assert_eq!(v(&params::Fork { key: String::new(), prompt: String::new() }), json!({ "prompt": "" }));
+        assert_eq!(v(&params::Edit { key: key(), cursor: 18342, prompt: "Test it".into() }), json!({ "key": "claude:claude:abc", "cursor": 18342, "prompt": "Test it" }));
         let background = ResumeIn { place: Place::Background, model: Some("opus".into()), effort: None };
         assert_eq!(v(&params::Resume { key: key(), resume: background, prompt: String::new() }), json!({ "key": "claude:claude:abc", "resume": { "place": "background", "model": "opus", "effort": null }, "prompt": "" }));
         assert_eq!(serde_json::from_value::<params::Resume>(json!({ "resume": { "place": "codealong" } })).unwrap().resume, ResumeIn { place: Place::Codealong, model: None, effort: None });
