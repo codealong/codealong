@@ -845,8 +845,11 @@ describe('the Kanban view’s columns', () => {
   it('knows which project a thing on a board is in', () => {
     const here = lane('/r/app', [session('claude:claude:here')]);
     const there = lane('/r/site', [session('claude:claude:there')], { project: 'Atlas' });
-    const has = { homes: sessionHomes([here, there]), laneById: new Map([here, there].map((l) => [l.id, l])), todos: [fx.todo({ id: 't', project: 'Atlas' })], prs: [fx.prItem({ key: 'acme/app#1', project: 'Acme' })] };
+    const gone = lane('/r/old', [session('claude:claude:archived', { archived: true })], { project: 'Atlas' });
+    const has = { lanes: [here, there, gone], todos: [fx.todo({ id: 't', project: 'Atlas' })], prs: [fx.prItem({ key: 'acme/app#1', project: 'Acme' })] };
     expect(projectOfCard('session', 'claude:claude:there', has)).toBe('Atlas');
+    // An archived session is in its project too, though no view but Archived lists it.
+    expect(projectOfCard('session', 'claude:claude:archived', has)).toBe('Atlas');
     expect(projectOfCard('worktree', '/r/app', has)).toBe('Acme');
     expect(projectOfCard('todo', 't', has)).toBe('Atlas');
     expect(projectOfCard('pr', 'acme/app#1', has)).toBe('Acme');

@@ -509,7 +509,9 @@ export function App() {
     todoLinks,
     todosFor,
     subjects,
+    allSubjects,
     member,
+    rawLanes,
     boardLanes,
     boardArchived,
     kanbanCols,
@@ -594,8 +596,8 @@ export function App() {
    *  from board, for what's picked on it. */
   const boardItems = (ref: RefKind, key: string): MenuSpec => {
     const card = refId(ref, key);
-    const offered = boardsFor(boards.boards, projectOfCard(ref, key, { homes, laneById, todos: todoStore.todos, prs: board?.prs ?? [] }));
-    const on = (b: BoardDoc) => (b.id === shownBoard.id ? member(card) : memberTest(b, subjects, now)(card));
+    const offered = boardsFor(boards.boards, projectOfCard(ref, key, { lanes: rawLanes, todos: todoStore.todos, prs: board?.prs ?? [] }));
+    const on = (b: BoardDoc) => (b.id === shownBoard.id ? member(card) : memberTest(b, allSubjects, now)(card));
     const put = (b: BoardDoc, yes: boolean) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: [card] });
     const remove: MenuSpec = view === 'kanban' && member(card) ? [{ label: 'Remove from board', run: () => put(shownBoard, false) }] : [];
     return [
@@ -1465,8 +1467,9 @@ export function App() {
 
   /** Selects a worktree from the sidebar, in the Worktrees view: its first agent's line, else the worktree. */
   const focusLane = (lane: Lane) => {
-    // On the canvas, the worktree's card: selected, in view, with its panel.
-    if (view === 'canvas') {
+    // On the canvas, the worktree's card: selected, in view, with its panel. One the board's
+    // project doesn't have (another project's, under All projects) is shown in Worktrees.
+    if (view === 'canvas' && canvasEntities.lanes.has(lane.id)) {
       showOnCanvas('worktree', lane.id);
       return;
     }

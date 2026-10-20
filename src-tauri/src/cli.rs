@@ -1687,15 +1687,26 @@ fn find_board(c: &mut Client, name: Option<&str>, at: &BoardAt) -> Result<BoardD
     if let Some(p) = projects.iter().find(|p| boards::project_board_id(p) == name) {
         return Ok(BoardDoc::of_project(p));
     }
+    let listed = match &project {
+        Some(p) => boards::list(p)?,
+        None => vec![],
+    };
+    board_named(name, project.as_deref(), listed, stored, &projects)
+}
+
+/// The board a name names: the project's own of that name (`listed`, its boards as `boards::list`
+/// gives them), else the one board of that name in any project, or a project's own board by the
+/// project's name; two of them are turned down, as All projects lists every project's.
+fn board_named(name: &str, project: Option<&str>, listed: Vec<BoardDoc>, stored: Vec<BoardDoc>, projects: &[String]) -> Result<BoardDoc> {
     let named = |b: &BoardDoc| b.name.eq_ignore_ascii_case(name);
-    if let Some(p) = &project {
-        if let Some(b) = boards::list(p)?.into_iter().find(named) {
+    if let Some(p) = project {
+        if let Some(b) = listed.into_iter().find(|b| b.project == p && named(b)) {
             return Ok(b);
         }
     }
     // A project's own board that the file doesn't have yet goes by the project's name.
     let mut hits: Vec<BoardDoc> = stored.into_iter().filter(named).collect();
-    for p in &projects {
+    for p in projects {
         if p.eq_ignore_ascii_case(name) && !hits.iter().any(|b| b.id == boards::project_board_id(p)) {
             hits.push(BoardDoc::of_project(p));
         }
@@ -6686,6 +6697,25 @@ mod tests {
         // Once the other session ends, the checkout's todos are this one's to see.
         let b = shared_and_own(false);
         assert_eq!(ids(my_todos(&b, Some("me"), Some(&b.lanes[0]))), ["a", "c"]);
+    }
+
+    #[test]
+    fn a_board_name_two_projects_share_is_turned_down_under_all_projects() {
+        let all = crate::route::ALL_PROJECTS;
+        let board = |id: &str, name: &str, project: &str| BoardDoc { id: id.into(), name: name.into(), rule: None, ..BoardDoc::of_project(project) };
+        let stored = vec![board("b-1", "Release", "Atlas"), board("b-2", "Release", "Kestrel"), board("b-3", "Ideas", all), board("b-4", "Site", "Atlas")];
+        let projects: Vec<String> = ["Atlas", "Kestrel", all].map(String::from).to_vec();
+        // As boards::list gives them: under All projects, every project's.
+        let listed = |p: &str| stored.iter().filter(|b| b.project == p || p == all).cloned().collect::<Vec<_>>();
+        let named = |name: &str, p: Option<&str>| board_named(name, p, p.map(listed).unwrap_or_default(), stored.clone(), &projects).map(|b| b.id);
+        assert_eq!(named("release", Some("Kestrel")).unwrap(), "b-2");
+        let err = named("Release", Some(all)).unwrap_err().to_string();
+        assert!(err.starts_with("2 projects have a board called Release"), "{err}");
+        // A name only one project has is that board, whichever project's asked.
+        assert_eq!(named("Site", Some(all)).unwrap(), "b-4");
+        assert_eq!(named("Site", Some("Kestrel")).unwrap(), "b-4");
+        assert_eq!(named("Ideas", Some(all)).unwrap(), "b-3");
+        assert_eq!(named("Kestrel", None).unwrap(), "p:Kestrel");
     }
 
     #[test]

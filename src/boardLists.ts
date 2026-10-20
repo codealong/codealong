@@ -8,7 +8,7 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, buildBays, bySession, byStatusTime, filterByAge, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
+import { AGENT_BAY, buildBays, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
 import type { Pins } from './pins';
 import type { RefKind } from './canvas/model';
 import { columnsOf, isProjects, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
@@ -320,13 +320,14 @@ export function boardPart(boardProject: string, current: string, here: BoardPart
 }
 
 /** The project a thing on a board is in: a session's or a worktree's by its worktree, a todo's or
- *  a PR's its own; null for one the board doesn't have. */
-export function projectOfCard(ref: RefKind, key: string, has: { homes: Map<string, Placed>; laneById: Map<string, Lane>; todos: Todo[]; prs: PrItem[] }): string | null {
+ *  a PR's its own; null for one the board doesn't have. `lanes` are as the engine sends them, so
+ *  an archived session has its project too. */
+export function projectOfCard(ref: RefKind, key: string, has: { lanes: Lane[]; todos: Todo[]; prs: PrItem[] }): string | null {
   switch (ref) {
     case 'session':
-      return has.homes.get(key)?.lane.project ?? null;
+      return homeOf(has.lanes, key)?.lane.project ?? null;
     case 'worktree':
-      return has.laneById.get(key)?.project ?? null;
+      return has.lanes.find((l) => l.id === key)?.project ?? null;
     case 'todo':
       return has.todos.find((t) => t.id === key)?.project ?? null;
     case 'pr':
@@ -1017,6 +1018,12 @@ export function useBoardLists(input: ListsInput) {
   const boardSessions = useMemo(() => (boardArchived.length > 0 ? [...part.sessions, ...boardArchived] : part.sessions), [part.sessions, boardArchived]);
   const subjects = useMemo(() => subjectsOf({ todoItems: part.todoItems, todos, sessionItems: boardSessions, lanes: part.lanes, prs: part.prs }), [part.todoItems, todos, boardSessions, part.lanes, part.prs]);
   const member = useMemo(() => memberTest(shownBoard, subjects, now), [shownBoard, subjects, now]);
+  // What the rules ask of everything the window shows, for whether another board holds a thing
+  // (Add to board ›): under All projects the shown board's are of its own project alone.
+  const allSubjects = useMemo(
+    () => (shownBoard.project === current ? subjects : subjectsOf({ todoItems, todos, sessionItems, lanes: projectLanes, prs: projectPrs })),
+    [shownBoard.project, current, subjects, todoItems, todos, sessionItems, projectLanes, projectPrs],
+  );
   // Its Kanban: the board's todos listed, and its sessions listed that no open todo's card shows,
   // in its columns, those it has by hand whatever their age. Sessions have no labels, so a label
   // shows only todos.
@@ -1082,7 +1089,9 @@ export function useBoardLists(input: ListsInput) {
     todoLinks,
     todosFor,
     subjects,
+    allSubjects,
     member,
+    rawLanes,
     boardLanes: part.lanes,
     boardArchived,
     kanbanCols,
