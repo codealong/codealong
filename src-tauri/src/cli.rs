@@ -5416,7 +5416,11 @@ fn device_said(e: anyhow::Error, name: &str) -> anyhow::Error {
     if e.contains(actions::UNKNOWN) {
         return anyhow!("Codealong on {name} is from before it could be asked to start a session by the command: update it there.");
     }
-    anyhow!("{name}: {e}")
+    // What the link says of the device names it already (peers.rs: not connected, remote control off).
+    match e.contains(name) {
+        true => anyhow!("{e}"),
+        false => anyhow!("{name}: {e}"),
+    }
 }
 
 // ---- config ----
@@ -6449,6 +6453,7 @@ mod tests {
         }
         let said = |e: &str| device_said(anyhow!("{e}"), "Mini").to_string();
         assert_eq!(said("There's no account named claude9."), "Mini: There's no account named claude9.");
+        assert_eq!(said("Remote control is off on Mini; turn it on there in Settings › Devices."), "Remote control is off on Mini; turn it on there in Settings › Devices.");
         assert_eq!(said("Codealong on this device doesn't know how to start-pick yet; update it here."), "Codealong on Mini is from before it could be asked to start a session by the command: update it there.");
         assert!(said("Codealong doesn't know how to start-pick.").starts_with("The Codealong that's running is older than this command"));
         assert!(said(&format!("{}: unknown variant `run`", server::UNKNOWN_REQUEST)).starts_with("The Codealong that's running is older than this command"));
