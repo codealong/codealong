@@ -1263,8 +1263,6 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
                           }}
                         >
                           <div className="ca-routing-member-start">
-                            {drag && <Icon name="grip-vertical" size={12} className="ca-routing-member-grip" />}
-                            {fallback && <span className="ca-routing-member-at">{i + 1}.</span>}
                             <AgentMenu
                               accounts={offered}
                               usage={usage}

@@ -446,23 +446,12 @@
   box-shadow: var(--shadow-hud);
   transition: none;
 }
-/* A member: the grip it's dragged by, its place in a fallback group's order and its account,
-   model and effort; then the button that takes it out. */
+/* A member: its account, model and effort; then the button that takes it out. The row is what's
+   dragged, with nothing drawn to say so but the hint over a fallback group's list. */
 .ca-routing-member-start,
 .ca-routing-member-end {
   display: flex;
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-}
-.ca-routing-member-grip {
-  flex: none;
-  color: var(--ink-3);
-  cursor: grab;
-}
-.ca-routing-member-at {
-  min-width: 1.5em;
-  font: var(--type-meta);
-  color: var(--ink-3);
-  text-align: right;
 }

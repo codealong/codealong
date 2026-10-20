@@ -1,9 +1,10 @@
 // Checks Settings › Routing's groups and buffer (`[routing] buffer`): Room kept for running
 // sessions starts at 5% and saves the percent picked. A new group's accounts are added from the
 // agent menu, each an account on a model (its own line said as Auto's) at an effort set in the
-// menu's effort row (← → step it); on Fallback they're numbered in the order they're tried. One
-// dragged by its row (useSort.ts) goes where it's let go, ⌃⌘↑ ⌃⌘↓ on its buttons move it a place,
-// and on another strategy they still drag. The group saves with its members in that order, each
+// menu's effort row (← → step it); on Fallback the words over them say they're tried in that order
+// and how to reorder them, and no row has a grip or a number. One dragged by its row (useSort.ts)
+// goes where it's let go, ⌃⌘↑ ⌃⌘↓ on its buttons move it a place, and on another strategy they
+// drag the same. The group saves with its members in that order, each
 // with its model and effort, its card listing them with arrows. Use this group for says it's the
 // same setting as Auto routing and Automation's reviewers.
 //   scripts/preview.sh sessions '' scripts/preview/settings-routing-check.js
@@ -73,8 +74,9 @@
       var modelWords = model.querySelector('.ca-picker-title').textContent;
       model.click();
       await until(function () { return rows(form).length === 2; }, 5000, 'the second account added');
-      check('accounts added are numbered in the order they’re tried', /^1\./.test(rows(form)[0].textContent) && /^2\./.test(rows(form)[1].textContent), rows(form).map(function (r) { return r.textContent; }).join(' | '));
-      check('each has a grip to drag it by, and no arrows', all('.ca-routing-member-grip', form).length === 2 && !q('button[aria-label$="sooner"], button[aria-label$="later"]', form), field(/^Accounts in this group/, form).innerHTML);
+      var said = q('small', field(/^Accounts in this group/, form));
+      check('accounts added are listed in the order they’re tried, the words over them saying how to reorder', order().join() === [names[0], names[1]].join() && /^Tried in this order\. Drag or/.test(said.textContent), said.textContent + ' ' + order().join());
+      check('a row is its agent menu and its ✕: no grip, number or arrows', rows(form).every(function (r) { return q('.ca-routing-member-start', r).children.length === 1; }) && !q('button[aria-label$="sooner"], button[aria-label$="later"]', form), rows(form).map(function (r) { return r.innerHTML; }).join(' | '));
 
       // An effort for the first, from its menu's effort row, where its account takes one.
       chip(rows(form)[0]).click();
@@ -117,7 +119,6 @@
       await until(function () { return order().join() === [names[1], names[0]].join(); }, 5000, 'the order changed');
       await wait(50);
       check('letting go puts it there, the rows standing still and no menu open', !q('.ca-routing-members.is-sorting', form) && rows(form).every(function (r) { return !r.style.transform; }) && !q('.ca-picker'), rows(form).map(function (r) { return r.style.transform; }).join('|'));
-      check('they’re numbered in their new order', /^1\./.test(rows(form)[0].textContent) && order()[0] === names[1], rows(form).map(function (r) { return r.textContent; }).join(' | '));
 
       // ⌃⌘↑ ⌃⌘↓ on a member's buttons move it too, no further than the ends.
       key(chip(rows(form)[1]), { key: 'ArrowUp', ctrlKey: true, metaKey: true });
@@ -128,12 +129,23 @@
       key(chip(rows(form)[0]), { key: 'ArrowDown', ctrlKey: true, metaKey: true });
       await until(function () { return order().join() === [names[1], names[0]].join(); }, 5000, '⌃⌘↓ moving the first down');
 
-      // On another strategy they still drag, unnumbered.
+      // On another strategy they drag the same.
       button('Round robin', form).click();
-      await until(function () { return !/^1\./.test(rows(form)[0].textContent); }, 5000, 'the numbers gone');
-      check('on Round robin they still have their grips', all('.ca-routing-member-grip', form).length === 2);
+      await until(function () { return /least-recently-used first/.test(form.textContent); }, 5000, 'what Round robin does');
+      held = rows(form)[0];
+      from = middle(held);
+      past = middle(rows(form)[1]).y + 4;
+      pointer(held, 'pointerdown', from.x, from.y);
+      pointer(held, 'pointermove', from.x, from.y + 10);
+      pointer(held, 'pointermove', from.x, past);
+      pointer(held, 'pointerup', from.x, past);
+      chip(held).click();
+      await until(function () { return order().join() === [names[0], names[1]].join(); }, 5000, 'a drag on Round robin');
+      check('on Round robin a member drags to another place too', !q('.ca-picker'), order().join());
+      key(chip(rows(form)[0]), { key: 'ArrowDown', ctrlKey: true, metaKey: true });
+      await until(function () { return order().join() === [names[1], names[0]].join(); }, 5000, '⌃⌘↓ on Round robin');
       button('Fallback', form).click();
-      await until(function () { return /^1\./.test(rows(form)[0].textContent); }, 5000, 'Fallback again');
+      await until(function () { return /first account in the order below/.test(form.textContent); }, 5000, 'Fallback again');
       var saves = calls('save_config').length;
       button('Add group', form).click();
       await until(function () { return calls('save_config').length > saves; }, 5000, 'the group saved');
