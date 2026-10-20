@@ -317,7 +317,8 @@ worked in a worktree on the PR's branch while the PR was open. So there's usuall
   for changes or comments (with what they wrote), when it's approved, merged or closed, and when
   its checks fail or its branch comes to conflict with its base, with where the PR stands;
   `[pull_requests] nudge_about` can keep that to comments and requests for changes
-  (`"feedback"`), and failing checks and conflicts (`"feedback-and-checks"`).
+  (`"feedback"`), and failing checks and conflicts (`"feedback-and-checks"`), each with a merge
+  too (`"feedback-and-merges"`, `"feedback-checks-and-merges"`).
   What you do to it yourself through `gh` isn't told back. The primary session is the one that pushed to the PR's branch most, the one that opened
   it winning a tie (`codealong pr show` says which and why); the PR's other sessions are never
   told. Run it from your session and you become the one told, unless another running session

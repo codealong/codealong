@@ -15,8 +15,8 @@
 //! sessions (helpers, reviewers, ones that came to its branch) are
 //! told nothing. What you did to the PR yourself, which is what its agent did through `gh` too, is
 //! never told back. `[pull_requests] nudge_about` can keep it to what asks for work (`keep`):
-//! comments and reviews that ask for changes or say something, and failing checks and conflicts if
-//! it says so, never an approval, a merge or a close. An agent's review that Codealong posted from someone's
+//! comments and reviews that ask for changes or say something, and failing checks and conflicts or
+//! a merge if it says so, never an approval or a close. An agent's review that Codealong posted from someone's
 //! account (autoreview.rs `signed`), as a comment or submitted as their review, is told as their
 //! agent's, never as their own word (`agent_wrote`): it comes as a message of yours, and the
 //! session would otherwise take it for that person's say.
@@ -107,7 +107,8 @@ pub struct Job {
 /// close is no reason to start a session that stopped.
 fn for_stopped(about: NudgeAbout) -> NudgeAbout {
     match about {
-        NudgeAbout::Everything => NudgeAbout::FeedbackAndChecks,
+        NudgeAbout::Everything | NudgeAbout::FeedbackChecksAndMerges => NudgeAbout::FeedbackAndChecks,
+        NudgeAbout::FeedbackAndMerges => NudgeAbout::Feedback,
         about => about,
     }
 }
@@ -192,13 +193,14 @@ const COPY_MS: i64 = 10 * 60_000;
 
 /// What of `why` a nudge tells of, as `[pull_requests] nudge_about` says: everything; or only
 /// what asks for work, the reviews and comments its detail has (`since`, which `words` sorts) and
-/// changes asked for, with failing checks and conflicts for `feedback-and-checks`. Never then an
-/// approval, a merge or a close, nor anything about a PR that's no longer `open`.
+/// changes asked for, with failing checks and conflicts where it says `checks`. Never then an
+/// approval or a close, nor anything else about a PR that's no longer `open` than its merge, where
+/// it says `merges`.
 fn keep(about: NudgeAbout, open: bool, why: Why) -> Why {
-    let checks = about == NudgeAbout::FeedbackAndChecks;
+    let checks = about.checks();
     match about {
         NudgeAbout::Everything => why,
-        _ if !open => Why::default(),
+        _ if !open => Why { ended: why.ended.filter(|s| about.merges() && *s == PrState::Merged), ..Why::default() },
         _ => Why { approved: false, ended: None, failed: if checks { why.failed } else { Vec::new() }, conflicts: checks && why.conflicts, ..why },
     }
 }
@@ -1307,6 +1309,40 @@ mod tests {
         ] {
             assert!(text.contains(&said), "{said}\nin\n{text}");
         }
+    }
+
+    #[test]
+    fn with_merges_too_it_tells_of_a_merge_and_nothing_else_once_its_pr_ended() {
+        let with = |prs: Vec<PrItem>, sessions: Vec<Session>, about: NudgeAbout| Board { nudge_about: about, ..resuming(prs, sessions) };
+        let open = pr("o/r#1", PrState::Open, &[A]);
+        // Merged, with a comment that came in with it: only the merge is told, and the message
+        // says nothing is wanted on it.
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &with(vec![open.clone()], vec![live(A)], NudgeAbout::FeedbackAndMerges));
+        let merged = off(PrItem { state: PrState::Merged, updated_at: UPDATED + 9, ..open.clone() });
+        let jobs = sent(&mut nudger, &with(vec![merged.clone()], vec![live(A)], NudgeAbout::FeedbackAndMerges));
+        assert_eq!(jobs.iter().map(|j| (j.why.clone(), j.about)).collect::<Vec<_>>(), [(Why { ended: Some(PrState::Merged), ..Why::default() }, NudgeAbout::FeedbackAndMerges)]);
+        assert_eq!(
+            words(&merged, &Why { since: Some(UPDATED), ended: Some(PrState::Merged), ..Why::default() }, None, None, NudgeAbout::FeedbackChecksAndMerges).unwrap(),
+            "On your PR #1 “Let the agent add photos” (https://github.com/o/r/pull/1):\n- It was merged.\nNothing more is wanted on it, unless you were told otherwise."
+        );
+        // Still never an approval or a close; checks only where it says so.
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &with(vec![open.clone()], vec![live(A)], NudgeAbout::FeedbackAndMerges));
+        let approved = PrItem { state: PrState::Approved, ..open.clone() };
+        assert!(sent(&mut nudger, &with(vec![approved.clone()], vec![live(A)], NudgeAbout::FeedbackAndMerges)).is_empty());
+        let failing = PrItem { checks: Checks { failed: 1, failing: vec!["lint".into()], ..Checks::default() }, ..approved.clone() };
+        assert!(sent(&mut nudger, &with(vec![failing.clone()], vec![live(A)], NudgeAbout::FeedbackAndMerges)).is_empty());
+        let closed = off(PrItem { state: PrState::Closed, ..failing.clone() });
+        assert!(sent(&mut nudger, &with(vec![closed], vec![live(A)], NudgeAbout::FeedbackAndMerges)).is_empty(), "a close isn't a merge");
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &with(vec![approved], vec![live(A)], NudgeAbout::FeedbackChecksAndMerges));
+        assert_eq!(sent(&mut nudger, &with(vec![failing], vec![live(A)], NudgeAbout::FeedbackChecksAndMerges))[0].why, Why { failed: vec!["lint".into()], ..Why::default() });
+        // A merge is no reason to resume a session that stopped.
+        let mut nudger = Nudger::default();
+        sent(&mut nudger, &with(vec![open], vec![stopped(A)], NudgeAbout::FeedbackChecksAndMerges));
+        assert!(sent(&mut nudger, &with(vec![merged], vec![stopped(A)], NudgeAbout::FeedbackChecksAndMerges)).is_empty());
+        assert_eq!(for_stopped(NudgeAbout::FeedbackAndMerges), NudgeAbout::Feedback);
     }
 
     #[test]

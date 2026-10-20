@@ -792,9 +792,9 @@ export interface SoundsCfg {
 
 /** What a PR whose nudge is on tells its session about (config.rs `NudgeAbout`): everything, or
  *  only what asks for work (comments and requests for changes), with failing checks and conflicts or
- *  without.
+ *  without, and with a merge or without (prStatus.ts `nudgeKind`, `nudgeMerges`).
  *  Older files have none: everything. */
-export type NudgeAbout = 'everything' | 'feedback' | 'feedback-and-checks';
+export type NudgeAbout = 'everything' | 'feedback' | 'feedback-and-checks' | 'feedback-and-merges' | 'feedback-checks-and-merges';
 
 /** What becomes of a PR's news while its primary session, on this Mac, isn't running (nudges.rs
  *  `Stopped`): it's resumed out of sight to be told, or told where its harness takes a message

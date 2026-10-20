@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getConfig, onQuickShortcut, openAtLogin, openTeamFile, openUrl, pauseQuickShortcut, playSound, quickShortcut, jevKey, saveConfig, saveConfigText, setJevKey, setOpenAtLogin, setReusable, startOptions, takeTeamSettings, testJev } from '../api';
+import { nudgeKind, nudgeMerges, withMerges } from '../prStatus';
 import { heldSaid, shortcutFromKey, shortcutLabel, takenFor } from '../quick';
 import { HARNESS_WORD, MOVES_ACCOUNTS } from '../harness';
 import { worktreeName } from '../lanes';
@@ -1312,7 +1313,10 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
  *  what happens on it, unless its own switch is off (nudges.rs). `prs` is as it goes everywhere,
  *  or for the repo `scope` names. */
 function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsCfg>; set: (next: Partial<PullRequestsCfg>) => void; scope?: Scope; disabled: boolean }) {
-  const about = NUDGE_ABOUT.find((n) => n.id === prs.nudge_about) ?? NUDGE_ABOUT[0];
+  const about = NUDGE_ABOUT.find((n) => n.id === nudgeKind(prs.nudge_about)) ?? NUDGE_ABOUT[0];
+  const everything = about.id === 'everything';
+  // Everything tells of a merge already: picking less from it starts without one.
+  const merges = !everything && nudgeMerges(prs.nudge_about);
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <label className="ca-field ca-settings-check">
@@ -1329,18 +1333,28 @@ function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsC
         <span>
           What a nudge tells it about<SourceTag field="prs.nudge_about" scope={scope} />
         </span>
-        <ProfileSelect value={prs.nudge_about} profiles={NUDGE_ABOUT} onChange={(id) => set({ nudge_about: id as NudgeAbout })} />
+        <ProfileSelect value={about.id} profiles={NUDGE_ABOUT} onChange={(id) => set({ nudge_about: withMerges(id as NudgeAbout, merges) })} />
         <small>{about.says} This holds for every pull request with its nudge on, by this switch or its own.</small>
+      </label>
+      <label className="ca-field ca-settings-check">
+        <input type="checkbox" checked={everything || merges} disabled={everything} onChange={(e) => set({ nudge_about: withMerges(about.id, e.target.checked) })} />
+        <span>Also when it’s merged</span>
+        <small>
+          {everything
+            ? 'Everything that happens on it has its merge already.'
+            : 'When it’s merged, by you or anyone else, the session is told so, and that nothing more is wanted on it, so it can wrap its work up. Not when it’s closed without being merged, and a session that has stopped isn’t resumed for it.'}
+        </small>
       </label>
     </fieldset>
   );
 }
 
-/** What a nudge tells of (config.rs `NudgeAbout`, nudges.rs `keep`), as the select offers it. */
+/** What a nudge tells of (config.rs `NudgeAbout`, nudges.rs `keep`), as the select offers it; a
+ *  merge is the box below it (prStatus.ts `withMerges`). */
 const NUDGE_ABOUT: (Profile & { id: NudgeAbout; says: string })[] = [
   { id: 'everything', name: 'Everything that happens on it', says: 'When someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail or its branch comes to conflict with its base.' },
-  { id: 'feedback', name: 'Only comments and requests for changes', says: 'Only when someone else comments on it, asks for changes, or reviews it with something to say, so it can work their feedback in. Never for an approval, a merge or a close, nor for failing checks or conflicts.' },
-  { id: 'feedback-and-checks', name: 'Comments, requests for changes, checks and conflicts', says: 'When someone else comments on it, asks for changes, or reviews it with something to say, and when its checks fail or its branch comes to conflict with its base: what asks for work. Never for an approval, a merge or a close.' },
+  { id: 'feedback', name: 'Only comments and requests for changes', says: 'Only when someone else comments on it, asks for changes, or reviews it with something to say, so it can work their feedback in. Never for an approval or a close, nor for failing checks or conflicts.' },
+  { id: 'feedback-and-checks', name: 'Comments, requests for changes, checks and conflicts', says: 'When someone else comments on it, asks for changes, or reviews it with something to say, and when its checks fail or its branch comes to conflict with its base: what asks for work. Never for an approval or a close.' },
 ];
 
 /** The shortcuts that work in every app, in General's order: `key` is config.toml's, `called`

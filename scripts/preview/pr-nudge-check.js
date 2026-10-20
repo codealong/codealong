@@ -8,8 +8,9 @@
 // says it's on by the setting says that; with its primary session stopped, it says what the board
 // says becomes of the news (`prStopped`): resumed for what asks for work, not beside another of the
 // PR's sessions that runs, or nothing; a second click turns it off. A merged PR's card
-// has no switch. Then the setting, off by default, saves `[pull_requests]` as config.toml has it,
-// and resuming a stopped primary, on by default, saves `[sessions]`.
+// has no switch. Then the setting, off by default, saves `[pull_requests]` as config.toml has it;
+// what a nudge tells of, a merge apart under Everything and its own box under the others; and
+// resuming a stopped primary, on by default, saves `[sessions]`.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-nudge-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -180,6 +181,9 @@
       await until(function () { return !!aboutField(); }, 3000, 'no choice of what a nudge tells of');
       var abouts = all('option', aboutField()).map(function (o) { return o.textContent; });
       check('a nudge tells of everything by default, else only comments and requests for changes, with failing checks and conflicts or without', abouts.join(' | ') === 'Everything that happens on it | Only comments and requests for changes | Comments, requests for changes, checks and conflicts' && q('select', aboutField()).value === 'everything', abouts.join(' | ') + ' / ' + q('select', aboutField()).value);
+      var merges = /^Also when it’s merged/;
+      var mergesInput = function () { return box(merges).querySelector('input'); };
+      check('under everything, a merge is told already: its box is ticked and can’t be unticked', !!box(merges) && mergesInput().checked && mergesInput().disabled, box(merges) ? mergesInput().checked + ' ' + mergesInput().disabled : 'no box');
       var aboutSaves = calls('save_config').length;
       var aboutSelect = q('select', aboutField());
       aboutSelect.value = 'feedback';
@@ -187,6 +191,19 @@
       await until(function () { return calls('save_config').length > aboutSaves; }, 3000, 'picking what a nudge tells of saved nothing');
       var prsCfg = calls('save_config')[calls('save_config').length - 1][1].config.pull_requests;
       check('picked, it saves [pull_requests] nudge_about beside nudging by default, and says what it does', prsCfg.nudge_about === 'feedback' && prsCfg.nudge_by_default === true && /^Only when someone else comments on it, asks for changes/.test(q('small', aboutField()).textContent), JSON.stringify(prsCfg) + ' / ' + q('small', aboutField()).textContent);
+      await until(function () { return !mergesInput().disabled; }, 3000, 'the merge box stayed disabled with feedback picked');
+      check('feedback picked from everything starts without a merge', !mergesInput().checked, String(mergesInput().checked));
+      var mergeSaves = calls('save_config').length;
+      mergesInput().click();
+      await until(function () { return calls('save_config').length > mergeSaves; }, 3000, 'ticking the merge box saved nothing');
+      prsCfg = calls('save_config')[calls('save_config').length - 1][1].config.pull_requests;
+      check('ticked, it saves feedback with merges, and the choice above stays feedback', prsCfg.nudge_about === 'feedback-and-merges' && q('select', aboutField()).value === 'feedback', JSON.stringify(prsCfg) + ' / ' + q('select', aboutField()).value);
+      mergeSaves = calls('save_config').length;
+      aboutSelect.value = 'feedback-and-checks';
+      aboutSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await until(function () { return calls('save_config').length > mergeSaves; }, 3000, 'picking checks too saved nothing');
+      prsCfg = calls('save_config')[calls('save_config').length - 1][1].config.pull_requests;
+      check('checks picked then, the merge goes along', prsCfg.nudge_about === 'feedback-checks-and-merges' && mergesInput().checked, JSON.stringify(prsCfg));
       // Resuming a primary that stopped: on unless turned off, saved under [sessions].
       var resume = /Resume a stopped session for its pull request’s news/;
       await until(function () { return !!box(resume); }, 3000, 'no setting for resuming a stopped session for its pull request’s news');

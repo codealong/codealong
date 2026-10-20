@@ -608,7 +608,8 @@ pub struct PullRequestsCfg {
 /// comments, an approval, a merge or close, failing checks, and a branch that came to conflict
 /// with its base. `feedback`: only what asks for work: comments, and reviews that ask for changes
 /// or say something, never an approval, a merge or a close. `feedback-and-checks`: that, failing
-/// checks and conflicts.
+/// checks and conflicts. `feedback-and-merges` and `feedback-checks-and-merges`: one of those, and
+/// a merge, so the session can wrap its work up; still never an approval or a close.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum NudgeAbout {
@@ -616,6 +617,8 @@ pub enum NudgeAbout {
     Everything,
     Feedback,
     FeedbackAndChecks,
+    FeedbackAndMerges,
+    FeedbackChecksAndMerges,
 }
 
 impl NudgeAbout {
@@ -624,7 +627,19 @@ impl NudgeAbout {
             NudgeAbout::Everything => "everything",
             NudgeAbout::Feedback => "feedback",
             NudgeAbout::FeedbackAndChecks => "feedback-and-checks",
+            NudgeAbout::FeedbackAndMerges => "feedback-and-merges",
+            NudgeAbout::FeedbackChecksAndMerges => "feedback-checks-and-merges",
         }
+    }
+
+    /// It tells of failing checks and conflicts.
+    pub fn checks(self) -> bool {
+        matches!(self, NudgeAbout::Everything | NudgeAbout::FeedbackAndChecks | NudgeAbout::FeedbackChecksAndMerges)
+    }
+
+    /// It tells of a merge.
+    pub fn merges(self) -> bool {
+        matches!(self, NudgeAbout::Everything | NudgeAbout::FeedbackAndMerges | NudgeAbout::FeedbackChecksAndMerges)
     }
 }
 
@@ -1594,7 +1609,7 @@ const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then,
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), \"round-robin\",\n# or \"fallback\" (the members in order, each until it's within `buffer` of its usage_cap).\n# buffer: the percent below each account's usage_cap left for the sessions already running on it (default 5).\n";
 const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict) and its primary session isn't running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n";
-const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; or \"feedback-and-checks\", that, failing checks and\n# conflicts.\n";
+const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own
 # model. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for

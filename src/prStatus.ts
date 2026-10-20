@@ -173,7 +173,32 @@ const NUDGED_WHEN: Record<NudgeAbout, { when: string; of: string }> = {
   everything: { when: 'when someone else reviews it, asks for changes or comments, when it’s approved, merged or closed, and when its checks fail or its branch conflicts with its base', of: 'reviews, comments, an approval, a merge, failing checks and conflicts' },
   feedback: { when: 'when someone else asks for changes or comments, never for an approval or a merge', of: 'comments and requests for changes, never an approval or a merge' },
   'feedback-and-checks': { when: 'when someone else asks for changes or comments and when its checks fail or its branch conflicts with its base, never for an approval or a merge', of: 'comments, requests for changes, failing checks and conflicts, never an approval or a merge' },
+  'feedback-and-merges': { when: 'when someone else asks for changes or comments and when it’s merged, never for an approval', of: 'comments, requests for changes and a merge, never an approval' },
+  'feedback-checks-and-merges': { when: 'when someone else asks for changes or comments, when its checks fail or its branch conflicts with its base, and when it’s merged, never for an approval', of: 'comments, requests for changes, failing checks, conflicts and a merge, never an approval' },
 };
+
+/** What a nudge tells of, merges aside: what Settings' select picks, beside its merges box. */
+export function nudgeKind(about: NudgeAbout): NudgeAbout {
+  return about === 'feedback-and-merges' ? 'feedback' : about === 'feedback-checks-and-merges' ? 'feedback-and-checks' : about;
+}
+
+/** Whether a nudge tells of a merge (config.rs `NudgeAbout::merges`). */
+export function nudgeMerges(about: NudgeAbout): boolean {
+  return about === 'everything' || about === 'feedback-and-merges' || about === 'feedback-checks-and-merges';
+}
+
+/** `kind` (`nudgeKind`) with a merge told or not; everything tells of one either way. */
+export function withMerges(kind: NudgeAbout, merges: boolean): NudgeAbout {
+  const base = nudgeKind(kind);
+  if (base === 'everything' || !merges) return base;
+  return base === 'feedback' ? 'feedback-and-merges' : 'feedback-checks-and-merges';
+}
+
+/** What a session that isn't running is resumed to be told (nudges.rs `for_stopped`): what asks
+ *  for work, never an approval or a merge. */
+function forStopped(about: NudgeAbout): NudgeAbout {
+  return about === 'everything' ? 'feedback-and-checks' : nudgeKind(about);
+}
 
 /** What a PR's card says under its nudge switch (nudges.rs): whether it's on and why, and who's
  *  told of what (`about`, `[pull_requests] nudge_about`). `primary` is its primary session's
@@ -185,7 +210,7 @@ export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boo
     const lead = pr.nudgeByDefault ? 'On for every PR of yours, by Settings.' : 'On for this PR.';
     if (!primary) return `${lead} No session of it is known here, so nobody is told.`;
     if (!primary.runs && primary.stopped === 'resumes') {
-      const work = NUDGED_WHEN[about === 'everything' ? 'feedback-and-checks' : about] ?? NUDGED_WHEN['feedback-and-checks'];
+      const work = NUDGED_WHEN[forStopped(about)] ?? NUDGED_WHEN['feedback-and-checks'];
       return `${lead} “${primary.title}”, its primary session, isn’t running here, so it’s resumed out of sight to be told ${work.when}.`;
     }
     if (!primary.runs && primary.stopped === 'beside') return `${lead} “${primary.title}”, its primary session, isn’t running here, and another of the PR’s sessions is, so it isn’t resumed beside that one: nobody is told until it runs.`;

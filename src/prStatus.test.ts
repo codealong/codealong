@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, type PrFacts } from './prStatus';
+import { asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewMark, reviewersWords, withMerges, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
 import type { PrComment, PrItem } from './types';
 
@@ -116,6 +116,11 @@ describe('nudgeWords', () => {
     expect(nudgeWords(item({}), true, made, 'feedback-and-checks')).toMatch(/asks for changes or comments and when its checks fail or its branch conflicts with its base, never for an approval or a merge\.$/);
     // An approval it has already isn't told either.
     expect(nudgeWords(item({ state: 'approved' }), false, made, 'feedback')).toBe('Off for this PR. Turned on, “marketing email broadcast” is told of comments and requests for changes, never an approval or a merge.');
+    expect(nudgeWords(item({}), true, made, 'feedback-checks-and-merges')).toMatch(/its branch conflicts with its base, and when it’s merged, never for an approval\.$/);
+    expect(nudgeWords(item({}), false, made, 'feedback-and-merges')).toBe('Off for this PR. Turned on, “marketing email broadcast” is told of comments, requests for changes and a merge, never an approval.');
+  });
+  it('resumes a primary that stopped for what asks for work, not for a merge', () => {
+    expect(nudgeWords(item({}), true, { ...made, runs: false, stopped: 'resumes' }, 'feedback-and-merges')).toMatch(/resumed out of sight to be told when someone else asks for changes or comments, never for an approval or a merge\.$/);
   });
   it('says a primary that stopped is resumed for what asks for work, unless another of its sessions runs', () => {
     const stopped = { ...made, runs: false };
@@ -125,6 +130,16 @@ describe('nudgeWords', () => {
     expect(nudgeWords(item({}), true, { ...stopped, stopped: 'resumes' }, 'feedback')).toMatch(/resumed out of sight to be told when someone else asks for changes or comments, never for an approval or a merge\.$/);
     expect(nudgeWords(item({}), true, { ...stopped, stopped: 'beside' })).toBe('On for this PR. “marketing email broadcast”, its primary session, isn’t running here, and another of the PR’s sessions is, so it isn’t resumed beside that one: nobody is told until it runs.');
     expect(nudgeWords(item({}), true, { ...stopped, stopped: 'never' })).toMatch(/isn’t running here, so nobody is told until it is\.$/);
+  });
+});
+
+describe('withMerges', () => {
+  it('adds a merge to what Settings picked, or takes it away, and leaves everything as it is', () => {
+    expect(withMerges('feedback', true)).toBe('feedback-and-merges');
+    expect(withMerges('feedback-and-checks', true)).toBe('feedback-checks-and-merges');
+    expect(withMerges('feedback-checks-and-merges', false)).toBe('feedback-and-checks');
+    expect(withMerges('everything', false)).toBe('everything');
+    expect([nudgeKind('feedback-and-merges'), nudgeMerges('feedback-and-merges'), nudgeMerges('feedback'), nudgeMerges('everything')]).toEqual(['feedback', true, false, true]);
   });
 });
 

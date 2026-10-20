@@ -615,7 +615,7 @@ drafts = false                 # review your draft PRs too; others' drafts are n
 
 [pull_requests]
 nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Automation)
-nudge_about = "everything"     # what a nudge tells of: "feedback" only comments and changes asked for; "feedback-and-checks" adds failing checks and conflicts
+nudge_about = "everything"     # what a nudge tells of: "feedback" only comments and changes asked for; "feedback-and-checks" adds failing checks and conflicts; "feedback-and-merges" and "feedback-checks-and-merges" add a merge to those
 
 [sounds]                       # a short sound when something starts to wait on you (Settings › Sounds)
 needs_you = "Pop"              # a session asks you something, waits on a call to allow, or stops with an error

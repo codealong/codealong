@@ -732,6 +732,10 @@ something, so the session can work their feedback in; `"feedback-and-checks"` ad
 and conflicts.
 With either, an approval (its own words with it), a dismissed review, a merge and a close aren't
 told, nor anything once the PR has ended, and the PR's card says so under its switch.
+Also when it's merged, the box under it, adds a merge to either (`"feedback-and-merges"`,
+`"feedback-checks-and-merges"`): the session is told the PR was merged, whoever merged it, and that
+nothing more is wanted on it, so it can wrap its work up. Still not a close, nor what came in with
+the merge, and a session that has stopped isn't resumed for it. Everything has its merge already.
 
 A primary session on this Mac that has stopped (its terminal closed, or Claude Code's background
 service ended it after an hour idle) is resumed out of sight to be told, as a session is resumed

@@ -1934,7 +1934,8 @@ Commands:
           yours; one turned on approved already tells its session that now.
           `[pull_requests] nudge_about` can keep what it tells to comments and requests
           for changes ("feedback"), and failing checks and conflicts
-          ("feedback-and-checks")
+          ("feedback-and-checks"), each with a merge too ("feedback-and-merges",
+          "feedback-checks-and-merges")
   review  Start an agent's review of a PR now, as Review with… does in the app: a round
           of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto`
           says and of a commit reviewed already too, in a session of its own where
@@ -2072,7 +2073,8 @@ running session is the PR's primary (--take). Off for a PR until turned on for i
 or from its card in the app, unless `[pull_requests] nudge_by_default` in config.toml
 turns it on for every PR of yours; one turned on approved already tells its session that
 now. `[pull_requests] nudge_about` can keep what it tells to comments and requests for
-changes ("feedback"), and failing checks and conflicts ("feedback-and-checks")
+changes ("feedback"), and failing checks and conflicts ("feedback-and-checks"), each
+with a merge too ("feedback-and-merges", "feedback-checks-and-merges")
 
 Usage: codealong pr nudge [OPTIONS] <PR>
 
