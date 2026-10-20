@@ -562,7 +562,7 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={sessions.block_flagged_sessions ?? true} onChange={(e) => saveSessions({ block_flagged_sessions: e.target.checked })} />
+        <CheckBox checked={sessions.block_flagged_sessions ?? true} onChange={(on) => saveSessions({ block_flagged_sessions: on })} />
         <span>Block automations for flagged sessions</span>
         <small>When Claude or Codex records a provider refusal or content-policy error, keep that session out of automatic messages, resumes, account moves and PR review follow-ups. The flag stays across later turns. You can still reply yourself.</small>
       </label>

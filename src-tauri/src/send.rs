@@ -466,11 +466,24 @@ pub fn opened(message: String) -> Sent {
 /// opened again, and you sent what it still showed, or another window sent it too) joins that
 /// send and gets its outcome, rather than going twice.
 pub fn send(board: &Board, cfg: &Config, session_key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
-    ensure_not_moved(&crate::origins::current(), board, session_key)?;
     if let Some((_, s)) = board.session(session_key) {
         ensure_not_flagged(cfg, s, &sender)?;
     }
-    join(session_key, text.trim(), || deliver(board, cfg, session_key, text, &sender, now))
+    send_allowed(board, cfg, session_key, text, sender, now)
+}
+
+/// After the automation check, or a deliberate Send review click. The click changes only
+/// whether a flagged session may receive it, never its author or its delivery routes.
+fn send_allowed(board: &Board, cfg: &Config, key: &str, text: &str, sender: Sender, now: bool) -> Result<Sent> {
+    ensure_not_moved(&crate::origins::current(), board, key)?;
+    join(key, text.trim(), || deliver(board, cfg, key, text, &sender, now))
+}
+
+/// A review you explicitly asked to send is still Codealong's message, with its byline and
+/// routes. It can reach a flagged session, but can't open an app with text left to paste.
+pub fn tell_by_hand(engine: &crate::engine::Handle, key: &str, text: &str) -> Result<Sent> {
+    let cfg = crate::config::current()?;
+    send_allowed(&engine.board(), &cfg, key, text, Sender::Codealong, false)
 }
 
 /// A flag stops messages from Codealong and other agents before any delivery path, including
@@ -1155,6 +1168,12 @@ mod tests {
         for sender in [Sender::You, Sender::Elsewhere] {
             assert!(ensure_not_flagged(&cfg, &s, &sender).is_ok());
         }
+        // The explicit review action gets past the flag, then reaches the normal account
+        // check; no real route is run. Its author and routes stay Codealong's.
+        assert!(send_allowed(&b, &cfg, &s.key, "Review findings", Sender::Codealong, false).unwrap_err().to_string().contains("no account named"));
+        let message = Message::new(&b, &cfg, "Review findings", &Sender::Codealong, false);
+        assert!(message.text.starts_with(FROM_CODEALONG_ITSELF));
+        assert_eq!(message.byline.as_ref().map(|b| b.name.as_str()), Some("Codealong"));
         cfg.sessions.block_flagged_sessions = false;
         assert!(ensure_not_flagged(&cfg, &s, &Sender::Codealong).is_ok());
         s.flagged = false;

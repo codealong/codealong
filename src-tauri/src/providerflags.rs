@@ -76,11 +76,14 @@ pub fn before(path: &Path, floor: u64, end: u64, markers: &[&str], flagged: impl
     found
 }
 
-fn save(path: &Path, pending: &Entries) -> anyhow::Result<()> {
+fn save(path: &Path, pending: &Entries) -> anyhow::Result<Entries> {
     crate::store::change(path, WHAT, |entries: &mut Entries| {
         entries.extend(pending.clone());
+        // Deleted or archived records mustn't accumulate forever. An unreadable path stays:
+        // lack of permission is not evidence the record was deleted.
+        entries.retain(|p, _| p.try_exists().unwrap_or(true));
         true
-    }).map(|_| ())
+    })
 }
 
 /// One write after a reader's scan, including when a snapshot exits immediately afterwards.
@@ -90,7 +93,10 @@ pub fn flush() {
     let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
     if c.pending.is_empty() { return; }
     let p = path();
-    if crate::store::noted(&p, save(&p, &c.pending)).is_ok() { c.pending.clear(); }
+    if let Ok(entries) = crate::store::noted(&p, save(&p, &c.pending)) {
+        c.entries = entries;
+        c.pending.clear();
+    }
 }
 
 #[cfg(test)]
@@ -105,7 +111,8 @@ mod tests {
     fn restarts_and_appends_reuse_only_the_checked_prefix() {
         let dir = crate::store::test_dir("provider-flag-cache");
         let path = dir.join("flags.json");
-        let key = PathBuf::from("/atlas/transcript.jsonl");
+        let key = dir.join("atlas.jsonl");
+        std::fs::write(&key, "").unwrap();
         let first = checked(None, stamp(100, 1), 0, 80, |from, to| { assert_eq!((from, to), (0, 80)); Ok(false) }).unwrap();
         save(&path, &Entries::from([(key.clone(), first)])).unwrap();
         let entries: Entries = crate::store::read(&path, WHAT).unwrap().unwrap();
@@ -119,8 +126,12 @@ mod tests {
         }
         assert!(checked(Some(&same), stamp(200, 2), 0, 180, |_, _| Err(std::io::ErrorKind::UnexpectedEof.into())).is_err());
         // A snapshot and the app merge their entries; a broken file is never overwritten.
-        save(&path, &Entries::from([(PathBuf::from("/kestrel/record.jsonl"), more)])).unwrap();
+        let other = dir.join("kestrel.jsonl");
+        std::fs::write(&other, "").unwrap();
+        save(&path, &Entries::from([(other.clone(), more)])).unwrap();
         assert_eq!(crate::store::read::<Entries>(&path, WHAT).unwrap().unwrap().len(), 2);
+        std::fs::remove_file(&other).unwrap();
+        assert_eq!(save(&path, &Entries::new()).unwrap().len(), 1);
         std::fs::write(&path, "{").unwrap();
         assert!(save(&path, &entries).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{");

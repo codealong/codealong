@@ -3431,7 +3431,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             previews: &self.previews,
             reusable: &self.reusable,
             review_snoozes: &self.seen.review_snoozes,
-            auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings, &self.cfg.sessions),
+            auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings),
+            session_settings: &self.cfg.sessions,
         });
         // Starts in a terminal that never made their session: the board has nothing else of them.
         let word_of = |account: &str| self.cfg.accounts.iter().find(|a| a.name == account).and_then(harness::of).map_or_else(|| account.to_string(), |h| h.harness().word().to_string());

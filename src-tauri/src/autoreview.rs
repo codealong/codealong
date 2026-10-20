@@ -1346,12 +1346,13 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &
         let cfg = cfg.as_ref();
         let t = store.prs.get(&pr_key(&pr.key));
         let blocked = review_blocked(lanes, sessions, pr, &seat_for(cfg, t, lanes, pr));
-        let wants = wanted(cfg, lanes, pr);
-        let wanted = wants && !blocked;
+        let wants_review = wanted(cfg, lanes, pr);
+        let wanted = wants_review && !blocked;
         let head = pr.head_oid.clone().unwrap_or_default();
         let since = pr.requested_at.unwrap_or(0).max(pr.updated_at);
         let own = pr.mine;
         let approves = t.filter(|_| wants(pr)).and_then(approved);
+        let paused = blocked && (wants_review || (own && cfg.own.send));
         let holds = wanted
             && !own
             && match t.and_then(|t| t.rounds.iter().rev().find(|r| r.head == head)) {
@@ -1366,7 +1367,10 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &
                 parts: parts_of(r),
                 at: r.ended_at.unwrap_or(r.at),
                 comment: r.comment.clone().or_else(|| t.rounds.iter().rev().find_map(|r| r.comment.clone())),
-                note: if blocked { Some(FLAGGED_REVIEW.into()) } else if own { back_note(r, cfg, &head) } else { r.submitted.as_ref().and_then(not_submitted).or_else(|| r.note.clone()) },
+                note: {
+                    let note = if own { back_note(r, cfg, &head, paused) } else { r.submitted.as_ref().and_then(not_submitted).or_else(|| r.note.clone()) };
+                    if paused { Some(note.map_or_else(|| FLAGGED_REVIEW.into(), |n| format!("{n} {FLAGGED_REVIEW}"))) } else { note }
+                },
                 suggests: round_verdict(r),
                 approves: approves.map(str::to_string),
                 submitted: r.submitted.as_ref().filter(|s| s.failed.is_none()).map(|s| s.verdict),
@@ -1379,7 +1383,7 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &
                 sent_at: r.sent.as_ref().filter(|s| s.failed.is_none()).map(|s| s.at),
                 sendable: (own && r.stage == ReviewStage::Kept).then(|| origin(lanes, pr)).flatten().filter(|(_, s)| can_take(s)).map(|(_, s)| s.key.clone()),
             }),
-            None if wants => Some(AutoReview { stage: if blocked { ReviewStage::Skipped } else { ReviewStage::Queued }, head, parts: Vec::new(), at: since, comment: None, note: blocked.then(|| FLAGGED_REVIEW.into()), rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None }),
+            None if wants_review => Some(AutoReview { stage: if blocked { ReviewStage::Skipped } else { ReviewStage::Queued }, head, parts: Vec::new(), at: since, comment: None, note: blocked.then(|| FLAGGED_REVIEW.into()), rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None }),
             None => None,
         };
     }
@@ -1411,7 +1415,7 @@ fn not_submitted(s: &Submission) -> Option<String> {
 /// Why a review of a PR of yours hasn't gone back to its session, while it hasn't: what the
 /// round says (it found nothing to raise, the PR ended), else that sending is off, it was given
 /// up on, the PR moved on, or it waits for its session.
-fn back_note(r: &Round, cfg: &ReviewsCfg, head: &str) -> Option<String> {
+fn back_note(r: &Round, cfg: &ReviewsCfg, head: &str, paused: bool) -> Option<String> {
     if r.note.is_some() || r.stage != ReviewStage::Kept {
         return r.note.clone();
     }
@@ -1419,6 +1423,7 @@ fn back_note(r: &Round, cfg: &ReviewsCfg, head: &str) -> Option<String> {
         Some(Sent { failed: Some(why), .. }) => Some(format!("It couldn't be handed to the session that opened the PR: {why}")),
         Some(_) => None,
         None if !cfg.own.send || !(cfg.own.auto || r.by_hand) => Some("Handing reviews back is off: send it from here.".into()),
+        None if paused => None,
         None if r.head != head => Some("New commits came in since, so it isn't sent: the next review is.".into()),
         None => Some("It goes to the session that opened the PR once that runs here and doesn't wait on you.".into()),
     }
@@ -2305,8 +2310,8 @@ fn send(engine: &Handle, job: &Job, any_head: bool) -> Went {
         Err(e) => return Went::PostFailed(format!("its review couldn't be kept for it to read: {e:#}")),
     };
     let text = back_message(pr, head, agent, &login, &file, parse_reply(review).1.len());
-    let sender = if any_head { crate::send::Sender::You } else { crate::send::Sender::Codealong };
-    match crate::send::send_here(engine, session, &text, sender, false) {
+    let sent = if any_head { crate::send::tell_by_hand(engine, session, &text) } else { crate::send::tell(engine, session, &text) };
+    match sent {
         Ok(_) => Went::Sent(session.clone()),
         Err(e) => Went::PostFailed(format!("{e:#}")),
     }
@@ -2621,6 +2626,13 @@ mod tests {
         let a = prs[0].auto_review.as_ref().unwrap();
         assert!(!a.holds && !a.behind, "a paused next round must not hide the PR from its user");
         assert_eq!(a.note.as_deref(), Some(FLAGGED_REVIEW));
+        r.store.prs.values_mut().next().unwrap().rounds.last_mut().unwrap().note = Some("It found nothing to raise.".into());
+        apply(&mut prs, &r.store, &on(), &b.sessions, &Default::default(), &b.lanes, NOW + 64_000);
+        assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some(format!("It found nothing to raise. {FLAGGED_REVIEW}").as_str()));
+        let mut off = on();
+        off.auto = false;
+        apply(&mut prs, &r.store, &off, &b.sessions, &Default::default(), &b.lanes, NOW + 64_000);
+        assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It found nothing to raise."));
     }
 
     #[test]
@@ -3175,7 +3187,7 @@ mod tests {
         let fresh = |head: &str| PrItem { requested_at: Some(NOW - 60_000), updated_at: NOW - 60_000, ..pr(7, head) };
         let shown = |store: &Store, p: PrItem, cfg: &ReviewsCfg, at: i64| {
             let mut prs = vec![p];
-            apply(&mut prs, store, cfg, &Default::default(), &[], at);
+            apply(&mut prs, store, cfg, &Default::default(), &Default::default(), &[], at);
             prs.remove(0)
         };
         let round = |head: &str, stage: ReviewStage, review: Option<&str>, at: i64| {

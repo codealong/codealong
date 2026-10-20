@@ -90,6 +90,8 @@
   var prUrl = null;
   var paused = null;
   var PAUSED_NOTE = 'Automatic reviews and follow-ups are paused because a session was flagged by its provider. You can start or send a review yourself, or change Settings › Automation.';
+  var shownBoard = null;
+  var HAND_OFF = 'Handing reviews back is off: send it from here.';
   var yours = null;
   var yoursKey = null;
   var posted = null;
@@ -173,8 +175,8 @@
       var maker = open[3] && open[3].sessions[0];
       if (maker) {
         Object.assign(open[3], { state: 'open', mine: true, reviewRequested: false, snoozedUntil: null, primary: maker.key });
-        open[3].autoReview = { stage: 'kept', head: '6666666ffff', parts: [{ who: 'auto', state: 'done' }], at: now - 120000, rounds: 1, own: true, sendable: maker.key, note: PAUSED_NOTE };
-        board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === maker.key) s.flagged = true; }); });
+        open[3].autoReview = { stage: 'kept', head: '6666666ffff', parts: [{ who: 'auto', state: 'done' }], at: now - 120000, rounds: 1, own: true, sendable: maker.key, note: HAND_OFF };
+        board.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === maker.key) s.flagged = false; }); });
         yours = '#' + open[3].number;
         yoursKey = open[3].key;
       }
@@ -184,6 +186,7 @@
         paused = '#' + open[4].number;
       }
       board.pinnedPrs = [];
+      shownBoard = board;
       return board;
     });
   };
@@ -364,7 +367,14 @@
         check('a PR of yours an agent reviewed opens on Review', shownTab() === 'Reviews', shownTab());
         await until(function () { return auto() && /Agent reviewed 6666666/.test(auto().textContent); }, 5000, 'your PR shows no agent review');
         var sendTo = all('.ca-prinsp-auto .ca-linkbtn').filter(function (b) { return /^Send to “/.test(b.textContent); })[0];
-        check('it says why its review hasn’t gone back, and offers to send it to the session that opened it', !!sendTo && q('.ca-prinsp-auto-note').textContent === PAUSED_NOTE, all('.ca-prinsp-auto .ca-linkbtn').map(function (b) { return b.textContent; }).join(', '));
+        check('it says why its review hasn’t gone back, and offers to send it to the session that opened it', !!sendTo && q('.ca-prinsp-auto-note').textContent === HAND_OFF, all('.ca-prinsp-auto .ca-linkbtn').map(function (b) { return b.textContent; }).join(', '));
+        var yourPr = shownBoard.prs.filter(function (pr) { return pr.key === yoursKey; })[0];
+        yourPr.autoReview.note = HAND_OFF + ' ' + PAUSED_NOTE;
+        shownBoard.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === yourPr.primary) s.flagged = true; }); });
+        window.__emit('board', JSON.parse(JSON.stringify(shownBoard)));
+        await until(function () { return q('.ca-prinsp-auto-note').textContent === HAND_OFF + ' ' + PAUSED_NOTE; }, 3000, 'flagged review note');
+        sendTo = all('.ca-prinsp-auto .ca-linkbtn').filter(function (b) { return /^Send to “/.test(b.textContent); })[0];
+        check('a provider flag keeps the earlier note and still offers a deliberate Send', !!sendTo && q('.ca-prinsp-auto-note').textContent.indexOf(HAND_OFF) === 0, auto().textContent);
         press(sendTo);
         await until(function () { return calls('send_agent_review').length === 1; }, 3000, 'Send sent nothing');
         check('Send hands it to that session', calls('send_agent_review')[0][1].key === yoursKey, JSON.stringify(calls('send_agent_review')[0][1]));

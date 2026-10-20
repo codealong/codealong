@@ -32,7 +32,7 @@
   };
   var row = function () { return picked && document.getElementById('row-' + picked.lane + '::' + picked.key); };
   var chips = function (el) { return all('.ca-insight', el).filter(function (c) { return c.textContent === 'Flagged'; }); };
-  var setting = function () { return all('.ca-settings-check').find(function (f) { return (q('span', f) || {}).textContent === 'Block automations for flagged sessions'; }); };
+  var setting = function () { return all('.ca-settings-check').find(function (f) { return (q(':scope > span:not(.ca-checkbox)', f) || {}).textContent === 'Block automations for flagged sessions'; }); };
   (async function () {
     try {
       if (window.__CODEALONG_DESKTOP__) {
