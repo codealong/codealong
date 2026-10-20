@@ -1,6 +1,7 @@
 // Checks moving a session to another account, asked first (MoveAccount.tsx), in the bar's peek:
-// the account in its box's foot is a chip that lists its harness's accounts, its own checked, and
-// picking another opens the dialog, which Cancel closes without moving it; a usage limit with no
+// the chip at the right of its box's foot, its account first (SessionAgent.tsx), lists its
+// harness's other accounts under its own, each with a line that moves it there, and picking one
+// opens the dialog, which Cancel closes without moving it; a usage limit with no
 // account said to have room offers Move… in its header's box, which opens the dialog on the first
 // other account, and its Move asks for move_session with that account. The limit is put on a real
 // Claude Code session, since a board rarely has one.
@@ -53,15 +54,15 @@
 
   (async function () {
     try {
-      var chip = await until(function () { return q('.ca-peek .ca-composer-who .ca-acctmenu-chip'); }, 20000, 'no account chip in the box');
-      check('the box’s account is a chip that says it', chip.textContent.indexOf(picked.account) >= 0, chip.textContent);
+      var chip = await until(function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip'); }, 20000, 'no account chip in the box');
+      check('the box’s chip says its account first', chip.textContent.indexOf(picked.account) === 0, chip.textContent);
       chip.click();
-      var menu = await until(function () { return q('.ca-peek .ca-acctmenu .ca-picker'); }, 3000, 'no account menu');
-      var opts = all('.ca-picker-opt', menu);
-      var names = opts.map(function (o) { return q('.ca-picker-title', o) ? q('.ca-picker-title', o).textContent.trim() : o.textContent.trim(); });
-      check('it lists its own account and the others it can move to', names.length === others.length + 1 && names[0].indexOf(picked.account) === 0, names.join(', '));
-      check('its own is checked', !!q('.ca-picker-check .ca-icon', opts[0]) && !q('.ca-picker-check .ca-icon', opts[1]), names.join(', '));
-      opts[1].click();
+      var menu = await until(function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu .ca-picker'); }, 3000, 'no menu on the chip');
+      var heads = all('.ca-quick-acct-name', menu).map(function (n) { return n.textContent; });
+      var moving = all('.ca-picker-opt', menu).filter(function (o) { return q('.ca-picker-title', o) && q('.ca-picker-title', o).textContent.trim() === 'Move it here'; });
+      check('it lists the others it can move to, each a line of its own', others.every(function (o) { return heads.indexOf(o) >= 0; }) && moving.length === others.length, heads.join(', ') + ' · ' + moving.length + ' to move to');
+      check('its own account, where it has lines, comes first', heads.indexOf(picked.account) <= 0, heads.join(', '));
+      moving[0].click();
       var dlg = await until(dialog, 3000, 'picking another account opened no dialog');
       var lede = q('.ca-dialog-lede', dlg).textContent;
       check('the dialog says where it goes and what happens to this one', lede.indexOf('under ' + others[0]) >= 0 && /closed and archived/.test(lede), lede);

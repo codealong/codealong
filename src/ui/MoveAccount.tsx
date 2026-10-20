@@ -1,6 +1,6 @@
-// Moving a session to another account of its harness, asked first: the account in its box's foot
-// is a chip that opens its harness's accounts above the box (`AccountMenu`, SessionReply.tsx), and
-// picking another asks whether to move it there (`MoveDialog`), as Move… does in the box a usage
+// Moving a session to another account of its harness, asked first: the chip at the right of its
+// box's foot lists its harness's accounts under its own (SessionAgent.tsx), and picking another
+// asks whether to move it there (`MoveDialog`), as Move… does in the box a usage
 // limit or a cut-off turn puts under its header (SessionHeader.tsx). SessionPanel.tsx holds the
 // dialog, so every window showing a session asks the same. The move is the menu's Move to
 // (menus.ts `moveAccounts`): a copy goes on under the account from what it had written, and this
@@ -9,8 +9,7 @@
 import { useState } from 'react';
 import type { AccountMoves } from '../menus';
 import type { Session } from '../types';
-import { BoxMenu } from './ModelMenu';
-import { AccountLabel, Button, Dialog, Icon, Seg } from './primitives';
+import { Button, Dialog, Seg } from './primitives';
 
 /** What the move does, for the dialog's lede and a button's tooltip. */
 export function moveWords(s: Pick<Session, 'title' | 'status' | 'attachCommand'>, to: string, terminal: string, goesOn: boolean): string {
@@ -18,34 +17,6 @@ export function moveWords(s: Pick<Session, 'title' | 'status' | 'attachCommand'>
   const first = s.status === 'working' ? ' Its turn is stopped first.' : '';
   const then = goesOn ? ', told to carry on where it stopped' : '';
   return `A copy of “${s.title}” goes on under ${to} ${where}${then}, and this one is closed and archived.${first}`;
-}
-
-/** The session's account, as a chip in its box's foot that opens the accounts it can move to,
- *  its own checked; picking another asks first (`onPick`, which opens `MoveDialog`). */
-export function AccountMenu({ session: s, moves, onPick, onDone }: { session: Session; moves: AccountMoves; onPick: (account: string) => void; onDone: () => void }) {
-  const line = (name: string, detail: string | undefined) => ({
-    id: name,
-    text: name,
-    label: name,
-    detail,
-    lead: <span className="ca-picker-check">{name === s.account ? <Icon name="check" size={14} /> : null}</span>,
-  });
-  const options = [line(s.account, 'Its account'), ...moves.to.map((a) => line(a, a === moves.suggested ? 'Has room' : undefined))];
-  return (
-    <BoxMenu
-      kind="account"
-      sections={[{ key: 'accounts', options }]}
-      value={s.account}
-      label={<AccountLabel session={s} small />}
-      title={`Its account: ${s.account}. Move it to another`}
-      placeholder="Account"
-      foot={<span className="ca-picker-foot-note">Another account moves it there, once you say so</span>}
-      onPick={(id) => {
-        if (id !== s.account) onPick(id);
-      }}
-      onDone={onDone}
-    />
-  );
 }
 
 interface MoveDialogProps {

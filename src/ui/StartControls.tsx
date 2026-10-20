@@ -1,5 +1,5 @@
 // The controls for where a session goes and on what, wherever one is started or goes on: the
-// quick panel's start row, the box of a session that isn't running (ResumeBar.tsx), and the box an
+// quick panel's start row, the box of a session that isn't running (SessionAgent.tsx), and the box an
 // automation's agent is picked and told what to do in (AgentPromptBox.tsx). The rules for what
 // they offer are start.ts's; these only draw them.
 

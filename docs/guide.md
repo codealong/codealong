@@ -194,9 +194,9 @@ follows `/fork` is the copy's first prompt; with nothing, the copy waits for one
 #### Move to another account
 
 Move to, in a Claude Code session's right-click menu, moves it to another of your Claude Code
-accounts (one that's signed in). Its account under the reply box is a menu of them too, its own
-checked: picking another asks first, in a dialog that says what the move does, and Move there moves
-it. The conversation goes on in a new terminal under that account (a
+accounts (one that's signed in). The chip at the right of the reply box's foot, which starts with
+its account, lists them too, each with a *Move it here* line under its own account's: picking one
+asks first, in a dialog that says what the move does, and Move there moves it. The conversation goes on in a new terminal under that account (a
 background job's as a job there), and the session is closed and archived; its panel and the copy's
 say where it went. The copy is a session of its own, with a new ID, and takes the session's place on
 its todos, among the pinned sessions, on its card on the desktop and in its kept window. Moved from
@@ -490,9 +490,10 @@ terminal didn't confirm the typing, say) counts as sent rather than going back i
 would invite sending it twice: the box says where to look, and the session's record says whether it
 went in.
 
-At the left of the box's foot, under where you write, are the mode a running session is in, the
-session's account (its harness on hover) and a small pie for its context window; its model and the
-send button are at the right. The mode
+At the left of the box's foot, under where you write, are the mode a running session is in and
+where it runs (Ghostty, Background, the Codex app, Codealong), or for one that isn't running where
+a send goes on with it. At the right are a small pie for its context window, one chip that says
+its account (its harness on hover), the model it's on and its effort, and the send button. The mode
 is how much it does without asking you, in its harness's own words, said lowercase, with what
 that means on hover (and in the header's Details): Claude Code's Manual, Plan, Accept edits, Auto,
 Don't Ask or Bypass (a terminal session's from its transcript, where a switch shows
@@ -1573,19 +1574,20 @@ as Codealong's, apart from yours and the agent's (a rule at its left), on the ph
 
 #### Sessions that aren't running
 
-A session that isn't running is resumed with the prompt where the place chip beside Send says (a
-menu, with a line on each), among the places its account starts sessions in that its harness can go
-on in: a terminal, the background (Claude Code's background service, else a terminal behind your
-windows), its app, or Codealong, which runs it from then on. Beside Send, where a running session's
-box says its model, is the account's model and effort menu, as the start menu has it, and picking a
-model leaves only the places that take one. It goes on where the account's last one did, else in a
+A session that isn't running is resumed with the prompt where the foot's left says, picked in the
+chip beside Send: its menu has the account's models and effort, as the start menu has them, and
+under them a *Runs in* row of the places its account starts sessions in that its harness can go on
+in (each saying what it is on hover): a terminal, the background (Claude Code's background
+service, else a terminal behind your windows), its app, or Codealong, which runs it from then on.
+Picking a model leaves only the places that take one, and a place whose app picks the model leaves
+none to pick. It goes on where the account's last one did, else in a
 terminal; Resume in, in its right-click menu, has the same places, to go on without a prompt. One
 waiting on you is opened instead, so what you typed can't answer its question.
 
 #### Switching models and effort
 
-A running session's box says the model it's on beside Send (the one its latest reply came from, or
-that it was switched to since), and after it, quieter, the effort it's on, for Claude Code and Codex
+A running session's box says the model it's on in the chip beside Send, after its account (the one
+its latest reply came from, or that it was switched to since), and after it the effort it's on, for Claude Code and Codex
 sessions, as the harness writes the level (`low`, `medium`, `high`, `xhigh`, `max`; Codex's
 `minimal` and `none` too): the level its latest reply was made at, or one `/effort` set since. A
 session that isn't running says the effort it goes on with the same way, once one is picked. A
@@ -1598,10 +1600,11 @@ between turns too, since a message Codealong sends goes on with them. An Antigra
 conversation says the model its latest turn ran on, whose name has its level (Gemini 4 Argon
 (High)).
 
-Where Codealong types into its terminal or runs it, that chip is a menu of its account's models,
+Where Codealong types into its terminal or runs it, that chip's menu has its account's models,
 with its effort levels under them, the one it's on checked: picking either switches that session
 alone, between turns (`/model <name>` or `/effort <level>` typed into a Claude Code session, its
-agent's model or effort for one Codealong runs). Claude Code asks before a switch while the
+agent's model or effort for one Codealong runs); mid-turn the models wait for the turn to end,
+while a move to another account from the same menu doesn't. Claude Code asks before a switch while the
 conversation is cached for what it's on ("Your next response will be slower"); Codealong answers
 yes, as picking it meant. It also saves what it's switched to as the account's default for new
 sessions; Codealong puts the default back a few seconds later, so the switch stays with that

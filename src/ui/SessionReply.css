@@ -11,10 +11,10 @@
   background: var(--surface);
 }
 /* The box itself, as chat apps draw theirs: what's attached, then the text across the box's whole
-   width, its scrollbar at the box's edge once it has one, then a row at its foot: who a message
-   goes to at the left (`.ca-composer-who`), and the model and Send at the right (and before the
-   model, where a session that isn't running goes on, ResumeBar.tsx), with what the box has to
-   say between them. */
+   width, its scrollbar at the box's edge once it has one, then a row at its foot: the mode it runs
+   in and where it runs at the left (`.ca-composer-who`), and how full its context is, its account,
+   model and effort (SessionAgent.tsx) and Send at the right, with what the box has to say between
+   them. */
 .ca-composer-field {
   /* What opens over the conversation from inside it (ModelMenu.tsx) is placed against it. */
   position: relative;
@@ -160,12 +160,22 @@
   min-width: 0;
 }
 .ca-composer-footrow > .ca-composer-buttons {
+  min-width: 0;
+  max-width: 100%;
   margin-left: auto;
 }
-/* Who a message goes to and what it may do about it: the mode the session runs in (ModeLabel.tsx),
-   its account and how full its context is (ContextMeter.tsx), on one line, lined up with the text
-   above. On a line of its own still too short for them, the mode's and the account's names are
-   cut, never the meter. */
+/* The session's chip (SessionAgent.tsx) gives way before Send and the meter do. */
+.ca-composer-buttons > .ca-modelmenu,
+.ca-composer-buttons > .ca-modelmenu-said {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ca-composer-buttons .ca-modelmenu-chip {
+  max-width: min(220px, 100%);
+}
+/* What a message may do and where it goes: the mode the session runs in (ModeLabel.tsx) and where
+   it runs (`.ca-boxplace`), on one line, lined up with the text above. On a line of its own still
+   too short for them, their names are cut. */
 .ca-composer-tools.ca-composer-who {
   flex-wrap: nowrap;
   gap: var(--space-2);
@@ -173,8 +183,25 @@
   margin-bottom: 5px;
   padding: 0 var(--space-2) 0 10px;
 }
-.ca-composer-who > .ca-context {
+.ca-composer-buttons > .ca-context {
   flex: none;
+}
+/* Where it runs, or goes on: quiet, as the mode beside it is, its name cut before the mode's. */
+.ca-boxplace {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--ink-3);
+  font: var(--type-caption);
+  white-space: nowrap;
+}
+.ca-boxplace > .ca-icon {
+  flex: none;
+}
+.ca-boxplace > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ca-composer-note {
   flex: 1;

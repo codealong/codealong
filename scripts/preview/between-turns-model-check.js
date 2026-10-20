@@ -1,5 +1,5 @@
-// Checks the model and effort a session says beside Send in its box between turns (SessionReply.tsx,
-// SessionModel.tsx), where its next turn goes on with them: a Codex app thread, since the app
+// Checks the model and effort a session says beside Send in its box between turns, after its
+// account in the chip there (SessionReply.tsx, SessionAgent.tsx), where its next turn goes on with them: a Codex app thread, since the app
 // starts its next turn on them, and an OpenCode session, since its service runs a prompt that
 // names no model on the session's. The Codex thread's are a menu, since the app takes a switch
 // for its next turn (codex/ipc.rs `codex_settings_request`): picking a model or a level asks the
@@ -31,7 +31,10 @@
   if (!acct || !acct.switchesInApp) { stopped('the thread’s account doesn’t say the app switches its sessions (start-options.json)'); return; }
   var said = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-said'); };
   var chip = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip'); };
-  var effort = function () { var d = q('.ca-modelmenu-detail', chip() || said()); return d ? d.textContent : ''; };
+  // After the account, quieter: `model · effort`.
+  var detail = function () { var d = q('.ca-modelmenu-detail', chip() || said()); return d ? d.textContent : ''; };
+  var effort = function () { return detail().split(' · ')[1] || ''; };
+  var own = function (menu) { return all('.ca-picker-section', menu).filter(function (x) { var n = q('.ca-quick-acct-name', x); return n && n.textContent === picked.account; })[0]; };
   var note = function () { var n = q('.ca-peek .ca-composer-note'); return n ? n.textContent : ''; };
   // The board the box gets, and the session the stub says the way for (fake-tauri.js answers
   // `session_way` from `__madeSessions` before its board.json); the way is asked again as the
@@ -52,16 +55,16 @@
     .then(function () {
       var listed = acct.models.filter(function (m) { return m.id === picked.model; })[0];
       var named = listed ? listed.label.split(':')[0] : picked.model;
-      check('it says the model the thread is on, by the name its account gives it', chip().textContent.indexOf(named) === 0, chip().textContent + ' (' + named + ')');
+      check('it says the model the thread is on, by the name its account gives it', detail().indexOf(named) === 0, detail() + ' (' + named + ')');
       check('it’s a menu that switches it from its next turn', /from its next turn/.test(chip().title) && !chip().disabled, chip().title);
       chip().click();
       return until(function () { return !!q('.ca-peek .ca-modelmenu .ca-picker'); }, 3000, 'no model menu');
     })
     .then(function () {
       var menu = q('.ca-peek .ca-modelmenu .ca-picker');
-      var titles = all('.ca-picker-title', menu).map(function (t) { return t.textContent.trim(); });
+      var titles = all('.ca-picker-title', own(menu)).map(function (t) { return t.textContent.trim(); });
       check('it lists the account’s models', titles.length === acct.models.length, titles.join(', '));
-      all('.ca-picker-opt', menu).pop().click();
+      all('.ca-picker-opt', own(menu)).pop().click();
       return until(function () { return calls('switch_session_model').length === 1; }, 5000, 'no switch asked for');
     })
     .then(function () { return wait(50); })
@@ -91,14 +94,14 @@
       check('picking a level switches that thread’s effort', asked.key === picked.key && asked.effort === 'high', JSON.stringify(asked));
       check('the note says what happened', /^Switched its effort/.test(note()), note());
       // The same thread made in a terminal: between turns a send resumes it, so it says nothing
-      // and switches nothing (the chip there is the resume's own, ResumeBar.tsx).
+      // and switches nothing (the chip there has what the resume goes on with).
       become(function (s) { s.live = false; s.status = 'idle'; s.surface = 'cli'; });
-      return until(function () { return !said() && !(chip() && /^Switch its/.test(chip().title)); }, 5000, 'a terminal thread between turns still says its model');
+      return until(function () { var c = chip() || said(); return !!c && !/from its next turn|for this session alone/.test(c.title); }, 5000, 'a terminal thread between turns still switches its model');
     })
     .then(function () {
       // An OpenCode session between turns, its model as OpenCode names it and its variant.
       become(function (s) { s.harness = 'opencode'; s.live = false; s.status = 'idle'; s.surface = 'app'; s.model = 'big-pickle'; s.effort = 'high'; });
-      return until(function () { return !!said() && said().textContent.indexOf('big-pickle') === 0 && effort() === 'high'; }, 5000, 'an OpenCode session between turns: ' + (said() ? said().textContent : 'nothing'));
+      return until(function () { return !!said() && detail().indexOf('big-pickle') === 0 && effort() === 'high'; }, 5000, 'an OpenCode session between turns: ' + (said() ? said().textContent : 'nothing'));
     })
     .then(function () {
       check('it’s no menu for an OpenCode session: nothing switches one from outside', !chip(), 'a menu');

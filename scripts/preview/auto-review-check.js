@@ -436,7 +436,9 @@
       var heads = all('.ca-picker-head .ca-quick-acct-name', agentBox()).map(function (h) { return h.textContent; });
       check('its menu is the quick panel’s: Auto, then each account with its models', /Auto/.test(opts[0].textContent) && heads.length > 0 && opts.length > heads.length, heads.join(', '));
       note('accounts in the menu: ' + heads.join(', '));
-      var picked = opts[1];
+      // The first account's own line: routing groups can come between it and Auto.
+      var firstAccount = all('.ca-picker-section', agentBox()).filter(function (sec) { return !!q('.ca-picker-head .ca-quick-acct-name', sec); })[0];
+      var picked = q('.ca-picker-opt', firstAccount);
       var saves = calls('save_config').length;
       picked.click();
       await until(function () { return calls('save_config').length > saves; }, 3000, 'picking an account saved nothing');

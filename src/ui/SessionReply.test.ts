@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import type { Question, Session } from '../types';
-import { givenBack, replyPlaceholder, takesReply } from './SessionReply';
+import { boxPlace, givenBack, replyPlaceholder, takesReply } from './SessionReply';
 
 const session = (over: Partial<Session> = {}): Session => fx.session({ live: true, asks: false, hosted: false, ...over });
 
@@ -27,6 +27,25 @@ describe('replyPlaceholder', () => {
 
   it('keeps its own words for a session Codealong runs', () => {
     expect(replyPlaceholder(session({ hosted: true, status: 'working' }), 'Ghostty', { kind: 'typed', app: 'Ghostty' })).toBe('Send to claude: it takes this after its current turn');
+  });
+});
+
+describe('boxPlace', () => {
+  it('says where a session runs by how a message gets there, else by where it is', () => {
+    const said = (p: { icon: string; label: string }) => `${p.icon} ${p.label}`;
+    expect(said(boxPlace(session(), 'Ghostty', { kind: 'typed', app: 'iTerm2' }))).toBe('terminal iTerm2');
+    expect(said(boxPlace(session(), 'Ghostty', { kind: 'background' }))).toBe('stack Background');
+    expect(said(boxPlace(session(), 'Ghostty', { kind: 'codex-app' }))).toBe('app Codex app');
+    expect(said(boxPlace(session({ hosted: true }), 'Ghostty', { kind: 'typed', app: 'Ghostty' }))).toBe('app Codealong');
+    // Before the engine has said, by where it is.
+    expect(said(boxPlace(session(), 'Ghostty', null))).toBe('terminal Ghostty');
+    expect(boxPlace(session(), 'Ghostty', { kind: 'background' }).title).toBe('It runs in the background');
+  });
+
+  it('says where a session that isn’t running goes on: the place picked for it', () => {
+    const stopped = session({ live: false });
+    expect(boxPlace(stopped, 'Ghostty', { kind: 'resume', app: 'Ghostty' }, { place: 'background', label: 'Background' })).toEqual({ icon: 'stack', label: 'Background', title: 'It isn’t running: a send goes on with it in the background' });
+    expect(boxPlace(stopped, 'Ghostty', { kind: 'resume', app: 'Ghostty' }).label).toBe('Ghostty');
   });
 });
 

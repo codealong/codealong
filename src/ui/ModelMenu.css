@@ -1,12 +1,11 @@
-/* A session's model, and its account's models above the box (ModelMenu.tsx), and where one that
-   isn't running goes on, beside it (`BoxMenu`). The chips are quiet, as a chat app's model picker
+/* A box's quiet chips and the menus they open above it (ModelMenu.tsx `BoxMenu`): a session's
+   account, model and effort (SessionAgent.tsx), and an account picked with its model
+   (AgentMenu.tsx). The chips are quiet, as a chat app's model picker
    is; the menu is placed against the box, not the chip (below). */
-.ca-modelmenu,
-.ca-placemenu {
+.ca-modelmenu {
   min-width: 0;
 }
-.ca-modelmenu-chip,
-.ca-placemenu-chip {
+.ca-modelmenu-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -21,8 +20,7 @@
   white-space: nowrap;
   cursor: pointer;
 }
-.ca-modelmenu-chip > span,
-.ca-placemenu-chip > span {
+.ca-modelmenu-chip > span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -30,28 +28,23 @@
   font: var(--type-meta);
   color: var(--ink-3);
 }
-.ca-modelmenu-chip > .ca-icon,
-.ca-placemenu-chip > .ca-icon {
+.ca-modelmenu-chip > .ca-icon {
   flex: none;
   color: var(--ink-3);
 }
 .ca-modelmenu-chip:hover,
-.ca-modelmenu-chip[aria-expanded='true'],
-.ca-placemenu-chip:hover,
-.ca-placemenu-chip[aria-expanded='true'] {
+.ca-modelmenu-chip[aria-expanded='true'] {
   background: var(--surface-hover);
   color: var(--ink);
 }
-.ca-modelmenu-chip:focus-visible,
-.ca-placemenu-chip:focus-visible {
+.ca-modelmenu-chip:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
 /* The box is at the foot of its window, so the model menu opens above it, over the
    conversation, at its right edge by Send, as wide as the quick panel's agent menu (which has the
    same effort row) or the box, whichever is narrower. */
-.ca-modelmenu .ca-picker.is-up,
-.ca-placemenu .ca-picker.is-up {
+.ca-modelmenu .ca-picker.is-up {
   top: auto;
   right: 0;
   bottom: calc(100% + 6px);
@@ -68,10 +61,6 @@
   width: min(440px, 100%);
   max-height: 360px;
 }
-/* The places are a few short lines. */
-.ca-placemenu .ca-picker.is-up {
-  width: min(300px, 100%);
-}
 .ca-modelmenu-chip:disabled {
   color: var(--ink-3);
   cursor: default;
@@ -81,6 +70,8 @@
 }
 /* Where it can't be switched from here, it's only said. */
 .ca-modelmenu-said {
+  display: inline-flex;
+  min-width: 0;
   padding: 0 8px;
   color: var(--ink-3);
   font: 500 12px/26px var(--font-sans);
@@ -89,4 +80,22 @@
 /* The effort after the model, spaced as the chip's flex gap spaces it. */
 .ca-modelmenu-said > .ca-modelmenu-detail {
   margin-left: 5px;
+}
+/* Short of room, what a chip names first (a session's account) stays whole while it can, and what
+   comes after it (the model and effort) is cut first. */
+.ca-modelmenu-chip > span,
+.ca-modelmenu-said > span {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-modelmenu-chip > .ca-modelmenu-detail,
+.ca-modelmenu-said > .ca-modelmenu-detail {
+  flex-shrink: 100;
+}
+/* An account named in a chip is cut inside the room its words get. */
+.ca-modelmenu-chip .ca-account-name,
+.ca-modelmenu-said .ca-account-name {
+  display: block;
 }

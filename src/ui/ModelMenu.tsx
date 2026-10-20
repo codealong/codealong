@@ -1,56 +1,24 @@
-// A session's model, as a chip beside Send in its box (SessionReply.tsx) that opens its account's
-// models above the box: what a session that isn't running goes on with (ResumeBar.tsx), with the
-// effort under them, or what a running one switches to, its effort too (SessionModel.tsx). The
-// lines are the start menu's for that account (StartControls.tsx `agentLine`); what picking one
-// does is the caller's. The place a session that isn't running goes on in is a chip of the same
-// kind beside it (`BoxMenu`), and so are the mode of a session Codealong runs, at the foot's other
-// end (ModeLabel.tsx `ModeMenu`), and its account where it can move (MoveAccount.tsx).
+// A quiet chip in a box's foot that opens a menu above the box (`BoxMenu`): a session's account,
+// model and effort (SessionAgent.tsx), an account with its model and effort wherever one is picked
+// (AgentMenu.tsx), an automation's agent (AgentPromptBox.tsx), and the mode of a session Codealong
+// runs, at the foot's other end (ModeLabel.tsx `ModeMenu`). What picking a line does is the
+// caller's.
 
 import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import type { AgentOption, ModelOption } from '../start';
-import type { StartAccount } from '../types';
 import { scaleOf } from '../zoom';
 import { Picker, type PickerSection } from './Picker';
 import { Icon } from './primitives';
-import { agentLine } from './StartControls';
 
 /** The menu is never shorter than this, and keeps this far from the window's top. */
 const MENU_MIN = 160;
 const MENU_MARGIN = 12;
 
-export interface ModelMenuProps {
-  account: StartAccount;
-  /** Its lines: the account's own model and its models, or some of them. */
-  lines: AgentOption[];
-  models: ModelOption[];
-  /** The line checked, if any. */
-  value: string | null;
-  /** What the chip says: the model, and after it, quieter, the effort. */
-  label: ReactNode;
-  detail?: string | null;
-  title: string;
-  disabled?: boolean;
-  /** The effort row under the lines, and ← → while the filter is empty. */
-  foot?: MenuFoot;
-  onStep?: (delta: -1 | 1) => void;
-  onPick: (id: string) => void;
-  /** The menu closed, picked or not: the box takes the keyboard back. */
-  onDone: () => void;
-  /** Opens under the chip rather than over it. */
-  down?: boolean;
-}
-
-export function ModelMenu({ account, lines, models, value, label, detail, title, disabled, foot, onStep, onPick, onDone, down }: ModelMenuProps) {
-  const section = { key: account.name, options: lines.map((o) => agentLine(o, account, models, value)) };
-  return <BoxMenu kind="model" sections={[section]} value={value} label={label} detail={detail} title={title} disabled={disabled} placeholder="Model" foot={foot} onStep={onStep} onPick={onPick} onDone={onDone} down={down} />;
-}
-
 /** What a box menu has under its lines: a row of its own, or one made with what closes the menu,
- *  for a pick there that's done with it (a running session's effort, SessionModel.tsx). */
+ *  for a pick there that's done with it (a running session's effort, SessionAgent.tsx). */
 export type MenuFoot = ReactNode | ((close: () => void) => ReactNode);
 
 /** A box menu's classes, and its chip's, by what it picks. */
-const BOX_MENU = { model: ['ca-modelmenu', 'ca-modelmenu-chip'], place: ['ca-placemenu', 'ca-placemenu-chip'], mode: ['ca-modemenu', 'ca-modemenu-chip'], account: ['ca-acctmenu', 'ca-acctmenu-chip'] } as const;
+const BOX_MENU = { model: ['ca-modelmenu', 'ca-modelmenu-chip'], mode: ['ca-modemenu', 'ca-modemenu-chip'] } as const;
 
 interface BoxMenuProps {
   kind: keyof typeof BOX_MENU;

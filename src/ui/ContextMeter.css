@@ -1,5 +1,5 @@
 /* How full a session's context is (ContextMeter.tsx): a pie and a figure in the reply box's foot,
-   after its account (SessionReply.css), quiet until the context is getting full, and its card
+   before its account's chip (SessionReply.css), quiet until the context is getting full, and its card
    above it on hover. */
 
 .ca-context { display: inline-flex; align-items: center; gap: var(--space-1); padding: 0 2px; border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--ink-3); font: var(--type-caption); font-variant-numeric: tabular-nums; cursor: default; }

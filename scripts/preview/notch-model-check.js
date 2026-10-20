@@ -1,7 +1,7 @@
 // Checks a session's box in the notch (NotchSession.tsx, SessionReply.tsx) offers what the peek's
-// does: for one that isn't running, where it goes on and on what (ResumeBar.tsx), as chips beside
-// Send, and for one that's running, the model it's on (SessionModel.tsx), each inside the card's
-// width.
+// does: its account, model and effort as one chip beside Send (SessionAgent.tsx), for one that isn't
+// running with where it goes on in its menu and at the foot's left, and for one that's running
+// the model it's on, each inside the card's width.
 //   PREVIEW_SIZE=1512,980 PREVIEW_WAIT=60000 scripts/preview.sh notch '' scripts/preview/notch-model-check.js
 (function () {
   var json = function (url) {
@@ -46,23 +46,29 @@
     })
     .then(function () {
       pill(resting.key).click();
-      return until(function () { return !!q('.ca-notch-session .ca-placemenu-chip'); }, 8000, 'no place chip in the notch');
+      return until(function () { return !!q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip') && !!q('.ca-notch-session .ca-boxplace'); }, 8000, 'no chip and place in the notch');
     })
     .then(function () {
-      var place = q('.ca-notch-session .ca-composer-buttons .ca-placemenu-chip');
-      check('one that isn’t running says where it goes on, beside Send', !!place, 'no place chip');
+      var place = q('.ca-notch-session .ca-boxplace');
       var chip = q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip');
-      check('and on what', !!chip, 'no chip');
-      check('the place chip fits the card', inside(place), JSON.stringify(place.getBoundingClientRect()));
-      check('so does the model chip', !!chip && inside(chip), chip ? JSON.stringify(chip.getBoundingClientRect()) : 'none');
-      check('the chips share the line Send is on', !!chip && Math.abs(place.getBoundingClientRect().top - chip.getBoundingClientRect().top) < 2, JSON.stringify([place.getBoundingClientRect().top, chip && chip.getBoundingClientRect().top]));
+      check('one that isn’t running says where it goes on, at the foot’s left', place.textContent.trim().length > 0, place.textContent);
+      check('and its account and what it goes on with beside Send', chip.textContent.indexOf(resting.account) === 0, chip.textContent);
+      check('the place fits the card', inside(place), JSON.stringify(place.getBoundingClientRect()));
+      check('so does the chip', inside(chip), JSON.stringify(chip.getBoundingClientRect()));
+      chip.click();
+      return until(function () { return all('.ca-notch-session .ca-picker-foot-label').some(function (l) { return l.textContent === 'Runs in'; }); }, 5000, 'no Runs in row in its menu');
+    })
+    .then(function () {
+      var menu = q('.ca-notch-session .ca-modelmenu .ca-picker');
+      check('its menu has where it goes on, and fits the card', inside(menu), JSON.stringify(menu.getBoundingClientRect()));
+      q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip').click();
       pill(running.key).click();
-      // The one that is running has a model chip beside Send too: wait for the place chip to go.
-      return until(function () { return !q('.ca-notch-session .ca-placemenu-chip') && !!q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip'); }, 8000, 'no model chip without a place chip in the notch');
+      // The one that is running has its chip beside Send too, with no place to pick in its menu.
+      return until(function () { var c = q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip'); return !!c && c.textContent.indexOf(running.account) === 0; }, 8000, 'no chip for the running one in the notch');
     })
     .then(function () {
       var chip = q('.ca-notch-session .ca-composer-buttons .ca-modelmenu-chip');
-      check('one that’s running says its model beside Send', chip.textContent.trim().length > 0, chip.textContent);
+      check('one that’s running says its model beside Send, after its account', !!q('.ca-modelmenu-detail', chip), chip.textContent);
       check('the chip fits the card', inside(chip), JSON.stringify(chip.getBoundingClientRect()));
     })
     .then(done, stopped);

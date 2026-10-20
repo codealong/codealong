@@ -84,12 +84,15 @@
       check('nothing is said under the box', !under(), under() && under().textContent);
       check('the strip counts nothing of what’s left', !q('.ca-sessinsp .ca-reply-queue .ca-chip'));
 
-      // The box's foot: who a message goes to at the left, the model and Send at the right.
+      // The box's foot: the mode and where it runs at the left; the context, the chip that starts
+      // with its account, and Send at the right.
       var field = q('.ca-sessinsp .ca-composer-field');
       var who = q('.ca-composer-who', field);
       var buttons = q('.ca-composer-buttons', field);
-      var names = who ? all('.ca-mode, .ca-account, .ca-context', who).map(function (e) { return e.className.split(' ')[0]; }) : [];
-      check('the box’s foot has the mode, the account and the context, in that order', names.join(' ') === 'ca-mode ca-account ca-context', names.join(' '));
+      var names = who ? all('.ca-mode, .ca-boxplace', who).map(function (e) { return e.className.split(' ')[0]; }) : [];
+      check('the box’s foot has the mode, then where it runs, at the left', names.join(' ') === 'ca-mode ca-boxplace', names.join(' '));
+      var right = buttons ? all('.ca-context, .ca-account-name, .ca-composer-send', buttons).map(function (e) { return e.className.split(' ')[0]; }) : [];
+      check('and the context, the account’s chip and Send at the right, in that order', right.slice(0, 3).join(' ') === 'ca-context ca-account-name ca-composer-send', right.join(' '));
       var w = who.getBoundingClientRect();
       var b = buttons.getBoundingClientRect();
       var f = field.getBoundingClientRect();

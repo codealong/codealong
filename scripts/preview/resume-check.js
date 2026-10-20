@@ -1,9 +1,10 @@
-// Checks going on with a session that isn't running from its box (ResumeBar.tsx, start.ts
-// `resumeChoice`): a chip beside Send offers the places its account's sessions go on in, each
-// saying what it is, and the chip after it the account's models, where a running session's box has
-// its model; the placeholder says what sending does; a model leaves only the places that take one;
-// a send asks the engine to resume it there, on that model, and the place is kept for the
-// account's next one; and its menu has Resume in, with the same places.
+// Checks going on with a session that isn't running from its box (SessionAgent.tsx, start.ts
+// `resumeChoice`): the chip beside Send, its account, model and effort, has the account's models
+// in its menu and under them a Runs in row of the places its account's sessions go on in, each
+// saying what it is on hover; the foot's left says where it goes on, and the placeholder what
+// sending does; a model leaves only the places that take one, and a place whose app picks the model
+// leaves no models to pick; a send asks the engine to resume it there, on that model, and the
+// place is kept for the account's next one; and its menu has Resume in, with the same places.
 //   scripts/preview.sh peek '' scripts/preview/resume-check.js
 (function () {
   // This runs before the app's script: pick a session on this Mac that isn't running, in a
@@ -37,82 +38,83 @@
   localStorage.removeItem('codealong.draft.' + picked.key);
   localStorage.removeItem('codealong.resumed');
 
-  var placeChip = function () { return q('.ca-peek .ca-composer-buttons .ca-placemenu-chip'); };
+  var chip = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip'); };
+  var menu = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu .ca-picker'); };
   var box = function () { return q('.ca-peek .ca-composer textarea'); };
-  var options = function () { return all('.ca-peek .ca-placemenu .ca-picker-opt'); };
-  var titleOf = function (o) { return q('.ca-picker-title', o).textContent.trim(); };
+  // The Runs in row under the menu's lines, and its places.
+  var placeRow = function () { return menu() && all('.ca-picker-foot-row', menu()).filter(function (r) { var l = q('.ca-picker-foot-label', r); return l && l.textContent === 'Runs in'; })[0]; };
+  var options = function () { return placeRow() ? all('button', placeRow()) : []; };
+  var titleOf = function (o) { return o.textContent.trim(); };
   var places = function () { return options().map(titleOf); };
-  var on = function () { return placeChip() ? placeChip().textContent.trim() : ''; };
-  // Opens the menu of places; the chip closes it again.
-  var openPlaces = function () {
-    placeChip().click();
-    return until(function () { return options().length > 0; }, 3000, 'no menu of places');
+  // Where the foot's left says it goes on.
+  var on = function () { var p = q('.ca-peek .ca-boxplace'); return p ? p.textContent.trim() : ''; };
+  // The models under its account in the menu.
+  var models = function () { var own = menu() && all('.ca-picker-section', menu()).filter(function (x) { var n = q('.ca-quick-acct-name', x); return n && n.textContent === picked.account; })[0]; return own ? all('.ca-picker-opt', own) : []; };
+  // Opens the chip's menu; the chip closes it again.
+  var openMenu = function () {
+    if (menu()) return Promise.resolve();
+    chip().click();
+    // Its rows come once the account's places are read.
+    return until(function () { return !!placeRow(); }, 5000, 'no Runs in row in the chip’s menu');
   };
-  var closePlaces = function () {
-    placeChip().click();
-    return until(function () { return options().length === 0; }, 3000, 'the menu of places stays open');
+  var closeMenu = function () {
+    if (!menu()) return Promise.resolve();
+    chip().click();
+    return until(function () { return !menu(); }, 3000, 'the menu stays open');
   };
   var pickPlace = function (label) {
-    return openPlaces().then(function () {
+    return openMenu().then(function () {
       var o = options().filter(function (x) { return titleOf(x) === label; })[0];
       if (!o) throw new Error('no ' + label + ' among the places: ' + places().join(', '));
       o.click();
       return wait(50);
     });
   };
-  var chip = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip'); };
   var enter = function (el) { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); };
   var other = acct.models.filter(function (m) { return m.id !== acct.defaultModel; })[0];
 
   say('resume check: ' + picked.key + ' on ' + acct.name);
-  until(function () { return !!placeChip(); }, 20000, 'no place chip in the box')
+  until(function () { return !!chip() && !!on(); }, 20000, 'no chip and place in the box')
     .then(function () {
-      check('it goes on in a terminal unless picked otherwise', on() === labelOf('terminal'), on());
+      check('it goes on in a terminal unless picked otherwise, as the foot’s left says', on() === labelOf('terminal'), on());
       check('the placeholder says it resumes in the terminal', box().getAttribute('aria-placeholder').indexOf('resumes it in ' + board.apps.terminal) >= 0, box().getAttribute('aria-placeholder'));
-      check('the model chip says the account’s own model', !!chip() && chip().textContent.length > 0, chip() ? chip().textContent : 'none');
-      check('the chips sit beside Send, the place first', !!chip() && !!q('.ca-composer-send', chip().closest('.ca-composer-buttons')) && chip().getBoundingClientRect().left >= placeChip().getBoundingClientRect().right, chip() ? chip().getBoundingClientRect().left + ' / ' + placeChip().getBoundingClientRect().right : 'none');
-      return openPlaces();
+      check('the chip says its account, then the model it goes on with', chip().textContent.indexOf(picked.account) === 0 && !!q('.ca-modelmenu-detail', chip()), chip().textContent);
+      check('the chip sits beside Send', !!q('.ca-composer-send', chip().closest('.ca-composer-buttons')), 'apart');
+      return openMenu();
     })
     .then(function () {
-      check('its menu offers the places its account’s sessions go on in', places().join(', ') === offered.map(function (p) { return p.label; }).join(', '), places().join(', '));
-      check('each says what it is', options().every(function (o) { return !!q('.ca-picker-detail', o); }), options().map(function (o) { return o.textContent; }).join(' | '));
-      var menu = q('.ca-peek .ca-placemenu .ca-picker');
-      check('the menu opens upward, over the conversation', menu.getBoundingClientRect().bottom <= placeChip().getBoundingClientRect().top + 1, menu.getBoundingClientRect().bottom + ' / ' + placeChip().getBoundingClientRect().top);
-      return closePlaces();
+      check('its menu’s Runs in row offers the places its account’s sessions go on in', places().join(', ') === offered.map(function (p) { return p.label; }).join(', '), places().join(', '));
+      check('each says what it is on hover', options().every(function (o) { return !!o.title; }), options().map(function (o) { return o.textContent + ': ' + o.title; }).join(' | '));
+      check('the menu opens upward, over the conversation', menu().getBoundingClientRect().bottom <= chip().getBoundingClientRect().top + 1, menu().getBoundingClientRect().bottom + ' / ' + chip().getBoundingClientRect().top);
+      return closeMenu();
     })
     .then(function () { return pickPlace(labelOf('background')); })
     .then(function () {
       var behind = (offered.filter(function (p) { return p.place === 'background'; })[0] || {}).behind;
-      check('the menu closes on a pick, and the chip says it', options().length === 0 && on() === labelOf('background'), on());
+      check('the menu stays up for a place, and the foot says it', !!menu() && on() === labelOf('background'), on());
       check('Background says where it goes', box().getAttribute('aria-placeholder').indexOf(behind ? 'behind your windows' : 'resumes it in the background') >= 0, box().getAttribute('aria-placeholder'));
       if (labelOf('claude-app')) {
         return pickPlace(labelOf('claude-app')).then(function () {
-          check('the Claude app picks its own model, so the chip goes', !chip(), chip() ? chip().textContent : 'gone');
+          check('the Claude app picks its own model, so there are none to pick', models().length === 0, models().map(titleOf).join(', '));
           check('the Claude app takes it on the clipboard', box().getAttribute('aria-placeholder').indexOf('Claude app opens it') >= 0, box().getAttribute('aria-placeholder'));
           return pickPlace(labelOf('background'));
         });
       }
     })
+    .then(openMenu)
     .then(function () {
-      chip().click();
-      return until(function () { return !!q('.ca-peek .ca-modelmenu .ca-picker'); }, 3000, 'no model menu');
-    })
-    .then(function () {
-      var menu = q('.ca-peek .ca-modelmenu .ca-picker');
-      var rect = menu.getBoundingClientRect();
-      check('the model menu opens upward, over the conversation', rect.bottom <= chip().getBoundingClientRect().top + 1, rect.bottom + ' / ' + chip().getBoundingClientRect().top);
-      var opt = all('.ca-picker-opt', menu).filter(function (b) { return b.querySelector('.ca-picker-title').textContent.trim() === other.label.split(':')[0].replace(/ \(1M context\)$/, ' 1M'); })[0];
-      check('the menu lists the account’s models', !!opt, all('.ca-picker-title', menu).map(function (t) { return t.textContent; }).join(', '));
+      var opt = models().filter(function (b) { return b.querySelector('.ca-picker-title').textContent.trim() === other.label.split(':')[0].replace(/ \(1M context\)$/, ' 1M'); })[0];
+      check('the menu lists the account’s models', !!opt, models().map(function (b) { return b.textContent; }).join(', '));
       opt.click();
       return wait(50);
     })
     .then(function () {
-      check('the menu closes on a pick', !q('.ca-peek .ca-modelmenu .ca-picker'), 'open');
-      return openPlaces();
+      check('the menu closes on a model', !menu(), 'open');
+      return openMenu();
     })
     .then(function () {
       check('a model leaves only the places that take one', places().indexOf('Claude app') < 0 && on() === labelOf('background'), places().join(', ') + ' · ' + on());
-      return closePlaces();
+      return closeMenu();
     })
     .then(function () {
       type(box(), 'Carry on where you left off');

@@ -1,5 +1,5 @@
-// Checks the model a Cursor app chat is set to, beside Send in its box (SessionReply.tsx,
-// SessionModel.tsx): Cursor's name for it and, quieter, its effort as Cursor writes the level,
+// Checks the model a Cursor app chat is set to, after its account in the chip beside Send in its box
+// (SessionReply.tsx, SessionAgent.tsx): Cursor's name for it and, quieter, its effort as Cursor writes the level,
 // between turns too, since the chat keeps the model its next turn goes on with; and no menu,
 // since nothing switches a Cursor chat's model from outside.
 //   scripts/preview.sh peek '' scripts/preview/cursor-model-check.js
@@ -23,7 +23,9 @@
   localStorage.removeItem('codealong.draft.' + picked.key);
 
   var said = function () { return q('.ca-peek .ca-composer-buttons .ca-modelmenu-said'); };
-  var effort = function () { var d = q('.ca-modelmenu-detail', said()); return d ? d.textContent : ''; };
+  // After the account, quieter: `model · effort`.
+  var detail = function () { var d = said() && q('.ca-modelmenu-detail', said()); return d ? d.textContent : ''; };
+  var effort = function () { return detail().split(' · ')[1] || ''; };
   var withSession = function (change) {
     var b = JSON.parse(JSON.stringify(board));
     b.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === picked.key) change(s); }); });
@@ -35,7 +37,7 @@
   window.__emit('board', withSession(function (s) { s.live = false; s.status = 'idle'; }));
   until(function () { return !!said(); }, 20000, 'no model beside Send for a chat between turns')
     .then(function () {
-      check('it says the model by Cursor’s name for it', said().textContent.indexOf(picked.model) === 0, said().textContent);
+      check('it says the model by Cursor’s name for it, after its account', said().textContent.indexOf(picked.account) === 0 && detail().indexOf(picked.model) === 0, said().textContent);
       if (picked.effort) check('after the model, its effort as Cursor writes the level', effort() === picked.effort, effort() || 'none');
       check('it’s no menu: nothing switches a Cursor chat’s model from here', !q('.ca-peek .ca-composer-buttons .ca-modelmenu-chip'), 'a menu');
       check('the chip sits beside Send', !!q('.ca-composer-send', said().closest('.ca-composer-buttons')), 'apart');
@@ -46,7 +48,7 @@
     .then(function () {
       // A chat whose model says no level shows the model alone.
       window.__emit('board', withSession(function (s) { s.live = false; s.status = 'idle'; s.model = 'Auto'; delete s.effort; }));
-      return until(function () { return said() && said().textContent === 'Auto'; }, 3000, 'Auto with no effort: ' + (said() ? said().textContent : 'none'));
+      return until(function () { return said() && detail() === 'Auto'; }, 3000, 'Auto with no effort: ' + (said() ? said().textContent : 'none'));
     })
     .then(done, stopped);
 })();

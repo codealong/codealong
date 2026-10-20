@@ -28,10 +28,12 @@
 //
 // The box is laid out as chat apps' are: the placeholder says how a message gets there (typed
 // into its Ghostty tab, a message from Codealong, its app: send.rs `way_in`), and a row at its
-// foot has, at the left, the mode it runs in (ModeLabel.tsx), the session's account and how full
-// its context is (ContextMeter.tsx), who the message goes to and what it may do about it, and at
-// the right its model and the send button. Its account, where it can move to another, is a menu
-// of them, and picking one asks whether to move it there (MoveAccount.tsx). The mode of a session
+// foot has, at the left, the mode it runs in (ModeLabel.tsx) and where it runs, or goes on
+// (`boxPlace`), and at the right how full its context is (ContextMeter.tsx), its account, model and
+// effort as one chip (SessionAgent.tsx), and the send button (asked 2026-10-19). The chip is a menu
+// of its account's models and levels where they can be switched, what it goes on with when it isn't
+// running, and the accounts it can move to, picking one of which asks whether to move it there
+// (MoveAccount.tsx). The mode of a session
 // Codealong runs is a menu of the modes its agent offers, and ⇧⇥ in the box steps to the next, as it does in Claude Code's
 // terminal: mid-turn too, and while it waits on you, where what it asks next goes by the new mode. What else it has to say (how a send went, what what's
 // typed will do: `BoxSays`) goes in that row too, after who the message goes to, on one line that
@@ -100,11 +102,10 @@ import { bangCommand } from './RunButton';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { ModeLabel, ModeMenu, nextMode } from './ModeLabel';
-import { AccountMenu } from './MoveAccount';
-import { AccountLabel, BoxText, Button, Chip, cx, Icon, OneLine, Rich, Seg } from './primitives';
+import { BoxText, Button, Chip, cx, Icon, OneLine, Rich, Seg } from './primitives';
 import { nextQuestion, QuestionList, QuestionWhy } from './QuestionList';
-import { offersResume, ResumeModel, ResumePlace } from './ResumeBar';
-import { SessionModel } from './SessionModel';
+import { BoxPlace, offersResume, SessionAgent } from './SessionAgent';
+import { placeIcon } from './StartControls';
 import { ContextMeter } from './ContextMeter';
 import { dialogUp } from './focusTrap';
 import { SESSION_SIDES, SideStrip, type SideWindowCan } from './SideStrip';
@@ -161,6 +162,29 @@ export function replyPlaceholder(s: Session, terminal: string, way?: Way | null,
   if (!s.live && s.harness === 'claude') return s.surface === 'app' ? `${to}: it isn’t running, so the Claude app opens it with this on the clipboard` : `${to}: it isn’t running, so this resumes it in ${terminal}`;
   if (!s.live && (s.harness === 'codex' || s.harness === 'antigravity' || s.harness === 'cursor') && s.surface === 'cli') return `${to}: it isn’t running, so this resumes it in ${terminal}`;
   return `${to}${working}`;
+}
+
+/** Where a session runs, or where a send goes on with it when it isn't running (`resuming`, the
+ *  place picked in its chip's menu and its name there), for the left of its box's foot: by how a
+ *  message gets there (`way`), else by where it is. */
+export function boxPlace(s: Session, terminal: string, way?: Way | null, resuming?: { place: StartPlace; label: string } | null): { icon: string; label: string; title: string } {
+  const runs = (icon: string, label: string) => ({ icon, label, title: `It runs in ${label === 'Background' ? 'the background' : label}` });
+  if (s.hosted) return runs(placeIcon('codealong'), 'Codealong');
+  if (resuming) return { icon: placeIcon(resuming.place), label: resuming.label, title: `It isn’t running: a send goes on with it in ${resuming.place === 'background' ? 'the background' : resuming.label}` };
+  switch (way?.kind) {
+    case 'typed':
+      return runs(placeIcon('terminal'), way.app);
+    case 'background':
+      return runs(placeIcon('background'), 'Background');
+    case 'resume':
+      return { icon: placeIcon('terminal'), label: way.app, title: `It isn’t running: a send goes on with it in ${way.app}` };
+    case 'codex-app':
+      return runs(placeIcon('codex-app'), 'Codex app');
+    case 'claude-app':
+      return runs(placeIcon('claude-app'), 'Claude app');
+  }
+  const where = sessionPlace(s, terminal);
+  return runs(s.surface === 'cli' ? placeIcon('terminal') : placeIcon('claude-app'), where);
 }
 
 interface ComposerProps {
@@ -299,7 +323,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const suggestionList = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
 
-  // Where a session on this Mac that isn't running goes on, and on what (ResumeBar.tsx), when
+  // Where a session on this Mac that isn't running goes on, and on what (SessionAgent.tsx), when
   // its account offers a choice; without one, a send resumes it in a terminal. The place and the
   // model are chips beside Send, where a running one's model is. A session on another device is
   // switched there, with the accounts that device has.
@@ -316,9 +340,11 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   const resumeChosen = resumable && account ? resumeChoice(account, [], resumePicks, resumedIn(account.name)) : null;
   const resuming = offersResume(resumeChosen) ? resumeChosen : null;
   const resumeHow = resuming ? resumeIn(resuming) : null;
-  const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resuming?.places.find((p) => p.place === resumeHow.place)?.behind };
+  const resumePlace = resumeHow ? resuming?.places.find((p) => p.place === resumeHow.place) : undefined;
+  const resumeWhere = resumeHow && { place: resumeHow.place, behind: !!resumePlace?.behind };
+  const place = boxPlace(s, terminal, way, resumeHow && resumePlace ? { place: resumeHow.place, label: resumePlace.label } : null);
   // A running one says what model and effort it's on, beside Send, and where Codealong can switch
-  // them (SessionModel.tsx): one it runs, or one whose terminal it types into, by its harness's
+  // them (SessionAgent.tsx): one it runs, or one whose terminal it types into, by its harness's
   // commands. One whose app goes on with it is switched in the app, running or not, from its
   // next turn (the Codex app's, codex/ipc.rs `codex_settings_request`).
   const inApp = goesOnWithIt && !!account?.switchesInApp;
@@ -919,24 +945,33 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
           <div className="ca-composer-tools ca-composer-who">
             {/* The mode it runs in now; a side conversation's copy has a mode of its own. */}
             {switchesMode && !aside ? <ModeMenu mode={mode} modes={modes} disabled={switching} onPick={switchMode} onDone={() => box.current?.focus()} /> : s.live && s.mode && !aside && <ModeLabel mode={s.mode} small />}
-            {/* A side conversation's copy runs on the session's account too, so it stays. */}
-            {moves && onMove && !aside ? <AccountMenu session={s} moves={moves} onPick={onMove} onDone={() => box.current?.focus()} /> : <AccountLabel session={s} small />}
-            {!aside && <ContextMeter session={s} />}
+            {!aside && <BoxPlace {...place} />}
           </div>
           {saying && <OneLine className={cx('ca-composer-note', saying.error && 'is-error')} role="status" text={saying.text} />}
           <div className="ca-composer-buttons">
-            {resuming && account && !aside && resuming.places.length > 1 && <ResumePlace picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
-            {resuming && account && !aside && resuming.takesAModel && <ResumeModel account={account} picks={resumePicks} chosen={resuming} onPicks={setResumePicks} onDone={() => box.current?.focus()} />}
-            {saysModel && !aside && (
-              <SessionModel
+            {!aside && <ContextMeter session={s} />}
+            {/* A side conversation's copy runs on the session's account, model and effort: said, not picked. */}
+            {aside ? (
+              <SessionAgent session={s} account={account} onDone={() => box.current?.focus()} />
+            ) : (
+              <SessionAgent
                 session={s}
                 account={account}
-                switches={switches}
-                switchesEffort={switchesEffort}
-                busy={switching || (!inApp && (s.status === 'working' || !!s.stalledSince || !!waiting))}
-                nextTurn={inApp}
-                onSwitch={(model) => switchTo(switchSessionModel(s.key, model))}
-                onEffort={(effort) => switchTo(switchSessionEffort(s.key, effort))}
+                resume={resuming && account ? { picks: resumePicks, chosen: resuming, onPicks: setResumePicks } : null}
+                live={
+                  saysModel
+                    ? {
+                        switches,
+                        switchesEffort,
+                        busy: switching || (!inApp && (s.status === 'working' || !!s.stalledSince || !!waiting)),
+                        nextTurn: inApp,
+                        onSwitch: (model) => switchTo(switchSessionModel(s.key, model)),
+                        onEffort: (effort) => switchTo(switchSessionEffort(s.key, effort)),
+                      }
+                    : null
+                }
+                moves={moves}
+                onMove={onMove}
                 onDone={() => box.current?.focus()}
               />
             )}
