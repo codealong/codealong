@@ -840,7 +840,7 @@ enum BoardCmd {
     New(BoardNewArgs),
     /// What a board holds, as its user sees it: its Kanban columns, each with its cards in their order (a todo with the sessions on it, or a session on no todo the board shows), or with --as canvas its canvas's frames in reading order, each with who made it (`by`: `you` drew it, a `tidy` made it, or `arrange` did), the cards in it (`gone` once the board no longer has one) and its notes. Without a board, the project's own.
     Show(BoardShowArgs),
-    /// Put cards on a board by hand. They stay on it whatever its rule says, until they're taken off, and come back if they were taken off.
+    /// Put cards on a board by hand. They stay on it whatever its rule says, until they're taken off, and come back if they were taken off. The board shows each, however old: an archived session in Done, a helper, a todo done long ago. One outside the board's project is put on it but doesn't show there, and it says which and why (`notShown` in its JSON).
     Add(BoardCardsArgs),
     /// Take cards off a board. They stay off whatever its rule says, until they're added again.
     Remove(BoardCardsArgs),
@@ -1773,10 +1773,67 @@ fn board_cards(c: &mut Client, a: BoardCardsArgs, add: bool, json: bool) -> Resu
         bail!("Name the cards: --todo, --session, --worktree or --pr.");
     }
     let n = cards.len();
-    let op = if add { BoardOp::Add { id: b.id.clone(), cards } } else { BoardOp::Remove { id: b.id.clone(), cards } };
+    let op = if add { BoardOp::Add { id: b.id.clone(), cards: cards.clone() } } else { BoardOp::Remove { id: b.id.clone(), cards: cards.clone() } };
     let now = apply_board(c, op)?.board.unwrap_or(b);
     let what = format!("{n} card{}", if n == 1 { "" } else { "s" });
-    say_done(json, &now, if add { format!("Put {what} on {}.\n", now.name) } else { format!("Took {what} off {}.\n", now.name) })
+    if !add {
+        return say_done(json, &now, format!("Took {what} off {}.\n", now.name));
+    }
+    let board = c.board()?;
+    let unshown: Vec<Unshown> = cards.iter().filter_map(|card| unshown(board, &now, card)).collect();
+    if json {
+        let mut out = serde_json::to_value(&now)?;
+        out["notShown"] = serde_json::to_value(&unshown)?;
+        return print_json(&out);
+    }
+    print!("Put {what} on {}.\n{}", now.name, unshown_text(&unshown));
+    Ok(())
+}
+
+/// A card put on a board by hand that won't show there, and why.
+#[derive(Serialize, Debug, PartialEq)]
+struct Unshown {
+    card: String,
+    title: String,
+    why: String,
+}
+
+/// Why a card put on a board won't show there, if it won't: a board shows only what's in its
+/// project, as the app's windows decide it (boardLists.ts `kanbanOf`, canvas/model.ts
+/// `entitiesOf`), and keeps what's put on it from elsewhere all the same. Of what the board
+/// doesn't know, it says nothing.
+fn unshown(board: &Board, doc: &BoardDoc, card: &str) -> Option<Unshown> {
+    let (kind, key) = boards::parse_card(card)?;
+    let every = doc.project == crate::route::ALL_PROJECTS;
+    let place = |project: &str| match project {
+        "" => "is in no project".to_string(),
+        board::ELSEWHERE => "is outside your projects".to_string(),
+        p => format!("is in {p}"),
+    };
+    let elsewhere = |project: &str| (!every && project != doc.project).then(|| format!("{}, and {} shows what's in {}", place(project), doc.name, doc.project));
+    let lane_why = |lane: &Lane| {
+        if crate::route::in_project(lane, &doc.project) {
+            return None;
+        }
+        elsewhere(&lane.project).or_else(|| Some(format!("is outside your projects, which {} shows only while it needs you", doc.name)))
+    };
+    let (title, why) = match kind {
+        boards::Kind::Session => all_sessions(board).into_iter().find(|(s, _)| s.key == key).map(|(s, l)| (s.title.clone(), lane_why(l)))?,
+        boards::Kind::Worktree => board.lanes.iter().find(|l| l.id == key).map(|l| (l.callsign.clone(), lane_why(l)))?,
+        boards::Kind::Todo => board.todos.iter().find(|t| t.id == key).map(|t| (t.title.clone(), elsewhere(&t.project)))?,
+        boards::Kind::Pr => board.prs.iter().find(|p| p.key == key).map(|p| (format!("#{} {}", p.number, p.title), elsewhere(&p.project)))?,
+    };
+    let title = if title.trim().is_empty() { "Untitled".to_string() } else { truncate(&title, 60) };
+    Some(Unshown { card: card.to_string(), title, why: why? })
+}
+
+fn unshown_text(unshown: &[Unshown]) -> String {
+    if unshown.is_empty() {
+        return String::new();
+    }
+    let n = if unshown.len() == 1 { "One".to_string() } else { unshown.len().to_string() };
+    let lines: String = unshown.iter().map(|u| format!("  {} ({}) {}.\n", u.title, u.card, u.why)).collect();
+    format!("{n} won't show there:\n{lines}")
 }
 
 /// A todo label by its name, whatever its case, or its id.
@@ -6551,6 +6608,32 @@ mod tests {
         // Once the other session ends, the checkout's todos are this one's to see.
         let b = shared_and_own(false);
         assert_eq!(ids(my_todos(&b, Some("me"), Some(&b.lanes[0]))), ["a", "c"]);
+    }
+
+    #[test]
+    fn board_add_says_which_cards_wont_show_as_they_are_outside_the_boards_project() {
+        let at = |id: &str, project: &str, hidden: bool, key: &str| Lane { project: project.into(), hidden, ..lane(id, vec![session(key, true, None)]) };
+        let lanes = vec![at("/r/app", "Northwind", false, "app"), at("/r/chats", board::ELSEWHERE, false, "chat"), at("/r/notes", board::ELSEWHERE, true, "note"), at("/r/site", "Atlas", false, "site")];
+        let todos = vec![Todo { project: "Northwind".into(), ..todo("t-here", TodoStatus::Done, &[], &[]) }, Todo { project: "Atlas".into(), ..todo("t-there", TodoStatus::Todo, &[], &[]) }];
+        let b = Board { lanes, todos, ..Board::default() };
+        let release = BoardDoc { name: "Release".into(), ..BoardDoc::of_project("Northwind") };
+        let why = |doc: &BoardDoc, card: &str| unshown(&b, doc, card).map(|u| u.why);
+        // What's in the project shows, archived, a helper or done; what the board doesn't know, it can't say.
+        for card in ["session:app", "worktree:/r/app", "todo:t-here", "session:unknown"] {
+            assert_eq!(why(&release, card), None, "{card}");
+        }
+        assert_eq!(why(&release, "session:site").as_deref(), Some("is in Atlas, and Release shows what's in Northwind"));
+        assert_eq!(why(&release, "todo:t-there").as_deref(), Some("is in Atlas, and Release shows what's in Northwind"));
+        assert_eq!(why(&release, "session:chat").as_deref(), Some("is outside your projects, and Release shows what's in Northwind"));
+        // The board of every project leaves out only what's outside your projects and needs nothing of you.
+        let every = BoardDoc::of_project(crate::route::ALL_PROJECTS);
+        for card in ["session:site", "session:chat", "todo:t-there"] {
+            assert_eq!(why(&every, card), None, "{card}");
+        }
+        assert_eq!(why(&every, "session:note").as_deref(), Some("is outside your projects, which All projects shows only while it needs you"));
+        let said = unshown_text(&[unshown(&b, &release, "session:site").unwrap()]);
+        assert_eq!(said, "One won't show there:\n  Title site (session:site) is in Atlas, and Release shows what's in Northwind.\n");
+        assert_eq!(unshown_text(&[]), "");
     }
 
     #[test]

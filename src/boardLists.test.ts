@@ -14,7 +14,10 @@ import {
   helperCounts,
   HELPERS_SHOWN_MAX,
   inPinOrder,
+  addedSessions,
+  archivedOn,
   kanbanColumns,
+  kanbanOf,
   laneInQuery,
   pinnedLaneRowsOf,
   placeHelpers,
@@ -787,6 +790,36 @@ describe('the Kanban view’s columns', () => {
     expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...hand, removed: ['session:claude:claude:out'] }).progress).toEqual(['/r/app::claude:claude:in']);
     // Nor on a project's own board, which holds every worktree.
     expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...projectBoard('Acme'), removed: ['session:claude:claude:in'] }).progress).toEqual(['/r/app::claude:claude:out']);
+  });
+
+  it('shows each card put on a board by hand, as `board show` sees it: an archived session in Done, a helper, a todo done long ago', () => {
+    const lead = session('claude:claude:lead', { live: true });
+    const marked = session('claude:claude:marked', { archived: true, status: 'stopped' });
+    const review = session('codex:codex:review', { helper: { parent: lead.key } });
+    const l = lane('/r/app', [lead, marked, session('claude:claude:gone', { archived: true }), review, session('codex:codex:other-review', { helper: { parent: lead.key } })]);
+    const todos = [fx.todo({ id: 'old', project: 'Acme', status: 'done', doneAt: NOW - 30 * DAY }), fx.todo({ id: 'older', project: 'Acme', status: 'done', doneAt: NOW - 30 * DAY })];
+    const doc: BoardDoc = { id: 'b-1', name: 'Shipped', project: 'Acme', rule: null, added: ['session:claude:claude:marked', 'session:codex:codex:review', 'todo:old', 'worktree:/r/app'], removed: [] };
+    const { columns, archived } = kanbanOf(fx.board({ lanes: [l], todos }), [l], doc, NOW);
+    // The worktree brings its session at work; the helper and the archived session it doesn't bring.
+    expect(Object.fromEntries(columns.map((c) => [c.id, c.cards.map((r) => r.key)]))).toEqual({
+      todo: [],
+      progress: ['/r/app::claude:claude:lead', '/r/app::codex:codex:review'],
+      review: [],
+      done: ['/r/app::claude:claude:marked', 'todo:old'],
+    });
+    expect(archived.map((r) => r.session.key)).toEqual(['claude:claude:marked']);
+    // Nor does a project's own board show an archived session or a helper it doesn't have by hand.
+    const own = kanbanOf(fx.board({ lanes: [l], todos }), [l], projectBoard('Acme'), NOW);
+    expect(own.columns.flatMap((c) => c.cards.map((r) => r.key))).toEqual(['/r/app::claude:claude:lead']);
+  });
+
+  it('keeps the sessions a board has by hand however old, as the age filter does pins', () => {
+    const old = session('claude:claude:old', { lastActivity: NOW - 30 * DAY });
+    const l = lane('/r/app', [old, session('claude:claude:also-old', { lastActivity: NOW - 30 * DAY })]);
+    const doc: BoardDoc = { id: 'b-1', name: 'Shipped', project: 'Acme', rule: null, added: ['session:claude:claude:old', 'todo:t'], removed: [] };
+    expect([...addedSessions(doc)]).toEqual(['claude:claude:old']);
+    expect(shownSessionsOf(sessionItemsOf([l]), NOW - DAY, addedSessions(doc), '', []).map((r) => r.session.key)).toEqual(['claude:claude:old']);
+    expect(archivedOn([l], doc)).toEqual([]);
   });
 
   it('puts cards in a board’s own columns: the first whose rule takes it, else where it was put, else the first without a rule', () => {

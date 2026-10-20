@@ -1197,8 +1197,11 @@ in any session's, worktree's, todo's or PR's right-click menu puts it on a board
 it's on one already: pick it again to take it off), or on a new one; Remove from board on a card in
 Kanban, or on the canvas, takes it off, and it stays off whatever the rule says until it's added
 again. A worktree or a PR on a board brings its sessions onto the board's Kanban, and a todo made
-from a board's Kanban is put on the board. What's at the top says what the board takes in, and how
-many cards were added and taken off by hand. Boards are kept per Mac, in `boards.json`.
+from a board's Kanban is put on the board. What you add shows however old it is, an archived
+session (in Done) or a helper too, as long as it's in the board's project: `codealong board add`
+puts one from another project on the board all the same, and says it won't show there. What's at
+the top says what the board takes in, and how many cards were added and taken off by hand. Boards
+are kept per Mac, in `boards.json`.
 
 #### Kanban
 
@@ -1206,19 +1209,20 @@ A board's todos and sessions as cards in columns, by default four by how far the
 do, In progress, In review and Done. A card is a todo, with the sessions on it listed under its two
 lines, the most urgent first, or a session on no open todo the board shows, while it's running or
 waits on you, or its PR is in review, or you put it on the board: one that ended and that you've
-seen leaves the board, unless you added it, as do helpers and headless runs that don't need you,
-which work for another session. Its face is the one cards on the canvas and the desktop have. A
-todo is in the column its Todo section says (Ready and Waiting are To do, with a line where Waiting
-begins); a session is In review while the PR it worked on is open and not a draft, Done once that
-PR merged or its turn ended saying its work landed, unless it's working or waits on you, and In
-progress otherwise. A card moves only when its work does (started, a PR opened, merged, done) or
+seen leaves the board, as do helpers and headless runs that don't need you, which work for another
+session, and archived ones, unless you added them. Its face is the one cards on the canvas and the
+desktop have. A todo is in the column its Todo section says (Ready and Waiting are To do, with a
+line where Waiting begins); a session is Done once it's archived (marked done, say), In review
+while the PR it worked on is open and not a draft, Done once that PR merged or its turn ended
+saying its work landed, unless it's working or waits on you, and In progress otherwise. A card moves only when its work does (started, a PR opened, merged, done) or
 you move it, never with each turn: whose move it is shows in its stripe, amber when it needs you,
 and in its place. To do keeps your order (drag, or ⌃⌘↑ ⌃⌘↓ on a project's own board); In progress
 and In review list what needs you first, the longest wait first, then your turns, then what's
 working, then the rest, the one you last sent a prompt first; Done, the latest first, is folded to
 a rail with its count until you open it. Done's todos go back as far as the age filter does (two
-weeks under All), which narrows the sessions too; the list's find, the statuses and the devices
-narrow it as they do the other views, and a label shows only todos.
+weeks under All), which narrows the sessions too, but not what you added to the board; the list's
+find, the statuses and the devices narrow it as they do the other views, and a label shows only
+todos.
 
 Select a card for its panel: a todo's, or a session's with its conversation and its box. The
 arrows go up and down a column and across to the next one that has cards; Return opens a card

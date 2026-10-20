@@ -78,6 +78,17 @@ describe('sync', () => {
     const all = sync(emptyDoc(), e, NOW);
     expect(at(sync(all, e, NOW, new Set(), onBoard([], ['session:s1'])), 'session:s1')).toBeUndefined();
   });
+
+  it('brings on an archived session or a helper put on the board by hand, and no other', () => {
+    const marked = session('marked', { archived: true, status: 'stopped' });
+    const helper = session('review', { helper: { parent: 's1' } });
+    const home = lane('h', [marked, session('gone', { archived: true }), helper, session('other-review', { helper: { parent: 's1' } })]);
+    // The window's worktrees have their archived sessions left out; the board's come apart.
+    const shown = { ...home, sessions: home.sessions.filter((s) => !s.archived) };
+    const hand = entitiesOf(null, [shown], [], () => true, [{ lane: home, session: marked }]);
+    const d = sync(emptyDoc(), hand, NOW, new Set(), onBoard(['session:marked', 'session:review'], [], (id) => id !== 'session:other-review'));
+    expect(refs(d).map(itemId).sort()).toEqual(['session:marked', 'session:review', 'worktree:h']);
+  });
 });
 
 describe('addRef and freeSpot', () => {

@@ -29,15 +29,17 @@ export interface Subject {
 
 const isOpenForReview = (state: Pr['state'] | undefined) => state === 'open' || state === 'approved' || state === 'changes';
 
-/** Where a session stands: In review while the PR it worked on (an open one first, lanes.ts
+/** Where a session stands: Done once it's archived (marked done, say), whatever its PR, unless it's
+ *  at work or waits on you; In review while the PR it worked on (an open one first, lanes.ts
  *  `sessionPrs`) is open and not a draft; Done once that PR merged or its turn ended saying its
  *  work landed, unless it's at work or waits on you; else In progress. */
 export function sessionStage(r: SessionItem, prs: PrItem[]): Exclude<Stage, 'todo'> {
   const s = r.session;
+  const busy = s.status === 'working' || s.status === 'needs' || s.status === 'error';
+  if (s.archived && !busy) return 'done';
   const worked = sessionPrs(prs, r.lane, s);
   const pr = worked.find((p) => p.state !== 'merged' && p.state !== 'closed') ?? worked[0];
   if (isOpenForReview(pr?.state)) return 'review';
-  const busy = s.status === 'working' || s.status === 'needs' || s.status === 'error';
   return !busy && (pr?.state === 'merged' || s.insight?.landing === 'landed') ? 'done' : 'progress';
 }
 

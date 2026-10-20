@@ -3205,7 +3205,10 @@ Commands:
            did), the cards in it (`gone` once the board no longer has one) and its
            notes. Without a board, the project's own
   add      Put cards on a board by hand. They stay on it whatever its rule says, until
-           they're taken off, and come back if they were taken off
+           they're taken off, and come back if they were taken off. The board shows
+           each, however old: an archived session in Done, a helper, a todo done long
+           ago. One outside the board's project is put on it but doesn't show there, and
+           it says which and why (`notShown` in its JSON)
   remove   Take cards off a board. They stay off whatever its rule says, until they're
            added again
   rule     Change what comes onto a board by itself. Each option given must hold, and
@@ -3412,7 +3415,10 @@ Options:
 
 ```
 Put cards on a board by hand. They stay on it whatever its rule says, until they're
-taken off, and come back if they were taken off
+taken off, and come back if they were taken off. The board shows each, however old: an
+archived session in Done, a helper, a todo done long ago. One outside the board's
+project is put on it but doesn't show there, and it says which and why (`notShown` in
+its JSON)
 
 Usage: codealong board add [OPTIONS] <BOARD>
 

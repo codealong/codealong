@@ -510,6 +510,7 @@ export function App() {
     todosFor,
     subjects,
     member,
+    boardArchived,
     kanbanCols,
     kanbanVisible,
     openCardCount,
@@ -564,8 +565,8 @@ export function App() {
 
   // The board's canvas: its document, kept up to date with what the board holds once it's been shown.
   const canvasEntities = useMemo(
-    () => entitiesOf(board, projectLanes, todoStore.todos, (p) => current === ALL_PROJECTS || p === current),
-    [board, projectLanes, todoStore.todos, current],
+    () => entitiesOf(board, projectLanes, todoStore.todos, (p) => current === ALL_PROJECTS || p === current, boardArchived),
+    [board, projectLanes, todoStore.todos, current, boardArchived],
   );
   const holds = useMemo<OnBoard>(() => holdsOf(shownBoard, member), [member, shownBoard]);
   const canvas = useCanvas(shownBoard.id, view === 'canvas', !loading, canvasEntities, now, lanePins.set, holds);

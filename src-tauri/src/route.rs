@@ -68,7 +68,7 @@ const SCORED: usize = 20;
 const STOPPED_WEIGHT: f64 = 0.5;
 
 /// Whether a lane is in the panel's project, as the panel decides it (quick.ts `inProject`).
-fn in_project(lane: &Lane, project: &str) -> bool {
+pub(crate) fn in_project(lane: &Lane, project: &str) -> bool {
     if project == ALL_PROJECTS {
         return !lane.hidden;
     }

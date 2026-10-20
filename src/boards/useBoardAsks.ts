@@ -73,26 +73,27 @@ async function answer(ask: BoardAsk, latest: { readonly current: BoardAsks }): P
   if (board.loading) throw new Error('Codealong is still reading the board. Ask again in a moment.');
   let doc = await boardAsked(ask);
   const { deviceLanes, deviceFilter } = latest.current;
-  const lanes = unarchived(withDevices(board.lanes, deviceLanes, deviceFilter));
+  // Archived sessions and all: a board shows those it has by hand (boardLists.ts `archivedOn`).
+  const rawLanes = withDevices(board.lanes, deviceLanes, deviceFilter);
   const now = Date.now();
   const op = ask.ask as Ask;
-  if (op.kind === 'move') return move(op, doc, board, lanes, now, latest.current);
+  if (op.kind === 'move') return move(op, doc, board, rawLanes, now, latest.current);
   if (op.kind === 'show' && op.layout === 'kanban') {
-    const { columns } = kanbanOf(board, lanes, doc, now);
+    const { columns } = kanbanOf(board, rawLanes, doc, now);
     return { board: named(doc), rule: doc.rule, columns: columns.map(shownColumn) };
   }
   // A card an arrange names that isn't on the board is put on it.
   if (op.kind === 'arrange') {
-    const { member } = kanbanOf(board, lanes, doc, now);
+    const { member } = kanbanOf(board, rawLanes, doc, now);
     const cards = op.frames.flatMap((f) => f.cards.map((c) => refId(c.ref, c.key))).filter((c) => !member(c));
     if (cards.length > 0) {
       await latest.current.apply({ op: 'add', id: doc.id, cards: [...new Set(cards)] });
       doc = await boardAsked(ask);
     }
   }
-  const { member } = kanbanOf(board, lanes, doc, now);
-  const projectLanes = lanes.filter((l) => inProject(l, doc.project));
-  const e = entitiesOf(board, projectLanes, board.todos, (p) => doc.project === ALL_PROJECTS || p === doc.project);
+  const { member, archived } = kanbanOf(board, rawLanes, doc, now);
+  const projectLanes = unarchived(rawLanes).filter((l) => inProject(l, doc.project));
+  const e = entitiesOf(board, projectLanes, board.todos, (p) => doc.project === ALL_PROJECTS || p === doc.project, archived);
   const pinned = new Set(board.pinnedWorktrees);
   const on = holdsOf(doc, member);
   const file = await readCanvas(doc.id);
@@ -135,8 +136,8 @@ function shownColumn(c: KanbanColumn) {
 
 /** Moves a card on a board's Kanban to a column, as dragging it there does (kanban.ts), or says
  *  what that would do. */
-async function move(op: Extract<Ask, { kind: 'move' }>, doc: BoardDoc, board: Board, lanes: Lane[], now: number, acts: BoardAsks): Promise<unknown> {
-  const { columns, subjects } = kanbanOf(board, lanes, doc, now);
+async function move(op: Extract<Ask, { kind: 'move' }>, doc: BoardDoc, board: Board, rawLanes: Lane[], now: number, acts: BoardAsks): Promise<unknown> {
+  const { columns, subjects } = kanbanOf(board, rawLanes, doc, now);
   const from = columns.find((c) => c.cards.some((x) => kanbanCardId(x) === op.card));
   const card = from?.cards.find((x) => kanbanCardId(x) === op.card);
   if (!from || !card) throw new Error(`${op.card} isn't on ${doc.name}'s Kanban. \`codealong board show\` lists what is.`);

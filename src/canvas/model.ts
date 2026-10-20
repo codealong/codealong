@@ -269,9 +269,12 @@ export interface Entities {
   prs: Map<string, PrItem>;
 }
 
-/** `lanes` are the project's, as the window shows them; todos and PRs are picked by `inProject`. */
-export function entitiesOf(board: Board | null, lanes: Lane[], todos: Todo[], inProject: (project: string) => boolean): Entities {
+/** `lanes` are the project's, as the window shows them; todos and PRs are picked by `inProject`.
+ *  Archived sessions are left out but `archived`, those the board has by hand (boardLists.ts
+ *  `archivedOn`). */
+export function entitiesOf(board: Board | null, lanes: Lane[], todos: Todo[], inProject: (project: string) => boolean, archived: readonly Placed[] = []): Entities {
   const sessions = new Map([...sessionHomes(lanes)].filter(([, p]) => !p.session.archived));
+  for (const { lane, session } of archived) if (!sessions.has(session.key)) sessions.set(session.key, { lane, session });
   return {
     lanes: new Map(lanes.map((l) => [l.id, l])),
     sessions,
