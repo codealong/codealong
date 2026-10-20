@@ -979,10 +979,11 @@ const TERMINAL_CHORD = 'Ctrl+`';
 export const KEYS: Partial<Record<keyof SessionActions | keyof LaneActions, string>> = { seen: 'E', unread: 'U', pin: 'P', archive: 'A', rename: 'R', terminal: TERMINAL_CHORD };
 /** The same actions' chords, which work in every view and from Sessions' box, where letters alone
  *  do nothing: ⌘E marks seen (and goes on, where a window works through what waits on you: it's
- *  the queue's key, queue.ts), ⇧⌘E marks done, beside it, and ⌃⌘ and the letter runs the rest.
- *  Closing a session's terminal and marking it done, which closes it too, have a chord and no
- *  letter of their own: they're not ones to press by mistake. */
-export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', unread: 'Ctrl+Cmd+U', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
+ *  the queue's key, queue.ts), ⇧⌘E marks done, beside it, ⇧⌘M asks to merge the PR and mark it
+ *  done (Merge and done…), and ⌃⌘ and the letter runs the rest. Closing a session's terminal,
+ *  marking it done, which closes it too, and merging have a chord and no letter of their own:
+ *  they're not ones to press by mistake. */
+export const CHORDS: typeof KEYS = { seen: QUEUE_CHORDS.seen[0], done: 'Shift+Cmd+E', mergeDone: 'Shift+Cmd+M', unread: 'Ctrl+Cmd+U', pin: 'Ctrl+Cmd+P', archive: 'Ctrl+Cmd+A', rename: 'Ctrl+Cmd+R', close: 'Ctrl+Cmd+W', terminal: TERMINAL_CHORD };
 /** The keys that send the replies suggested for a session (SuggestedReplies.tsx), the first to
  *  the sixth, as the quick panel's ⌘1 to ⌘9 do its rows: from the session's box or the list of
  *  them, and from anywhere in a window whose keyboard works through what waits on you (the notch,

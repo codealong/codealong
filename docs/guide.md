@@ -46,8 +46,9 @@ the selected worktree's, or the worktree of the todo or PR selected. A session c
 conversation has shown for a second, so the ones passed over on the way down a list aren't stops,
 and each window keeps its own history across launches. A session's or worktree's actions have
 letters (`p` pin, `a` archive, `r` rename, `e` mark seen) and chords that work in every view (⌃⌘P,
-⌃⌘A, ⌃⌘R, ⌘E, and three with no letter of their own: ⌃⌘W closes a session's terminal, ⇧⌘E marks it
-done, and ⌃⌘1 to ⌃⌘4 snooze it for one of the Snooze menu's times); the right-click menu shows them.
+⌃⌘A, ⌃⌘R, ⌘E, and four with no letter of their own: ⌃⌘W closes a session's terminal, ⇧⌘E marks it
+done, ⇧⌘M asks to merge its PR and mark it done (Merge and done, see *Merging*), and ⌃⌘1 to ⌃⌘4
+snooze it for one of the Snooze menu's times); the right-click menu shows them.
 A click on a row's chips selects the row, as a click anywhere on it does, and a double-click does
 the chip's own thing (the session where it runs, its todo, its app) in place of opening the row; in
 a panel, a click does. A PR's chip is the same wherever it is, a row, a panel or a card: a click
@@ -626,7 +627,10 @@ box has to say is in the box: *What the box says*). It has what's commonly done 
 buttons that say their keys: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4, one for each of its menu's times: 15
 minutes, 1 hour, 3 hours, the next morning), Close (⌃⌘W, which closes its terminal, or ends a
 background job where the session is one; the conversation stays, to go on with later), Archive (⌃⌘A)
-and Next (⌘]). One that doesn't apply to the session shown is dimmed in its place. Clicking a
+and Next (⌘]). One that doesn't apply to the session shown is dimmed in its place. Ahead of them,
+for a PR's primary session once the PR is ready to merge, is Merge and done (⇧⌘M), whose words and
+key show where the strip has room for them and its icon always, so the rest stay where they
+were. Clicking a
 session puts the cursor in its box; ⌥↑ ⌥↓ from there move along with the cursor in the next one's
 box, the arrows on the list leave the keys with the list, and Escape in the box gives them back.
 
@@ -1022,8 +1026,8 @@ branch. A merge names the head commit the box was read at, so GitHub refuses one
 moved since.
 
 A PR's primary session (see [PRs](#prs)) can merge it and be done with in one go, once GitHub says
-the PR is ready to merge: Merge and done…, beside the PR's chip in the session's header and in its
-right-click menu after Mark as done, asks first in a dialog that says what happens, with the
+the PR is ready to merge: Merge and done (⇧⌘M), first on the strip over the session with Seen and
+Done where it has one, and in its right-click menu after Mark as done, asks first in a dialog that says what happens, with the
 method kept for the repo (from its menu), GitHub's commit for it, the email it goes under and
 whether the branch goes too. Confirmed, it merges the PR, and once GitHub has, the session is
 marked done as Mark as done does it, a turn or a command left running in the background ended too,
@@ -2082,8 +2086,8 @@ back, ⌥↑ ⌥↓ step along the bar's sessions, the running ones too, and ⌃
 through the ones you looked at there. A strip over the header says how the last one went (a
 message that didn't go after ⌘⏎ went on says why there, or on its session's pill once the notch has
 closed), and has what's commonly done to the session as buttons that say their keys, as its
-panel in Sessions has: Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1 to ⌃⌘4), Close (⌃⌘W), Archive (⌃⌘A), Back
-(⌃-), Next (⌘]) and × (esc). The PRs waiting on your review are in that same list, after the
+panel in Sessions has: Merge and done (⇧⌘M) where it applies, Seen (⌘E), Done (⇧⌘E), Snooze (⌃⌘1
+to ⌃⌘4), Close (⌃⌘W), Archive (⌃⌘A), Back (⌃-), Next (⌘]) and × (esc). The PRs waiting on your review are in that same list, after the
 sessions that need you and before the turns that ended, so the keys go from a session to a review
 and on. On a review the strip has Approve (⌘⏎, with what's in the box as the review's text), Comment
 (⌥⌘⏎, which needs text), Snooze (⌃⌘1 to ⌃⌘4), Review with (⌃⌘R starts one on the reviewer Settings names, else Auto's; the

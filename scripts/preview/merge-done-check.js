@@ -1,15 +1,17 @@
 // Checks Merge and done… (ui/MergeDone.tsx, menus.ts `mergeDone`): a session that's the
-// primary of a PR ready to merge has it beside the PR's chip in its header, and in its menu after
-// Mark as done. It opens a dialog that says what it does, with the commit GitHub would write for
-// the way kept for the repo (squash, GitHub's pick here) and the keyboard on its button. Cancel
-// merges nothing. While GitHub is still working out whether it can merge, the dialog says so and
-// reads it again, waiting for a read slower than its interval rather than asking over it, its
-// button taking the keyboard once it can. A merge GitHub refuses says why in
-// the dialog and leaves the session alone. Merged, the dialog goes, and the request that merged
-// it had the engine mark the session done, work under way ended too, rather than the window. Once
-// the PR isn't ready (merged, say), neither the button nor the item is there. A real session is made
-// the primary of a real PR, made ready; the peek's card holds the dialog (SessionCard.tsx), the
-// main window's Sessions App.tsx.
+// primary of a PR ready to merge has it in its menu after Mark as done, with its key (⇧⌘M), and
+// where the session has the strip over it (Sessions), first on the strip, before Seen, saying the
+// key, the strip still one line with it; never in its header. It opens a dialog that says what it does, with the commit GitHub
+// would write for the way kept for the repo (squash, GitHub's pick here) and the keyboard on its
+// button. Cancel merges nothing. ⇧⌘M opens it too, in both windows. While GitHub is still working
+// out whether it can merge, the dialog says so and reads it again, waiting for a read slower than
+// its interval rather than asking over it, its button taking the keyboard once it can. A merge
+// GitHub refuses says why in the dialog and leaves the session alone. Merged, the dialog goes,
+// and the request that merged it had the engine mark the session done, work under way ended
+// too, rather than the window. Once the PR isn't ready (merged, say), neither the strip's button
+// nor the item is there, the strip's other buttons where they were, and ⇧⌘M opens nothing. A real
+// session is made the primary of a real PR, made ready; the peek's card holds the dialog
+// (SessionCard.tsx), the main window's Sessions App.tsx.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/merge-done-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/merge-done-check.js
 (function () {
@@ -95,7 +97,22 @@
 
   var peek = function () { return !!q('.ca-peek'); };
   var header = function () { return q('.ca-sessinsp-head'); };
-  var mergeButton = function () { return q('.ca-sessinsp-links .ca-sessinsp-merge'); };
+  var strip = function () { return q('.ca-hotkeys'); };
+  var stripButton = function (label) { return all('.ca-hotkeys .ca-hotkey').filter(function (b) { return b.textContent.indexOf(label) === 0; })[0]; };
+  var mergeButton = function () { return stripButton('Merge and done'); };
+  var inHeader = function () { return all('.ca-sessinsp-head button').some(function (b) { return /Merge and done/.test(b.textContent); }); };
+  // The session's menu once it has, or hasn't, its item: right-clicked again until it does.
+  var menuWhen = async function (has, ms, what) {
+    var until = Date.now() + ms;
+    for (;;) {
+      var labels = await menuOf(header(), { clientX: 40, clientY: 40 });
+      if ((labels.indexOf(item) >= 0) === has) return labels;
+      if (Date.now() > until) throw new Error(what);
+      await wait(250);
+    }
+  };
+  // ⇧⌘M, as the window hears it.
+  var mergeKey = function () { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'M', code: 'KeyM', metaKey: true, shiftKey: true, bubbles: true, cancelable: true })); };
   var dialog = function () { return q('.ca-mergedonedlg'); };
   var confirm = function () { return q('.ca-mergedonedlg .ca-btn--primary'); };
   var footButton = function (text) { return all('.ca-mergedonedlg .ca-dialog-foot button').filter(function (b) { return b.textContent === text; })[0]; };
@@ -119,27 +136,40 @@
         row.click();
         await until(function () { var t = q('.ca-sessinsp-title'); return t && t.textContent === picked.title; }, 5000, 'Sessions didn’t show “' + picked.title + '”');
       }
-      var button = await until(mergeButton, 20000, 'no Merge and done… in the header of “' + picked.title + '”');
-      var chip = q('.ca-sessinsp-links .ca-prchipcard, .ca-sessinsp-links .ca-prchip');
-      check('Merge and done… follows the PR’s chip', !!chip && !!(chip.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING), chip ? 'chip before it' : 'no chip');
-      check('it’s as tall as the chips', Math.round(button.getBoundingClientRect().height) <= Math.round((chip || button).getBoundingClientRect().height) + 1, button.getBoundingClientRect().height + ' vs ' + (chip ? chip.getBoundingClientRect().height : '?'));
-
-      var labels = await menuOf(header(), { clientX: 40, clientY: 40 });
+      var stripped = !!strip();
+      var labels = await menuWhen(true, 20000, 'no ' + item + ' in the menu of “' + picked.title + '”');
       var at = labels.indexOf(item);
       check('the session’s menu has it, after Mark as done', at > 0 && labels[at - 1] === 'Mark as done', labels.join(' | '));
+      var accel = (lastMenu().filter(function (i) { return i.text === item; })[0] || {}).accelerator;
+      check('with its key', accel === 'Shift+Cmd+M', String(accel));
+      check('never in the session’s header', !inHeader());
+      var doneAt = null;
+      if (stripped) {
+        var button = await until(mergeButton, 5000, 'no Merge and done on the strip over “' + picked.title + '”');
+        check('the strip has it first, before Seen, saying its key', all('.ca-hotkeys .ca-hotkey')[0] === button && stripButton('Seen') && !!(button.compareDocumentPosition(stripButton('Seen')) & Node.DOCUMENT_POSITION_FOLLOWING) && (q('kbd', button) || {}).textContent === '⇧⌘M', button.textContent);
+        check('and the strip keeps to one line with it', q('.ca-hotkeys').getBoundingClientRect().height < 30, String(q('.ca-hotkeys').getBoundingClientRect().height));
+        doneAt = stripButton('Done').getBoundingClientRect().left;
+      } else {
+        note('no strip over the session here: the strip’s button not tried');
+      }
 
       // Merged elsewhere: nothing to merge, until it's ready again.
       merged = true;
       await push();
-      var gone = await until(function () { return !mergeButton(); }, 5000).then(function () { return true; }, function () { return false; });
-      check('Merge and done… goes once the PR has merged', gone);
-      labels = await menuOf(header(), { clientX: 40, clientY: 40 });
-      check('and so does its item', labels.indexOf(item) < 0, labels.join(' | '));
+      labels = await menuWhen(false, 5000, 'its item stayed once the PR merged');
+      check('Merge and done… goes from the menu once the PR has merged', labels.indexOf(item) < 0, labels.join(' | '));
+      if (stripped) {
+        var gone = await until(function () { return !mergeButton(); }, 5000).then(function () { return true; }, function () { return false; });
+        check('and from the strip, its other buttons where they were', gone && stripButton('Done').getBoundingClientRect().left === doneAt, stripButton('Done').getBoundingClientRect().left + ' vs ' + doneAt);
+      }
+      mergeKey();
+      await wait(300);
+      check('⇧⌘M opens nothing then', !dialog());
       merged = false;
       await push();
-      await until(mergeButton, 5000, 'Merge and done… didn’t come back with the PR ready again');
-      labels = await menuOf(header(), { clientX: 40, clientY: 40 });
-      check('ready again, both come back', labels.indexOf(item) > 0, labels.join(' | '));
+      await menuWhen(true, 5000, 'its item didn’t come back with the PR ready again');
+      if (stripped) await until(mergeButton, 5000, 'Merge and done didn’t come back to the strip with the PR ready again');
+      check('ready again, it comes back', true);
 
       // From the menu: the dialog, and Cancel.
       menuItem(item)();
@@ -155,11 +185,21 @@
       footButton('Cancel').click();
       await until(function () { return !dialog(); }, 3000, 'Cancel left the dialog up');
       check('Cancel merges nothing', calls('merge_pr').length === 0 && calls('session_done').length === 0, calls('merge_pr').length + ' merges');
+      if (stripped) {
+        // ⇧⌘M, where the strip says it.
+        mergeKey();
+        await until(dialog, 3000, '⇧⌘M opened no dialog');
+        check('⇧⌘M opens it too', true);
+        footButton('Cancel').click();
+        await until(function () { return !dialog(); }, 3000, 'Cancel left the dialog up');
+      }
 
-      // From the header, GitHub still working it out: read again until it can merge.
+      // From ⇧⌘M, or the strip where there's one, GitHub still working it out: read again until
+      // it can merge.
       unsure = true;
       var readsBefore = calls('merge_box').length;
-      mergeButton().click();
+      if (stripped) mergeButton().click();
+      else mergeKey();
       var still = await until(function () { return q('.ca-mergedonedlg .ca-merge-standing strong'); }, 5000, 'the dialog said nothing while GitHub worked it out');
       check('while GitHub works out whether it can merge, the dialog says so and can’t merge yet', still.textContent === 'Checking whether it can merge…' && confirm().disabled, still.textContent);
       go = await until(function () { var b = confirm(); return b && !b.disabled ? b : null; }, 15000, 'the dialog never read the box again');

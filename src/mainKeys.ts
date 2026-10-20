@@ -251,6 +251,16 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     else say('It’s archived already.');
     return;
   }
+  // ⇧⌘M asks to merge the selected session's PR and mark the session done (menus.ts `CHORDS`,
+  // Merge and done…), where it's the primary session of a PR that's ready to merge.
+  if (chordPressed(menus.CHORDS.mergeDone ?? '', e)) {
+    e.preventDefault();
+    if (picking || selected?.kind !== 'agent') return;
+    const act = actionsRef.current.session(selected.lane, selected.session, 'session').mergeDone;
+    if (act) act.run();
+    else say('Nothing to merge: Merge and done… is for a PR’s primary session once the PR is ready to merge.');
+    return;
+  }
   // The queue's keys in Sessions (queue.ts `QUEUE_CHORDS`), from the panel's box too: ⌘] or
   // ⌥⇧↓ skips to the next session that waits on you and ⌘[ or ⌥⇧↑ goes back, with the cursor in
   // its box; ⌘E marks a finished turn seen and goes on, the keyboard staying where it was,

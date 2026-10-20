@@ -149,11 +149,6 @@
 .ca-sessinsp-links > * {
   flex: none;
 }
-/* Merge and done…, as tall as the PR chips it follows, so the line keeps its height. */
-.ca-sessinsp-links > .ca-sessinsp-merge {
-  height: 20px;
-}
-
 .ca-sessinsp-links > .ca-sessinsp-todo {
   flex: 1 1 140px;
 }

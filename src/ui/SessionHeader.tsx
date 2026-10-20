@@ -4,8 +4,8 @@
 // the title with the ways to open it and act on it (its folder in your terminal and your editors
 // among them), one line of where it stands and where it works, and one of the PRs it worked on
 // (each one's card on hover), the latest page on the web it made (ArtifactBits.tsx) and the todo
-// it's on. The rest is in Details and the ⋯ menu. Where it's the primary session of a PR that's
-// ready to merge, Merge and done… follows the PRs, as its menu has it (menus.ts `mergeDone`).
+// it's on. The rest is in Details and the ⋯ menu. Merge and done… for a PR's primary session is
+// on the strip over it where there's one (SessionPanel.tsx `QueueStrip`), and in its menu.
 //
 // Its account (the harness's name alone didn't say which of its accounts) is in the reply box's
 // foot, beside where you write to it (SessionReply.tsx); where there's no box, as for a session on a
@@ -492,11 +492,6 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
           >
             +{prs.length - PRS_SHOWN}
           </button>
-        )}
-        {actions?.mergeDone && (
-          <Button size="sm" icon="merge" className="ca-sessinsp-merge" title={`${actions.mergeDone.label.replace('…', '')}: it merges once you confirm, and then this session is marked done`} onClick={() => actions.mergeDone?.run()}>
-            Merge and done…
-          </Button>
         )}
         {artifacts[0] && <ArtifactChip artifact={artifacts[0]} now={now} />}
         {artifacts.length > 1 && (

@@ -14,7 +14,8 @@
 // goes on, and ⌘] skips to it. Where a session is worked from the keyboard (its panel in
 // Sessions, the notch, the waiting window) a strip above the header has what's commonly done to
 // a session as buttons that say their keys: mark seen, mark done, snooze, close its terminal,
-// archive, back and next (`Hotkeys`). At its left it says how the last one went, on one line; what
+// archive, back and next (`Hotkeys`), with Merge and done… ahead of them for a PR's primary
+// session once the PR is ready to merge. At its left it says how the last one went, on one line; what
 // the box has to say is said in the box's own foot, beside where you write (SessionReply.tsx
 // `BoxSays`). The keys it says are read from where they're kept: a session's own from
 // menus.ts `CHORDS` and snooze.ts `SNOOZE_CHORDS`, the ones for getting about from queue.ts
@@ -130,10 +131,12 @@ export function queueSigns(action: QueueAction): string[] {
 }
 
 /** A button on the strip that says its key. One that doesn't apply to the session shown stays in
- *  its place, dimmed, so the strip holds still from one session to the next. */
-export function Hotkey({ label, icon, keys, title, run }: { label?: string; icon?: string; keys?: string; title: string; run: ((el: HTMLElement) => void) | undefined }) {
+ *  its place, dimmed, so the strip holds still from one session to the next. A `roomy` one, there
+ *  only at times, says its label and key only where the strip has room to spare for them
+ *  (SessionPanel.css), its icon always, so its coming never wraps a strip that fits without it. */
+export function Hotkey({ label, icon, keys, title, run, roomy = false }: { label?: string; icon?: string; keys?: string; title: string; run: ((el: HTMLElement) => void) | undefined; roomy?: boolean }) {
   return (
-    <button type="button" className="ca-hotkey" title={title} aria-label={label ? undefined : title} disabled={!run} onClick={(e) => run?.(e.currentTarget)}>
+    <button type="button" className={cx('ca-hotkey', roomy && 'is-roomy')} title={title} aria-label={label && !roomy ? undefined : title} disabled={!run} onClick={(e) => run?.(e.currentTarget)}>
       {icon && <Icon name={icon} size={12} />}
       {label && <span>{label}</span>}
       {keys && <kbd>{keysSaid(keys)}</kbd>}
@@ -179,12 +182,16 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   const close = actions?.close;
   const done = actions?.done;
   const archive = actions?.archive;
+  const mergeDone = actions?.mergeDone;
   const sign = (name: keyof typeof CHORDS) => chordSigns(CHORDS[name] ?? '');
   const gap = <span className="ca-hotkeys-gap" aria-hidden="true" />;
   const buttons: ReactNode = (
     <div className="ca-hotkeys" role="toolbar" aria-label={own ? 'What’s commonly done to this PR' : 'What’s commonly done to this session'}>
       {own ?? (
         <>
+          {/* Only where there's a PR to merge, and first, where its coming and going moves
+              nothing else: the strip keeps to the right. */}
+          {mergeDone && <Hotkey label="Merge and done" icon="merge" keys={sign('mergeDone')} roomy title={`${mergeDone.label.replace('…', '')} (${sign('mergeDone')}): it merges once you confirm, and then this session is marked done`} run={() => mergeDone.run()} />}
           <Hotkey
             label="Seen"
             keys={sign('seen')}
