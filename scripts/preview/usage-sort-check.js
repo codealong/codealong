@@ -1,4 +1,4 @@
-// Checks dragging a chip along the usage bar (UsageBar.tsx `useSort`): a press that barely moves
+// Checks dragging a chip along the usage bar (useSort.ts): a press that barely moves
 // is no drag; one that moves along the row lifts the chip and the chips it passes make way;
 // Escape puts it back; letting go puts its account in the new place, writes the order
 // (order_accounts) and opens nothing. A click still opens the Usage window on its account.

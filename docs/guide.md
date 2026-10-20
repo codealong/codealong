@@ -1743,9 +1743,9 @@ Auto's (its account's default, or the next best as above), wherever the group st
 panel, `codealong start` and reviews; one with no effort, at its account's own. The strategies are
 `"usage"` (most room / soonest reset), `"alternate-harness"` (rotates across the group's harnesses),
 `"round-robin"`, or `"fallback"`, skipping accounts at their usage cap. A fallback group starts on
-its members in the order they're listed (Settings › Routing moves them up and down; with none
-listed, every enabled account in config order), each until it's within the buffer of its cap,
-then the next; once every one is that close, the one with the most room. A routing group is
+its members in the order they're listed (in Settings › Routing a member is dragged up or down, in
+a group of any strategy, or moved with ⌃⌘↑ ⌃⌘↓ on its buttons; with none listed, every enabled
+account in config order), each until it's within the buffer of its cap, then the next; once every one is that close, the one with the most room. A routing group is
 offered after Auto in the quick panel, in `codealong start --account <group>`, as the reviewer
 for PRs, or as Auto's own rule (`[routing] auto = "<group>"`). A group's *Use this group for* boxes
 are those same settings: *New sessions on Auto* is `[routing] auto` (the *Auto routing* menu above

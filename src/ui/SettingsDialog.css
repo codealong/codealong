@@ -421,7 +421,12 @@
   color: var(--ink-2);
   white-space: pre-wrap;
 }
-/* Settings › Automation: a routing group's account row with its model menu at the right. */
+/* Settings › Routing: a routing group's accounts, each dragged up or down to another place
+   (useSort.ts) over the others, which slide aside to make way for it. */
+.ca-routing-members {
+  display: grid;
+  gap: var(--space-1);
+}
 .ca-routing-member {
   position: relative;
   display: flex;
@@ -431,14 +436,29 @@
   max-width: 440px;
   min-height: 26px;
 }
-/* A member: its place in a fallback group's order and its account, model and effort; then the
-   buttons that move it sooner or later there, and take it out. */
+.ca-routing-members.is-sorting .ca-routing-member {
+  transition: transform var(--dur-base) ease-out;
+}
+.ca-routing-members.is-sorting .ca-routing-member.is-lifted {
+  z-index: var(--z-sorting);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-hud);
+  transition: none;
+}
+/* A member: the grip it's dragged by, its place in a fallback group's order and its account,
+   model and effort; then the button that takes it out. */
 .ca-routing-member-start,
 .ca-routing-member-end {
   display: flex;
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
+}
+.ca-routing-member-grip {
+  flex: none;
+  color: var(--ink-3);
+  cursor: grab;
 }
 .ca-routing-member-at {
   min-width: 1.5em;

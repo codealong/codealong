@@ -23,9 +23,11 @@ import { DevicesPane } from './DevicesSection';
 import { JevUsage } from './JevUsage';
 import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
-import { Button, CheckBox, cx, Dialog, Icon, NavItem, Seg } from './primitives';
+import { Button, CheckBox, cx, Dialog, Icon, NavItem, ReorderHint, Seg } from './primitives';
 import { SettingsFindField, useSettingsFind } from './SettingsFind';
 import { THEMES } from './ThemeSwitch';
+import { useSort } from './useSort';
+import { reorderKey } from '../mainKeys';
 import { errorText } from '../report';
 import { bare, cmd, keysIn, keysSaid, platform, type Platform } from '../platform';
 
@@ -1070,6 +1072,16 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
     useForOwnReviews: boolean;
   } | null>(null);
   const fallback = draft?.strategy === 'fallback';
+  // A member dragged up or down the group's list goes there, whatever the strategy: a fallback
+  // group tries them in that order.
+  const membersList = useRef<HTMLDivElement>(null);
+  const sort = useSort<GroupMemberCfg>(
+    membersList,
+    '.ca-routing-member',
+    'y',
+    () => {},
+    (members) => setDraft((d) => d && { ...d, members }),
+  );
   const [promptDraft, setPromptDraft] = useState(routing.prompt ?? '');
   useEffect(() => setPromptDraft(routing.prompt ?? ''), [routing.prompt]);
   const saveRouting = (next: RoutingCfg) => void onSave({ ...cfg, routing: next });
@@ -1209,33 +1221,62 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
               </div>
               <div className="ca-field">
                 <span>Accounts in this group</span>
-                <small>{draft.members.length === 0 ? 'None added: every enabled account that can start a session, each on Auto’s model, in the order Accounts lists them.' : fallback ? 'Tried in this order.' : 'An account can be here more than once, on different models.'}</small>
-                {draft.members.map((m, i) => (
-                  <div key={i} className="ca-routing-member">
-                    <div className="ca-routing-member-start">
-                      {fallback && <span className="ca-routing-member-at">{i + 1}.</span>}
-                      <AgentMenu
-                        accounts={offered}
-                        usage={usage}
-                        now={now}
-                        value={{ account: m.account, model: m.model?.trim() || null, effort: m.effort?.trim() || null }}
-                        title={`What ${m.account} starts on in this group`}
-                        disabled={disabled}
-                        down
-                        onPick={(p) => setDraft({ ...draft, members: draft.members.map((x, j) => (j === i ? memberOf(p) : x)) })}
-                      />
-                    </div>
-                    <div className="ca-routing-member-end">
-                      {fallback && (
-                        <>
-                          <Button variant="ghost" size="sm" icon="arrow-up" aria-label={`Try ${m.account} sooner`} title="Sooner" disabled={i === 0} onClick={() => setDraft({ ...draft, members: movedMember(draft.members, i, -1) })} />
-                          <Button variant="ghost" size="sm" icon="arrow-down" aria-label={`Try ${m.account} later`} title="Later" disabled={i === draft.members.length - 1} onClick={() => setDraft({ ...draft, members: movedMember(draft.members, i, 1) })} />
-                        </>
-                      )}
-                      <Button variant="ghost" size="sm" icon="x" aria-label={`Take ${m.account} out of the group`} title="Take out" onClick={() => setDraft({ ...draft, members: draft.members.filter((_, j) => j !== i) })} />
-                    </div>
+                <small>
+                  {draft.members.length === 0 ? (
+                    'None added: every enabled account that can start a session, each on Auto’s model, in the order Accounts lists them.'
+                  ) : fallback ? (
+                    <>
+                      Tried in this order.{draft.members.length > 1 && <> <ReorderHint /></>}
+                    </>
+                  ) : (
+                    'An account can be here more than once, on different models.'
+                  )}
+                </small>
+                {draft.members.length > 0 && (
+                  <div ref={membersList} className={cx('ca-routing-members', sort.sorting && 'is-sorting')}>
+                    {draft.members.map((m, i) => {
+                      const drag = draft.members.length > 1 && !disabled ? sort.sortProps(i, draft.members) : null;
+                      return (
+                        <div
+                          key={i}
+                          className={cx('ca-routing-member', drag?.className)}
+                          style={drag?.style}
+                          onPointerDown={drag?.onPointerDown}
+                          onKeyDown={(e) => {
+                            // ⌃⌘↑ ⌃⌘↓ on any of its buttons, not in a menu it opened.
+                            const by = drag ? reorderKey(e.nativeEvent) : 0;
+                            if (!by || !e.currentTarget.contains(e.target as Node)) return;
+                            const next = movedMember(draft.members, i, by);
+                            if (next === draft.members) return;
+                            e.preventDefault();
+                            // The keyboard goes with the member: the same button in its row at its new place.
+                            const at = Array.from(e.currentTarget.querySelectorAll('button')).indexOf(e.target as HTMLButtonElement);
+                            setDraft({ ...draft, members: next });
+                            requestAnimationFrame(() => membersList.current?.children[i + by]?.querySelectorAll('button')[at]?.focus());
+                          }}
+                        >
+                          <div className="ca-routing-member-start">
+                            {drag && <Icon name="grip-vertical" size={12} className="ca-routing-member-grip" />}
+                            {fallback && <span className="ca-routing-member-at">{i + 1}.</span>}
+                            <AgentMenu
+                              accounts={offered}
+                              usage={usage}
+                              now={now}
+                              value={{ account: m.account, model: m.model?.trim() || null, effort: m.effort?.trim() || null }}
+                              title={`What ${m.account} starts on in this group`}
+                              disabled={disabled}
+                              down
+                              onPick={(p) => setDraft({ ...draft, members: draft.members.map((x, j) => (j === i ? memberOf(p) : x)) })}
+                            />
+                          </div>
+                          <div className="ca-routing-member-end">
+                            <Button variant="ghost" size="sm" icon="x" aria-label={`Take ${m.account} out of the group`} title="Take out" onClick={() => setDraft({ ...draft, members: draft.members.filter((_, j) => j !== i) })} />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
+                )}
                 <div className="ca-routing-member">
                   <AgentMenu accounts={offered} usage={usage} now={now} value={null} label="Add account" icon="plus" title="Add an account to the group, on a model" disabled={disabled || offered.length === 0} down onPick={(p) => setDraft({ ...draft, members: [...draft.members, memberOf(p)] })} />
                 </div>

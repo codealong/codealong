@@ -1,10 +1,11 @@
 // Checks Settings › Routing's groups and buffer (`[routing] buffer`): Room kept for running
 // sessions starts at 5% and saves the percent picked. A new group's accounts are added from the
 // agent menu, each an account on a model (its own line said as Auto's) at an effort set in the
-// menu's effort row (← → step it); on Fallback they're numbered in the order they're tried, Later moves one
-// down, and the group saves with its members in that order, each with its model and effort, its
-// card listing them with arrows. Use this group for says it's the same setting as Auto routing
-// and Automation's reviewers.
+// menu's effort row (← → step it); on Fallback they're numbered in the order they're tried. One
+// dragged by its row (useSort.ts) goes where it's let go, ⌃⌘↑ ⌃⌘↓ on its buttons move it a place,
+// and on another strategy they still drag. The group saves with its members in that order, each
+// with its model and effort, its card listing them with arrows. Use this group for says it's the
+// same setting as Auto routing and Automation's reviewers.
 //   scripts/preview.sh sessions '' scripts/preview/settings-routing-check.js
 (function () {
   var button = function (label, within) { return all('button', within).filter(function (b) { return b.textContent.trim() === label; })[0]; };
@@ -17,6 +18,13 @@
   var rows = function (form) { return all('.ca-routing-member', form).filter(function (r) { return q('.ca-routing-member-start', r); }); };
   var chip = function (row) { return q('.ca-modelmenu-chip', row); };
   var adder = function (form) { return all('.ca-modelmenu-chip', form).filter(function (b) { return /Add account/.test(b.textContent); })[0]; };
+  var pointer = function (el, type, x, y) {
+    el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: type === 'pointermove' ? -1 : 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, pointerType: 'mouse', isPrimary: true }));
+  };
+  var middle = function (el) {
+    var r = el.getBoundingClientRect();
+    return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 };
+  };
   var lastSave = function () { var c = calls('save_config'); return c.length ? c[c.length - 1][1].config : null; };
   // The menu's lines that start somewhere, as account → [own line, a model's line].
   var lines = function () {
@@ -50,6 +58,13 @@
       adder(form).click();
       var offered = await until(function () { var l = lines(); return Object.keys(l).length >= 2 ? l : null; }, 5000, 'two accounts in the menu');
       var names = Object.keys(offered);
+      // The accounts in the order the rows list them, each by the longest name its chip starts with.
+      var order = function () {
+        return rows(form).map(function (r) {
+          var t = chip(r).textContent;
+          return names.filter(function (n) { return t.indexOf(n) === 0; }).sort(function (a, b) { return b.length - a.length; })[0];
+        });
+      };
       check('an account’s own line is Auto’s model', offered[names[0]][0].textContent.indexOf('Auto') === 0, offered[names[0]][0].textContent);
       offered[names[0]][0].click();
       await until(function () { return rows(form).length === 1; }, 5000, 'the first account added');
@@ -59,7 +74,7 @@
       model.click();
       await until(function () { return rows(form).length === 2; }, 5000, 'the second account added');
       check('accounts added are numbered in the order they’re tried', /^1\./.test(rows(form)[0].textContent) && /^2\./.test(rows(form)[1].textContent), rows(form).map(function (r) { return r.textContent; }).join(' | '));
-      check('the first can’t go sooner, the last can’t go later', q('button[aria-label$="sooner"]', rows(form)[0]).disabled && q('button[aria-label$="later"]', rows(form)[1]).disabled);
+      check('each has a grip to drag it by, and no arrows', all('.ca-routing-member-grip', form).length === 2 && !q('button[aria-label$="sooner"], button[aria-label$="later"]', form), field(/^Accounts in this group/, form).innerHTML);
 
       // An effort for the first, from its menu's effort row, where its account takes one.
       chip(rows(form)[0]).click();
@@ -76,8 +91,38 @@
       var use = field(/^Use this group for/, form);
       check('Use this group for says it’s Auto routing’s and Automation’s setting', /same settings as Auto routing above and the reviewers in Automation/.test(use.textContent), use.textContent);
 
-      q('button[aria-label$="later"]', rows(form)[0]).click();
-      await until(function () { return chip(rows(form)[0]).textContent.indexOf(names[1]) === 0; }, 5000, 'the order changed');
+      // The first dragged down past the second's middle: it follows the pointer, the second makes
+      // way, and letting go puts it there and opens nothing.
+      var held = rows(form)[0];
+      var from = middle(held);
+      var past = middle(rows(form)[1]).y + 4;
+      pointer(held, 'pointerdown', from.x, from.y);
+      pointer(held, 'pointermove', from.x, from.y + 10);
+      pointer(held, 'pointermove', from.x, past);
+      await until(function () { return q('.ca-routing-members.is-sorting', form) && /translateY\(-/.test(rows(form)[1].style.transform); }, 5000, 'the second making way');
+      check('the one dragged is lifted and follows the pointer', held.classList.contains('is-lifted') && /translateY\(\d/.test(held.style.transform), held.className + ' ' + held.style.transform);
+      pointer(held, 'pointerup', from.x, past);
+      chip(held).click();
+      await until(function () { return order().join() === [names[1], names[0]].join(); }, 5000, 'the order changed');
+      await wait(50);
+      check('letting go puts it there, the rows standing still and no menu open', !q('.ca-routing-members.is-sorting', form) && rows(form).every(function (r) { return !r.style.transform; }) && !q('.ca-picker'), rows(form).map(function (r) { return r.style.transform; }).join('|'));
+      check('they’re numbered in their new order', /^1\./.test(rows(form)[0].textContent) && order()[0] === names[1], rows(form).map(function (r) { return r.textContent; }).join(' | '));
+
+      // ⌃⌘↑ ⌃⌘↓ on a member's buttons move it too, no further than the ends.
+      key(chip(rows(form)[1]), { key: 'ArrowUp', ctrlKey: true, metaKey: true });
+      await until(function () { return order().join() === [names[0], names[1]].join(); }, 5000, '⌃⌘↑ moving the second up');
+      key(chip(rows(form)[0]), { key: 'ArrowUp', ctrlKey: true, metaKey: true });
+      await wait(50);
+      check('⌃⌘↑ moves one up, and not past the first place', order().join() === [names[0], names[1]].join(), order().join());
+      key(chip(rows(form)[0]), { key: 'ArrowDown', ctrlKey: true, metaKey: true });
+      await until(function () { return order().join() === [names[1], names[0]].join(); }, 5000, '⌃⌘↓ moving the first down');
+
+      // On another strategy they still drag, unnumbered.
+      button('Round robin', form).click();
+      await until(function () { return !/^1\./.test(rows(form)[0].textContent); }, 5000, 'the numbers gone');
+      check('on Round robin they still have their grips', all('.ca-routing-member-grip', form).length === 2);
+      button('Fallback', form).click();
+      await until(function () { return /^1\./.test(rows(form)[0].textContent); }, 5000, 'Fallback again');
       var saves = calls('save_config').length;
       button('Add group', form).click();
       await until(function () { return calls('save_config').length > saves; }, 5000, 'the group saved');
