@@ -2449,8 +2449,10 @@ agent is, and a start another Mac asks for makes no helper. The automatic review
 opened isn't held either, while `[reviews.own] send` hands reviews back (see *Reviews of your own
 pull requests*): it's listed under that session, which is sent its review anyway, and what it says
 there is about that review, often an answer to what the session asked it. Only a session a round of
-the PR's reviews asked counts, not one taken for a review by its first prompt alone. A message from
-any other agent is held there, as before, unless the agent's own session skips them too.
+the PR's reviews asked counts, and only one that Codealong's own words for that review start: not
+one taken for a review by its first prompt alone, nor a session of yours that links to the PR. A
+message from any other agent is held there, as before, unless the agent's own session skips them
+too.
 
 A message from another agent, or one Codealong sends by itself, reaches a Codex session that's
 taking a turn in its terminal or in the Codex app in that turn, which reads it at its next step, as

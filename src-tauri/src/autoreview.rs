@@ -1341,22 +1341,25 @@ pub fn nest_own(lanes: &mut [Lane], prs: &[PrItem]) {
 /// session asked it, so its message claims the session's own permission class, as a helper's
 /// does (send.rs `from_its_helper`), rather than being held for you. Only a session a round of
 /// the PR's reviews asked counts, in any round (`Tracked::asked`): one whose start named it, or,
-/// for a harness that names its sessions itself, the one found where it started, of its account,
-/// whose first prompt names the PR (`found`), which a session started about then by chance
-/// doesn't, as one `origins::resolve` matches might. Not one taken for a review by its first
-/// prompt alone (`reviewers`), which any session could open with; and only while it's still the
-/// PR's on the board, not one you made your own. reviews.json is read only for a session the
-/// board takes for a review.
+/// for a harness that names its sessions itself, the one found where it started, of its account
+/// (`found`). And only one whose first prompt opens in Codealong's words for a review of that PR
+/// (`opens_review_of`): `found` also takes one that has the PR's link in brackets, as reviews
+/// asked before that opening did, which a session of yours about the PR started then could
+/// have. Not one taken for a review by its first prompt alone (`reviewers`), which any session
+/// could open with; and only while it's still the PR's on the board, not one you made your own.
+/// reviews.json is read only for a session the board takes for a review.
 pub fn reviews_for(board: &Board, global: &ReviewsCfg, from: &str, to: &str) -> bool {
-    let Some(key) = board.session(from).and_then(|(_, s)| s.helper.as_ref()?.pr.clone()) else { return false };
-    asked_to_review(board, &crate::store::read_or_default(&path()), global, &key, from, to)
+    let Some((_, review)) = board.session(from).filter(|(_, s)| s.helper.as_ref().is_some_and(|h| h.pr.is_some())) else { return false };
+    asked_to_review(board, &crate::store::read_or_default(&path()), global, review, to)
 }
 
-/// `reviews_for`, with reviews.json read: `from` reviews PR `key` for `to`.
-fn asked_to_review(board: &Board, store: &Store, global: &ReviewsCfg, key: &str, from: &str, to: &str) -> bool {
-    let asked = store.prs.get(key).is_some_and(|t| t.asked().any(|s| s == from));
+/// `reviews_for`, with reviews.json read.
+fn asked_to_review(board: &Board, store: &Store, global: &ReviewsCfg, review: &Session, to: &str) -> bool {
+    let Some(key) = review.helper.as_ref().and_then(|h| h.pr.as_deref()) else { return false };
     let Some(pr) = board.prs.iter().find(|p| p.mine && pr_key(&p.key) == key) else { return false };
-    asked && origin(&board.lanes, pr).is_some_and(|(_, s)| s.key == to) && board.repo_settings.reviews(global, pr).own.send
+    let asked = store.prs.get(key).is_some_and(|t| t.asked().any(|s| s == review.key));
+    let opens = review.first_prompt.as_deref().is_some_and(|f| opens_review_of(f, &pr.repo_slug, pr.number));
+    asked && opens && origin(&board.lanes, pr).is_some_and(|(_, s)| s.key == to) && board.repo_settings.reviews(global, pr).own.send
 }
 
 /// Each PR's automatic review, for its card, from reviews.json (`Store`): its latest round, else
@@ -2815,27 +2818,32 @@ mod tests {
 
     /// The review of a PR of yours writes to the session that opened it as that session's helper
     /// does (send.rs `from_its_helper`), closed PR or open, while handing reviews back is on,
-    /// whichever round asked it; a session taken for a review by its first prompt alone doesn't.
+    /// whichever round asked it; a session taken for a review by its first prompt alone doesn't,
+    /// nor one found for a round that only links to the PR.
     #[test]
     fn a_review_of_your_pr_writes_to_its_session_as_a_helper() {
-        let review = |key: &str| Session { helper: Some(crate::model::Helper { pr: Some("o/r#7".into()), ..Default::default() }), ..fixtures::session(key) };
-        // Its round done, and the next one's start failed: it's still the PR's review.
+        let opens = format!("{} “Teams” (https://github.com/o/r/pull/7), by gwen: it merges teams into main.", opening(&mine(7, HEAD)));
+        let review = |key: &str, first: &str| Session { helper: Some(crate::model::Helper { pr: Some("o/r#7".into()), ..Default::default() }), first_prompt: Some(first.into()), ..fixtures::session(key) };
+        // Its round done, and the next one's start failed: it's still the PR's review. A session of
+        // yours about the PR, started just before a review was, was found for it too (`names`).
         let mut round = Round::new(HEAD, ReviewStage::Kept, NOW);
-        round.parts = vec![started(AUTO, S, NOW)];
+        round.parts = vec![started(AUTO, S, NOW), started(AUTO, "codex:codex:linked", NOW)];
         let mut next = Round::new(NEXT, ReviewStage::Failed, NOW + 1);
         next.parts = vec![Part::failed(AUTO, "no account".into(), NOW + 1)];
         let tracked = |sessions: BTreeMap<String, String>| Tracked { sessions, rounds: vec![round.clone(), next.clone()] };
         let store = Store { prs: [("o/r#7".to_string(), tracked(BTreeMap::new()))].into() };
         let board_with = |pr: PrItem| {
-            let mut b = board(vec![pr], vec![fixtures::session(MAKER), fixtures::session("claude:claude:other"), review(S), review("codex:codex:kept"), review("codex:codex:guessed")]);
+            let reviews = [review(S, &opens), review("codex:codex:kept", &opens), review("codex:codex:guessed", &opens), review("codex:codex:linked", "Investigate (https://github.com/o/r/pull/7)")];
+            let mut b = board(vec![pr], [vec![fixtures::session(MAKER), fixtures::session("claude:claude:other")], reviews.to_vec()].concat());
             nest_own(&mut b.lanes, &b.prs);
             b
         };
-        let asked = |b: &Board, store: &Store, cfg: &ReviewsCfg, from: &str, to: &str| asked_to_review(b, store, cfg, "o/r#7", from, to);
+        let asked = |b: &Board, store: &Store, cfg: &ReviewsCfg, from: &str, to: &str| b.session(from).is_some_and(|(_, s)| asked_to_review(b, store, cfg, s, to));
         let b = board_with(mine(7, HEAD));
         assert!(asked(&b, &store, &own(), S, MAKER));
         assert!(!asked(&b, &store, &own(), S, "claude:claude:other"));
         assert!(!asked(&b, &store, &own(), "codex:codex:guessed", MAKER));
+        assert!(!asked(&b, &store, &own(), "codex:codex:linked", MAKER));
         assert!(!asked(&b, &store, &own(), MAKER, MAKER));
         // The session kept for its next round.
         let kept = Store { prs: [("o/r#7".to_string(), tracked([(AUTO.to_string(), "codex:codex:kept".to_string())].into()))].into() };
