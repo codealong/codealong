@@ -1622,12 +1622,16 @@ pub fn again_prompt(pr: &PrItem, head: &str, since: Option<&str>, login: &str, g
 }
 
 /// The review a session's turn ended on: its last run of replies, once that run came after `at`.
-/// None while the turn hasn't written one, or ended on something else (a call, a prompt).
-pub fn reply_after(items: &[Item], at: i64) -> Option<String> {
+/// None while the turn hasn't written one, or ended on something else (a call, a prompt). A reply
+/// its record keeps no time for is as new as the prompt it answers, the session's last
+/// (`prompted`): Cursor's command line keeps a time only for each prompt, the minute it was written
+/// in, so a prompt from the minute of `at` on will do.
+pub fn reply_after(items: &[Item], at: i64, prompted: i64) -> Option<String> {
     let end = items.iter().rposition(|i| i.kind != "note")?;
     let start = items[..=end].iter().rposition(|i| i.kind != "agent").map_or(0, |i| i + 1);
     let run = &items[start..=end];
-    if run.is_empty() || run.iter().any(|i| i.kind != "agent" || i.at < at) {
+    let since = |i: &Item| if i.at > 0 { i.at >= at } else { prompted >= at - at.rem_euclid(60_000) };
+    if run.is_empty() || run.iter().any(|i| i.kind != "agent" || !since(i)) {
         return None;
     }
     let text = run.iter().map(|i| i.text.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
@@ -2075,7 +2079,7 @@ fn read(engine: &Handle, session: &str, at: i64) -> Went {
     let Some((_, s)) = board.session(session) else { return Went::Failed("Its session is gone.".into()) };
     // A record that doesn't read now is read again in a moment.
     let Ok(page) = crate::transcript::page(&board, &cfg, session, None, 60) else { return Went::NotYet };
-    let Some(review) = reply_after(&page.items, at) else {
+    let Some(review) = reply_after(&page.items, at, s.last_prompt_at) else {
         return if s.live { Went::NotYet } else { Went::NoReview };
     };
     if let Some(why) = skipped(&review) {
@@ -3816,13 +3820,28 @@ mod tests {
     #[test]
     fn the_review_is_the_last_run_of_replies_after_it_was_asked_for() {
         let items = vec![item("you", NOW, "Review it"), item("agent", NOW + 1, "Let me read the diff."), item("tool", NOW + 2, "Read · pr.diff"), item("agent", NOW + 3, "Two problems."), item("agent", NOW + 4, "1. `a.rs:3` panics."), item("note", NOW + 5, "compacted")];
-        assert_eq!(reply_after(&items, NOW).as_deref(), Some("Two problems.\n\n1. `a.rs:3` panics."));
+        assert_eq!(reply_after(&items, NOW, NOW).as_deref(), Some("Two problems.\n\n1. `a.rs:3` panics."));
         // Not after it was asked for: an earlier turn's.
-        assert_eq!(reply_after(&items, NOW + 3_500), None);
+        assert_eq!(reply_after(&items, NOW + 3_500, NOW), None);
         // Ended on a call, or a prompt.
-        assert_eq!(reply_after(&items[..3], NOW), None);
-        assert_eq!(reply_after(&[item("agent", NOW, "x"), item("you", NOW + 1, "again")], NOW), None);
-        assert_eq!(reply_after(&[], NOW), None);
+        assert_eq!(reply_after(&items[..3], NOW, NOW), None);
+        assert_eq!(reply_after(&[item("agent", NOW, "x"), item("you", NOW + 1, "again")], NOW, NOW + 1), None);
+        assert_eq!(reply_after(&[], NOW, NOW), None);
+    }
+
+    #[test]
+    fn a_review_its_record_keeps_no_time_for_is_as_new_as_its_prompt() {
+        // As Cursor's command line records a turn: a time for the prompt alone, the minute it was
+        // written in, so one asked for at 13:11:36 says 13:11.
+        let at = 1_792_527_096_166;
+        let minute = 1_792_527_060_000;
+        let items = vec![item("you", minute, "Review it"), item("agent", 0, "Let me read the diff."), item("tool", 0, "Read · pr.diff"), item("agent", 0, "Two problems.")];
+        assert_eq!(reply_after(&items, at, minute).as_deref(), Some("Two problems."));
+        assert_eq!(reply_after(&items, at, minute + 60_000).as_deref(), Some("Two problems."));
+        // The turn before's, while the prompt that asked for this one hasn't reached the record:
+        // its prompt is from a minute before.
+        assert_eq!(reply_after(&items, at, minute - 1), None);
+        assert_eq!(reply_after(&items, at, at - 10 * 60_000), None);
     }
 
     #[test]

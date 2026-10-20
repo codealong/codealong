@@ -60,7 +60,10 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   (subagents' under `subagents/`): `{role, message: {content: [text, tool_use{name, input}]}}`
   lines and `{"type": "turn_ended", "status": "success|error|aborted"}`, no tool results and no
   times but the one in each prompt's `<timestamp>`, the words in `<user_query>`: `cursor.rs`
-  (`line`, `prompt_of`, `prompt_time`, `transcript_tail`). Its tools are named as Claude Code's
+  (`line`, `prompt_of`, `prompt_time`, `transcript_tail`). That time is the minute the prompt
+  was written in (`1:12 PM` for 13:12:47), so a review's reply is dated by its prompt, from the
+  minute it was asked for in (`autoreview::reply_after`; a review read none until 2026-10-20).
+  `session wait` takes such a reply only once the session has held still a minute. Its tools are named as Claude Code's
   (`Shell`, `Read`, `StrReplace`…). The app writes it at checkpoints. The slug is the folder's
   path with each run of other characters one `-`, so the folder is found by walking the disk
   (`slug`, `unslug`).
