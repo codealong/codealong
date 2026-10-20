@@ -96,13 +96,14 @@ query($requested: String!) {
 /// latest of them (`asker_of`), and the reviews that stand on it, which say whether its approvals
 /// are of the commit it's at (`stale_approval_of`). A team's name costs no points: GitHub charges
 /// for connections, not fields. The standing reviews are a point for a hundred PRs, as any
-/// connection is (a repo's `QUERY` went from 6 to 7, 2026-10-20), and a PR has a review from each
-/// of its reviewers there at most, so twenty is all of them.
+/// connection is, however many each brings (a repo's `QUERY` went from 6 to 7 at 20 a PR and at 100
+/// alike, 2026-10-20), so they're asked for a hundred, as many as GitHub gives a page: one from each
+/// reviewer, which is all of them but on a PR with more.
 const ASKED_FIELDS: &str = r#"
 fragment asked on PullRequest {
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
   timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { __typename ... on User { login } } } } }
-  latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state submittedAt author { login } commit { oid } } }
+  latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state submittedAt author { login } commit { oid } } }
 }
 "#;
 
@@ -454,10 +455,14 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
 /// it, and can call the PR ready to merge with commits no reviewer approved. Read from its
 /// `latestOpinionatedReviews` from people who may write to the repo, the ones that count, each
 /// reviewer's latest that approved or asked for changes. None while one of them approves the
-/// commit it's at, or one whose commit GitHub doesn't say, which can't be told stale; and for a
-/// PR whose reviews weren't asked for, a merged or closed one.
+/// commit it's at, or one whose commit GitHub doesn't say, which can't be told stale; for a PR with
+/// more reviewers than a page holds, one of whom may approve it; and for a PR whose reviews weren't
+/// asked for, a merged or closed one.
 fn stale_approval_of(n: &Value) -> Option<StaleApproval> {
     let head = n.get("headRefOid").and_then(Value::as_str)?;
+    if n.pointer("/latestOpinionatedReviews/pageInfo/hasNextPage").and_then(Value::as_bool) != Some(false) {
+        return None;
+    }
     let reviews = n.pointer("/latestOpinionatedReviews/nodes").and_then(Value::as_array)?;
     let approvals: Vec<&Value> = reviews.iter().filter(|r| r.get("state").and_then(Value::as_str) == Some("APPROVED")).collect();
     let commit = |r: &Value| r.pointer("/commit/oid").and_then(Value::as_str).map(String::from);
@@ -1769,7 +1774,8 @@ mod tests {
     #[test]
     fn an_approval_of_an_earlier_commit_is_stale_until_one_approves_the_head() {
         let review = |state: &str, who: &str, at: &str, oid: &str| format!(r#"{{"state":"{state}","submittedAt":"{at}","author":{{"login":"{who}"}},"commit":{oid}}}"#);
-        let pr = |reviews: &[String]| -> Value { serde_json::from_str(&format!(r#"{{"headRefOid":"c0ffee1","latestOpinionatedReviews":{{"nodes":[{}]}}}}"#, reviews.join(","))).unwrap() };
+        let page = |reviews: &[String], more: bool| -> Value { serde_json::from_str(&format!(r#"{{"headRefOid":"c0ffee1","latestOpinionatedReviews":{{"pageInfo":{{"hasNextPage":{more}}},"nodes":[{}]}}}}"#, reviews.join(","))).unwrap() };
+        let pr = |reviews: &[String]| page(reviews, false);
         let ana = review("APPROVED", "ana", "2026-10-19T23:38:11Z", r#"{"oid":"a11ce55"}"#);
         let ken = review("APPROVED", "ken", "2026-10-18T10:00:00Z", r#"{"oid":"0be11ed"}"#);
         // Both approved before the PR's latest commit: named, with the latest one's commit.
@@ -1782,13 +1788,15 @@ mod tests {
         assert_eq!(stale_approval_of(&pr(&[review("CHANGES_REQUESTED", "ken", "2026-10-20T08:00:00Z", r#"{"oid":"c0ffee1"}"#), ana.clone()])).map(|s| s.by), Some(vec!["ana".to_string()]));
         assert_eq!(stale_approval_of(&pr(&[review("CHANGES_REQUESTED", "ken", "2026-10-20T08:00:00Z", r#"{"oid":"0be11ed"}"#)])), None);
         assert_eq!(stale_approval_of(&serde_json::json!({ "headRefOid": "c0ffee1" })), None);
+        // Nor does a page with more after it, whose reviewers may approve the commit it's at.
+        assert_eq!(stale_approval_of(&page(&[ana.clone()], true)), None);
         // Only an approved PR's are: one whose review GitHub says still waits has none that count.
         let node = |decision: &str| -> Value {
-            serde_json::from_str(&format!(r#"{{"number":231,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":"{decision}","headRefName":"b","headRefOid":"c0ffee1","latestOpinionatedReviews":{{"nodes":[{ana}]}}}}"#)).unwrap()
+            serde_json::from_str(&format!(r#"{{"number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":"{decision}","headRefName":"b","headRefOid":"c0ffee1","latestOpinionatedReviews":{{"pageInfo":{{"hasNextPage":false}},"nodes":[{ana}]}}}}"#)).unwrap()
         };
         assert_eq!(parse_pr(&node("APPROVED")).and_then(|p| p.stale_approval).map(|s| s.commit), Some("a11ce55".into()));
         assert_eq!(parse_pr(&node("REVIEW_REQUIRED")).and_then(|p| p.stale_approval), None);
-        assert!(ASKED_FIELDS.contains("latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state submittedAt author { login } commit { oid } } }"), "{ASKED_FIELDS}");
+        assert!(ASKED_FIELDS.contains("latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state submittedAt author { login } commit { oid } } }"), "{ASKED_FIELDS}");
     }
 
     #[test]

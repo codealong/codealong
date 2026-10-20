@@ -116,6 +116,13 @@ export function standing(box: MergeBox, pr: Pick<PrItem, 'base' | 'checks' | 're
   }
 }
 
+/** A PR plainly ready to merge, which says so in its pills and its button, with no line under the
+ *  box's row: you can merge it now and GitHub says it's clean. One approved only before its latest
+ *  commits isn't, as whose approval it goes on is worth the line (`standing`). */
+export function plainlyReady(box: MergeBox, pr: Pick<PrItem, 'state' | 'staleApproval'>): boolean {
+  return offers(box).merge && box.canMerge && (box.mergeState === 'CLEAN' || box.mergeState === 'HAS_HOOKS') && !staleWords(pr);
+}
+
 /** What the box offers you now. */
 export interface Offers {
   /** Merge it now. */

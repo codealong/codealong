@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boxKey, commitText, confirmLabel, deletesWith, doneWords, mainMode, methodsByRepo, modeLabel, offers, opFor, pickMethod, rereads, standing, type MergeForm } from './merge';
+import { boxKey, commitText, confirmLabel, deletesWith, doneWords, mainMode, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeForm } from './merge';
 import * as fx from './testing/fixtures';
 import type { Checks, MergeBox } from './types';
 
@@ -45,6 +45,11 @@ describe('standing', () => {
   it('says whose approval a ready PR goes on when it’s of an earlier commit', () => {
     const stale = { ...pr(), staleApproval: { by: ['ken'], commit: 'a11ce55e6aa9' } };
     expect(standing(box(), stale)).toEqual({ tone: 'ok', says: 'Ready to merge', more: '11 checks passed. Approved before its latest commits: ken approved a11ce55. GitHub still counts the approval, as the repo doesn’t dismiss it when commits come.' });
+    // The line under the box's row says it, where a PR plainly ready has none.
+    expect(plainlyReady(box(), pr())).toBe(true);
+    expect(plainlyReady(box(), stale)).toBe(false);
+    expect(plainlyReady(box({ canMerge: false }), pr())).toBe(false);
+    expect(plainlyReady(box({ mergeState: 'BLOCKED' }), pr())).toBe(false);
     expect(standing(box({ mergeState: 'UNSTABLE' }), { ...stale, checks: checks({ pending: 1 }) }).more).toBe('1 running, which the repo doesn’t require. Approved before its latest commits: ken approved a11ce55. GitHub still counts the approval, as the repo doesn’t dismiss it when commits come.');
   });
 

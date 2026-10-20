@@ -21,7 +21,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { mergeAhead } from '../ahead';
 import { mergeBox, openUrl } from '../api';
 import { below, showContextMenu, type MenuSpec } from '../contextMenu';
-import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, rereads, standing, type MergeMode, type Tone } from '../merge';
+import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, mainMode, METHOD, METHODS_KEY, methodsByRepo, modeLabel, offers, opFor, pickMethod, plainlyReady, rereads, standing, type MergeMode, type Tone } from '../merge';
 import { errorText } from '../report';
 import { flag, readStored, writeStored } from '../stored';
 import type { MergeBox as Box, MergeMethod, MergeOp, PrItem } from '../types';
@@ -237,8 +237,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
   const ready = said.tone === 'ok' && mode === 'merge';
   const busyWord = doing === 'merge' ? 'Merging…' : doing === 'auto' ? 'Turning on…' : doing === 'enqueue' ? 'Queuing…' : null;
   const tone = box.state === 'MERGED' ? 'merged' : said.tone;
-  // A PR that's plainly ready says so in its pills and its button: no line under the row.
-  const plain = can.merge && box.canMerge && (box.mergeState === 'CLEAN' || box.mergeState === 'HAS_HOOKS');
+  const plain = plainlyReady(box, pr);
 
   const buttons = !writing && (
     <>

@@ -117,10 +117,12 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   `compare/<commit>...<head>?per_page=1` (`since`): the files and `total_commits` come whole on the
   first page with one commit listed (105 files and 74 commits, 2026-10-20).
 - The approvals that count on a PR and the commits they were of, for its stale approval:
-  `latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state submittedAt author { login }
-  commit { oid } } }` in `ASKED_FIELDS`, asked only of open PRs (`stale_approval_of`). It's each
+  `latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state
+  submittedAt author { login } commit { oid } } }` in `ASKED_FIELDS`, asked only of open PRs
+  (`stale_approval_of`), which says nothing of a PR with a page after it. It's each
   reviewer's latest review that approved or asked for changes, from people who may write to the
   repo. Where the repo doesn't dismiss approvals when commits come, `reviewDecision` stays
   `APPROVED` after a push and a rebase, and the approval's commit can be one the branch no longer
   has (a private repo's PR approved at one commit, then rebased and pushed twice: `mergeStateStatus`
-  `CLEAN`, 2026-10-20). It's a connection: a repo's `QUERY` went from 6 points to 7.
+  `CLEAN`, 2026-10-20). It's a connection: a repo's `QUERY` went from 6 points to 7, at 20 a PR
+  and at 100 alike.
