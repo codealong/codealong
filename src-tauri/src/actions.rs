@@ -230,6 +230,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SEARCH, here: search, back: found_back, wait: Some(Duration::from_secs(4)), ..ANY },
     Request { name: api::ROUTE, here: route, ..ANY },
     Request { name: api::START_OPTIONS, here: start_options, ..ANY },
+    Request { name: api::START_PICK, here: start_pick, ..ANY },
     Request { name: api::START, here: start, there: start_there, back: started_back, prompt: Some("/spec/prompt"), ..ANY },
     // A fork answers as a start does, with the copy by the key it has on its device.
     Request { name: api::SESSION_FORK, here: fork, back: started_back, prompt: Some("/prompt"), ..ANY },
@@ -471,8 +472,10 @@ fn with_key(params: Value, own: &str) -> Result<Value, String> {
 }
 
 /// Whether `from` may have another device do `req`: not what needs someone at the Mac a session
-/// runs on, nor a prompt from the command, which the other device would take as its user's own,
-/// from another of their devices, with nothing to say an agent sent it.
+/// runs on, nor a message from the command into a session's conversation, which the other device
+/// would take as its user's own, from another of their devices, with nothing to say an agent sent
+/// it. A start's or a fork's prompt begins a session of its own, as `codealong start` run by an
+/// agent begins one here, so the command may send those (`codealong start --device`).
 fn elsewhere(req: &Request, from: &From) -> Result<(), String> {
     if let Some(why) = req.only_here {
         return Err(why.to_string());
@@ -494,6 +497,11 @@ fn elsewhere(req: &Request, from: &From) -> Result<(), String> {
 pub fn command_may_ask(name: &str, params: &Value) -> Result<(), String> {
     if name == api::SESSION_FORK {
         return Err("Use `codealong session fork` so the session's automation setting is checked before forwarding.".into());
+    }
+    // Asked by hand, a start would go as it was written, with this device's todos in it, and
+    // its prompt with none of the checks `codealong start` makes first.
+    if name == api::START {
+        return Err("Use `codealong start --device`, which has the device pick where it starts and on what, as `codealong start` there would.".into());
     }
     let Some(req) = find(name) else { return Ok(()) };
     let from = From::Command(None);
@@ -532,7 +540,7 @@ pub fn typed<T: DeserializeOwned>(v: Value) -> Result<T, String> {
 }
 
 /// How a device says it doesn't know a request (`answer`), as every Mac since 2026-09-29 says it.
-const UNKNOWN: &str = "doesn't know how to";
+pub const UNKNOWN: &str = "doesn't know how to";
 
 /// Answers a linked device's request (peers.rs has checked it may make it) as a window's would be.
 /// `watching`: the device only watches (a phone), so what it sends is yours.
@@ -1013,6 +1021,12 @@ fn route(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// Where each account here can start a session.
 fn start_options(_: &Handle, _: &Call) -> Result<Value, String> {
     to_value(crate::start::options_here().map_err(words)?)
+}
+
+/// Where `codealong start` run here would start what the command on another device was given.
+fn start_pick(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let asked: params::StartPick = c.read()?;
+    to_value(crate::start::picked(&engine.board(), &cfg()?, &asked, crate::util::now_ms(), &crate::util::home()).map_err(words)?)
 }
 
 /// Starts a session in a worktree here and links it to its todos.
@@ -1932,6 +1946,14 @@ mod tests {
         assert!(run_as(&engine, &peers, &From::Here, api::SESSION_RESUME, On::Key(there), json!({ "prompt": "Go on" })).unwrap_err().contains("isn't linked"));
         let send = find(api::SESSION_SEND).unwrap();
         assert!(elsewhere(send, &command).is_err() && elsewhere(send, &From::Here).is_ok());
+        // A start begins a session of its own, so the command may have another device start one,
+        // which it does through `codealong start --device`, not as written by hand.
+        assert!(elsewhere(find(api::START).unwrap(), &command).is_ok());
+        let spec = json!({ "spec": { "laneId": "/r/app", "account": "claude", "place": "background", "prompt": "Fix it", "todos": ["t-1"] } });
+        assert!(command_may_ask(api::START, &spec).unwrap_err().contains("codealong start --device"));
+        assert!(command_may_ask(api::START_PICK, &json!({ "account": "auto" })).is_ok());
+        let lane = "@a1b2c3d4e5:/r/app";
+        assert!(run_as(&engine, &peers, &command, api::START, On::Key(lane), spec).unwrap_err().contains("isn't linked"));
         assert!(elsewhere(find(FORK_TERMINAL).unwrap(), &From::Here).unwrap_err().contains("on the Mac it runs on"));
         // A window may allow, and so may a device, which peers.rs lets through only with remote
         // control on: both get as far as the session.

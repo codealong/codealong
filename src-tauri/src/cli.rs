@@ -28,7 +28,7 @@ use crate::model::{Board, Harness, Lane, Origin, PreviewServer, Reuse, Session, 
 use crate::procs;
 use crate::search;
 use crate::server::{self, Request};
-use crate::start::{self, Place, StartSpec};
+use crate::start::{self, lane_for_path, Place, StartSpec};
 use crate::todos::{self, Label, Todo, TodoOp, TodoPatch, TodoReview, TodoStatus, TodoStore, Waiting, LABEL_COLORS};
 use crate::usage;
 use crate::util::{self, expand, now_ms, one_line, tilde, truncate};
@@ -273,7 +273,7 @@ enum DevicesCmd {
     Code,
     /// Link with the device that made this link code.
     UseCode { code: String },
-    /// Run a request on a linked device as this device's windows do (session-page, session-newer, session-pending, search, session-answer, mark-seen, start-options), with its parameters as JSON, less what the command can't ask for (a prompt, which would arrive there as its user's own; an answer other than deny). For checking a link by hand.
+    /// Run a request on a linked device as this device's windows do (session-page, session-newer, session-pending, search, session-answer, mark-seen, start-options, start-pick), with its parameters as JSON, less what the command can't ask for (a prompt, which would arrive there as its user's own; an answer other than deny; a start, which `codealong start --device` makes). For checking a link by hand.
     #[command(hide = true)]
     Ask { device: String, method: String, params: Option<String> },
 }
@@ -1105,9 +1105,12 @@ struct StartArgs {
     /// The account or routing group to run it on. `auto` picks as the quick panel does: from `[routing] auto` when set, else an account of the first account's harness with room under its `usage_cap`, and among those the one whose weekly limit resets soonest.
     #[arg(long, default_value = "auto")]
     account: String,
-    /// The worktree to run in: a path, or `.` (the default).
+    /// The worktree to run in: a path, or `.` (the default). With --device, a folder on that device, where a path under your home here is the same path under its home, and `.` is this repo's main checkout there.
     #[arg(long, default_value = ".")]
     worktree: String,
+    /// Start it on another of your Macs, by name or short id (`codealong devices` lists them), which needs remote control on there and the app running here. That Mac picks the worktree, account, model and place as `codealong start` run there would, from its own folders, accounts and settings; the session it starts is listed here as one of that device's.
+    #[arg(long, conflicts_with_all = ["todo", "take", "helper"])]
+    device: Option<String>,
     /// Have Claude Code make a fresh worktree for it (`claude --worktree`).
     #[arg(long)]
     new_worktree: bool,
@@ -1129,7 +1132,7 @@ struct StartArgs {
     /// With --helper: this session is sent a message when the helper's turn ends, or when it waits on your user, saying so and how to read its reply (`session wait <key>`), so you can end your turn meanwhile. It's sent while this session runs and isn't itself waiting on your user. Without it, wait for the helper with `session wait`.
     #[arg(long, requires = "helper")]
     report: bool,
-    /// Print what the start would do (the command and environment, or the link) without starting anything.
+    /// Print what the start would do (the command and environment, or the link) without starting anything. With --device, where that device would start it and on what.
     #[arg(long)]
     dry_run: bool,
 }
@@ -4543,19 +4546,9 @@ fn status_text(r: &TodoRow) -> String {
     }
 }
 
-/// The worktree the folder is in: the lane whose path contains it, the deepest one.
-fn lane_for_path<'a>(board: &'a Board, dir: &Path) -> Option<&'a Lane> {
-    let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-    board.lanes.iter().filter(|l| dir.starts_with(&l.path) || std::fs::canonicalize(&l.path).is_ok_and(|p| dir.starts_with(p))).max_by_key(|l| l.path.len())
-}
-
 fn resolve_worktree(c: &mut Client, w: &str) -> Result<String> {
     let path = if w == "." { std::env::current_dir()? } else { expand(w) };
-    let board = c.board()?;
-    if let Some(l) = board.lanes.iter().find(|l| Path::new(&l.id) == path) {
-        return Ok(l.id.clone());
-    }
-    lane_for_path(board, &path).map(|l| l.id.clone()).ok_or_else(|| anyhow!("{} isn't a worktree the board knows. `codealong worktrees` lists them.", tilde(&path)))
+    start::lane_at(c.board()?, &path).map(|l| l.id.clone()).ok_or_else(|| anyhow!("{} isn't a worktree the board knows. `codealong worktrees` lists them.", tilde(&path)))
 }
 
 fn resolve_session(c: &mut Client, k: &str) -> Result<String> {
@@ -5254,7 +5247,20 @@ fn todos_prompt(ts: &[&Todo], holding: impl Fn(&Todo) -> bool) -> String {
     parts.join("\n\n")
 }
 
+fn place_of(p: PlaceArg) -> Place {
+    match p {
+        PlaceArg::Terminal => Place::Terminal,
+        PlaceArg::Background => Place::Background,
+        PlaceArg::ClaudeApp => Place::ClaudeApp,
+        PlaceArg::CodexApp => Place::CodexApp,
+        PlaceArg::Codealong => Place::Codealong,
+    }
+}
+
 fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
+    if let Some(device) = &a.device {
+        return start_on_device(c, a, device, json);
+    }
     // Codealong's chats are a lane like any other, by their folder, which start.rs gives a chat
     // of its own.
     let lane_id = if a.chat { crate::config::chats_dir().to_string_lossy().into_owned() } else { resolve_worktree(c, &a.worktree)? };
@@ -5303,49 +5309,15 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             (todos_prompt(&ts, holding), ids)
         }
     };
-    let place = a.place.map(|p| match p {
-        PlaceArg::Terminal => Place::Terminal,
-        PlaceArg::Background => Place::Background,
-        PlaceArg::ClaudeApp => Place::ClaudeApp,
-        PlaceArg::CodexApp => Place::CodexApp,
-        PlaceArg::Codealong => Place::Codealong,
-    });
-    let (account, model, effort) = {
-        let cfg = c.cfg()?.clone();
-        if a.account == "auto" || cfg.routing.groups.iter().any(|g| g.name == a.account) {
-            let board = match c.app.is_some() {
-                true => Some(c.board()?.clone()),
-                false => None,
-            };
-            // A helper without --in goes where it starts out of sight.
-            let places = match (place, a.helper) {
-                (Some(p), _) => vec![p],
-                (None, true) => start::OUT_OF_SIGHT.to_vec(),
-                (None, false) => Vec::new(),
-            };
-            let picked = start::resolve_group(&cfg, board.as_ref(), &a.account, &places, a.model.as_deref(), None, false, now_ms(), |_| true)
-                .and_then(std::result::Result::ok)
-                .ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?;
-            (picked.account, a.model.clone().or(picked.model), a.effort.clone().or(picked.effort))
-        } else {
-            (a.account.clone(), a.model.clone(), a.effort.clone())
-        }
+    let cfg = c.cfg()?.clone();
+    // Auto and the routing groups pick by the board's usage, which only the app's board has.
+    let board = match c.app.is_some() {
+        true => Some(c.board()?),
+        false => None,
     };
-    // Without --in, the account's own first place: the one its `start` names, else the usual; a
-    // helper's, out of sight.
-    let place = match place {
-        Some(p) => p,
-        None => {
-            let cfg = c.cfg()?.clone();
-            let acct = cfg.accounts.iter().find(|x| x.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
-            let places = start::ordered_places(acct, &crate::util::home()).map_err(|why| anyhow!(why))?;
-            let hidden = a.helper.then(|| start::out_of_sight(acct, &crate::util::home())).flatten();
-            hidden.or(places.first().copied()).ok_or_else(|| anyhow!("{account} can't start a session from here."))?
-        }
-    };
-    let spec = StartSpec { lane_id, account, place, prompt, model, effort, worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper, report: a.report };
+    let picked = start::pick(&cfg, board, &a.account, a.place.map(place_of), a.model.as_deref(), a.effort.as_deref(), a.helper, now_ms(), &crate::util::home())?;
+    let spec = StartSpec { lane_id, account: picked.account, place: picked.place, prompt, model: picked.model, effort: picked.effort, worktree: a.new_worktree, todos: todo_ids, from, helper: a.helper, report: a.report };
     if a.dry_run {
-        let cfg = c.cfg()?.clone();
         let account = cfg.accounts.iter().find(|x| x.name == spec.account).ok_or_else(|| anyhow!("There's no account named {}.", spec.account))?;
         let plan = start::plan_now(&cfg, account, spec.place, Path::new(&spec.lane_id), &spec.prompt, spec.model.as_deref(), spec.effort.as_deref(), spec.worktree)?;
         if json {
@@ -5378,6 +5350,73 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
         (None, None) => println!("Started."),
     }
     Ok(())
+}
+
+/// `start --device`: the device picks where the session starts and on what, as `codealong start`
+/// run there would (`api::START_PICK`), and then starts it as it does a window's start from here
+/// (actions.rs `start_there`). Only through the app, which holds the link, so neither request can
+/// end up started on this Mac.
+fn start_on_device(c: &mut Client, a: &StartArgs, device: &str, json: bool) -> Result<()> {
+    let prompt = a.prompt.clone().ok_or_else(|| anyhow!("Give --prompt."))?;
+    if c.app.is_none() {
+        bail!("Starting a session on another device needs the Codealong app running here.");
+    }
+    let view: server::DevicesSummary = serde_json::from_value(ask_app(&Request::Devices)?).context("reading the app's devices")?;
+    if !view.enabled {
+        bail!("Devices is off on this device: turn it on in Settings › Devices, or [devices] enabled = true in config.toml.");
+    }
+    let (key, name) = which_device(&view, device, &[Listed::Linked])?;
+    let short: String = key.chars().take(10).collect();
+    let (folder, repo) = match a.worktree.as_str() {
+        _ if a.chat => (String::new(), String::new()),
+        // The device finds its own checkout of this repo.
+        "." => {
+            let here = std::env::current_dir()?;
+            let repo = start::lane_at(c.board()?, &here).and_then(|l| l.repo_slug_now.clone().or_else(|| l.repo_slug.clone()));
+            (String::new(), repo.ok_or_else(|| anyhow!("This folder isn't in a GitHub repo the board knows, so there's no checkout of it to find on {name}. Give --worktree: a folder there."))?)
+        }
+        // Under your home here, it's the same folder under that device's home.
+        w => (tilde(Path::new(&util::resolve(&std::env::current_dir()?.to_string_lossy(), w))), String::new()),
+    };
+    let asked = params::StartPick { folder, repo, chat: a.chat, account: a.account.clone(), place: a.place.map(place_of), model: a.model.clone(), effort: a.effort.clone() };
+    let from = find_me(c)?.0;
+    let ask = |method: &str, at: &str, params: Value| ask_app(&Request::Run { name: method.into(), key: crate::peerfeed::remote_key(&short, at), params, from: from.clone() }).map_err(|e| device_said(e, &name));
+    let mut spec: StartSpec = serde_json::from_value(ask(api::START_PICK, "", serde_json::to_value(&asked)?)?).context("reading where the device would start it")?;
+    spec.prompt = prompt;
+    spec.worktree = a.new_worktree;
+    if a.dry_run {
+        if json {
+            return print_json(&serde_json::json!({ "device": name, "spec": spec }));
+        }
+        println!("On {name}: {}", serde_json::to_string_pretty(&spec)?);
+        return Ok(());
+    }
+    let lane = spec.lane_id.clone();
+    let started: start::Started = serde_json::from_value(ask(api::START, &lane, serde_json::to_value(params::Start { spec })?)?).context("reading the device's reply")?;
+    if json {
+        return print_json(&started);
+    }
+    match (&started.key, &started.message) {
+        (Some(k), _) => println!("Started {k} on {name}."),
+        (None, Some(m)) => println!("{m}"),
+        (None, None) => println!("Started on {name}."),
+    }
+    Ok(())
+}
+
+/// What the app said of a request it put to the device `name`: a device or an app from before the
+/// request said to be (`actions::UNKNOWN`), and the device's own words said to be its.
+fn device_said(e: anyhow::Error, name: &str) -> anyhow::Error {
+    let e = e.to_string();
+    // The app here answers so when it doesn't know the request (actions.rs `asked`), the device
+    // with "Codealong on this device …".
+    if e.starts_with(server::UNKNOWN_REQUEST) || e.starts_with(&format!("Codealong {}", actions::UNKNOWN)) {
+        return anyhow!("The Codealong that's running is older than this command and can't start a session on another device. Update it, or quit it and open it again.");
+    }
+    if e.contains(actions::UNKNOWN) {
+        return anyhow!("Codealong on {name} is from before it could be asked to start a session by the command: update it there.");
+    }
+    anyhow!("{name}: {e}")
 }
 
 // ---- config ----
@@ -6395,6 +6434,24 @@ mod tests {
         // Taking a todo over is for starts on todos.
         assert!(Cli::try_parse_from(["codealong", "start", "--todo", "t-a", "--take"]).is_ok());
         assert!(Cli::try_parse_from(["codealong", "start", "--prompt", "Fix it", "--take"]).is_err());
+    }
+
+    /// A start on another Mac is that Mac's: its todos and helpers are this one's, so neither goes
+    /// with it, and what it says back is said to be its.
+    #[test]
+    fn a_start_on_another_device_takes_a_prompt_and_says_whose_words_are_whose() {
+        let Cmd::Start(s) = Cli::try_parse_from(["codealong", "start", "--device", "mini", "--prompt", "Fix it", "--worktree", "~/projects/northwind", "--in", "background"]).unwrap().cmd else { panic!() };
+        assert_eq!((s.device.as_deref(), s.worktree.as_str(), s.place), (Some("mini"), "~/projects/northwind", Some(PlaceArg::Background)));
+        assert!(Cli::try_parse_from(["codealong", "start", "--device", "mini", "--chat", "--prompt", "What's new?"]).is_ok());
+        for other in [&["--todo", "t-a"][..], &["--helper", "--prompt", "Review it"], &["--todo", "t-a", "--take"]] {
+            let line: Vec<&str> = ["codealong", "start", "--device", "mini"].into_iter().chain(other.iter().copied()).collect();
+            assert!(Cli::try_parse_from(line).is_err(), "{other:?}");
+        }
+        let said = |e: &str| device_said(anyhow!("{e}"), "Mini").to_string();
+        assert_eq!(said("There's no account named claude9."), "Mini: There's no account named claude9.");
+        assert_eq!(said("Codealong on this device doesn't know how to start-pick yet; update it here."), "Codealong on Mini is from before it could be asked to start a session by the command: update it there.");
+        assert!(said("Codealong doesn't know how to start-pick.").starts_with("The Codealong that's running is older than this command"));
+        assert!(said(&format!("{}: unknown variant `run`", server::UNKNOWN_REQUEST)).starts_with("The Codealong that's running is older than this command"));
     }
 
     #[test]

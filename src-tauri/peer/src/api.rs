@@ -37,6 +37,11 @@ pub const SESSION_PIN: &str = "session-pin";
 pub const SEARCH: &str = "search";
 pub const START_OPTIONS: &str = "start-options";
 pub const START: &str = "start";
+/// Where `codealong start` run on the device would start a session, and on what
+/// (`params::StartPick`), answering the `StartSpec` to send it as `start`: the command on another
+/// device asks it first (`codealong start --device`), so the device picks by its own folders,
+/// settings and usage. Macs before 2026-10-20 refuse it as a request they don't know.
+pub const START_PICK: &str = "start-pick";
 /// The reply a session Codealong runs (over ACP) is writing, as it stands.
 pub const SESSION_STREAM: &str = "session-stream";
 /// The sessions whose replies to send this connection as they're written (`Msg::Stream`), in
@@ -137,7 +142,7 @@ pub mod params {
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
-    use super::StartSpec;
+    use super::{Place, StartSpec};
 
     /// For a request about a session that carries nothing else: `session-pending`,
     /// `session-way`, `session-stream`, `session-cancel`.
@@ -450,6 +455,28 @@ pub mod params {
     pub struct Start {
         pub spec: StartSpec,
     }
+
+    /// `start-pick`: what `codealong start` was given, for the device to pick by.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default, rename_all = "camelCase")]
+    pub struct StartPick {
+        /// A folder on the device, `~/` for its home: the worktree it's in. Empty for `repo`'s
+        /// main checkout there.
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub folder: String,
+        /// The repo (`owner/name`) whose main checkout an empty `folder` names.
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub repo: String,
+        /// In none of its worktrees: a folder of its own among the device's chats.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        pub chat: bool,
+        /// An account, a routing group, or `auto`.
+        pub account: String,
+        /// None for the account's own first place (its `start` setting's).
+        pub place: Option<Place>,
+        pub model: Option<String>,
+        pub effort: Option<String>,
+    }
 }
 
 /// Who may make a request of a device, as the device asked decides it (the engine's peers.rs).
@@ -467,7 +494,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 37] = [
+pub const REQUESTS: [(&str, Reach); 38] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -476,6 +503,7 @@ pub const REQUESTS: [(&str, Reach); 37] = [
     (SESSION_WATCH, Reach::Read),
     (SEARCH, Reach::Read),
     (START_OPTIONS, Reach::Read),
+    (START_PICK, Reach::Read),
     (ROUTE, Reach::Read),
     (PR_DETAIL, Reach::Read),
     (PR_MERGE_BOX, Reach::Read),
@@ -1122,6 +1150,9 @@ mod tests {
         assert_eq!(v(&params::Route { project: "All projects".into(), text: "fix it".into() }), json!({ "project": "All projects", "text": "fix it" }));
         let spec = StartSpec { lane_id: "/r/app".into(), account: "claude".into(), place: Place::Terminal, prompt: String::new(), model: None, effort: None, worktree: false, todos: vec![], from: None, helper: false, report: false };
         assert_eq!(v(&params::Start { spec }), json!({ "spec": { "laneId": "/r/app", "account": "claude", "place": "terminal", "prompt": "", "model": null, "effort": null, "worktree": false, "todos": [] } }));
+        let pick = params::StartPick { repo: "acme/app".into(), account: "auto".into(), place: Some(Place::Background), ..Default::default() };
+        assert_eq!(v(&pick), json!({ "repo": "acme/app", "account": "auto", "place": "background", "model": null, "effort": null }));
+        assert_eq!(serde_json::from_value::<params::StartPick>(json!({ "folder": "~/app", "account": "claude" })).unwrap(), params::StartPick { folder: "~/app".into(), account: "claude".into(), ..Default::default() });
         // What an older device leaves out reads as empty, an archive as one.
         let read = |j: serde_json::Value| (serde_json::from_value::<params::Answer>(j.clone()).unwrap(), serde_json::from_value::<params::Archive>(j).unwrap());
         let (answer, archive) = read(json!({ "key": "claude:claude:abc" }));

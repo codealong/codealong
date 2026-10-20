@@ -2622,7 +2622,11 @@ name; work on a device that's away stays, faded, as it was when last seen; the s
 narrow the views to the ones you pick. A session on another device shows its whole conversation in
 its panel; you can mark it seen or snooze it from here, and when that device lets its linked devices
 act on its sessions (remote control, off by default) send it a message, answer an approval or mark
-it done. The images you paste into a message or a start for another device go there with it, and
+it done, or start a session there: ⌘D in the quick panel picks the Mac, and `codealong start
+--device <name> --prompt …` has that Mac pick the worktree (a folder there, a path under your home
+being the same path under its home, or by default its main checkout of the repo you're in), the
+account and the place as `codealong start` run there would. A start there takes no todo and makes no
+helper, as both are this Mac's. The images you paste into a message or a start for another device go there with it, and
 the images in another device's conversations come from it as they show; any other file you attach
 stays on the Mac you attached it on, so a message with one for another device isn't sent. Devices
 find each other on your tailnet when Tailscale runs, and reach linked devices
@@ -2663,7 +2667,8 @@ for you to read, and a session it started, never one working or waiting on you, 
 window says which session did it, with an Undo; `codealong start --todo <id>` starts a session the
 way New session does (`--todo` again for several todos in one session), and `codealong start
 --helper --prompt …` a helper of the session running it (see *Helpers*), whose reply `codealong
-session wait <key>` waits for, or which `--report` has Codealong tell the session of; `codealong
+session wait <key>` waits for, or which `--report` has Codealong tell the session of, and `codealong
+start --device <name> --prompt …` one on another of your Macs (see *Your other devices*); `codealong
 board add|remove|show|move|arrange|new` put work on your boards and lay them out (see *Boards*);
 `codealong config
 show|check` prints the settings and checks an edited config.toml. With the app running, answers come

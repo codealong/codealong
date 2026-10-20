@@ -43,11 +43,16 @@ pub fn home() -> PathBuf {
 
 /// Expands a leading `~` to the home directory.
 pub fn expand(p: &str) -> PathBuf {
+    expand_in(p, &home())
+}
+
+/// `expand`, with `home` as the home directory.
+pub fn expand_in(p: &str, home: &Path) -> PathBuf {
     if p == "~" {
-        return home();
+        return home.to_path_buf();
     }
     if let Some(rest) = p.strip_prefix("~/") {
-        return home().join(rest);
+        return home.join(rest);
     }
     PathBuf::from(p)
 }

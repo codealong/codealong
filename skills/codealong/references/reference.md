@@ -2451,9 +2451,18 @@ Options:
           [default: auto]
 
       --worktree <WORKTREE>
-          The worktree to run in: a path, or `.` (the default)
+          The worktree to run in: a path, or `.` (the default). With --device, a folder
+          on that device, where a path under your home here is the same path under its
+          home, and `.` is this repo's main checkout there
           
           [default: .]
+
+      --device <DEVICE>
+          Start it on another of your Macs, by name or short id (`codealong devices`
+          lists them), which needs remote control on there and the app running here.
+          That Mac picks the worktree, account, model and place as `codealong start` run
+          there would, from its own folders, accounts and settings; the session it
+          starts is listed here as one of that device's
 
       --new-worktree
           Have Claude Code make a fresh worktree for it (`claude --worktree`)
@@ -2508,7 +2517,8 @@ Options:
 
       --dry-run
           Print what the start would do (the command and environment, or the link)
-          without starting anything
+          without starting anything. With --device, where that device would start it and
+          on what
 
   -h, --help
           Print help (see a summary with '-h')

@@ -346,8 +346,11 @@ rate-limits.
 prompt, then a line naming the todo) in the current worktree, on the account Auto picks (an account with room, or from Auto's routing group, the one whose week resets soonest), in a new terminal
 (a tab or window, as config.toml's `new_terminal` says), and links the session to the todo. Give `--todo` more than once to
 start several todos in one session: the prompt numbers them, and the session is linked to each. `--account`, `--worktree`, `--new-worktree`,
-`--in background|claude-app|codex-app` (background: nothing comes forward; Claude Code's `--bg` with no terminal, any other agent in a terminal behind your windows), `--model` and `--effort` change that. Only do this when the user asks for a
-session to be started. A todo's primary session starts others on it to work alongside it; from
+`--in background|claude-app|codex-app` (background: nothing comes forward; Claude Code's `--bg` with no terminal, any other agent in a terminal behind your windows), `--model` and `--effort` change that. `--device <name> --prompt "…"` starts it on
+another of your user's Macs (`codealong devices` lists them; it needs remote control on there),
+which picks the worktree (`--worktree` a folder there; by default its main checkout of this
+repo), the account and the place as `codealong start` run there would; it takes no `--todo` or
+`--helper`. Only do this when the user asks for a session to be started. A todo's primary session starts others on it to work alongside it; from
 any other session, a start on a todo whose primary session runs is turned down, as `todo start`
 is, and `--take` starts one that takes the todo over.
 

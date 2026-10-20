@@ -766,6 +766,94 @@ pub fn options_here() -> Result<StartOptions> {
     Ok(options_for(&config::current()?))
 }
 
+/// The account, model, effort and place a start goes on (`pick`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pick {
+    pub account: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub place: Place,
+}
+
+/// What `codealong start` starts on, run here or by another device's (`picked`): `account` is an
+/// account, a routing group or `auto`, which picks as the quick panel does (`resolve_group`, by
+/// `board`'s usage and sessions when there's one), with `model` and `effort` over the group's.
+/// Without `place`, the account's own first place (the one its `start` names), or for a helper
+/// one out of sight.
+#[allow(clippy::too_many_arguments)]
+pub fn pick(cfg: &Config, board: Option<&Board>, account: &str, place: Option<Place>, model: Option<&str>, effort: Option<&str>, helper: bool, now: i64, home: &Path) -> Result<Pick> {
+    let (account, model, effort) = if account == "auto" || cfg.routing.groups.iter().any(|g| g.name == account) {
+        // A helper without a place goes where it starts out of sight.
+        let places = match (place, helper) {
+            (Some(p), _) => vec![p],
+            (None, true) => OUT_OF_SIGHT.to_vec(),
+            (None, false) => Vec::new(),
+        };
+        let picked = resolve_group(cfg, board, account, &places, model, None, false, now, |_| true)
+            .and_then(std::result::Result::ok)
+            .ok_or_else(|| anyhow!("No account can start a session there. `codealong accounts` lists them."))?;
+        (picked.account, model.map(str::to_string).or(picked.model), effort.map(str::to_string).or(picked.effort))
+    } else {
+        (account.to_string(), model.map(str::to_string), effort.map(str::to_string))
+    };
+    let place = match place {
+        Some(p) => p,
+        None => {
+            let acct = cfg.accounts.iter().find(|x| x.name == account).ok_or_else(|| anyhow!("There's no account named {account}."))?;
+            let places = ordered_places(acct, home).map_err(|why| anyhow!(why))?;
+            let hidden = helper.then(|| out_of_sight(acct, home)).flatten();
+            hidden.or(places.first().copied()).ok_or_else(|| anyhow!("{account} can't start a session from here."))?
+        }
+    };
+    Ok(Pick { account, model, effort, place })
+}
+
+/// The start `codealong start` run here would make of what another device's command was given
+/// (`codealong start --device`), for that device to send back as a start: in the worktree its
+/// folder is in (`~/` this Mac's home), else in its repo's main checkout here, or a chat of its
+/// own, on what `pick` gives. A helper, todos and the session that asked are the asking device's,
+/// so it has none of them.
+pub fn picked(board: &Board, cfg: &Config, asked: &codealong_peer::api::params::StartPick, now: i64, home: &Path) -> Result<StartSpec> {
+    let lane_id = if asked.chat {
+        config::chats_dir().to_string_lossy().into_owned()
+    } else if !asked.folder.is_empty() {
+        let dir = crate::util::expand_in(&asked.folder, home);
+        lane_at(board, &dir).map(|l| l.id.clone()).ok_or_else(|| anyhow!("{} isn't in a worktree Codealong knows.", asked.folder))?
+    } else {
+        main_checkout(board, &asked.repo)?
+    };
+    let p = pick(cfg, Some(board), &asked.account, asked.place, asked.model.as_deref(), asked.effort.as_deref(), false, now, home)?;
+    Ok(StartSpec { lane_id, account: p.account, place: p.place, prompt: String::new(), model: p.model, effort: p.effort, worktree: false, todos: Vec::new(), from: None, helper: false, report: false })
+}
+
+/// The main checkout of `repo` (`owner/name`, as either name GitHub has for it) among the board's
+/// worktrees, or why there's no one to take.
+fn main_checkout(board: &Board, repo: &str) -> Result<String> {
+    if repo.is_empty() {
+        bail!("Name a folder to start in.");
+    }
+    let of_repo: Vec<&Lane> = board.lanes.iter().filter(|l| [&l.repo_slug, &l.repo_slug_now].iter().any(|s| s.as_deref() == Some(repo))).collect();
+    let main: Vec<&Lane> = of_repo.iter().copied().filter(|l| l.origin == Origin::Main).collect();
+    let paths = |lanes: &[&Lane]| lanes.iter().map(|l| tilde(Path::new(&l.path))).collect::<Vec<_>>().join(", ");
+    match main.as_slice() {
+        [one] => Ok(one.id.clone()),
+        [] if of_repo.is_empty() => bail!("{repo} has no checkout Codealong knows."),
+        [] => bail!("{repo} has no main checkout Codealong knows. Name one of its worktrees: {}.", paths(&of_repo)),
+        more => bail!("{repo} has {} main checkouts. Name one: {}.", more.len(), paths(more)),
+    }
+}
+
+/// The worktree a folder is in: the one it is, else the deepest whose folder holds it.
+pub fn lane_at<'a>(board: &'a Board, dir: &Path) -> Option<&'a Lane> {
+    board.lanes.iter().find(|l| Path::new(&l.id) == dir).or_else(|| lane_for_path(board, dir))
+}
+
+/// The worktree the folder is in: the lane whose path contains it, the deepest one.
+pub fn lane_for_path<'a>(board: &'a Board, dir: &Path) -> Option<&'a Lane> {
+    let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    board.lanes.iter().filter(|l| dir.starts_with(&l.path) || std::fs::canonicalize(&l.path).is_ok_and(|p| dir.starts_with(p))).max_by_key(|l| l.path.len())
+}
+
 /// The launch for one start, as its harness takes it (`Adapter::start_in_terminal`,
 /// `background_command`, `app_link`): a command line gets the prompt, with its attachments
 /// written out the way that harness reads files, and the model, effort and new worktree it
@@ -1992,6 +2080,50 @@ mod tests {
         let how = ResumeIn { place: Place::Terminal, model: None, effort: None };
         let e = resume(&board, &cfg, "stopped", &how, "", &crate::send::Sender::You).unwrap_err().to_string();
         assert_eq!(e, "claude is turned off in Settings › Accounts.");
+    }
+
+    /// What `codealong start --device` asks of a device is picked there as `codealong start` run
+    /// there would pick it, by its own folders, home and accounts.
+    #[test]
+    fn a_start_another_devices_command_asks_for_is_picked_as_one_here() {
+        use codealong_peer::api::params::StartPick;
+        let home = Path::new("/Users/sam");
+        let lane = |path: &str, slug: &str, origin: Origin| Lane { repo_slug: Some(slug.into()), origin, ..Lane::new(path, "Northwind", "northwind") };
+        let board = Board { lanes: vec![lane("/Users/sam/northwind", "acme/northwind", Origin::Main), lane("/Users/sam/northwind-login", "acme/northwind", Origin::Script), lane("/Users/sam/atlas-fix", "acme/atlas", Origin::Script)], ..Board::default() };
+        let claude = AccountCfg { start: Some("background".into()), ..account("claude", "claude", "/Users/sam/.claude", Some("claude")) };
+        let mut cfg = Config { accounts: vec![claude, account("codex", "codex", "/Users/sam/.codex", None)], ..Config::default() };
+        let asked = |folder: &str, repo: &str| StartPick { folder: folder.into(), repo: repo.into(), account: "claude".into(), ..StartPick::default() };
+        let lane_of = |cfg: &Config, p: &StartPick| picked(&board, cfg, p, NOW, home).map(|s| s.lane_id).map_err(|e| e.to_string());
+        // A folder under its home, as the asking Mac sends one under its own, is in the deepest
+        // worktree that holds it; a worktree's own folder is that one.
+        assert_eq!(lane_of(&cfg, &asked("~/northwind-login/src", "")).as_deref(), Ok("/Users/sam/northwind-login"));
+        assert_eq!(lane_of(&cfg, &asked("/Users/sam/northwind", "")).as_deref(), Ok("/Users/sam/northwind"));
+        assert_eq!(lane_of(&cfg, &asked("~/elsewhere", "")), Err("~/elsewhere isn't in a worktree Codealong knows.".into()));
+        // No folder: the repo's main checkout there, or why there's none to take.
+        assert_eq!(lane_of(&cfg, &asked("", "acme/northwind")).as_deref(), Ok("/Users/sam/northwind"));
+        assert_eq!(lane_of(&cfg, &asked("", "acme/kestrel")), Err("acme/kestrel has no checkout Codealong knows.".into()));
+        assert_eq!(lane_of(&cfg, &asked("", "acme/atlas")), Err("acme/atlas has no main checkout Codealong knows. Name one of its worktrees: /Users/sam/atlas-fix.".into()));
+        // A chat goes in a folder of its own, as one started there does.
+        let chat = StartPick { chat: true, ..asked("", "") };
+        assert_eq!(lane_of(&cfg, &chat), Ok(config::chats_dir().to_string_lossy().into_owned()));
+
+        // The account's own first place, the one its `start` names, unless another is asked for;
+        // the model and effort asked for go as they are.
+        let spec = picked(&board, &cfg, &asked("~/northwind", ""), NOW, home).unwrap();
+        assert_eq!((spec.account.as_str(), spec.place, spec.prompt.as_str(), spec.from, spec.helper), ("claude", Place::Background, "", None, false));
+        let terminal = StartPick { place: Some(Place::Terminal), model: Some("opus".into()), effort: Some("high".into()), ..asked("~/northwind", "") };
+        let spec = picked(&board, &cfg, &terminal, NOW, home).unwrap();
+        assert_eq!((spec.place, spec.model.as_deref(), spec.effort.as_deref()), (Place::Terminal, Some("opus"), Some("high")));
+        // Auto and the routing groups pick among its accounts.
+        let auto = StartPick { account: "auto".into(), ..asked("~/northwind", "") };
+        assert_eq!(picked(&board, &cfg, &auto, NOW, home).unwrap().account, "claude");
+        cfg.routing.groups.push(config::RoutingGroupCfg { name: "second".into(), strategy: config::RoutingStrategy::Fallback, members: vec![config::GroupMemberCfg { account: "codex".into(), model: String::new(), effort: String::new() }] });
+        let group = picked(&board, &cfg, &StartPick { account: "second".into(), ..asked("~/northwind", "") }, NOW, home).unwrap();
+        assert_eq!((group.account.as_str(), group.place), ("codex", Place::CodexApp));
+        let nobody = StartPick { account: "claude9".into(), ..asked("~/northwind", "") };
+        assert_eq!(picked(&board, &cfg, &nobody, NOW, home).unwrap_err().to_string(), "There's no account named claude9.");
+        // A helper here starts out of sight, without a place asked for.
+        assert_eq!(super::pick(&cfg, None, "claude", None, None, None, true, NOW, home).unwrap().place, Place::Background);
     }
 
     #[test]
