@@ -7,7 +7,7 @@
   var open = setInterval(function () {
     tries += 1;
     var gear = document.querySelector('.ca-side-config');
-    var field = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-pane .ca-field > span'), function (s) { return s.textContent === 'Terminal'; })[0];
+    var field = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-pane .ca-field > span:not(.ca-checkbox)'), function (s) { return s.textContent === 'Terminal'; })[0];
     if (field) {
       field.scrollIntoView({ block: 'start' });
       clearInterval(open);

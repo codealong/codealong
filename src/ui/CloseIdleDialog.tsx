@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { closeIdleSessions, idleSessions } from '../api';
 import { flag, useStored } from '../stored';
 import type { CloseOutcome, IdleEnds, IdlePlan, IdleSession, KeptSession } from '../types';
-import { Button, cx, Dialog, Icon, Seg } from './primitives';
+import { Button, CheckBox, cx, Dialog, Icon, Seg } from './primitives';
 
 const HOUR = 3600e3;
 export const WAITS: { ms: number; label: string }[] = [
@@ -153,12 +153,7 @@ export function CloseIdleDialog({ onClose, onDone }: Props) {
             {plan.close.map((c) => (
               <li key={c.key}>
                 <label className="ca-idle-row" title={c.cwd}>
-                  <span className="ca-check">
-                    <input type="checkbox" checked={!off.has(c.key)} onChange={() => toggle(c.key)} />
-                    <span className="ca-check-box" aria-hidden="true">
-                      <Icon name="check" size={11} stroke={2.5} />
-                    </span>
-                  </span>
+                  <CheckBox checked={!off.has(c.key)} onChange={() => toggle(c.key)} />
                   <span className="ca-idle-text">
                     <span className="ca-idle-title">{c.title || c.key}</span>
                     <span className="ca-idle-why">
@@ -206,10 +201,7 @@ export function CloseIdleDialog({ onClose, onDone }: Props) {
           <span>Idle for at least</span>
           <Seg label="Idle for at least" options={WAITS.map((w) => ({ id: w.ms, label: w.label }))} value={after} disabled={closing} onPick={setAfter} />
           <label className={cx('ca-check', 'ca-idle-archive', closing && 'is-disabled')} title="Each is marked seen and archived too, as Mark as done does, so it leaves every list but Archived. Sessions Codealong can’t close (in the Claude or Codex app, run by Codealong) are archived only and stay open where they are.">
-            <input type="checkbox" checked={archive} disabled={closing} onChange={(e) => setArchive(e.target.checked)} />
-            <span className="ca-check-box" aria-hidden="true">
-              <Icon name="check" size={11} stroke={2.5} />
-            </span>
+            <CheckBox checked={archive} disabled={closing} onChange={setArchive} />
             Also archive them
           </label>
         </div>

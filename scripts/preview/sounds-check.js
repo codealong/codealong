@@ -22,7 +22,7 @@
   };
 
   var nav = function (label) { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
-  var field = function (label) { return all('.ca-field').filter(function (f) { var s = f.querySelector(':scope > span'); return s && s.textContent === label; })[0]; };
+  var field = function (label) { return all('.ca-field').filter(function (f) { var s = f.querySelector(':scope > span:not(.ca-checkbox)'); return s && s.textContent === label; })[0]; };
   var select = function (label) { return field(label).querySelector('select'); };
   var play = function (label) { return field(label).querySelector('button'); };
   var last = function (cmd) { var c = calls(cmd); return c.length ? c[c.length - 1][1] : null; };

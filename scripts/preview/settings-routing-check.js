@@ -9,7 +9,7 @@
 (function () {
   var button = function (label, within) { return all('button', within).filter(function (b) { return b.textContent.trim() === label; })[0]; };
   var nav = function (label) { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
-  var field = function (words, within) { return all('.ca-field', within || q('.ca-settings-pane')).filter(function (f) { var s = f.querySelector(':scope > span'); return s && words.test(s.textContent); })[0]; };
+  var field = function (words, within) { return all('.ca-field', within || q('.ca-settings-pane')).filter(function (f) { var s = f.querySelector(':scope > span:not(.ca-checkbox)'); return s && words.test(s.textContent); })[0]; };
   var pick = function (select, value) {
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, value);
     select.dispatchEvent(new Event('change', { bubbles: true }));

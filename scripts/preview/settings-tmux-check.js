@@ -6,7 +6,7 @@
 (function () {
   var linux = window.__CODEALONG_PLATFORM__ === 'linux' || /\bLinux\b/.test(navigator.userAgent);
   var field = function () {
-    return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span'); return s && s.textContent === 'Run sessions in tmux'; })[0];
+    return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span:not(.ca-checkbox)'); return s && s.textContent === 'Run sessions in tmux'; })[0];
   };
   var choice = function (label) {
     return Array.prototype.filter.call(field().querySelectorAll('button'), function (b) { return b.textContent.trim() === label; })[0];
@@ -19,7 +19,7 @@
   until(function () { return q('.ca-side-config'); }, 20000, 'the settings button')
     .then(function (gear) {
       gear.click();
-      return until(function () { return all('.ca-settings-pane .ca-field > span').filter(function (s) { return s.textContent === 'Terminal'; })[0]; }, 20000, 'the terminal settings in General');
+      return until(function () { return all('.ca-settings-pane .ca-field > span:not(.ca-checkbox)').filter(function (s) { return s.textContent === 'Terminal'; })[0]; }, 20000, 'the terminal settings in General');
     })
     .then(function () {
       if (linux) {

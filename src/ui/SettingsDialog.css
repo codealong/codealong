@@ -167,9 +167,9 @@
   column-gap: var(--space-2);
   align-items: start;
 }
-.ca-settings-check input {
-  margin: 1px 0 0;
-  accent-color: var(--fill-strong);
+/* The 14px box sits on the middle of its label's first line, 16px tall (type-meta-strong). */
+.ca-settings-check > .ca-checkbox {
+  margin-top: 1px;
 }
 .ca-settings-check small {
   grid-column: 2;

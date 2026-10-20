@@ -11,7 +11,7 @@ import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
 import { afterStop, flagged, readNote, trainingOf, trainingTag } from '../training';
 import type { AccountCfg, AccountInfo, FoundAccount, Harness, StartPlace, Training, Usage } from '../types';
-import { Button, cx, Icon, Rich, Seg } from './primitives';
+import { Button, CheckBox, cx, Icon, Rich, Seg } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
 
 interface Draft {
@@ -304,10 +304,7 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
 
   const skillBox = (label: string) => (
     <label className="ca-check ca-acct-skill" title="Agents on the account can then use the codealong command: the board, todos, and which account has room.">
-      <input type="checkbox" checked={withSkill} onChange={(e) => setWithSkill(e.target.checked)} />
-      <span className="ca-check-box" aria-hidden="true">
-        <Icon name="check" size={11} stroke={2.5} />
-      </span>
+      <CheckBox checked={withSkill} onChange={setWithSkill} />
       {label}
     </label>
   );

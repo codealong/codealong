@@ -23,7 +23,7 @@ import { DevicesPane } from './DevicesSection';
 import { JevUsage } from './JevUsage';
 import { ChromeProfileSelect } from './PreviewBits';
 import { UpdatesFields } from './Updates';
-import { Button, cx, Dialog, Icon, NavItem, Seg } from './primitives';
+import { Button, CheckBox, cx, Dialog, Icon, NavItem, Seg } from './primitives';
 import { SettingsFindField, useSettingsFind } from './SettingsFind';
 import { THEMES } from './ThemeSwitch';
 import { errorText } from '../report';
@@ -378,7 +378,7 @@ function GeneralPane({ cfg, view, theme, onPickTheme, disabled, onSave, now }: P
           <small>A tab Codealong opens to run a command (Run on a block, or one an agent asked for) closes this long after the command ends, unless you pressed Return there for a shell. What it printed is kept a week.</small>
         </div>
         <label className="ca-field ca-settings-check">
-          <input type="checkbox" checked={cfg.apps.move_pointer ?? false} onChange={(e) => void onSave({ ...cfg, apps: { ...cfg.apps, move_pointer: e.target.checked } })} />
+          <CheckBox checked={cfg.apps.move_pointer ?? false} onChange={(on) => void onSave({ ...cfg, apps: { ...cfg.apps, move_pointer: on } })} />
           <span>Move the pointer to a terminal on another screen</span>
           <small>When a session's terminal comes forward on another screen than the pointer's, Codealong outlines it for a moment. This moves the pointer there too.</small>
         </label>
@@ -442,7 +442,7 @@ function OpenAtLoginField() {
   return (
     <>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={state === 'on' || state === 'approve'} disabled={busy || state === null} onChange={(e) => pick(e.target.checked)} />
+        <CheckBox checked={state === 'on' || state === 'approve'} disabled={busy || state === null} onChange={pick} />
         <span>Open at login</span>
         <small>{state === 'approve' ? 'macOS waits for you to allow Codealong in System Settings › General › Login Items.' : AT_LOGIN_SAYS[platform()]}</small>
       </label>
@@ -567,36 +567,36 @@ function LimitsField({ cfg, disabled, onSave }: PaneProps) {
         </small>
       </div>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={lifted} onChange={(e) => void onSave({ ...cfg, limits: { ...limits, continue_when_lifted: e.target.checked } })} />
+        <CheckBox checked={lifted} onChange={(on) => void onSave({ ...cfg, limits: { ...limits, continue_when_lifted: on } })} />
         <span>Carry on when the limit lifts</span>
         <small>When a session that stopped at its usage limit is still open where it stopped once the limit lifts, Codealong tells it to carry on. Claude Code may carry on by itself first; then it’s left as it is. Claude Code and Antigravity sessions, which say when their limit lifts.</small>
       </label>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={continues} onChange={(e) => saveSessions({ continue_after_network_error: e.target.checked })} />
+        <CheckBox checked={continues} onChange={(on) => saveSessions({ continue_after_network_error: on })} />
         <span>Carry on after a network error</span>
         <small>When a session’s turn ends because it couldn’t reach its API, as happens when the Mac sleeps with the lid closed or the network drops, Codealong tells it to carry on once the API can be reached again. Claude Code sessions, and Antigravity’s in its command line, for now.</small>
       </label>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={restarts} onChange={(e) => saveSessions({ continue_after_restart: e.target.checked })} />
+        <CheckBox checked={restarts} onChange={(on) => saveSessions({ continue_after_restart: on })} />
         <span>Carry on after Codealong restarts</span>
         <small>A session that runs in Codealong itself stops when Codealong quits, as it does for an update or a new build. When that cuts off a turn partway, Codealong tells the session to carry on once it’s back. Sessions in a terminal or another app aren’t affected when Codealong quits.</small>
       </label>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={resumesAny} onChange={(e) => saveSessions({ resume_for_any_session: e.target.checked })} />
+        <CheckBox checked={resumesAny} onChange={(on) => saveSessions({ resume_for_any_session: on })} />
         <span>Resume a stopped session for another session’s message</span>
         <small>
           When a session’s agent sends a message to one that has stopped (Claude Code ends a background job left idle for an hour), Codealong resumes it out of sight with the message, rather than nothing being sent. The session is told it had stopped and which session wrote, and the sender that it was resumed. Not one you archived or marked done, nor one that skips permission prompts (or may, as far as Codealong can tell) when the sender doesn’t.
         </small>
       </label>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={resumes} disabled={resumesAny} onChange={(e) => saveSessions({ resume_for_sessions_it_started: e.target.checked })} />
+        <CheckBox checked={resumes} disabled={resumesAny} onChange={(on) => saveSessions({ resume_for_sessions_it_started: on })} />
         <span>Resume a session for one it started, or the one that started it</span>
         <small>
           The same, only between a session and one its agent started with codealong start: the session that asked for the work hears of it, and the one doing it can be handed more. Part of the one above while that’s on.
         </small>
       </label>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={resumesForPrs} onChange={(e) => saveSessions({ resume_for_pr_news: e.target.checked })} />
+        <CheckBox checked={resumesForPrs} onChange={(on) => saveSessions({ resume_for_pr_news: on })} />
         <span>Resume a stopped session for its pull request’s news</span>
         <small>
           When a pull request’s nudge (above) has news that asks for work (someone else’s comments or review, changes asked for, failing checks, a conflict) and the session it tells has stopped, Codealong resumes that session out of sight with it. Not for an approval, a merge or a close, nor a session you archived or marked done, nor while another of the pull request’s sessions is running, which may have taken the work on.
@@ -832,7 +832,7 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={reviews.auto} onChange={(e) => set({ auto: e.target.checked })} />
+        <CheckBox checked={reviews.auto} onChange={(on) => set({ auto: on })} />
         <span>
           Review pull requests that wait on your review<SourceTag field="reviews.auto" scope={scope} />
         </span>
@@ -874,7 +874,7 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
         </small>
       </div>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={reviews.other_harness} onChange={(e) => set({ other_harness: e.target.checked })} />
+        <CheckBox checked={reviews.other_harness} onChange={(on) => set({ other_harness: on })} />
         <span>
           Use another harness than the pull request’s when known<SourceTag field="reviews.other_harness" scope={scope} />
         </span>
@@ -931,7 +931,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, group
   return (
     <>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={own.auto} onChange={(e) => setOwn({ auto: e.target.checked })} />
+        <CheckBox checked={own.auto} onChange={(on) => setOwn({ auto: on })} />
         <span>
           Review the pull requests your sessions open<SourceTag field="own.auto" scope={scope} />
         </span>
@@ -974,7 +974,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, group
             </small>
           </div>
           <label className="ca-field ca-settings-check">
-            <input type="checkbox" checked={own.other_harness} onChange={(e) => setOwn({ other_harness: e.target.checked })} />
+            <CheckBox checked={own.other_harness} onChange={(on) => setOwn({ other_harness: on })} />
             <span>
               Use another harness than the session that opened the pull request<SourceTag field="own.other_harness" scope={scope} />
             </span>
@@ -983,7 +983,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, group
             </small>
           </label>
           <label className="ca-field ca-settings-check">
-            <input type="checkbox" checked={own.send} onChange={(e) => setOwn({ send: e.target.checked })} />
+            <CheckBox checked={own.send} onChange={(on) => setOwn({ send: on })} />
             <span>
               Hand each review to the session that opened the pull request<SourceTag field="own.send" scope={scope} />
             </span>
@@ -993,7 +993,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, group
             </small>
           </label>
           <label className="ca-field ca-settings-check">
-            <input type="checkbox" checked={own.drafts} onChange={(e) => setOwn({ drafts: e.target.checked })} />
+            <CheckBox checked={own.drafts} onChange={(on) => setOwn({ drafts: on })} />
             <span>
               Review your draft pull requests too<SourceTag field="own.drafts" scope={scope} />
             </span>
@@ -1244,24 +1244,15 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
                 <span>Use this group for</span>
                 <small>The same settings as Auto routing above and the reviewers in Automation: checking one here picks this group there.</small>
                 <label className="ca-check">
-                  <input type="checkbox" checked={draft.useForAuto} onChange={(e) => setDraft({ ...draft, useForAuto: e.target.checked })} />
-                  <span className="ca-check-box" aria-hidden="true">
-                    <Icon name="check" size={11} stroke={2.5} />
-                  </span>
+                  <CheckBox checked={draft.useForAuto} onChange={(on) => setDraft({ ...draft, useForAuto: on })} />
                   <span>New sessions on Auto</span>
                 </label>
                 <label className="ca-check">
-                  <input type="checkbox" checked={draft.useForReviews} onChange={(e) => setDraft({ ...draft, useForReviews: e.target.checked })} />
-                  <span className="ca-check-box" aria-hidden="true">
-                    <Icon name="check" size={11} stroke={2.5} />
-                  </span>
+                  <CheckBox checked={draft.useForReviews} onChange={(on) => setDraft({ ...draft, useForReviews: on })} />
                   <span>Reviews of pull requests that wait on your review</span>
                 </label>
                 <label className="ca-check">
-                  <input type="checkbox" checked={draft.useForOwnReviews} onChange={(e) => setDraft({ ...draft, useForOwnReviews: e.target.checked })} />
-                  <span className="ca-check-box" aria-hidden="true">
-                    <Icon name="check" size={11} stroke={2.5} />
-                  </span>
+                  <CheckBox checked={draft.useForOwnReviews} onChange={(on) => setDraft({ ...draft, useForOwnReviews: on })} />
                   <span>Reviews of pull requests your sessions open</span>
                 </label>
               </div>
@@ -1326,7 +1317,7 @@ function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsC
   return (
     <fieldset className="ca-settings-fields" disabled={disabled}>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={prs.nudge_by_default} onChange={(e) => set({ nudge_by_default: e.target.checked })} />
+        <CheckBox checked={prs.nudge_by_default} onChange={(on) => set({ nudge_by_default: on })} />
         <span>
           Nudge the session that opened a pull request<SourceTag field="prs.nudge_by_default" scope={scope} />
         </span>
@@ -1343,7 +1334,7 @@ function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsC
         <small>{about.says} This holds for every pull request with its nudge on, by this switch or its own.</small>
       </label>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={everything || merges} disabled={everything} onChange={(e) => set({ nudge_about: withMerges(about.id, e.target.checked) })} />
+        <CheckBox checked={everything || merges} disabled={everything} onChange={(on) => set({ nudge_about: withMerges(about.id, on) })} />
         <span>Also when it’s merged</span>
         <small>
           {everything
@@ -1570,10 +1561,7 @@ function JevPane({ jev, disabled, onChange }: { jev: JevCfg; disabled: boolean; 
             {JEV_FEATURES.map((f) => (
               <label key={f.id} className={cx('ca-jev-feature', noKey && 'is-disabled')}>
                 <span className="ca-check">
-                  <input type="checkbox" checked={jev[f.id]} disabled={noKey} onChange={(e) => onChange({ ...jev, [f.id]: e.target.checked })} />
-                  <span className="ca-check-box" aria-hidden="true">
-                    <Icon name="check" size={11} stroke={2.5} />
-                  </span>
+                  <CheckBox checked={jev[f.id]} disabled={noKey} onChange={(on) => onChange({ ...jev, [f.id]: on })} />
                   <span className="ca-jev-feature-name">{f.label}</span>
                 </span>
                 <span className="ca-jev-feature-does">{keysIn(f.does)}</span>
@@ -2002,7 +1990,7 @@ function AdvancedPane({ cfg, view, disabled, onSave }: PaneProps & { view: Confi
       </div>
       <fieldset className="ca-settings-fields" disabled={disabled}>
         <label className="ca-field ca-settings-check">
-          <input type="checkbox" checked={cfg.debug.perf_log} onChange={(e) => void onSave({ ...cfg, debug: { ...cfg.debug, perf_log: e.target.checked } })} />
+          <CheckBox checked={cfg.debug.perf_log} onChange={(on) => void onSave({ ...cfg, debug: { ...cfg.debug, perf_log: on } })} />
           <span>Performance log</span>
           <small>
             Appends timings from the engine and every window to <code className="ca-ic">~/Library/Logs/Codealong/perf.log</code>. Turn it off when you're done: the log grows.

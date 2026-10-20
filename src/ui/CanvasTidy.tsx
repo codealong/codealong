@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'react';
 import { PR_SCOPES, SESSION_AGES, TODO_AGES, tidyPlan, type CanvasDoc, type Entities, type Filter, type Include, type OnBoard, type RefItem, type RefKind, type Scope, type TidyMode, type TidyOptions, type TidyPlan } from '../canvas/model';
-import { Icon, Seg } from './primitives';
+import { CheckBox, Seg } from './primitives';
 
 const LAYOUTS: { id: TidyMode; label: string; title: string }[] = [
   { id: 'worktree', label: 'By worktree', title: 'A frame per repo, a column per worktree' },
@@ -33,10 +33,7 @@ export function tidySummary(plan: TidyPlan): string {
 function Check({ label, on, onChange, title }: { label: string; on: boolean; onChange: (on: boolean) => void; title: string }) {
   return (
     <label className="ca-check" title={title}>
-      <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} />
-      <span className="ca-check-box" aria-hidden="true">
-        <Icon name="check" size={11} stroke={2.5} />
-      </span>
+      <CheckBox checked={on} onChange={onChange} />
       {label}
     </label>
   );

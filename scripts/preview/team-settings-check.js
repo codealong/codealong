@@ -22,7 +22,7 @@
   };
   var button = function (label, within) { return all('button', within).filter(function (b) { return b.textContent.trim() === label; })[0]; };
   var nav = function (label) { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
-  var field = function (words) { return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span'); return s && words.test(s.textContent); })[0]; };
+  var field = function (words) { return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span:not(.ca-checkbox)'); return s && words.test(s.textContent); })[0]; };
   var from = function (words) { var f = field(words); var t = f && q('.ca-settings-from', f); return t ? t.textContent : null; };
   var picker = function () { return q('.ca-settings-scope select'); };
   var pick = function (select, value) {

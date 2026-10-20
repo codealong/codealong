@@ -322,9 +322,9 @@ Each rule names the file whose header has the rest.
 - A session's, worktree's, PR's or todo's right-click menu is defined once, in `src/menus.ts`,
   and every window builds it from there, from the row it's for, never from the selection. A
   right-click on a row opens its menu and doesn't select it.
-- A dialog, a dismissal, a list row, a segmented control and a chip are each one component or
-  hook in `ui/primitives.tsx` (`Dialog`, `useDismiss`, `Row`, `Seg`, `Chip`; `HarnessChip`,
-  `WorktreeChip`, `PrChip`), and a class list goes through `cx`. A row's chips go in a
+- A dialog, a dismissal, a list row, a segmented control, a checkbox and a chip are each one
+  component or hook in `ui/primitives.tsx` (`Dialog`, `useDismiss`, `Row`, `Seg`, `CheckBox`,
+  `Chip`; `HarnessChip`, `WorktreeChip`, `PrChip`), and a class list goes through `cx`. A row's chips go in a
   `.ca-chips` lane, which never cuts one off. A session's account is said last, never before its
   title (asked 2026-10-01).
 - Styles are plain global CSS, every class named `ca-…`; a component's styles go in a file

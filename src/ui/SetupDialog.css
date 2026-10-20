@@ -21,7 +21,7 @@
 .ca-setup-row:hover {
   background: var(--neutral-tint);
 }
-.ca-setup-row .ca-check {
+.ca-setup-row > .ca-checkbox {
   margin-top: 2px;
 }
 .ca-setup-text {

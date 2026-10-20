@@ -10,7 +10,7 @@ import { agentsStatus, installAgents } from '../api';
 import { tildePath } from '../format';
 import { HARNESS_WORD } from '../harness';
 import type { AccountSkill, AgentsStatus, Config, PluginState } from '../types';
-import { Button, Icon } from './primitives';
+import { Button, CheckBox, Icon } from './primitives';
 
 /** The state word for an account's skill row, and whether it needs attention. */
 export function skillState(a: AccountSkill): { label: string; tone: 'ok' | 'attn' | 'none' } {
@@ -119,7 +119,7 @@ export function AgentsSection({ cfg, disabled, onSave }: { cfg: Config | null; d
       {cfg && (
         <fieldset className="ca-settings-fields" disabled={disabled}>
           <label className="ca-field ca-settings-check">
-            <input type="checkbox" checked={cfg.sessions?.live_replies ?? false} onChange={(e) => void setLiveReplies(e.target.checked)} />
+            <CheckBox checked={cfg.sessions?.live_replies ?? false} onChange={(on) => void setLiveReplies(on)} />
             <span>Show Claude Code replies as they're written</span>
             <small>
               The plugin hands Codealong each paragraph of a reply as the session's terminal shows it, so Codealong has it before Claude Code saves it, and shows what came with a question before you

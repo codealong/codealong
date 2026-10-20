@@ -10,7 +10,7 @@ import { agoPhrase } from '../format';
 import { COLOR_WORD } from '../todos';
 import type { Config, DevicesCfg, DevicesView, DeviceView, LabelColor } from '../types';
 import { DEVICES_OFF, LABEL_COLORS } from '../types';
-import { Button } from './primitives';
+import { Button, CheckBox } from './primitives';
 import { errorText } from '../report';
 
 interface DevicesPaneProps {
@@ -62,7 +62,7 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
       </div>
       <fieldset className="ca-settings-fields" disabled={disabled}>
         <label className="ca-field ca-settings-check">
-          <input type="checkbox" checked={d.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
+          <CheckBox checked={d.enabled} onChange={(on) => set({ enabled: on })} />
           <span>Show my other devices</span>
           <small>While this is off, this device talks to no other.</small>
         </label>
@@ -81,21 +81,21 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
               <small>What your other devices call it. Empty uses the computer's own name.</small>
             </label>
             <label className="ca-field ca-settings-check">
-              <input type="checkbox" checked={d.tailscale} onChange={(e) => set({ tailscale: e.target.checked })} />
+              <CheckBox checked={d.tailscale} onChange={(on) => set({ tailscale: on })} />
               <span>Find my devices on my tailnet</span>
               <small>
                 {tailscaleWord(view)} Tailscale already knows your devices and whose they are; Codealong listens on this device's tailnet address only, and links only devices of yours.
               </small>
             </label>
             <label className="ca-field ca-settings-check">
-              <input type="checkbox" checked={d.iroh} onChange={(e) => set({ iroh: e.target.checked })} />
+              <CheckBox checked={d.iroh} onChange={(on) => set({ iroh: on })} />
               <span>Reach linked devices anywhere</span>
               <small>
                 {irohWord(view)} Through iroh: devices dial each other by key and connect directly when they can; when they can't, number 0's relays pass the encrypted packets along without reading them.
               </small>
             </label>
             <label className="ca-field ca-settings-check">
-              <input type="checkbox" checked={d.remote_control} onChange={(e) => set({ remote_control: e.target.checked })} />
+              <CheckBox checked={d.remote_control} onChange={(on) => set({ remote_control: on })} />
               <span>Let my linked devices act on sessions here</span>
               <small>
                 They can send prompts, answer what agents wait on you to allow, and start sessions on this device. Every request is written to <code className="ca-ic">~/Library/Logs/Codealong/devices.log</code>.

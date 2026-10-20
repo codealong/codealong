@@ -221,9 +221,8 @@
   cursor: default;
 }
 
-/* A checkbox with its label (the quick panel's New worktree, Settings' and Close idle sessions' boxes). */
+/* A checkbox with its label after it (the quick panel's New worktree, a merge's Delete branch). */
 .ca-check {
-  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -232,8 +231,19 @@
   white-space: nowrap;
   cursor: pointer;
 }
-/* The real box stays for the keyboard and screen readers; the drawn one shows its state. */
-.ca-check input {
+.ca-check.is-disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+/* The box itself (CheckBox, primitives.tsx), as tall as it's drawn, so a row can set it on its
+   label's first line. The real box stays for the keyboard and screen readers, unseen; the drawn
+   one shows its state. */
+.ca-checkbox {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+.ca-checkbox input {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -243,7 +253,7 @@
   opacity: 0;
   pointer-events: none;
 }
-.ca-check-box {
+.ca-checkbox-face {
   display: inline-grid;
   place-items: center;
   width: 14px;
@@ -254,18 +264,15 @@
   background: var(--surface);
   color: transparent;
 }
-.ca-check input:checked + .ca-check-box {
+.ca-checkbox input:checked + .ca-checkbox-face {
   border-color: var(--ink);
   background: var(--ink);
   color: var(--surface);
 }
-.ca-check input:focus-visible + .ca-check-box {
+.ca-checkbox input:focus-visible + .ca-checkbox-face {
   box-shadow: var(--shadow-focus);
 }
-.ca-check.is-disabled {
-  color: var(--ink-3);
-  cursor: default;
-}
-.ca-check.is-disabled .ca-check-box {
+/* Disabled by itself or by its fieldset (a setting that only applies once another is on). */
+.ca-checkbox input:disabled + .ca-checkbox-face {
   opacity: 0.55;
 }

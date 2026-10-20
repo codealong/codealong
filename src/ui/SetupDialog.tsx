@@ -15,7 +15,7 @@ import { errorText } from '../report';
 import { accountsAfter, configAfter, firstPicks, folderNote, SETUP_STEPS, typedFolder, type SetupPicks, type SetupStep } from '../setup';
 import type { ConfigView, SetupView } from '../types';
 import { foundNote } from './AccountsSection';
-import { Button, cx, Dialog, Icon, Kbd } from './primitives';
+import { Button, CheckBox, cx, Dialog, Icon, Kbd } from './primitives';
 import { ProfileSelect, type SettingsSection } from './SettingsDialog';
 
 /** What the last step suggests setting up once the basics are in. Jev and devices are off until
@@ -57,12 +57,7 @@ const TITLE: Record<SetupStep, string> = { accounts: 'Your agents', folders: 'Yo
 function Check({ checked, onChange, label, note }: { checked: boolean; onChange: (on: boolean) => void; label: ReactNode; note?: ReactNode }) {
   return (
     <label className="ca-setup-row">
-      <span className="ca-check">
-        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-        <span className="ca-check-box" aria-hidden="true">
-          <Icon name="check" size={11} stroke={2.5} />
-        </span>
-      </span>
+      <CheckBox checked={checked} onChange={onChange} />
       <span className="ca-setup-text">
         <span className="ca-setup-label">{label}</span>
         {note && <span className="ca-setup-note">{note}</span>}

@@ -12,7 +12,7 @@
   };
   var nav = function (label) { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
   var button = function (label) { return all('.ca-settings-pane button').filter(function (b) { return b.textContent.trim() === label; })[0]; };
-  var field = function () { return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span'); return s && s.textContent === 'Usage'; })[0]; };
+  var field = function () { return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span:not(.ca-checkbox)'); return s && s.textContent === 'Usage'; })[0]; };
   var names = { quick_panel: 'Quick panel suggestions', sessions: 'Session status', todos: 'Todos', pull_requests: 'Pull request reviews', emblems: 'Session emblems', test: 'Test button' };
   // What the page should say for the last `days` days of the report.
   var expect = function (report, days) {

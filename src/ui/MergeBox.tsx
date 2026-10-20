@@ -23,7 +23,7 @@ import { boxKey, commitText, confirmLabel, DELETE_KEY, deletesWith, doneWords, m
 import { errorText } from '../report';
 import { flag, readStored, writeStored } from '../stored';
 import type { MergeBox as Box, MergeMethod, MergeOp, PrItem } from '../types';
-import { Button, cx, Icon } from './primitives';
+import { Button, CheckBox, cx, Icon } from './primitives';
 import { cmd, keysIn } from '../platform';
 
 /** Boxes already read, by what they were read for (merge.ts `boxKey`), so going back to a PR
@@ -328,10 +328,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
       )}
       {can.bypass && !writing && (
         <label className={cx('ca-check', 'ca-merge-bypass', doing && 'is-disabled')} title="You may merge it before its requirements are met: GitHub lets it past the repo’s rules">
-          <input type="checkbox" checked={bypassing} disabled={!!doing} onChange={(e) => setBypassing(e.target.checked)} />
-          <span className="ca-check-box" aria-hidden="true">
-            <Icon name="check" size={11} stroke={2.5} />
-          </span>
+          <CheckBox checked={bypassing} disabled={!!doing} onChange={setBypassing} />
           Merge without waiting for its requirements (bypass rules)
         </label>
       )}
@@ -362,10 +359,7 @@ function Loaded({ pr, box, note, setNote, reread, lead, trail, goesOn }: { pr: P
             )}
             {deletesWith(box, mode) && (
               <label className={cx('ca-check', doing && 'is-disabled')}>
-                <input type="checkbox" checked={deleteBranch} disabled={!!doing} onChange={(e) => setDeleteBranch(e.target.checked)} onKeyDown={onFieldKey} />
-                <span className="ca-check-box" aria-hidden="true">
-                  <Icon name="check" size={11} stroke={2.5} />
-                </span>
+                <CheckBox checked={deleteBranch} disabled={!!doing} onChange={setDeleteBranch} onKeyDown={onFieldKey} />
                 Delete <code className="ca-ic">{box.branch}</code> once merged
               </label>
             )}

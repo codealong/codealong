@@ -16,7 +16,7 @@
     var root = q('.ca-settings-found [data-section="' + section + '"]');
     if (!root) return [];
     return all('.ca-field', root).filter(shown).map(function (f) {
-      var s = f.querySelector(':scope > span');
+      var s = f.querySelector(':scope > span:not(.ca-checkbox)');
       return s ? s.textContent.trim() : '';
     });
   };

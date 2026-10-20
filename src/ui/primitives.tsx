@@ -1,6 +1,6 @@
 // Small pieces from the Codealong design system, typed for the live board.
 
-import type { AriaRole, ButtonHTMLAttributes, CSSProperties, FormEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
+import type { AriaRole, ButtonHTMLAttributes, CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, TextareaHTMLAttributes } from 'react';
 import { forwardRef, Fragment, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CLICK_WAIT_MS } from '../bar';
 import { fieldAt, typingIn } from '../contextMenu';
@@ -275,6 +275,20 @@ export function Button({ variant = 'secondary', size = 'md', icon, kbd, children
       {children && <span>{children}</span>}
       {kbd && <Kbd keys={kbd} />}
     </button>
+  );
+}
+
+/** A checkbox as Codealong draws it, the same in WebKit and Chrome: the real one stays for the
+ *  keyboard and screen readers, unseen, and a drawn box shows its state (controls.css
+ *  `.ca-checkbox`). It's the box alone; what it's for goes beside it, in the label it's in. */
+export function CheckBox({ checked, onChange, disabled, onKeyDown }: { checked: boolean; onChange: (on: boolean) => void; disabled?: boolean; onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void }) {
+  return (
+    <span className="ca-checkbox">
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} onKeyDown={onKeyDown} />
+      <span className="ca-checkbox-face" aria-hidden="true">
+        <Icon name="check" size={11} stroke={2.5} />
+      </span>
+    </span>
   );
 }
 

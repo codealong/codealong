@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { checkForUpdates, onUpdateStatus, restartToUpdate, updateStatus } from '../api';
 import { agoPhrase } from '../format';
 import type { Config, UpdateView } from '../types';
-import { Button, Icon } from './primitives';
+import { Button, CheckBox, Icon } from './primitives';
 
 /** Where updates stand, kept current; `null` until the app has said (and outside it). */
 export function useUpdates(): UpdateView | null {
@@ -94,7 +94,7 @@ export function UpdatesFields({ cfg, onSave, now }: { cfg: Config; onSave: (next
         <small role="status">{updateSays(view, now)}</small>
       </div>
       <label className="ca-field ca-settings-check">
-        <input type="checkbox" checked={cfg.updates?.check ?? true} onChange={(e) => onSave({ ...cfg, updates: { check: e.target.checked } })} />
+        <CheckBox checked={cfg.updates?.check ?? true} onChange={(on) => onSave({ ...cfg, updates: { check: on } })} />
         <span>Look for updates by itself</span>
         <small>A newer version is put in place for the next launch, and the sidebar offers to restart. The app menu's Check for updates… works either way.</small>
       </label>

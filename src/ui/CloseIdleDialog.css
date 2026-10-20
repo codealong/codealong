@@ -36,7 +36,7 @@
 .ca-idle-row.is-static:hover {
   background: none;
 }
-.ca-idle-row .ca-check {
+.ca-idle-row > .ca-checkbox {
   margin-top: 2px;
 }
 .ca-idle-text {

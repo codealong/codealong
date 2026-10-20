@@ -10,7 +10,7 @@
     var nav = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-nav button'), function (b) { return b.textContent.trim() === 'Automation'; })[0];
     if (nav) {
       nav.click();
-      var field = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-check > span'), function (s) { return s.textContent === 'Resume a stopped session for another session’s message'; })[0];
+      var field = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-check > span:not(.ca-checkbox)'), function (s) { return s.textContent === 'Resume a stopped session for another session’s message'; })[0];
       if (field) {
         field.scrollIntoView({ block: 'start' });
         clearInterval(open);

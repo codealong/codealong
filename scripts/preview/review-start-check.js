@@ -6,7 +6,7 @@
 // a terminal behind your windows, your terminal in the terminal app.
 //   PREVIEW_INIT=scripts/preview/settings-review-start-init.js PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/review-start-check.js
 (function () {
-  var field = function (words) { return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span'); return s && words.test(s.textContent); })[0]; };
+  var field = function (words) { return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span:not(.ca-checkbox)'); return s && words.test(s.textContent); })[0]; };
   var where = function () { var f = field(/^Where reviews run/); return f && q('select', f); };
   var says = function (words) { var f = field(words); var s = f && q(':scope > small', f); return s ? s.textContent : ''; };
   var pick = function (select, value) {

@@ -55,9 +55,6 @@
 .ca-merge-bypass {
   white-space: normal;
 }
-.ca-merge-bypass .ca-check-box {
-  flex: none;
-}
 .ca-btn.is-bypass {
   color: var(--alert);
 }

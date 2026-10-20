@@ -4,7 +4,7 @@
 //   scripts/preview.sh sessions '' scripts/preview/settings-login-check.js
 (function () {
   var field = function () {
-    return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span'); return s && s.textContent === 'Open at login'; })[0];
+    return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span:not(.ca-checkbox)'); return s && s.textContent === 'Open at login'; })[0];
   };
   var box = function () { return field().querySelector('input[type=checkbox]'); };
 

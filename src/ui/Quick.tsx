@@ -97,7 +97,7 @@ import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
-import { Button, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
+import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
 import { SnoozeChip } from './LaneRow';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
@@ -1886,17 +1886,13 @@ export function Quick() {
                           // The keyboard stays in the box.
                           onMouseDown={(e) => e.preventDefault()}
                         >
-                          <input
-                            type="checkbox"
+                          <CheckBox
                             checked={withArchived}
                             onChange={() => {
                               toggleArchived();
                               refocus();
                             }}
                           />
-                          <span className="ca-check-box" aria-hidden="true">
-                            <Icon name="check" size={11} stroke={2.5} />
-                          </span>
                           Archived
                           {archivedFound > 0 && <span className="ca-quick-archived-count">{archivedFound}</span>}
                         </label>
@@ -2251,10 +2247,7 @@ export function Quick() {
               className={cx('ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled')}
               title={lane?.startsChats ? 'A chat has no repo to make a worktree of.' : newWorktreeTitle(makesWorktree, placeNow, harness)}
             >
-              <input type="checkbox" checked={inNewWorktree} disabled={!makesWorktree} onChange={(e) => setNewWorktree(e.target.checked)} />
-              <span className="ca-check-box" aria-hidden="true">
-                <Icon name="check" size={11} stroke={2.5} />
-              </span>
+              <CheckBox checked={inNewWorktree} disabled={!makesWorktree} onChange={setNewWorktree} />
               New worktree
             </label>
             <div className="ca-quick-pick ca-quick-agent">

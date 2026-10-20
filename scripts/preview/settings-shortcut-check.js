@@ -14,7 +14,7 @@
       return view;
     });
   };
-  var field = function (title) { return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span'); return s && s.textContent === title; })[0]; };
+  var field = function (title) { return all('.ca-settings-pane .ca-field').filter(function (f) { var s = f.querySelector(':scope > span:not(.ca-checkbox)'); return s && s.textContent === title; })[0]; };
   var use = function (f) { return all('button', f).filter(function (b) { return /^Use /.test(b.textContent.trim()); })[0]; };
 
   until(function () { return q('.ca-side-config'); }, 20000, 'the settings button')
