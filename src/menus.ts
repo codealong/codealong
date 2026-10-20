@@ -5,8 +5,8 @@
 // the thing allows it, always in the same order. What works the same from every window (mark
 // seen, snooze, quiet, close, mark done, archive, fork, move, pin to the desktop, copy) is done here, and
 // says how it went through the window's `Report`: a toast in the main window, a note on the bar.
-// Merge and close…, for a PR's primary session once the PR is ready to merge, asks first in the
-// window's own dialog (ui/MergeClose.tsx), which merges it and has the engine mark the session
+// Merge and done…, for a PR's primary session once the PR is ready to merge, asks first in the
+// window's own dialog (ui/MergeDone.tsx), which merges it and has the engine mark the session
 // done; saying how that went is here.
 
 import { useEffect, useState } from 'react';
@@ -168,18 +168,18 @@ export interface SessionCan {
   moving?: (copy: Promise<string | null>) => void;
   /** Add to board, and Remove from board on the board it's on, where the window has boards. */
   boards?: MenuSpec;
-  /** The board's PRs, and this window's dialog that asks before Merge and close… merges a PR
-   *  and marks its primary session done (ui/MergeClose.tsx). Without it there's no such item. */
-  mergeClose?: { prs: readonly PrItem[]; ask: (ask: MergeCloseAsk) => void };
+  /** The board's PRs, and this window's dialog that asks before Merge and done… merges a PR
+   *  and marks its primary session done (ui/MergeDone.tsx). Without it there's no such item. */
+  mergeDone?: { prs: readonly PrItem[]; ask: (ask: MergeDoneAsk) => void };
   /** Shows the main window's keys beside the actions they run (`KEYS`), or its chords (`CHORDS`)
    *  where letters alone do nothing (Sessions). */
   keys?: boolean | 'chords';
 }
 
-/** What a window's Merge and close… dialog asks about: the session, the PR it's the primary
+/** What a window's Merge and done… dialog asks about: the session, the PR it's the primary
  *  session of, and what's said once the dialog has merged the PR and the engine marked the
  *  session done with it (ahead.ts `mergeDoneAhead`). */
-export interface MergeCloseAsk {
+export interface MergeDoneAsk {
   lane: Lane;
   session: Session;
   pr: PrItem;
@@ -188,7 +188,7 @@ export interface MergeCloseAsk {
   then: (merged: string, noted: boolean, d: MergeDone) => void;
 }
 
-/** The PR that Merge and close… merges for `s`: one it's the primary session of (board.rs
+/** The PR that Merge and done… merges for `s`: one it's the primary session of (board.rs
  *  `pr_primary`, the one told of what happens on it) that GitHub says is ready to merge. None for
  *  an archived session, which is done with already. */
 export function mergesWith(prs: readonly PrItem[], s: Pick<Session, 'key' | 'archived'>): PrItem | undefined {
@@ -240,10 +240,10 @@ export interface SessionActions {
   close?: MenuAction;
   /** Done with it: it ends as far as Codealong can end it, and is marked seen and archived. */
   done?: MenuAction;
-  /** Merge #N and close…: it's the primary session of a PR that's ready to merge (`mergesWith`).
+  /** Merge #N and done…: it's the primary session of a PR that's ready to merge (`mergesWith`).
    *  The window's dialog asks first and merges it, and then the engine marks it done as Mark as
    *  done does, work under way ended too, since the dialog said it would be. */
-  mergeClose?: MenuAction;
+  mergeDone?: MenuAction;
   archive: MenuAction;
   copyId: MenuAction;
   copyResume?: MenuAction;
@@ -346,7 +346,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
   };
   // Merged from the window's dialog, and marked done with it: said as Mark as done says it, so a
   // floating window says only what didn't go as asked, the session leaving its list for the rest.
-  const mergedDone = (merged: string, noted: boolean, d: MergeDone) => {
+  const afterMerge = (merged: string, noted: boolean, d: MergeDone) => {
     const r = d.done;
     if (!r?.done) return report.error(`${merged} ${r?.message ?? d.doneError ?? ''}`.trim());
     can.left?.('done');
@@ -354,7 +354,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     if (can.undoDone) can.undoDone(message);
     else if (r.noted || noted) report.info(message);
   };
-  const merges = can.mergeClose && mergesWith(can.mergeClose.prs, s);
+  const merges = can.mergeDone && mergesWith(can.mergeDone.prs, s);
   return {
     open: { label: openLabel(lane, s, can.terminal), run: () => can.open(lane, s.openTarget) },
     resume: resumeTo.length > 1 ? { label: cutOff ? 'Carry on in' : 'Resume in', items: resumeTo.map((to) => ({ label: to.label, run: () => void resume(to) })) } : undefined,
@@ -419,7 +419,7 @@ export function sessionActions(lane: Lane, s: Session, can: SessionCan): Session
     // still marks it seen and archives it (actions.rs `done_anyway`). An archived one is done
     // with already.
     done: !s.archived ? { label: 'Mark as done', run: done } : undefined,
-    mergeClose: merges ? { label: `Merge #${merges.number} and close…`, run: () => can.mergeClose?.ask({ lane, session: s, pr: merges, then: mergedDone }) } : undefined,
+    mergeDone: merges ? { label: `Merge #${merges.number} and done…`, run: () => can.mergeDone?.ask({ lane, session: s, pr: merges, then: afterMerge }) } : undefined,
     archive: { label: s.archived ? 'Unarchive' : s.harness === 'codex' ? 'Archive in Codex' : 'Archive', run: () => archive(!s.archived) },
     copyId: copyItem('Copy session ID', s.id, 'session ID', report) as MenuAction,
     copyResume: copyItem('Copy resume command', s.resumeCommand, 'resume command', report),
@@ -431,7 +431,7 @@ export function doneTitle(s: Session): string {
   return `Mark as done: ${whatDoneDoes(s)}`;
 }
 
-/** What Mark as done does to `s` (idle.rs `ending`), as the rest of a sentence: Merge and close…
+/** What Mark as done does to `s` (idle.rs `ending`), as the rest of a sentence: Merge and done…
  *  says it too. A session holding a worktree its harness made for it exits its harness's way,
  *  which removes the worktree or asks you about it; while that can't be, its tab closes and the
  *  worktree stays. */
@@ -523,7 +523,7 @@ const SESSION_MENU = [
   ['heading'],
   ['open', 'resume', 'folder', 'pr', 'chrome', 'reveal', 'reply', 'newSession', 'fork', 'move', 'moveFolder'],
   ['todos', 'boards'],
-  ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeClose', 'archive'],
+  ['stop', 'rename', 'seen', 'unread', 'pin', 'desktop', 'snooze', 'quiet', 'own', 'close', 'done', 'mergeDone', 'archive'],
   ['copyId', 'copyResume'],
 ] as const;
 

@@ -732,7 +732,7 @@ export function mergeAhead(pr: Pick<PrItem, 'key' | 'repoSlug' | 'number'>, id: 
   return merging(pr, id, op).then((d) => d.note);
 }
 
-/** Merge and close… (ui/MergeClose.tsx): merges a PR as `mergeAhead` does, and once it's merged
+/** Merge and done… (ui/MergeDone.tsx): merges a PR as `mergeAhead` does, and once it's merged
  *  the engine marks the session `key` done, ending work under way too, so that's done even when
  *  the window that asked has gone by then. The session shows seen and archived as the answer says
  *  it's done, as Mark as done does (`doneAhead`). */

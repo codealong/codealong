@@ -1,4 +1,4 @@
-// Merge and close…: the primary session of a PR that's ready to merge (menus.ts `mergesWith`)
+// Merge and done…: the primary session of a PR that's ready to merge (menus.ts `mergesWith`)
 // merges it and is done with, from the session's menu or the button beside the PR's chip in its
 // header. It asks first, as the PR's merge box does before a merge (MergeBox.tsx), with what the
 // merge goes in with: the method kept for the repo, the commit as GitHub would write it, the
@@ -17,7 +17,7 @@ import { mergeBox } from '../api';
 import { below, showContextMenu } from '../contextMenu';
 import { middleTruncate } from '../format';
 import { doneWords, METHOD, offers, opFor, pickMethod, rereads, standing } from '../merge';
-import { whatDoneDoes, type MergeCloseAsk } from '../menus';
+import { whatDoneDoes, type MergeDoneAsk } from '../menus';
 import { errorText } from '../report';
 import type { MergeBox as Box, MergeMethod, Session } from '../types';
 import { CommitFields, methodItems, RECHECK_MS, RECHECKS, TONE_ICON, useCommit, useMethod } from './MergeBox';
@@ -25,7 +25,7 @@ import { Button, Dialog, Icon } from './primitives';
 
 /** What the dialog says it does: merges the PR into its base, then marks the session done, and
  *  what that ends of it, the work under way first. */
-export function mergeCloseWords(ask: Pick<MergeCloseAsk, 'pr'> & { session: Session }): string {
+export function mergeDoneWords(ask: Pick<MergeDoneAsk, 'pr'> & { session: Session }): string {
   const { pr, session: s } = ask;
   const into = pr.base ? ` into ${pr.base}` : '';
   const background = s.background?.trim();
@@ -38,12 +38,12 @@ export function mergeCloseWords(ask: Pick<MergeCloseAsk, 'pr'> & { session: Sess
   return `Merges #${pr.number}${into}, then marks “${s.title}” done: ${whatDoneDoes(s)}.${first}`;
 }
 
-interface MergeCloseDialogProps {
-  ask: MergeCloseAsk;
+interface MergeDoneDialogProps {
+  ask: MergeDoneAsk;
   onClose: () => void;
 }
 
-export function MergeCloseDialog({ ask, onClose }: MergeCloseDialogProps) {
+export function MergeDoneDialog({ ask, onClose }: MergeDoneDialogProps) {
   const { pr } = ask;
   const [read, setRead] = useState<{ box?: Box; error?: string }>({});
   const [again, setAgain] = useState(0);
@@ -71,9 +71,9 @@ export function MergeCloseDialog({ ask, onClose }: MergeCloseDialogProps) {
   if (read.box) return <Ready key={offers(read.box).merge ? 'merges' : 'waits'} ask={ask} box={read.box} checking={checking} onClose={onClose} />;
   return (
     <Dialog
-      className="ca-mergeclosedlg"
-      title="Merge and close"
-      lede={mergeCloseWords(ask)}
+      className="ca-mergedonedlg"
+      title="Merge and done"
+      lede={mergeDoneWords(ask)}
       onClose={onClose}
       foot={
         <>
@@ -81,7 +81,7 @@ export function MergeCloseDialog({ ask, onClose }: MergeCloseDialogProps) {
             Cancel
           </Button>
           <Button variant="primary" size="sm" icon="merge" disabled>
-            Merge and close
+            Merge and done
           </Button>
         </>
       }
@@ -92,7 +92,7 @@ export function MergeCloseDialog({ ask, onClose }: MergeCloseDialogProps) {
 }
 
 /** `checking`: GitHub is still working out whether it can merge, and the box is read again. */
-function Ready({ ask, box, checking, onClose }: { ask: MergeCloseAsk; box: Box; checking: boolean; onClose: () => void }) {
+function Ready({ ask, box, checking, onClose }: { ask: MergeDoneAsk; box: Box; checking: boolean; onClose: () => void }) {
   const { pr } = ask;
   const [picked, keepMethod] = useMethod(pr.repoSlug);
   const method = pickMethod(box, picked);
@@ -133,20 +133,20 @@ function Ready({ ask, box, checking, onClose }: { ask: MergeCloseAsk; box: Box; 
 
   return (
     <Dialog
-      className="ca-mergeclosedlg"
-      title="Merge and close"
-      lede={mergeCloseWords(ask)}
+      className="ca-mergedonedlg"
+      title="Merge and done"
+      lede={mergeDoneWords(ask)}
       busy={busy}
       onClose={onClose}
       onSubmit={confirm}
-      aside={error ? <p className="ca-form-error ca-mergeclosedlg-error">{error}</p> : undefined}
+      aside={error ? <p className="ca-form-error ca-mergedonedlg-error">{error}</p> : undefined}
       foot={
         <>
           <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button variant="primary" size="sm" type="submit" icon="merge" disabled={!merges || busy} autoFocus title={method ? METHOD[method].what : undefined}>
-            {busy ? 'Merging and closing…' : 'Merge and close'}
+            {busy ? 'Merging and wrapping up…' : 'Merge and done'}
           </Button>
         </>
       }
@@ -154,7 +154,7 @@ function Ready({ ask, box, checking, onClose }: { ask: MergeCloseAsk; box: Box; 
       <div className="ca-dialog-body">
         {merges && method ? (
           <>
-            <div className="ca-mergeclosedlg-method">
+            <div className="ca-mergedonedlg-method">
               <span>Merge by</span>
               <button
                 type="button"

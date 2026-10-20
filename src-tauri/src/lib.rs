@@ -1120,7 +1120,7 @@ struct MergeDone {
     note: Option<String>,
     /// The time of the first board that shows the PR merged, for a merge.
     shown_at: Option<i64>,
-    /// Merge and close…: what marking its session done said (actions.rs `done`), or why that
+    /// Merge and done…: what marking its session done said (actions.rs `done`), or why that
     /// wasn't done (`done_error`).
     #[serde(skip_serializing_if = "Option::is_none")]
     done: Option<serde_json::Value>,
@@ -1131,7 +1131,7 @@ struct MergeDone {
 /// Does what the merge box asked to a PR as you: merges it, turns auto-merge on or off, queues it,
 /// updates or deletes its branch, takes it out of draft. Returns once GitHub has done it. A PR
 /// merged shows merged on the board at once (`engine::Handle::merged`); for anything else PRs are
-/// read again. With `done` (Merge and close…, src/ui/MergeClose.tsx), the session that key names
+/// read again. With `done` (Merge and done…, src/ui/MergeDone.tsx), the session that key names
 /// is marked done once GitHub has merged the PR, work under way ended too, here rather than by the
 /// window, which may have closed by then (a kept session's ⌘W, the peek going).
 #[tauri::command]

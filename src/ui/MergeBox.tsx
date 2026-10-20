@@ -10,8 +10,8 @@
 // goes under, and whether the branch goes with it. ⌘⏎ in them confirms and Escape puts them away.
 // Bringing the branch up to date, taking it out of draft, turning auto-merge off, leaving the
 // queue and deleting a merged branch are a press each, as on GitHub. The commit's fields
-// (`CommitFields`, `useCommit`) and the method kept per repo (`useMethod`) are Merge and close…'s
-// too (MergeClose.tsx).
+// (`CommitFields`, `useCommit`) and the method kept per repo (`useMethod`) are Merge and done…'s
+// too (MergeDone.tsx).
 //
 // The box is read when it shows (prmerge.rs `merge_box`), kept for the PR as long as it isn't
 // updated, read again a few times while GitHub works out whether it can merge, and again after
@@ -378,8 +378,8 @@ export function useCommit(box: Box, first: MergeMethod | null = null) {
 
 export type Commit = ReturnType<typeof useCommit>;
 
-/** The commit's fields, under the box's row as a merge is confirmed and in Merge and close…
- *  (MergeClose.tsx): its title and message, or what a rebase does, which writes none; the email
+/** The commit's fields, under the box's row as a merge is confirmed and in Merge and done…
+ *  (MergeDone.tsx): its title and message, or what a rebase does, which writes none; the email
  *  it goes under, where there's a choice; and whether the branch goes with it. `onKey` hears
  *  the keys in them; `onError` why the email's menu didn't show. */
 export function CommitFields({ box, mode, method, commit, busy, titleRef, onKey, onError }: { box: Box; mode: MergeMode; method: MergeMethod; commit: Commit; busy: boolean; titleRef?: Ref<HTMLInputElement>; onKey?: (e: ReactKeyboardEvent) => void; onError: (why: string) => void }) {

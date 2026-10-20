@@ -98,7 +98,7 @@ export interface SessionPanelProps extends Omit<SessionHeaderProps, 'seenAbove' 
   onThreadMenu?: (items: MenuSpec) => void;
   /** What the conversation's find bar opens on: the words a search found it by in what was said. */
   find?: FindAsk | null;
-  /** A dialog the window holds for the session (Merge and close…, SessionCard.tsx), drawn with
+  /** A dialog the window holds for the session (Merge and done…, SessionCard.tsx), drawn with
    *  the panel, at a card's zoom, as Move's is. */
   dialog?: ReactNode;
 }

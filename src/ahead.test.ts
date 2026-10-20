@@ -566,7 +566,7 @@ describe('mergeAhead', () => {
     expect(api.mergePr).toHaveBeenCalledWith('o/r', 7, 'PR_7', merge, undefined);
   });
 
-  it('has the engine mark a session done with the merge, for Merge and close…', async () => {
+  it('has the engine mark a session done with the merge, for Merge and done…', async () => {
     const answer = { note: null, shownAt: NOW, done: { done: true, message: 'Done with “Fix it”: it’s archived.', at: NOW } };
     api.mergePr.mockResolvedValueOnce(answer);
     await expect(mergeDoneAhead(pr, 'PR_7', merge, 'claude:c:1')).resolves.toEqual(answer);

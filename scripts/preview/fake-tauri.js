@@ -492,7 +492,7 @@ window.__TAURI_INTERNALS__ = {
     // merge, with GitHub's title and message for each way, and two emails. merge_pr answers as
     // lib.rs does, a merge after a moment, as GitHub takes one, so what shows meanwhile can be
     // seen; one whose title is "fail" is refused, as GitHub refuses one whose branch has moved.
-    // Merge and close… names its session (`done`), which the answer says is done.
+    // Merge and done… names its session (`done`), which the answer says is done.
     if (cmd === 'merge_box') {
       return window.__TAURI_INTERNALS__.invoke('get_board').then(function (board) {
         var want = args || {};

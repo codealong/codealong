@@ -36,7 +36,7 @@ import { SetupDialog } from './ui/SetupDialog';
 import { UsageDialog } from './ui/UsageDialog';
 import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
-import { MergeCloseDialog } from './ui/MergeClose';
+import { MergeDoneDialog } from './ui/MergeDone';
 import type { HelperActions } from './ui/HelpersCard';
 import { LaneRow } from './ui/LaneRow';
 import { PinnedSection } from './ui/PinnedSection';
@@ -343,8 +343,8 @@ export function App() {
   const [renaming, setRenaming] = useState<string | null>(null);
   // The worktrees Clean up worktree… asks about (ui/CleanUpDialog.tsx).
   const [cleaning, setCleaning] = useState<Lane[] | null>(null);
-  // The session and PR Merge and close… asks about (ui/MergeClose.tsx).
-  const [mergingClose, setMergingClose] = useState<menus.MergeCloseAsk | null>(null);
+  // The session and PR Merge and done… asks about (ui/MergeDone.tsx).
+  const [mergingDone, setMergingDone] = useState<menus.MergeDoneAsk | null>(null);
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
   // ⌘= ⌘- ⌘0 (mainKeys.ts) and View's zoom items zoom every board window: the engine saves the
   // zoom and sets it on them, and the board says what it is (zoom.ts).
@@ -1332,7 +1332,7 @@ export function App() {
       // Undo takes it out of the archive; a terminal it closed stays closed, and it resumes as any other.
       undoDone: (message) => setArchivedUndo({ keys: [s.key], title: s.title, message }),
       left: (done) => leftAndOn(s, done),
-      mergeClose: board ? { prs: board.prs, ask: setMergingClose } : undefined,
+      mergeDone: board ? { prs: board.prs, ask: setMergingDone } : undefined,
       // Moved from its panel in Sessions, it stays there until its copy takes its place, rather
       // than the panel going on to the next that waits.
       moving: (copy) => {
@@ -2411,7 +2411,7 @@ export function App() {
       {previewLane && <PreviewDialog lane={previewLane} onClose={() => setPreviewFor(null)} />}
       {cleaning && <CleanUpDialog lanes={cleaning} onClose={() => setCleaning(null)} onDone={setToast} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
-      {mergingClose && <MergeCloseDialog ask={mergingClose} onClose={() => setMergingClose(null)} />}
+      {mergingDone && <MergeDoneDialog ask={mergingDone} onClose={() => setMergingDone(null)} />}
       {boardEdit && <BoardDialog board={boardEdit.board} project={current} onSave={saveBoard} onClose={() => setBoardEdit(null)} {...ruleChoices} />}
       {columnEdit && <ColumnDialog column={columnEdit.column} onSave={saveColumn} onClose={() => setColumnEdit(null)} {...ruleChoices} />}
       <Toasts state={toasts} anchor={toastAnchor} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />

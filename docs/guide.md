@@ -1005,7 +1005,7 @@ branch. A merge names the head commit the box was read at, so GitHub refuses one
 moved since.
 
 A PR's primary session (see [PRs](#prs)) can merge it and be done with in one go, once GitHub says
-the PR is ready to merge: Merge and close…, beside the PR's chip in the session's header and in its
+the PR is ready to merge: Merge and done…, beside the PR's chip in the session's header and in its
 right-click menu after Mark as done, asks first in a dialog that says what happens, with the
 method kept for the repo (from its menu), GitHub's commit for it, the email it goes under and
 whether the branch goes too. Confirmed, it merges the PR, and once GitHub has, the session is
