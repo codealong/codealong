@@ -77,6 +77,9 @@ pub struct SideThread {
     next: i64,
     /// Some of this answer is written: its next message starts a new paragraph.
     said: bool,
+    /// The reasoning effort each question is answered at (`turn/start`'s `effort`), where one
+    /// was picked; a copy goes on at its thread's.
+    effort: Option<String>,
 }
 
 impl SideThread {
@@ -86,20 +89,24 @@ impl SideThread {
     const INJECT: i64 = 3;
 
     pub fn new(thread: &str, cwd: &Path, ran: TurnRan) -> SideThread {
-        SideThread { thread: Some(thread.to_string()), rules: crate::side::RULES.to_string(), cwd: cwd.to_string_lossy().into_owned(), ran, copy: None, ready: false, waiting: None, next: Self::INJECT, said: false }
+        SideThread { thread: Some(thread.to_string()), rules: crate::side::RULES.to_string(), cwd: cwd.to_string_lossy().into_owned(), ran, copy: None, ready: false, waiting: None, next: Self::INJECT, said: false, effort: None }
     }
 
     /// A thread of its own in `cwd`, told `rules`, that may only look (`Adapter::fresh_side`): on the
-    /// account's usual model, read-only, asking nothing.
-    pub fn fresh(cwd: &Path, rules: &str) -> SideThread {
-        let ran = TurnRan { model: None, sandbox: Some("read-only".into()), approval: Some("never".into()) };
-        SideThread { thread: None, rules: rules.to_string(), ..SideThread::new("", cwd, ran) }
+    /// model and effort in `on`, else the account's usual ones, read-only, asking nothing.
+    pub fn fresh(cwd: &Path, rules: &str, on: crate::side::RunsOn) -> SideThread {
+        let ran = TurnRan { model: on.model.map(String::from), sandbox: Some("read-only".into()), approval: Some("never".into()) };
+        SideThread { thread: None, rules: rules.to_string(), effort: on.effort.map(String::from), ..SideThread::new("", cwd, ran) }
     }
 
     fn turn(&mut self, text: &str) -> Value {
         self.next += 1;
         self.said = false;
-        serde_json::json!({ "id": self.next, "method": "turn/start", "params": { "threadId": self.copy, "input": [{ "type": "text", "text": text }] } })
+        let mut params = serde_json::json!({ "threadId": self.copy, "input": [{ "type": "text", "text": text }] });
+        if let Some(e) = &self.effort {
+            params["effort"] = serde_json::json!(e);
+        }
+        serde_json::json!({ "id": self.next, "method": "turn/start", "params": params })
     }
 }
 
@@ -272,7 +279,7 @@ mod tests {
     fn a_thread_of_its_own_is_started_then_asked() {
         use crate::side::Dialect;
         use serde_json::json;
-        let mut t = SideThread::fresh(Path::new("/w"), "About PR #7.");
+        let mut t = SideThread::fresh(Path::new("/w"), "About PR #7.", crate::side::RunsOn::default());
         assert!(t.ask("Why?").is_empty());
         let out = t.hear(&json!({"id": 1, "result": {}})).1;
         assert_eq!(out[1]["method"], "thread/start");
@@ -281,6 +288,14 @@ mod tests {
         assert_eq!((&out[0]["method"], &out[0]["params"]["threadId"], &out[0]["params"]["items"][0]["content"][0]["text"]), (&json!("thread/inject_items"), &json!("mine"), &json!("About PR #7.")));
         let out = t.hear(&json!({"id": 3, "result": {}})).1;
         assert_eq!(out, [json!({"id": 4, "method": "turn/start", "params": {"threadId": "mine", "input": [{"type": "text", "text": "Why?"}]}})]);
+        // On the model and effort picked with the account: the thread's model, each turn's effort.
+        let mut t = SideThread::fresh(Path::new("/w"), "About PR #7.", crate::side::RunsOn { model: Some("gpt-6-luna"), effort: Some("high") });
+        t.ask("Why?");
+        let out = t.hear(&json!({"id": 1, "result": {}})).1;
+        assert_eq!(out[1]["params"]["model"], "gpt-6-luna");
+        t.hear(&json!({"id": 2, "result": {"thread": {"id": "mine"}}}));
+        let out = t.hear(&json!({"id": 3, "result": {}})).1;
+        assert_eq!(out[0]["params"]["effort"], "high");
     }
 
     #[test]

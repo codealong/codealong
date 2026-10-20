@@ -18,9 +18,9 @@
 // repo here, and changes nothing: ⏎ asks, and the answers show above the box, in the strip a
 // session's side conversations show in (SideStrip.tsx), kept to read again after it's closed.
 // Neither GitHub nor the PR hears of it. `/side` and a question (or `/btw`) asks from Review too,
-// as in a session's box. The account that answers is beside Ask: Auto's, or the one picked there
-// (review.ts `askAccount`). A verdict goes with Review's text from either side, so asking never
-// loses a review half written.
+// as in a session's box. Who answers is the agent menu beside Ask (AgentMenu.tsx): Auto's account,
+// or one picked there with its model and effort (review.ts `askOn`). A verdict goes with Review's
+// text from either side, so asking never loses a review half written.
 //
 // A window says what a verdict does to it (`PrBoxHost`): a card goes on to what waits next at
 // once and brings the PR back with what was written if GitHub refuses it; the panel stays, the
@@ -30,15 +30,16 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { reviewAhead } from '../ahead';
 import { agentsVerdict, agentsWords } from '../agentReview';
 import { prSideAsk } from '../api';
-import { below, showContextMenu, type MenuSpec } from '../contextMenu';
 import { commentsWord, readAgain, reviewedWords, saysSomething, useYourReview, verdictWords } from '../prDraft';
 import { mayApprove } from '../prStatus';
 import { errorText, type Report } from '../report';
-import { againFor, againTitle, askAccount, askAccounts, reviewLineWords, suggestWords, tryAgain } from '../review';
+import { againFor, againTitle, askAccounts, askOn, reviewLineWords, suggestWords, tryAgain } from '../review';
 import { notAsked, showSides, startingSide, useKept, useSide, useSideView, type SideView } from '../side';
 import { useStartAccounts, useStartGroups } from '../startAccounts';
+import { AUTO, isAuto, modelName, ownModels } from '../start';
 import { asText, readStored, writeStored } from '../stored';
 import type { Draft, PrItem, RoutingGroup, Side, SideKept, StartAccount, Usage, Verdict } from '../types';
+import { AgentMenu, type AgentPick } from './AgentMenu';
 import { prIsOpen } from './PrsView';
 import { BoxText, Button, cx, Icon, Seg } from './primitives';
 import { prSides, SideStrip } from './SideStrip';
@@ -53,8 +54,17 @@ const askDrafts = new Map<string, string>();
 type BoxSide = 'review' | 'ask';
 const boxSides = new Map<string, BoxSide>();
 
-/** The account picked to answer questions about PRs, in every window; none for Auto's. */
+/** The account picked to answer questions about PRs, in every window, none for Auto's; and the
+ *  model and effort picked with it, none for the account's own. */
 const ASK_ACCOUNT = 'codealong.prask.account';
+const ASK_MODEL = 'codealong.prask.model';
+const ASK_EFFORT = 'codealong.prask.effort';
+
+/** Who was picked to answer, as kept; Auto's for none. */
+function readAsker(): AgentPick {
+  const account = readStored(ASK_ACCOUNT, asText, '');
+  return account ? { account, model: readStored(ASK_MODEL, asText, '') || null, effort: readStored(ASK_EFFORT, asText, '') || null } : { account: AUTO, model: null, effort: null };
+}
 
 /** `/side` or `/btw` at the start of what's written, and the question after it. */
 const SIDE_COMMAND = /^\/(?:side|btw)(?:\s+([\s\S]*))?$/;
@@ -91,7 +101,10 @@ export interface PrBox {
   conversation: Side | null;
   shown: SideView;
   kept: SideKept[];
+  /** The account that answers: the open conversation's, else the one picked or Auto's. */
   answerer: string | null;
+  /** Who was picked beside Ask, Auto's or an account's. */
+  asker: AgentPick;
   starting: boolean;
   /** The verdict being sent from a box that stays (the panel's). */
   sending: Verdict | null;
@@ -99,11 +112,14 @@ export interface PrBox {
   agents: Verdict | null;
   accounts: StartAccount[];
   groups: RoutingGroup[];
+  /** The accounts' usage, for the agent menu beside Ask. */
+  usage: Usage[];
+  now: number;
   switchTo: (to: BoxSide) => void;
   /** Gives a verdict with what's written on Review. */
   review: (verdict: Verdict) => void;
   ask: (question: string) => void;
-  pickAnswerer: (el: Element) => void;
+  pickAnswerer: (pick: AgentPick) => void;
   /** Tries the agent's review that didn't get done again (review.ts `tryAgain`). */
   tryAgain: () => void;
 }
@@ -142,8 +158,9 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
   const conversation = useSide(pr.key);
   const shown = useSideView(pr.key);
   const kept = useKept(pr.key);
-  const [chosen, setChosen] = useState<string | null>(() => readStored(ASK_ACCOUNT, asText, null));
-  const answerer = conversation && !conversation.ended ? (conversation.account ?? null) : askAccount(accounts, usage, now, chosen);
+  const [asker, setAsker] = useState<AgentPick>(readAsker);
+  const asks = askOn(accounts, usage, now, isAuto(asker.account) ? null : asker);
+  const answerer = conversation && !conversation.ended ? (conversation.account ?? null) : (asks?.account ?? null);
   const [starting, setStarting] = useState(false);
 
   const switchTo = (to: BoxSide) => {
@@ -217,7 +234,8 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
     setAskText('');
     startingSide(pr.key);
     setStarting(true);
-    prSideAsk(pr.key, answerer, question)
+    // An open conversation goes on on what it was made on.
+    prSideAsk(pr.key, asks && !(conversation && !conversation.ended) ? asks : { account: answerer, model: null, effort: null }, question)
       .catch((e: unknown) => {
         setAskText((now_) => [question, now_].filter((t) => t.trim()).join('\n\n'));
         notAsked(pr.key);
@@ -226,20 +244,25 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
       .finally(() => setStarting(false));
   };
 
-  /** Picks the account that answers, from beside Ask: Auto, or one of those that can. */
-  const pickAnswerer = (el: Element) => {
-    const can = askAccounts(accounts);
-    const auto = askAccount(accounts, usage, now, null);
-    const pick = (name: string | null) => {
-      setChosen(name);
-      writeStored(ASK_ACCOUNT, asText, name ?? '');
-      box.current?.focus();
-    };
-    const items: MenuSpec = [{ label: auto ? `Auto (${auto})` : 'Auto', checked: !chosen || !can.some((a) => a.name === chosen), run: () => pick(null) }, 'separator', ...can.map((a) => ({ label: a.name, checked: a.name === chosen, run: () => pick(a.name) }))];
-    void showContextMenu(items, below(el)).catch((e: unknown) => report.error(errorText(e)));
+  /** Picks who answers, from beside Ask: Auto, or one of the accounts that can with its model and
+   *  effort, kept for every window. */
+  const pickAnswerer = (pick: AgentPick) => {
+    setAsker(pick);
+    const auto = isAuto(pick.account);
+    writeStored(ASK_ACCOUNT, asText, auto ? '' : pick.account);
+    writeStored(ASK_MODEL, asText, auto ? '' : (pick.model ?? ''));
+    writeStored(ASK_EFFORT, asText, auto ? '' : (pick.effort ?? ''));
   };
 
-  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, sending, agents, accounts, groups, switchTo, review, ask, pickAnswerer, tryAgain: () => tryAgain(pr, report) };
+  return { side, asking, reviewText, setReviewText, askText, setAskText, note, setNote, box, draft, reviewable, stillOpen, conversation, shown, kept, answerer, asker, starting, sending, agents, accounts, groups, usage, now, switchTo, review, ask, pickAnswerer, tryAgain: () => tryAgain(pr, report) };
+}
+
+/** The model and effort an open conversation about a PR answers on, as its chip says them; null
+ *  for the account's own. */
+function conversationOn(c: Side, accounts: StartAccount[]): string | null {
+  const a = accounts.find((x) => x.name === c.account);
+  const model = c.model ? modelName(c.model, ownModels(a, accounts.flatMap((x) => x.models ?? []))) : null;
+  return [model, c.effort ? `${c.effort} effort` : null].filter(Boolean).join(' · ') || null;
 }
 
 /** Where the PR's review stands, over its box: a click shows its Reviews tab. An agent review
@@ -288,6 +311,9 @@ export interface PrBoxProps {
   onShowReview: () => void;
   className?: string;
 }
+
+/** What Auto means beside Ask, on its line. */
+const ASK_AUTO = 'The account the quick panel’s Auto would start, among those that can answer: one with room, the one whose week resets soonest. On its own model and effort.';
 
 export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, onShowReview, className }: PrBoxProps) {
   const { asking, draft, reviewable, stillOpen, conversation, shown, kept, answerer, starting, note, sending, agents } = b;
@@ -393,14 +419,22 @@ export function PrBoxView({ pr, box: b, keys, ownKeys = false, goesOn = false, o
           {asking ? (
             <div className="ca-composer-buttons ca-prreview-buttons">
               {conversation && !conversation.ended ? (
-                <span className="ca-prreview-who" title="The open conversation’s agent answers. Close it above to ask another account.">
+                <span className="ca-prreview-who" title="The open conversation’s agent answers. Close it above to ask another account, model or effort.">
                   {conversation.account}
+                  {conversationOn(conversation, b.accounts) && <span className="ca-modelmenu-detail">{conversationOn(conversation, b.accounts)}</span>}
                 </span>
               ) : (
-                <button type="button" className="ca-modelmenu-chip" title="Which account answers: Auto’s, or the one you pick" aria-haspopup="menu" disabled={askAccounts(b.accounts).length === 0} onClick={(e) => b.pickAnswerer(e.currentTarget)}>
-                  <span>{answerer ?? 'No account'}</span>
-                  <Icon name="chevron-down" size={12} />
-                </button>
+                <AgentMenu
+                  accounts={askAccounts(b.accounts)}
+                  usage={b.usage}
+                  now={b.now}
+                  value={b.asker}
+                  auto={{ title: ASK_AUTO }}
+                  title="Who answers: Auto’s account, or one you pick with its model and effort"
+                  disabled={askAccounts(b.accounts).length === 0}
+                  onPick={b.pickAnswerer}
+                  onDone={() => b.box.current?.focus()}
+                />
               )}
               <button type="button" className="ca-composer-send" aria-label="Ask" title={keysIn('Ask (⏎)')} disabled={!b.askText.trim() || starting} onClick={() => b.ask(b.askText.trim())}>
                 <Icon name="help" size={16} stroke={2} />

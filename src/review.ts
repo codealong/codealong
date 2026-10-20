@@ -199,6 +199,15 @@ export function askAccount(accounts: StartAccount[], usage: Usage[], now: number
   return autoPick(can, usage, now)?.account ?? can[0]?.name ?? null;
 }
 
+/** Who answers a question about a PR, as the agent menu beside Ask picked it (`chosen`, Auto's
+ *  for none): the account `askAccount` says, on the model and effort picked with it, or the
+ *  account's own when it's Auto's or the one picked can't answer. Null when none can. */
+export function askOn(accounts: StartAccount[], usage: Usage[], now: number, chosen: { account: string; model: string | null; effort: string | null } | null): { account: string; model: string | null; effort: string | null } | null {
+  const account = askAccount(accounts, usage, now, chosen?.account ?? null);
+  if (!account) return null;
+  return account === chosen?.account ? { account, model: chosen.model, effort: chosen.effort } : { account, model: null, effort: null };
+}
+
 /** What a PR's card says of Codealong's own review of it (autoreview.rs, `[reviews] auto`): the
  *  latest round in a few words with its icon, then why it didn't go as it would, and that new
  *  commits are reviewed again. `onGitHub`, once your review of the PR there is read (prDraft.ts):

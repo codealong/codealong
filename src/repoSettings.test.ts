@@ -53,7 +53,9 @@ describe('a repo’s table', () => {
     mine = withOwn(mine, { auto: true });
     mine = withPullRequests(mine, { nudge_about: 'feedback' });
     expect(mine).toEqual({ reviews: { post: 'none', own: { auto: true } }, pull_requests: { nudge_about: 'feedback' } });
-    mine = withReviews(mine, { account: 'codex', model: 'opus' });
+    mine = withReviews(mine, { account: 'codex', model: 'opus', effort: 'xhigh' });
+    expect(reviewsFor(undefined, mine).effort).toBe('xhigh');
+    expect(sourceOf('reviews.reviewer', { reviews: { effort: 'high' } }, team)).toBe('repo');
     mine = without(mine, 'reviews.reviewer');
     expect(mine?.reviews).toEqual({ post: 'none', own: { auto: true } });
     mine = without(without(without(mine, 'reviews.post'), 'own.auto'), 'prs.nudge_about');

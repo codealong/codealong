@@ -7,8 +7,8 @@
 
 import type { Lane, NudgeAbout, OwnReviewsCfg, PullRequestsCfg, RepoCfg, ReviewPost, ReviewsCfg, TeamCfg, TeamFile } from './types';
 
-export const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', prompt: '', send: true, drafts: false, other_harness: true };
-export const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', prompt: '', start: 'no-terminal', post: 'draft', submit: 'never', other_harness: true, own: OWN_REVIEWS_OFF };
+export const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', effort: '', prompt: '', send: true, drafts: false, other_harness: true };
+export const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', effort: '', prompt: '', start: 'no-terminal', post: 'draft', submit: 'never', other_harness: true, own: OWN_REVIEWS_OFF };
 export const PULL_REQUESTS_OFF: Required<PullRequestsCfg> = { nudge_by_default: false, nudge_about: 'everything' };
 
 /** `[reviews]` with every value filled in, its own table too. */
@@ -42,6 +42,7 @@ export function reviewsFor(global: ReviewsCfg | undefined, mine: RepoCfg | undef
     auto: m.auto ?? g.auto,
     account: given(m.account) ? m.account.trim() : g.account,
     model: given(m.model) ? m.model.trim() : g.model,
+    effort: given(m.effort) ? m.effort.trim() : g.effort,
     prompt: given(m.prompt) ? m.prompt.trim() : g.prompt,
     start: g.start,
     post: m.post ?? g.post,
@@ -51,6 +52,7 @@ export function reviewsFor(global: ReviewsCfg | undefined, mine: RepoCfg | undef
       auto: o.auto ?? g.own.auto,
       account: given(o.account) ? o.account.trim() : g.own.account,
       model: given(o.model) ? o.model.trim() : g.own.model,
+      effort: given(o.effort) ? o.effort.trim() : g.own.effort,
       prompt: given(o.prompt) ? o.prompt.trim() : g.own.prompt,
       send: o.send ?? g.own.send,
       drafts: o.drafts ?? g.own.drafts,
@@ -98,13 +100,13 @@ export function sourceOf(field: Field, mine: RepoCfg | undefined, team: TeamCfg 
   const p = mine?.pull_requests ?? {};
   const set: Record<Field, unknown[]> = {
     'reviews.auto': [r.auto],
-    'reviews.reviewer': [r.account, r.model],
+    'reviews.reviewer': [r.account, r.model, r.effort],
     'reviews.other_harness': [r.other_harness],
     'reviews.prompt': [r.prompt],
     'reviews.post': [r.post],
     'reviews.submit': [r.submit],
     'own.auto': [o.auto],
-    'own.reviewer': [o.account, o.model],
+    'own.reviewer': [o.account, o.model, o.effort],
     'own.other_harness': [o.other_harness],
     'own.prompt': [o.prompt],
     'own.send': [o.send],
@@ -151,7 +153,7 @@ export function withPullRequests(mine: RepoCfg | undefined, next: Partial<PullRe
 export function without(mine: RepoCfg | undefined, field: Field): RepoCfg | undefined {
   const gone = (keys: string[]) => Object.fromEntries(keys.map((k) => [k, undefined]));
   const [table, key] = field.split('.') as ['reviews' | 'own' | 'prs', string];
-  const keys = key === 'reviewer' ? ['account', 'model'] : [key];
+  const keys = key === 'reviewer' ? ['account', 'model', 'effort'] : [key];
   if (table === 'reviews') return withReviews(mine, gone(keys));
   if (table === 'own') return withOwn(mine, gone(keys));
   return withPullRequests(mine, gone(keys));

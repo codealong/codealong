@@ -835,12 +835,13 @@ export async function sideClose(key: string): Promise<void> {
   await invoke('side_close', { key });
 }
 
-/** Asks about a PR (its key, `owner/name#number`) in a conversation of its own on `account`
- *  (side.rs `ask_pr`): an agent that reads the PR and its code and changes nothing. Returns the
- *  conversation with the question in it; the answer comes through `onSide`. */
-export async function prSideAsk(key: string, account: string, text: string): Promise<Side> {
+/** Asks about a PR (its key, `owner/name#number`) in a conversation of its own on `account`, on
+ *  `model` and at `effort` where they're picked (side.rs `ask_pr`): an agent that reads the PR and
+ *  its code and changes nothing. Returns the conversation with the question in it; the answer
+ *  comes through `onSide`. A conversation that's open goes on on what it was made on. */
+export async function prSideAsk(key: string, { account, model, effort }: { account: string; model: string | null; effort: string | null }, text: string): Promise<Side> {
   if (!inTauri) throw new Error('Asking about a PR needs the app.');
-  return invoke<Side>('pr_side_ask', { key, account, text });
+  return invoke<Side>('pr_side_ask', { key, account, model, effort, text });
 }
 
 /** Closes a PR's conversation: an agent that's answering answers what it was asked and then ends,

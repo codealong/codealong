@@ -105,6 +105,12 @@ pub struct Side {
     /// A session's copy answers on the session's own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// The model and effort it answers on, where they were chosen with the account; none for the
+    /// account's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     /// It was closed while its copy answered, and the copy answers what it was asked before it
     /// ends: no longer the session's open one, it's read where the kept ones are (`past`).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -352,22 +358,38 @@ pub fn ask(board: &Board, cfg: &Config, key: &str, text: &str) -> Result<Side> {
     ask_with(key, text, None, || recipe(board, cfg, key))
 }
 
+/// The model and effort a conversation of its own runs on, as the agent menu picks them with its
+/// account (`Adapter::fresh_side`); none for the account's own.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RunsOn<'a> {
+    pub model: Option<&'a str>,
+    pub effort: Option<&'a str>,
+}
+
 /// Asks about a PR in a conversation of its own (`key` is the PR's, `owner/name#number`): an
-/// agent on `account` that reads the PR and the code around it and changes nothing
-/// (`Adapter::fresh_side`), made when there's none, as a session's copy is. From there it's a
-/// side conversation like a session's, asked, closed, kept and read the same way by the PR's
-/// key, and nobody's copy: the PR and GitHub hear nothing of it.
-pub fn ask_pr(board: &Board, cfg: &Config, key: &str, account: &str, text: &str) -> Result<Side> {
+/// agent on `account`, on the model and effort in `on`, that reads the PR and the code around it
+/// and changes nothing (`Adapter::fresh_side`), made when there's none, as a session's copy is.
+/// From there it's a side conversation like a session's, asked, closed, kept and read the same
+/// way by the PR's key, and nobody's copy: the PR and GitHub hear nothing of it. A question asked
+/// while one is open goes to it, on whatever it was made on.
+pub fn ask_pr(board: &Board, cfg: &Config, key: &str, account: &str, on: RunsOn, text: &str) -> Result<Side> {
     let text = text.trim();
     if text.is_empty() {
         bail!("Ask it something about the PR.");
     }
-    ask_with(key, text, Some(account), || pr_recipe(board, cfg, key, account))
+    let on = RunsOn { model: on.model.map(str::trim).filter(|m| !m.is_empty()), effort: on.effort.map(str::trim).filter(|e| !e.is_empty()) };
+    if let Some(m) = on.model.filter(|m| !crate::start::valid_model(m)) {
+        bail!("{m:?} isn't a model name Codealong can start an agent on.");
+    }
+    if let Some(e) = on.effort.filter(|e| !crate::start::effort_levels().contains(e)) {
+        bail!("{e:?} isn't an effort level Codealong knows.");
+    }
+    ask_with(key, text, Some((account, on)), || pr_recipe(board, cfg, key, account, on))
 }
 
 /// Asks `key`'s side conversation `text`, making its process with `made` when there's none, on
-/// `account` where the asker chose one.
-fn ask_with(key: &str, text: &str, account: Option<&str>, made: impl FnOnce() -> Result<(Recipe, PathBuf, String)>) -> Result<Side> {
+/// the account, model and effort the asker chose, where they chose them.
+fn ask_with(key: &str, text: &str, chosen: Option<(&str, RunsOn)>, made: impl FnOnce() -> Result<(Recipe, PathBuf, String)>) -> Result<Side> {
     // Pasted files and screenshots go as their paths, which the copy reads, as they do to a session
     // (send.rs); the question shows as it was typed.
     let sent = crate::attachments::expand(text, crate::attachments::Style::Path);
@@ -389,7 +411,8 @@ fn ask_with(key: &str, text: &str, account: Option<&str>, made: impl FnOnce() ->
         if let Some((copy, title)) = copy {
             // A new copy knows nothing of what the last one was asked: it's a new side
             // conversation, and the last one is among the kept ones.
-            o.side = Side { id: format!("{now}-{id}"), key: key.to_string(), account: account.map(String::from), ..Default::default() };
+            let (account, on) = chosen.map_or((None, RunsOn::default()), |(a, on)| (Some(a), on));
+            o.side = Side { id: format!("{now}-{id}"), key: key.to_string(), account: account.map(String::from), model: on.model.map(String::from), effort: on.effort.map(String::from), ..Default::default() };
             o.title = title;
             o.started_at = now;
             o.queue.clear();
@@ -613,11 +636,11 @@ fn recipe(board: &Board, cfg: &Config, key: &str) -> Result<(Recipe, PathBuf, St
 
 // ---- a PR's conversation ----
 
-/// How a PR's conversation runs: on `account`, in a checkout of the PR's repo here
+/// How a PR's conversation runs: on `account`, on the model and effort in `on`, in a checkout of the PR's repo here
 /// (`pr_folder`), told what the PR is (`pr_rules`) and handed its description, discussion and
 /// whole diff to read (github.rs `for_reading`), fetched afresh for each new conversation, since
 /// the PR may have moved on. Its title, for the record, is the PR's.
-fn pr_recipe(board: &Board, cfg: &Config, key: &str, account: &str) -> Result<(Recipe, PathBuf, String)> {
+fn pr_recipe(board: &Board, cfg: &Config, key: &str, account: &str, on: RunsOn) -> Result<(Recipe, PathBuf, String)> {
     let Some(pr) = board.prs.iter().find(|p| p.key == key) else { bail!("Codealong doesn't list {key} any more.") };
     let Some(a) = cfg.accounts.iter().find(|a| a.name == account) else { bail!("There's no account named {account} in config.toml.") };
     a.ensure_on()?;
@@ -629,7 +652,7 @@ fn pr_recipe(board: &Board, cfg: &Config, key: &str, account: &str) -> Result<(R
     let (folder, holds) = pr_folder(board, pr);
     let rules = pr_rules(pr, folder.as_deref(), holds, &reads);
     let cwd = folder.unwrap_or_else(|| reads.clone());
-    let recipe = adapter.fresh_side(&crate::harness::Ctx { account: a }, &cwd, &rules, &reads)?;
+    let recipe = adapter.fresh_side(&crate::harness::Ctx { account: a }, &cwd, &rules, &reads, on)?;
     Ok((recipe, cwd, format!("#{} {}", pr.number, pr.title)))
 }
 

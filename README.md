@@ -334,7 +334,7 @@ checks, comments and diffs.
   it's told when someone reviews, asks for changes or comments, or when checks fail, so it takes
   it from there; it's never told to merge.
 - **Ask about a PR**: put questions to an agent that has read its whole diff.
-- **Automatic reviews** (optional): an agent on the account and model you pick reviews each PR
+- **Automatic reviews** (optional): an agent on the account, model and effort you pick reviews each PR
   that asks for your review, told what to look for by instructions you can edit (which can have it
   start subagents of its own), and leaves a draft review on your account with its comments on the
   lines they're about, for you to finish and submit. The agent says whether it would approve or ask
@@ -598,6 +598,7 @@ members = [{ account = "claude-work", model = "opus", effort = "high" }, { accou
 auto = false                   # an agent reviews each PR that waits on your review, and again on new commits (Settings › Automation)
 account = ""                   # the account or routing group it runs on; "" for the one Auto would start
 model = ""                     # the model it starts on; "" for the account's or group member's own
+effort = ""                    # the effort it starts at, with an account named; "" for the account's or group member's own
 other_harness = true           # prefer a harness other than the PR author's (from its session here or Co-Authored-By / Generated with trailers)
 prompt = ""                    # what it's told to do (what to look for, subagents to start); "" for Codealong's own
 start = "no-terminal"          # where its session runs, yours too: "no-terminal" (Claude Code's background service, else Codealong); "codealong"; "background" (a terminal behind your windows where the account has neither); "terminal" (in front, as new_terminal says)
@@ -608,6 +609,7 @@ submit = "never"               # submit the agent's verdict as your review once 
 auto = false                   # an agent reviews each PR a session of yours opened here, and again on new commits (Settings › Automation)
 account = ""                   # the account or routing group it runs on; "" for Auto's
 model = ""                     # the model it starts on; "" for the account's or group member's own
+effort = ""                    # the effort it starts at, with an account named; "" for the account's or group member's own
 other_harness = true           # prefer a harness other than the PR's session or trailers
 prompt = ""                    # what it's told to do; "" for Codealong's own
 send = true                    # hand each review to the session that opened the PR; nothing goes on GitHub

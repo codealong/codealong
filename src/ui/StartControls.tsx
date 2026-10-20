@@ -1,7 +1,7 @@
 // The controls for where a session goes and on what, wherever one is started or goes on: the
-// quick panel's start row, the box of a session that isn't running (SessionAgent.tsx), and the box an
-// automation's agent is picked and told what to do in (AgentPromptBox.tsx). The rules for what
-// they offer are start.ts's; these only draw them.
+// quick panel's start row, the box of a session that isn't running (SessionAgent.tsx), and the
+// agent menu everywhere else (AgentMenu.tsx). The rules for what they offer are start.ts's; these
+// only draw them.
 
 import { usageNote } from '../harness';
 import type { AgentOption, AutoPick, ModelOption } from '../start';
@@ -89,7 +89,8 @@ export function AccountHead({ name, detail, meters, note, now }: { name: string;
 }
 
 /**
- * The agent menu, as the quick panel starts a session with it and an automation picks its agent:
+ * The agent menu, as the quick panel starts a session with it and AgentMenu.tsx offers it with
+ * Auto (an automation's agent, who answers questions about a PR):
  * Auto and any routing groups first where they're offered, saying whom they would start now
  * (`autoTitle` says what Auto means there), then each account under its heading with its usage,
  * each with its own model and its models, `chosen` checked.

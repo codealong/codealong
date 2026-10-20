@@ -185,10 +185,14 @@ mod tests {
     fn a_conversation_of_its_own_resumes_nothing() {
         use crate::harness::Adapter;
         let other = crate::config::AccountCfg { name: "c2".into(), harness: "claude".into(), home: "/Users/me/.claude2".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
-        let mut r = ClaudeCode.fresh_side(&crate::harness::Ctx { account: &other }, Path::new("/w"), "About PR #7.", Path::new("/support/pr/7")).unwrap();
+        let mut r = ClaudeCode.fresh_side(&crate::harness::Ctx { account: &other }, Path::new("/w"), "About PR #7.", Path::new("/support/pr/7"), crate::side::RunsOn::default()).unwrap();
         assert_eq!(r.args.join(" "), "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --no-session-persistence --permission-mode default --add-dir=/support/pr/7");
         assert_eq!(r.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/me/.claude2".to_string())]);
         let first = r.dialect.ask("Why?");
         assert_eq!(first[0].pointer("/message/content").and_then(Value::as_str), Some("<system-reminder>\nAbout PR #7.\n</system-reminder>\n\nWhy?"));
+        // On the model and effort picked with the account, where they were.
+        let on = crate::side::RunsOn { model: Some("opus[1m]"), effort: Some("xhigh") };
+        let r = ClaudeCode.fresh_side(&crate::harness::Ctx { account: &other }, Path::new("/w"), "About PR #7.", Path::new("/support/pr/7"), on).unwrap();
+        assert!(r.args.join(" ").ends_with("--add-dir=/support/pr/7 --model opus[1m] --effort xhigh"), "{:?}", r.args);
     }
 }

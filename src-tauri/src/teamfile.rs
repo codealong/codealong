@@ -94,7 +94,7 @@ fn reviews(t: &toml::Table, cfg: &mut TeamCfg, skipped: &mut Vec<String>, file: 
             "never_submit" => cfg.never_submit = typed(value, &name)?,
             "instructions" | "instructions_file" => {}
             "own" => own(table_of(value, "[reviews.own]")?, &mut s.own, &mut cfg.own_review_instructions, skipped, file)?,
-            "account" | "model" => return Err(format!("{name} is each person's own: the accounts and models reviews run on are theirs, in their config.toml.")),
+            "account" | "model" | "effort" => return Err(format!("{name} is each person's own: the accounts and models reviews run on are theirs, in their config.toml.")),
             "prompt" => return Err(format!("{name} is each person's own. The team's words go in [reviews] instructions, which are added to it.")),
             "submit" => return Err(format!("{name} is each person's own: what's submitted as their review is theirs to say. never_submit keeps a verdict from being submitted.")),
             _ => skipped.push(format!("reviews.{key}")),
@@ -111,7 +111,7 @@ fn own(t: &toml::Table, s: &mut OwnReviewsPatch, words: &mut String, skipped: &m
             "auto" => s.auto = Some(typed(value, &name)?),
             "send" => s.send = Some(typed(value, &name)?),
             "instructions" | "instructions_file" => {}
-            "account" | "model" => return Err(format!("{name} is each person's own: the accounts and models reviews run on are theirs, in their config.toml.")),
+            "account" | "model" | "effort" => return Err(format!("{name} is each person's own: the accounts and models reviews run on are theirs, in their config.toml.")),
             "prompt" => return Err(format!("{name} is each person's own. The team's words go in [reviews.own] instructions, which are added to it.")),
             _ => skipped.push(format!("reviews.own.{key}")),
         }

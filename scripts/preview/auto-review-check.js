@@ -444,6 +444,18 @@
       await until(function () { return calls('save_config').length > saves; }, 3000, 'picking an account saved nothing');
       var chosen = calls('save_config')[saves][1].config.reviews;
       check('picking an account saves it as the reviewer, on the line’s model', chosen.account === heads[0] && typeof chosen.model === 'string', JSON.stringify(chosen));
+      // With an account picked, its menu has the effort row, and a level picked saves with it.
+      await until(function () { return chip().textContent.indexOf(heads[0]) === 0; }, 3000, 'the chip doesn’t say the account picked');
+      chip().click();
+      var high = await until(function () { return q('.ca-picker', agentBox()) ? (all('.ca-picker-foot button', agentBox()).filter(function (b) { return b.textContent.trim() === 'High'; })[0] || 'none') : null; }, 3000, 'the menu didn’t open again');
+      if (high !== 'none') {
+        saves = calls('save_config').length;
+        high.click();
+        await until(function () { return calls('save_config').length > saves; }, 3000, 'picking an effort saved nothing');
+        var hard = calls('save_config')[saves][1].config.reviews;
+        check('an effort picked in its menu saves with the reviewer', hard.account === heads[0] && hard.effort === 'high', JSON.stringify(hard));
+      } else note(heads[0] + ' takes no effort here');
+      if (q('.ca-picker', agentBox())) chip().click();
       // What's typed goes in as React takes typing, and is kept as the box loses the keyboard.
       var mine = 'Start two subagents, one on Opus and one on Sonnet, and combine what they find.';
       check('with nothing to go back to yet', !all('.ca-linkbtn', agentBox()).some(function (b) { return /Codealong’s instructions/.test(b.textContent); }), '');

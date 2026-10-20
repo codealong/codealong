@@ -1425,8 +1425,9 @@ each saying what it sends; Accounts adds, edits, turns off, removes and
 signs in accounts, says how each pays (a plan's price a month, or by the token; see *What sessions
 used and cost*), and under Found on this Mac lists the ones Codealong could read but doesn't, to add
 with a click (with the agent skill, unless you untick it); Routing has Auto's rule, routing groups and Jev's routing instructions; Automation has what Codealong does by itself:
-the agent that reviews the pull requests that wait on your review (the account and model it runs on
-and what it's told, in a box like a session's, and where its review goes), nudging the session that
+the agent that reviews the pull requests that wait on your review (the account, model and effort it
+runs on, picked in the agent menu at the foot of a box like a session's that holds what it's told,
+and where its review goes), nudging the session that
 opened a pull request, moving a session that hits its usage limit, and telling one a lost connection
 stopped to carry on, everywhere or for one repo with its team's settings (see *Settings for one
 repo, and its team's*); Projects groups repos by pattern; Advanced turns
@@ -1862,8 +1863,9 @@ sends it a message where it runs (⏎ sends and stays, to watch the reply; ⌘�
 next), or what it waits on you to allow, with Allow and Deny (⌘⏎ allows, ⌘⌫ denies). A PR shows with
 its details and a box that reviews it (⌘⏎ approves, ⌥⌘⏎ comments, Review with… starts Codealong's
 review on an account, as below). The box's other side, Ask (or `/side` and a question on Review), puts
-questions about the PR to an agent on a Claude Code or Codex account (Auto's, or the one picked
-beside Ask): Codealong hands it the PR's description, discussion and whole diff, it runs in a
+questions about the PR to an agent on a Claude Code or Codex account (Auto's, on its own model and
+effort, or one picked beside Ask in the agent menu, with a model and effort of its own): Codealong
+hands it the PR's description, discussion and whole diff, it runs in a
 checkout of the repo here (the PR's own worktree when there is one), and it reads and runs only what
 looks. The answers show above the box as a session's side conversation's do, and are kept to read
 again (N earlier); neither GitHub nor anyone on the PR sees them, and Review keeps its text

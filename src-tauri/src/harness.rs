@@ -348,11 +348,12 @@ pub trait Adapter: Sync {
 
     /// A throwaway conversation of its own, not a copy of any session: what asks about a PR
     /// (side.rs `ask_pr`). The process that runs it in `cwd`, told `rules` with its first
-    /// question, able to read the files in `reads` too, and how to talk to it. It may only look:
+    /// question, able to read the files in `reads` too, on the model and effort in `on` (the
+    /// account's own where they're none), and how to talk to it. It may only look:
     /// it runs read-only where the harness has that, and otherwise in the usual mode with nobody
     /// to ask, where what would ask is refused. The harness keeps no record of it.
     /// `src/harness.ts` `FRESH_SIDES` lists the harnesses that have one.
-    fn fresh_side(&self, _ctx: &Ctx, _cwd: &Path, _rules: &str, _reads: &Path) -> Result<crate::side::Recipe> {
+    fn fresh_side(&self, _ctx: &Ctx, _cwd: &Path, _rules: &str, _reads: &Path, _on: crate::side::RunsOn) -> Result<crate::side::Recipe> {
         bail!("{} can't answer questions about a PR here.", self.harness().word())
     }
 

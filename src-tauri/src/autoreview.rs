@@ -398,6 +398,9 @@ pub struct Seat {
     pub account: Option<String>,
     /// None: the account's own.
     pub model: Option<String>,
+    /// None: the account's own, or the routing group's member's. Not in `who`: a reviewer at
+    /// another effort goes on in the session it has.
+    pub effort: Option<String>,
     pub session: Option<String>,
     /// The harness Auto keeps off: the one of the session that opened a PR of yours, so another
     /// model reviews it. Auto takes one of it only when no account of another can start.
@@ -406,14 +409,14 @@ pub struct Seat {
 
 /// The reviewer `cfg` names, with its session for the PR in `t`.
 fn seat(cfg: &ReviewsCfg, t: Option<&Tracked>) -> Seat {
-    named_seat(&cfg.account, &cfg.model, t)
+    named_seat(&cfg.account, &cfg.model, &cfg.effort, t)
 }
 
-fn named_seat(account: &str, model: &str, t: Option<&Tracked>) -> Seat {
+fn named_seat(account: &str, model: &str, effort: &str, t: Option<&Tracked>) -> Seat {
     let some = |s: &str| Some(s.trim()).filter(|s| !s.is_empty()).map(String::from);
-    let (account, model) = (some(account), some(model));
+    let (account, model, effort) = (some(account), some(model), some(effort));
     let who = [account.as_deref().unwrap_or(AUTO), model.as_deref().unwrap_or("")].join(" ").trim().to_string();
-    Seat { session: t.and_then(|t| t.sessions.get(&who).cloned()), who, account, model, avoid: None }
+    Seat { session: t.and_then(|t| t.sessions.get(&who).cloned()), who, account, model, effort, avoid: None }
 }
 
 /// The harness that wrote `pr`: the session that opened it here, else what its commit trailer or
@@ -426,7 +429,7 @@ pub fn pr_harness(lanes: &[Lane], pr: &PrItem) -> Option<Harness> {
 /// that wrote the PR when `other_harness` is on.
 fn seat_for(cfg: &ReviewsCfg, t: Option<&Tracked>, lanes: &[Lane], pr: &PrItem) -> Seat {
     let (mut s, other_harness) = if pr.mine {
-        (named_seat(&cfg.own.account, &cfg.own.model, t), cfg.own.other_harness)
+        (named_seat(&cfg.own.account, &cfg.own.model, &cfg.own.effort, t), cfg.own.other_harness)
     } else {
         (seat(cfg, t), cfg.other_harness)
     };
@@ -1802,8 +1805,8 @@ fn start_words(start: ReviewStart) -> &'static str {
 
 /// The account, model and effort a new review runs on, and where: `seat`'s account (or the one
 /// Auto or the routing group it names picks among the accounts that can start one where
-/// `[reviews] start` says, of another harness than `avoid` when one of them can) and model, and
-/// the effort the group's member names.
+/// `[reviews] start` says, of another harness than `avoid` when one of them can), model and
+/// effort, else the effort the group's member names.
 fn reviewer_place(cfg: &Config, board: &Board, seat: &Seat, avoid: Option<Harness>) -> Result<(String, Option<String>, Option<String>, Place), String> {
     let start = cfg.reviews.start;
     let can = |a: &AccountCfg| review_place(a, start).is_some();
@@ -1813,15 +1816,15 @@ fn reviewer_place(cfg: &Config, board: &Board, seat: &Seat, avoid: Option<Harnes
             let picked = crate::start::resolve_group(cfg, Some(board), AUTO, &[], seat.model.as_deref(), avoid, true, now_ms(), can)
                 .and_then(std::result::Result::ok)
                 .ok_or_else(|| format!("no account can start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
-            (picked.account, seat.model.clone().or(picked.model), picked.effort)
+            (picked.account, seat.model.clone().or(picked.model), seat.effort.clone().or(picked.effort))
         }
         Some(n) if cfg.routing.groups.iter().any(|g| g.name == n) => {
             let picked = crate::start::resolve_group(cfg, Some(board), n, &[], seat.model.as_deref(), avoid, true, now_ms(), can)
                 .and_then(std::result::Result::ok)
                 .ok_or_else(|| format!("no account in {n} can start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
-            (picked.account, seat.model.clone().or(picked.model), picked.effort)
+            (picked.account, seat.model.clone().or(picked.model), seat.effort.clone().or(picked.effort))
         }
-        Some(n) => (n.to_string(), seat.model.clone(), None),
+        Some(n) => (n.to_string(), seat.model.clone(), seat.effort.clone()),
     };
     let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| format!("there's no account named {name}"))?;
     if a.disabled {
@@ -1852,10 +1855,12 @@ fn keep_files(pr: &PrItem, head: &str, md: &str, diff: &str, changes: Option<&st
 
 /// Sends a session that has a turn to take `text`: as a message where it runs, else by going on
 /// with it where `[reviews] start` lets its account (`review_places`), on the reviewer's `model`
-/// (none for the account's own), which a resume would otherwise set back to the account's. The
+/// and `effort` (none for the account's own), which a resume would otherwise set back to the
+/// account's. The
 /// session the turn is in, which a background job's copy changes, or where to look for it
 /// (`Pending`) when that isn't said.
-fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, model: Option<&str>, text: String) -> Result<(Option<String>, Option<Pending>), String> {
+#[allow(clippy::too_many_arguments)]
+fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, model: Option<&str>, effort: Option<&str>, text: String) -> Result<(Option<String>, Option<Pending>), String> {
     let Some((lane, s)) = board.session(key) else { return Err("its session is gone".into()) };
     if s.live {
         crate::send::tell(engine, key, &text).map_err(|e| format!("its session couldn't be sent it: {e:#}"))?;
@@ -1865,7 +1870,7 @@ fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, mo
     let place = cfg.accounts.iter().find(|a| a.name == s.account).and_then(|a| first_of(start, has_service(a), &crate::start::resume_places(a, &crate::util::home())));
     let Some(place) = place else { return Err(format!("its session isn't running, and can't go on {}", start_words(start))) };
     let at = now_ms();
-    let how = ResumeIn { place, model: model.map(str::to_string), effort: None };
+    let how = ResumeIn { place, model: model.map(str::to_string), effort: effort.map(str::to_string) };
     let r = crate::start::resume(board, cfg, key, &how, &crate::send::by_codealong(&text), &crate::send::Sender::Codealong).map_err(|e| format!("its session couldn't go on {}: {e:#}", start_words(start)))?;
     if let Some(k) = r.key.as_deref().filter(|k| *k != key) {
         link(engine, pr, k);
@@ -1882,7 +1887,7 @@ fn ask(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, head: &str, si
     let can_switch = seat.account.as_deref().is_none_or(|n| cfg.routing.groups.iter().any(|g| g.name == n));
     if let Some(key) = seat.session.as_deref().filter(|k| board.session(k).is_some() && !(can_switch && session_at_limit(board, &cfg.accounts, k, seat.model.as_deref(), at))) {
         let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
-        match hand(engine, board, cfg, pr, key, seat.model.as_deref(), again_prompt(pr, head, since, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files)) {
+        match hand(engine, board, cfg, pr, key, seat.model.as_deref(), seat.effort.as_deref(), again_prompt(pr, head, since, login, &goes(&reviews, &board.lanes, pr), &instructions_for(&reviews, pr), files)) {
             Ok((session, pending)) => return Part::asked(&seat.who, session, pending, at),
             // A session that can't go on is replaced by a new one, and one still running but not
             // at work is closed rather than left beside it: one waiting at what its harness asks
@@ -1997,7 +2002,7 @@ fn carry_on(engine: &Handle, pr: &PrItem, session: &str, model: Option<&str>) ->
     let pr = board.prs.iter().find(|p| p.key == pr.key).unwrap_or(pr);
     // Before it goes: the turn it starts may be cut off again before this is told how it went.
     let at = now_ms();
-    match hand(engine, &board, &cfg, pr, session, model, crate::start::CARRY_ON.to_string()) {
+    match hand(engine, &board, &cfg, pr, session, model, None, crate::start::CARRY_ON.to_string()) {
         Ok((session, pending)) => Went::CarriedOn { session, pending, at },
         Err(e) => Went::Failed(format!("Its turn was cut off partway, and {e}.")),
     }
@@ -2271,7 +2276,7 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
         r.clear_for_hand(&k, on(&reviews), now_ms())?;
         let t = r.store.prs.get(&k);
         let seat = match account.map(str::trim).filter(|a| !a.is_empty()) {
-            Some(a) => named_seat(a, "", t),
+            Some(a) => named_seat(a, "", "", t),
             None => seat_for(&reviews, t, &board.lanes, pr),
         };
         let since = t.and_then(|t| t.done_head()).filter(|h| *h != head).map(String::from);
@@ -2854,7 +2859,7 @@ mod tests {
         let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 60_000)]);
         let mut r = Reviewer::default();
         assert!(r.due(&done, &off, NOW).is_empty(), "nothing starts by itself");
-        let seat = named_seat("claude", "", None);
+        let seat = named_seat("claude", "", "", None);
         let job = Job::Review { pr: pr(7, HEAD), head: HEAD.into(), since: None, seat: seat.clone(), by_hand: true };
         r.told(&job, Went::Started(vec![started("claude", S, NOW)]), NOW).unwrap();
         assert!(r.store.prs["o/r#7"].rounds[0].by_hand);
@@ -2880,7 +2885,7 @@ mod tests {
         assert_eq!(r.clear_for_hand("o/r#7", false, NOW + 62_000), Ok(()));
         let ended = &r.store.prs["o/r#7"].rounds[0];
         assert_eq!((ended.stage, ended.note.as_deref()), (ReviewStage::Failed, Some("Automatic reviews were turned off before it was done.")));
-        let hand = Job::Review { pr: pr(7, HEAD), head: HEAD.into(), since: None, seat: named_seat("claude", "", None), by_hand: true };
+        let hand = Job::Review { pr: pr(7, HEAD), head: HEAD.into(), since: None, seat: named_seat("claude", "", "", None), by_hand: true };
         r.told(&hand, Went::Started(vec![started("claude", S, NOW + 63_000)]), NOW + 63_000).unwrap();
         assert!(r.clear_for_hand("o/r#7", false, NOW + 64_000).is_err(), "one asked for by hand goes on");
         // A drafted review's mark names its round, after the commit's: another Mac still finds the
@@ -2900,7 +2905,7 @@ mod tests {
         let b = board(vec![mine(7, HEAD)], vec![maker, session(Status::Unread, NOW + 60_000)]);
         let off = ReviewsCfg::default();
         assert!(off.own.send && !off.own.auto);
-        let job = Job::Review { pr: mine(7, HEAD), head: HEAD.into(), since: None, seat: named_seat("codex", "", None), by_hand: true };
+        let job = Job::Review { pr: mine(7, HEAD), head: HEAD.into(), since: None, seat: named_seat("codex", "", "", None), by_hand: true };
         r.told(&job, Went::Started(vec![started("codex", S, NOW)]), NOW).unwrap();
         read(&mut r, &b, &off, NOW + 61_000, "Two problems.", "Codex");
         let post = r.due(&b, &off, NOW + 62_000).pop().unwrap();
@@ -2908,7 +2913,7 @@ mod tests {
         assert_eq!(kinds(&r.due(&b, &off, NOW + 64_000)), [format!("send 7 1111111 by Codex to {MAKER}")]);
         // An automatic one isn't, with reviews of your PRs off, and says so.
         let mut r = Reviewer::default();
-        let auto = Job::Review { pr: mine(7, HEAD), head: HEAD.into(), since: None, seat: named_seat("codex", "", None), by_hand: false };
+        let auto = Job::Review { pr: mine(7, HEAD), head: HEAD.into(), since: None, seat: named_seat("codex", "", "", None), by_hand: false };
         r.told(&auto, Went::Started(vec![started("codex", S, NOW)]), NOW).unwrap();
         read(&mut r, &b, &own(), NOW + 61_000, "Two problems.", "Codex");
         let post = r.due(&b, &own(), NOW + 62_000).pop().unwrap();
@@ -2942,11 +2947,14 @@ mod tests {
         let mut t = Tracked::default();
         t.sessions.insert("claude opus".into(), S.into());
         let named = seat(&cfg(" claude ", "opus"), Some(&t));
-        assert_eq!(named, Seat { who: "claude opus".into(), account: Some("claude".into()), model: Some("opus".into()), session: Some(S.into()), avoid: None });
+        assert_eq!(named, Seat { who: "claude opus".into(), account: Some("claude".into()), model: Some("opus".into()), effort: None, session: Some(S.into()), avoid: None });
         // Another reviewer starts afresh; Auto is named for what it is.
         assert_eq!(seat(&cfg("claude", ""), Some(&t)).session, None);
-        assert_eq!(seat(&cfg("", ""), None), Seat { who: AUTO.into(), account: None, model: None, session: None, avoid: None });
+        assert_eq!(seat(&cfg("", ""), None), Seat { who: AUTO.into(), account: None, model: None, effort: None, session: None, avoid: None });
         assert_eq!(seat(&cfg("", "opus"), None).who, "auto opus");
+        // Its effort goes with it, and keeps the session it has: it isn't in the name.
+        let at = seat(&ReviewsCfg { effort: " xhigh ".into(), ..cfg("claude", "opus") }, Some(&t));
+        assert_eq!((at.effort.as_deref(), at.session.as_deref()), (Some("xhigh"), Some(S)));
         // Its instructions are config.toml's, else Codealong's.
         assert_eq!(instructions(&cfg("", "")), INSTRUCTIONS);
         assert_eq!(instructions(&ReviewsCfg { prompt: "  Start two subagents.  ".into(), ..cfg("", "") }), "Start two subagents.");

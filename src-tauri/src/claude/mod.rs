@@ -493,11 +493,17 @@ impl crate::harness::Adapter for ClaudeCode {
     /// refused: edits and commands that change things, and commands it doesn't know only look
     /// (a fresh run asked to `gh pr diff` was refused, 2.1.292). So Codealong hands it what it
     /// reads in `reads`, which `--add-dir` lets it read without asking (`=`, since the flag takes
-    /// several folders). It runs on the account's usual model, and has its rules with its first
-    /// question as a copy does.
-    fn fresh_side(&self, ctx: &crate::harness::Ctx, _cwd: &Path, rules: &str, reads: &Path) -> anyhow::Result<crate::side::Recipe> {
+    /// several folders). It runs on the model and effort picked for it (`--model`, `--effort`),
+    /// else the account's usual ones, and has its rules with its first question as a copy does.
+    fn fresh_side(&self, ctx: &crate::harness::Ctx, _cwd: &Path, rules: &str, reads: &Path, on: crate::side::RunsOn) -> anyhow::Result<crate::side::Recipe> {
         let reads = format!("--add-dir={}", reads.display());
-        let args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--no-session-persistence", "--permission-mode", "default", &reads];
+        let mut args = vec!["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--no-session-persistence", "--permission-mode", "default", &reads];
+        if let Some(m) = on.model {
+            args.extend(["--model", m]);
+        }
+        if let Some(e) = on.effort {
+            args.extend(["--effort", e]);
+        }
         Ok(headless(&ctx.account.home_path(), &args, SideCopy::told(rules)))
     }
 

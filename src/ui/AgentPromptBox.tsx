@@ -1,20 +1,18 @@
 // What an automation's agent is told, and which agent: a box drawn as a session's box is
-// (SessionReply.tsx), its text the instructions and, at its foot, the chip the quick panel starts
-// a session with, opening the same menu of Auto and each account with its models
-// (StartControls.tsx `agentMenuSections`). Settings › Automation's reviewer is one
-// (SettingsDialog.tsx `ReviewsField`); another automation that runs an agent on instructions of
-// yours takes the same box.
+// (SessionReply.tsx), its text the instructions and, at its foot, the agent menu (AgentMenu.tsx)
+// with Auto and the routing groups over each account with its models and effort.
+// Settings › Automation's reviewer is one (SettingsDialog.tsx `ReviewsField`); another automation
+// that runs an agent on instructions of yours takes the same box.
 //
 // The box shows what the agent is told: the instructions you wrote, else the default ones, which
 // are saved as no text at all, so a later default goes on applying. What's written is kept as the
 // box loses the keyboard; the agent as it's picked.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { agentChipWords, agentId, agentOptions, AUTO, autoPick, isAuto, isGroup, modelName, parseAgent, pickFromGroup } from '../start';
+import { AUTO, isAuto } from '../start';
 import type { Lane, RoutingGroup, StartAccount, Usage } from '../types';
-import { BoxMenu } from './ModelMenu';
+import { AgentMenu } from './AgentMenu';
 import { BoxText } from './primitives';
-import { agentMenuSections } from './StartControls';
 
 export interface AgentPromptBoxProps {
   /** The accounts it may run on, as start options list them. */
@@ -27,9 +25,11 @@ export interface AgentPromptBoxProps {
   lanes?: Lane[];
   usage: Usage[];
   now: number;
-  /** The account or routing group picked, empty for Auto, and its model, empty for the account's own. */
+  /** The account or routing group picked, empty for Auto, and its model and effort, empty for the
+   *  account's own. */
   account: string;
   model: string;
+  effort: string;
   /** The instructions written; empty for `defaultPrompt`. */
   prompt: string;
   defaultPrompt: string;
@@ -44,30 +44,13 @@ export interface AgentPromptBoxProps {
   /** What going back to the default instructions says. */
   defaultLabel?: string;
   disabled?: boolean;
-  onAgent: (account: string, model: string) => void;
+  onAgent: (account: string, model: string, effort: string) => void;
   onPrompt: (prompt: string) => void;
 }
 
-export function AgentPromptBox({ accounts, groups = [], autoGroup, lanes = [], usage, now, account, model, prompt, defaultPrompt, label, hint, autoTitle, autoSays, defaultLabel = 'Use the default instructions', disabled, onAgent, onPrompt }: AgentPromptBoxProps) {
-  const models = useMemo(() => accounts.flatMap((a) => a.models ?? []).filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i), [accounts]);
-  const autoGroupObj = useMemo(() => (autoGroup ? groups.find((g) => g.name === autoGroup) ?? null : null), [autoGroup, groups]);
-  const pick = useMemo(() => autoPick(accounts, usage, now, null, autoGroupObj, lanes), [accounts, usage, now, autoGroupObj, lanes]);
-  const agents = useMemo(() => agentOptions(accounts, models, pick, groups, usage, now, lanes), [accounts, models, pick, groups, usage, now, lanes]);
-  const chosen = account ? agentId(account, model || null, groups) : AUTO;
-  const sections = agentMenuSections(agents, accounts, pick, usage, models, now, chosen, autoTitle, groups, lanes);
-  const group = isGroup(account, groups);
-  const groupPick = group ? pickFromGroup(group, accounts, usage, now, null, null, lanes) : null;
-  const rawModel = (group ? groupPick?.model : !account ? pick?.model : model) || null;
-  const words = agentChipWords({
-    auto: !account,
-    group: group?.name ?? null,
-    account: group ? (groupPick?.account ?? null) : (account || pick?.account || null),
-    accounts: accounts.length,
-    remote: null,
-    model: rawModel ? modelName(rawModel, models) : null,
-    effortWord: null,
-  });
-  const chip = (!account || group) && autoSays ? { ...words, detail: autoSays } : words;
+export function AgentPromptBox({ accounts, groups = [], autoGroup, lanes = [], usage, now, account, model, effort, prompt, defaultPrompt, label, hint, autoTitle, autoSays, defaultLabel = 'Use the default instructions', disabled, onAgent, onPrompt }: AgentPromptBoxProps) {
+  const group = useMemo(() => (autoGroup ? (groups.find((g) => g.name === autoGroup) ?? null) : null), [autoGroup, groups]);
+  const auto = useMemo(() => ({ title: autoTitle, says: autoSays, groups, group, lanes }), [autoTitle, autoSays, groups, group, lanes]);
 
   const shown = prompt.trim() || defaultPrompt;
   const [draft, setDraft] = useState(shown);
@@ -98,21 +81,15 @@ export function AgentPromptBox({ accounts, groups = [], autoGroup, lanes = [], u
           )}
         </div>
         <div className="ca-composer-buttons">
-          <BoxMenu
-            kind="model"
-            sections={sections}
-            value={chosen}
-            icon={!account || group ? 'sparkles' : undefined}
-            label={chip.label}
-            detail={chip.detail}
-            title="Which account it runs on, and on which model"
-            placeholder="Account or model"
+          <AgentMenu
+            accounts={accounts}
+            usage={usage}
+            now={now}
+            value={{ account: account || AUTO, model: model || null, effort: effort || null }}
+            auto={auto}
+            title="Which account it runs on, on which model and at which effort"
             disabled={disabled || accounts.length === 0}
-            onPick={(id) => {
-              const { choice, model: m } = parseAgent(id);
-              if (!choice || isAuto(choice)) onAgent('', '');
-              else onAgent(choice, m ?? '');
-            }}
+            onPick={(p) => (isAuto(p.account) ? onAgent('', '', '') : onAgent(p.account, p.model ?? '', p.effort ?? ''))}
             onDone={() => box.current?.focus()}
             down
           />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { againFor, askAccount, askAccounts, autoReviewWords, groupReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewsRunIn, suggestWords } from './review';
+import { againFor, askAccount, askAccounts, askOn, autoReviewWords, groupReviewWords, reviewLane, reviewLineWords, reviewPicks, reviewsRunIn, suggestWords } from './review';
 import * as fx from './testing/fixtures';
 import type { AutoReview, Lane, PrItem, StartAccount } from './types';
 
@@ -198,5 +198,13 @@ describe('askAccount', () => {
     expect(askAccount(all, [], 0, 'oc')).toBe('claude');
     expect(askAccount(all, [], 0, 'claude2')).toBe('claude');
     expect(askAccount([opencode], [], 0, null)).toBeNull();
+  });
+
+  it('asks on the model and effort picked with the account, and on the account’s own for Auto’s', () => {
+    expect(askOn(all, [], 0, { account: 'codex', model: 'gpt-6-luna', effort: 'high' })).toEqual({ account: 'codex', model: 'gpt-6-luna', effort: 'high' });
+    expect(askOn(all, [], 0, null)).toEqual({ account: 'claude', model: null, effort: null });
+    // An account that can't answer gives way to Auto's, without the model picked for it.
+    expect(askOn(all, [], 0, { account: 'oc', model: 'big-pickle', effort: null })).toEqual({ account: 'claude', model: null, effort: null });
+    expect(askOn([opencode], [], 0, null)).toBeNull();
   });
 });

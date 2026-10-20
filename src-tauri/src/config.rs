@@ -410,6 +410,9 @@ pub struct ReviewsCfg {
     /// The model they start on, as a start's `--model` takes it; empty for the account's own.
     #[serde(default)]
     pub model: String,
+    /// The effort they start at, as a start's `--effort` takes it; empty for the account's own.
+    #[serde(default)]
+    pub effort: String,
     /// Prefer an account of another harness than the PR's author when Auto or a routing group picks
     /// the reviewer and a session here or a trailer on the PR says which harness wrote it.
     #[serde(default = "yes")]
@@ -454,7 +457,7 @@ pub struct ReviewsCfg {
 
 impl Default for ReviewsCfg {
     fn default() -> Self {
-        ReviewsCfg { auto: false, account: String::new(), model: String::new(), other_harness: true, prompt: String::new(), start: ReviewStart::NoTerminal, post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
+        ReviewsCfg { auto: false, account: String::new(), model: String::new(), effort: String::new(), other_harness: true, prompt: String::new(), start: ReviewStart::NoTerminal, post: ReviewPost::Draft, submit: ReviewSubmit::Never, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() }
     }
 }
 
@@ -473,6 +476,9 @@ pub struct OwnReviewsCfg {
     /// The model they start on; empty for the account's own.
     #[serde(default)]
     pub model: String,
+    /// The effort they start at; empty for the account's own.
+    #[serde(default)]
+    pub effort: String,
     /// Prefer an account of another harness than the PR's author when Auto or a routing group picks
     /// the reviewer.
     #[serde(default = "yes")]
@@ -496,7 +502,7 @@ pub struct OwnReviewsCfg {
 
 impl Default for OwnReviewsCfg {
     fn default() -> Self {
-        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), other_harness: true, prompt: String::new(), send: true, drafts: false, team_instructions: String::new() }
+        OwnReviewsCfg { auto: false, account: String::new(), model: String::new(), effort: String::new(), other_harness: true, prompt: String::new(), send: true, drafts: false, team_instructions: String::new() }
     }
 }
 
@@ -670,6 +676,7 @@ impl RepoCfg {
         put(&mut mine.auto, &r.auto);
         put(&mut mine.account, &r.account);
         put(&mut mine.model, &r.model);
+        put(&mut mine.effort, &r.effort);
         put(&mut mine.other_harness, &r.other_harness);
         put(&mut mine.prompt, &r.prompt);
         put(&mut mine.post, &r.post);
@@ -677,6 +684,7 @@ impl RepoCfg {
         put(&mut mine.own.auto, &o.auto);
         put(&mut mine.own.account, &o.account);
         put(&mut mine.own.model, &o.model);
+        put(&mut mine.own.effort, &o.effort);
         put(&mut mine.own.other_harness, &o.other_harness);
         put(&mut mine.own.prompt, &o.prompt);
         put(&mut mine.own.send, &o.send);
@@ -702,6 +710,8 @@ pub struct ReviewsPatch {
     pub account: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub other_harness: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -729,6 +739,8 @@ pub struct OwnReviewsPatch {
     pub account: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub other_harness: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -786,6 +798,7 @@ pub fn reviews_for(global: &ReviewsCfg, team: Option<&crate::teamfile::TeamCfg>,
         r.auto = m.auto.unwrap_or(r.auto);
         set(&mut r.account, &m.account);
         set(&mut r.model, &m.model);
+        set(&mut r.effort, &m.effort);
         r.other_harness = m.other_harness.unwrap_or(r.other_harness);
         set(&mut r.prompt, &m.prompt);
         r.post = m.post.unwrap_or(r.post);
@@ -793,6 +806,7 @@ pub fn reviews_for(global: &ReviewsCfg, team: Option<&crate::teamfile::TeamCfg>,
         r.own.auto = m.own.auto.unwrap_or(r.own.auto);
         set(&mut r.own.account, &m.own.account);
         set(&mut r.own.model, &m.own.model);
+        set(&mut r.own.effort, &m.own.effort);
         r.own.other_harness = m.own.other_harness.unwrap_or(r.own.other_harness);
         set(&mut r.own.prompt, &m.own.prompt);
         r.own.send = m.own.send.unwrap_or(r.own.send);
@@ -860,8 +874,8 @@ pub fn check_repos(cfg: &Config) -> std::result::Result<(), String> {
         let Some(slug) = key.strip_prefix("github.com/").filter(|s| s.split('/').count() == 2 && !s.split('/').any(str::is_empty)) else {
             return Err(format!("[repos.\"{key}\"] isn't a repo; name it as github.com/owner/name."));
         };
-        let accounts = [("[reviews]", &r.reviews.account, &r.reviews.model), ("[reviews.own]", &r.reviews.own.account, &r.reviews.own.model)];
-        for (table, account, model) in accounts {
+        let accounts = [("[reviews]", &r.reviews.account, &r.reviews.model, &r.reviews.effort), ("[reviews.own]", &r.reviews.own.account, &r.reviews.own.model, &r.reviews.own.effort)];
+        for (table, account, model, effort) in accounts {
             if let Some(a) = account.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
                 if !valid_reviewer(cfg, a) {
                     return Err(format!("{slug}'s {table} account is {a:?}, which isn't one of the [[accounts]] or [[routing.groups]]; use one of them, or \"\" for Auto."));
@@ -870,6 +884,11 @@ pub fn check_repos(cfg: &Config) -> std::result::Result<(), String> {
             if let Some(m) = model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
                 if !crate::start::valid_model(m) {
                     return Err(format!("{slug}'s {table} model is {m:?}, which isn't a model name Codealong can start a session on."));
+                }
+            }
+            if let Some(e) = effort.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
+                if !crate::start::effort_levels().contains(&e) {
+                    return Err(format!("{slug}'s {table} effort is {e:?}; use one of {}, or \"\" for the account's own.", crate::start::effort_levels().join(", ")));
                 }
             }
         }
@@ -1611,8 +1630,8 @@ const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts a
 const SESSIONS_COMMENT: &str = "# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict) and its primary session isn't running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n";
 const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
-# in while it still waits. account and model: what it runs on; \"\" for the account Auto would start, on its own
-# model. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
+# in while it still waits. account, model and effort: what it runs on; \"\" for the account Auto would start, on its
+# own model and effort. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
 # Codealong's own. start: where its session starts, for your own pull requests too: \"no-terminal\", Claude Code's
 # background service, else in Codealong through the account's Agent Client Protocol adapter (an account that can
 # do neither doesn't review); \"codealong\", in Codealong, Claude Code too; \"background\", as the account's
@@ -1626,8 +1645,8 @@ const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request t
 # request, never an approval, which stays yours to give. When it can't tell, it's left for you.
 ";
 const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each open pull request a session of yours opened here, and again when new
-# commits come in. account and model: what it runs on; \"\" for the account Auto would start among those of another
-# harness than the PR's session. prompt: what it's told to do; \"\" for Codealong's own. send: hand each review to
+# commits come in. account, model and effort: what it runs on; \"\" for the account Auto would start among those of
+# another harness than the PR's session. prompt: what it's told to do; \"\" for Codealong's own. send: hand each review to
 # the session that opened the PR, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
@@ -1863,6 +1882,10 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     if !model.is_empty() && !crate::start::valid_model(model) {
         return Err(format!("[reviews] model is {model:?}, which isn't a model name Codealong can start a session on."));
     }
+    let effort = cfg.reviews.effort.trim();
+    if !effort.is_empty() && !crate::start::effort_levels().contains(&effort) {
+        return Err(format!("[reviews] effort is {effort:?}; use one of {}, or \"\" for the account's own.", crate::start::effort_levels().join(", ")));
+    }
     let reviewer = cfg.reviews.own.account.trim();
     if !reviewer.is_empty() && !valid_reviewer(cfg, reviewer) {
         return Err(format!("[reviews.own] account is {reviewer:?}, which isn't one of the [[accounts]] or [[routing.groups]]; use one of them, or \"\" for Auto."));
@@ -1870,6 +1893,10 @@ pub fn check(cfg: &Config) -> std::result::Result<(), String> {
     let model = cfg.reviews.own.model.trim();
     if !model.is_empty() && !crate::start::valid_model(model) {
         return Err(format!("[reviews.own] model is {model:?}, which isn't a model name Codealong can start a session on."));
+    }
+    let effort = cfg.reviews.own.effort.trim();
+    if !effort.is_empty() && !crate::start::effort_levels().contains(&effort) {
+        return Err(format!("[reviews.own] effort is {effort:?}; use one of {}, or \"\" for the account's own.", crate::start::effort_levels().join(", ")));
     }
     if cfg.devices.port < 1024 {
         return Err(format!("[devices] port is {}; use one from 1024 up ({DEFAULT_DEVICES_PORT} is the default).", cfg.devices.port));
@@ -2061,6 +2088,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         set_value(&mut doc["reviews"]["auto"], Value::from(cfg.reviews.auto));
         set_value(&mut doc["reviews"]["account"], Value::from(cfg.reviews.account.trim()));
         set_value(&mut doc["reviews"]["model"], Value::from(cfg.reviews.model.trim()));
+        if !cfg.reviews.effort.trim().is_empty() || doc["reviews"].get("effort").is_some() {
+            set_value(&mut doc["reviews"]["effort"], Value::from(cfg.reviews.effort.trim()));
+        }
         set_value(&mut doc["reviews"]["prompt"], Value::from(cfg.reviews.prompt.trim()));
         set_value(&mut doc["reviews"]["start"], Value::from(cfg.reviews.start.as_str()));
         set_value(&mut doc["reviews"]["post"], Value::from(cfg.reviews.post.as_str()));
@@ -2090,6 +2120,9 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             set_value(&mut doc["reviews"]["own"]["auto"], Value::from(own.auto));
             set_value(&mut doc["reviews"]["own"]["account"], Value::from(own.account.trim()));
             set_value(&mut doc["reviews"]["own"]["model"], Value::from(own.model.trim()));
+            if !own.effort.trim().is_empty() || doc["reviews"]["own"].get("effort").is_some() {
+                set_value(&mut doc["reviews"]["own"]["effort"], Value::from(own.effort.trim()));
+            }
             set_value(&mut doc["reviews"]["own"]["prompt"], Value::from(own.prompt.trim()));
             set_value(&mut doc["reviews"]["own"]["send"], Value::from(own.send));
             set_value(&mut doc["reviews"]["own"]["drafts"], Value::from(own.drafts));
@@ -2311,6 +2344,7 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
             ("auto", rv.auto.map(Value::from)),
             ("account", text(&rv.account)),
             ("model", text(&rv.model)),
+            ("effort", text(&rv.effort)),
             ("other_harness", rv.other_harness.map(Value::from)),
             ("prompt", text(&rv.prompt)),
             ("post", rv.post.map(|v| Value::from(v.as_str()))),
@@ -2320,6 +2354,7 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
             ("auto", own.auto.map(Value::from)),
             ("account", text(&own.account)),
             ("model", text(&own.model)),
+            ("effort", text(&own.effort)),
             ("other_harness", own.other_harness.map(Value::from)),
             ("prompt", text(&own.prompt)),
             ("send", own.send.map(Value::from)),
@@ -2500,6 +2535,9 @@ pub fn render(cfg: &Config) -> String {
         s.push_str(&format!("auto = {}\n", cfg.reviews.auto));
         s.push_str(&format!("account = {}\n", q(cfg.reviews.account.trim())));
         s.push_str(&format!("model = {}\n", q(cfg.reviews.model.trim())));
+        if !cfg.reviews.effort.trim().is_empty() {
+            s.push_str(&format!("effort = {}\n", q(cfg.reviews.effort.trim())));
+        }
         s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(cfg.reviews.prompt.trim())));
         s.push_str(&format!("start = {}\n", q(cfg.reviews.start.as_str())));
         s.push_str(&format!("post = {}\n", q(cfg.reviews.post.as_str())));
@@ -2515,6 +2553,9 @@ pub fn render(cfg: &Config) -> String {
             s.push_str(&format!("auto = {}\n", own.auto));
             s.push_str(&format!("account = {}\n", q(own.account.trim())));
             s.push_str(&format!("model = {}\n", q(own.model.trim())));
+            if !own.effort.trim().is_empty() {
+                s.push_str(&format!("effort = {}\n", q(own.effort.trim())));
+            }
             s.push_str(&format!("prompt = {}\n", toml_edit::Value::from(own.prompt.trim())));
             s.push_str(&format!("send = {}\n", own.send));
             s.push_str(&format!("drafts = {}\n", own.drafts));
@@ -2638,7 +2679,7 @@ mod tests {
                 }],
             },
             sessions: SessionsCfg { continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true },
-            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), other_harness: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
+            reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
             pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), volume: 35 },
@@ -3217,13 +3258,27 @@ mod tests {
         assert!(!old.contains("[reviews]"), "{old}");
         assert!(!with_config(&old, &full()).unwrap().contains("[reviews]"));
         let mut on = full();
-        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), other_harness: true, prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), start: ReviewStart::Terminal, post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
+        on.reviews = ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, prompt: "Start two subagents, on Opus and Sonnet.\nCombine what they find.".into(), start: ReviewStart::Terminal, post: ReviewPost::Comment, submit: ReviewSubmit::ApproveOrComment, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{REVIEWS_COMMENT}[reviews]\nauto = true\naccount = \"claude\"\nmodel = \"opus\"\nprompt = ")), "{out}");
         assert!(out.find("[reviews]").unwrap() < out.find("[[accounts]]").unwrap(), "{out}");
         assert!(out.contains("\nstart = \"terminal\"\npost = \"comment\""), "{out}");
         assert_eq!(parse(&out).unwrap(), on);
         assert_eq!(parse(&render(&on)).unwrap(), on);
+        // An effort is written once one is picked (after the model in a new file, last in its
+        // table in one that has it), and stays as it's cleared.
+        let mut hard = on.clone();
+        hard.reviews.effort = "xhigh".into();
+        hard.reviews.own.effort = "high".into();
+        let with_effort = with_config(&out, &hard).unwrap();
+        assert!(with_effort.contains("\neffort = \"xhigh\"\n") && with_effort.contains("\neffort = \"high\"\n"), "{with_effort}");
+        assert_eq!(parse(&with_effort).unwrap(), hard);
+        assert!(render(&hard).contains("model = \"opus\"\neffort = \"xhigh\"\n"));
+        assert_eq!(parse(&render(&hard)).unwrap(), hard);
+        assert!(with_config(&with_effort, &on).unwrap().contains("\neffort = \"\"\n"));
+        let mut bad = hard.clone();
+        bad.reviews.effort = "hard".into();
+        assert!(check(&bad).unwrap_err().contains("[reviews] effort is \"hard\""));
         // Turned off again, the table stays, saying so.
         let off = with_config(&out, &full()).unwrap();
         assert!(off.contains("[reviews]\nauto = false\naccount = \"\"\nmodel = \"\"\nprompt = \"\"\nstart = \"no-terminal\"\npost = \"draft\""), "{off}");
@@ -3406,7 +3461,7 @@ mod tests {
         assert!(none.send && !none.auto && !none.drafts && none.other_harness);
         let old = render(&full());
         let mut on = full();
-        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), other_harness: true, prompt: "Look hard at the tests.".into(), send: true, drafts: false, team_instructions: String::new() };
+        on.reviews.own = OwnReviewsCfg { auto: true, account: "codex".into(), model: "gpt-5.5".into(), effort: String::new(), other_harness: true, prompt: "Look hard at the tests.".into(), send: true, drafts: false, team_instructions: String::new() };
         let out = with_config(&old, &on).unwrap();
         assert!(out.contains(&format!("{OWN_REVIEWS_COMMENT}[reviews.own]\nauto = true\naccount = \"codex\"\nmodel = \"gpt-5.5\"\nprompt = \"Look hard at the tests.\"\nsend = true\ndrafts = false")), "{out}");
         // Right after [reviews], whose own lines stay as they were.

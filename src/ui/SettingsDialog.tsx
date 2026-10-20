@@ -855,6 +855,7 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
           now={now}
           account={reviews.account}
           model={reviews.model}
+          effort={reviews.effort ?? ''}
           prompt={reviews.prompt}
           defaultPrompt={defaultPrompt}
           label="What the reviewer is told"
@@ -863,7 +864,7 @@ function ReviewsField({ reviews, set, setOwn, scope, team, disabled, defaultProm
           autoSays={reviews.other_harness ? 'another harness' : undefined}
           defaultLabel="Use Codealong’s instructions"
           disabled={disabled}
-          onAgent={(account, model) => set({ account, model })}
+          onAgent={(account, model, effort) => set({ account, model, effort })}
           onPrompt={(prompt) => set({ prompt })}
         />
         {scope && <TeamWords repo={scope.repo} words={team?.reviewInstructions ?? ''} />}
@@ -955,6 +956,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, group
               now={now}
               account={own.account}
               model={own.model}
+              effort={own.effort ?? ''}
               prompt={own.prompt}
               defaultPrompt={defaultPrompt}
               label="What the reviewer of your pull requests is told"
@@ -963,7 +965,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, group
               autoSays={own.other_harness ? 'another harness' : undefined}
               defaultLabel="Use Codealong’s instructions"
               disabled={disabled}
-              onAgent={(account, model) => setOwn({ account, model })}
+              onAgent={(account, model, effort) => setOwn({ account, model, effort })}
               onPrompt={(prompt) => setOwn({ prompt })}
             />
             {scope && <TeamWords repo={scope.repo} words={team?.ownReviewInstructions ?? ''} />}
@@ -1084,9 +1086,12 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
     const wasReviewGroup = !!draft.original && reviews.account === draft.original;
     const nextReviewAcct = draft.useForReviews ? entry.name : wasReviewGroup ? '' : reviews.account;
     const nextReviewModel = draft.useForReviews ? (wasReviewGroup ? reviews.model : '') : wasReviewGroup ? '' : reviews.model;
+    // A group's members name their own effort.
+    const nextReviewEffort = draft.useForReviews || wasReviewGroup ? '' : reviews.effort;
     const wasOwnGroup = !!draft.original && reviews.own.account === draft.original;
     const nextOwnAcct = draft.useForOwnReviews ? entry.name : wasOwnGroup ? '' : reviews.own.account;
     const nextOwnModel = draft.useForOwnReviews ? (wasOwnGroup ? reviews.own.model : '') : wasOwnGroup ? '' : reviews.own.model;
+    const nextOwnEffort = draft.useForOwnReviews || wasOwnGroup ? '' : reviews.own.effort;
     void onSave({
       ...cfg,
       routing: { ...routing, auto: nextAuto, groups: nextGroups },
@@ -1094,7 +1099,8 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
         ...reviews,
         account: nextReviewAcct,
         model: nextReviewModel,
-        own: { ...reviews.own, account: nextOwnAcct, model: nextOwnModel },
+        effort: nextReviewEffort,
+        own: { ...reviews.own, account: nextOwnAcct, model: nextOwnModel, effort: nextOwnEffort },
       },
     });
     setDraft(null);

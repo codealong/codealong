@@ -1590,14 +1590,19 @@ async fn side_close(engine: State<'_, engine::Handle>, peers: State<'_, peers::P
     blocking(move || actions::run(&engine, &peers, actions::SIDE_CLOSE, &key, serde_json::json!({})).map(|_| ())).await?
 }
 
-/// Asks about a PR (`key`, `owner/name#number`) in a conversation of its own on `account`
-/// (side.rs `ask_pr`): an agent that reads the PR and the code around it and changes nothing.
+/// Asks about a PR (`key`, `owner/name#number`) in a conversation of its own on `account`, on
+/// `model` and `effort` where they're picked (side.rs `ask_pr`): an agent that reads the PR and
+/// the code around it and changes nothing.
 /// Returns the conversation with the question in it; the answer comes as `side` events, as a
 /// session's side conversation's does. Only here: the PR's card is in this Mac's windows.
 #[tauri::command]
-async fn pr_side_ask(engine: State<'_, engine::Handle>, key: String, account: String, text: String) -> Result<side::Side, String> {
+async fn pr_side_ask(engine: State<'_, engine::Handle>, key: String, account: String, model: Option<String>, effort: Option<String>, text: String) -> Result<side::Side, String> {
     let engine = engine.inner().clone();
-    blocking(move || side::ask_pr(&engine.board(), &config::current().map_err(words)?, &key, &account, &text).map_err(words)).await?
+    blocking(move || {
+        let on = side::RunsOn { model: model.as_deref(), effort: effort.as_deref() };
+        side::ask_pr(&engine.board(), &config::current().map_err(words)?, &key, &account, on, &text).map_err(words)
+    })
+    .await?
 }
 
 /// Closes a PR's conversation: an agent that's answering answers what it was asked and then

@@ -87,7 +87,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--accounts", takes: "", run: accounts },
     Mode { flag: "--training-off", takes: "<account>", run: training_off },
     Mode { flag: "--training", takes: "", run: |_, _| Ok(pretty(&crate::training::read_all(&config::current().map_err(failed)?.accounts))) },
-    Mode { flag: "--pr-side", takes: "<owner/name> <number> <account> <question> [a follow-up…]", run: pr_side },
+    Mode { flag: "--pr-side", takes: "<owner/name> <number> <account> <question> [a follow-up…] [--model <model>] [--effort <level>]", run: pr_side },
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
     Mode { flag: "--pr-draft", takes: "<owner/name> <number>", run: |_, rest| { let (repo, number) = repo_and_number(rest)?; Ok(pretty(&crate::github::your_review(repo, number).map_err(failed)?)) } },
     Mode { flag: "--pr", takes: "<owner/name> <number>", run: pr },
@@ -409,16 +409,18 @@ fn answered(key: &str) -> Done {
     Ok(asked)
 }
 
-fn pr_side(_: &Args, rest: &[String]) -> Done {
-    let [repo, number, account, questions @ ..] = rest else { return Err(Stop::Usage) };
+fn pr_side(args: &Args, rest: &[String]) -> Done {
+    let [repo, number, account, more @ ..] = rest else { return Err(Stop::Usage) };
+    let questions: Vec<&String> = more.iter().take_while(|q| !q.starts_with("--")).collect();
     if questions.is_empty() || number.parse::<u64>().is_err() {
         return Err(Stop::Usage);
     }
     let key = format!("{repo}#{number}");
     let board = engine::snapshot(true, false);
     let cfg = config::current().map_err(|e| Stop::Failed(format!("{e:#}")))?;
+    let on = side::RunsOn { model: args.option("--model"), effort: args.option("--effort") };
     for q in questions {
-        if let Err(e) = side::ask_pr(&board, &cfg, &key, account, q) {
+        if let Err(e) = side::ask_pr(&board, &cfg, &key, account, on, q) {
             side::close_now(&key);
             return Err(Stop::Failed(format!("{e:#}")));
         }

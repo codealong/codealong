@@ -739,6 +739,7 @@ export interface ReviewsPatch {
   auto?: boolean;
   account?: string;
   model?: string;
+  effort?: string;
   other_harness?: boolean;
   prompt?: string;
   post?: ReviewPost;
@@ -809,6 +810,9 @@ export interface ReviewsCfg {
   account?: string;
   /** The model it starts on; empty for the account's own. */
   model?: string;
+  /** The effort it starts at, with an account picked; empty for the account's own (a routing
+   *  group's members name theirs). */
+  effort?: string;
   /** Keep off the harness that wrote the PR (from a session here or a commit/PR trailer) when
    *  another harness in the pool can review. Older files have none: on. */
   other_harness?: boolean;
@@ -834,6 +838,7 @@ export interface OwnReviewsCfg {
    *  another harness than the PR's session. */
   account?: string;
   model?: string;
+  effort?: string;
   /** Keep off the harness that opened the PR when another harness in the pool can review. Older
    *  files have none: on. */
   other_harness?: boolean;
@@ -2302,8 +2307,11 @@ export interface Side {
   /** The copy is gone: what was said can still be read, and the next question goes to a new copy,
    *  which knows none of it. */
   ended: boolean;
-  /** The account whose agent answers, where that was chosen: a PR's conversation's. */
+  /** The account whose agent answers, where that was chosen: a PR's conversation's, with the model
+   *  and effort picked with it (none for the account's own). */
   account?: string;
+  model?: string;
+  effort?: string;
   /** It was closed while its copy answered, and the copy answers what it was asked before it ends:
    *  no longer the open one, it's read where the kept ones are. */
   closed?: boolean;

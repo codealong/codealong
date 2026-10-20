@@ -3,12 +3,13 @@
 // question above it; Ask has a draft of its own, so Review's text is still there after; ⏎ on Ask
 // asks the account beside it, Auto's at first, and the answer shows as the engine tells of it;
 // once a conversation is open the account is said, not picked; Close ends it and keeps it, and
-// "1 earlier" lists it; the account menu offers Auto and the accounts whose harness can answer,
-// and the one picked is asked next; a question that can't be asked is back in the box with why;
-// and ⌘⏎ on Ask approves with Review's text.
+// "1 earlier" lists it; the agent menu beside Ask (AgentMenu.tsx) offers Auto and the accounts
+// whose harness can answer, each with its models and an effort row, and the account, model and
+// effort picked are asked next and remembered; a question that can't be asked is back in the box
+// with why; and ⌘⏎ on Ask approves with Review's text.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/pr-ask-check.js
 (function () {
-  localStorage.removeItem('codealong.prask.account');
+  ['account', 'model', 'effort'].forEach(function (k) { localStorage.removeItem('codealong.prask.' + k); });
   var pr = null;
   var failNext = false;
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -45,6 +46,18 @@
   var enter = function () { key(box(), { key: 'Enter' }); };
   var answer = function (turns, more) { window.__emit('side', Object.assign({ id: window.__sides[pr.key].id, key: pr.key, turns: turns, running: false, ended: false, account: window.__sides[pr.key].account }, more || {})); };
   var auto;
+  // The open menu's lines, by the account whose heading they're under ('' for Auto's).
+  var lines = function () {
+    var out = {};
+    all('.ca-picker-opt').filter(function (o) { return !o.disabled; }).forEach(function (o) {
+      var head = o.closest('.ca-picker-section').querySelector('.ca-quick-acct-name');
+      var name = head ? head.textContent : '';
+      (out[name] = out[name] || []).push(o);
+    });
+    return out;
+  };
+  var model = null;
+  var effort = null;
 
   say('pr ask check: waiting for the card');
   until(function () { return !!pr && !!box() && !!on(); }, 20000, 'the card')
@@ -105,7 +118,7 @@
       return until(function () { return sent('pr_side_close').length === 1 && !strip() && !!chip(); }, 3000, 'closed');
     })
     .then(function () {
-      check('Close ends it, and the account can be picked again', sent('pr_side_close')[0].key === pr.key && chip().textContent === auto, chip() && chip().textContent);
+      check('Close ends it, and who answers can be picked again: Auto, saying its account', sent('pr_side_close')[0].key === pr.key && chip().textContent.indexOf('Auto') === 0 && chip().textContent.indexOf(auto) > 0, chip() && chip().textContent);
       return until(function () { return all('.ca-prreview-sides .ca-linkbtn').length === 1; }, 3000, 'the earlier one');
     })
     .then(function () {
@@ -116,18 +129,34 @@
     })
     .then(function () {
       check('which lists it', q('.ca-sidestrip-kept-q').textContent === 'Why a new table?' && /Questions about #/.test(q('.ca-sidestrip-title').textContent), q('.ca-sidestrip-kept-q').textContent);
-      var before = menus();
+      check('no native menu is asked for', menus() === 0, menus());
       chip().click();
-      return until(function () { return menus() > before; }, 3000, 'the account menu');
+      return until(function () { return lines().codex; }, 3000, 'the agent menu');
     })
     .then(function () {
-      var labels = menuLabels();
-      check('the account menu offers Auto, then the accounts that can answer', labels[0] === 'Auto (' + auto + ') ✓' && labels.indexOf('codex') > 0 && labels.indexOf('opencode') < 0 && labels.indexOf('antigravity') < 0, JSON.stringify(labels));
-      menuItem('codex')();
-      return until(function () { return chip().textContent === 'codex'; }, 3000, 'codex picked');
+      var l = lines();
+      var names = Object.keys(l);
+      check('the agent menu offers Auto, then the accounts that can answer, under their headings', l[''] && /^Auto/.test(l[''][0].textContent) && names.indexOf('codex') > 0 && names.indexOf('opencode') < 0 && names.indexOf('antigravity') < 0, JSON.stringify(names));
+      // A model of codex's where it lists one, else its default.
+      var line = l.codex[1] || l.codex[0];
+      model = l.codex[1] ? line.querySelector('.ca-picker-title').textContent : null;
+      line.click();
+      return until(function () { return chip().textContent.indexOf('codex') === 0; }, 3000, 'codex picked');
     })
     .then(function () {
       check('the one picked is remembered', localStorage.getItem('codealong.prask.account') === 'codex');
+      chip().click();
+      return until(function () { return q('.ca-picker') ? (all('.ca-picker-foot button').filter(function (b) { return b.textContent.trim() === 'High'; })[0] || 'none') : null; }, 3000, 'the menu again');
+    })
+    .then(function (level) {
+      if (level === 'none') return null;
+      level.click();
+      effort = 'high';
+      return until(function () { return /High effort/.test(chip().textContent); }, 3000, 'the effort on the chip');
+    })
+    .then(function () {
+      if (q('.ca-picker')) chip().click();
+      check('its effort is remembered with it', localStorage.getItem('codealong.prask.effort') === (effort || '') || (effort === null && !localStorage.getItem('codealong.prask.effort')), localStorage.getItem('codealong.prask.effort'));
       failNext = true;
       type(box(), 'Is it safe?');
       enter();
@@ -135,6 +164,7 @@
     })
     .then(function () {
       check('one that can’t be asked is back in the box, with why', box().value === 'Is it safe?' && asked().account === 'codex', box().value);
+      check('it was asked on the model and effort picked', (model === null ? asked().model === null : !!asked().model) && asked().effort === effort, JSON.stringify(asked()) + ' picked ' + model);
       check('and nothing shows as starting', !q('.ca-sidestrip-doing') || q('.ca-sidestrip-doing').textContent !== 'Reading the PR…');
       key(window, { key: 'Enter', metaKey: true });
       return until(function () { return sent('review_pr').length === 1; }, 3000, 'the approval');
