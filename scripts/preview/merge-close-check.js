@@ -3,7 +3,8 @@
 // Mark as done. It opens a dialog that says what it does, with the commit GitHub would write for
 // the way kept for the repo (squash, GitHub's pick here) and the keyboard on its button. Cancel
 // merges nothing. While GitHub is still working out whether it can merge, the dialog says so and
-// reads it again, its button taking the keyboard once it can. A merge GitHub refuses says why in
+// reads it again, waiting for a read slower than its interval rather than asking over it, its
+// button taking the keyboard once it can. A merge GitHub refuses says why in
 // the dialog and leaves the session alone. Merged, the dialog goes, and the request that merged
 // it had the engine mark the session done, work under way ended too, rather than the window. Once
 // the PR isn't ready (merged, say), neither the button nor the item is there. A real session is made
@@ -47,13 +48,21 @@
   localStorage.setItem('codealong.preview.peek', key);
   // Ready until it's merged, which a check below says it is.
   var merged = false;
-  // GitHub still working out whether it can merge, the next time the box is read.
+  // GitHub still working out whether it can merge, the next time the box is read; and slow to
+  // answer the time after that, longer than the dialog waits between reads (MergeBox.tsx
+  // RECHECK_MS).
   var unsure = false;
+  var slow = false;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     if (cmd === 'merge_box' && unsure) {
       unsure = false;
+      slow = true;
       return real(cmd, args, options).then(function (b) { return Object.assign(b, { mergeable: 'UNKNOWN', mergeState: 'UNKNOWN' }); });
+    }
+    if (cmd === 'merge_box' && slow) {
+      slow = false;
+      return real(cmd, args, options).then(function (b) { return wait(4500).then(function () { return b; }); });
     }
     var got = real(cmd, args, options);
     if (cmd !== 'get_board') return got;
@@ -149,10 +158,12 @@
 
       // From the header, GitHub still working it out: read again until it can merge.
       unsure = true;
+      var readsBefore = calls('merge_box').length;
       mergeButton().click();
       var still = await until(function () { return q('.ca-mergeclosedlg .ca-merge-standing strong'); }, 5000, 'the dialog said nothing while GitHub worked it out');
       check('while GitHub works out whether it can merge, the dialog says so and can’t merge yet', still.textContent === 'Checking whether it can merge…' && confirm().disabled, still.textContent);
-      go = await until(function () { var b = confirm(); return b && !b.disabled ? b : null; }, 8000, 'the dialog never read the box again');
+      go = await until(function () { var b = confirm(); return b && !b.disabled ? b : null; }, 15000, 'the dialog never read the box again');
+      check('it waited for the slow read rather than asking again over it', calls('merge_box').length - readsBefore === 2, (calls('merge_box').length - readsBefore) + ' reads');
       check('read again, it can, and its button has the keyboard', document.activeElement === go, document.activeElement ? document.activeElement.outerHTML.slice(0, 80) : 'nothing');
 
       // Refused, then merged.

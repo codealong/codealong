@@ -58,13 +58,14 @@ export function MergeCloseDialog({ ask, onClose }: MergeCloseDialogProps) {
     };
   }, [pr.repoSlug, pr.number, again]);
   // GitHub works out whether a PR can merge when it's first asked, and can take a moment to agree
-  // with the board that it's ready: read again a few times, as the merge box does.
+  // with the board that it's ready: read again a few times, as the merge box does, each a while
+  // after the last read came back, so a slow one isn't dropped for the next.
   const checking = !!read.box && rereads(read.box, pr) && again < RECHECKS;
   useEffect(() => {
     if (!checking) return;
     const t = window.setTimeout(() => setAgain((n) => n + 1), RECHECK_MS);
     return () => window.clearTimeout(t);
-  }, [checking, again]);
+  }, [checking, read]);
 
   // Read, it's a dialog of its own, which takes the keyboard on its confirm button once it merges.
   if (read.box) return <Ready key={offers(read.box).merge ? 'merges' : 'waits'} ask={ask} box={read.box} checking={checking} onClose={onClose} />;
