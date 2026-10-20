@@ -248,14 +248,17 @@ export function suggestWords(v: Verdict): string {
 }
 
 /** The line over a PR's box (PrBox.tsx): where its review stands, an agent's round and your
- *  draft review on GitHub together, else that there's none yet; `busy` while an agent reviews. */
-export function reviewLineWords(pr: Pick<PrItem, 'autoReview' | 'mine'>, draft: Draft | null): { icon: string; says: string; busy: boolean } {
+ *  draft review on GitHub together, else that there's none yet; `busy` while an agent reviews.
+ *  `approved` is the commit the agent approved before the round the line is of, which leaves the
+ *  PR waiting on your sign-off meanwhile (the round's own suggestion says the rest). */
+export function reviewLineWords(pr: Pick<PrItem, 'autoReview' | 'mine'>, draft: Draft | null): { icon: string; says: string; busy: boolean; approved: string | null } {
   const r = pr.autoReview;
   const yours = draft ? `your draft review${draft.count > 0 ? `, ${commentsWord(draft.count)}` : ''}` : null;
   if (r) {
     const { icon, says } = autoReviewWords(r, draft ? { draft: true, submitted: null } : undefined);
-    return { icon, says: yours && r.stage === 'drafted' ? `${says}: ${yours}` : says, busy: r.stage === 'reviewing' };
+    const approved = r.approves && r.approves !== r.head && !r.holds ? r.approves.slice(0, 7) : null;
+    return { icon, says: yours && r.stage === 'drafted' ? `${says}: ${yours}` : says, busy: r.stage === 'reviewing', approved };
   }
-  if (yours) return { icon: 'note', says: yours[0].toUpperCase() + yours.slice(1), busy: false };
-  return { icon: 'eye', says: pr.mine ? 'No agent review of your PR' : 'No review of yours yet', busy: false };
+  if (yours) return { icon: 'note', says: yours[0].toUpperCase() + yours.slice(1), busy: false, approved: null };
+  return { icon: 'eye', says: pr.mine ? 'No agent review of your PR' : 'No review of yours yet', busy: false, approved: null };
 }

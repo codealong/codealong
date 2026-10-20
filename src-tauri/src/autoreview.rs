@@ -1303,7 +1303,7 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, settings: &
         let head = pr.head_oid.clone().unwrap_or_default();
         let since = pr.requested_at.unwrap_or(0).max(pr.updated_at);
         let own = pr.mine;
-        let approves = t.filter(|_| !own).and_then(approved);
+        let approves = t.filter(|_| wants(pr)).and_then(approved);
         let holds = wanted
             && !own
             && match t.and_then(|t| t.rounds.iter().rev().find(|r| r.head == head)) {
@@ -3070,6 +3070,10 @@ mod tests {
         rounds(&mut store).push(round(HEAD, ReviewStage::Kept, Some("Verdict: approve"), NOW));
         let p = shown(&store, PrItem { mine: true, ..fresh(HEAD) }, &on(), NOW + 1);
         assert!(p.auto_review.is_some_and(|a| a.approves.is_none()));
+        // Nor one that no longer waits on your review: you reviewed it, or it ended.
+        for p in [PrItem { review_requested: false, ..fresh(HEAD) }, PrItem { state: PrState::Merged, ..fresh(HEAD) }] {
+            assert!(shown(&store, p, &on(), NOW + 1).auto_review.is_some_and(|a| a.approves.is_none()));
+        }
     }
 
     #[test]

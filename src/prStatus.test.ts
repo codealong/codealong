@@ -275,13 +275,15 @@ describe('agentApproves', () => {
     expect(prFlag(pr)).toBe('attn');
     expect(prPills(pr)[0]).toMatchObject({ text: 'Agent approves', tone: 'pass', icon: null, title: 'Codealong’s agent approves 309811a: it waits on your sign-off' });
     expect(chipWord(pr)).toBe('Agent approves');
-    expect(reviewMark({ ...pr, requestedBy: 'gwen' })?.title).toBe('Your sign-off is asked for, by gwen: Codealong’s agent approves it');
+    expect(reviewMark({ ...pr, requestedBy: 'gwen' })?.title).toBe('Your sign-off is asked for, by gwen: Codealong’s agent approves 309811a');
   });
   it('keeps it waiting on your sign-off while the commits after the approved one are reviewed', () => {
     const moved = asked({ ...approving, stage: 'reviewing', head: '4444444cccc', suggests: null }, { headOid: '4444444cccc' });
     expect(agentApproves(moved)).toBe('before');
     expect(prPills(moved)[0]).toMatchObject({ text: 'Agent approves', tone: 'pass', icon: 'hourglass' });
     expect(prPills(moved)[0].title).toContain('approved 309811a and reviews the commits since');
+    // The chip, which shows only the pill's words, says so on its mark.
+    expect(reviewMark(moved)?.title).toBe('Your sign-off is asked for: Codealong’s agent approved 309811a and reviews the commits since');
     // Their review didn't get done: no review is coming until the next push or Try again.
     const missed = asked({ ...approving, stage: 'failed', head: '4444444cccc', suggests: null }, { headOid: '4444444cccc' });
     expect(prPills(missed)[0]).toMatchObject({ text: 'Agent approves', icon: null, title: 'Codealong’s agent approved 309811a, and the commits since aren’t reviewed: it waits on your sign-off' });
@@ -294,5 +296,11 @@ describe('agentApproves', () => {
     expect(agentApproves(asked(approving, { state: 'merged' }))).toBe(null);
     // Approved on GitHub already: that's what its pill says.
     expect(prPills(asked(approving, { state: 'approved' }))[0].text).toBe('Approved');
+  });
+  it('says the approval over a request for changes it submitted for you before, which GitHub keeps until you approve', () => {
+    const pr = asked(approving, { state: 'changes' });
+    expect(prPills(pr)[0]).toMatchObject({ text: 'Agent approves', tone: 'pass' });
+    expect(chipWord(pr)).toBe('Agent approves');
+    expect(prPills(asked({ ...approving, approves: null }, { state: 'changes' }))[0].text).toBe('Changes requested');
   });
 });

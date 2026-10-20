@@ -245,7 +245,7 @@ export function usePrBox(pr: PrItem, { report, usage, now, onSent, onFailed, aut
 /** Where the PR's review stands, over its box: a click shows its Reviews tab. An agent review
  *  that didn't get done says why on hover, and has Try again beside it (`againFor`). */
 function ReviewLine({ pr, draft, onShowReview, onTryAgain }: { pr: PrItem; draft: Draft | null; onShowReview: () => void; onTryAgain: () => void }) {
-  const { icon, says, busy } = reviewLineWords(pr, draft);
+  const { icon, says, busy, approved } = reviewLineWords(pr, draft);
   const suggests = pr.autoReview?.suggests;
   const again = againFor(pr);
   const why = again ? pr.autoReview?.note : null;
@@ -255,6 +255,11 @@ function ReviewLine({ pr, draft, onShowReview, onTryAgain }: { pr: PrItem; draft
         <Icon name={icon} size={12} />
         <span className="ca-prbox-line-says">{says}</span>
         {suggests && !pr.autoReview?.submitted && <span className={cx('ca-prbox-suggests', `is-${suggests}`)}>{suggestWords(suggests)}</span>}
+        {approved && !suggests && (
+          <span className="ca-prbox-suggests is-approve" title={`It approved ${approved} before, so the PR waits on your sign-off meanwhile`}>
+            {suggestWords('approve')} {approved}
+          </span>
+        )}
         <span className="ca-prbox-line-go">
           Review
           <Icon name="chevron-right" size={11} />

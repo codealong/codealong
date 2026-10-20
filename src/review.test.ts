@@ -20,6 +20,9 @@ describe('autoReviewWords', () => {
     expect(autoReviewWords(r('posted', approved)).note).toBe(null);
     expect(autoReviewWords(r('posted', { ...approved, behind: true })).note).toBe('New commits since: it reviews them again once they settle. It waits on your sign-off meanwhile.');
     expect(autoReviewWords(r('reviewing', { approves: '1234567ffff', suggests: null })).note).toBe('It approved 1234567 before, so the PR waits on your sign-off meanwhile.');
+    // The line over the box names the commit it approved, when its round is of a later one.
+    expect(reviewLineWords({ autoReview: r('reviewing', { approves: '1234567ffff' }), mine: false }, null)).toMatchObject({ says: 'Agent reviewing 309811a', approved: '1234567' });
+    expect(reviewLineWords({ autoReview: r('posted', approved), mine: false }, null).approved).toBe(null);
     // Before it approved anything, new commits hold the PR for their review.
     expect(autoReviewWords(r('posted', { behind: true, holds: true })).note).toBe('New commits since: it reviews them again once they settle. It waits on your review once the agent’s is done.');
   });
@@ -54,8 +57,8 @@ describe('autoReviewWords', () => {
   });
   it('says over the box where the review stands, with your draft', () => {
     const draft = { id: 'R', body: 'x', commit: null, url: null, comments: [], count: 3 };
-    expect(reviewLineWords({ autoReview: r('drafted'), mine: false }, draft)).toEqual({ icon: 'note', says: 'Agent drafted a review of 309811a: your draft review, 3 comments', busy: false });
-    expect(reviewLineWords({ autoReview: r('reviewing'), mine: false }, null)).toEqual({ icon: 'eye', says: 'Agent reviewing 309811a', busy: true });
+    expect(reviewLineWords({ autoReview: r('drafted'), mine: false }, draft)).toEqual({ icon: 'note', says: 'Agent drafted a review of 309811a: your draft review, 3 comments', busy: false, approved: null });
+    expect(reviewLineWords({ autoReview: r('reviewing'), mine: false }, null)).toEqual({ icon: 'eye', says: 'Agent reviewing 309811a', busy: true, approved: null });
     expect(reviewLineWords({ autoReview: undefined, mine: false }, draft).says).toBe('Your draft review, 3 comments');
     expect(reviewLineWords({ autoReview: undefined, mine: false }, null).says).toBe('No review of yours yet');
     expect(reviewLineWords({ autoReview: undefined, mine: true }, null).says).toBe('No agent review of your PR');

@@ -385,7 +385,8 @@ pub struct AutoReview {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggests: Option<crate::github::Verdict>,
     /// The commit the agent's latest written review approved, when that review approves someone
-    /// else's PR: what's asked of you is a sign-off, and the commits that come after it don't hold
+    /// else's PR that still waits on your review (`autoreview::wants`): what's asked of you is a
+    /// sign-off, and the commits that come after it don't hold
     /// the PR out of what waits on you while they're reviewed (autoreview.rs `apply`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approves: Option<String>,

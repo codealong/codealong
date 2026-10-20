@@ -54,6 +54,20 @@ export function agentApproves(pr: Pick<PrFacts, 'state' | 'reviewRequested' | 'a
   return a.approves === pr.headOid ? 'now' : 'before';
 }
 
+/** What the agent's approval says of a PR that waits on your sign-off (`agentApproves`), for its
+ *  pill and its chip's mark: why, and whether a review of the commits since is under way or to
+ *  come (`pending`, the pill's hourglass). One that didn't get done waits for the next push, or
+ *  Try again. Null without an approval. */
+function signoff(pr: Pick<PrFacts, 'state' | 'reviewRequested' | 'autoReview' | 'headOid'>): { why: string; pending: boolean } | null {
+  const how = agentApproves(pr);
+  const a = pr.autoReview;
+  if (!how || !a?.approves) return null;
+  const at = a.approves.slice(0, 7);
+  if (how === 'now') return { why: `Codealong’s agent approves ${at}`, pending: false };
+  if (a.stage === 'reviewing' || a.stage === 'queued' || a.behind) return { why: `Codealong’s agent approved ${at} and reviews the commits since`, pending: true };
+  return { why: `Codealong’s agent approved ${at}, and the commits since aren’t reviewed`, pending: false };
+}
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** GitHub says it can be merged now: the reviews the repo requires, passing checks and no conflicts.
@@ -64,6 +78,10 @@ export function prReady(pr: PrFacts): boolean {
 
 function reviewPill(pr: PrFacts): PrPill {
   const pill = (tone: PrTone, text: string, title: string): PrPill => ({ key: 'review', tone, icon: null, text, short: null, title });
+  // The agent's approval says more than a request for changes it made for you before (`[reviews]
+  // submit`), which stands on GitHub until you approve: what's asked of you now is a sign-off.
+  const s = pr.state === 'open' || pr.state === 'changes' ? signoff(pr) : null;
+  if (s) return { ...pill('pass', 'Agent approves', `${s.why}: it waits on your sign-off${s.pending ? ' meanwhile' : ''}`), icon: s.pending ? 'hourglass' : null };
   switch (pr.state) {
     case 'draft':
       return pill('quiet', 'Draft', 'A draft: not ready for review yet');
@@ -75,18 +93,6 @@ function reviewPill(pr: PrFacts): PrPill {
       return pill('pass', 'Approved', 'Approved');
     default:
       if (heldForAgent(pr)) return pill('plain', 'Agent reviewing', 'Codealong’s agent is reviewing it: it waits on your review once that’s done');
-      switch (agentApproves(pr)) {
-        case 'now':
-          return pill('pass', 'Agent approves', `Codealong’s agent approves ${pr.autoReview?.approves?.slice(0, 7)}: it waits on your sign-off`);
-        case 'before': {
-          const a = pr.autoReview;
-          const at = a?.approves?.slice(0, 7);
-          // The hourglass says a review of the commits since is under way or to come; one that
-          // didn't get done waits for the next push, or Try again.
-          if (a?.stage === 'reviewing' || a?.stage === 'queued' || a?.behind) return { ...pill('pass', 'Agent approves', `Codealong’s agent approved ${at} and reviews the commits since: it waits on your sign-off meanwhile`), icon: 'hourglass' };
-          return pill('pass', 'Agent approves', `Codealong’s agent approved ${at}, and the commits since aren’t reviewed: it waits on your sign-off`);
-        }
-      }
       const asked = reviewersWords(pr);
       if (asked) return pill('plain', 'Review requested', asked);
       return pill('plain', 'Awaiting review', 'Not approved yet, and nobody is asked to review it');
@@ -112,7 +118,8 @@ export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'rev
   if (heldForAgent(pr)) return { key: 'agent', tone: 'pending', icon: 'hourglass', title: 'Codealong’s agent is reviewing it: it waits on your review once that’s done' };
   if (pr.reviewRequested && !pr.snoozedUntil) {
     const by = pr.requestedBy ? `, by ${pr.requestedBy}` : '';
-    return { key: 'asked', tone: 'attn', icon: 'eye', title: agentApproves(pr) ? `Your sign-off is asked for${by}: Codealong’s agent approves it` : `Your review is asked for${by}` };
+    const s = signoff(pr);
+    return { key: 'asked', tone: 'attn', icon: 'eye', title: s ? `Your sign-off is asked for${by}: ${s.why}` : `Your review is asked for${by}` };
   }
   if (pr.state === 'approved') return { key: 'approved', tone: 'pass', icon: 'user-check', title: 'Approved' };
   if (pr.state === 'changes') return { key: 'changes', tone: 'fail', icon: 'file-diff', title: 'A reviewer asked for changes' };
