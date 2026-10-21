@@ -2,16 +2,22 @@
 // a few words (`weekdays 9:00`, previewed as you type: schedule_times), when a command it runs
 // prints something new, when something happens on the board, or only when a script fires it;
 // what it does, a new session each time, one session kept going, or a message to a session that's
-// there; where and on what (the agent menu's Auto, routing groups and accounts, AgentPromptBox.tsx)
-// with what it's told; and what it does when the last run is still going or a time is missed. The
-// engine checks what's saved (schedules/mod.rs `check`) and says why it can't be.
+// there, and the worktree it's in, each found by typing (FieldPicker.tsx); where and on what (the
+// agent menu's Auto, routing groups and accounts, AgentPromptBox.tsx) with what it's told; and
+// what it does when the last run is still going or a time is missed. The engine checks what's
+// saved (schedules/mod.rs `check`) and says why it can't be.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { scheduleOp, scheduleTimes } from '../api';
-import { fireCommand, scheduleFolders, scheduleTargets } from '../schedules';
+import { tildePath } from '../format';
+import { laneBranch, laneGroups } from '../quick';
+import { fireCommand, scheduleLanes, scheduleSessions, sessionFolder } from '../schedules';
 import { useStartAccounts, useStartGroups } from '../startAccounts';
 import type { Board, Schedule, ScheduleEvent, ScheduleTimes, ScheduleWhen, StartPlace } from '../types';
 import { AgentPromptBox } from './AgentPromptBox';
+import { FieldPicker } from './FieldPicker';
+import type { PickerSection } from './Picker';
+import { chatOption, laneOption, sessionOption } from './pickerOptions';
 import { BoxText, Button, CheckBox, Dialog, Icon, Seg } from './primitives';
 
 type WhenKind = ScheduleWhen['kind'];
@@ -94,13 +100,29 @@ export function ScheduleDialog({ schedule, board, now, onClose, onSaved }: Sched
   const [busy, setBusy] = useState(false);
   const accounts = useStartAccounts();
   const groups = useStartGroups();
-  const folders = useMemo(() => scheduleFolders(board.lanes), [board.lanes]);
-  const targets = useMemo(() => scheduleTargets(board.lanes, draft.run.session), [board.lanes, draft.run.session]);
+  const run = draft.run;
+  const worktrees = useMemo(() => scheduleLanes(board.lanes), [board.lanes]);
+  // Where it is: a worktree, by repo as the quick panel lists them, or none (a chat of its own,
+  // or for a schedule that sends, your home folder); one saved that's no longer on the board stays.
+  const worktreeSections = useMemo((): PickerSection[] => {
+    const none = run.to === 'session' ? { id: '', text: 'no worktree home folder', label: 'No worktree', detail: 'Its commands run in your home folder', lead: <Icon name="home" size={12} /> } : chatOption('');
+    const gone = run.folder && !worktrees.some((l) => l.path === run.folder) ? [{ key: 'gone', options: [{ id: run.folder, text: run.folder, label: tildePath(run.folder), detail: 'Not on the board', lead: <Icon name="folder" size={12} /> }] }] : [];
+    const groups = laneGroups(worktrees, board.pinnedWorktrees ?? []);
+    return [{ key: 'none', options: [none] }, ...gone, ...groups.map((g) => ({ key: g.label, head: g.label, options: g.lanes.map((l) => laneOption(l, l.path)) }))];
+  }, [worktrees, board.pinnedWorktrees, run.to, run.folder]);
+  const worktree = worktrees.find((l) => l.path === run.folder);
+  // The session it sends to: those in its worktree first, then the rest, the latest first.
+  const sessionSections = useMemo((): PickerSection[] => {
+    const { here, rest } = scheduleSessions(board.lanes, run.folder, run.session);
+    return [
+      { key: 'here', head: worktree ? `In ${worktree.callsign}` : undefined, options: here.map((p) => sessionOption(p.lane, p.session, now)) },
+      { key: 'rest', head: here.length > 0 ? 'Other sessions' : undefined, options: rest.map((p) => sessionOption(p.lane, p.session, now)) },
+    ];
+  }, [board.lanes, run.folder, run.session, worktree, now]);
   const name = useRef<HTMLInputElement>(null);
   useEffect(() => name.current?.focus(), []);
 
   const when = draft.when;
-  const run = draft.run;
   const setWhen = (w: ScheduleWhen) => {
     setDraft((d) => ({ ...d, when: w }));
     setKept((k) => ({ ...k, [w.kind]: w }));
@@ -141,7 +163,18 @@ export function ScheduleDialog({ schedule, board, now, onClose, onSaved }: Sched
     );
   };
 
-  const folderOptions = [{ id: '', label: 'A chat of its own, in no project' }, ...folders, ...(run.folder && !folders.some((f) => f.id === run.folder) ? [{ id: run.folder, label: run.folder }] : [])];
+  const worktreeField = (
+    <FieldPicker
+      name={run.to === 'session' ? 'The worktree it’s in: its project lists it, and its commands run there' : 'Where it starts'}
+      prefix="In"
+      sections={worktreeSections}
+      value={run.folder}
+      said={worktree ? { label: `${worktree.project} · ${worktree.origin === 'main' ? `${worktree.callsign} (main checkout)` : worktree.callsign}`, detail: laneBranch(worktree) } : undefined}
+      none="Pick a worktree"
+      placeholder="Worktree, branch, repo or project"
+      onPick={(folder) => setRun({ folder })}
+    />
+  );
   const labels = [{ id: '', label: 'Any todo' }, ...board.labels.map((l) => ({ id: l.name, label: `Labeled ${l.name}` }))];
   const repos = [...new Set(board.lanes.filter((l) => !l.device && l.repoSlug).map((l) => l.repoSlug as string))].sort();
 
@@ -244,17 +277,25 @@ export function ScheduleDialog({ schedule, board, now, onClose, onSaved }: Sched
         </div>
         {run.to === 'session' ? (
           <>
-            <Select label="The session it sends to" value={run.session} options={[{ id: '', label: 'Pick a session' }, ...targets]} onPick={(session) => setRun({ session })} />
-            {/* A watch and a check run in a worktree, though what it sends goes to a session. */}
-            {(when.kind === 'watch' || draft.onlyIf.trim() !== '') && (
-              <Select label="Where its commands run" value={run.folder} options={[{ id: '', label: 'Its commands run in your home folder' }, ...folders.map((f) => ({ ...f, label: `Its commands run in ${f.label}` }))]} onPick={(folder) => setRun({ folder })} />
-            )}
+            <FieldPicker
+              name="The session it sends to"
+              prefix="To"
+              sections={sessionSections}
+              value={run.session}
+              none={run.session ? 'A session that’s gone' : 'Pick a session'}
+              placeholder="Session, worktree, project or account"
+              empty="No session matches."
+              // A session brings its worktree: the project that lists the schedule, and where its
+              // watch and Only if run.
+              onPick={(session) => setRun({ session, folder: sessionFolder(board.lanes, session) || run.folder })}
+            />
+            {worktreeField}
             <BoxText aria-label="What it sends" lines={6} hint="What it sends each time" value={run.prompt} onChange={(e) => setRun({ prompt: e.target.value })} />
           </>
         ) : (
           <>
             <div className="ca-scheddlg-row">
-              <Select label="Where it starts" value={run.folder} options={folderOptions} onPick={(folder) => setRun({ folder })} />
+              {worktreeField}
               <Select label="Where it runs" value={(run.place ?? '') as StartPlace | ''} options={PLACES} onPick={(p) => setRun({ place: p || null })} />
             </div>
             <AgentPromptBox

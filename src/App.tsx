@@ -52,7 +52,7 @@ import { TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { ScheduleDialog } from './ui/ScheduleDialog';
 import { SchedulePanel } from './ui/SchedulePanel';
 import { SchedulesView } from './ui/SchedulesView';
-import { blankSchedule, scheduleOf } from './schedules';
+import { blankSchedule, newScheduleFolder, scheduleOf } from './schedules';
 import { KanbanView } from './ui/KanbanView';
 import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanStep, orderedIds, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
@@ -91,7 +91,7 @@ import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { improveTitle } from './improve';
@@ -1784,19 +1784,16 @@ export function App() {
       menus.repoMenu({ name: g.lane.repo, slug: g.lane.repoSlugNow ?? g.lane.repoSlug }, { report, pin: { label: repoPins.set.has(g.key) ? 'Unpin repo' : 'Pin repo', run: () => repoPins.toggle(g.key) } }),
     ).catch((e: unknown) => setToast(String(e)));
 
-  // The Schedules view: its schedules, as the find narrows them, the one selected (the first,
-  // until one is picked), and what's done to them from its rows, panel and menus.
-  const shownSchedules = useMemo(() => {
-    const all = board?.schedules ?? [];
-    const words = query.trim().toLowerCase();
-    return words ? all.filter((x) => [x.name, x.whenWords, x.run.prompt].some((t) => t.toLowerCase().includes(words))) : all;
-  }, [board?.schedules, query]);
+  // The Schedules view: the project's schedules, as the find narrows them, the one selected (the
+  // first, until one is picked), and what's done to them from its rows, panel and menus.
+  const projectSchedules = useMemo(() => schedulesIn(board?.schedules ?? [], board?.lanes ?? [], current, ''), [board?.schedules, board?.lanes, current]);
+  const shownSchedules = useMemo(() => schedulesIn(projectSchedules, board?.lanes ?? [], ALL_PROJECTS, query), [projectSchedules, board?.lanes, query]);
   const selectedSchedule: ScheduleItem | null = shownSchedules.find((x) => x.id === scheduleId) ?? shownSchedules[0] ?? null;
   const sessionTitle = (key: string) => homes.get(key)?.session.title ?? null;
   const scheduleDone = (what: Promise<unknown>) => void what.catch((e: unknown) => setToast(errorText(e)));
   const runSchedule = (x: ScheduleItem) => scheduleDone(scheduleOp({ op: 'run', id: x.id }).then(() => setToast(`“${x.name}” runs in a few seconds.`)));
   const pauseSchedule = (x: ScheduleItem, paused: boolean) => scheduleDone(scheduleOp({ op: 'pause', id: x.id, paused }));
-  const newSchedule = () => setScheduleEdit(blankSchedule(selectedLane && !selectedLane.device ? selectedLane.path : ''));
+  const newSchedule = () => setScheduleEdit(blankSchedule(newScheduleFolder(board?.lanes ?? [], current, selectedLane, board?.pinnedWorktrees ?? [])));
   const scheduleMenu = (x: ScheduleItem, at?: { x: number; y: number }) =>
     void showContextMenu(
       menus.scheduleMenu(x, {
@@ -1838,8 +1835,8 @@ export function App() {
   const boardShowing = view === 'kanban' || view === 'canvas';
   const layoutShown = boardShowing ? view : lastLayout;
   const boardCount = layoutShown === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openCardCount;
-  // The schedules that aren't paused, for the sidebar's count.
-  const activeSchedules = (board?.schedules ?? []).filter((x) => !x.paused).length;
+  // The project's schedules that aren't paused, for the sidebar's count.
+  const activeSchedules = projectSchedules.filter((x) => !x.paused).length;
   const sideViews = views.filter((v) => v.id !== 'canvas').map((v) => {
     const board = v.id === 'kanban';
     return {

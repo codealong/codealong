@@ -1,0 +1,70 @@
+/* A field that picks one of many by typing (FieldPicker.tsx): drawn as the start menus' selects
+   are (.ca-start-select), with the option picked as the menu shows it, and the menu under it as
+   wide as it is. */
+
+.ca-fieldpick {
+  position: relative;
+  min-width: 0;
+}
+.ca-fieldpick-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: var(--type-body-strong);
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+.ca-fieldpick-btn:focus-visible,
+.ca-fieldpick-btn[aria-expanded='true'] {
+  border-color: var(--focus);
+  box-shadow: var(--shadow-focus);
+}
+.ca-fieldpick-btn > * {
+  flex: none;
+}
+.ca-fieldpick-prefix {
+  font: var(--type-meta-strong);
+  color: var(--ink-3);
+}
+.ca-fieldpick-text,
+.ca-fieldpick-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The name gives way last; the detail first, taking what's left so the age and the chevron end
+   the field. */
+.ca-fieldpick-btn > .ca-fieldpick-text {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.ca-fieldpick-btn > .ca-fieldpick-detail {
+  flex: 1 1 0;
+  min-width: 0;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-fieldpick-btn > .ca-fieldpick-text:nth-last-child(2) {
+  flex: 1 1 auto;
+}
+.ca-fieldpick-btn > .ca-icon:last-child {
+  color: var(--ink-3);
+}
+.ca-fieldpick-btn.is-none > .ca-fieldpick-text {
+  font: var(--type-body);
+  color: var(--ink-3);
+}
+.ca-fieldpick .ca-picker {
+  right: 0;
+  width: auto;
+  max-height: 320px;
+}

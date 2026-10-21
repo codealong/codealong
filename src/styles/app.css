@@ -73,6 +73,7 @@
 @import '../ui/Quick.css';
 @import '../ui/Waiting.css';
 @import '../ui/Picker.css';
+@import '../ui/FieldPicker.css';
 @import '../ui/card/CardFace.css';
 @import '../ui/CanvasView.css';
 @import '../ui/card/CardPopover.css';

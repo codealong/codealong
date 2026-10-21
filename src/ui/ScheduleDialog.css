@@ -1,5 +1,5 @@
 /* Making or changing a schedule (ScheduleDialog.tsx): wide enough for its prompt box and a row of
-   two selects. */
+   its worktree and where it runs. */
 
 .ca-scheddlg {
   width: min(640px, calc(100vw - 48px));
@@ -16,8 +16,12 @@
   gap: var(--space-2) var(--space-3);
 }
 .ca-scheddlg-row > .ca-start-select {
-  flex: 1 1 200px;
+  flex: 1 1 160px;
   min-width: 0;
+}
+/* A worktree's name and branch need more room than where it runs. */
+.ca-scheddlg-row > .ca-fieldpick {
+  flex: 2 1 280px;
 }
 .ca-scheddlg-checks {
   display: flex;

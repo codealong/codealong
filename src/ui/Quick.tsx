@@ -65,7 +65,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneBranch, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
@@ -90,11 +90,12 @@ import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords
 import { useSkills } from '../useSkills';
 import { alreadyOnWords, duplicateOf, rankedBy, sameStart, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type StartFacts, type Suggestion } from '../route';
 import { dueWords } from '../due';
-import { laneWaits, liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
+import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
+import { chatOption, laneOption } from './pickerOptions';
 import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
@@ -1581,21 +1582,8 @@ export function Quick() {
 
   const worktreeSections: PickerSection[] = [
     // First, so a long list of worktrees doesn't hide it.
-    ...(chatLane ? [{ key: 'chat', options: [{ id: chatLane.id, text: 'no project chat question', label: NO_PROJECT, detail: 'A chat of its own', lead: <Icon name="message-circle" size={12} /> }] }] : []),
-    ...groups.map((g) => ({
-      key: g.label,
-      head: g.label,
-      options: g.lanes.map((l) => {
-        const branch = laneBranch(l);
-        return {
-          id: l.id,
-          text: [l.callsign, l.branch ?? '', l.repo, l.project, l.origin === 'main' ? 'main checkout' : ''].join(' '),
-          label: l.origin === 'main' ? `${l.callsign} (main checkout)` : l.callsign,
-          detail: branch,
-          lead: <StatusGlyph status={l.glyph} size={10} title="" waiting={laneWaits(l)} />,
-        };
-      }),
-    })),
+    ...(chatLane ? [{ key: 'chat', options: [chatOption(chatLane.id)] }] : []),
+    ...groups.map((g) => ({ key: g.label, head: g.label, options: g.lanes.map((l) => laneOption(l)) })),
   ];
 
   const agentSections: PickerSection[] = useMemo(

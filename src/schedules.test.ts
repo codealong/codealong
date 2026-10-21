@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { blankSchedule, doesWords, fireCommand, nextWords, scheduleBySession, scheduleFolders, scheduleOf } from './schedules';
-import type { Lane, ScheduleItem } from './types';
+import { ALL_PROJECTS } from './quick';
+import { blankSchedule, doesWords, fireCommand, newScheduleFolder, nextWords, scheduleBySession, scheduleLanes, scheduleOf, scheduleProject, scheduleSessions, sessionFolder } from './schedules';
+import * as fx from './testing/fixtures';
+import type { Schedule, ScheduleItem } from './types';
 
 const NOW = Date.UTC(2026, 9, 20, 12, 0);
 const HOUR = 3_600_000;
@@ -48,9 +50,57 @@ describe('schedules', () => {
     expect(fireCommand('After a deploy')).toContain('fire "After a deploy" --key');
   });
 
-  it('lists the folders a schedule can start in', () => {
-    const lane = (path: string, callsign: string, origin: Lane['origin'], device = false) => ({ id: path, path, project: 'Northwind', repo: 'app', callsign, origin, hidden: false, sessions: [], ...(device ? { device: { id: 'd', name: 'mini' } } : {}) }) as unknown as Lane;
-    const folders = scheduleFolders([lane('/w/b', 'brave-otter', 'claude-app'), lane('/w/a', 'app', 'main'), lane('/w/c', 'calm-heron', 'main', true)]);
-    expect(folders.map((f) => f.label)).toEqual(['Northwind · app', 'Northwind · brave-otter']);
+  // Two projects' worktrees, another Mac's, a hidden one and the chats.
+  const main = fx.lane({ id: '/w/app', callsign: 'app', origin: 'main', project: 'Northwind', lastActivity: fx.NOW - 5 * HOUR, sessions: [fx.session({ key: 'claude:claude:a', lastActivity: fx.NOW - 3 * HOUR })] });
+  const otter = fx.lane({
+    id: '/w/brave-otter',
+    project: 'Northwind',
+    lastActivity: fx.NOW - HOUR,
+    sessions: [fx.session({ key: 'claude:claude:b', lastActivity: fx.NOW - HOUR }), fx.session({ key: 'codex:codex:c', lastActivity: fx.NOW - 2 * HOUR }), fx.session({ key: 'claude:claude:old', archived: true })],
+  });
+  const atlas = fx.lane({ id: '/w/atlas', callsign: 'atlas', origin: 'main', project: 'Atlas', lastActivity: fx.NOW, sessions: [fx.session({ key: 'claude:claude:d', lastActivity: fx.NOW - 10 * HOUR })] });
+  const away = fx.lane({ id: '@mini:/w/app', path: '/w/app', project: 'Northwind', device: { id: 'mini', name: 'mini' } as never, sessions: [fx.session({ key: '@mini:claude:claude:e', lastActivity: fx.NOW })] });
+  const hidden = fx.lane({ id: '/w/old', project: 'Northwind', hidden: true });
+  const chats = fx.lane({ id: 'chats', path: '/Users/me/.codealong/chats', project: 'No project', startsChats: true, sessions: [fx.session({ key: 'claude:claude:chat', lastActivity: fx.NOW - 30 * 60_000 })] });
+  const lanes = [main, otter, atlas, away, hidden, chats];
+  const sendsTo = (session: string, folder = ''): Pick<Schedule, 'run'> => ({ run: { ...blankSchedule(folder).run, to: 'session', session } });
+
+  it('offers this Mac’s worktrees, not its chats', () => {
+    expect(scheduleLanes(lanes).map((l) => l.id)).toEqual(['/w/app', '/w/brave-otter', '/w/atlas']);
+  });
+
+  it('offers the sessions in its worktree first, the latest first', () => {
+    const { here, rest } = scheduleSessions(lanes, '/w/brave-otter', '');
+    expect(here.map((p) => p.session.key)).toEqual(['claude:claude:b', 'codex:codex:c']);
+    expect(rest.map((p) => p.session.key)).toEqual(['claude:claude:chat', 'claude:claude:a', 'claude:claude:d']);
+    // In no worktree, they're all the rest; an archived one only once it's picked.
+    expect(scheduleSessions(lanes, '', '').here).toEqual([]);
+    expect(scheduleSessions(lanes, '', 'claude:claude:old').rest.map((p) => p.session.key)).toContain('claude:claude:old');
+  });
+
+  it('takes a session’s worktree as its own', () => {
+    expect(sessionFolder(lanes, 'codex:codex:c')).toBe('/w/brave-otter');
+    expect(sessionFolder(lanes, 'claude:claude:chat')).toBe('');
+    expect(sessionFolder(lanes, 'claude:claude:gone')).toBe('');
+  });
+
+  it('is in its worktree’s project, else its session’s', () => {
+    expect(scheduleProject(blankSchedule('/w/atlas'), lanes)).toBe('Atlas');
+    expect(scheduleProject(sendsTo('claude:claude:b'), lanes)).toBe('Northwind');
+    // Its own worktree wins over its session's.
+    expect(scheduleProject(sendsTo('claude:claude:b', '/w/atlas'), lanes)).toBe('Atlas');
+    expect(scheduleProject(blankSchedule(''), lanes)).toBeNull();
+    expect(scheduleProject(sendsTo('claude:claude:chat'), lanes)).toBeNull();
+    expect(scheduleProject(blankSchedule('/w/gone'), lanes)).toBeNull();
+  });
+
+  it('starts a new one in the worktree selected, else where the quick panel would', () => {
+    expect(newScheduleFolder(lanes, 'Northwind', otter, [])).toBe('/w/brave-otter');
+    // A selection in another project isn't this one's: its main checkout leads.
+    expect(newScheduleFolder(lanes, 'Northwind', atlas, [])).toBe('/w/app');
+    expect(newScheduleFolder(lanes, 'Northwind', null, ['/w/brave-otter'])).toBe('/w/brave-otter');
+    expect(newScheduleFolder(lanes, ALL_PROJECTS, { ...atlas }, [])).toBe('/w/atlas');
+    expect(newScheduleFolder(lanes, ALL_PROJECTS, null, [])).toBe('');
+    expect(newScheduleFolder(lanes, 'Northwind', chats, [])).toBe('/w/app');
   });
 });

@@ -4,7 +4,9 @@
 // engine's (src-tauri/src/schedules/); these only say it.
 
 import { resetsPhrase } from './format';
-import type { Lane, Schedule, ScheduleItem, ScheduleOutcome, ScheduleWhen, Session } from './types';
+import { homeOf, sessionHomes, type Placed } from './lanes';
+import { ALL_PROJECTS, laneGroups } from './quick';
+import type { Lane, Schedule, ScheduleItem, ScheduleOutcome, ScheduleWhen } from './types';
 
 export const OUTCOME_WORD: Record<ScheduleOutcome, string> = {
   started: 'Started',
@@ -132,21 +134,45 @@ export function fireCommand(name: string): string {
   return `codealong schedule fire ${quoted} --key <what it's for> --title <what happened>`;
 }
 
-/** The worktrees a schedule can start in, as the dialog lists them: this Mac's, by project and
- *  name, a repo's main checkout first. */
-export function scheduleFolders(lanes: Lane[]): { id: string; label: string }[] {
-  return lanes
-    .filter((l) => !l.device && !l.hidden && l.path)
-    .slice()
-    .sort((a, b) => a.project.localeCompare(b.project) || a.repo.localeCompare(b.repo) || Number(b.origin === 'main') - Number(a.origin === 'main') || a.callsign.localeCompare(b.callsign))
-    .map((l) => ({ id: l.path, label: `${l.project} · ${l.callsign}` }));
+/** The worktrees a schedule can be in, as its dialog offers them: this Mac's on the board, but
+ *  not Codealong's chats (a schedule in no worktree is one of those). */
+export function scheduleLanes(lanes: Lane[]): Lane[] {
+  return lanes.filter((l) => !l.device && !l.hidden && !l.startsChats && l.path);
 }
 
-/** The sessions a schedule can send to, as the dialog lists them: this Mac's, the latest first. */
-export function scheduleTargets(lanes: Lane[], keep: string): { id: string; label: string }[] {
-  const sessions: Session[] = lanes.filter((l) => !l.device).flatMap((l) => l.sessions.filter((s) => !s.visitor && (!s.archived || s.key === keep)));
-  return sessions
-    .sort((a, b) => b.lastActivity - a.lastActivity)
-    .slice(0, 60)
-    .map((s) => ({ id: s.key, label: `${s.title} · ${s.account}` }));
+/** The sessions a schedule can send to, as its dialog offers them: this Mac's, the ones in its
+ *  worktree apart and first, the latest first in each. An archived one is offered only when it's
+ *  the one already picked. */
+export function scheduleSessions(lanes: Lane[], folder: string, keep: string): { here: Placed[]; rest: Placed[] } {
+  const all = [...sessionHomes(lanes.filter((l) => !l.device)).values()].filter((p) => !p.session.archived || p.session.key === keep).sort((a, b) => b.session.lastActivity - a.session.lastActivity);
+  const inFolder = (p: Placed) => !!folder && !p.lane.startsChats && p.lane.path === folder;
+  return { here: all.filter(inFolder), rest: all.filter((p) => !inFolder(p)) };
+}
+
+/** The worktree a session works in, for a schedule that sends to it: where its watch and Only if
+ *  run, and the project it's listed in. None for a chat or a session that's gone. */
+export function sessionFolder(lanes: Lane[], key: string): string {
+  const home = homeOf(lanes, key);
+  return home && !home.lane.device && !home.lane.startsChats ? home.lane.path : '';
+}
+
+/** The project a schedule is in, for the Schedules view to list it under: its worktree's, else
+ *  the project of the session it sends to. None for a chat of its own, or a worktree that's gone. */
+export function scheduleProject(s: Pick<Schedule, 'run'>, lanes: Lane[]): string | null {
+  const lane = s.run.folder ? lanes.find((l) => !l.device && !l.startsChats && l.path === s.run.folder) : null;
+  if (lane) return lane.project;
+  const home = s.run.to === 'session' ? homeOf(lanes, s.run.session) : null;
+  return home && !home.lane.device && !home.lane.startsChats ? home.lane.project : null;
+}
+
+/** Where a new schedule starts: the worktree selected, when it's in the project shown, else the
+ *  one the quick panel would start in there (a pinned one, else the latest repo's main checkout);
+ *  in no project under All projects with none selected. */
+export function newScheduleFolder(lanes: Lane[], project: string, selected: Lane | null, pinned: string[]): string {
+  const mine = scheduleLanes(lanes);
+  // The selection may be a copy of the board's worktree (boardLists.ts `unarchived`).
+  const here = selected && mine.find((l) => l.id === selected.id);
+  if (here && (project === ALL_PROJECTS || here.project === project)) return here.path;
+  if (project === ALL_PROJECTS) return '';
+  return laneGroups(mine.filter((l) => l.project === project), pinned)[0]?.lanes[0]?.path ?? '';
 }

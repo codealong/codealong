@@ -39,7 +39,15 @@
       "paused": true,
       "when": { "kind": "time", "rule": "mon 10:00" },
       "whenWords": "Mondays at 10:00",
-      "run": { "to": "new", "folder": "", "account": "", "prompt": "Check for outdated dependencies with known vulnerabilities." },
+      "run": { "to": "new", "folder": "$lane:0", "account": "", "prompt": "Check for outdated dependencies with known vulnerabilities." },
+      "runs": []
+    },
+    {
+      "name": "Standup notes",
+      "when": { "kind": "time", "rule": "weekdays 8:45" },
+      "whenWords": "Weekdays at 8:45",
+      "nextIn": 600,
+      "run": { "to": "new", "folder": "", "account": "", "prompt": "Write up what changed yesterday, for standup." },
       "runs": []
     },
     {

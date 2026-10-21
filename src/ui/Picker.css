@@ -102,6 +102,12 @@
   font: var(--type-caption);
   color: var(--ink-3);
 }
+/* Meta at an option's end: how long since a session did anything. */
+.ca-picker-trail {
+  flex: none;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
 .ca-picker-empty {
   margin: 0;
   padding: 6px 10px 10px;

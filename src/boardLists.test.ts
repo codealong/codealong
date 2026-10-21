@@ -57,14 +57,16 @@ import {
   todoLabelOptions,
   togglePick,
   type Facets,
+  schedulesIn,
 } from './boardLists';
 import { needsOn } from './devices';
 import { bayOf, runsShownKey, sessionHomes } from './lanes';
 import { ALL_PROJECTS } from './quick';
+import { blankSchedule } from './schedules';
 import { todoItem, type TodoItem } from './todos';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
-import type { Board, Lane, Pr, PrItem, ProjectSummary, Session, SideGlance, TextHit, Todo } from './types';
+import type { Board, Lane, Pr, PrItem, ProjectSummary, ScheduleItem, Session, SideGlance, TextHit, Todo } from './types';
 import { familiesOf, GROUP_SHOWN, groupedRows, groupSessions, helpersUnder, sessionSections, type GroupOptions, type SessionItem } from './ui/SessionsView';
 
 const NOW = fx.NOW;
@@ -1132,5 +1134,29 @@ describe('prCardItem', () => {
     expect(item.lane?.id).toBe(holds.id);
     expect(item.sessions.map((x) => x.session.key)).toEqual([s.key]);
     expect(item.places.map((p) => [p.lane.id, p.holds, p.sessions.length])).toEqual([[holds.id, true, 1]]);
+  });
+});
+
+describe('the Schedules view’s list', () => {
+  const lanes = [fx.lane({ id: '/w/app', project: 'Northwind', sessions: [session('claude:claude:a')] }), fx.lane({ id: '/w/atlas', project: 'Atlas' })];
+  const item = (id: string, folder: string, over: Partial<ScheduleItem> = {}): ScheduleItem => ({ ...blankSchedule(folder), id, name: id, whenWords: 'Weekdays at 9:00', runs: [], asked: 0, ...over });
+  const items = [
+    item('Triage', '/w/app'),
+    item('Deploys', '/w/atlas', { when: { kind: 'watch', command: 'gh run list', every: '5m', mode: 'lines' }, whenWords: 'When gh run list prints something new' }),
+    item('Standup', ''),
+    item('Nudge', '', { run: { ...blankSchedule('').run, to: 'session', session: 'claude:claude:a' } }),
+  ];
+  const names = (xs: ScheduleItem[]) => xs.map((x) => x.name);
+
+  it('lists the project’s, by its worktree or the session it sends to', () => {
+    expect(names(schedulesIn(items, lanes, 'Northwind', ''))).toEqual(['Triage', 'Nudge']);
+    expect(names(schedulesIn(items, lanes, 'Atlas', ''))).toEqual(['Deploys']);
+    // A chat of its own is in no project: only All projects lists it.
+    expect(names(schedulesIn(items, lanes, ALL_PROJECTS, ''))).toEqual(['Triage', 'Deploys', 'Standup', 'Nudge']);
+  });
+
+  it('narrows to what the find has, by name, when or what it says', () => {
+    expect(names(schedulesIn(items, lanes, ALL_PROJECTS, 'gh run'))).toEqual(['Deploys']);
+    expect(names(schedulesIn(items, lanes, 'Northwind', 'standup'))).toEqual([]);
   });
 });

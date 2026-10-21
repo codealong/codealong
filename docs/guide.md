@@ -1234,9 +1234,12 @@ what was asked is kept in `jev-todos.json`.
 
 A schedule starts a session, or sends one a message, when its time comes or something happens:
 every weekday at 9, every two hours, whenever a deploy goes out, when a PR merges or a todo is
-ready. The Schedules view (⇧⌘L) lists every one on this Mac, whatever the project, each saying when
-it runs, what it does and when next, and a mark when it can't run as it is or its last run failed;
-New schedule… at the top of the list makes one. The panel beside it has the schedule's prompt, the
+ready. The Schedules view (⇧⌘L) lists the project's (under All projects, every one on this Mac),
+each saying when it runs, what it does and when next, and a mark when it can't run as it is or its
+last run failed; New schedule… at the top of the list makes one, in the worktree selected, else
+where the quick panel would start. A schedule is in its worktree's project, else in the project
+of the session it sends to; one that starts a chat of its own is in none, and only All projects
+lists it. The panel beside it has the schedule's prompt, the
 session it keeps going, and its latest runs, each with why it ran and how it went (started, sent,
 went on, waiting, skipped, missed, failed) and its session a click away. Run now, Pause and Edit
 are its buttons; its right-click menu has those, Copy schedule ID and Delete schedule. A session a
@@ -1273,8 +1276,10 @@ command succeeds and prints something, and what it printed goes with it.
 
 **What it does.** *New session* starts one each run; *One session* starts one the first time and
 sends each later run to it, starting a new one once it's gone (or once it's `fresh_after` old,
-from the command); *A session* sends each run to one that's there. A new session starts in the
-worktree picked, else in a chat of its own, in a new worktree each time if you tick it, on Auto, a
+from the command); *A session* sends each run to one that's there, found by typing any of its title, worktree,
+project or account, the latest first and those in the schedule's worktree before the rest; picking
+it makes its worktree the schedule's, where its watch and *Only if* run. A new session starts in
+the worktree picked (found by typing its name, branch, repo or project), else in a chat of its own, in a new worktree each time if you tick it, on Auto, a
 routing group or an account with its model and effort (the menu the reviewers' box has), picked
 again at each run, so a round-robin or alternate-harness group spreads the runs over its accounts;
 and where you pick, by default out of sight (Claude Code's background service, else in Codealong,

@@ -15,7 +15,8 @@ import { columnsOf, isProjects, stageOfColumn, type BoardColumn, type BoardDoc, 
 import { columnOf, memberTest, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSort } from './todos';
-import type { Board, DevicesView, Label, Lane, PrItem, ProjectSummary, Session, TextHit, Todo } from './types';
+import { scheduleProject } from './schedules';
+import type { Board, DevicesView, Label, Lane, PrItem, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { prIsOpen, prPlaces, prSections, waitsOnReview, type PrRowItem, type PrSort } from './ui/PrsView';
 import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionGroupBy, type SessionItem, type SessionSort } from './ui/SessionsView';
@@ -271,6 +272,13 @@ export function todoLabelOptions(rows: TodoItem[], labels: Label[], f: Facets): 
   const known = labels.filter((l) => counts.has(l.id) || f.labels?.includes(l.id)).map((l) => ({ id: l.id, label: l.name, count: counts.get(l.id) ?? 0, color: l.color }));
   const gone = (f.labels ?? []).filter((id) => !labels.some((l) => l.id === id)).map((id) => ({ id, label: 'Deleted label', count: 0 }));
   return [...known, ...gone];
+}
+
+/** The schedules the Schedules view lists: those in the project shown (schedules.ts
+ *  `scheduleProject`; every one under All projects), as the find narrows them. */
+export function schedulesIn(items: ScheduleItem[], lanes: Lane[], project: string, query: string): ScheduleItem[] {
+  const words = query.trim().toLowerCase();
+  return items.filter((x) => (project === ALL_PROJECTS || scheduleProject(x, lanes) === project) && (!words || [x.name, x.whenWords, x.run.prompt].some((t) => t.toLowerCase().includes(words))));
 }
 
 const UNARCHIVED: LaneCopies = new WeakMap();
