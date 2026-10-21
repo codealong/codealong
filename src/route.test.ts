@@ -417,10 +417,14 @@ describe('resolveSuggestedAgent', () => {
     const needing = route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 1 }], needs: { name: 'Gmail', accounts: ['claude2', 'codex'], p: 0.9 } });
     expect(suggestions(needing, b)[0]).toMatchObject({ kind: 'start', agent: 'claude2', needs: { name: 'Gmail', accounts: ['claude2', 'codex'] } });
     expect(resolveSuggestedAgent('claude2', accounts, [], u, fx.NOW, [], ['claude2', 'codex'])).toEqual({ account: 'claude2', model: null });
+    // The engine's pick by Auto's rules stands, its model too, though another of them has more room.
+    const autoOnSonnet = route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 1 }], needs: { name: 'Gmail', accounts: ['claude', 'claude2'], model: 'sonnet', p: 0.9 } });
+    expect(suggestions(autoOnSonnet, b)[0]).toMatchObject({ agent: 'claude:sonnet' });
+    expect(resolveSuggestedAgent('claude:sonnet', accounts, [], u, fx.NOW, [], ['claude', 'claude2'])).toEqual({ account: 'claude', model: 'sonnet' });
     expect(resolveSuggestedAgent('claude:opus', accounts, [], u, fx.NOW, [], ['codex'])).toEqual({ account: 'codex', model: null });
     expect(resolveSuggestedAgent('fast', accounts, groups, u, fx.NOW, [], ['codex'])).toEqual({ account: 'codex', model: null });
     // Without it, a harness with room elsewhere is still found as before.
-    expect(resolveSuggestedAgent('claude:opus', accounts, [], u, fx.NOW, [], ['claude', 'claude2'])).toEqual({ account: 'claude2', model: 'opus' });
+    expect(resolveSuggestedAgent('claude:opus', accounts, [], u, fx.NOW)).toEqual({ account: 'claude2', model: 'opus' });
 
     // With the picker on Claude app + high effort + newWorktree, Jev selecting Codex resolves a
     // start choice that drops Claude-only place, effort, and worktree capabilities.

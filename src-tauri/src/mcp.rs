@@ -131,19 +131,23 @@ pub fn plugin_servers(file: &Value, from: &str) -> Vec<Server> {
     }
 }
 
-/// A plugin's servers, in its folder `dir`: what its manifest (`<manifest>/plugin.json`:
-/// `.claude-plugin` for Claude Code, `.codex-plugin` for Codex) names as `mcpServers` (a file in
-/// the plugin, a list of them, or the servers themselves), else its `.mcp.json`.
+/// A plugin's servers, in its folder `dir`: its `.mcp.json`'s, and those its manifest
+/// (`<manifest>/plugin.json`: `.claude-plugin` for Claude Code, `.codex-plugin` for Codex) names as
+/// `mcpServers` (a file in the plugin, a list of them, or the servers themselves), which Claude
+/// Code adds to the first file's (its plugins reference, "how each key combines with its default
+/// location"). A server named twice is listed once (`Mcp::new`).
 pub fn plugin_folder(dir: &Path, manifest: &str, plugin: &str) -> Vec<Server> {
     let from = format!("{plugin} plugin");
     let named = json_file(&dir.join(manifest).join("plugin.json")).ok().flatten().map(|m| m["mcpServers"].clone()).unwrap_or(Value::Null);
     let at = |file: &str| json_file(&dir.join(file)).ok().flatten().map(|f| plugin_servers(&f, &from)).unwrap_or_default();
-    match &named {
+    let mut out = at(".mcp.json");
+    out.extend(match &named {
         Value::String(file) => at(file),
         Value::Array(items) => items.iter().flat_map(|i| i.as_str().map_or_else(|| plugin_servers(i, &from), at)).collect(),
         Value::Object(_) => plugin_servers(&named, &from),
-        _ => at(".mcp.json"),
-    }
+        _ => Vec::new(),
+    });
+    out
 }
 
 #[cfg(test)]
@@ -181,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn a_plugins_servers_are_where_its_manifest_says_else_in_its_mcp_file() {
+    fn a_plugins_servers_are_in_its_mcp_file_and_where_its_manifest_says() {
         let dir = std::env::temp_dir().join(format!("codealong-mcp-plugins-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let write = |path: &str, text: &str| {
@@ -192,12 +196,12 @@ mod tests {
         write("plain/.mcp.json", r#"{"mcpServers":{"figma":{"type":"http","url":"https://mcp.example.com"}}}"#);
         write("named/.codex-plugin/plugin.json", r#"{"name":"acme","mcpServers":"./servers.json"}"#);
         write("named/servers.json", r#"{"acme":{"command":"acme","args":["mcp"]}}"#);
-        write("named/.mcp.json", r#"{"mcpServers":{"unused":{"command":"x"}}}"#);
+        write("named/.mcp.json", r#"{"mcpServers":{"default":{"command":"x"}}}"#);
         write("inline/.claude-plugin/plugin.json", r#"{"mcpServers":{"kestrel":{"command":"kestrel"}}}"#);
         write("none/.claude-plugin/plugin.json", r#"{"name":"none"}"#);
         let names = |sub: &str, manifest: &str| plugin_folder(&dir.join(sub), manifest, sub).into_iter().map(|s| (s.name, s.from)).collect::<Vec<_>>();
         assert_eq!(names("plain", ".claude-plugin"), [("figma".to_string(), "plain plugin".to_string())]);
-        assert_eq!(names("named", ".codex-plugin"), [("acme".to_string(), "named plugin".to_string())]);
+        assert_eq!(names("named", ".codex-plugin"), [("default".to_string(), "named plugin".to_string()), ("acme".to_string(), "named plugin".to_string())]);
         assert_eq!(names("inline", ".claude-plugin"), [("kestrel".to_string(), "inline plugin".to_string())]);
         assert!(names("none", ".claude-plugin").is_empty());
         assert!(names("missing", ".claude-plugin").is_empty());

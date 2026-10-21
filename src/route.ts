@@ -20,8 +20,9 @@ export type Suggestion =
 
 /** Resolves a Jev `route.agents` id (a routing group name or `<account-or-harness>[:<model>]`) to an account and model.
  *  With `only` (the accounts that reach the service the work needs, `Route.needs`), it picks
- *  among those, and when the group or harness asked for has none of them, the one of them with
- *  room: the service is what the work can't do without. */
+ *  among those: an account of them it names as it's named, since the engine picked it by room
+ *  and Auto's rules already, and when the group or harness asked for has none of them, the one
+ *  of them with room: the service is what the work can't do without. */
 export function resolveSuggestedAgent(
   agent: string | undefined,
   accounts: StartAccount[],
@@ -46,6 +47,7 @@ export function resolveSuggestedAgent(
   const target = at < 0 ? agent : agent.slice(0, at);
   const model = at < 0 ? null : agent.slice(at + 1) || null;
   const byName = accounts.find((a) => a.name === target && a.places.length > 0);
+  if (only && byName && only.includes(byName.name)) return { account: byName.name, model };
   const harness = byName ? byName.harness : target;
   const matching = allowed.filter((a) => a.harness === harness && a.places.length > 0);
   const picked = autoPick(matching, usage, now, model, null, lanes);
@@ -158,7 +160,9 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
   // Work that needs a service only some accounts reach starts on one of them: Jev's agent when it
   // has one, else the one Auto would pick of them.
   const needs = route.needs ? { name: route.needs.name, accounts: route.needs.accounts } : null;
-  const agentPick = topAgent ? (topAgent.model ? `${topAgent.account}:${topAgent.model}` : topAgent.account) : needs?.accounts[0];
+  const agentFor = (account: string, model: string | null | undefined) => (model ? `${account}:${model}` : account);
+  const firstNeeding = route.needs?.accounts[0];
+  const agentPick = topAgent ? agentFor(topAgent.account, topAgent.model) : firstNeeding ? agentFor(firstNeeding, route.needs?.model) : undefined;
   const startFor = { ...(agentPick ? { agent: agentPick } : {}), ...(needs ? { needs } : {}) };
   /** Starting new work from Jev's worktree pick, `actionP` as likely as the action. In the very
    *  worktree Jev picked, it's as likely as that worktree; one chosen for it in the repo, or a new

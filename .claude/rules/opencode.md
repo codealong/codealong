@@ -100,7 +100,10 @@ its source at that tag, its compiled bundle and its files on this Mac. Paths are
   `session.permissions: "autoaccept"`, and the desktop app's own setting answer every request
   and leave no trace in the database (2.0.16's code, 2026-10-13).
 - Its config is `config.json`, `opencode.json` and `opencode.jsonc` in `~/.config/opencode`, each
-  read over the one before, JSON with comments (2.0.16's bundle); MCP servers are its `mcp`, each
-  `{type: "local" | "remote", enabled?}`: `opencode.rs` (`OpenCode::mcp`, `without_comments`).
+  read over the one before, JSON with comments (2.0.16's bundle); MCP servers are its
+  `mcp.servers` (opencode.ai/v2/docs/mcp-servers), each `{type: "local" | "remote", …}`,
+  `disabled: true` turning one off, and 2.0.16 still takes in an older config's servers kept as
+  `mcp`'s own entries (one with only `enabled` it drops): `opencode.rs` (`OpenCode::mcp`,
+  `mcp_servers`, `without_comments`).
 - Creating a session through the API in a folder made OpenCode point its `global` project
   (its project for folders without version control) at that folder.

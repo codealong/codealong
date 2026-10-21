@@ -65,6 +65,8 @@ struct Service {
     tools: Vec<String>,
     /// The accounts that reach it, in the order they're given.
     accounts: Vec<String>,
+    /// The model Auto would start the first of them on (`service_candidates`).
+    model: Option<String>,
 }
 
 /// Jev's pick of a service counts when it's at least this sure, and surer than of none. Messages
@@ -216,6 +218,12 @@ fn candidates<'a>(board: &'a Board, project: &str, now: i64) -> (Vec<(&'a Lane, 
     (sessions, lanes)
 }
 
+/// The accounts a new session can start on: on, and with somewhere to start.
+fn startable(cfg: &crate::config::Config) -> impl Iterator<Item = &crate::config::AccountCfg> {
+    let home = crate::util::home();
+    cfg.accounts.iter().filter(move |a| !a.disabled && crate::start::ordered_places(a, &home).is_ok_and(|p| !p.is_empty()))
+}
+
 /// The agent and model options offered to Jev when `[routing] prompt` is set, with an account
 /// that has room for each.
 fn agent_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> (Map<String, Value>, Vec<(String, Option<String>)>) {
@@ -224,9 +232,8 @@ fn agent_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> (Ma
     if cfg.routing.prompt.trim().is_empty() {
         return (cards, picks);
     }
-    let home = crate::util::home();
     let mut seen_harnesses = Vec::new();
-    for a in cfg.accounts.iter().filter(|a| !a.disabled && crate::start::ordered_places(a, &home).is_ok_and(|p| !p.is_empty())) {
+    for a in startable(cfg) {
         let h = crate::model::Harness::from_config(&a.harness);
         if !seen_harnesses.contains(&h) {
             seen_harnesses.push(h);
@@ -271,7 +278,7 @@ fn services(readings: &[crate::mcp::Mcp], startable: &[&str]) -> Vec<Service> {
             let key = crate::mcp::key(&server.name);
             let service = by_key.entry(key.clone()).or_insert_with(|| {
                 order.push(key);
-                Service { name: server.name.clone(), tools: server.tools.clone(), accounts: Vec::new() }
+                Service { name: server.name.clone(), tools: server.tools.clone(), accounts: Vec::new(), model: None }
             });
             if service.tools.is_empty() {
                 service.tools = server.tools.clone();
@@ -289,16 +296,16 @@ fn services(readings: &[crate::mcp::Mcp], startable: &[&str]) -> Vec<Service> {
 }
 
 /// `services` for the accounts that can start a session, each service's accounts led by the one
-/// Auto would pick of them.
+/// Auto would pick of them, on the model it would pick.
 fn service_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> Vec<Service> {
-    let home = crate::util::home();
-    let startable: Vec<&str> = cfg.accounts.iter().filter(|a| !a.disabled && crate::start::ordered_places(a, &home).is_ok_and(|p| !p.is_empty())).map(|a| a.name.as_str()).collect();
-    services(&board.mcp, &startable)
+    let names: Vec<&str> = startable(cfg).map(|a| a.name.as_str()).collect();
+    services(&board.mcp, &names)
         .into_iter()
         .map(|mut s| {
-            if let Some(first) = crate::start::pick_account_where(cfg, &board.usage, &[], None, now, |a| s.accounts.contains(&a.name)) {
-                s.accounts.retain(|a| *a != first);
-                s.accounts.insert(0, first);
+            if let Some(first) = crate::start::pick_where(cfg, &board.usage, &[], None, now, |a| s.accounts.contains(&a.name)) {
+                s.accounts.retain(|a| *a != first.account);
+                s.accounts.insert(0, first.account);
+                s.model = first.model;
             }
             s
         })
@@ -553,7 +560,7 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         .filter_map(|(k, p)| Some((req.services.get(k.strip_prefix('c')?.parse::<usize>().ok()?.checked_sub(1)?)?, *p)))
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
         .filter(|(_, p)| *p >= NEEDS_AT && *p > no_need)
-        .map(|(s, p)| NeedPick { name: s.name.clone(), accounts: s.accounts.clone(), p });
+        .map(|(s, p)| NeedPick { name: s.name.clone(), accounts: s.accounts.clone(), model: s.model.clone(), p });
 
     let mut action = actions.first().map_or(Action::Start, |a| a.0);
     if matches!(action, Action::Send | Action::Find) && no_session > top_session {
@@ -834,7 +841,7 @@ mod tests {
     #[test]
     fn the_needs_question_says_what_each_service_does() {
         let tools: Vec<String> = (1..=14).map(|i| format!("t{i}")).collect();
-        let q = needs_question(&[Service { name: "Gmail".into(), tools, accounts: vec!["claude".into()] }, Service { name: "Kestrel".into(), tools: vec![], accounts: vec!["codex".into()] }]);
+        let q = needs_question(&[Service { name: "Gmail".into(), tools, accounts: vec!["claude".into()], model: None }, Service { name: "Kestrel".into(), tools: vec![], accounts: vec!["codex".into()], model: None }]);
         assert_eq!(q["type"], "choice");
         assert_eq!(q["criteria"]["c1"]["service"], "Gmail");
         assert_eq!(q["criteria"]["c1"]["tools"], "t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, …");
@@ -847,13 +854,13 @@ mod tests {
         let b = board();
         let mut req = request(&b, "Acme", "what does my email say about the launch", "m", NOW).unwrap();
         assert!(req.body["questions"].get("needs").is_none(), "no settings, nothing to ask");
-        req.services = vec![Service { name: "Gmail".into(), tools: vec![], accounts: vec!["codex".into(), "claude".into()] }, Service { name: "Slack".into(), tools: vec![], accounts: vec!["claude".into()] }];
+        req.services = vec![Service { name: "Gmail".into(), tools: vec![], accounts: vec!["codex".into(), "claude".into()], model: Some("gpt-6".into()) }, Service { name: "Slack".into(), tools: vec![], accounts: vec!["claude".into()], model: None }];
         let with_needs = |needs: Value| {
             let mut v = answer(&[("start", 1.0)], &[("none", 1.0)], &[("none", 1.0)], 0.0);
             v["answers"]["needs"] = json!({ "type": "choice", "probabilities": needs });
             read(&req, &v, 1).unwrap().needs
         };
-        assert_eq!(with_needs(json!({ "c1": 0.8, "c2": 0.05, "none": 0.15 })), Some(NeedPick { name: "Gmail".into(), accounts: vec!["codex".into(), "claude".into()], p: 0.8 }));
+        assert_eq!(with_needs(json!({ "c1": 0.8, "c2": 0.05, "none": 0.15 })), Some(NeedPick { name: "Gmail".into(), accounts: vec!["codex".into(), "claude".into()], model: Some("gpt-6".into()), p: 0.8 }));
         assert_eq!(with_needs(json!({ "c1": 0.45, "none": 0.55 })), None, "not sure enough");
         assert_eq!(with_needs(json!({ "c9": 0.9, "none": 0.1 })), None, "no such option");
         assert_eq!(read(&req, &answer(&[("start", 1.0)], &[("none", 1.0)], &[("w1", 1.0)], 0.0), 1).unwrap().needs, None, "not asked");

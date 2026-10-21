@@ -707,12 +707,17 @@ pub fn pick_account(cfg: &Config, usages: &[Usage], places: &[Place], model: Opt
 /// `pick_account` among the accounts `keep` takes: the reviewer of a PR of yours, among those of
 /// another harness than the session that opened it (autoreview.rs).
 pub fn pick_account_where(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64, keep: impl Fn(&AccountCfg) -> bool) -> Option<String> {
+    pick_where(cfg, usages, places, model, now, keep).map(|p| p.account)
+}
+
+/// `pick_account_where`, with the model and effort Auto's routing group gives the account.
+pub fn pick_where(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64, keep: impl Fn(&AccountCfg) -> bool) -> Option<GroupPick> {
     let default_group = config::RoutingGroupCfg { name: "auto".into(), strategy: config::RoutingStrategy::Usage, members: Vec::new() };
     let group = Some(cfg.routing.auto.trim())
         .filter(|s| !s.is_empty())
         .and_then(|n| cfg.routing.groups.iter().find(|g| g.name == n))
         .unwrap_or(&default_group);
-    pick_from_group(group, cfg, usages, &[], &[], places, model, None, now, keep).map(|p| p.account)
+    pick_from_group(group, cfg, usages, &[], &[], places, model, None, now, keep)
 }
 
 /// A model name safe to type into the shell inside single quotes: letters, digits and `-._:[]`.

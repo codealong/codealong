@@ -1589,7 +1589,8 @@ usage bar's refresh, and nothing is started to read them:
 - Cursor: the servers in its folder's `mcp.json`. One turned off in Cursor's settings is still
   listed: Cursor keeps that elsewhere.
 - Antigravity: the servers in `~/.gemini/config/mcp_config.json` that aren't `disabled`.
-- OpenCode: the servers in its config's `mcp` (`~/.config/opencode`) that aren't `enabled: false`.
+- OpenCode: the servers in its config's `mcp.servers` (`~/.config/opencode`) that aren't
+  `disabled`, and those an older config keeps under `mcp` itself.
 
 A service with two names (claude.ai's Figma and the figma plugin) is listed once. Servers a repo
 adds for itself (its `.mcp.json`) belong to the repo, not the account, and aren't listed. When some
@@ -1687,7 +1688,7 @@ Routing), Jev also suggests an agent, model or routing group for a new session, 
 account with room; without one, a new session starts on the one the start menu shows. When your
 accounts don't all reach the same MCP servers (see *Settings window*), Jev is also asked which
 service what you typed needs, and when it's sure (70% or more), new work starts on an account that
-reaches it, the one with room among them, and the row says so: "what does my email say" goes to
+reaches it, the one Auto would pick among them, and the row says so: "what does my email say" goes to
 an account connected to Gmail, even when Jev's agent pick or the start menu names one that isn't.
 Work on code, which needs none, starts as it would anyway. The service names and their tools'
 names go to TypeSafe with the rest. The API key stays in

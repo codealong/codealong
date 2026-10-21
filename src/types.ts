@@ -1382,6 +1382,8 @@ export interface Route {
 export interface NeedPick {
   name: string;
   accounts: string[];
+  /** The model Auto would start the first on, where its routing group names one. */
+  model?: string | null;
   p: number;
 }
 

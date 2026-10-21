@@ -1281,6 +1281,9 @@ pub struct NeedPick {
     /// The accounts that can start a session and reach it: the one Auto would pick of them
     /// first, then the rest in config order.
     pub accounts: Vec<String>,
+    /// The model Auto would start the first on, where its routing group names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     pub p: f64,
 }
 

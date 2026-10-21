@@ -35,10 +35,10 @@ interface Draft {
 }
 
 /** MCP servers shown before the rest fold into a `+N` that shows them. */
-export const MCP_SHOWN = 3;
+const MCP_SHOWN = 3;
 
 /** A server's tooltip: where it comes from, and how many tools it has where that's known. */
-export function serverTitle(s: Mcp['servers'][number]): string {
+function serverTitle(s: Mcp['servers'][number]): string {
   const tools = s.tools?.length ? ` · ${s.tools.length} ${s.tools.length === 1 ? 'tool' : 'tools'}` : '';
   return `${s.from}${tools}`;
 }

@@ -1151,9 +1151,10 @@ impl crate::harness::Adapter for OpenCode {
         crate::training::Training::unknown(account, "OpenCode sends your work to the providers it's signed in to, and each one's own settings say whether it trains on it.")
     }
 
-    /// The servers in its config's `mcp` (`enabled: false` turning one off), whatever the
-    /// account: `config.json`, `opencode.json` and `opencode.jsonc` in `~/.config/opencode`, each
-    /// read over the one before (2.0.16's bundle).
+    /// The servers in its config's `mcp.servers` (`disabled: true` or `enabled: false` turning one
+    /// off), and those an older config keeps as `mcp`'s own entries, which 2.0.16 still takes in,
+    /// whatever the account: `config.json`, `opencode.json` and `opencode.jsonc` in
+    /// `~/.config/opencode`, each read over the one before (2.0.16's bundle).
     fn mcp(&self, account: &AccountCfg) -> crate::mcp::Mcp {
         let dir = crate::util::home().join(".config/opencode");
         let mut servers = serde_json::Map::new();
@@ -1161,7 +1162,7 @@ impl crate::harness::Adapter for OpenCode {
         for file in ["config.json", "opencode.json", "opencode.jsonc"].map(|f| dir.join(f)) {
             let Ok(text) = std::fs::read_to_string(&file) else { continue };
             match serde_json::from_str::<Value>(&without_comments(&text)) {
-                Ok(v) => servers.extend(v["mcp"].as_object().cloned().unwrap_or_default()),
+                Ok(v) => servers.extend(mcp_servers(&v["mcp"])),
                 Err(_) if text.trim().is_empty() => {}
                 Err(_) => notes.push(format!("{} doesn't parse", crate::util::tilde(&file))),
             }
@@ -1364,6 +1365,14 @@ fn permission_request(svc: &Service, session: &str) -> Option<PermissionRequest>
     })
 }
 
+/// A config's servers by name: 2.0's `mcp.servers`, after the ones an older config keeps as
+/// `mcp`'s own entries (each an object; `timeout` is a setting of `mcp`'s, not a server).
+fn mcp_servers(mcp: &Value) -> serde_json::Map<String, Value> {
+    let mut out: serde_json::Map<String, Value> = mcp.as_object().into_iter().flatten().filter(|(k, v)| *k != "servers" && *k != "timeout" && v.is_object()).map(|(k, v)| (k.clone(), v.clone())).collect();
+    out.extend(mcp["servers"].as_object().cloned().unwrap_or_default());
+    out
+}
+
 /// JSON with comments, as OpenCode takes its config (`opencode.jsonc`): `//` and `/* */` comments
 /// and commas before a closing bracket left out, strings as they are.
 fn without_comments(text: &str) -> String {
@@ -1425,7 +1434,22 @@ mod tests {
         let text = "{\n  // servers\n  \"mcp\": {\n    \"northwind\": { \"type\": \"local\", \"command\": [\"nw\", \"--url=http://x//y\"] }, /* parked */\n    \"off\": { \"type\": \"remote\", \"url\": \"https://e.com\", \"enabled\": false },\n  },\n}\n";
         let v: Value = serde_json::from_str(&without_comments(text)).unwrap();
         assert_eq!(v["mcp"]["northwind"]["command"][1], "--url=http://x//y");
-        assert_eq!(crate::mcp::servers_in(&v["mcp"], "f").iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["northwind"]);
+        assert_eq!(crate::mcp::servers_in(&Value::Object(mcp_servers(&v["mcp"])), "f").iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["northwind"]);
+    }
+
+    #[test]
+    fn its_servers_are_under_mcp_servers_and_an_older_config_still_counts() {
+        let v = serde_json::json!({ "mcp": {
+            "timeout": { "connect": 5000 },
+            "atlas": { "type": "local", "command": ["atlas"] },
+            "servers": {
+                "kestrel": { "type": "remote", "url": "https://mcp.example.com" },
+                "parked": { "type": "local", "command": ["x"], "disabled": true },
+            },
+        } });
+        let names = crate::mcp::servers_in(&Value::Object(mcp_servers(&v["mcp"])), "f").into_iter().map(|s| s.name).collect::<Vec<_>>();
+        assert_eq!(names, ["atlas", "kestrel"]);
+        assert!(mcp_servers(&Value::Null).is_empty());
     }
 
     /// A request the session still waits on keeps the time it was first seen, whatever else
