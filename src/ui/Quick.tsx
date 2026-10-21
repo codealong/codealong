@@ -881,7 +881,7 @@ export function Quick() {
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
   // Under Jev's suggestions while what's typed goes to Jev, else under the sessions found; there too
   // when Jev takes it for a search (the last answer's word standing while the next is worked out),
-  // so ⏎ opens what the search found even when Jev suggests nothing.
+  // whose results come first.
   const asSearch = (route ?? lastRoute)?.action === 'find';
   const sendToRow: SendToRow[] = sendable > 0 ? [{ kind: 'sendto', key: 'sendto', group: routeFor && !asSearch ? 'suggested' : 'found', count: sendable }] : [];
   const sendToIn = sendToRow[0]?.group ?? null;
@@ -930,7 +930,9 @@ export function Quick() {
   useEffect(() => {
     writeStored(DRAFT_KEY, draftCodec, nextDraft(fullPrompt, todoIds, draft, improve?.shots));
   }, [fullPrompt, todoIds, draft, improve]);
-  const active = activeKey && keys.includes(activeKey) ? activeKey : startLeads && !inSendTo ? COMPOSE : keys[0];
+  // For a search, ⏎ does the first thing it found, a session, todo or PR, when Jev suggests nothing.
+  const firstFound = asSearch && !inSendTo ? (keys.find((k) => k !== 'sendto' && k !== COMPOSE) ?? keys[0]) : keys[0];
+  const active = activeKey && keys.includes(activeKey) ? activeKey : startLeads && !inSendTo ? COMPOSE : firstFound;
 
   useEffect(() => {
     list.current?.querySelector('.is-active')?.scrollIntoView({ block: 'nearest' });
