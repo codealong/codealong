@@ -1,5 +1,5 @@
-// Checks the views' keys (mainKeys.ts `VIEW_CHORDS`): ⇧⌘S, ⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go to
-// Sessions, PRs, Todo, and the Board view as Kanban and as Canvas, from the list, the search field
+// Checks the views' keys (mainKeys.ts `VIEW_CHORDS`): ⇧⌘S, ⇧⌘P, ⇧⌘T, ⇧⌘L, ⇧⌘K and ⇧⌘B go to
+// Sessions, PRs, Todo, Schedules, and the Board view as Kanban and as Canvas, from the list, the search field
 // and a session's box; ⇧⌘W, the Worktrees view's until Sessions grouped by worktree took its
 // place, and ⇧⌘C, which clipboard managers take, go nowhere; ⌥⌘C copies the selected row's
 // worktree path. The sidebar lists the Board view once, with the keys of the
@@ -15,8 +15,8 @@
   var copied = [];
   navigator.clipboard.writeText = function (text) { copied.push(text); return Promise.resolve(); };
 
-  var VIEWS = ['Sessions', 'PRs', 'Todo', 'Board'];
-  var LETTERS = ['S', 'P', 'T', 'K'];
+  var VIEWS = ['Sessions', 'PRs', 'Todo', 'Schedules', 'Board'];
+  var LETTERS = ['S', 'P', 'T', 'L', 'K'];
   var shown = function () { var m = document.querySelector('main.ca-board'); return m ? m.getAttribute('aria-label') : null; };
   var navs = function () { return all('.ca-side .ca-nav.has-kbd'); };
   var key = function (el, init) { (el || document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
@@ -169,7 +169,7 @@
     .then(function () {
       var titles = all('.ca-rail .ca-rail-btn').slice(0, VIEWS.length).map(function (b) { return b.title; });
       // The Board shows Canvas, the layout it showed last, by now.
-      var letters = LETTERS.slice(0, 3).concat(['B']);
+      var letters = LETTERS.slice(0, 4).concat(['B']);
       check('the rail says each view’s keys', titles.every(function (t, i) { return t.indexOf(VIEWS[i] + ' (⇧⌘' + letters[i] + ')') === 0; }), titles.join(' | '));
       key(document.body, { key: 's', code: 'KeyS', ctrlKey: true, metaKey: true });
       return until(function () { return navs().length === VIEWS.length; }, 3000, 'the sidebar again');
