@@ -122,17 +122,15 @@ export interface GroupOptions {
   whole: boolean;
 }
 
-/** The headings whose sessions never fold away in their group. */
-const UNFOLDED = new Set<string>(['needs', 'unread', 'working']);
-
 /**
  * The sections `sessionSections` made, grouped by worktree or by repo. Each group is listed once,
  * under the heading of its first session, with all of its sessions (each with the rows nested
  * under it, in its group whatever worktree they're in) in the order the sections list them; the
  * groups under a heading are in the order of their first sessions. Pinned groups leave the
  * sections for `pinned`, in your order, and show with no session listed while `empty`. A group
- * folds its sessions after `GROUP_SHOWN`, or after the ones under Needs you, Your turn and
- * Working when there are more, until it's opened, unless a search found them (`whole`).
+ * folds its sessions after `GROUP_SHOWN` until it's opened, unless a search found them (`whole`),
+ * but never one that waits on you or is working, nor one with such a helper under it, whatever
+ * the sort: by start, one can come after five idle ones.
  */
 export function groupSessions(sections: SessionSection[], by: GroupBy, o: GroupOptions): GroupedSessions {
   type Family = { rows: SessionItem[]; from: string };
@@ -145,11 +143,12 @@ export function groupSessions(sections: SessionSection[], by: GroupBy, o: GroupO
       found.set(key, g);
     }
   });
+  const awake = (f: Family) => f.rows.some((r) => ATTENTION.some((g) => inGroup(g.statuses)(r)));
   const build = (key: string, lane: Lane, families: Family[]): SessionGroup => {
-    const keep = o.whole ? families.length : Math.max(GROUP_SHOWN, families.filter((f) => UNFOLDED.has(f.from)).length);
-    const opened = families.length > keep && o.opened.has(key);
-    const shown = opened ? families : families.slice(0, keep);
-    const folded = families.slice(shown.length).reduce((n, f) => n + f.rows.length, 0);
+    const away = o.whole ? [] : families.filter((f, i) => i >= GROUP_SHOWN && !awake(f));
+    const opened = away.length > 0 && o.opened.has(key);
+    const shown = opened ? families : families.filter((f) => !away.includes(f));
+    const folded = opened ? 0 : away.reduce((n, f) => n + f.rows.length, 0);
     return { key, by, lane, rows: shown.flatMap((f) => f.rows), folded, opened };
   };
   // A repo with no session listed is named by its main worktree, else by any of its worktrees.

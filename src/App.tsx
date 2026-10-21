@@ -894,6 +894,15 @@ export function App() {
   useEffect(() => {
     if (drill && drill.from !== panelFrom) setDrill(null);
   }, [drill, panelFrom]);
+  // A worktree asked for where the list may have no heading for it (`focusLane`): once the list is
+  // drawn, its heading, selected, where there is one, else its panel in place of the row selected
+  // instead (its own latest session's, when one is listed).
+  const [laneAsked, setLaneAsked] = useState<string | null>(null);
+  useEffect(() => {
+    if (!laneAsked || loading) return;
+    setLaneAsked(null);
+    if (selected && selected.key !== laneAsked) setDrill({ from: selected.key, key: laneAsked, lane: true });
+  }, [laneAsked, loading, selected]);
   /** A press on a list's row, before it selects the row. On the row whose panel shows a PR or
    *  session in its place, it brings the row's own panel back, which selecting a row that's
    *  selected already wouldn't. */
@@ -1503,7 +1512,7 @@ export function App() {
    *  selected; else its panel in place of the one beside the list, with the way back to it
    *  (`drill`), from `row` where a row's menu asked (selecting the row), or from what the panel
    *  shows. With no panel to show it from, or in another project than the one shown (`moved`),
-   *  Sessions grouped by worktree, at its heading. */
+   *  in Sessions, as the list has it then (`laneAsked`). */
   const focusLane = (lane: Lane, row?: { key: string; select: () => void }, moved = false) => {
     if (!moved && view === 'canvas' && canvasEntities.lanes.has(lane.id)) {
       showOnCanvas('worktree', lane.id);
@@ -1521,11 +1530,11 @@ export function App() {
       return;
     }
     setView('sessions');
-    setSessionGroup('worktree');
     clearFilters();
     setQuery('');
     setDrill(null);
     setSelectedKey(lane.id);
+    setLaneAsked(lane.id);
   };
 
   // Where the bar shows: floating, docked in the notch, or off; changed here, from its own menu or
@@ -1738,7 +1747,12 @@ export function App() {
     onMenu: (g) => (g.by === 'repo' ? repoMenu(g) : picks.worktrees.keys.has(g.lane.id) ? picks.worktrees.menu() : laneMenu(g.lane)),
     onPrMenu: (g) => lanePrMenu(g.lane),
     onPrShow: (g) => {
-      if (g.lane.pr) showPrOf(g.lane.pr, { key: g.lane.id, select: () => setSelectedKey(g.lane.id) });
+      // Its PR in its own panel's place, not in that of the worktrees picked with it.
+      const select = () => {
+        picks.worktrees.clear();
+        setSelectedKey(g.lane.id);
+      };
+      if (g.lane.pr) showPrOf(g.lane.pr, { key: g.lane.id, select });
     },
     onPrOpen: (g) => openLanePr(g.lane),
     onToggle: (g) => toggleGroup(g.key),

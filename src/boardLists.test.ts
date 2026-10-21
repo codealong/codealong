@@ -729,6 +729,12 @@ describe('Sessions grouped', () => {
     const busy = lane('/r/busy', Array.from({ length: GROUP_SHOWN + 1 }, (_, i) => at(`claude:claude:w${i}`, 'working', (i + 1) * 60_000)).concat(at('claude:claude:idle', 'idle', DAY / 2)));
     const [kept] = groupSessions(sessionSections(rowsOf([busy]), 'status', NOW), 'worktree', opts()).sections.flatMap((s) => s.groups);
     expect([kept.rows.length, kept.folded]).toEqual([GROUP_SHOWN + 1, 1]);
+    // By start, one that needs you can come after five idle ones: it stays, where it falls.
+    const started = (key: string, status: Session['status'], ago: number) => ({ ...at(key, status, 60_000), startedAt: NOW - ago });
+    const late = lane('/r/late', [...Array.from({ length: GROUP_SHOWN + 1 }, (_, i) => started(`claude:claude:n${i}`, 'idle', (i + 1) * 60_000)), started('claude:claude:asks', 'needs', DAY / 2)]);
+    const [byStart] = groupSessions(sessionSections(rowsOf([late]), 'started', NOW), 'worktree', opts()).sections.flatMap((s) => s.groups);
+    expect(byStart.rows.map((r) => r.session.key).slice(GROUP_SHOWN)).toEqual(['claude:claude:asks']);
+    expect(byStart.folded).toBe(1);
   });
 
   it('groups by repo, by its slug or else its project and name, with no heading among the rows', () => {

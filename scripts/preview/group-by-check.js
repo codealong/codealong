@@ -3,14 +3,18 @@
 // groups, Worktree and Repo, switch the list and the choice is remembered. Grouped by worktree,
 // each worktree's heading is listed once, a row of its own, with its sessions after it and no
 // worktree chip on their rows; a click on a heading selects it, with the worktree's panel beside
-// the list; ⌘-click on another picks both, in the worktrees' pick panel; a reusable worktree's
+// the list; ⌘-click on another picks both, in the worktrees' pick panel, and a click on its PR
+// chip then shows its PR in that panel's place; a reusable worktree's
 // heading says whether it can take new work, and only a reusable one's does. A group of more than
 // five sessions lists five and folds the rest, which its fold row lists, and folds again. Grouped
 // by repo, each repo heads its sessions, a heading that isn't a row to select, and the rows say
-// their worktrees.
+// their worktrees. A worktree shown from elsewhere with no heading listed (App.tsx `focusLane`)
+// is its panel in place of the row selected, with the way back; from another project too, once
+// the window has gone to that project (`laneAsked`).
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/group-by-check.js
 // The check gives the latest worktree with a session six more, made from that session, so it has
-// a group to fold.
+// a group to fold, and adds a worktree with no sessions beside it, in another project when there
+// is one.
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
@@ -18,6 +22,7 @@
   var EXTRA = 6;
   var board = null;
   var folding = null;
+  var empty = null;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
@@ -46,6 +51,21 @@
           s.lastPromptAt = s.lastActivity;
           at.sessions.push(s);
         }
+      }
+      if (at && !b.lanes.some(function (l) { return l.id === at.id + '-group-by-empty'; })) {
+        var bare = JSON.parse(JSON.stringify(at));
+        // Not the first project, which ⌥⌘1 shows, so it's shown from another.
+        var elsewhere = b.projects.filter(function (x, i) { return i > 0; })[0];
+        bare.id = at.id + '-group-by-empty';
+        bare.path = bare.id;
+        bare.callsign = 'group-by-empty';
+        bare.sessions = [];
+        bare.pr = null;
+        bare.reuse = undefined;
+        bare.preview = undefined;
+        bare.project = elsewhere ? elsewhere.name : at.project;
+        b.lanes.push(bare);
+        empty = bare;
       }
       board = b;
       return b;
@@ -120,13 +140,25 @@
       var panel = q('.ca-insp:not(.ca-sessinsp)');
       check('a click on a heading selects it', selectedId() === h.id && h.classList.contains('is-selected'), selectedId());
       check('with the worktree’s panel beside the list', !!panel && panel.getAttribute('aria-label') === lane.callsign + ' details', panel ? panel.getAttribute('aria-label') : 'no worktree panel');
-      var other = heads().filter(function (x) { return x !== h; })[0];
+      // Another, one with a PR when there's one, for its chip below.
+      var others = heads().filter(function (x) { return x !== h; });
+      var other = others.filter(function (x) { return !!q('.ca-pr', x); })[0] || others[0];
       if (!other) return void note('one worktree listed, so picking two went unchecked');
       press(other, { metaKey: true });
       return until(function () { return q('.ca-pick'); }, 3000, 'the pick panel').then(function (pick) {
         check('⌘-click on another heading picks both worktrees', pick.getAttribute('aria-label') === 'Selected worktrees' && q('.ca-pick-head').textContent === '2 worktrees', pick.getAttribute('aria-label') + ': ' + q('.ca-pick-head').textContent);
-        keyDown({ key: 'Escape', code: 'Escape' });
-        return wait(150);
+        // A click on the PR chip of the one picked last shows its PR, not the pick panel.
+        var chip = q('.ca-pr', other);
+        if (!chip) {
+          note('no heading with a PR, so its chip on a pick went unchecked');
+          keyDown({ key: 'Escape', code: 'Escape' });
+          return wait(150);
+        }
+        press(chip);
+        chip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+        return until(function () { return q('.ca-prpanel'); }, 3000, 'the PR’s panel').then(function () {
+          check('a click on a picked heading’s PR chip shows its PR in place of the pick panel', !q('.ca-pick') && selectedId() === other.id, selectedId());
+        });
       });
     })
     .then(function () {
@@ -173,6 +205,29 @@
     })
     .then(function () {
       check('No groups lists the sessions alone again, and is remembered', on('No groups') && localStorage.getItem('codealong.sessionGroup') === 'none', localStorage.getItem('codealong.sessionGroup'));
+      // A worktree with no heading listed, shown from elsewhere: its panel in the selected row's place.
+      if (!empty) throw new Error('no worktree with no sessions to show');
+      var row = selectedId();
+      window.__emit('reveal', { kind: 'worktree', laneId: empty.id });
+      return until(function () { var p = q('.ca-insp:not(.ca-sessinsp)'); return p && p.getAttribute('aria-label') === 'group-by-empty details' && p; }, 3000, 'its panel').then(function (p) {
+        check('a worktree with no heading shows its panel in the selected row’s place', selectedId() === row && !!q('.ca-panelback', p), selectedId() + ' was ' + row);
+      });
+    })
+    .then(function () {
+      // From another project, once the window has gone there: ⌥⌘1 shows the first project.
+      keyDown({ key: '1', code: 'Digit1', metaKey: true, altKey: true });
+      return until(function () { return localStorage.getItem('codealong.project') !== 'All projects' && !q('.ca-insp:not(.ca-sessinsp)'); }, 3000, 'a project of its own, with a session’s panel')
+        .then(function () {
+          if (localStorage.getItem('codealong.project') === empty.project) {
+            note('one project, so showing a worktree from another went unchecked');
+            return null;
+          }
+          window.__emit('reveal', { kind: 'worktree', laneId: empty.id });
+          return until(function () { var p = q('.ca-insp:not(.ca-sessinsp)'); return localStorage.getItem('codealong.project') === empty.project && p && p.getAttribute('aria-label') === 'group-by-empty details' && p; }, 3000, 'its project, and its panel');
+        })
+        .then(function (p) {
+          if (p) check('from another project, the window goes there and shows its panel, with the way back', !!q('.ca-panelback', p) && !!selectedId(), selectedId());
+        });
     })
     .then(done)
     .catch(stopped);
