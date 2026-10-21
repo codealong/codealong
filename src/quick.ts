@@ -241,9 +241,10 @@ export function titleMarks(title: string, words: string[]): [number, number][] {
  * days ago after a mention an hour old. What was said is weak: a long session mentions most words.
  */
 const CLOSENESS = { exact: 0, named: 3, described: 5, said: 9 };
-/** What a line of what was said scores at best (search.rs `match_score`): the words as typed, by
+/** What a line of what was said scores at best (search.rs `BEST_SCORE`): the words as typed, by
  *  you. A session found by a weaker line goes a quarter of a doubling further down for each point
- *  short of it. */
+ *  short of it. The engine keeps the sessions found by what was said that this puts first, by the
+ *  same weights (search.rs `kept_first`), so a change to them goes there too. */
 const SAID_BEST = 7;
 const HOUR = 60 * 60 * 1000;
 

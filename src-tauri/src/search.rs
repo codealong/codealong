@@ -168,7 +168,7 @@ pub fn find(words: &[String], limit: usize) -> Found {
         }
     }
     ix.catch_up_rows();
-    let hits = ix.search(words, limit);
+    let hits = ix.search(words, limit, now_ms());
     Found { hits, building: !ix.ready, off: false }
 }
 
@@ -251,28 +251,29 @@ impl Index {
         }
     }
 
-    fn search(&self, words: &[String], limit: usize) -> Vec<Hit> {
+    /// The sessions whose messages have every word, at most `limit` of them: the ones the windows
+    /// rank first (`kept_first`), so a common word's hundreds of old mentions don't push out the
+    /// session that said it an hour ago.
+    fn search(&self, words: &[String], limit: usize, now: i64) -> Vec<Hit> {
         if words.is_empty() {
             return Vec::new();
         }
-        let mut hits: Vec<Hit> = Vec::new();
+        let mut hits: Vec<(f64, Hit)> = Vec::new();
         for f in self.files.values() {
             if let Some(h) = hit(&f.key, f.entries.iter(), words) {
-                hits.push(h);
+                hits.push((kept_first(h.score, f.entries.iter().map(|e| e.at).max().unwrap_or(0), now), h));
             }
         }
         for rows in self.rows.values() {
             for (key, msgs) in &rows.sessions {
                 if let Some(h) = hit(key, msgs.values(), words) {
-                    hits.push(h);
+                    hits.push((kept_first(h.score, msgs.values().map(|e| e.at).max().unwrap_or(0), now), h));
                 }
             }
         }
-        // The best matches first, so a common word's hundreds of passing mentions don't push the
-        // session that said the phrase past the limit.
-        hits.sort_by(|a, b| b.score.cmp(&a.score).then(b.at.cmp(&a.at)).then_with(|| a.key.cmp(&b.key)));
+        hits.sort_by(|(a, x), (b, y)| a.total_cmp(b).then(y.at.cmp(&x.at)).then_with(|| x.key.cmp(&y.key)));
         hits.truncate(limit);
-        hits
+        hits.into_iter().map(|(_, h)| h).collect()
     }
 }
 
@@ -285,6 +286,19 @@ fn hit<'a>(key: &str, entries: impl Iterator<Item = &'a Entry> + Clone, words: &
     let (score, _, best) = entries.map(|e| (match_score(e, words), words.iter().filter(|w| has_word(&e.lower, w, words.len())).count(), e)).max_by_key(|(s, n, e)| (*s, *n, e.at))?;
     Some(Hit { key: key.to_string(), snippet: snippet(&best.text, words), you: best.you, at: best.at, score })
 }
+
+/// Where the windows rank a session found by what was said in it, the lowest first, as the quick
+/// panel weighs it (src/quick.ts `searchCost`): how many times its age has doubled, in hours since
+/// its last message, and a quarter of a doubling more for each point its best line (`score`)
+/// is short of `BEST_SCORE`. The panel counts the age from the session's last activity, which its
+/// last message seldom trails by much.
+fn kept_first(score: u8, latest: i64, now: i64) -> f64 {
+    const HOUR_MS: f64 = 60.0 * 60.0 * 1000.0;
+    f64::from(BEST_SCORE - score.min(BEST_SCORE)) / 4.0 + (1.0 + (now - latest).max(0) as f64 / HOUR_MS).log2()
+}
+
+/// What `match_score` gives at best: the words as typed, by you.
+const BEST_SCORE: u8 = 7;
 
 /// How well one message matches: the words as typed, in order, beat all of them apart, which
 /// beat only some; and where a message has them all, what you wrote beats what the agent did.
@@ -472,9 +486,30 @@ mod tests {
         let a = hit("a", apart.iter(), &words("class c")).unwrap();
         let p = hit("p", phrase.iter(), &words("class c")).unwrap();
         assert!(p.score > a.score);
+        assert_eq!(p.score, BEST_SCORE, "the words as typed, by you, score the best");
         assert!(p.you && p.snippet.contains("class C status"));
         let cleanup = [e(true, "the class cleanup, c too")];
         assert!(hit("c", cleanup.iter(), &words("class c")).unwrap().score < p.score, "class cleanup isn't the phrase class c");
+    }
+
+    #[test]
+    fn keeps_the_sessions_the_windows_rank_first() {
+        const HOUR: i64 = 60 * 60 * 1000;
+        let now = 1_790_200_000_000;
+        let file = |key: &str, ago: i64, you: bool, text: &str| FileText { key: key.into(), harness: Harness::Claude, offset: 0, entries: vec![Entry::new(now - ago, you, text.to_string())] };
+        let mut ix = Index::default();
+        // Three weeks ago, the words as typed by you; an hour ago, by the agent among others.
+        ix.files.insert(PathBuf::from("/old.jsonl"), file("old", 21 * 24 * HOUR, true, "the harbor watch"));
+        ix.files.insert(PathBuf::from("/new.jsonl"), file("new", HOUR, false, "watch the harbor"));
+        let keys = |ix: &Index, limit| ix.search(&words("harbor watch"), limit, now).into_iter().map(|h| h.key).collect::<Vec<_>>();
+        assert_eq!(keys(&ix, 1), vec!["new"], "the recent mention is kept over the old phrase");
+        assert_eq!(keys(&ix, 9), vec!["new", "old"]);
+        // As old as each other, the better line comes first.
+        ix.files.insert(PathBuf::from("/peer.jsonl"), file("peer", HOUR, true, "the harbor watch"));
+        assert_eq!(keys(&ix, 2), vec!["peer", "new"]);
+        // The session's last message counts, not when its best line was said.
+        ix.files.get_mut(Path::new("/old.jsonl")).unwrap().entries.push(Entry::new(now, false, "done".into()));
+        assert_eq!(keys(&ix, 1), vec!["old"]);
     }
 
     #[test]
