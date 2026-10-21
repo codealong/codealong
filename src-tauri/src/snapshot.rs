@@ -102,7 +102,58 @@ const MODES: &[Mode] = &[
     Mode { flag: "--improve", takes: "", run: |_, _| Ok(pretty(&board_now().read(|b| b.improve.clone()))) },
     Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
     Mode { flag: "--jev-usage", takes: "[days]", run: jev_usage },
+    Mode { flag: "--schedules", takes: "", run: schedules },
+    Mode { flag: "--schedule-plan", takes: "<schedule>", run: schedule_plan },
+    Mode { flag: "--schedule-check", takes: "<schedule>", run: schedule_check },
+    Mode { flag: "--schedule-run", takes: "<schedule>", run: schedule_run },
+    Mode { flag: "--schedule-times", takes: "<time, as a schedule writes it>", run: |_, rest| Ok(pretty(&crate::schedules::times(&rest.join(" "), util::now_ms(), &crate::schedules::rule::Local))) },
 ];
+
+/// `codealong --snapshot --schedules`: the schedules as the Schedules view lists them, with when
+/// each runs next and its latest runs.
+fn schedules(_: &Args, _: &[String]) -> Done {
+    let board = engine::snapshot(false, false);
+    let cfg = config::current().map_err(failed)?;
+    let (file, runs) = (crate::schedules::load().map_err(failed)?, crate::schedules::load_runs().map_err(failed)?);
+    Ok(pretty(&crate::schedules::items(&file, &runs, &board, &cfg, util::now_ms(), &crate::schedules::rule::Local)))
+}
+
+/// A schedule by its name or id, with what's noted of it.
+fn schedule_named(rest: &[String]) -> Result<(crate::schedules::Schedule, crate::schedules::Track), Stop> {
+    let [name, ..] = rest else { return Err(Stop::Usage) };
+    let file = crate::schedules::load().map_err(failed)?;
+    let s = file.find(name).cloned().ok_or_else(|| Stop::Failed(format!("There's no schedule named {name}.")))?;
+    let track = crate::schedules::load_runs().map_err(failed)?.of.get(&s.id).cloned().unwrap_or_default();
+    Ok((s, track))
+}
+
+/// `codealong --snapshot --schedule-plan <schedule>`: what a run of it would do now, as Run now
+/// would, without starting or sending anything: its prompt, and the session it would start (on
+/// the account picked now) or send to, and how.
+fn schedule_plan(_: &Args, rest: &[String]) -> Done {
+    let (s, track) = schedule_named(rest)?;
+    let board = engine::snapshot(true, false);
+    let cfg = config::current().map_err(failed)?;
+    Ok(pretty(&crate::schedules::runner::plan_now(&board, &cfg, &s, &track, util::now_ms())))
+}
+
+/// `codealong --snapshot --schedule-run <schedule>`: runs it now, as Run now does, over a board
+/// read now, and notes the run in schedule-runs.json: a session starts, or one is sent to, for
+/// real. Asked as another device asks, so what it sends isn't yours. Prints what it came to.
+fn schedule_run(_: &Args, rest: &[String]) -> Done {
+    let (s, _) = schedule_named(rest)?;
+    let engine = board_now();
+    let record = crate::schedules::runner::run_once(&engine, &s.id).ok_or_else(|| Stop::Failed("It didn't run: its files couldn't be read.".into()))?;
+    Ok(pretty(&record))
+}
+
+/// `codealong --snapshot --schedule-check <schedule>`: runs its watch's command (or its check
+/// before each run) once and prints what it printed and which of it would be new. Nothing is
+/// noted or run.
+fn schedule_check(_: &Args, rest: &[String]) -> Done {
+    let (s, track) = schedule_named(rest)?;
+    Ok(pretty(&crate::schedules::runner::check_now(&s, &track)))
+}
 
 /// `codealong --snapshot --jev-usage [days]`: what Settings › Jev says Codealong's requests to Jev
 /// used each of the last `days` days (30 unless given), read from the app's ledger.

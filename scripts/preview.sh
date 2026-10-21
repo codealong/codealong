@@ -4,7 +4,7 @@
 #
 #   scripts/preview.sh [view] [project] [check.js]
 #
-#   view     sessions | prs | todo | kanban | canvas, bar for the floating bar, notch for the
+#   view     sessions | prs | todo | schedules | kanban | canvas, bar for the floating bar, notch for the
 #            bar docked in the notch, peek for the bar's peek, kept for a session kept on the
 #            desktop (the peek's session, in a window of its size), side for the peek's
 #            session's side conversation popped out into a window of its own, quick for the
@@ -56,6 +56,10 @@
 # worktree and session. Images come from $PREVIEW_IMAGES (default: Codealong's own images).
 # scripts/preview/todos-jev-sample.json has the same todos with Jev's todo features on: one
 # looks done, and the panel gets suggestions.
+#
+# PREVIEW_SCHEDULES=<file> shows the schedules in it (scripts/preview/schedules-sample.json has
+# some) in place of yours, "$lane:N" and "$session:N" as PREVIEW_TODOS has them, and times in
+# minutes from now (`nextIn`, a run's `atAgo`).
 #
 # PREVIEW_CANVAS=<file> opens the Canvas view on the document in it (one board's, as
 # boards.json keeps it under a board's canvas) in place of a fresh tidy. PREVIEW_BOARDS=<file>
@@ -177,6 +181,7 @@ fixture() {
   fi
 }
 fixture todos "${PREVIEW_TODOS:-}"
+fixture schedules "${PREVIEW_SCHEDULES:-}"
 fixture insights "${PREVIEW_INSIGHTS:-}"
 fixture route "${PREVIEW_ROUTE:-}"
 fixture canvas "${PREVIEW_CANVAS:-}"

@@ -21,14 +21,15 @@ it is, how to install it and how to get going. The settings file is annotated in
 
 ## The main window
 
-**Four views** of the current project, each in a window of its own if you like (⌘⇧N): Sessions
-(grouped by worktree or by repo if you like), PRs, Todo, and its boards, each shown as Kanban or as
-Canvas (an experiment, off until Settings › Experimental turns it on: see *Boards*). The project
-switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them all. Add
-project… at its foot opens Settings › Projects with a new project's form, and Edit projects… the
-list. ⇧⌘S,
-⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go straight to Sessions, PRs, Todo, and the board as Kanban and as
-Canvas (B for board: ⇧⌘C is often a clipboard manager's), from a text field too, and a view in the
+**Five views** of the current project, each in a window of its own if you like (⌘⇧N): Sessions
+(grouped by worktree or by repo if you like), PRs, Todo, Schedules (every project's), and its
+boards, each shown as Kanban or as Canvas (an experiment, off until Settings › Experimental turns
+it on: see *Boards*). The project switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch
+projects, ⌥⌘0 shows them all. Add project… at its foot opens Settings › Projects with a new
+project's form, and Edit projects… the list. ⇧⌘S,
+⇧⌘P, ⇧⌘T, ⇧⌘L, ⇧⌘K and ⇧⌘B go straight to Sessions, PRs, Todo, Schedules (L for later), and the
+board as Kanban and as Canvas (B for board: ⇧⌘C is often a clipboard manager's), from a text field
+too, and a view in the
 sidebar shows its keys while you point at it (the folded rail says them; the Board's are those of
 the layout a click on it shows); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder
@@ -1228,6 +1229,81 @@ or whose PR merged, shows Looks done when Jev reads it as finished (Mark done, o
 something moves on); and a todo's panel suggests its project, labels and the todos it waits on as
 chips you click, reading the screenshots in the todo's description too. Nothing is asked twice:
 what was asked is kept in `jev-todos.json`.
+
+### Schedules
+
+A schedule starts a session, or sends one a message, when its time comes or something happens:
+every weekday at 9, every two hours, whenever a deploy goes out, when a PR merges or a todo is
+ready. The Schedules view (⇧⌘L) lists every one on this Mac, whatever the project, each saying when
+it runs, what it does and when next, and a mark when it can't run as it is or its last run failed;
+New schedule… at the top of the list makes one. The panel beside it has the schedule's prompt, the
+session it keeps going, and its latest runs, each with why it ran and how it went (started, sent,
+went on, waiting, skipped, missed, failed) and its session a click away. Run now, Pause and Edit
+are its buttons; its right-click menu has those, Copy schedule ID and Delete schedule. A session a
+run started says *From the schedule* and its name over its title, a click from the schedule.
+
+What a schedule watches is watched without an agent: a time, a command's output, the board. An
+agent runs only once something has happened, so a schedule that watches a deploy all day costs no
+usage until one goes out.
+
+**When it runs.**
+
+- *At times*, written in a few words and read back as you type, with the next few times:
+  `weekdays 9:00`, `mon,thu 10:30`, `daily 6pm`, `every 2h` (from midnight, or from the start of
+  its hours: `every 30m weekdays 09:00-18:00`), `monthly 1 9:00`, `monthly last 17:00`, `once
+  2026-10-21 15:00`, or cron's five fields (`cron 0 9 * * 1-5`). On this Mac's clock, by the wall
+  clock across summer time, and never more often than every five minutes.
+- *A watch*: a command it runs through your login shell every so often (`5m`; at most once a
+  minute), in the schedule's worktree. Each line it prints is one thing, by its words, or a JSON
+  object with an `id` (and a `title`, `url` and `text`), and a line it hasn't printed before is a
+  run; with *Any change* its whole output is one value, a run whenever it changes. Its first look
+  only notes what's there. It's told `CODEALONG_SINCE`, when it last looked and the command
+  worked, and `CODEALONG_STATE_DIR`, a folder of its own. One that fails looks less often, up to
+  once an hour, and its panel says why.
+- *On the board*: a PR merges, a PR's checks fail at a commit (in one repo, or yours only), or a
+  todo is ready to start (with a label, by its name). Only what happens after the schedule is made
+  is run for. A session started for a ready todo is linked to it and told it, as Start session
+  does.
+- *When fired*: only by Run now, or by `codealong schedule fire <name>` from a script (the last
+  step of a deploy, a git hook), with `--key` naming what it's for (a deploy's id), so it runs once
+  for each however often it's fired, and `--title` and `--text` saying what happened.
+
+Any of them can have *Only if*: a command run before each run, which goes ahead only when the
+command succeeds and prints something, and what it printed goes with it.
+
+**What it does.** *New session* starts one each run; *One session* starts one the first time and
+sends each later run to it, starting a new one once it's gone (or once it's `fresh_after` old,
+from the command); *A session* sends each run to one that's there. A new session starts in the
+worktree picked, else in a chat of its own, in a new worktree each time if you tick it, on Auto, a
+routing group or an account with its model and effort (the menu the reviewers' box has), picked
+again at each run, so a round-robin or alternate-harness group spreads the runs over its accounts;
+and where you pick, by default out of sight (Claude Code's background service, else in Codealong,
+else a terminal behind your windows). A run sent to a session goes at once when it's free; when
+it's at work or waits on you, once its turn ends, several runs' worth in one message; one that
+isn't running goes on out of sight with it, as a PR's news resumes one.
+
+What the run was for (a watch's new lines, the PR that merged, what a script fired it with, what
+*Only if* printed) is written to a file the prompt points the agent at, to read as data, not as
+instructions. The prompt ends with a line naming the schedule and why it ran, and, with *Keep
+notes between runs*, a notes file in the schedule's own folder to read first and add to, so a new
+session each run still knows what the last ones found. What a schedule you made sends goes as
+yours. One an agent made with `codealong schedule add` sends as Codealong's (*What Codealong sends
+by itself*), and the sessions it starts are that agent's own (*Started by*); its panel says so.
+
+**When a run can't go as it is.** A time missed while the Mac slept or Codealong was closed runs
+once when it's back (the latest of them, within a week), noted as late, unless *Run a missed time
+when back* is off; the others are noted as missed. A new session's run is skipped while the last
+one's session still works or waits on you, unless *Start another while the last one still works*
+is ticked, and *At most … runs a day* caps them; Run now goes past the cap. Paused, nothing runs it,
+and times that pass meanwhile aren't run when it's resumed; Run now still runs it. *Quiet* makes
+its sessions quiet (*Quiet*). Schedules run while Codealong does: with it closed, nothing runs
+(Settings › General › Open at login).
+
+`codealong schedule list|show|add|remove|pause|resume|run|fire|times` does the same from a
+terminal or an agent, an agent adding one for itself with `--to me` (a check back on its own work
+every hour, say), and `codealong --snapshot --schedule-plan <schedule>` says what a run would do
+now without doing it. The schedules are kept in `schedules.json` and what happened to them in
+`schedule-runs.json` (*Files Codealong keeps*).
 
 ### Boards
 
@@ -2850,6 +2926,9 @@ what `codealong changes` saw at each of its last dozen looks, for a week, in `ch
 orchestrator's answers, cursor and narrative in `orchestrator/`; what every
 model call used, and Claude's extra usage as it was read, in `ledger.sqlite` (the Usage window's).
 Todos and labels are in `todos.json`, which is watched, so an agent or an editor can add to it.
+The schedules are in `schedules.json`, watched the same way, and what happened to each (its runs,
+the session it keeps going, what its watch saw, the runs asked for) in `schedule-runs.json`; each
+schedule's watch and notes have a folder of their own in `schedules/`.
 Attachments are kept by their content: images in `images/`, other files in `files/<hash>/<name>`;
 ones no todo uses are cleared after 30 days. The devices this one is linked with are in
 `devices.json`, and what each last said in `device-feeds.json`; this device's key is in the login

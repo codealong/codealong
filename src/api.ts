@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { BoardDoc, BoardOp } from './boards/model';
 import type { TodoOp } from './todos';
@@ -1009,6 +1009,19 @@ export async function dismissTodoHint(id: string): Promise<void> {
   await invoke('dismiss_todo_hint', { id });
 }
 
+/** A change to the schedules: what it came to (the schedule saved). The board shows it once the
+ *  engine reads the file again. */
+export async function scheduleOp(op: ScheduleOp): Promise<unknown> {
+  if (!inTauri) return null;
+  return invoke<unknown>('schedule_op', { op });
+}
+
+/** A schedule's time as it's being written: in words, its next few times, or why it can't be read. */
+export async function scheduleTimes(rule: string): Promise<ScheduleTimes> {
+  if (!inTauri) return { words: rule, next: [] };
+  return invoke<ScheduleTimes>('schedule_times', { rule });
+}
+
 export async function todoOp(op: TodoOp): Promise<number> {
   if (!inTauri) return 0;
   return invoke<number>('todo_op', { op });
@@ -1090,7 +1103,7 @@ export async function setTheme(theme: Theme): Promise<void> {
 /** What the floating bar, the quick panel or a card on the desktop asks the main window to show.
  *  A session's `find` is the words the quick panel found it by in what was said, which its
  *  conversation's find bar opens on; a PR's `tab` the one a link to a part of it goes to. */
-export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string; tab?: PrTab } | { kind: 'todo'; id: string } | { kind: 'board'; board: string; project: string; layout: 'kanban' | 'canvas'; focus?: string[] };
+export type Reveal = { kind: 'session'; laneId: string; key: string; find?: string } | { kind: 'worktree'; laneId: string } | { kind: 'pr'; key: string; tab?: PrTab } | { kind: 'todo'; id: string } | { kind: 'schedule'; id: string } | { kind: 'board'; board: string; project: string; layout: 'kanban' | 'canvas'; focus?: string[] };
 
 /** Brings the main window forward, showing a session, worktree, PR or todo if given. */
 export async function showMain(reveal: Reveal | null = null): Promise<void> {

@@ -5,8 +5,8 @@
 // (found_accounts), setup.json (setup_view), config.json (get_config), start-options.json (start_options),
 // editor-icons.json (editor_icons), shell-commands.json (shell_commands), bar-feed.json
 // (bar_feed, for the floating bar) and, when present, pr-detail.json (pr_detail, for any PR),
-// todos-fixture.json (todos to show in place of the board's), usage-fixture.json (plan usage,
-// likewise) and skills.json or skills-fixture.json (skills, for the `/` lists).
+// todos-fixture.json (todos to show in place of the board's), schedules-fixture.json (schedules,
+// likewise), usage-fixture.json (plan usage, likewise) and skills.json or skills-fixture.json (skills, for the `/` lists).
 //
 // Native menus aren't drawn, but they're made and "shown" as if they were, so a right-click
 // runs to the end. `window.__menu()` lists the last menu's items as [label, pick] pairs;
@@ -52,6 +52,39 @@ function withFixture(board, fixture) {
       waiting: t.waiting ? { note: t.waiting.note || '', since: now - (t.waiting.sinceAgo || 0) * 60e3 } : null,
       due: t.dueIn == null ? t.due || null : dayFrom(now, t.dueIn),
       primary: t.primary && at(t.primary) ? { session: at(t.primary), since: now - 60e3 } : null,
+    });
+  });
+  return board;
+}
+// Schedules from schedules-fixture.json (PREVIEW_SCHEDULES in preview.sh) in place of the board's
+// own, with "$lane:N" and "$session:N" as the project's Nth most recent worktree and session, and
+// times in minutes from now: `nextIn`, a check's and a run's `atAgo`.
+function withSchedules(board, fixture) {
+  var shown = null;
+  try {
+    shown = localStorage.getItem('codealong.project');
+  } catch (e) {}
+  var project = board.projects.some(function (p) { return p.name === shown; }) ? shown : (board.projects[0] || {}).name;
+  var lanes = board.lanes.filter(function (l) { return !l.hidden && !l.device && l.project === project; }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
+  var sessions = lanes.flatMap(function (l) { return l.sessions.filter(function (s) { return !s.visitor; }); }).sort(function (a, b) { return b.lastActivity - a.lastActivity; });
+  var at = function (ref) {
+    var m = /^\$(lane|session):(\d+)$/.exec(ref || '');
+    if (!m) return ref || '';
+    var hit = (m[1] === 'lane' ? lanes : sessions)[Number(m[2])];
+    return hit ? (m[1] === 'lane' ? hit.path : hit.key) : '';
+  };
+  var now = Date.now();
+  board.schedules = fixture.schedules.map(function (s, i) {
+    var run = Object.assign({ to: 'new', session: '', folder: '', worktree: false, account: '', model: null, effort: null, place: null, prompt: '', freshAfter: '' }, s.run);
+    run.folder = at(run.folder);
+    run.session = at(run.session);
+    return Object.assign({ id: 's-' + i, paused: false, onlyIf: '', quiet: false, overlap: 'skip', catchUp: 'once', perDay: null, notes: false, createdAt: now - 7 * 86400e3, updatedAt: now - 86400e3, asked: 0 }, s, {
+      run: run,
+      createdBy: s.createdBy ? at(s.createdBy) || undefined : undefined,
+      nextAt: s.nextIn == null ? undefined : now + s.nextIn * 60e3,
+      thread: s.thread ? at(s.thread) || undefined : undefined,
+      check: s.check ? Object.assign({}, s.check, { at: now - (s.check.atAgo || 0) * 60e3 }) : undefined,
+      runs: (s.runs || []).map(function (r) { return Object.assign({}, r, { at: now - r.atAgo * 60e3, session: r.session ? at(r.session) || undefined : undefined }); }),
     });
   });
   return board;
@@ -276,6 +309,7 @@ window.__TAURI_INTERNALS__ = {
         optionalJson('./notices-fixture.json'),
         optionalJson('./training-fixture.json'),
         optionalJson('./mcp-fixture.json'),
+        optionalJson('./schedules-fixture.json'),
       ]).then(function (all) {
         var board = withExperiments(all[1] ? withFixture(all[0], all[1]) : all[0]);
         // Background failures from notices-fixture.json (PREVIEW_NOTICES), `untilIn` minutes
@@ -300,6 +334,7 @@ window.__TAURI_INTERNALS__ = {
           });
         }
         if (all[4]) board = withInsights(board, all[4]);
+        if (all[8]) board = withSchedules(board, all[8]);
         if (window.__PREVIEW_EMBLEMS__) board = withEmblems(board);
         // Once a check keeps side conversations here (`window.__sides`, `window.__past`), the
         // board lists those, as the engine lists what it keeps (side.rs `glances`).
@@ -314,6 +349,13 @@ window.__TAURI_INTERNALS__ = {
       });
     }
     if (cmd === 'jev_usage') return Promise.resolve(sampleJevUsage((args || {}).days || 30));
+    // A schedule's time read back as the engine would: the words as written, and the next three
+    // days at this hour. A save answers with the schedule it was given.
+    if (cmd === 'schedule_times') {
+      var t = Date.now();
+      return Promise.resolve({ words: (args || {}).rule || '', next: [t + 3600e3, t + 86400e3 + 3600e3, t + 2 * 86400e3 + 3600e3] });
+    }
+    if (cmd === 'schedule_op') return Promise.resolve(((args || {}).op || {}).schedule || null);
     if (cmd === 'session_tokens') {
       var key = (args || {}).key || '';
       var api = Math.round(hashOf(key) * 4000) / 100;

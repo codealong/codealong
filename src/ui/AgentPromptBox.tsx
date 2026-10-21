@@ -74,7 +74,8 @@ export function AgentPromptBox({ accounts, groups = [], autoGroup, lanes = [], u
       >
         <BoxText ref={box} value={draft} lines={12} hint={hint} aria-label={label} disabled={disabled} spellCheck={false} onChange={(e) => setDraft(e.target.value)} onBlur={keep} />
         <div className="ca-composer-tools">
-          {prompt.trim() && (
+          {/* With no default (a schedule's), there's nothing to go back to. */}
+          {prompt.trim() && defaultPrompt.trim() && (
             <button type="button" className="ca-linkbtn" disabled={disabled} onClick={() => onPrompt('')}>
               {defaultLabel}
             </button>

@@ -48,9 +48,9 @@ function viewTab(e: KeyboardEvent): boolean {
 }
 
 /** Each view's chord: ⇧⌘ and the view's first letter, from any view and any field. Canvas has B
- *  (board) because clipboard managers take ⇧⌘C for themselves (Maccy's popup ships on it). The
- *  sidebar shows a view's chord as you point at it. */
-export const VIEW_CHORDS: Record<string, string> = { sessions: 'Shift+Cmd+S', prs: 'Shift+Cmd+P', todo: 'Shift+Cmd+T', kanban: 'Shift+Cmd+K', canvas: 'Shift+Cmd+B' };
+ *  (board) because clipboard managers take ⇧⌘C for themselves (Maccy's popup ships on it), and
+ *  Schedules L (later) because Sessions has S. The sidebar shows a view's chord as you point at it. */
+export const VIEW_CHORDS: Record<string, string> = { sessions: 'Shift+Cmd+S', prs: 'Shift+Cmd+P', todo: 'Shift+Cmd+T', schedules: 'Shift+Cmd+L', kanban: 'Shift+Cmd+K', canvas: 'Shift+Cmd+B' };
 
 /** The view a key event goes to (`VIEW_CHORDS`), or none. */
 export function viewOfKey<V extends string>(e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, views: readonly { id: V }[]): V | null {

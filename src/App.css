@@ -221,6 +221,11 @@
   --panel-w: min(460px, 40vw);
 }
 
+/* A schedule's panel: as wide as a todo's, for its prompt and its runs. */
+.ca-win--app .ca-win-body.is-schedule {
+  --panel-w: min(460px, 40vw);
+}
+
 /* The canvas takes the panel's place too until a card is selected; then that card's panel shows. */
 .ca-win--app .ca-win-body.is-canvas:not(.has-panel) {
   grid-template-columns:

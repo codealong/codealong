@@ -2196,6 +2196,8 @@ pub fn compose(inp: Inputs) -> Board {
         repos: Default::default(),
         team_files: Vec::new(),
         repo_settings: Default::default(),
+        schedules: Vec::new(),
+        schedules_problem: None,
     }
 }
 

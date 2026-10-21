@@ -84,6 +84,10 @@ export interface SessionHeaderProps {
    *  the one it came from over the title, the ones that came of it under it, each showing itself
    *  on a click and its own menu on a right-click. */
   lineage?: Lineage;
+  /** The schedule it came from (schedules.ts `scheduleBySession`), said over the title where
+   *  nothing else is; `onShowSchedule` shows it in the Schedules view. */
+  schedule?: { id: string; name: string } | null;
+  onShowSchedule?: (id: string) => void;
   onShowSession?: (lane: Lane, session: Session) => void;
   onSessionMenu?: (lane: Lane, session: Session) => void;
   /** The session's menu (menus.ts): from the ⋯ button, below it, and at the pointer from a
@@ -258,6 +262,17 @@ function SideKinRow({ sessionKey, side: g, now }: { sessionKey: string; side: Si
 
 /** The PR an automatic review's session reviews (`Session.helper`), over its title where a
  *  helper's session names the one it works for (`KinRow`): a click opens the PR on GitHub. */
+/** Over the title of a session a schedule started or keeps going: which, a click away. */
+function FromSchedule({ schedule, onShow }: { schedule: { id: string; name: string }; onShow?: (id: string) => void }) {
+  return (
+    <button type="button" className="ca-sessinsp-kin is-parent" title={`A run of the schedule “${schedule.name}”.${onShow ? ' Click to show it.' : ''}`} disabled={!onShow} onClick={() => onShow?.(schedule.id)}>
+      <span className="ca-sessinsp-kin-phrase">From the schedule</span>
+      <Icon name="calendar" size={11} />
+      <span className="ca-sessinsp-kin-title">{schedule.name}</span>
+    </button>
+  );
+}
+
 function ReviewOf({ pr, prs, onOpenPr }: { pr: string; prs: Pr[]; onOpenPr?: (pr: Pr) => void }) {
   const [slug, number] = pr.split('#');
   // reviews.json keys a PR in lower case, as GitHub's names compare.
@@ -311,7 +326,7 @@ function SessionCost({ sessionKey }: { sessionKey: string }) {
   );
 }
 
-export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain, onMove }: SessionHeaderProps) {
+export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane, prs = [], onShowPr, onOpenPr, onPrMenu, todos, onShowTodo, lineage, schedule, onShowSchedule, onShowSession, onSessionMenu, onMenu, onSeen, actions, seenAbove, onKeep, keepTitle, onClose, closeTitle, renaming, onRename, device, back, maximized, onMaximize, compact, accountBelow, inMain, onMove }: SessionHeaderProps) {
   const [details, setDetails] = useState(false);
   const [allPrs, setAllPrs] = useState(false);
   const [allTodos, setAllTodos] = useState(false);
@@ -352,6 +367,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
       {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} prs={prs} onOpenPr={onOpenPr} />}
+      {!lineage?.from && !s.helper?.pr && schedule && <FromSchedule schedule={schedule} onShow={onShowSchedule} />}
       <div className="ca-sessinsp-top">
         <SessionGlyph s={s} size={14} />
         <SessionEmblem emblem={s.emblem} size={20} />

@@ -15,7 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -26,7 +26,7 @@ import { reviewItems as reviewItemsFor, tryAgain } from './review';
 import { START_OPTIONS_NOTICE, startOptionsFailed } from './start';
 import { itemPrimaryHolds, statusSection, todoAgent, todoInFilter, todoProjects, todoPrompt, useTodoStore, type TodoItem, type TodoSort } from './todos';
 import { repoReviews } from './repoSettings';
-import type { DevicesView, Lane, Pr, PrItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
+import type { DevicesView, Lane, Pr, PrItem, Schedule, ScheduleItem, Session, SideGlance, StartOptions, TeamFile, Theme, Todo } from './types';
 import { showSide } from './side';
 import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
@@ -49,6 +49,10 @@ import { Resizer, usePanelWidth } from './ui/Resizer';
 import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type GroupActs, type SessionGroup, type SessionGroupBy, type SessionItem, type SessionSort } from './ui/SessionsView';
 import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
 import { TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
+import { ScheduleDialog } from './ui/ScheduleDialog';
+import { SchedulePanel } from './ui/SchedulePanel';
+import { SchedulesView } from './ui/SchedulesView';
+import { blankSchedule, scheduleOf } from './schedules';
 import { KanbanView } from './ui/KanbanView';
 import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanStep, orderedIds, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
@@ -127,6 +131,7 @@ const INSPECTOR_WIDTH_KEY = 'codealong.inspectorWidth';
 const PR_PANEL_WIDTH_KEY = 'codealong.prPanelWidth';
 const TODO_PANEL_WIDTH_KEY = 'codealong.todoPanelWidth';
 const SESSION_PANEL_WIDTH_KEY = 'codealong.sessionPanelWidth';
+const SCHEDULE_PANEL_WIDTH_KEY = 'codealong.schedulePanelWidth';
 const SESSION_PANEL_MAX_KEY = 'codealong.sessionPanelMax';
 const PR_PANEL_MAX_KEY = 'codealong.prPanelMax';
 const HELPERS_SHOWN_KEY = 'codealong.helpersShown';
@@ -140,11 +145,12 @@ const COPY_WAIT_MS = 60_000;
 
 /** The views. Kanban and Canvas are the Board view's two layouts (BoardBar.tsx), each with a
  *  chord of its own; the sidebar lists the Board view once. */
-type View = 'sessions' | 'prs' | 'todo' | 'kanban' | 'canvas';
+type View = 'sessions' | 'prs' | 'todo' | 'schedules' | 'kanban' | 'canvas';
 const VIEWS: { id: View; label: string; icon: string }[] = [
   { id: 'sessions', label: 'Sessions', icon: 'terminal' },
   { id: 'prs', label: 'PRs', icon: 'pr' },
   { id: 'todo', label: 'Todo', icon: 'list-check' },
+  { id: 'schedules', label: 'Schedules', icon: 'calendar' },
   { id: 'kanban', label: 'Kanban', icon: 'layout-kanban' },
   { id: 'canvas', label: 'Canvas', icon: 'layout-grid' },
 ];
@@ -155,6 +161,7 @@ const READING: Record<View, string> = {
   sessions: 'Reading sessions…',
   prs: 'Reading repos…',
   todo: 'Reading todos…',
+  schedules: 'Reading schedules…',
   kanban: 'Reading todos…',
   canvas: 'Reading sessions…',
 };
@@ -163,6 +170,7 @@ const FIND_IN: Record<View, string> = {
   sessions: 'Find in sessions',
   prs: 'Find in PRs',
   todo: 'Find in todos',
+  schedules: 'Find in schedules',
   kanban: 'Find in todos and sessions',
   canvas: 'Find on the canvas',
 };
@@ -231,6 +239,9 @@ export function App() {
   }, []);
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // The Schedules view's selected schedule, and the one its dialog makes or changes.
+  const [scheduleId, setScheduleId] = useState<string | null>(null);
+  const [scheduleEdit, setScheduleEdit] = useState<Schedule | null>(null);
   // The session shown in Sessions as you moved it (menus.ts `moving`), and its copy's key once the
   // move says it: the panel holds it until the copy is listed, then shows the copy.
   const [moving, setMoving] = useState<{ from: SessionItem; to: string | null } | null>(null);
@@ -277,6 +288,7 @@ export function App() {
   const [prPanelWidth, setPrPanelWidth] = usePanelWidth(PR_PANEL_WIDTH_KEY);
   const [todoPanelWidth, setTodoPanelWidth] = usePanelWidth(TODO_PANEL_WIDTH_KEY);
   const [sessionPanelWidth, setSessionPanelWidth] = usePanelWidth(SESSION_PANEL_WIDTH_KEY);
+  const [schedulePanelWidth, setSchedulePanelWidth] = usePanelWidth(SCHEDULE_PANEL_WIDTH_KEY);
   const [showArchived, setShowArchived] = useState(false);
   // The sessions whose finished helpers Sessions lists under them too, as their chip's
   // double-click left them; remembered across launches.
@@ -945,6 +957,13 @@ export function App() {
       setDrill(null);
       setView(r.layout);
       if (r.focus?.length) setCanvasFocus((f) => ({ ids: r.focus ?? [], n: (f?.n ?? 0) + 1 }));
+      return;
+    }
+    // A schedule a session came from: the Schedules view, on it.
+    if (r.kind === 'schedule') {
+      setQuery('');
+      setView('schedules');
+      setScheduleId(r.id);
       return;
     }
     // A todo the quick panel found: the Todo view, in its project.
@@ -1765,9 +1784,36 @@ export function App() {
       menus.repoMenu({ name: g.lane.repo, slug: g.lane.repoSlugNow ?? g.lane.repoSlug }, { report, pin: { label: repoPins.set.has(g.key) ? 'Unpin repo' : 'Pin repo', run: () => repoPins.toggle(g.key) } }),
     ).catch((e: unknown) => setToast(String(e)));
 
+  // The Schedules view: its schedules, as the find narrows them, the one selected (the first,
+  // until one is picked), and what's done to them from its rows, panel and menus.
+  const shownSchedules = useMemo(() => {
+    const all = board?.schedules ?? [];
+    const words = query.trim().toLowerCase();
+    return words ? all.filter((x) => [x.name, x.whenWords, x.run.prompt].some((t) => t.toLowerCase().includes(words))) : all;
+  }, [board?.schedules, query]);
+  const selectedSchedule: ScheduleItem | null = shownSchedules.find((x) => x.id === scheduleId) ?? shownSchedules[0] ?? null;
+  const sessionTitle = (key: string) => homes.get(key)?.session.title ?? null;
+  const scheduleDone = (what: Promise<unknown>) => void what.catch((e: unknown) => setToast(errorText(e)));
+  const runSchedule = (x: ScheduleItem) => scheduleDone(scheduleOp({ op: 'run', id: x.id }).then(() => setToast(`“${x.name}” runs in a few seconds.`)));
+  const pauseSchedule = (x: ScheduleItem, paused: boolean) => scheduleDone(scheduleOp({ op: 'pause', id: x.id, paused }));
+  const newSchedule = () => setScheduleEdit(blankSchedule(selectedLane && !selectedLane.device ? selectedLane.path : ''));
+  const scheduleMenu = (x: ScheduleItem, at?: { x: number; y: number }) =>
+    void showContextMenu(
+      menus.scheduleMenu(x, {
+        report,
+        run: () => runSchedule(x),
+        edit: () => setScheduleEdit(scheduleOf(x)),
+        pause: (paused) => pauseSchedule(x, paused),
+        remove: () => scheduleDone(scheduleOp({ op: 'remove', id: x.id }).then(() => setToast(`Deleted “${x.name}”.`))),
+      }),
+      at,
+    ).catch((e: unknown) => setToast(String(e)));
+
   // Which panel is on the right, for its width: the view's own, or on the canvas the selected card's.
   const panelKind =
-    view === 'canvas'
+    view === 'schedules'
+      ? 'schedule'
+      : view === 'canvas'
       ? (canvasPick?.kind ?? null)
       : view === 'prs'
         ? 'pr'
@@ -1776,8 +1822,8 @@ export function App() {
           : (view === 'sessions' || view === 'kanban') && selected?.kind === 'agent'
             ? 'session'
             : 'lane';
-  const panelWidth = { pr: prPanelWidth, todo: todoPanelWidth, session: sessionPanelWidth, lane: inspectorWidth };
-  const setPanelWidth = { pr: setPrPanelWidth, todo: setTodoPanelWidth, session: setSessionPanelWidth, lane: setInspectorWidth };
+  const panelWidth = { pr: prPanelWidth, todo: todoPanelWidth, session: sessionPanelWidth, schedule: schedulePanelWidth, lane: inspectorWidth };
+  const setPanelWidth = { pr: setPrPanelWidth, todo: setTodoPanelWidth, session: setSessionPanelWidth, schedule: setSchedulePanelWidth, lane: setInspectorWidth };
   // The panel takes the whole window: one session's in Sessions, one PR's in PRs (⇧⌘F).
   const maxed = (panelKind === 'session' && view !== 'kanban' && panelMax && picks.sessions.rows.length === 0) || (view === 'prs' && selected?.kind === 'pr' && prPanelMax && picks.prs.rows.length === 0);
   // The worktree the preview URL sheet is for, as the latest board has it.
@@ -1792,6 +1838,8 @@ export function App() {
   const boardShowing = view === 'kanban' || view === 'canvas';
   const layoutShown = boardShowing ? view : lastLayout;
   const boardCount = layoutShown === 'canvas' ? (canvas.doc?.items.filter((it) => it.kind === 'ref').length ?? '') : openCardCount;
+  // The schedules that aren't paused, for the sidebar's count.
+  const activeSchedules = (board?.schedules ?? []).filter((x) => !x.paused).length;
   const sideViews = views.filter((v) => v.id !== 'canvas').map((v) => {
     const board = v.id === 'kanban';
     return {
@@ -1805,6 +1853,8 @@ export function App() {
           ? shownSessionCount
           : v.id === 'todo'
             ? openTodoCount
+            : v.id === 'schedules'
+              ? activeSchedules
             : board
               ? isProjects(shownBoard)
                 ? boardCount
@@ -1836,7 +1886,7 @@ export function App() {
     { id: 'review', label: 'In review', icon: 'pr', count: counts.review },
     { id: 'work', label: 'PR needs work', glyph: 'error', count: counts.work, tone: 'alert', title: 'Open PRs with failing checks or changes requested' },
   ];
-  const ageApplies = view !== 'todo' && view !== 'canvas';
+  const ageApplies = view !== 'todo' && view !== 'canvas' && view !== 'schedules';
   // The facets the view offers, and the picks among them that narrow it now, by their names.
   const sideFacets = facetsIn(view).map((id) => ({ id, label: FACET_WORD[id], options: facetOptions[id], picked: facets[id] ?? NO_PICKS }));
   const facetsNow = Object.fromEntries(facetsOn(facets, view).map((id) => [id, facets[id]])) as Facets;
@@ -2002,7 +2052,7 @@ export function App() {
         }
       />
       <div
-        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel', reading && 'is-loading')}
+        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'schedule' && 'is-schedule', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel', reading && 'is-loading')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <Sidebar
@@ -2156,7 +2206,20 @@ export function App() {
               fitMatches={canvasFit}
             />
           )}
-          {view !== 'canvas' && !loading && (
+          {view === 'schedules' && board && !loading && (
+            <SchedulesView
+              items={shownSchedules}
+              problem={board.schedulesProblem}
+              now={now}
+              selectedId={selectedSchedule?.id ?? null}
+              sessionTitle={sessionTitle}
+              onSelect={setScheduleId}
+              onEdit={(item) => setScheduleEdit(scheduleOf(item))}
+              onMenu={scheduleMenu}
+              onNew={newSchedule}
+            />
+          )}
+          {view !== 'canvas' && view !== 'schedules' && !loading && (
           <div
             role="listbox"
             aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : 'Todos and sessions'}
@@ -2393,6 +2456,19 @@ export function App() {
             setPreviewFor={setPreviewFor}
             markSeen={markSeen}
             setToast={setToast}
+            showSchedule={(id) => reveal.current({ kind: 'schedule', id })}
+            schedulePanel={
+              <SchedulePanel
+                item={selectedSchedule}
+                now={now}
+                sessionOf={(key) => homes.get(key) ?? null}
+                onShowSession={showSessionFromPanel}
+                onRun={() => selectedSchedule && runSchedule(selectedSchedule)}
+                onPause={(paused) => selectedSchedule && pauseSchedule(selectedSchedule, paused)}
+                onEdit={() => selectedSchedule && setScheduleEdit(scheduleOf(selectedSchedule))}
+                onMenu={(at) => selectedSchedule && scheduleMenu(selectedSchedule, at)}
+              />
+            }
           />
         )}
       </div>
@@ -2438,6 +2514,7 @@ export function App() {
       {cleaning && <CleanUpDialog lanes={cleaning} onClose={() => setCleaning(null)} onDone={setToast} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
       {mergingDone && <MergeDoneDialog ask={mergingDone} onClose={() => setMergingDone(null)} />}
+      {scheduleEdit && board && <ScheduleDialog schedule={scheduleEdit} board={board} now={now} onClose={() => setScheduleEdit(null)} onSaved={setScheduleId} />}
       {boardEdit && <BoardDialog board={boardEdit.board} project={current} onSave={saveBoard} onClose={() => setBoardEdit(null)} {...ruleChoices} />}
       {columnEdit && <ColumnDialog column={columnEdit.column} onSave={saveColumn} onClose={() => setColumnEdit(null)} {...ruleChoices} />}
       <Toasts state={toasts} anchor={toastAnchor} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />

@@ -89,6 +89,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: TodoCmd,
     },
+    /// Schedules: a session Codealong starts, or a message it sends a session, at times (`weekdays 9:00`, `every 2h`), when a command it runs every so often prints something new (a watch), when something happens on the board (a PR merges, a PR's checks fail, a todo is ready), or when fired from a script (`schedule fire`). They run in the app, which lists them in its Schedules view with each one's runs. What's watched costs no usage: an agent runs only once something happens.
+    Schedule {
+        #[command(subcommand)]
+        cmd: ScheduleCmd,
+    },
     /// Sessions on the board: every agent, live or not, with its status and where it works. Lists by default; `find` searches.
     Sessions(SessionsArgs),
     /// One session: in full (`show`: status, excerpt, folder, branch, PR, how to resume it, and where its own records are), its conversation (`transcript`), replies suggested for its user to send with a click (`suggest`), in the Codealong app (`open`), a message to it where it runs (`send`), what it waits on its user for (`pending`) and denying it (`answer`), stopping its turn (`stop`), naming it (`rename`) and forking it into the background (`fork`).
@@ -1149,6 +1154,142 @@ struct StartArgs {
     dry_run: bool,
 }
 
+#[derive(Subcommand, Debug)]
+enum ScheduleCmd {
+    /// Every schedule: when it runs, what it does, when it runs next, and how its last run went.
+    List,
+    /// One schedule in full, with its latest runs: when, why, how each went, and the session it started or sent to.
+    Show { schedule: String },
+    /// A new schedule. Say when it runs (--at, --watch, --on or --when-fired) and what it's told (--prompt). Made by an agent, what it sends goes as Codealong's, not as your user's, and its sessions are the agent's own (`Started by`). Prints it.
+    Add(ScheduleAddArgs),
+    /// Remove a schedule, and what's noted of its runs.
+    Remove { schedule: String },
+    /// Pause a schedule: nothing runs it until it's resumed, and its times that pass meanwhile aren't run then.
+    Pause { schedule: String },
+    /// Resume a paused schedule.
+    Resume { schedule: String },
+    /// Run a schedule now, as its time coming would, paused or not. It runs in the app, within a few seconds, or once the app opens.
+    Run { schedule: String },
+    /// Ask a schedule to run because something happened: the last step of a deploy script, a git hook, another program. --key says what it's for (a deploy's id), so it runs once for each, however often it's fired; --title and --text go to the session as what happened, as data. It runs in the app, within a few seconds, or once the app opens.
+    Fire(ScheduleFireArgs),
+    /// What a time like `weekdays 9:00` reads as, and when it comes next. Times are written `weekdays 9:00`, `mon,thu 10:30`, `daily 6pm`, `every 2h`, `every 30m weekdays 09:00-18:00`, `monthly 1 9:00`, `monthly last 17:00`, `once 2026-10-21 15:00`, or `cron 0 9 * * 1-5`.
+    Times { rule: Vec<String> },
+}
+
+#[derive(Args, Debug)]
+struct ScheduleAddArgs {
+    /// Its name, which `schedule show`, `run` and `fire` take as well as its id.
+    name: String,
+    /// At these times (see `schedule times`): `weekdays 9:00`, `every 2h`, `cron 0 9 * * 1-5`.
+    #[arg(long, conflicts_with_all = ["watch", "on", "when_fired"])]
+    at: Option<String>,
+    /// When this command, run every --every through your login shell in the schedule's worktree, prints a line it hasn't printed before (each line is one thing, by its words, or a JSON object with an `id`, and `title`, `url`, `text`). Its first run only notes what's there. It's told `CODEALONG_SINCE` (its last good look, ISO 8601) and `CODEALONG_STATE_DIR` (a folder of its own). A command that fails looks less often until it works.
+    #[arg(long, allow_hyphen_values = true, conflicts_with_all = ["on", "when_fired"])]
+    watch: Option<String>,
+    /// How often the watch looks: `5m`, `1h`; at most once a minute.
+    #[arg(long, default_value = "5m", requires = "watch")]
+    every: String,
+    /// The watch's whole output is one value (the latest deploy's id), run for whenever it changes, rather than each line.
+    #[arg(long, requires = "watch")]
+    value: bool,
+    /// When this happens on the board, after the schedule is made.
+    #[arg(long, value_enum, conflicts_with = "when_fired")]
+    on: Option<ScheduleEventArg>,
+    /// With --on pr-merged or checks-failed: only in this repo (owner/name).
+    #[arg(long, requires = "on")]
+    repo: Option<String>,
+    /// With --on pr-merged or checks-failed: only your own PRs.
+    #[arg(long, requires = "on")]
+    mine: bool,
+    /// With --on todo-ready: only a todo with this label. A new session is linked to the todo and told it.
+    #[arg(long, requires = "on")]
+    label: Option<String>,
+    /// Only when it's fired (`schedule fire`, or Run now in the app).
+    #[arg(long)]
+    when_fired: bool,
+    /// What it's told each run.
+    #[arg(long, allow_hyphen_values = true)]
+    prompt: Option<String>,
+    /// The prompt from a file, or from stdin with `-`.
+    #[arg(long, conflicts_with = "prompt")]
+    prompt_file: Option<String>,
+    /// Keep one session going: the first run starts it, and each later one is sent to it (once its turn ends, if it's at work), going on out of sight with it if it stopped.
+    #[arg(long, conflicts_with = "to")]
+    thread: bool,
+    /// With --thread: start a new session once its session started this long ago (`1d`, `12h`), so it doesn't carry weeks of runs.
+    #[arg(long, requires = "thread")]
+    fresh_after: Option<String>,
+    /// Send each run to this session instead of starting one: its key, or `me` for the session running this command.
+    #[arg(long)]
+    to: Option<String>,
+    /// The worktree its sessions start in: a path, or `.` (the default).
+    #[arg(long, default_value = ".")]
+    worktree: String,
+    /// Have Claude Code make a fresh worktree for each session (`claude --worktree`).
+    #[arg(long)]
+    new_worktree: bool,
+    /// Start its sessions in no project, each in a folder of its own among Codealong's chats.
+    #[arg(long, conflicts_with_all = ["new_worktree"])]
+    chat: bool,
+    /// The account or routing group its sessions start on, picked again at each run; `auto` (the default) picks as the quick panel does.
+    #[arg(long, default_value = "auto")]
+    account: String,
+    /// A model to start on.
+    #[arg(long)]
+    model: Option<String>,
+    /// How hard Claude Code thinks.
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(start::effort_levels()))]
+    effort: Option<String>,
+    /// Where its sessions run. Without it, out of sight: Claude Code's background service, else in Codealong, else a terminal behind your windows.
+    #[arg(long = "in", value_enum)]
+    place: Option<PlaceArg>,
+    /// Only when this command, run first in its worktree, succeeds and prints something; what it printed goes to the session with the rest.
+    #[arg(long, allow_hyphen_values = true)]
+    only_if: Option<String>,
+    /// Its sessions are quiet: a turn they end isn't Your turn, and they wait on your user only when they need them.
+    #[arg(long)]
+    quiet: bool,
+    /// Tell each run of a notes file in the schedule's own folder, to read first and add to, so a new session each time still knows what the last ones found.
+    #[arg(long)]
+    notes: bool,
+    /// Start another session while the last one is still at work or waiting on your user, rather than skip the run.
+    #[arg(long)]
+    allow_overlap: bool,
+    /// Skip a time missed while the Mac slept or the app was closed, rather than run the latest one once it's back.
+    #[arg(long)]
+    skip_missed: bool,
+    /// The most runs a day.
+    #[arg(long)]
+    per_day: Option<u32>,
+    /// Add it paused.
+    #[arg(long)]
+    paused: bool,
+}
+
+#[derive(Args, Debug)]
+struct ScheduleFireArgs {
+    schedule: String,
+    /// What it's for, so it runs once for it however often it's fired: a deploy's id, a commit.
+    #[arg(long)]
+    key: Option<String>,
+    /// What happened, in a line.
+    #[arg(long, allow_hyphen_values = true)]
+    title: Option<String>,
+    /// More of what happened, for the session to read: the text, or `-` for stdin.
+    #[arg(long, allow_hyphen_values = true)]
+    text: Option<String>,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
+enum ScheduleEventArg {
+    /// A PR the board lists merges.
+    PrMerged,
+    /// An open PR's checks fail at a commit.
+    ChecksFailed,
+    /// A todo is ready to start: not started, and waiting on nothing.
+    TodoReady,
+}
+
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
 enum PlaceArg {
     Terminal,
@@ -1540,6 +1681,7 @@ fn run(cmd: Cmd, c: &mut Client, json: bool) -> Result<()> {
         Cmd::Tokens { days, account, by } => tokens(c, days, account.as_deref(), by, json),
         Cmd::Whoami { context } => whoami(c, context, json),
         Cmd::Todo { cmd } => todo(cmd, c, json),
+        Cmd::Schedule { cmd } => schedule(cmd, c, json),
         Cmd::Sessions(args) => match args.cmd {
             Some(SessionsCmd::Find { query, filter }) => sessions(c, &filter, &query, json),
             Some(SessionsCmd::CloseIdle { after, archive, dry_run }) => close_idle(c, &after, archive, dry_run, json),
@@ -4828,6 +4970,189 @@ fn with_attachments(mut text: String, files: &[String]) -> Result<String> {
     Ok(text)
 }
 
+// ---- schedule ----
+
+fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
+    use crate::schedules::{self, rule::Local, Op};
+    let now = now_ms();
+    let op = match cmd {
+        ScheduleCmd::List => {
+            let items = schedule_items(c)?;
+            if json {
+                return print_json(&items);
+            }
+            let board = c.board()?.clone();
+            let rows = items
+                .iter()
+                .map(|i| {
+                    let next = match (i.schedule.paused, i.next_at) {
+                        (true, _) => "paused".to_string(),
+                        (_, Some(at)) => schedules::clock_text(at, &Local),
+                        _ => String::new(),
+                    };
+                    let last = i.runs.first().map(|r| format!("{:?} {}", r.outcome, ago(now - r.at)).to_lowercase()).unwrap_or_default();
+                    vec![i.schedule.name.clone(), i.when_words.clone(), schedules::does_words(&i.schedule, &board), next, i.problem.clone().unwrap_or(last)]
+                })
+                .collect();
+            print!("{}", table_text(&["NAME", "WHEN", "DOES", "NEXT", "LAST RUN"], rows));
+            return Ok(());
+        }
+        ScheduleCmd::Show { schedule } => {
+            let items = schedule_items(c)?;
+            let item = items.iter().find(|i| i.schedule.id == schedule.trim()).or_else(|| items.iter().find(|i| i.schedule.name.eq_ignore_ascii_case(schedule.trim()))).ok_or_else(|| anyhow!("There's no schedule named {schedule}. `codealong schedule list` lists them."))?;
+            if json {
+                return print_json(item);
+            }
+            let board = c.board()?.clone();
+            println!("{} ({})", item.schedule.name, item.schedule.id);
+            println!("When: {}{}", item.when_words, if item.schedule.paused { " (paused)" } else { "" });
+            println!("Does: {}", schedules::does_words(&item.schedule, &board));
+            if let Some(at) = item.next_at {
+                println!("Next: {}", schedules::clock_text(at, &Local));
+            }
+            if let Some(p) = &item.problem {
+                println!("Can't run: {p}");
+            }
+            if let Some(check) = &item.check {
+                println!("Its watch: {} ({})", check.said, ago(now - check.at));
+            }
+            println!("Prompt: {}", item.schedule.run.prompt.trim());
+            for r in &item.runs {
+                let session = r.session.as_deref().map(|k| format!(" · {k}")).unwrap_or_default();
+                println!("  {} · {} · {:?}{session}{}", schedules::clock_text(r.at, &Local), r.why, r.outcome, if r.said.is_empty() { String::new() } else { format!(" · {}", one_line(&r.said, 120)) });
+            }
+            return Ok(());
+        }
+        ScheduleCmd::Times { rule } => {
+            let times = schedules::times(&rule.join(" "), now, &Local);
+            if json {
+                return print_json(&times);
+            }
+            if let Some(p) = &times.problem {
+                bail!("{p}");
+            }
+            println!("{}", times.words);
+            for t in &times.next {
+                println!("  {}", schedules::clock_text(*t, &Local));
+            }
+            return Ok(());
+        }
+        ScheduleCmd::Add(a) => Op::Save { schedule: schedule_from(c, a)? },
+        ScheduleCmd::Remove { schedule } => Op::Remove { id: schedule },
+        ScheduleCmd::Pause { schedule } => Op::Pause { id: schedule, paused: true },
+        ScheduleCmd::Resume { schedule } => Op::Pause { id: schedule, paused: false },
+        ScheduleCmd::Run { schedule } => Op::Run { id: schedule },
+        ScheduleCmd::Fire(f) => {
+            let text = match f.text.as_deref() {
+                Some("-") => read_text(None, Some("-".into()))?.unwrap_or_default(),
+                other => other.unwrap_or_default().to_string(),
+            };
+            Op::Fire { id: f.schedule, key: f.key.unwrap_or_default(), title: f.title.unwrap_or_default(), text }
+        }
+    };
+    let asks_to_run = matches!(op, Op::Run { .. } | Op::Fire { .. });
+    let by = match &op {
+        Op::Save { schedule } if schedule.id.is_empty() => find_me(c)?.0,
+        _ => None,
+    };
+    let cfg = c.cfg()?.clone();
+    let done = schedules::apply_op(op, by.as_deref(), &cfg, now, &Local)?;
+    if json {
+        return print_json(&done);
+    }
+    let name = done.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
+    match () {
+        _ if asks_to_run && c.app.is_none() => println!("Asked. Codealong isn't running: it runs once the app opens."),
+        _ if asks_to_run => println!("Asked: it runs within a few seconds. `codealong schedule show` has how it went."),
+        _ if done.get("removed").is_some() => println!("Removed."),
+        _ => {
+            let item = schedule_items(c)?.into_iter().find(|i| i.schedule.name == name);
+            let next = item.as_ref().and_then(|i| i.next_at).map(|at| format!(" Next: {}.", schedules::clock_text(at, &Local))).unwrap_or_default();
+            let paused = if done.get("paused").and_then(Value::as_bool) == Some(true) { " It's paused." } else { "" };
+            println!("{name}: {}.{next}{paused}", item.map(|i| i.when_words).unwrap_or_default());
+            if c.app.is_none() {
+                println!("Codealong isn't running: schedules run in the app.");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The schedules with what's happened to them, as the app's Schedules view has them.
+fn schedule_items(c: &mut Client) -> Result<Vec<crate::schedules::Item>> {
+    let (file, runs) = (crate::schedules::load()?, crate::schedules::load_runs()?);
+    let cfg = c.cfg()?.clone();
+    let board = c.board()?;
+    Ok(crate::schedules::items(&file, &runs, board, &cfg, now_ms(), &crate::schedules::rule::Local))
+}
+
+/// A schedule from `schedule add`'s arguments.
+fn schedule_from(c: &mut Client, a: ScheduleAddArgs) -> Result<crate::schedules::Schedule> {
+    use crate::schedules::{CatchUp, Event, Overlap, Run, Schedule, To, WatchMode, When};
+    let when = match (a.at, a.watch, a.on, a.when_fired) {
+        (Some(rule), _, _, _) => When::Time { rule },
+        (_, Some(command), _, _) => When::Watch { command, every: a.every, mode: if a.value { WatchMode::Value } else { WatchMode::Lines } },
+        (_, _, Some(on), _) => When::Event {
+            event: match on {
+                ScheduleEventArg::PrMerged => Event::PrMerged,
+                ScheduleEventArg::ChecksFailed => Event::ChecksFailed,
+                ScheduleEventArg::TodoReady => Event::TodoReady,
+            },
+            repo: a.repo.unwrap_or_default(),
+            label: a.label.unwrap_or_default(),
+            mine: a.mine,
+        },
+        (_, _, _, true) => When::Fired,
+        _ => bail!("Say when it runs: --at <time>, --watch <command>, --on <event> or --when-fired."),
+    };
+    let prompt = read_text(a.prompt, a.prompt_file)?.unwrap_or_default();
+    let (to, session) = match a.to.as_deref().map(str::trim) {
+        Some("me") => match find_me(c)?.0 {
+            Some(me) => (To::Session, me),
+            None => bail!("No session runs this command, so there's no `me` to send to. Give a session's key."),
+        },
+        Some(key) => {
+            if !all_sessions(c.board()?).iter().any(|(s, _)| s.key == key) {
+                bail!("There's no session {key}. `codealong sessions` lists them.");
+            }
+            (To::Session, key.to_string())
+        }
+        None if a.thread => (To::Thread, String::new()),
+        None => (To::New, String::new()),
+    };
+    let folder = if a.chat || to == To::Session {
+        String::new()
+    } else {
+        let dir = std::fs::canonicalize(expand(&a.worktree)).unwrap_or_else(|_| expand(&a.worktree));
+        let lane = lane_for_path(c.board()?, &dir).ok_or_else(|| anyhow!("{} isn't in a worktree Codealong knows. Give one with --worktree, or --chat for no project.", tilde(&dir)))?;
+        lane.path.clone()
+    };
+    Ok(Schedule {
+        name: a.name,
+        paused: a.paused,
+        when,
+        only_if: a.only_if.unwrap_or_default(),
+        run: Run {
+            to,
+            session,
+            folder,
+            worktree: a.new_worktree,
+            account: if a.account == "auto" { String::new() } else { a.account },
+            model: a.model,
+            effort: a.effort,
+            place: a.place.map(place_of),
+            prompt,
+            fresh_after: a.fresh_after.unwrap_or_default(),
+        },
+        quiet: a.quiet,
+        overlap: if a.allow_overlap { Overlap::Allow } else { Overlap::Skip },
+        catch_up: if a.skip_missed { CatchUp::Skip } else { CatchUp::Once },
+        per_day: a.per_day,
+        notes: a.notes,
+        ..Schedule::default()
+    })
+}
+
 fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
     match cmd {
         TodoCmd::List(a) => todo_list(c, &a, json),
@@ -5261,48 +5586,6 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
 
 // ---- start ----
 
-/// What a session started on a todo is asked: the title, the description, then which todo it
-/// is, so the agent can mark it done, and its primary session (`primary_line`). `holding` says
-/// whether that session still has it. `todoPrompt` in `src/todos.ts` writes the same text.
-fn todo_prompt(t: &Todo, holding: bool) -> String {
-    let footer = format!("This is Codealong todo {id}. When it's ready for me to review, say so with `codealong todo review {id}`. When the work is merged or I say it's done, mark it done with `codealong todo done {id}`.", id = t.id);
-    let primary = primary_line(t, holding).unwrap_or_default();
-    [t.title.trim(), t.description.trim(), &footer, &primary].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("\n\n")
-}
-
-/// What a session started on a todo is told of the todo's primary session: that it's running,
-/// so this one sends it what it finds; or that it had the todo before, where its work is.
-/// `primaryLine` in `src/todos.ts` writes the same text.
-fn primary_line(t: &Todo, holding: bool) -> Option<String> {
-    let key = &t.primary.as_ref()?.session;
-    Some(match holding {
-        true => format!("{id}'s primary session is {key}, which is running: send it what you find with `codealong session send {key} \"…\"` rather than do the same work.", id = t.id),
-        false => format!("Session {key} had {id} before you: `codealong session show {key}` has its records.", id = t.id),
-    })
-}
-
-/// What one session started on several todos is asked: each one's title and description,
-/// numbered, then which todos they are, and their primary sessions. One todo is `todo_prompt`'s.
-/// `todosPrompt` in `src/todos.ts` writes the same text.
-fn todos_prompt(ts: &[&Todo], holding: impl Fn(&Todo) -> bool) -> String {
-    if let [t] = ts {
-        return todo_prompt(t, holding(t));
-    }
-    let mut parts = vec![format!("Work on these {} todos:", ts.len())];
-    for (i, t) in ts.iter().enumerate() {
-        let title = t.title.trim();
-        parts.push(format!("{}. {}", i + 1, if title.is_empty() { "Untitled" } else { title }));
-        if !t.description.trim().is_empty() {
-            parts.push(t.description.trim().to_string());
-        }
-    }
-    let ids: Vec<String> = ts.iter().enumerate().map(|(i, t)| format!("{} ({})", t.id, i + 1)).collect();
-    let (last, rest) = ids.split_last().map(|(l, r)| (l.clone(), r.join(", "))).unwrap_or_default();
-    parts.push(format!("These are Codealong todos {rest} and {last}. When one is ready for me to review, say so with `codealong todo review <id>`. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`."));
-    parts.extend(ts.iter().filter_map(|t| primary_line(t, holding(t))));
-    parts.join("\n\n")
-}
-
 fn place_of(p: PlaceArg) -> Place {
     match p {
         PlaceArg::Terminal => Place::Terminal,
@@ -5362,7 +5645,7 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
             let now = now_ms();
             // Taken over, its primary session is the one that had it before.
             let holding = |t: &Todo| !taken.iter().any(|(id, _)| id == &t.id) && t.primary.as_ref().is_some_and(|p| todos::holds(p, &lanes, now));
-            (todos_prompt(&ts, holding), ids)
+            (todos::prompt_for(&ts, holding), ids)
         }
     };
     let cfg = c.cfg()?.clone();
@@ -6488,9 +6771,9 @@ mod tests {
         let (a, b, c) = (t("t-a", " Fix the header ", "\nIt wraps.\n"), t("t-b", "Add a logout button", ""), t("t-c", "", "No title."));
         // The same text as `todosPrompt`'s test in src/todos.test.ts.
         let footer = "When one is ready for me to review, say so with `codealong todo review <id>`. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
-        assert_eq!(todos_prompt(&[&a, &b], |_| false), format!("Work on these 2 todos:\n\n1. Fix the header\n\nIt wraps.\n\n2. Add a logout button\n\nThese are Codealong todos t-a (1) and t-b (2). {footer}"));
-        assert!(todos_prompt(&[&a, &b, &c], |_| false).contains("3. Untitled\n\nNo title.\n\nThese are Codealong todos t-a (1), t-b (2) and t-c (3)."));
-        assert_eq!(todos_prompt(&[&a], |_| false), todo_prompt(&a, false));
+        assert_eq!(todos::prompt_for(&[&a, &b], |_| false), format!("Work on these 2 todos:\n\n1. Fix the header\n\nIt wraps.\n\n2. Add a logout button\n\nThese are Codealong todos t-a (1) and t-b (2). {footer}"));
+        assert!(todos::prompt_for(&[&a, &b, &c], |_| false).contains("3. Untitled\n\nNo title.\n\nThese are Codealong todos t-a (1), t-b (2) and t-c (3)."));
+        assert_eq!(todos::prompt_for(&[&a], |_| false), todos::prompt(&a, false));
         let cli = Cli::try_parse_from(["codealong", "start", "--todo", "t-a", "--todo", "t-b"]).unwrap();
         let Cmd::Start(s) = cli.cmd else { panic!() };
         assert_eq!(s.todo, vec!["t-a".to_string(), "t-b".to_string()]);
@@ -6633,13 +6916,13 @@ mod tests {
         let footer = "This is Codealong todo t-a. When it's ready for me to review, say so with `codealong todo review t-a`. When the work is merged or I say it's done, mark it done with `codealong todo done t-a`.";
         // One that runs gets what this one finds; one that stopped left its records.
         assert_eq!(
-            todo_prompt(&a, true),
+            todos::prompt(&a, true),
             format!("Fix the header\n\n{footer}\n\nt-a's primary session is claude:claude:s1, which is running: send it what you find with `codealong session send claude:claude:s1 \"…\"` rather than do the same work.")
         );
-        assert_eq!(todo_prompt(&a, false), format!("Fix the header\n\n{footer}\n\nSession claude:claude:s1 had t-a before you: `codealong session show claude:claude:s1` has its records."));
+        assert_eq!(todos::prompt(&a, false), format!("Fix the header\n\n{footer}\n\nSession claude:claude:s1 had t-a before you: `codealong session show claude:claude:s1` has its records."));
         // A todo no session has been on says nothing of one.
-        assert!(!todo_prompt(&b, false).contains("session "));
-        assert!(todos_prompt(&[&b, &a], |t| t.id == "t-a").ends_with("t-a's primary session is claude:claude:s1, which is running: send it what you find with `codealong session send claude:claude:s1 \"…\"` rather than do the same work."));
+        assert!(!todos::prompt(&b, false).contains("session "));
+        assert!(todos::prompt_for(&[&b, &a], |t| t.id == "t-a").ends_with("t-a's primary session is claude:claude:s1, which is running: send it what you find with `codealong session send claude:claude:s1 \"…\"` rather than do the same work."));
         let cli = Cli::try_parse_from(["codealong", "todo", "start", "t-a", "--take"]).unwrap();
         let Cmd::Todo { cmd: TodoCmd::Start { take, .. }, .. } = cli.cmd else { panic!() };
         assert!(take);

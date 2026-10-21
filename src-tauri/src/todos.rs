@@ -932,6 +932,48 @@ impl TodoStore {
     }
 }
 
+/// What a session started on a todo is asked: the title, the description, then which todo it
+/// is, so the agent can mark it done, and its primary session (`primary_line`). `holding` says
+/// whether that session still has it. `todoPrompt` in `src/todos.ts` writes the same text.
+pub fn prompt(t: &Todo, holding: bool) -> String {
+    let footer = format!("This is Codealong todo {id}. When it's ready for me to review, say so with `codealong todo review {id}`. When the work is merged or I say it's done, mark it done with `codealong todo done {id}`.", id = t.id);
+    let primary = primary_line(t, holding).unwrap_or_default();
+    [t.title.trim(), t.description.trim(), &footer, &primary].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("\n\n")
+}
+
+/// What a session started on a todo is told of the todo's primary session: that it's running,
+/// so this one sends it what it finds; or that it had the todo before, where its work is.
+/// `primaryLine` in `src/todos.ts` writes the same text.
+fn primary_line(t: &Todo, holding: bool) -> Option<String> {
+    let key = &t.primary.as_ref()?.session;
+    Some(match holding {
+        true => format!("{id}'s primary session is {key}, which is running: send it what you find with `codealong session send {key} \"…\"` rather than do the same work.", id = t.id),
+        false => format!("Session {key} had {id} before you: `codealong session show {key}` has its records.", id = t.id),
+    })
+}
+
+/// What one session started on several todos is asked: each one's title and description,
+/// numbered, then which todos they are, and their primary sessions. One todo is `prompt`'s.
+/// `todosPrompt` in `src/todos.ts` writes the same text.
+pub fn prompt_for(ts: &[&Todo], holding: impl Fn(&Todo) -> bool) -> String {
+    if let [t] = ts {
+        return prompt(t, holding(t));
+    }
+    let mut parts = vec![format!("Work on these {} todos:", ts.len())];
+    for (i, t) in ts.iter().enumerate() {
+        let title = t.title.trim();
+        parts.push(format!("{}. {}", i + 1, if title.is_empty() { "Untitled" } else { title }));
+        if !t.description.trim().is_empty() {
+            parts.push(t.description.trim().to_string());
+        }
+    }
+    let ids: Vec<String> = ts.iter().enumerate().map(|(i, t)| format!("{} ({})", t.id, i + 1)).collect();
+    let (last, rest) = ids.split_last().map(|(l, r)| (l.clone(), r.join(", "))).unwrap_or_default();
+    parts.push(format!("These are Codealong todos {rest} and {last}. When one is ready for me to review, say so with `codealong todo review <id>`. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`."));
+    parts.extend(ts.iter().filter_map(|t| primary_line(t, holding(t))));
+    parts.join("\n\n")
+}
+
 /// The todos `t` waits on that aren't done yet, in its order, among `todos`. Deleted ones don't
 /// count.
 pub fn blocked_by<'a>(t: &Todo, todos: &'a [Todo]) -> Vec<&'a Todo> {

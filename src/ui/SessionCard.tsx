@@ -16,7 +16,7 @@
 // (MergeDone.tsx) for every one of them, for its menus and its header.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { openUrl, setPinned } from '../api';
+import { openUrl, setPinned, showMain } from '../api';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons } from '../editors';
 import * as menus from '../menus';
@@ -166,6 +166,8 @@ export function SessionCard({ lane, session, apps, now, board, can, canFor, outg
       todos={context.todos}
       onShowTodo={onShowTodo}
       lineage={context.lineage}
+      schedule={context.schedule}
+      onShowSchedule={(id) => void showMain({ kind: 'schedule', id })}
       onShowSession={onShowSession}
       onSessionMenu={(l, s) => show(menus.sessionMenu(l, s, whole(s, canFor(l, s))))}
       dialog={mergingDone && <MergeDoneDialog ask={mergingDone} onClose={() => setMergingDone(null)} />}

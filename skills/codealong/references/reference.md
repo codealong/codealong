@@ -37,6 +37,13 @@ Commands:
              status (todo, in-progress, done) and the worktrees and sessions that took
              it on. The app lists open ones under In progress, In review, Ready and
              Waiting
+  schedule   Schedules: a session Codealong starts, or a message it sends a session, at
+             times (`weekdays 9:00`, `every 2h`), when a command it runs every so often
+             prints something new (a watch), when something happens on the board (a PR
+             merges, a PR's checks fail, a todo is ready), or when fired from a script
+             (`schedule fire`). They run in the app, which lists them in its Schedules
+             view with each one's runs. What's watched costs no usage: an agent runs
+             only once something happens
   sessions   Sessions on the board: every agent, live or not, with its status and where
              it works. Lists by default; `find` searches
   session    One session: in full (`show`: status, excerpt, folder, branch, PR, how to
@@ -910,6 +917,427 @@ Usage: codealong todo labels remove [OPTIONS] <NAME>
 
 Arguments:
   <NAME>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong schedule
+
+```
+Schedules: a session Codealong starts, or a message it sends a session, at times
+(`weekdays 9:00`, `every 2h`), when a command it runs every so often prints something
+new (a watch), when something happens on the board (a PR merges, a PR's checks fail, a
+todo is ready), or when fired from a script (`schedule fire`). They run in the app,
+which lists them in its Schedules view with each one's runs. What's watched costs no
+usage: an agent runs only once something happens
+
+Usage: codealong schedule [OPTIONS] <COMMAND>
+
+Commands:
+  list    Every schedule: when it runs, what it does, when it runs next, and how its
+          last run went
+  show    One schedule in full, with its latest runs: when, why, how each went, and the
+          session it started or sent to
+  add     A new schedule. Say when it runs (--at, --watch, --on or --when-fired) and
+          what it's told (--prompt). Made by an agent, what it sends goes as
+          Codealong's, not as your user's, and its sessions are the agent's own
+          (`Started by`). Prints it
+  remove  Remove a schedule, and what's noted of its runs
+  pause   Pause a schedule: nothing runs it until it's resumed, and its times that pass
+          meanwhile aren't run then
+  resume  Resume a paused schedule
+  run     Run a schedule now, as its time coming would, paused or not. It runs in the
+          app, within a few seconds, or once the app opens
+  fire    Ask a schedule to run because something happened: the last step of a deploy
+          script, a git hook, another program. --key says what it's for (a deploy's id),
+          so it runs once for each, however often it's fired; --title and --text go to
+          the session as what happened, as data. It runs in the app, within a few
+          seconds, or once the app opens
+  times   What a time like `weekdays 9:00` reads as, and when it comes next. Times are
+          written `weekdays 9:00`, `mon,thu 10:30`, `daily 6pm`, `every 2h`, `every 30m
+          weekdays 09:00-18:00`, `monthly 1 9:00`, `monthly last 17:00`, `once
+          2026-10-21 15:00`, or `cron 0 9 * * 1-5`
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong schedule list
+
+```
+Every schedule: when it runs, what it does, when it runs next, and how its last run went
+
+Usage: codealong schedule list [OPTIONS]
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong schedule show
+
+```
+One schedule in full, with its latest runs: when, why, how each went, and the session it
+started or sent to
+
+Usage: codealong schedule show [OPTIONS] <SCHEDULE>
+
+Arguments:
+  <SCHEDULE>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong schedule add
+
+```
+A new schedule. Say when it runs (--at, --watch, --on or --when-fired) and what it's
+told (--prompt). Made by an agent, what it sends goes as Codealong's, not as your
+user's, and its sessions are the agent's own (`Started by`). Prints it
+
+Usage: codealong schedule add [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          Its name, which `schedule show`, `run` and `fire` take as well as its id
+
+Options:
+      --at <AT>
+          At these times (see `schedule times`): `weekdays 9:00`, `every 2h`, `cron 0 9
+          * * 1-5`
+
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --watch <WATCH>
+          When this command, run every --every through your login shell in the
+          schedule's worktree, prints a line it hasn't printed before (each line is one
+          thing, by its words, or a JSON object with an `id`, and `title`, `url`,
+          `text`). Its first run only notes what's there. It's told `CODEALONG_SINCE`
+          (its last good look, ISO 8601) and `CODEALONG_STATE_DIR` (a folder of its
+          own). A command that fails looks less often until it works
+
+      --every <EVERY>
+          How often the watch looks: `5m`, `1h`; at most once a minute
+          
+          [default: 5m]
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+      --value
+          The watch's whole output is one value (the latest deploy's id), run for
+          whenever it changes, rather than each line
+
+      --on <ON>
+          When this happens on the board, after the schedule is made
+
+          Possible values:
+          - pr-merged:     A PR the board lists merges
+          - checks-failed: An open PR's checks fail at a commit
+          - todo-ready:    A todo is ready to start: not started, and waiting on nothing
+
+      --repo <REPO>
+          With --on pr-merged or checks-failed: only in this repo (owner/name)
+
+      --mine
+          With --on pr-merged or checks-failed: only your own PRs
+
+      --label <LABEL>
+          With --on todo-ready: only a todo with this label. A new session is linked to
+          the todo and told it
+
+      --when-fired
+          Only when it's fired (`schedule fire`, or Run now in the app)
+
+      --prompt <PROMPT>
+          What it's told each run
+
+      --prompt-file <PROMPT_FILE>
+          The prompt from a file, or from stdin with `-`
+
+      --thread
+          Keep one session going: the first run starts it, and each later one is sent to
+          it (once its turn ends, if it's at work), going on out of sight with it if it
+          stopped
+
+      --fresh-after <FRESH_AFTER>
+          With --thread: start a new session once its session started this long ago
+          (`1d`, `12h`), so it doesn't carry weeks of runs
+
+      --to <TO>
+          Send each run to this session instead of starting one: its key, or `me` for
+          the session running this command
+
+      --worktree <WORKTREE>
+          The worktree its sessions start in: a path, or `.` (the default)
+          
+          [default: .]
+
+      --new-worktree
+          Have Claude Code make a fresh worktree for each session (`claude --worktree`)
+
+      --chat
+          Start its sessions in no project, each in a folder of its own among
+          Codealong's chats
+
+      --account <ACCOUNT>
+          The account or routing group its sessions start on, picked again at each run;
+          `auto` (the default) picks as the quick panel does
+          
+          [default: auto]
+
+      --model <MODEL>
+          A model to start on
+
+      --effort <EFFORT>
+          How hard Claude Code thinks
+          
+          [possible values: low, medium, high, xhigh, max, ultra]
+
+      --in <PLACE>
+          Where its sessions run. Without it, out of sight: Claude Code's background
+          service, else in Codealong, else a terminal behind your windows
+
+          Possible values:
+          - terminal
+          - background: Nothing comes forward: Claude Code's background service, with no
+            terminal until you attach one; any other agent in a terminal opened behind
+            your windows
+          - claude-app
+          - codex-app
+          - codealong:  In Codealong itself, over the account's Agent Client Protocol
+            adapter. Needs the app running
+
+      --only-if <ONLY_IF>
+          Only when this command, run first in its worktree, succeeds and prints
+          something; what it printed goes to the session with the rest
+
+      --quiet
+          Its sessions are quiet: a turn they end isn't Your turn, and they wait on your
+          user only when they need them
+
+      --notes
+          Tell each run of a notes file in the schedule's own folder, to read first and
+          add to, so a new session each time still knows what the last ones found
+
+      --allow-overlap
+          Start another session while the last one is still at work or waiting on your
+          user, rather than skip the run
+
+      --skip-missed
+          Skip a time missed while the Mac slept or the app was closed, rather than run
+          the latest one once it's back
+
+      --per-day <PER_DAY>
+          The most runs a day
+
+      --paused
+          Add it paused
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## codealong schedule remove
+
+```
+Remove a schedule, and what's noted of its runs
+
+Usage: codealong schedule remove [OPTIONS] <SCHEDULE>
+
+Arguments:
+  <SCHEDULE>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong schedule pause
+
+```
+Pause a schedule: nothing runs it until it's resumed, and its times that pass meanwhile
+aren't run then
+
+Usage: codealong schedule pause [OPTIONS] <SCHEDULE>
+
+Arguments:
+  <SCHEDULE>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong schedule resume
+
+```
+Resume a paused schedule
+
+Usage: codealong schedule resume [OPTIONS] <SCHEDULE>
+
+Arguments:
+  <SCHEDULE>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong schedule run
+
+```
+Run a schedule now, as its time coming would, paused or not. It runs in the app, within
+a few seconds, or once the app opens
+
+Usage: codealong schedule run [OPTIONS] <SCHEDULE>
+
+Arguments:
+  <SCHEDULE>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong schedule fire
+
+```
+Ask a schedule to run because something happened: the last step of a deploy script, a
+git hook, another program. --key says what it's for (a deploy's id), so it runs once for
+each, however often it's fired; --title and --text go to the session as what happened,
+as data. It runs in the app, within a few seconds, or once the app opens
+
+Usage: codealong schedule fire [OPTIONS] <SCHEDULE>
+
+Arguments:
+  <SCHEDULE>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --key <KEY>
+          What it's for, so it runs once for it however often it's fired: a deploy's id,
+          a commit
+
+      --table
+          Tables, even when piped
+
+      --title <TITLE>
+          What happened, in a line
+
+      --text <TEXT>
+          More of what happened, for the session to read: the text, or `-` for stdin
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong schedule times
+
+```
+What a time like `weekdays 9:00` reads as, and when it comes next. Times are written
+`weekdays 9:00`, `mon,thu 10:30`, `daily 6pm`, `every 2h`, `every 30m weekdays
+09:00-18:00`, `monthly 1 9:00`, `monthly last 17:00`, `once 2026-10-21 15:00`, or `cron
+0 9 * * 1-5`
+
+Usage: codealong schedule times [OPTIONS] [RULE]...
+
+Arguments:
+  [RULE]...
           
 
 Options:

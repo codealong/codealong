@@ -238,6 +238,14 @@ pub struct Board {
     /// requests (autoreview.rs, nudges.rs). Not sent: the windows have `repos` and `team_files`.
     #[serde(skip)]
     pub repo_settings: crate::teamfile::RepoSettings,
+    /// The schedules (schedules.rs), with what happened to each, for the Schedules view. This
+    /// Mac's own: not sent to other devices.
+    #[serde(default)]
+    pub schedules: Vec<crate::schedules::Item>,
+    /// schedules.json or schedule-runs.json doesn't read: why, for the Schedules view, which shows
+    /// what they held before. Nothing writes over them meanwhile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedules_problem: Option<String>,
 }
 
 

@@ -57,6 +57,10 @@ and no server.
 - **Pull requests and todos beside the agents doing them.** Every PR is joined to the worktree
   and sessions behind it; review, approve and merge in place. Keep a todo list your agents can
   read and work through.
+- **Schedules.** Start a session, or message one, every weekday at 9, every two hours, whenever a
+  command you give it prints something new (a deploy went out), when a PR merges or a todo is
+  ready, or when a script fires it. Nothing is spent watching: an agent runs only when something
+  happens.
 - **Know where your plan limits stand.** Each account's limits (5-hour and weekly, or monthly
   where the plan counts by the month), always in view, and new work goes to the account with room.
 - **All your machines on one board.** Link them and see, and if you allow it act on, the sessions
@@ -356,6 +360,16 @@ to *In progress*, and the first session on it owns it, so a second agent started
 is told to send its findings to the first instead of redoing the work. Agents can read and update
 the list themselves with the `codealong` command.
 
+### Schedules
+
+Work that comes round by itself: a session started, or a message sent to one you keep going, at
+times you write in a few words (`weekdays 9:00`, `every 2h`, `monthly 1 9:00`), when a command it
+runs every few minutes prints something new (a deploy, a failing build, a new message), when a PR
+merges or a todo is ready, or when a script fires it (`codealong schedule fire`). Each run goes on
+the account, routing group or Auto you pick, picked again each time, and what it was for goes to
+the agent as a file to read, not as words of yours. The Schedules view (⇧⌘L) lists them with
+every run and how it went; a run missed while the Mac slept goes once it's back.
+
 ### Boards and the canvas
 
 <p align="center">
@@ -462,7 +476,7 @@ In Codealong:
 
 | Keys | What they do |
 | --- | --- |
-| ⇧⌘S · ⇧⌘P · ⇧⌘T · ⇧⌘K · ⇧⌘B | Sessions, PRs, Todo, the board as Kanban, as Canvas (with boards turned on) |
+| ⇧⌘S · ⇧⌘P · ⇧⌘T · ⇧⌘L · ⇧⌘K · ⇧⌘B | Sessions, PRs, Todo, Schedules, the board as Kanban, as Canvas (with boards turned on) |
 | ⌘P | Switch project (⌥⌘1 – ⌥⌘9 jump to one, ⌥⌘0 shows them all) |
 | ⌘K | The quick panel, in this window's project |
 | ⌘N / ⇧⌘N | New session / new window |
@@ -719,9 +733,9 @@ in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
   agents need. A pull request is merged only when you press Merge.
 - **Only you allow what an agent does.** Agents can see what another agent is waiting on, and deny
   it, but never allow it. With Codealong closed, your agents ask you the usual way.
-- **It acts only when you ask.** Codealong types into a session only what you send it. Mark as
-  done and Close idle sessions end only the sessions you pick, and their conversations stay, to
-  resume.
+- **It acts only when you ask.** Codealong types into a session only what you send it, or what
+  a schedule you made sends when its time comes. Mark as done and Close idle sessions end only the
+  sessions you pick, and their conversations stay, to resume.
 - **Sessions you start** open in a new terminal running the account's own command, with your
   prompt passed in the window's environment (`CODEALONG_PROMPT`), so nothing in it is typed or
   needs quoting. A session run *In Codealong* is a child of the app, allowed what the agent's own

@@ -25,7 +25,7 @@ import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from '
 import { rememberResumed, resumeAccount, resumedIn } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { reviewChange, STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
-import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Session, StartAccount, StartPlace, Started, Todo } from './types';
+import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Schedule, Session, StartAccount, StartPlace, Started, Todo } from './types';
 import { chordKeys as platformKeys, chordSigns as platformSigns, held as modsHeld } from './platform';
 import { mayApprove, prReady } from './prStatus';
 import { errorText, type Report } from './report';
@@ -1410,6 +1410,30 @@ export function todosMenu(ts: Todo[], can: Pick<TodoCan, 'report' | 'start' | 'e
     edit ? [...statusItems(ts, edit), ...waitingItems(ts, edit, report), ...reviewItems(ts, edit), dueItem(ts, edit)] : [],
     [copyPromptItem(ts, report), ...some(copyItem('Copy todo IDs', ts.map((t) => t.id).join(' '), 'todo IDs', report))],
     can.remove ? [{ label: `Delete ${ts.length} todos`, run: can.remove }] : [],
+  );
+}
+
+export interface ScheduleCan {
+  report: Report;
+  /** Run now: as its time coming would, paused or not. */
+  run: () => void;
+  /** Edit…: the dialog that changes it. */
+  edit: () => void;
+  pause: (paused: boolean) => void;
+  remove: () => void;
+}
+
+/** A schedule's menu, in its row and on its panel's ⋯: running it now, changing it, pausing or
+ *  resuming it, copying its id for `codealong schedule`, deleting it. */
+export function scheduleMenu(s: Pick<Schedule, 'id' | 'name' | 'paused'>, can: ScheduleCan): MenuSpec {
+  return sections(
+    [
+      { label: 'Run now', run: can.run },
+      { label: 'Edit…', run: can.edit },
+      { label: s.paused ? 'Resume' : 'Pause', run: () => can.pause(!s.paused) },
+    ],
+    [...some(copyItem('Copy schedule ID', s.id, 'schedule ID', can.report))],
+    [{ label: 'Delete schedule', run: can.remove }],
   );
 }
 

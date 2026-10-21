@@ -380,6 +380,10 @@ export const ICONS: Record<string, string[]> = {
   "M11 12l9 0",
   "M11 18l9 0"
  ],
+ "player-pause": [
+  "M6 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12",
+  "M14 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12"
+ ],
  "player-play": [
   "M7 4v16l13 -8l-13 -8"
  ],

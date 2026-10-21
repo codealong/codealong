@@ -875,7 +875,8 @@ pub fn with_suggestions(text: &str, slug: &str, suggests: &RepoCfg) -> Result<St
     Ok(doc.to_string())
 }
 
-fn valid_reviewer(cfg: &Config, name: &str) -> bool {
+/// Whether a name is one of the accounts or routing groups: what reviews and schedules run on.
+pub fn valid_reviewer(cfg: &Config, name: &str) -> bool {
     cfg.accounts.iter().any(|a| a.name == name) || cfg.routing.groups.iter().any(|g| g.name.trim() == name)
 }
 

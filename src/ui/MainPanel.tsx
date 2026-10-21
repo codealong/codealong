@@ -6,7 +6,7 @@
 // shows, with the way back (`drill`), the list staying as it was. The window passes what the
 // panels show and what their clicks do.
 
-import { useRef, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 import { dismissTodoHint, openUrl } from '../api';
 import type { Entities } from '../canvas/model';
 import { showContextMenu, type MenuSpec } from '../contextMenu';
@@ -14,6 +14,7 @@ import { deviceOf } from '../devices';
 import { middleTruncate } from '../format';
 import { sessionPrs, type Placed } from '../lanes';
 import { lineageOf } from '../lineage';
+import { scheduleBySession } from '../schedules';
 import type * as menus from '../menus';
 import type { ListRow } from '../boardLists';
 import type { TodoItem, useTodoStore } from '../todos';
@@ -113,6 +114,10 @@ export interface MainPanelProps {
   newSession: (at: { laneId: string | null }) => void;
   showLaneFromPanel: (lane: Lane) => void;
   showSessionFromPanel: (lane: Lane, session: Session) => void;
+  /** Shows a schedule in the Schedules view, from a session it ran. */
+  showSchedule: (id: string) => void;
+  /** The Schedules view's panel, which the window draws (SchedulePanel.tsx). */
+  schedulePanel: ReactNode;
   showTodoFromPanel: (todo: Todo) => void;
   laneMenu: (lane: Lane) => void;
   sessionMenu: (lane: Lane, s: Session, pin: 'session' | 'worktree') => void;
@@ -138,7 +143,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -146,6 +151,8 @@ export function MainPanel(props: MainPanelProps) {
   // PR it drilled to or what's picked instead, while the queue still has the session selected.
   const stripShown = useRef(false);
   stripShown.current = false;
+  // The schedule each session came from, for the line over its title.
+  const bySchedule = useMemo(() => scheduleBySession(board?.schedules), [board?.schedules]);
 
   const todoPanel = (item: TodoItem) =>
     drilledPanel(item.key, middleTruncate(item.todo.title, 40)) ?? (
@@ -260,6 +267,8 @@ export function MainPanel(props: MainPanelProps) {
         todos={todoLinks.bySession.get(session.key)}
         onShowTodo={showTodoFromPanel}
         lineage={lineageOf(session, homes, board?.sides)}
+        schedule={bySchedule.get(session.key) ?? null}
+        onShowSchedule={showSchedule}
         onShowSession={showSessionFromPanel}
         onSessionMenu={(l, x) => sessionMenu(l, x, 'session')}
         onMenu={(at) => void showContextMenu(sessionMenuSpec(lane, session, 'session'), at).catch((err: unknown) => setToast(String(err)))}
@@ -332,7 +341,9 @@ export function MainPanel(props: MainPanelProps) {
     }
   })();
 
-  return view === 'canvas' ? (
+  return view === 'schedules' ? (
+    schedulePanel
+  ) : view === 'canvas' ? (
     canvasPanel
   ) : view === 'todo' ? (
     pickedRows.length > 0 ? (

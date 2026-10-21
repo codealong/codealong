@@ -66,6 +66,9 @@
 @import '../ui/TodoBits.css';
 @import '../ui/TodoView.css';
 @import '../ui/TodoPanel.css';
+@import '../ui/SchedulesView.css';
+@import '../ui/SchedulePanel.css';
+@import '../ui/ScheduleDialog.css';
 @import '../ui/DescriptionEditor.css';
 @import '../ui/Quick.css';
 @import '../ui/Waiting.css';

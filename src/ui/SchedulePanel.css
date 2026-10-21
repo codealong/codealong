@@ -1,0 +1,124 @@
+/* A schedule's panel (SchedulePanel.tsx): its name, when it runs and what it does, what it's told,
+   and its runs, each with how it went and its session. */
+
+.ca-schedinsp-name {
+  margin: var(--space-2) 0 2px;
+  font: var(--type-title);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.ca-schedinsp-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-schedinsp-line {
+  margin: 0;
+  font: var(--type-body);
+  color: var(--ink);
+}
+.ca-schedinsp-next {
+  color: var(--ink-3);
+}
+.ca-schedinsp-note {
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-schedinsp-note code {
+  font: var(--type-code-sm);
+  color: var(--ink-2);
+}
+.ca-schedinsp-code {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+  font: var(--type-code-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-schedinsp-check {
+  margin: 6px 0 0;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-schedinsp-check.is-failing {
+  color: var(--alert);
+}
+.ca-schedinsp-settings {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 0;
+  padding: 0 0 0 var(--space-4);
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-schedinsp-prompt {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--ink);
+  font: var(--type-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Its runs, the newest first. */
+.ca-schedruns {
+  display: grid;
+  gap: var(--space-2);
+}
+.ca-schedrun {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ca-schedrun-icon {
+  flex: none;
+  margin-top: 3px;
+  color: var(--ink-3);
+}
+.ca-schedrun.is-failed .ca-schedrun-icon {
+  color: var(--alert);
+}
+.ca-schedrun.is-queued .ca-schedrun-icon {
+  color: var(--attn);
+}
+.ca-schedrun-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ca-schedrun-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font: var(--type-body);
+  color: var(--ink);
+}
+.ca-schedrun-why {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.ca-schedrun-at {
+  margin-left: auto;
+  flex: none;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
+.ca-schedrun-said {
+  font: var(--type-meta);
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}

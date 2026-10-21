@@ -111,6 +111,11 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
 - `--snapshot --editor-icons`, `--snapshot --skills [folder…]`, `--snapshot --start-options`,
   `--snapshot --shell-commands`; `--snapshot --checkout`: the checkout the binary was built from;
   `--snapshot --improve`: where Improve Codealong starts (improve.rs), without the pictures.
+- `--snapshot --schedules`: the schedules as their view lists them; `--snapshot --schedule-plan
+  <schedule>`: what a run would start or send now, without doing it; `--snapshot --schedule-check
+  <schedule>`: runs its watch's command once and says what's new, noting nothing;
+  `--snapshot --schedule-times <time>`: a time as a schedule reads it. Real:
+  `--snapshot --schedule-run <schedule>` (runs it as Run now does, and notes the run).
 - `--snapshot --tokens [days] [--account <name>] [--session <key>]`: the Usage window's report,
   from this Mac's records read into a ledger of the check's own (`--into <file>` keeps it).
   `--snapshot --jev-usage [days]`: what Settings › Jev says Jev's requests used, from the app's.

@@ -270,6 +270,22 @@ since the last look (sessions, PRs, todos, worktrees two agents share) with what
 user now, and `codealong hygiene` lists the processes left over from old sessions, with this
 Mac's load, memory and swap (`--kill` ends them).
 
+## Schedules
+
+When your user asks for something done on a schedule or when something happens (every weekday
+at 9, every two hours, whenever a deploy goes out, check back on this tomorrow), make a
+Codealong schedule rather than a loop or cron of your harness's own: it lasts past this session,
+its runs pick an account with room each time, and your user sees it and every run in the app's
+Schedules view. `codealong schedule add "<name>" --at "weekdays 9:00" --prompt "<what to do>"`
+starts a new session each time; `--thread` keeps one going; `--to me` sends each run to you.
+`--watch "<command>" --every 5m` runs when a command prints a line it hasn't before (a deploy's id;
+its first look only notes what's there), `--on pr-merged|checks-failed|todo-ready` when that
+happens on the board, and `--when-fired` only when a script runs `codealong schedule fire
+"<name>" --key <id>`. `codealong schedule times "<when>"` reads a time back before you add it.
+What one you add sends goes as Codealong's, not as your user's, and the sessions it starts are
+yours (`Started by`). Watching costs no usage: prefer a command that prints what's new to a
+schedule that asks an agent every few minutes whether anything changed.
+
 ## Boards
 
 A board is a named set of work in a project (a release, a fix, an investigation), shown in the

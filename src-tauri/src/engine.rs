@@ -1155,6 +1155,12 @@ struct Engine {
     reviews: autoreview::Store,
     /// Why an automatic review couldn't be started or posted, until a later one goes.
     review_warning: Option<autoreview::Said>,
+    /// The schedules (`schedules.json`) and what's happened to them (`schedule-runs.json`), as
+    /// last read, for the Schedules view; the scheduler (schedules/runner.rs) keeps the runs.
+    schedules: crate::schedules::File,
+    schedule_runs: crate::schedules::Runs,
+    /// Why one of those files doesn't read, while it doesn't.
+    schedules_problem: Option<String>,
     /// Worktrees' preview URLs (`previews.json`) and the servers in their folders.
     previews: board::Previews,
     previews_warning: Option<String>,
@@ -1303,6 +1309,9 @@ impl Engine {
             pr_links_warning: None,
             reviews: autoreview::Store::default(),
             review_warning: None,
+            schedules: crate::schedules::File::default(),
+            schedule_runs: crate::schedules::Runs::default(),
+            schedules_problem: None,
             previews: board::Previews::default(),
             previews_warning: None,
             reusable: HashMap::new(),
@@ -1836,6 +1845,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.refresh_visitors(false);
         self.load_pr_links();
         self.load_reviews();
+        self.load_schedules();
         self.scan_pr_marks(false);
         self.load_previews();
         self.load_reusable();
@@ -2898,6 +2908,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 self.dirty = true;
                 continue;
             }
+            if p == crate::schedules::path() || p == crate::schedules::runs_path() {
+                self.load_schedules();
+                self.dirty = true;
+                continue;
+            }
             if p == previews_path {
                 self.load_previews();
                 self.dirty = true;
@@ -3145,6 +3160,14 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             nudge_by_default: self.cfg.pull_requests.nudge_by_default,
             nudge_by_default_in: self.team_files.settings(&self.cfg.repos).nudges_by_default(),
         }
+    }
+
+    /// schedules.json and schedule-runs.json as they are now. One that doesn't read leaves what
+    /// was read before, and says why.
+    fn load_schedules(&mut self) {
+        let file = crate::schedules::load().map(|f| self.schedules = f);
+        let runs = crate::schedules::load_runs().map(|r| self.schedule_runs = r);
+        self.schedules_problem = file.and(runs).err().map(crate::util::words);
     }
 
     /// reviews.json as autoreview.rs last saved it, for the PRs' cards. One that doesn't read
@@ -3533,6 +3556,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if self.cfg.jev.todos {
             board.todo_hints = self.jev_todos.hints(&board, &self.todos.todos);
         }
+        board.schedules = crate::schedules::items(&self.schedules, &self.schedule_runs, &board, &self.cfg, now, &crate::schedules::rule::Local);
+        board.schedules_problem = self.schedules_problem.clone();
         board
     }
 

@@ -1,0 +1,54 @@
+{
+  "schedules": [
+    {
+      "name": "Morning triage",
+      "when": { "kind": "time", "rule": "weekdays 9:00" },
+      "whenWords": "Weekdays at 9:00",
+      "nextIn": 640,
+      "run": { "to": "new", "folder": "$lane:0", "account": "", "prompt": "Look at last night's CI on main. Say what failed and why, and start nothing." },
+      "runs": [
+        { "atAgo": 800, "why": "9:00", "outcome": "started", "said": "On claude, opus", "session": "$session:2" },
+        { "atAgo": 2240, "why": "9:00, late", "outcome": "started", "said": "On codex", "session": "$session:5" }
+      ]
+    },
+    {
+      "name": "After each deploy",
+      "when": { "kind": "watch", "command": "gh api 'repos/northwind/web/deployments?environment=production&per_page=5' --jq '.[] | {id, title: .sha[0:7]}' -c", "every": "2m", "mode": "lines" },
+      "whenWords": "When `gh api 'repos/northwind/web/deployments?environment=producti…` prints new lines, every 2m",
+      "nextIn": 1,
+      "run": { "to": "thread", "folder": "$lane:0", "account": "reviewers", "prompt": "A deploy just went out. Check the error tracker and the smoke dashboard for regressions, and say only if something looks wrong.", "freshAfter": "1d" },
+      "thread": "$session:1",
+      "check": { "atAgo": 1, "ok": true, "said": "Nothing new", "failures": 0 },
+      "quiet": true,
+      "notes": true,
+      "runs": [
+        { "atAgo": 95, "why": "Its watch found: 4f2a91c", "outcome": "sent", "said": "Sent.", "session": "$session:1" },
+        { "atAgo": 300, "why": "Its watch found: 1b77d0e", "outcome": "started", "said": "On claude-work, sonnet", "session": "$session:1" }
+      ]
+    },
+    {
+      "name": "Overnight backlog",
+      "when": { "kind": "event", "event": "todo-ready", "repo": "", "label": "overnight", "mine": false },
+      "whenWords": "When a todo labeled overnight is ready",
+      "run": { "to": "new", "folder": "$lane:0", "account": "", "worktree": true, "prompt": "Work this todo in a new worktree and open a draft PR when it's ready." },
+      "perDay": 3,
+      "runs": [{ "atAgo": 720, "why": "Fix the flaky upload test", "outcome": "skipped", "said": "It has run 3 times today, its most." }]
+    },
+    {
+      "name": "Weekly dependency check",
+      "paused": true,
+      "when": { "kind": "time", "rule": "mon 10:00" },
+      "whenWords": "Mondays at 10:00",
+      "run": { "to": "new", "folder": "", "account": "", "prompt": "Check for outdated dependencies with known vulnerabilities." },
+      "runs": []
+    },
+    {
+      "name": "Release notes",
+      "when": { "kind": "fired" },
+      "whenWords": "When it's fired",
+      "run": { "to": "session", "session": "$session:3", "prompt": "A release was tagged: draft its notes from the PRs merged since the last one." },
+      "createdBy": "$session:4",
+      "runs": [{ "atAgo": 4320, "why": "Fired: v0.4.0", "outcome": "failed", "said": "It isn't running, and its account can't go on with it out of sight." }]
+    }
+  ]
+}

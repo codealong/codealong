@@ -1235,6 +1235,11 @@ export interface Board {
   todos: Todo[];
   /** Todo labels, in your order. */
   labels: Label[];
+  /** The schedules (src-tauri/src/schedules/), with what happened to each. Missing on older
+   *  boards: none. */
+  schedules?: ScheduleItem[];
+  /** Why schedules.json or schedule-runs.json doesn't read, while it doesn't. */
+  schedulesProblem?: string;
   /** The quick panel's shortcut from config.toml, as it writes it; empty when it's off. Missing on older boards. */
   quickShortcut?: string;
   /** The shortcut that opens the quick panel set to a chat in no project, as config.toml writes it; empty when off. Missing on older boards. */
@@ -1777,6 +1782,96 @@ export interface PrComment {
 
 /** Where a new session runs: the terminal, or the Claude or Codex app. */
 export type StartPlace = 'terminal' | 'background' | 'claude-app' | 'codex-app' | 'codealong';
+
+/** When a schedule runs (schedules/mod.rs `When`): at the times a rule names, when a command it
+ *  runs prints something new, when something happens on the board, or only when it's fired. */
+export type ScheduleWhen =
+  | { kind: 'time'; rule: string }
+  | { kind: 'watch'; command: string; every: string; mode: 'lines' | 'value' }
+  | { kind: 'event'; event: ScheduleEvent; repo: string; label: string; mine: boolean }
+  | { kind: 'fired' };
+
+export type ScheduleEvent = 'pr-merged' | 'checks-failed' | 'todo-ready';
+
+/** What a schedule does when it runs (schedules/mod.rs `Run`): start a new session, keep one
+ *  going (`thread`), or send to one that's there (`session`). */
+export interface ScheduleRun {
+  to: 'new' | 'thread' | 'session';
+  session: string;
+  /** Where a new session starts; empty for a chat in no project. */
+  folder: string;
+  worktree: boolean;
+  /** An account, a routing group, or empty for Auto. */
+  account: string;
+  model?: string | null;
+  effort?: string | null;
+  /** None for out of sight. */
+  place?: StartPlace | null;
+  prompt: string;
+  freshAfter: string;
+}
+
+/** A schedule, as schedules.json has it. */
+export interface Schedule {
+  id: string;
+  name: string;
+  paused: boolean;
+  when: ScheduleWhen;
+  onlyIf: string;
+  run: ScheduleRun;
+  quiet: boolean;
+  overlap: 'skip' | 'allow';
+  catchUp: 'once' | 'skip';
+  perDay?: number | null;
+  notes: boolean;
+  createdAt: number;
+  updatedAt: number;
+  /** The session whose agent made it, from the command; none when you did. */
+  createdBy?: string;
+}
+
+export type ScheduleOutcome = 'started' | 'sent' | 'resumed' | 'queued' | 'skipped' | 'missed' | 'failed';
+
+/** One run of a schedule, or one that didn't go. */
+export interface ScheduleRunRecord {
+  at: number;
+  due?: number;
+  why: string;
+  outcome: ScheduleOutcome;
+  said: string;
+  session?: string;
+  /** A start whose session hasn't shown yet. */
+  pending?: { lane: string; account: string; at: number };
+}
+
+/** A schedule as the Schedules view shows it (schedules/mod.rs `Item`). */
+export interface ScheduleItem extends Schedule {
+  whenWords: string;
+  /** Why it can't run as it is. */
+  problem?: string;
+  /** When it runs next: a time, or a watch's next look. */
+  nextAt?: number;
+  /** The session it keeps going. */
+  thread?: string;
+  /** Runs waiting for its session's turn to end. */
+  queued?: { at: number; why: string[]; files: string[] };
+  /** How its watch's latest look went. */
+  check?: { at: number; ok: boolean; said: string; failures: number };
+  /** Its latest runs, the newest first. */
+  runs: ScheduleRunRecord[];
+  /** Runs asked for that haven't gone yet. */
+  asked: number;
+}
+
+/** A schedule's time as it's being written: in words, and its next few times (`schedule_times`). */
+export interface ScheduleTimes {
+  words: string;
+  next: number[];
+  problem?: string;
+}
+
+/** A change to the schedules (schedules/mod.rs `Op`). */
+export type ScheduleOp = { op: 'save'; schedule: Schedule } | { op: 'remove'; id: string } | { op: 'pause'; id: string; paused: boolean } | { op: 'run'; id: string };
 
 /** A skill a session can be asked to run by name (skills.rs). */
 export interface Skill {
