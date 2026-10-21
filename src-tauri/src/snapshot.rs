@@ -63,6 +63,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--pending", takes: "<session key>", run: pending },
     Mode { flag: "--answer", takes: "<session key> <id> <allow|deny|always> [answers to its questions, as JSON]", run: answer },
     Mode { flag: "--stop", takes: "<session key>", run: stop },
+    Mode { flag: "--steer", takes: "<session key> <queued message id>", run: steer },
     Mode { flag: "--done", takes: "<session key> [--stop]", run: done },
     Mode { flag: "--remove-worktree", takes: "<worktree folder> [--dry-run]", run: remove_worktree },
     Mode { flag: "--send", takes: "<session key> <text> [--now]", run: send_text },
@@ -322,6 +323,11 @@ fn answer(_: &Args, rest: &[String]) -> Done {
 fn stop(_: &Args, rest: &[String]) -> Done {
     let [key, ..] = rest else { return Err(Stop::Usage) };
     said(act(api::SESSION_CANCEL, key, params::Session::default())?)
+}
+
+fn steer(_: &Args, rest: &[String]) -> Done {
+    let [key, id, ..] = rest else { return Err(Stop::Usage) };
+    said(act(api::SESSION_STEER, key, params::Steer { id: id.clone(), ..Default::default() })?)
 }
 
 fn done(args: &Args, rest: &[String]) -> Done {

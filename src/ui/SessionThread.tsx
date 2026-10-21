@@ -49,7 +49,7 @@
 // pinned prompt makes way for its bar while it's open.
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { delivered, dismiss, inRecord, useAhead, type Ahead } from '../ahead';
+import { delivered, dismiss, inRecord, steerAhead, useAhead, type Ahead } from '../ahead';
 import { onHostedStream, sessionNewer, sessionPage, sessionStream } from '../api';
 import { shortOf } from '../devices';
 import { putBack } from '../drafts';
@@ -440,13 +440,15 @@ const QUEUED = 'Queued until this turn ends';
 /** A queued message's key among the prompts. */
 const queuedKey = (m: QueuedMessage) => `queued:${m.id}`;
 
-/** A message of yours the session's record doesn't have yet, faint, saying where it is. */
-function NotYetSaid({ prompt, text, state, className, children }: { prompt: string; text: string; state: string; className?: string; children?: ReactNode }) {
+/** A message of yours the session's record doesn't have yet, faint, saying where it is, and
+ *  `action` after that. */
+function NotYetSaid({ prompt, text, state, action, className, children }: { prompt: string; text: string; state: string; action?: ReactNode; className?: string; children?: ReactNode }) {
   return (
     <div className={cx('ca-thread-said', 'is-you', 'is-ahead', className)} data-prompt={prompt}>
       <div className="ca-thread-meta">
         <span>You</span>
         <span className="ca-meta">{state}</span>
+        {action}
       </div>
       <YourText text={text} />
       {children}
@@ -852,8 +854,18 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   const { showing: sent, found } = useMemo(() => inRecord(sends, items), [sends, items]);
   // What its harness holds until the turn ends, as the board lists it (the Codex app's queue),
   // which has it after a relaunch, and one sent from elsewhere too: one of yours it holds, by the
-  // id its send went under, shows there rather than twice.
-  const queued = useMemo(() => s.queued ?? [], [s.queued]);
+  // id its send went under, shows there rather than twice. One you sent into the turn from there
+  // (Send now) shows as a message sent instead.
+  const queued = useMemo(() => {
+    const steered = new Set(sends.flatMap((a) => (a.change.kind === 'send' && a.change.steers ? [a.change.steers] : [])));
+    return (s.queued ?? []).filter((m) => !steered.has(m.id));
+  }, [s.queued, sends]);
+  // Why the last Send now on a held message didn't go, by its id: it's still held.
+  const [unsteered, setUnsteered] = useState<{ id: string; why: string } | null>(null);
+  const steer = (m: QueuedMessage) => {
+    setUnsteered(null);
+    steerAhead(s, m).catch((e: unknown) => setUnsteered({ id: m.id, why: errorText(e) }));
+  };
   const showing = useMemo(() => {
     const held = new Set(queued.map((m) => m.id));
     return sent.filter((a) => a.queuedAs == null || !held.has(a.queuedAs));
@@ -1000,7 +1012,27 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
               )}
               {/* After the turn that's running, which they wait on. */}
               {queued.map((m) => (
-                <NotYetSaid key={queuedKey(m)} prompt={queuedKey(m)} text={m.text} state={QUEUED} />
+                <NotYetSaid
+                  key={queuedKey(m)}
+                  prompt={queuedKey(m)}
+                  text={m.text}
+                  state={QUEUED}
+                  // While the turn would take it sooner, as Steer beside it in the Codex app does.
+                  action={
+                    s.steerable && (
+                      <button type="button" className="ca-linkbtn ca-thread-sendnow" title="Send it into the turn it’s taking, rather than once the turn ends" onClick={() => steer(m)}>
+                        <Icon name="bolt" size={12} stroke={2} />
+                        <span>Send now</span>
+                      </button>
+                    )
+                  }
+                >
+                  {unsteered?.id === m.id && (
+                    <div className="ca-thread-askrow" role="alert">
+                      <span>{unsteered.why}</span>
+                    </div>
+                  )}
+                </NotYetSaid>
               ))}
             </div>
           </ThreadFind>

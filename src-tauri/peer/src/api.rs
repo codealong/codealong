@@ -50,6 +50,11 @@ pub const SESSION_WATCH: &str = "session-watch";
 /// Stops the turn a session is taking (one whose feed says `stoppable`), answering what happened
 /// in a sentence. Macs before 2026-09-29 stop only sessions Codealong runs, and answer null.
 pub const SESSION_CANCEL: &str = "session-cancel";
+/// Sends a message its harness holds until the session's turn ends (`id`, one of
+/// `Session::queued`) into the turn it's taking now, and takes it out of what's held, as Steer
+/// beside a queued message in the Codex app does; answering what happened in a sentence. Macs
+/// before 2026-10-20 refuse it as a request they don't know.
+pub const SESSION_STEER: &str = "session-steer";
 /// Where what you typed goes, as the quick panel suggests it: Jev's answer about this device's
 /// board (`Route`). Macs before 2026-09-29 refuse it as a request they don't know.
 pub const ROUTE: &str = "route";
@@ -202,6 +207,15 @@ pub mod params {
         pub key: String,
         pub text: String,
         pub now: bool,
+    }
+
+    /// `session-steer`: the queued message, by its id in `Session::queued`.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Steer {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub id: String,
     }
 
     /// `session-model`: the model, as its account's list names it (`opus`, `haiku[1m]`).
@@ -511,7 +525,7 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 39] = [
+pub const REQUESTS: [(&str, Reach); 40] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
@@ -539,6 +553,7 @@ pub const REQUESTS: [(&str, Reach); 39] = [
     (SESSION_SEND, Reach::Control),
     (SESSION_ANSWER, Reach::Control),
     (SESSION_CANCEL, Reach::Control),
+    (SESSION_STEER, Reach::Control),
     (START, Reach::Control),
     (SESSION_FORK, Reach::Control),
     (SESSION_EDIT, Reach::Control),

@@ -87,11 +87,19 @@ fn serve<T>(cmd: Command, f: impl FnOnce(&Server) -> Result<T>) -> Result<T> {
 
 /// `serve`, introduced with `hello` as the `initialize` params.
 fn serve_as<T>(cmd: Command, hello: Value, f: impl FnOnce(&Server) -> Result<T>) -> Result<T> {
-    let client = rpc::Client::spawn(cmd, rpc::Stderr::Tail, rpc::Wire::Bare, |_, _| {}).context(NOT_STARTED)?;
-    let server = Server { client, deadline: Instant::now() + TIMEOUT };
-    server.request(INITIALIZE, hello)?;
-    server.client.notify(INITIALIZED, Value::Null)?;
-    f(&server)
+    f(&Server::start(cmd, hello)?)
+}
+
+impl Server {
+    /// The app-server `cmd` starts, once the handshake is done, introduced with `hello` as the
+    /// `initialize` params.
+    fn start(cmd: Command, hello: Value) -> Result<Server> {
+        let client = rpc::Client::spawn(cmd, rpc::Stderr::Tail, rpc::Wire::Bare, |_, _| {}).context(NOT_STARTED)?;
+        let server = Server { client, deadline: Instant::now() + TIMEOUT };
+        server.request(INITIALIZE, hello)?;
+        server.client.notify(INITIALIZED, Value::Null)?;
+        Ok(server)
+    }
 }
 
 /// Queues `text` in a thread, for the Codex app to start once the turn it's taking ends, as a
@@ -140,6 +148,66 @@ fn add_to_queue(s: &Server, thread_id: &str, text: &str, message_id: &str) -> Re
     }
 }
 
+/// A message the Codex app holds for a thread, as its queue lists it (`thread/queue/list`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Queued {
+    /// Codex's own id for it, which `thread/queue/delete` takes.
+    pub id: String,
+    /// The `clientUserMessageId` it was added with.
+    pub message_id: String,
+    /// Its parts, as `turn/start` and `turn/steer` take them: an image the app-server was handed
+    /// as a path comes back as `{"type": "image", "url": "data:…"}`.
+    pub input: Value,
+}
+
+impl Queued {
+    /// Its words, without its images, as the app's box would hold them.
+    pub fn prose(&self) -> String {
+        let parts = self.input.as_array().into_iter().flatten();
+        parts.filter(|p| p["type"] == "text").filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join("\n\n")
+    }
+}
+
+/// The Codex app's follow-up queue (26.1007), through an app-server of Codealong's own for as
+/// long as it's kept, which lists and changes it as the app's windows do: a queued message's
+/// Steer in the app takes it from the list, steers it in and deletes it.
+pub struct Queue(Server);
+
+impl Queue {
+    pub fn open(codex_home: &Path) -> Result<Queue> {
+        Ok(Queue(Server::start(app_server(codex_home)?, queue_hello())?))
+    }
+
+    /// The queue through the app-server `cmd` runs (`stand_in`).
+    #[cfg(test)]
+    pub(super) fn through(cmd: Command) -> Result<Queue> {
+        Ok(Queue(Server::start(cmd, queue_hello())?))
+    }
+
+    /// The message `thread` holds as `id`, the `clientUserMessageId` it went under or Codex's own
+    /// id for it, as queue.rs lists it; None once it's gone (sent, or taken out).
+    pub fn find(&self, thread: &str, id: &str) -> Result<Option<Queued>> {
+        let mut cursor = Value::Null;
+        loop {
+            let page = self.0.request("thread/queue/list", json!({ "threadId": thread, "cursor": cursor }))?;
+            let listed = page["data"].as_array().into_iter().flatten();
+            let found = listed.filter(|q| q["id"] == id || q["clientUserMessageId"] == id).find_map(|q| {
+                Some(Queued { id: q["id"].as_str()?.to_string(), message_id: q["clientUserMessageId"].as_str().unwrap_or_default().to_string(), input: q["input"].clone() })
+            });
+            match (found, &page["nextCursor"]) {
+                (Some(q), _) => return Ok(Some(q)),
+                (None, Value::String(next)) if *next != cursor => cursor = json!(next),
+                _ => return Ok(None),
+            }
+        }
+    }
+
+    /// Takes the message Codex knows as `id` out of `thread`'s queue.
+    pub fn delete(&self, thread: &str, id: &str) -> Result<()> {
+        self.0.request("thread/queue/delete", json!({ "threadId": thread, "queuedSubmissionId": id })).map(|_| ())
+    }
+}
+
 /// A thread made for the Codex app to run: its id, and the model and effort the account's
 /// settings chose for it.
 pub struct NewThread {
@@ -182,18 +250,20 @@ pub fn set_name(codex_home: &Path, thread_id: &str, name: &str) -> Result<()> {
     call(codex_home, "thread/name/set", json!({ "threadId": thread_id, "name": name })).map(|_| ())
 }
 
+/// A stand-in for the app-server: keeps each line it's written in the file named by its first
+/// argument, and answers every request as `answer` has it (`$id` is the request's, `$line` the
+/// request).
+#[cfg(test)]
+pub(super) fn stand_in(heard: &Path, answer: &str) -> Command {
+    let script = format!(r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; case "$line" in *'"id":'*) id=${{line#*\"id\":}}; id=${{id%%,*}}; {answer};; esac; done"#);
+    let mut cmd = Command::new("/bin/sh");
+    cmd.args(["-c", &script, "sh"]).arg(heard);
+    cmd
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A stand-in for the app-server: keeps each line it's written in the file named by its
-    /// first argument, and answers every request as `answer` has it (`$id` is the request's).
-    fn stand_in(heard: &Path, answer: &str) -> Command {
-        let script = format!(r#"while IFS= read -r line; do printf '%s\n' "$line" >> "$1"; case "$line" in *'"id":'*) id=${{line#*\"id\":}}; id=${{id%%,*}}; {answer};; esac; done"#);
-        let mut cmd = Command::new("/bin/sh");
-        cmd.args(["-c", &script, "sh"]).arg(heard);
-        cmd
-    }
 
     /// What Codex's app-server is written, line for line, for each thing asked of it.
     #[test]
@@ -284,7 +354,8 @@ mod tests {
 
     /// Against the Codex app's CLI, in a CODEX_HOME of its own (no sign-in, no turn):
     /// `cargo test queues_a_follow_up_through_codex -- --ignored`. A thread made there takes a
-    /// queued follow-up from a server that never loaded it.
+    /// queued follow-up from a server that never loaded it, which another server finds by the id
+    /// it went under and takes out, as Send now on it does.
     #[test]
     #[ignore]
     fn queues_a_follow_up_through_codex() {
@@ -293,6 +364,12 @@ mod tests {
         queue(&home, &t.id, "and the docs", "u1").unwrap();
         let listed = serve_as(app_server(&home).unwrap(), queue_hello(), |s| s.request("thread/queue/list", json!({ "threadId": t.id }))).unwrap();
         assert_eq!(listed["data"][0]["input"], json!([{ "type": "text", "text": "and the docs", "text_elements": [] }]), "{listed}");
+        let q = Queue::open(&home).unwrap();
+        let found = q.find(&t.id, "u1").unwrap().expect("queued as u1");
+        assert_eq!((found.message_id.as_str(), found.prose().as_str()), ("u1", "and the docs"));
+        assert_eq!(q.find(&t.id, &found.id).unwrap().as_ref(), Some(&found));
+        q.delete(&t.id, &found.id).unwrap();
+        assert_eq!(q.find(&t.id, "u1").unwrap(), None);
         let _ = std::fs::remove_dir_all(&home);
     }
 

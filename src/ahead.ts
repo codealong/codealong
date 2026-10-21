@@ -29,15 +29,17 @@
 // until the session's turn ends shows as queued for as long as it waits: while the board lists
 // the id its send said it went under (`Session.queued`, the Codex app's queue), or where the
 // board doesn't list what's held, while something held came after it (`Session.queuedAt`).
-// One that went but that nothing shows the session took says so in the thread.
+// One sent into the turn from there (Send now on it, `steerAhead`) shows in its place as a message
+// sent, until the record has it. One that went but that nothing shows the session took says so in
+// the thread.
 
 import { useSyncExternalStore } from 'react';
-import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
+import { archiveSession, emitAhead, markSeen, markUnread, mergePr, onAhead, quietSessions, renameSession, resumeSession, reviewPr, sendToSession, sessionAnswer, sessionDone, sessionSteer, snoozeReviews, snoozeSessions, windowLabel, type Done, type MergeDone } from './api';
 import { readDraft, writeDraft } from './drafts';
 import { nameShown } from './harness';
 import { heldForAgent } from './prStatus';
 import { relaned, sessionHeadline, stuckMidTurn, unreadable } from './lanes';
-import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LastReview, LogoStatus, MergeOp, PrItem, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
+import type { Answers, BarFeed, BarItem, BarRecent, BarSnoozed, Board, Lane, LastReview, LogoStatus, MergeOp, PrItem, QueuedMessage, ResumeIn, Reviewed, Sent, Session, Status, TranscriptItem, Verdict } from './types';
 
 /** A message the board shows no sign of this long after it went stops showing its session as
  *  working; if the session isn't working either, the thread says it may not have reached it. */
@@ -91,6 +93,9 @@ export type Change =
       /** The message reaches the session itself, rather than opening its app with the text to
        *  paste, so it starts a turn. */
       starts: boolean;
+      /** A message its harness held, by its id in `Session.queued`, sent into the turn now
+       *  (`steerAhead`): its thread shows this in its place. */
+      steers?: string;
     };
 
 export interface Ahead {
@@ -937,6 +942,27 @@ export function sendAhead(s: Session, text: string, { toDraft = true, now = fals
       }
       leave();
       clear();
+      throw e;
+    },
+  );
+}
+
+/**
+ * Sends a message the session's harness holds until its turn ends into the turn it's taking now
+ * (`sessionSteer`), shown at once in its place: sending, then sent until the session's record
+ * has it, which out of the queue is only at the turn's next step. Resolves with what happened;
+ * when it doesn't go it's still held, and rejects with why.
+ */
+export function steerAhead(s: Session, m: QueuedMessage): Promise<string> {
+  const a = made({ kind: 'send', key: s.key, text: m.text, working: true, starts: false, steers: m.id });
+  put(a, true);
+  return sessionSteer(s.key, m.id).then(
+    (said) => {
+      answered(a.id, null);
+      return said;
+    },
+    (e: unknown) => {
+      drop(a.id, true);
       throw e;
     },
   );

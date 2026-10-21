@@ -507,7 +507,11 @@ this turn ends for as long as it waits: Antigravity's command line queues what's
 (its `Queued Messages` setting, Queue by default), and its record has the message only once the turn
 is over. The Codex app's queue (when Codex is set to queue follow-ups) shows whole at the end of the
 thread, after the turn that's running, whoever queued it: from Codealong, from the Codex app's own
-box, or from another device, and still there after Codealong restarts. One the session shows no sign of having taken, once it's been quiet a while, says Not in the
+box, or from another device, and still there after Codealong restarts. While the turn could take it
+sooner, each queued message has Send now beside Queued until this turn ends, as Steer beside one in
+the Codex app: it goes into the turn that's running and out of the queue, and shows as Sent until
+the turn takes it in at its next step; one Codex didn't take stays queued, with why under it.
+One the session shows no sign of having taken, once it's been quiet a while, says Not in the
 session yet, with Open to check. One that may have gone in without Codealong being able to tell (its
 terminal didn't confirm the typing, say) counts as sent rather than going back in the box, where it
 would invite sending it twice: the box says where to look, and the session's record says whether it
@@ -619,7 +623,8 @@ into the turn, or queued to start once it ends when Codex is set to queue follow
 after the turn), and Send now (the bolt beside Send, or ⌃⏎ as in Claude Code) sends it
 into the turn at once where the session can take it so: Claude Code's send now in its terminal or
 background job, which moves a running command to the background so the agent reads it straight away,
-and Codex's and OpenCode's steer. A stuck session takes a message too, as its own terminal would:
+and Codex's and OpenCode's steer. A message the Codex app already holds in its queue has a Send now
+of its own in the conversation (above). A stuck session takes a message too, as its own terminal would:
 one stuck mid-turn once the step it's stuck on ends, as its placeholder says (no Send now there),
 and one whose turn ended on a command left running, such as a sign-in, as its next prompt.
 

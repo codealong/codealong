@@ -199,6 +199,7 @@ const REQUESTS: &[Request] = &[
     Request { name: api::SESSION_ANSWER, here: answer_call, command: deny_only, prompt: Some("/message"), ..ANY },
     Request { name: api::SESSION_SEND, here: send_prompt, prompt: Some("/text"), ..ANY },
     Request { name: api::SESSION_CANCEL, here: cancel, ..ANY },
+    Request { name: api::SESSION_STEER, here: steer, ..ANY },
     Request { name: api::SESSION_ARCHIVE, here: archive, ..ANY },
     Request { name: api::SESSION_RENAME, here: rename, ..ANY },
     Request { name: api::MARK_SEEN, here: mark_seen, ..ANY },
@@ -951,6 +952,18 @@ fn cancel(engine: &Handle, c: &Call) -> Result<Value, String> {
         return Err("Its turn has already ended.".into());
     }
     harness::adapter(s.harness).interrupt(&harness::Ctx { account }, s).map(Value::String).map_err(words)
+}
+
+/// Sends a message its harness holds until the turn ends into the turn it's taking now
+/// (`Adapter::steer_queued`). Says what happened.
+fn steer(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::Steer = c.read()?;
+    let (cfg, board) = (cfg()?, engine.board());
+    let (s, account) = harness::find(&board, &cfg, c.session()?).map_err(words)?;
+    if !harness::turn_running(s) {
+        return Err("Its turn has already ended, so it takes what's held next.".into());
+    }
+    harness::adapter(s.harness).steer_queued(&harness::Ctx { account }, s, &p.id).map(Value::String).map_err(words)
 }
 
 /// The time of this device's board that shows a change, for a window here to know when the

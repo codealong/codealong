@@ -373,3 +373,9 @@
 .ca-thread-meta > .ca-meta {
   margin-left: auto;
 }
+/* Send now on a message its harness holds, after what it says it is. */
+.ca-thread-sendnow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}

@@ -269,9 +269,8 @@ pub fn codex_start_turn(codex_home: &Path, thread: &str, text: &str, model: Opti
 /// owns it: what the app sends when you steer from a window that doesn't (26.924's code; version
 /// 1). `restoreMessage` is the composer's message as the app makes one for a plain prompt,
 /// which the window reads the thread's folders from and puts back in the box if the steer is
-/// turned down.
-pub fn codex_steer_request(request_id: &str, client_id: &str, owner: &str, thread: &str, text: &str, message_id: &str, cwd: &str, at: i64) -> Value {
-    let (prose, input) = appserver::input_items(text);
+/// turned down. `prose` is its words and `input` its parts (`appserver::input_items`).
+pub fn codex_steer_request(request_id: &str, client_id: &str, owner: &str, thread: &str, prose: &str, input: Value, message_id: &str, cwd: &str, at: i64) -> Value {
     json!({
         "type": "request",
         "requestId": request_id,
@@ -301,13 +300,19 @@ pub fn codex_steer_request(request_id: &str, client_id: &str, owner: &str, threa
 /// has loaded isn't running in the app, and one whose turn has ended is turned down; either way
 /// nothing went. No answer once it's asked may mean it went (`MayHaveArrived`).
 pub fn codex_steer_turn(codex_home: &Path, thread: &str, text: &str, cwd: &str) -> Result<()> {
+    let (prose, input) = appserver::input_items(text);
+    steer(codex_home, thread, &prose, input, &crate::start::new_session_id(), cwd)
+}
+
+/// `codex_steer_turn` for a message already in parts, which goes in as `message_id`.
+fn steer(codex_home: &Path, thread: &str, prose: &str, input: Value, message_id: &str, cwd: &str) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(12);
     let mut ipc = Ipc::connect(codex_home, deadline)?;
     let Some(owner) = ipc.owner(thread, (Instant::now() + Duration::from_secs(3)).min(deadline))? else {
         bail!(not_running(codex_home, thread));
     };
     let id = crate::start::new_session_id();
-    ipc.send(&codex_steer_request(&id, &ipc.client_id.clone(), &owner, thread, text, &crate::start::new_session_id(), cwd, crate::util::now_ms()))?;
+    ipc.send(&codex_steer_request(&id, &ipc.client_id.clone(), &owner, thread, prose, input, message_id, cwd, crate::util::now_ms()))?;
     let asked = "send this into its running turn";
     let r = ipc.response(&id, deadline).map_err(|e| unheard(asked, &e.to_string()))?;
     if r.get("resultType").and_then(Value::as_str) != Some("success") {
@@ -318,6 +323,28 @@ pub fn codex_steer_turn(codex_home: &Path, thread: &str, text: &str, cwd: &str) 
         bail!("Codex didn't take it into the turn: {why}");
     }
     Ok(())
+}
+
+/// Sends a message the app holds for a thread (`id`, as `Session::queued` lists it) into the
+/// turn it's taking now, as the message's Steer in the app does: steered in through the window
+/// that runs the thread, as it was queued, then taken out of the queue. Says what happened.
+pub fn steer_queued(codex_home: &Path, s: &Session, id: &str) -> Result<String> {
+    steer_from(&appserver::Queue::open(codex_home)?, codex_home, s, id)
+}
+
+fn steer_from(queue: &appserver::Queue, codex_home: &Path, s: &Session, id: &str) -> Result<String> {
+    let title = crate::send::quoted(&s.title);
+    let Some(q) = queue.find(&s.id, id)? else {
+        bail!("Codex doesn't hold that message for {title} any more: it went, or was taken out.");
+    };
+    // Left queued when it may have gone in, rather than lost when it didn't: the error says to
+    // look before it goes again.
+    steer(codex_home, &s.id, &q.prose(), q.input.clone(), &q.message_id, &s.cwd)?;
+    // The turn has it now; still queued, it would go again as the next turn's prompt.
+    if let Err(e) = queue.delete(&s.id, &q.id) {
+        bail!("It went into {title}'s turn, but Codex still holds it ({e}). Take it out of the queue in Codex, or it goes again once the turn ends.");
+    }
+    Ok(format!("Sent to {title} now: it takes it into the turn it's taking."))
 }
 
 /// Why no window answered for a thread that should be running in the app: a thread that's
@@ -745,7 +772,11 @@ mod tests {
 
     #[test]
     fn asks_the_codex_window_to_steer_as_the_app_does() {
-        let r = codex_steer_request("r", "me", "owner", "t1", "and the docs", "u1", "/r/app", 1_790_000_000_000);
+        let request = |text: &str| {
+            let (prose, input) = appserver::input_items(text);
+            codex_steer_request("r", "me", "owner", "t1", &prose, input, "u1", "/r/app", 1_790_000_000_000)
+        };
+        let r = request("and the docs");
         assert_eq!((&r["method"], &r["version"], &r["targetClientId"], &r["sourceClientId"]), (&json!("thread-follower-steer-turn"), &json!(1), &json!("owner"), &json!("me")));
         let p = &r["params"];
         assert_eq!(p["conversationId"], "t1");
@@ -759,7 +790,7 @@ mod tests {
         assert_eq!(m["context"], json!({ "prompt": "and the docs", "addedFiles": [], "fileAttachments": [], "ideContext": null, "imageAttachments": [], "workspaceRoots": ["/r/app"] }));
         // Attached images go as `localImage` items, taken out of the text.
         let img = attachments::images_dir().join("0123456789abcdef.png");
-        let with_img = codex_steer_request("r", "me", "owner", "t1", "Match this:\n![image](images/0123456789abcdef.png)", "u1", "/r/app", 1_790_000_000_000);
+        let with_img = request("Match this:\n![image](images/0123456789abcdef.png)");
         assert_eq!(with_img["params"]["input"], json!([{ "type": "text", "text": "Match this:", "text_elements": [] }, { "type": "localImage", "path": img }]));
         assert_eq!(with_img["params"]["restoreMessage"]["text"], "Match this:");
         let img_only = codex_start_request("r", "me", "owner", "t1", "![image](images/0123456789abcdef.png)", "u1", None);
@@ -911,6 +942,66 @@ mod tests {
         let err = codex_start_turn(&home, "t1", "hello", None).unwrap_err();
         router.join().unwrap();
         assert!(err.is::<MayHaveArrived>(), "{err}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A queue whose app-server lists `u1` (Codex's `q1`) and `u2` (`q2`, with an image) for the
+    /// thread, and answers a delete with `deleted`; its lines go to `heard`.
+    fn queue_of_two(heard: &Path, deleted: &str) -> appserver::Queue {
+        let listed = r#"{"id":%s,"result":{"data":[{"id":"q1","clientUserMessageId":"u1","input":[{"type":"text","text":"first","text_elements":[]}]},{"id":"q2","clientUserMessageId":"u2","input":[{"type":"text","text":"and the docs","text_elements":[]},{"type":"image","url":"data:image/png;base64,iVBORw0KGgo="}]}],"nextCursor":null}}"#;
+        let answer = format!(r#"case "$line" in *'"thread/queue/list"'*) printf '{listed}\n' "$id";; *'"thread/queue/delete"'*) {deleted};; *) printf '{{"id":%s,"result":{{}}}}\n' "$id";; esac"#);
+        appserver::Queue::through(appserver::stand_in(heard, &answer)).unwrap()
+    }
+
+    fn working_thread() -> Session {
+        Session { surface: Surface::App, status: Status::Working, live: true, title: "Fix the build".into(), cwd: "/r/app".into(), ..Session::new(Harness::Codex, "codex", "t1") }
+    }
+
+    /// Steer on a queued message sends it into the turn as it was queued, its images and its id
+    /// too, through the window that runs the thread, and only then takes it out of the queue.
+    #[test]
+    fn steers_a_queued_message_into_the_turn_then_takes_it_out_of_the_queue() {
+        let home = scratch("codex-steer-queued");
+        let heard = home.join("heard");
+        let window = window_router(&home, json!({}));
+        let said = steer_from(&queue_of_two(&heard, r#"printf '{"id":%s,"result":{"deleted":true}}\n' "$id""#), &home, &working_thread(), "u2").unwrap();
+        assert_eq!(said, "Sent to \u{201c}Fix the build\u{201d} now: it takes it into the turn it's taking.");
+        let steered = window.join().unwrap();
+        assert_eq!(steered["method"], "thread-follower-steer-turn");
+        let p = &steered["params"];
+        assert_eq!((&p["conversationId"], &p["clientUserMessageId"], &p["restoreMessage"]["text"]), (&json!("t1"), &json!("u2"), &json!("and the docs")));
+        assert_eq!(p["input"], json!([{ "type": "text", "text": "and the docs", "text_elements": [] }, { "type": "image", "url": "data:image/png;base64,iVBORw0KGgo=" }]));
+        let lines = std::fs::read_to_string(&heard).unwrap();
+        let asked: Vec<_> = lines.lines().skip(2).collect();
+        assert_eq!(asked, [r#"{"id":2,"method":"thread/queue/list","params":{"cursor":null,"threadId":"t1"}}"#, r#"{"id":3,"method":"thread/queue/delete","params":{"queuedSubmissionId":"q2","threadId":"t1"}}"#]);
+        // Known by Codex's own id as well.
+        assert_eq!(queue_of_two(&heard, "exit 1").find("t1", "q1").unwrap().map(|q| q.message_id), Some("u1".into()));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// One that's gone from the queue isn't sent; one the window turns down stays queued, for the
+    /// next turn; and one the queue keeps after the turn took it is said, since it would go twice.
+    #[test]
+    fn a_queued_message_stays_queued_unless_the_turn_took_it() {
+        let home = scratch("codex-steer-queued-not");
+        let heard = home.join("heard");
+        let deleted = r#"printf '{"id":%s,"result":{"deleted":true}}\n' "$id""#;
+        let gone = steer_from(&queue_of_two(&heard, deleted), &home, &working_thread(), "u9").unwrap_err();
+        assert_eq!(gone.to_string(), "Codex doesn't hold that message for \u{201c}Fix the build\u{201d} any more: it went, or was taken out.");
+
+        let _ = std::fs::remove_file(&heard);
+        let window = router(&home, Some("window"), json!({ "resultType": "error", "error": "Cannot steer conversation t1 because its active turn already ended" }));
+        let refused = steer_from(&queue_of_two(&heard, deleted), &home, &working_thread(), "u2").unwrap_err();
+        window.join().unwrap();
+        assert_eq!(refused.to_string(), "Codex didn't take it into the turn: Cannot steer conversation t1 because its active turn already ended");
+        assert!(!std::fs::read_to_string(&heard).unwrap().contains("thread/queue/delete"));
+
+        std::fs::remove_file(home.join("ipc/ipc.sock")).unwrap();
+        let window = window_router(&home, json!({}));
+        let kept = r#"printf '{"id":%s,"error":{"code":-32600,"message":"queue is locked"}}\n' "$id""#;
+        let twice = steer_from(&queue_of_two(&heard, kept), &home, &working_thread(), "u2").unwrap_err();
+        window.join().unwrap();
+        assert_eq!(twice.to_string(), "It went into \u{201c}Fix the build\u{201d}'s turn, but Codex still holds it (Codex: queue is locked). Take it out of the queue in Codex, or it goes again once the turn ends.");
         let _ = std::fs::remove_dir_all(&home);
     }
 

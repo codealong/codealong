@@ -185,7 +185,12 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   knows which of what's held is its own. The app's windows list the queue again
   as another process adds to it (`thread/queue/list`, logged in the app's own log), and a queued
   message's Steer sends `turn/steer` and then `thread/queue/delete`; the steered message reached
-  the rollout 38 seconds later, at the turn's next step (26.930, 2026-10-17). The app-server that
+  the rollout 38 seconds later, at the turn's next step (26.930, 2026-10-17). Codealong's Send now
+  on a queued message does the same, through its own app-server and the window that runs the
+  thread: `codex/ipc.rs` (`steer_queued`), `codex/appserver.rs` (`Queue`). Not there:
+  `thread/queue/list` (0.160.1's schema) answers `{data: [{id, clientUserMessageId, input}],
+  nextCursor}`, `input` in `turn/start`'s items (a pasted image an `image` item with a data URL),
+  and `thread/queue/delete {threadId, queuedSubmissionId}` answers `{deleted}`. The app-server that
   makes a thread starts what's queued for it at once while the thread is idle, so a queue to look
   at needs a second app-server (`thread/queue/list` answered `[]` otherwise).
 - A thread made for the app to run, its first turn started through the window socket:

@@ -1824,6 +1824,14 @@ export async function sessionCancel(key: string): Promise<string> {
   return invoke<string>('session_cancel', { key });
 }
 
+/** Sends a message a session's harness holds until its turn ends (`id`, one of `Session.queued`)
+ *  into the turn it's taking now, as Steer beside a queued message in the Codex app does; says
+ *  what happened. */
+export async function sessionSteer(key: string, id: string): Promise<string> {
+  if (!inTauri) throw new Error('Sending now needs the app.');
+  return invoke<string>('session_steer', { key, id });
+}
+
 /** Replies as sessions write them, ahead of their records: from sessions Codealong runs, and
  *  from Claude Code sessions whose plugin hands their replies over. */
 export function onHostedStream(cb: (s: HostedStream) => void): () => void {

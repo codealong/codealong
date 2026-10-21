@@ -97,7 +97,8 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   conversation; `--snapshot --pending <session key>`: what it waits on you to allow.
 - Real: `--snapshot --answer <key> <id> <allow|deny|always> [answers]`, `--snapshot --send <key>
   <text> [--now]`, `--snapshot --tell <key> <text>` (as Codealong sends by itself),
-  `--snapshot --rename <key> <name>`, `--snapshot --stop <key>`, `--snapshot --training-off
+  `--snapshot --rename <key> <name>`, `--snapshot --stop <key>`, `--snapshot --steer <key> <id>`
+  (a queued message into the running turn), `--snapshot --training-off
   <account>` (turns training off at its provider, as the usage bar's flag does),
   `--snapshot --done <key> [--stop]` (ends it as Mark as done does, without archiving),
   `--snapshot --remove-worktree <folder> [--dry-run]` (only where nothing would be lost),

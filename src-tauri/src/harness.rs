@@ -129,6 +129,13 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// Sends a message it holds until the session's turn ends (`id`, one of `Session::queued`)
+    /// into the turn it's taking now, and takes it out of what's held: Send now for a message
+    /// already sent. Says what happened. Only a harness that lists what it holds has any.
+    fn steer_queued(&self, _ctx: &Ctx, session: &Session, _id: &str) -> Result<String> {
+        bail!("{} can't send what it holds for {} any sooner.", self.harness().word(), crate::send::quoted(&session.title))
+    }
+
     /// What a new terminal types to go on with a session that isn't running (`start::resume`),
     /// on the prompt, model and effort `ask` has where there are any, and the environment that
     /// carries the prompt: typed through the shell, as a new session's is, so no quoting of

@@ -4,8 +4,10 @@
 // message goes to it, and boards come that show it held (`queuedAt`), then taken. Then the board
 // lists what's held (`queued`, the Codex app's queue): a message sent from here, by the id its send
 // said it was queued under, shows once; one sent into the turn stays sent while another waits
-// after it; one queued elsewhere shows too, after the turn; and they go as the queue empties. It
-// ends with two messages queued, for the screenshot.
+// after it; one queued elsewhere shows too, after the turn; and they go as the queue empties. While
+// the turn can take what's held sooner (`steerable`), each held message has Send now, which asks
+// for it by its id and shows it once, as sent, in its place; one that doesn't go stays held, saying
+// why. It ends with two messages queued, for the screenshot.
 //   PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
 //   PREVIEW_SCHEME=dark PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/queued-send-check.js
 (function () {
@@ -27,7 +29,13 @@
     s.title = 'Queued A';
     return s;
   };
+  // Why Send now on a held message fails, or null for it to go.
+  var steerFails = null;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd === 'session_steer') {
+      window.__calls.push([cmd, args, options]);
+      return steerFails ? Promise.reject(steerFails) : Promise.resolve('Sent to “Queued A” now: it takes it into the turn it’s taking.');
+    }
     if (cmd === 'send_to_session') {
       window.__calls.push([cmd, args, options]);
       return Promise.resolve(queueing ? { message: 'Queued in Codex.', opened: false, queued: 'q:' + args.text } : { message: 'Typed into its Ghostty tab.', opened: false });
@@ -75,6 +83,8 @@
   };
   var sayingAll = function (words) { return unsaid().filter(function (u) { return u.words === words; }); };
   var saying = function (words) { return sayingAll(words)[0]; };
+  // Send now on a held message, by its words.
+  var sendNow = function (words) { var u = saying(words); return u && q('.ca-thread-sendnow', u.el); };
   var send = function (words) {
     type(box(), words);
     key(box(), { key: 'Enter' });
@@ -166,8 +176,44 @@
     })
     .then(function () {
       var at = Date.now();
-      push({ queuedAt: at, queued: [{ id: 'app-2', at: at - 1000, text: 'Then the release notes' }, { id: 'app-3', at: at, text: 'Queued in the app' }], status: 'working' });
-      return until(function () { return !!saying('Queued in the app'); }, 5000, 'two queued for the screenshot');
+      push({ queuedAt: at, queued: [{ id: 'app-2', at: at - 1000, text: 'Then the release notes' }, { id: 'app-3', at: at, text: 'Queued in the app' }], status: 'working', steerable: false });
+      return until(function () { return !!saying('Queued in the app'); }, 5000, 'two queued');
+    })
+    .then(function () {
+      check('no Send now on what’s held while the turn can’t take it sooner', !sendNow('Queued in the app'));
+      push({ steerable: true });
+      return until(function () { return !!sendNow('Queued in the app'); }, 5000, 'Send now on what’s held');
+    })
+    .then(function () {
+      check('Send now on each held message while the turn can take it sooner', !!sendNow('Then the release notes') && !!sendNow('Queued in the app'));
+      sendNow('Queued in the app').click();
+      return until(function () { var u = saying('Queued in the app'); return u && u.says === 'Sent'; }, 5000, 'the held message sent now');
+    })
+    .then(function () {
+      var asked = sent('session_steer');
+      check('Send now asks for the held message by its id', asked.length === 1 && asked[0].key === picked.key && asked[0].id === 'app-3', JSON.stringify(asked));
+      var shown = sayingAll('Queued in the app');
+      check('sent now, it shows once, as sent, while the board still lists it', shown.length === 1 && shown[0].says === 'Sent', shown.map(function (u) { return u.says; }).join(', '));
+      // Out of the queue; the turn takes it in at its next step.
+      var at = Date.now();
+      push({ queuedAt: at - 1000, queued: [{ id: 'app-2', at: at - 1000, text: 'Then the release notes' }] });
+      return wait(1500);
+    })
+    .then(function () {
+      var shown = sayingAll('Queued in the app');
+      check('and once, sent, out of the queue until the record has it', shown.length === 1 && shown[0].says === 'Sent', shown.map(function (u) { return u.says; }).join(', '));
+      steerFails = 'Codex didn’t take it into the turn: its turn had ended.';
+      sendNow('Then the release notes').click();
+      return until(function () { var u = saying('Then the release notes'); return u && !!q('.ca-thread-askrow', u.el); }, 5000, 'why it didn’t go');
+    })
+    .then(function () {
+      var u = saying('Then the release notes');
+      var why = q('.ca-thread-askrow', u.el).textContent;
+      check('one that didn’t go is still held, saying why', u.says === 'Queued until this turn ends' && why.indexOf('its turn had ended') >= 0, u.says + ' / ' + why);
+      steerFails = null;
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'app-4', at: at - 1000, text: 'Then the release notes' }, { id: 'app-5', at: at, text: 'And a line in the changelog' }] });
+      return until(function () { return !!saying('And a line in the changelog'); }, 5000, 'two queued for the screenshot');
     })
     .then(function () { return wait(300); })
     .then(done)

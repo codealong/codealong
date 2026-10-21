@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   renameSession: vi.fn(),
   mergePr: vi.fn(),
   sessionAnswer: vi.fn(),
+  sessionSteer: vi.fn(),
   reviewPr: vi.fn(),
 }));
 vi.mock('./api', () => ({
@@ -16,7 +17,7 @@ vi.mock('./api', () => ({
   windowLabel: () => 'test',
 }));
 
-import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, type Ahead, type View } from './ahead';
+import { answerAhead, barAhead, boardAhead, boardView, CONFIRM_MS, inRecord, lanesAhead, logoOf, mergeAhead, mergeDoneAhead, renameAhead, reviewAhead, sendAhead, sentWorthSaying, settled, steerAhead, type Ahead, type View } from './ahead';
 import { readDraft, writeDraft } from './drafts';
 import { bayOf, stuckMidTurn } from './lanes';
 import * as fx from './testing/fixtures';
@@ -365,6 +366,18 @@ describe('settled', () => {
     expect(settled(now, after, NOW + 10_000)?.queued).toBeUndefined();
   });
 
+  it('shows a held message sent into the turn as sent until the record has it, however long its next step takes', () => {
+    const q = (id: string, at: number) => ({ id, at, text: id });
+    const a = change({ kind: 'send', key: 'a', text: 'q-a', working: true, starts: false, steers: 'q-a' }, { doneAt: NOW + 500 });
+    // The board lists it a moment longer, until the queue is read again: it isn't held for that.
+    const listed = settled(a, view(NOW, { status: 'working', queuedAt: NOW - 60_000, queued: [q('q-a', NOW - 60_000)] }), NOW + 1_000);
+    expect(listed?.queued).toBeUndefined();
+    // The turn takes it in at its next step, which can be a while: still sent, not unseen.
+    const waiting = settled(listed!, view(NOW, { status: 'working' }), NOW + 40_000);
+    expect([waiting?.lapsed, !!waiting?.unconfirmed, waiting?.takenAt]).toEqual([true, false, undefined]);
+    expect(settled(waiting!, view(NOW, { status: 'working', lastPromptAt: NOW + 38_000 }), NOW + 41_000)?.takenAt).toBe(NOW + 41_000);
+  });
+
   it('leaves a queued message as it was where the view can’t see the queue', () => {
     const queued = settled(send('a', { doneAt: NOW + 500 }), view(NOW, { status: 'working', queuedAt: NOW + 300 }), NOW + 1_000)!;
     // The bar's view has no queue, and doesn't know when the session was last sent a prompt.
@@ -529,6 +542,19 @@ describe('sendAhead', () => {
     const s = session('s', 'idle');
     await Promise.all([sendAhead(s, 'One'), sendAhead(s, 'Two')]);
     expect(order).toEqual(['One', 'Two']);
+  });
+});
+
+describe('steerAhead', () => {
+  beforeEach(() => api.sessionSteer.mockReset());
+
+  it('asks the engine for the held message by its id, and says why it didn’t go', async () => {
+    const m = { id: 'u2', at: NOW - 60_000, text: 'And the docs' };
+    api.sessionSteer.mockResolvedValueOnce('Sent to “Task a” now.');
+    await expect(steerAhead(session('a', 'working'), m)).resolves.toBe('Sent to “Task a” now.');
+    expect(api.sessionSteer).toHaveBeenCalledWith('a', 'u2');
+    api.sessionSteer.mockRejectedValueOnce(new Error('Codex didn’t take it into the turn.'));
+    await expect(steerAhead(session('b', 'working'), m)).rejects.toThrow('Codex didn’t take it into the turn.');
   });
 });
 

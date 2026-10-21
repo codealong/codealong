@@ -250,6 +250,15 @@ impl crate::harness::Adapter for Codex {
         }
     }
 
+    /// Only the app keeps a queue a thread's session lists (queue.rs); its Steer, through the
+    /// window that runs the thread (`ipc::steer_queued`).
+    fn steer_queued(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str) -> anyhow::Result<String> {
+        if s.surface == crate::model::Surface::Cli {
+            anyhow::bail!("Codex's terminal holds nothing Codealong can send sooner.");
+        }
+        ipc::steer_queued(&ctx.account.home_path(), s, id)
+    }
+
     /// The app's own Stop, through its windows' socket; Escape in a terminal, the key its
     /// terminal UI stops a turn with.
     fn interrupts(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> bool {
