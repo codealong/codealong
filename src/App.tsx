@@ -1565,10 +1565,17 @@ export function App() {
     }
   }, [loading, selectedKey, revealed, visible, view, sessionGroup, prGroup, todoGroup, homes, lanes, prRows, todoItems]);
   useEffect(() => {
-    if (!scrollTo || !visible.some((r) => r.key === scrollTo)) return;
+    if (!scrollTo) return;
+    // Only while it's still the row selected: another selected meanwhile is scrolled to as it's
+    // selected, and a later push mustn't take the list back to this one.
+    if (scrollTo !== selectedKey) {
+      setScrollTo(null);
+      return;
+    }
+    if (!visible.some((r) => r.key === scrollTo)) return;
     document.getElementById(domIdOf(scrollTo))?.scrollIntoView({ block: 'nearest' });
     setScrollTo(null);
-  }, [scrollTo, visible]);
+  }, [scrollTo, selectedKey, visible]);
 
   /** Shows a worktree: on the canvas its card; in Sessions grouped by worktree its heading,
    *  selected; else its panel in place of the one beside the list, with the way back to it
