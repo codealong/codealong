@@ -269,9 +269,19 @@ pub struct Track {
     pub armed_at: i64,
     /// The latest of its times that's been run, skipped or missed.
     pub last_due: Option<i64>,
-    /// The session it keeps going (`To::Thread`), and since when.
+    /// The session it keeps going (`To::Thread`), and since when; for `To::Session`, the copy
+    /// the session it sends to went on as (`follows` says which session that was).
     pub thread: Option<String>,
     pub thread_since: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub follows: Option<String>,
+    /// The session its latest new-session run started: while it works or waits on you, the next
+    /// run is skipped (`Overlap::Skip`). Kept apart from `runs`, which only keeps the latest few.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started: Option<String>,
+    /// How many runs went on which day (days since 1970 on this Mac's clock), for `per_day`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub day: Option<RunDay>,
     /// A run waiting for the session it goes to to end its turn.
     pub queued: Option<Queued>,
     /// Its latest runs, oldest first.
@@ -284,6 +294,17 @@ pub struct Track {
     pub seeded: bool,
     /// How its watch's latest check went.
     pub check: Option<Check>,
+    /// When its watch last looked and the command worked: what it's told as `CODEALONG_SINCE`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_ok: Option<i64>,
+}
+
+/// The runs that went on one day.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct RunDay {
+    pub day: i64,
+    pub runs: u32,
 }
 
 /// A run waiting on its session.
@@ -295,6 +316,8 @@ pub struct Queued {
     pub why: Vec<String>,
     /// The file each one's findings are in, as a prompt refers to it.
     pub files: Vec<String>,
+    /// The todos they're for, which a new session is linked to and told of.
+    pub todos: Vec<String>,
 }
 
 /// A watch's latest check.
@@ -464,15 +487,32 @@ pub fn note_run(track: &mut Track, run: RunRecord) {
     track.runs.drain(..extra);
 }
 
-/// Notes ids as seen, keeping the latest few.
+/// Notes ids as seen, keeping the latest few, and never the ones given now: a watch whose output
+/// holds more lines than are kept would otherwise forget one of them each look and run for it again.
 pub fn note_seen(track: &mut Track, ids: impl IntoIterator<Item = String>) {
-    for id in ids {
-        if !track.seen.contains(&id) {
-            track.seen.push(id);
+    let given: Vec<String> = ids.into_iter().collect();
+    let mut had: std::collections::HashSet<String> = track.seen.iter().cloned().collect();
+    for id in &given {
+        if had.insert(id.clone()) {
+            track.seen.push(id.clone());
         }
     }
-    let extra = track.seen.len().saturating_sub(KEEP_SEEN);
-    track.seen.drain(..extra);
+    let given: std::collections::HashSet<String> = given.into_iter().collect();
+    let keep = KEEP_SEEN.max(given.len());
+    let mut extra = track.seen.len().saturating_sub(keep);
+    track.seen.retain(|id| {
+        let drop = extra > 0 && !given.contains(id);
+        if drop {
+            extra -= 1;
+        }
+        !drop
+    });
+}
+
+/// Days since 1970 of a time's date on a clock.
+pub fn day_of(ms: i64, zone: &dyn Zone) -> i64 {
+    let c = zone.civil(ms);
+    crate::util::days_from_civil(c.year, c.month, c.day)
 }
 
 /// Why a schedule can't be saved as it is: what each part must be on its own, whatever the
@@ -483,7 +523,7 @@ pub fn check(s: &Schedule, cfg: &Config, now: i64, zone: &dyn Zone) -> std::resu
     }
     match &s.when {
         When::Time { rule } => {
-            let parsed = rule::parse_at(rule, s.created_at.max(1), now, zone)?;
+            let parsed = rule::parse_checked(rule)?;
             if rule::next_after(&parsed, now, s.created_at, zone).is_none() {
                 return Err("That time has passed.".into());
             }
@@ -548,7 +588,10 @@ pub fn next_check(every: &str, track: Option<&Track>) -> Option<i64> {
 pub fn next_due(s: &Schedule, track: Option<&Track>, now: i64, zone: &dyn Zone) -> Option<i64> {
     let When::Time { rule } = &s.when else { return None };
     let parsed = rule::parse(rule).ok()?;
-    let since = track.and_then(|t| t.last_due).or_else(|| track.map(|t| t.armed_at).filter(|&a| a > 0)).unwrap_or(now);
+    // From the last it ran, else from when it was made: one added while Codealong was closed, its
+    // time passing before the scheduler first had it, still runs then. A week back at most.
+    let made = Some(s.created_at).filter(|&c| c > 0).or_else(|| track.map(|t| t.armed_at).filter(|&a| a > 0));
+    let since = track.and_then(|t| t.last_due).or(made).unwrap_or(now).max(now - 7 * crate::util::DAY_MS);
     rule::next_after(&parsed, since, s.created_at, zone)
 }
 
@@ -786,6 +829,13 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
                 s.updated_at = now;
                 Ok(s.clone())
             })?;
+            if !paused {
+                change_runs(|r| {
+                    if let Some(t) = r.of.get_mut(&s.id) {
+                        resumed(t, now);
+                    }
+                })?;
+            }
             serde_json::to_value(s)?
         }
         Op::Run { id } => {
@@ -815,6 +865,15 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
     Ok(out)
 }
 
+/// A schedule resumed: what passed while it was paused isn't run, though Codealong was closed
+/// meanwhile and never saw it pass. Its times go on from now, it's armed again (what's on the
+/// board now isn't new), and its watch's next look only notes what's there.
+pub fn resumed(t: &mut Track, now: i64) {
+    t.last_due = Some(now);
+    t.armed_at = 0;
+    t.seeded = false;
+}
+
 /// A schedule's time as the Schedules view previews it while it's written: in words, and its
 /// next few times; or why it can't be read.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -827,7 +886,7 @@ pub struct Times {
 }
 
 pub fn times(text: &str, now: i64, zone: &dyn Zone) -> Times {
-    match rule::parse_at(text, now, now, zone) {
+    match rule::parse_checked(text) {
         Ok(r) => {
             let mut next = Vec::new();
             let mut at = now;
@@ -939,6 +998,37 @@ mod tests {
         note_seen(&mut t, ["7".to_string()]);
         assert_eq!(t.seen.len(), KEEP_SEEN);
         assert_eq!(t.seen[0], "5");
+    }
+
+    #[test]
+    fn never_forgets_what_it_was_given() {
+        let mut t = Track::default();
+        let lines: Vec<String> = (0..KEEP_SEEN + 1).map(|i| format!("line {i}")).collect();
+        note_seen(&mut t, lines.clone());
+        note_seen(&mut t, lines.clone());
+        assert!(lines.iter().all(|l| t.seen.contains(l)));
+        // Fewer later: the oldest that aren't given go.
+        note_seen(&mut t, ["new".to_string()]);
+        assert_eq!(t.seen.len(), KEEP_SEEN);
+        assert!(t.seen.contains(&"new".to_string()));
+    }
+
+    #[test]
+    fn a_time_before_it_was_armed_still_runs() {
+        let z = rule::tests::Fake::utc();
+        let made = rule::tests::ms(&z, 2026, 10, 20, 8, 0);
+        let s = Schedule { created_at: made, when: When::Time { rule: "once 2026-10-20 9:00".into() }, ..Default::default() };
+        // Codealong opened at 9:30: the scheduler armed it then.
+        let armed = rule::tests::ms(&z, 2026, 10, 20, 9, 30);
+        let track = Track { armed_at: armed, ..Track::default() };
+        assert_eq!(next_due(&s, Some(&track), armed, &z), Some(rule::tests::ms(&z, 2026, 10, 20, 9, 0)));
+    }
+
+    #[test]
+    fn resuming_skips_what_passed_while_paused() {
+        let mut t = Track { armed_at: 5, last_due: Some(10), seeded: true, ..Track::default() };
+        resumed(&mut t, 500);
+        assert_eq!((t.last_due, t.armed_at, t.seeded), (Some(500), 0, false));
     }
 
     #[test]

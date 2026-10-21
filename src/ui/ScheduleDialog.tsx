@@ -245,6 +245,10 @@ export function ScheduleDialog({ schedule, board, now, onClose, onSaved }: Sched
         {run.to === 'session' ? (
           <>
             <Select label="The session it sends to" value={run.session} options={[{ id: '', label: 'Pick a session' }, ...targets]} onPick={(session) => setRun({ session })} />
+            {/* A watch and a check run in a worktree, though what it sends goes to a session. */}
+            {(when.kind === 'watch' || draft.onlyIf.trim() !== '') && (
+              <Select label="Where its commands run" value={run.folder} options={[{ id: '', label: 'Its commands run in your home folder' }, ...folders.map((f) => ({ ...f, label: `Its commands run in ${f.label}` }))]} onPick={(folder) => setRun({ folder })} />
+            )}
             <BoxText aria-label="What it sends" lines={6} hint="What it sends each time" value={run.prompt} onChange={(e) => setRun({ prompt: e.target.value })} />
           </>
         ) : (

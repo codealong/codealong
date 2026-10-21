@@ -62,8 +62,9 @@ pub enum Job {
     Fire { id: String, cause: Cause },
     /// Look with its watch.
     Check { id: String },
-    /// Send its waiting run to its session, whose turn has ended.
-    Deliver { id: String },
+    /// Send its waiting runs to its session, whose turn has ended: taken off the schedule as it's
+    /// planned, so they go once.
+    Deliver { id: String, queued: Queued },
     /// Quiet the sessions its starts made, now that they've shown.
     Quiet { keys: Vec<String> },
 }
@@ -71,7 +72,7 @@ pub enum Job {
 impl Job {
     fn id(&self) -> Option<&str> {
         match self {
-            Job::Fire { id, .. } | Job::Check { id } | Job::Deliver { id } => Some(id),
+            Job::Fire { id, .. } | Job::Check { id } | Job::Deliver { id, .. } => Some(id),
             Job::Quiet { .. } => None,
         }
     }
@@ -123,6 +124,8 @@ struct Done {
     seen: Vec<String>,
     fired: Vec<String>,
     due: Option<i64>,
+    /// For a schedule that sends to a session: the session that went on as `thread`.
+    follows: Option<String>,
 }
 
 static POKE: OnceLock<Mutex<Tx<()>>> = OnceLock::new();
@@ -171,7 +174,7 @@ impl Scheduler {
         let (jobs, notes) = plan(&file, &runs, board, &self.busy, now, zone);
         // What each run is for is noted as taken before it goes, so a run that falls over partway
         // (or Codealong quitting) can't start it twice: at most once, never twice.
-        let claims: Vec<&Job> = jobs.iter().filter(|j| matches!(j, Job::Fire { .. })).collect();
+        let claims: Vec<&Job> = jobs.iter().filter(|j| matches!(j, Job::Fire { .. } | Job::Deliver { .. })).collect();
         if !notes.is_empty() || !claims.is_empty() {
             let noted = change_runs(|r| {
                 notes.iter().for_each(|n| apply(r, n));
@@ -196,24 +199,31 @@ pub fn plan(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, now
     let mut jobs = Vec::new();
     let mut notes = Vec::new();
     let mut quiet = Vec::new();
-    let claimed: HashSet<&str> = runs.of.values().flat_map(|t| t.runs.iter().filter_map(|r| r.session.as_deref())).collect();
+    // Starts whose session its harness names itself: the next session of its account in its
+    // worktree, once one shows. Matched in the order they started, every schedule's together, and
+    // a session taken by one isn't another's.
+    let mut claimed: HashSet<String> = runs.of.values().flat_map(|t| t.runs.iter().filter_map(|r| r.session.clone())).collect();
+    let mut pending: Vec<(&Schedule, &RunRecord, &Pending)> = file
+        .schedules
+        .iter()
+        .flat_map(|s| runs.of.get(&s.id).map(|t| t.runs.as_slice()).unwrap_or_default().iter().filter_map(move |r| r.pending.as_ref().map(|p| (s, r, p))))
+        .collect();
+    pending.sort_by_key(|(_, _, p)| p.at);
+    for (s, r, p) in pending {
+        match shown(board, p, &claimed) {
+            Some(key) => {
+                claimed.insert(key.clone());
+                if s.quiet {
+                    quiet.push(key.clone());
+                }
+                notes.push(Note::Shown { id: s.id.clone(), run_at: r.at, key, thread: s.run.to == To::Thread });
+            }
+            None if now - p.at > PENDING_MS => notes.push(Note::NeverShown { id: s.id.clone(), run_at: r.at }),
+            None => {}
+        }
+    }
     for s in &file.schedules {
         let track = runs.of.get(&s.id);
-        // Starts whose session its harness names itself: the next session of its account in its
-        // worktree, once one shows.
-        for r in track.map(|t| t.runs.as_slice()).unwrap_or_default().iter().filter(|r| r.pending.is_some()) {
-            let p = r.pending.as_ref().expect("filtered");
-            match shown(board, p, &claimed) {
-                Some(key) => {
-                    if s.quiet {
-                        quiet.push(key.clone());
-                    }
-                    notes.push(Note::Shown { id: s.id.clone(), run_at: r.at, key, thread: s.run.to == To::Thread });
-                }
-                None if now - p.at > PENDING_MS => notes.push(Note::NeverShown { id: s.id.clone(), run_at: r.at }),
-                None => {}
-            }
-        }
         if busy.contains(&s.id) {
             continue;
         }
@@ -248,16 +258,17 @@ pub fn plan(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, now
             }
             continue;
         }
+        // What waited for its session goes, paused or not: it was taken (Run now among it).
+        if let Some(q) = &track.queued {
+            if can_take(board, s, track) || now - q.at > DAY_MS {
+                jobs.push(Job::Deliver { id: s.id.clone(), queued: q.clone() });
+            }
+            continue;
+        }
         if s.paused {
             // Times that pass while it's paused aren't run when it's resumed.
             if let Some(due) = next_due(s, Some(track), now, zone).filter(|&d| d <= now) {
                 notes.push(Note::Passed { id: s.id.clone(), due: latest_due(s, due, now, zone), missed: false });
-            }
-            continue;
-        }
-        if let Some(q) = &track.queued {
-            if can_take(board, s, track) || now - q.at > DAY_MS {
-                jobs.push(Job::Deliver { id: s.id.clone() });
             }
             continue;
         }
@@ -339,11 +350,11 @@ fn next_watch(every: &str, track: &Track) -> Option<i64> {
 
 /// The session a start made, now it's shown: the first of its account in its worktree that
 /// started after it, and isn't another run's.
-fn shown(board: &Board, p: &Pending, claimed: &HashSet<&str>) -> Option<String> {
+fn shown(board: &Board, p: &Pending, claimed: &HashSet<String>) -> Option<String> {
     let lane = board.lanes.iter().find(|l| l.id == p.lane)?;
     lane.sessions
         .iter()
-        .filter(|s| s.account == p.account && s.started_at.is_some_and(|at| at >= p.at - START_SLACK_MS) && !claimed.contains(s.key.as_str()))
+        .filter(|s| s.account == p.account && s.started_at.is_some_and(|at| at >= p.at - START_SLACK_MS) && !claimed.contains(&s.key))
         .min_by_key(|s| s.started_at)
         .map(|s| s.key.clone())
 }
@@ -354,7 +365,11 @@ fn target(board: &Board, s: &Schedule, track: Option<&Track>) -> Option<String> 
     let key = match s.run.to {
         To::New => return None,
         To::Thread => track.and_then(|t| t.thread.clone())?,
-        To::Session => s.run.session.trim().to_string(),
+        // Once a resume has gone on with it as a copy (a Claude Code background job's), the copy.
+        To::Session => {
+            let session = s.run.session.trim();
+            track.filter(|t| t.follows.as_deref() == Some(session)).and_then(|t| t.thread.clone()).filter(|k| board.session(k).is_some()).unwrap_or_else(|| session.to_string())
+        }
     };
     let origins = crate::origins::current();
     let key = origins.moved_to(&key, |k| board.session(k).is_some()).unwrap_or(key);
@@ -390,7 +405,9 @@ pub fn apply(runs: &mut Runs, note: &Note) {
                 r.pending = None;
                 r.session = Some(key.clone());
             }
-            if *thread && t.thread.as_deref() != Some(key.as_str()) {
+            if !*thread {
+                t.started = Some(key.clone());
+            } else if t.thread.as_deref() != Some(key.as_str()) {
                 t.thread = Some(key.clone());
                 t.thread_since = Some(now_ms());
             }
@@ -406,8 +423,13 @@ pub fn apply(runs: &mut Runs, note: &Note) {
     }
 }
 
-/// Notes a run as taken: its time, what it's for, and the runs asked for that it takes up.
+/// Notes a run as taken: its time, what it's for, and the runs asked for that it takes up; or
+/// what waited for its session, now on its way.
 pub fn claim(runs: &mut Runs, job: &Job) {
+    if let Job::Deliver { id, .. } = job {
+        runs.of.entry(id.clone()).or_default().queued = None;
+        return;
+    }
     let Job::Fire { id, cause } = job else { return };
     let t = runs.of.entry(id.clone()).or_default();
     if let Some(due) = cause.due {
@@ -425,15 +447,33 @@ fn apply_done(runs: &mut Runs, id: &str, done: Done) {
     if let Some(thread) = done.thread {
         t.thread_since = thread.as_ref().map(|_| t.thread_since.filter(|_| t.thread == thread).unwrap_or_else(now_ms));
         t.thread = thread;
+        t.follows = done.follows;
     }
     if let Some(q) = done.queued {
         t.queued = q;
     }
     note_seen(t, done.seen);
     if let Some(r) = done.record {
+        counted(t, &r, now_ms(), &rule::Local);
         note_run(t, r);
     }
     runs.fired.retain(|f| !done.fired.contains(&f.id));
+}
+
+/// What a run that went counts toward, apart from the history, which keeps only the latest few:
+/// the day's runs, and the session a new-session run started, which the next waits for.
+fn counted(t: &mut Track, r: &RunRecord, now: i64, zone: &dyn Zone) {
+    if !matches!(r.outcome, Outcome::Started | Outcome::Sent | Outcome::Resumed | Outcome::Queued) {
+        return;
+    }
+    let day = day_of(now, zone);
+    t.day = Some(match t.day {
+        Some(d) if d.day == day => RunDay { day, runs: d.runs + 1 },
+        _ => RunDay { day, runs: 1 },
+    });
+    if r.outcome == Outcome::Started && r.session.is_some() {
+        t.started = r.session.clone();
+    }
 }
 
 /// Runs a job, and frees its schedule for the next.
@@ -442,7 +482,7 @@ pub fn run(engine: &Handle, scheduler: &Mutex<Scheduler>, job: Job) {
     let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match job {
         Job::Fire { id, cause } => finish(&id, fire(engine, &id, cause)),
         Job::Check { id } => watch(engine, &id),
-        Job::Deliver { id } => finish(&id, deliver_queued(engine, &id)),
+        Job::Deliver { id, queued } => finish(&id, deliver_queued(engine, &id, queued)),
         Job::Quiet { keys } => {
             engine.quiet(keys, true);
         }
@@ -514,8 +554,7 @@ fn watch(engine: &Handle, id: &str) {
     let When::Watch { command, mode, .. } = &s.when else { return };
     let track = runs.of.get(id).cloned().unwrap_or_default();
     let now = now_ms();
-    let since = track.check.as_ref().filter(|c| c.ok).map(|c| c.at);
-    let looked = run_command(s, command, since);
+    let looked = run_command(s, command, track.last_ok);
     let mut found = Vec::new();
     let (check, seen, value, seeded) = match looked {
         Err(why) => (Check { at: now, ok: false, said: why, failures: track.check.as_ref().map_or(0, |c| c.failures) + 1 }, Vec::new(), track.value.clone(), track.seeded),
@@ -550,6 +589,9 @@ fn watch(engine: &Handle, id: &str) {
     };
     let noted = change_runs(|r| {
         let t = r.of.entry(id.to_string()).or_default();
+        if check.ok {
+            t.last_ok = Some(check.at);
+        }
         t.check = Some(check);
         t.value = value;
         t.seeded = seeded;
@@ -571,18 +613,9 @@ fn watch(engine: &Handle, id: &str) {
     }
 }
 
-/// How many of a schedule's runs went today, on this Mac's clock.
+/// How many of a schedule's runs went today, on this Mac's clock (`counted`).
 fn runs_today(track: &Track, now: i64, zone: &dyn Zone) -> usize {
-    let today = zone.civil(now);
-    track
-        .runs
-        .iter()
-        .filter(|r| matches!(r.outcome, Outcome::Started | Outcome::Sent | Outcome::Resumed | Outcome::Queued))
-        .filter(|r| {
-            let c = zone.civil(r.at);
-            (c.year, c.month, c.day) == (today.year, today.month, today.day)
-        })
-        .count()
+    track.day.filter(|d| d.day == day_of(now, zone)).map_or(0, |d| d.runs as usize)
 }
 
 fn record(cause: &Cause, outcome: Outcome, said: impl Into<String>, session: Option<String>) -> RunRecord {
@@ -698,6 +731,7 @@ fn act(engine: &Handle, board: &Board, cfg: &crate::config::Config, s: &Schedule
             let mut q = track.queued.clone().unwrap_or(Queued { at: now, ..Queued::default() });
             q.why.push(cause.said.clone());
             q.files.extend(file.map(str::to_string));
+            q.todos.extend(cause.found.iter().filter_map(|f| f.todo.clone()));
             let said = format!("{} is {}: it gets this once its turn ends.", title_of(board, &key), if needs_you { "waiting on you" } else { "at work" });
             (record(cause, Outcome::Queued, said, Some(key.clone())), Some(key), Some(q))
         }
@@ -741,8 +775,7 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
         return skipped(&cause, "Its session is still starting.");
     }
     if s.run.to == To::New && s.overlap == Overlap::Skip {
-        let last = track.runs.iter().rev().find_map(|r| r.session.as_deref().filter(|_| r.outcome == Outcome::Started));
-        if let Some(key) = last.filter(|k| busy(&board, k)) {
+        if let Some(key) = track.started.as_deref().filter(|k| busy(&board, k)) {
             return skipped(&cause, format!("Its last run, {}, is still {}.", title_of(&board, key), if board.session(key).is_some_and(|(_, s)| s.status == crate::model::Status::Needs) { "waiting on you" } else { "at work" }));
         }
     }
@@ -764,7 +797,8 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
     let step = step(&board, &cfg, &s, &track, &prompt, &todos, now);
     let (rec, went, queued) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, file_ref.as_deref());
     Some(Done {
-        thread: (s.run.to == To::Thread).then(|| went.clone()),
+        thread: (s.run.to != To::New).then(|| went.clone()),
+        follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()),
         queued: queued.map(Some),
         record: Some(rec),
         seen: cause.found.iter().filter(|f| !f.id.is_empty()).map(|f| f.id.clone()).collect(),
@@ -838,26 +872,28 @@ fn title_of(board: &Board, key: &str) -> String {
 }
 
 /// Sends a schedule's waiting runs to its session, now that it can take them: one message for all
-/// of them. A thread that's gone starts a new session with them.
-fn deliver_queued(engine: &Handle, id: &str) -> Option<Done> {
-    let (Ok(file), Ok(runs)) = (load(), load_runs()) else { return None };
-    let s = file.schedules.iter().find(|s| s.id == id)?.clone();
+/// of them, the todos they're for told and linked. A thread that's gone starts a new session with
+/// them. They were taken off the schedule as this was planned (`claim`): one that's busy again by
+/// now gets them back, to wait on.
+fn deliver_queued(engine: &Handle, id: &str, q: Queued) -> Option<Done> {
+    let back = || Some(Done { queued: Some(Some(q.clone())), ..Done::default() });
+    let (Ok(file), Ok(runs)) = (load(), load_runs()) else { return back() };
+    let Some(s) = file.schedules.iter().find(|s| s.id == id).cloned() else { return None };
     let track = runs.of.get(id).cloned().unwrap_or_default();
-    let q = track.queued.clone()?;
-    let cfg = crate::config::current().ok()?;
+    let Ok(cfg) = crate::config::current() else { return back() };
     let board = engine.board();
     let now = now_ms();
-    let cause = Cause { why: if q.why.len() == 1 { q.why[0].clone() } else { format!("{} runs that waited", q.why.len()) }, ..Cause::default() };
-    let prompt = prompt_of(&s, &q.why, &q.files, &[], &board, now);
+    let cause = Cause { why: if q.why.len() == 1 { q.why[0].clone() } else { format!("{} runs that waited", q.why.len()) }, found: q.todos.iter().map(|t| Found { todo: Some(t.clone()), ..Found::default() }).collect(), ..Cause::default() };
+    let todos = todos_for(&board, &cause);
+    let prompt = prompt_of(&s, &q.why, &q.files, &todos, &board, now);
     // What waited goes now, or it's dropped after a day: a session busy that long isn't coming back for it.
-    let tracked = Track { queued: None, ..track.clone() };
-    let step = match step(&board, &cfg, &s, &tracked, &prompt, &[], now) {
-        Step::Wait { .. } if now - q.at <= DAY_MS => return None,
+    let step = match step(&board, &cfg, &s, &track, &prompt, &todos, now) {
+        Step::Wait { .. } if now - q.at <= DAY_MS => return back(),
         Step::Wait { key, .. } => Step::Fail { why: format!("{} was busy for a day, so what waited for it was dropped.", title_of(&board, &key)) },
         other => other,
     };
-    let (rec, went, _) = act(engine, &board, &cfg, &s, &tracked, step, &prompt, &cause, None);
-    Some(Done { record: Some(rec), queued: Some(None), thread: (s.run.to == To::Thread).then_some(went), ..Done::default() })
+    let (rec, went, _) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, None);
+    Some(Done { record: Some(rec), thread: (s.run.to != To::New).then_some(went), follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()), ..Done::default() })
 }
 
 /// Runs a schedule now, as Run now does, on this thread, and notes it: for `--snapshot
@@ -885,7 +921,7 @@ pub fn check_now(s: &Schedule, track: &Track) -> serde_json::Value {
         _ if !s.only_if.trim().is_empty() => (s.only_if.as_str(), None),
         _ => return serde_json::json!({ "problem": "It has no watch and no check to run." }),
     };
-    match run_command(s, command, track.check.as_ref().filter(|c| c.ok).map(|c| c.at)) {
+    match run_command(s, command, track.last_ok) {
         Err(why) => serde_json::json!({ "command": command, "ok": false, "said": why }),
         Ok(out) => {
             let new: Vec<Found> = match mode {
@@ -1022,12 +1058,63 @@ mod tests {
         let now = ms(&z, 2026, 10, 20, 9, 0);
         let s = Schedule { run: Run { to: To::Thread, prompt: "Look".into(), ..Run::default() }, ..schedule("a", When::Time { rule: "every 2h".into() }) };
         let working = Session { status: Status::Working, ..session("k") };
-        let queued = Track { thread: Some("k".into()), queued: Some(Queued { at: now - 1000, why: vec!["8:00".into()], files: Vec::new() }), last_due: Some(now), ..armed(now - DAY_MS) };
+        let queued = Track { thread: Some("k".into()), queued: Some(Queued { at: now - 1000, why: vec!["8:00".into()], ..Queued::default() }), last_due: Some(now), ..armed(now - DAY_MS) };
         let runs = Runs { of: [("a".to_string(), queued)].into(), ..Runs::default() };
         let busy_board = Board { lanes: vec![lane("/r", vec![working])], ..board() };
         assert!(plan(&File { schedules: vec![s.clone()] }, &runs, &busy_board, &HashSet::new(), now, &z).0.is_empty());
         let free = Board { lanes: vec![lane("/r", vec![Session { status: Status::Idle, ..session("k") }])], ..board() };
-        assert_eq!(plan(&File { schedules: vec![s] }, &runs, &free, &HashSet::new(), now, &z).0, vec![Job::Deliver { id: "a".into() }]);
+        let waited = runs.of["a"].queued.clone().unwrap();
+        assert_eq!(plan(&File { schedules: vec![s.clone()] }, &runs, &free, &HashSet::new(), now, &z).0, vec![Job::Deliver { id: "a".into(), queued: waited.clone() }]);
+        // Paused meanwhile, what waited still goes: a run by hand may be among it.
+        let paused = Schedule { paused: true, ..s };
+        assert_eq!(plan(&File { schedules: vec![paused] }, &runs, &free, &HashSet::new(), now, &z).0, vec![Job::Deliver { id: "a".into(), queued: waited.clone() }]);
+        // Taken off the schedule as it's planned, so it can't go twice.
+        let mut runs = runs;
+        claim(&mut runs, &Job::Deliver { id: "a".into(), queued: waited });
+        assert!(runs.of["a"].queued.is_none());
+    }
+
+    #[test]
+    fn two_starts_never_take_one_session() {
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 10, 20, 9, 0);
+        let pending = |at| RunRecord { at, pending: Some(Pending { lane: "/r".into(), account: "claude".into(), at }), ..RunRecord::default() };
+        let a = Schedule { run: Run { to: To::Thread, prompt: "Look".into(), ..Run::default() }, ..schedule("a", When::Fired) };
+        let b = Schedule { run: Run { to: To::Thread, prompt: "Look".into(), ..Run::default() }, ..schedule("b", When::Fired) };
+        let runs = Runs { of: [("a".to_string(), Track { runs: vec![pending(now - 4000)], ..armed(1) }), ("b".to_string(), Track { runs: vec![pending(now - 5000)], ..armed(1) })].into(), ..Runs::default() };
+        let first = Session { started_at: Some(now - 4500), ..session("first") };
+        let second = Session { started_at: Some(now - 3500), ..session("second") };
+        let b2 = Board { lanes: vec![lane("/r", vec![first, second])], ..board() };
+        let (_, notes) = plan(&File { schedules: vec![a, b] }, &runs, &b2, &HashSet::new(), now, &z);
+        // b started first, so it has the first session; a the next.
+        assert_eq!(notes, vec![Note::Shown { id: "b".into(), run_at: now - 5000, key: "first".into(), thread: true }, Note::Shown { id: "a".into(), run_at: now - 4000, key: "second".into(), thread: true }]);
+    }
+
+    #[test]
+    fn counts_the_days_runs_and_its_last_start_past_its_history() {
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 10, 20, 9, 0);
+        let mut t = Track::default();
+        counted(&mut t, &RunRecord { outcome: Outcome::Started, session: Some("k".into()), ..RunRecord::default() }, now, &z);
+        for _ in 0..40 {
+            let skip = RunRecord { outcome: Outcome::Skipped, ..RunRecord::default() };
+            counted(&mut t, &skip, now, &z);
+            note_run(&mut t, skip);
+        }
+        assert_eq!((runs_today(&t, now, &z), t.started.as_deref()), (1, Some("k")));
+        // The next day starts again.
+        assert_eq!(runs_today(&t, now + DAY_MS, &z), 0);
+    }
+
+    #[test]
+    fn a_session_it_sends_to_goes_on_as_its_copy() {
+        let s = Schedule { run: Run { to: To::Session, session: "old".into(), prompt: "Look".into(), ..Run::default() }, ..schedule("a", When::Fired) };
+        let b = Board { lanes: vec![lane("/r", vec![session("old"), session("copy")])], ..board() };
+        let copied = Track { thread: Some("copy".into()), follows: Some("old".into()), ..armed(1) };
+        assert_eq!(target(&b, &s, Some(&copied)).as_deref(), Some("copy"));
+        // A copy of another session it once sent to isn't this one's.
+        let other = Track { follows: Some("elsewhere".into()), ..copied };
+        assert_eq!(target(&b, &s, Some(&other)).as_deref(), Some("old"));
     }
 
     #[test]

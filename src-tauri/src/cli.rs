@@ -5120,12 +5120,17 @@ fn schedule_from(c: &mut Client, a: ScheduleAddArgs) -> Result<crate::schedules:
         None if a.thread => (To::Thread, String::new()),
         None => (To::New, String::new()),
     };
-    let folder = if a.chat || to == To::Session {
+    // Where its sessions start, and where its watch and its check run: a schedule that sends to a
+    // session keeps its worktree for those, and does without one outside any.
+    let folder = if a.chat {
         String::new()
     } else {
         let dir = std::fs::canonicalize(expand(&a.worktree)).unwrap_or_else(|_| expand(&a.worktree));
-        let lane = lane_for_path(c.board()?, &dir).ok_or_else(|| anyhow!("{} isn't in a worktree Codealong knows. Give one with --worktree, or --chat for no project.", tilde(&dir)))?;
-        lane.path.clone()
+        match lane_for_path(c.board()?, &dir) {
+            Some(lane) => lane.path.clone(),
+            None if to == To::Session => String::new(),
+            None => bail!("{} isn't in a worktree Codealong knows. Give one with --worktree, or --chat for no project.", tilde(&dir)),
+        }
     };
     Ok(Schedule {
         name: a.name,

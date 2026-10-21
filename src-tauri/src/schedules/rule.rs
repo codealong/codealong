@@ -152,10 +152,15 @@ const EXAMPLES: &str = "Try “weekdays 9:00”, “every 2h”, “monthly 1 9:
 
 /// Reads a schedule's time from its words, or says why it can't.
 pub fn parse(text: &str) -> Result<Rule, String> {
-    let words: Vec<String> = text.to_lowercase().replace(',', " ").split_whitespace().map(str::to_string).collect();
+    let lower = text.to_lowercase();
+    // Cron's fields take lists (`0,30`), which the other forms write as words.
+    let fields: Vec<String> = lower.split_whitespace().map(str::to_string).collect();
+    if fields.first().map(String::as_str) == Some("cron") {
+        return Ok(Rule::Cron(cron(&fields[1..])?));
+    }
+    let words: Vec<String> = lower.replace(',', " ").split_whitespace().map(str::to_string).collect();
     let rule = match words.first().map(String::as_str) {
         None => return Err(format!("Say when it runs. {EXAMPLES}")),
-        Some("cron") => Rule::Cron(cron(&words[1..])?),
         Some("once") => once(&words[1..])?,
         Some("every") if !matches!(words.get(1).map(String::as_str), Some("day" | "weekday" | "weekdays")) => every(&words[1..])?,
         Some("monthly") => monthly(&words[1..])?,
@@ -164,20 +169,39 @@ pub fn parse(text: &str) -> Result<Rule, String> {
     Ok(rule)
 }
 
-/// Reads a rule and checks it runs no more often than `MIN_GAP_MS`, and still runs after `now`.
-pub fn parse_at(text: &str, anchor: i64, now: i64, zone: &dyn Zone) -> Result<Rule, String> {
+/// Reads a rule and checks it never runs twice within `MIN_GAP_MS` (`shortest_gap`).
+pub fn parse_checked(text: &str) -> Result<Rule, String> {
     let rule = parse(text)?;
-    let mut at = now;
-    let mut last: Option<i64> = None;
-    for _ in 0..6 {
-        let Some(next) = next_after(&rule, at, anchor, zone) else { break };
-        if last.is_some_and(|l| next - l < MIN_GAP_MS) {
-            return Err("That runs more often than every 5 minutes. Each run starts or tells an agent something, so leave at least 5 minutes between them.".into());
-        }
-        last = Some(next);
-        at = next;
+    if shortest_gap(&rule).is_some_and(|m| m * MINUTE_MS < MIN_GAP_MS) {
+        return Err("That runs more often than every 5 minutes. Each run starts or tells an agent something, so leave at least 5 minutes between them.".into());
     }
     Ok(rule)
+}
+
+/// The shortest time, in minutes, between two of a rule's runs, worked out from what it names
+/// rather than from a few of its times, so a close pair late in a long list is found too. Times on
+/// two days are taken as on days in a row (a day's last and the next one's first), which is the
+/// closest they come. None for one that runs once.
+pub fn shortest_gap(rule: &Rule) -> Option<i64> {
+    // The gaps between sorted values in a cycle of `round`: each to the next, and the last round
+    // to the first.
+    let cyclic = |values: &[i64], round: i64| -> Option<i64> {
+        let first = *values.first()?;
+        let last = *values.last()?;
+        values.windows(2).map(|w| w[1] - w[0]).chain(std::iter::once(round - last + first)).min()
+    };
+    match rule {
+        Rule::Times { times, .. } | Rule::Monthly { times, .. } => cyclic(times, DAY_MINUTES),
+        Rule::Every { minutes, .. } => Some(*minutes),
+        Rule::Cron(c) => {
+            let within = c.minutes.windows(2).map(|w| w[1] - w[0]).min();
+            // From an hour's last minute to the next hour's first.
+            let hours = cyclic(&c.hours, 24)?;
+            let across = hours * 60 - c.minutes.last()? + c.minutes.first()?;
+            Some(within.map_or(across, |w| w.min(across)))
+        }
+        Rule::Once(_) => None,
+    }
 }
 
 /// A time of day as written: `9`, `9am`, `9:30`, `09:30pm`, `21:15`, `noon`, `midnight`. `pm`
@@ -662,6 +686,9 @@ pub mod tests {
         // Day of the month or day of the week, as cron has it when both are named.
         assert_eq!(next("cron 0 9 1 * fri", &z, at), Some((2026, 10, 23, 9, 0)));
         assert_eq!(next("cron 0 9 * * 7", &z, at), Some((2026, 10, 25, 9, 0)));
+        // Cron's lists, with commas.
+        assert_eq!(next("cron 0,30 9 * * *", &z, ms(&z, 2026, 10, 21, 9, 0)), Some((2026, 10, 21, 9, 30)));
+        assert_eq!(next("cron 0 9 * * mon,fri", &z, at), Some((2026, 10, 23, 9, 0)));
     }
 
     #[test]
@@ -677,11 +704,16 @@ pub mod tests {
         assert!(parse("monthly 32 9:00").unwrap_err().contains("no day 32"));
         assert!(parse("25:00").is_err());
         assert!(parse("13pm").is_err());
-        let z = Fake::utc();
-        let now = ms(&z, 2026, 10, 20, 12, 0);
-        assert!(parse_at("every 1m", now, now, &z).unwrap_err().contains("every 5 minutes"));
-        assert!(parse_at("cron * * * * *", now, now, &z).unwrap_err().contains("every 5 minutes"));
-        assert!(parse_at("every 5m", now, now, &z).is_ok());
+        assert!(parse_checked("every 1m").unwrap_err().contains("every 5 minutes"));
+        assert!(parse_checked("cron * * * * *").unwrap_err().contains("every 5 minutes"));
+        assert!(parse_checked("every 5m").is_ok());
+        // A close pair after many times is found, not only among the first few.
+        let many = (0..6).map(|h| format!("{h}:00")).collect::<Vec<_>>().join(" ");
+        assert!(parse_checked(&format!("daily {many} 6:00 6:01")).unwrap_err().contains("every 5 minutes"));
+        assert!(parse_checked("daily 23:58 0:01").unwrap_err().contains("every 5 minutes"));
+        assert!(parse_checked("cron 59,0 9,10 * * *").unwrap_err().contains("every 5 minutes"));
+        assert!(parse_checked("cron 0,30 9 * * *").is_ok());
+        assert!(parse_checked("once 2026-10-21 9:00").is_ok());
     }
 
     #[test]
