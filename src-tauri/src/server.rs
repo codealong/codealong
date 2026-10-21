@@ -7,7 +7,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -188,30 +188,100 @@ pub fn serve(engine: Handle, peers: Peers, app: tauri::AppHandle) {
     if p.exists() && UnixStream::connect(&p).is_err() {
         let _ = std::fs::remove_file(&p);
     }
-    let listener = match UnixListener::bind(&p) {
+    let listener = match listen(&p) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("Couldn't open {}: {e}. The codealong command will read the files instead.", p.display());
             return;
         }
     };
-    let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
     std::thread::Builder::new()
         .name("socket".into())
         .spawn(move || {
-            loop {
-                // Waits for each connection: a nonblocking listener would spin here between
-                // commands, and on macOS give every socket it accepts its mode.
-                if let Err(e) = listener.set_nonblocking(false) {
-                    eprintln!("Couldn't wait for a codealong command: {e}");
-                    break;
-                }
-                let Ok((stream, _)) = listener.accept() else { continue };
+            accept_on(&p, listener, |stream| {
                 let (engine, peers, app) = (engine.clone(), peers.clone(), app.clone());
                 let _ = std::thread::Builder::new().name("socket-client".into()).spawn(move || connection(stream, &engine, &peers, &app));
-            }
+            })
         })
         .ok();
+}
+
+/// The socket at `p`, mode 0600, and which socket it is (`socket_id`), told as it's bound, before
+/// anything can close it.
+fn listen(p: &Path) -> std::io::Result<(UnixListener, Option<(u64, u64)>)> {
+    use std::os::fd::AsRawFd;
+    let listener = UnixListener::bind(p)?;
+    let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600));
+    let id = socket_id(listener.as_raw_fd());
+    Ok((listener, id))
+}
+
+/// Hands `serve` each connection to the socket at `p`, for as long as the app runs.
+///
+/// A descriptor of the listener closed or replaced while this thread waits in accept leaves the
+/// socket draining on macOS (`SS_DRAINING`, which lsof shows as `SS=UNKNOWN=0x4000`): the accept
+/// fails with ECONNABORTED and the socket goes on taking connections, but each one it accepts
+/// takes that state too, and any read or write on it that would wait fails with EBADF. So a
+/// request not in yet failed at once, and a reply stopped where the socket's 8 KB buffer filled.
+/// The running app's listener was found so on 2026-10-20, twice, still fd 6 and waited on (a
+/// `dup2` onto it while accept waits does just that); what in the app does it isn't found yet.
+/// A listener closed outright has its number freed, for the next socket or file to take.
+///
+/// Either way a new socket at the same path has none of it: it's bound beside the old one and
+/// renamed over it, so a command never finds the path missing, and one that can't be bound
+/// leaves the old. The old number is closed only while it's still the old socket's, since once
+/// it was closed under it, it may be the new socket's or another part of the app's.
+fn accept_on(p: &Path, (mut listener, mut id): (UnixListener, Option<(u64, u64)>), mut serve: impl FnMut(UnixStream)) {
+    use std::os::fd::{AsRawFd, IntoRawFd};
+
+    // A socket that can't be told is taken for one that isn't the listener's.
+    let still = |fd, id: Option<(u64, u64)>| id.is_some() && socket_id(fd) == id;
+    loop {
+        // Asked before each accept, since a number closed meanwhile may be another listening
+        // socket's by now, which accept would wait on and serve.
+        let why = if !still(listener.as_raw_fd(), id) {
+            "its descriptor isn't the socket's any more".to_string()
+        } else {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    serve(stream);
+                    continue;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::ConnectionAborted => e.to_string(),
+                // One that lasts (too many open files) would spin this thread.
+                Err(_) => {
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+            }
+        };
+        eprintln!("The socket for codealong commands stopped answering ({why}); opening it again.");
+        let fresh = p.with_extension("new");
+        let _ = std::fs::remove_file(&fresh);
+        match listen(&fresh).and_then(|l| std::fs::rename(&fresh, p).map(|_| l)) {
+            Ok((l, new_id)) => {
+                let old = std::mem::replace(&mut listener, l);
+                if still(old.as_raw_fd(), id) {
+                    drop(old);
+                } else {
+                    let _ = old.into_raw_fd();
+                }
+                id = new_id;
+            }
+            Err(e) => {
+                eprintln!("Couldn't open {} again: {e}", p.display());
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        }
+    }
+}
+
+/// Which socket a listener's descriptor `fd` is now, by its device and inode, which a copy of it
+/// shares and no other socket or file has; None once the descriptor is closed.
+fn socket_id(fd: std::os::fd::RawFd) -> Option<(u64, u64)> {
+    // SAFETY: fstat only writes the struct it's given, and fails on a closed descriptor.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    (unsafe { libc::fstat(fd, &mut st) } == 0).then_some((st.st_dev as u64, st.st_ino as u64))
 }
 
 fn connection(stream: UnixStream, engine: &Handle, peers: &Peers, app: &tauri::AppHandle) {
@@ -235,12 +305,6 @@ fn connection(stream: UnixStream, engine: &Handle, peers: &Peers, app: &tauri::A
 
 /// The socket exchange, with the app's actions supplied by `connection`.
 fn connection_on(stream: UnixStream, mut answer: impl FnMut(serde_json::Result<Request>, &mut UnixStream) -> Option<Reply>) -> std::io::Result<()> {
-    // A running app's accepted sockets have come up nonblocking, every one, until it was
-    // restarted (2026-10-18, and 2026-10-20 with its listener blocking, so not from it; what
-    // does it is unknown). Nonblocking, a read with the request not in yet fails at once, and
-    // write_all gives up on WouldBlock after filling one socket buffer (8192 bytes on macOS),
-    // leaving the command half a JSON line. A read timeout doesn't clear it.
-    stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(60)))?;
     let mut out = stream.try_clone()?;
     let reader = BufReader::new(stream);
@@ -564,40 +628,138 @@ pub fn take_over(opened_plainly: bool) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_nonblocking_connection_sends_the_whole_large_reply() {
-        use std::sync::mpsc::channel;
+    /// A socket `accept_on` serves in a folder of its own, answering each request with a 1 MB
+    /// reply: its path, the listener's descriptor, the inode at its path, and the reply. `before`
+    /// is done to the descriptor before the thread that serves it starts.
+    fn served(name: &str, before: impl FnOnce(i32)) -> (PathBuf, i32, u64, String) {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::MetadataExt;
 
-        let (app, mut command) = UnixStream::pair().unwrap();
-        app.set_nonblocking(true).unwrap();
-        app.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
-        command.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        // Queue the request before the server starts, so the old code reaches the write.
-        command.write_all(b"{\"method\":\"board\"}\n").unwrap();
+        let dir = std::env::temp_dir().join(format!("codealong-socket-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.sock");
+        let listener = listen(&p).unwrap();
+        let fd = listener.0.as_raw_fd();
+        let first = std::fs::metadata(&p).unwrap().ino();
+        before(fd);
         let expected = "x".repeat(1024 * 1024);
-        let reply = Reply::ok(&expected);
-        let (ready, started) = channel();
-        let (finished, result) = channel();
-        let server = std::thread::spawn(move || {
-            let mut reply = Some(reply);
-            let outcome = connection_on(app, |req, _| {
-                assert!(matches!(req, Ok(Request::Board)));
-                ready.send(()).unwrap();
-                reply.take()
-            });
-            finished.send(outcome).unwrap();
+        let reply = expected.clone();
+        let path = p.clone();
+        std::thread::spawn(move || {
+            accept_on(&path, listener, |stream| {
+                let reply = reply.clone();
+                std::thread::spawn(move || connection_on(stream, |_, _| Some(Reply::ok(&reply))));
+            })
         });
-        started.recv_timeout(Duration::from_secs(5)).unwrap();
-        // Keep the reader idle long enough to fill the socket: on macOS the old writer
-        // stops at 8192 bytes with WouldBlock, closes, and leaves the command a partial JSON.
-        assert!(matches!(result.recv_timeout(Duration::from_millis(100)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)), "the server must wait for the reader");
-        let mut line = String::new();
-        BufReader::new(command).read_line(&mut line).unwrap();
-        assert!(line.ends_with('\n'), "the reply must include its terminator ({} bytes)", line.len());
-        let reply: Reply = serde_json::from_str(&line).unwrap();
-        assert_eq!(reply.result, Some(Value::String(expected)));
-        result.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
-        server.join().unwrap();
+        (p, fd, first, expected)
+    }
+
+    /// Whether another socket than the one with inode `first` is at `p` within `wait`.
+    fn reopened(p: &Path, first: u64, wait: Duration) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let since = std::time::Instant::now();
+        while since.elapsed() < wait {
+            if std::fs::metadata(p).is_ok_and(|m| m.ino() != first) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    /// What the running app's listener went through (`accept_on`): its descriptor replaced while
+    /// accept waits on it. A long reply still comes whole, from the socket opened in its place.
+    #[test]
+    fn a_listener_replaced_under_its_accept_still_answers_in_full() {
+        let (p, fd, first, expected) = served("replaced", |_| {});
+        let ours = socket_id(fd);
+        // Only a replacement while accept waits drains the socket, and the thread may not be in it
+        // yet: tried until it was, and only while the number is still the listener's, since once
+        // it's opened again the old one is closed and the number may be another test's.
+        let mut again = false;
+        for _ in 0..20 {
+            if socket_id(fd) != ours {
+                break;
+            }
+            // SAFETY: dup2 puts a copy of the listener in its place in one step, so no other
+            // thread's descriptor can take the number meanwhile; the copy is closed after.
+            unsafe {
+                let copy = libc::dup(fd);
+                libc::dup2(copy, fd);
+                libc::close(copy);
+            }
+            // Linux leaves the accept waiting on the same socket, which goes on answering.
+            if !crate::os::is_macos() {
+                break;
+            }
+            again = reopened(&p, first, Duration::from_millis(500));
+            if again {
+                break;
+            }
+        }
+        assert!(again || !crate::os::is_macos(), "a new socket in its place");
+        let answer = ask_on(UnixStream::connect(&p).unwrap(), &Request::Board, Duration::from_secs(5));
+        assert_eq!(answer, Some(Ok(Value::String(expected))));
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    /// A listener closed outright frees its number, which the socket opened in its place is likely
+    /// to take: it isn't closed with the old one's, and goes on answering. Closed while accept
+    /// waits on it, or before its thread starts.
+    #[test]
+    fn a_listener_closed_under_its_accept_is_opened_again_and_kept() {
+        for closed_first in [true, false] {
+            // Linux leaves an accept waiting on a closed descriptor's socket, until a command comes.
+            if !closed_first && !crate::os::is_macos() {
+                continue;
+            }
+            // SAFETY: closes the listener's descriptor, which is what's tried; `accept_on` mustn't
+            // close the number again.
+            let close = |fd| unsafe { libc::close(fd) };
+            let (p, fd, first, expected) = served(if closed_first { "closed-first" } else { "closed" }, |fd| {
+                if closed_first {
+                    close(fd);
+                }
+            });
+            if !closed_first {
+                std::thread::sleep(Duration::from_millis(200));
+                close(fd);
+            }
+            assert!(reopened(&p, first, Duration::from_secs(5)), "a new socket in its place (closed first: {closed_first})");
+            for _ in 0..2 {
+                let answer = ask_on(UnixStream::connect(&p).unwrap(), &Request::Board, Duration::from_secs(5));
+                assert_eq!(answer, Some(Ok(Value::String(expected.clone()))));
+            }
+            let _ = std::fs::remove_dir_all(p.parent().unwrap());
+        }
+    }
+
+    /// A listener whose number another listening socket has taken by the time it's accepted on:
+    /// a new socket is opened at its path rather than the other one served, and the other's
+    /// number is left to it.
+    #[test]
+    fn a_listener_whose_number_another_listener_took_is_opened_again() {
+        use std::os::fd::AsRawFd;
+
+        let mut other = None;
+        let (p, fd, first, expected) = served("taken", |fd| {
+            let dir = std::env::temp_dir().join(format!("codealong-socket-taken-{}", std::process::id()));
+            let o = UnixListener::bind(dir.join("other.sock")).unwrap();
+            // SAFETY: dup2 closes the listener's descriptor and puts a copy of the other listener
+            // at its number in one step, so no other thread's descriptor can take it meanwhile.
+            unsafe { libc::dup2(o.as_raw_fd(), fd) };
+            other = Some(o);
+        });
+        assert!(reopened(&p, first, Duration::from_secs(5)), "a new socket in its place");
+        let answer = ask_on(UnixStream::connect(&p).unwrap(), &Request::Board, Duration::from_secs(5));
+        assert_eq!(answer, Some(Ok(Value::String(expected))));
+        // The copy at the old number still answers for the other listener: it wasn't closed.
+        let other = other.unwrap();
+        assert!(socket_id(fd).is_some() && socket_id(fd) == socket_id(other.as_raw_fd()));
+        // SAFETY: the copy dup2 made, which `accept_on` gave up.
+        unsafe { libc::close(fd) };
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 
     #[test]
