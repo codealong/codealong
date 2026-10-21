@@ -758,7 +758,9 @@ export function App() {
     const top = selected?.key;
     if (selectedKey === null && top !== undefined) setSelectedKey((k) => k ?? top);
   }, [selectedKey, selected?.key]);
-  const selectedLane = selected?.lane ?? null;
+  // A worktree selected by its id with no row for it (one shown from elsewhere in a list with no
+  // session to show it from: `laneAsked`) still has its panel.
+  const selectedLane = selected?.lane ?? (selectedKey && !selectedKey.includes('::') ? (laneById.get(selectedKey) ?? null) : null);
   // What the find bar in a session's panel opens on, wherever the panel shows it: for a session
   // this window's search found by what was said in it, the words it found there; else the words
   // the quick panel found it by (`Reveal.find`), until another session is selected or a search is
@@ -896,7 +898,8 @@ export function App() {
   }, [drill, panelFrom]);
   // A worktree asked for where the list may have no heading for it (`focusLane`): once the list is
   // drawn, its heading, selected, where there is one, else its panel in place of the row selected
-  // instead (its own latest session's, when one is listed).
+  // instead (its own latest session's, when one is listed), or with no row at all, its panel alone
+  // (`selectedLane`).
   const [laneAsked, setLaneAsked] = useState<string | null>(null);
   useEffect(() => {
     if (!laneAsked || loading) return;

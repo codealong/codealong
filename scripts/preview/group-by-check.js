@@ -10,11 +10,12 @@
 // by repo, each repo heads its sessions, a heading that isn't a row to select, and the rows say
 // their worktrees. A worktree shown from elsewhere with no heading listed (App.tsx `focusLane`)
 // is its panel in place of the row selected, with the way back; from another project too, once
-// the window has gone to that project (`laneAsked`).
+// the window has gone to that project (`laneAsked`), and in a project with no session listed, its
+// panel alone.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/group-by-check.js
 // The check gives the latest worktree with a session six more, made from that session, so it has
 // a group to fold, and adds a worktree with no sessions beside it, in another project when there
-// is one.
+// is one, and another in a project of its own with nothing else in it.
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
@@ -23,6 +24,8 @@
   var board = null;
   var folding = null;
   var empty = null;
+  var alone = null;
+  var NOTHING = 'Group by nothing';
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
     var p = real(cmd, args, options);
@@ -66,6 +69,17 @@
         bare.project = elsewhere ? elsewhere.name : at.project;
         b.lanes.push(bare);
         empty = bare;
+        // A project with nothing in it but a worktree with no sessions: not the first, nor after
+        // Elsewhere.
+        var end = b.projects.length > 0 && b.projects[b.projects.length - 1].name === 'Elsewhere' ? b.projects.length - 1 : b.projects.length;
+        b.projects.splice(end, 0, { name: NOTHING, lanes: 1, repos: [] });
+        var lone = JSON.parse(JSON.stringify(bare));
+        lone.id = at.id + '-group-by-nothing';
+        lone.path = lone.id;
+        lone.callsign = 'group-by-nothing';
+        lone.project = NOTHING;
+        b.lanes.push(lone);
+        alone = lone;
       }
       board = b;
       return b;
@@ -228,6 +242,14 @@
         .then(function (p) {
           if (p) check('from another project, the window goes there and shows its panel, with the way back', !!q('.ca-panelback', p) && !!selectedId(), selectedId());
         });
+    })
+    .then(function () {
+      // To a project with no session listed: its panel alone, with no row to show it from.
+      window.__emit('reveal', { kind: 'worktree', laneId: alone.id });
+      return until(function () { var p = q('.ca-insp:not(.ca-sessinsp)'); return localStorage.getItem('codealong.project') === NOTHING && p && p.getAttribute('aria-label') === 'group-by-nothing details' && p; }, 3000, 'its project, and its panel');
+    })
+    .then(function () {
+      check('in a project with no session listed, it shows its panel alone', !q('.ca-board-list .ca-lane.is-agent') && !selectedId(), selectedId());
     })
     .then(done)
     .catch(stopped);
