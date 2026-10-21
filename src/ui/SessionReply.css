@@ -283,6 +283,46 @@
   margin-left: auto;
   font: var(--type-meta);
 }
+/* The button that minimizes a box of questions (SessionReply.tsx `AsksHead`), at the head's end,
+   its icon in line with the box's edge and no taller than the head's words. */
+.ca-approval-fold {
+  margin: -4px -5px -4px auto;
+}
+.ca-approval-head .ca-linkbtn + .ca-approval-fold {
+  margin-left: 0;
+}
+/* Minimized, the box is its head alone, which says the question on one line and gives the rest of
+   the room to the conversation above. A click on the question shows the box again. */
+.ca-composer.is-questions.is-folded {
+  min-height: 0;
+}
+.ca-approval-folded {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--type-meta);
+  text-align: left;
+  cursor: pointer;
+}
+.ca-approval-folded:hover {
+  color: var(--ink);
+}
+.ca-approval-folded-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-approval-folded-more {
+  flex: none;
+  color: var(--ink-3);
+}
 .ca-approval-unwritten {
   margin: 0;
   color: var(--ink-3);

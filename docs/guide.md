@@ -622,7 +622,12 @@ Questions a Claude Code session asks you
 headers, each with its choices listed as Claude Code lists them, what each says about itself under it,
 and a box for your own answer, and Answer sends your picks. In a card too short for all of it (the
 peek under a tall header, say), the conversation gives up its room first, then the question and its
-choices scroll together while your own answer's box and the buttons stay in view. Claude Code's own prompt stays up all the while, and
+choices scroll together while your own answer's box and the buttons stay in view. The arrow at the
+end of the box's head minimizes it to that head, which says the question on one line, so you can
+read the conversation above while you think about your answer; a click on the question, the arrow
+again, or ⌘⏎ where ⌘⏎ answers (the waiting window) shows the box again with your picks as you left
+them. It stays minimized as you go to another session and back, until the session asks you
+again. Claude Code's own prompt stays up all the while, and
 whichever answer comes first counts. A background job's questions show too when the plugin didn't
 hand them over (the app restarted while they waited, say), from what its account's background
 service records of them, and its row says it asks you: a single question is answered from here

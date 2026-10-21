@@ -1087,6 +1087,10 @@ function useUnanswered(s: Session): Unanswered | null {
   return said && said.since === (s.statusSince ?? null) ? said : null;
 }
 
+/** The call whose questions you minimized, by session, so its box stays minimized as you go to
+ *  another session and back. The next call it waits on shows whole, whatever it asks. */
+const minimized = new Map<string, string>();
+
 /** The picks and words of answers that didn't go, for the questions' box to have again. The box
  *  sent each choice as its own label and your words as one more (`Questions`), so they're taken
  *  apart as that, never split. */
@@ -1202,25 +1206,37 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
     });
   };
 
+  // Its questions' box minimized to its head, to read the conversation above while you think.
+  const [minimizedCall, setMinimizedCall] = useState(() => minimized.get(s.key) ?? null);
+  const folded = !!pending?.questions?.length && minimizedCall === pending.id;
+  const fold = (on: boolean) => {
+    if (!pending) return;
+    if (on) minimized.set(s.key, pending.id);
+    else minimized.delete(s.key);
+    setMinimizedCall(on ? pending.id : null);
+  };
+
   const where = sessionPlace(s, terminal);
   // Questions that can only be answered where it runs still show here, to read before you go.
   if (pending?.cannot && pending.questions?.length) {
     return (
-      <div className="ca-composer is-approval is-questions is-elsewhere">
-        <div className="ca-approval-head">
-          <Icon name="help" size={14} />
-          <span>Asks you</span>
-        </div>
-        <QuestionList questions={pending.questions} suggested={picked?.picks} why={picked?.why} />
-        {picked && <SuggestionHead suggestions={picked} onDismiss={dismissPicked} />}
-        <div className="ca-composer-foot">
-          <span className="ca-composer-note" title={pending.cannot}>
-            {note?.text ?? `Answer ${pending.questions.length > 1 ? 'them' : 'it'} in ${where}.`}
-          </span>
-          <Button variant="primary" size="sm" icon="arrow-up-right" onClick={onOpen}>
-            Open in {where}
-          </Button>
-        </div>
+      <div className={cx('ca-composer is-approval is-questions is-elsewhere', folded && 'is-folded')}>
+        {/* Its way there is in the foot, which doesn't show while it's minimized. */}
+        <AsksHead question={pending.questions[0].question} more={pending.questions.length - 1} where={folded ? where : null} onOpen={onOpen} folded={folded} onFold={fold} />
+        {!folded && (
+          <>
+            <QuestionList questions={pending.questions} suggested={picked?.picks} why={picked?.why} />
+            {picked && <SuggestionHead suggestions={picked} onDismiss={dismissPicked} />}
+            <div className="ca-composer-foot">
+              <span className="ca-composer-note" title={pending.cannot}>
+                {note?.text ?? `Answer ${pending.questions.length > 1 ? 'them' : 'it'} in ${where}.`}
+              </span>
+              <Button variant="primary" size="sm" icon="arrow-up-right" onClick={onOpen}>
+                Open in {where}
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -1278,6 +1294,8 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         onDismissSuggested={dismissPicked}
         onAnswer={(answers, on) => answer('allow', on ? andNext : undefined, answers)}
         onDecline={() => answer('deny')}
+        folded={folded}
+        onFold={fold}
       />
     );
   }
@@ -1334,6 +1352,31 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
   );
 }
 
+/** The head of a box of questions it asks you, with the button that minimizes the box to it.
+ *  Minimized, it says the question showing on one line, which shows the box again when clicked. */
+function AsksHead({ question, more, where, onOpen, folded, onFold }: { question: string; more: number; where: string | null; onOpen: () => void; folded: boolean; onFold: (on: boolean) => void }) {
+  return (
+    <div className="ca-approval-head">
+      <Icon name="help" size={14} />
+      <span>Asks you</span>
+      {folded && (
+        <button type="button" className="ca-approval-folded" title={question} onClick={() => onFold(false)}>
+          <span className="ca-approval-folded-text">
+            <Rich text={question} now={0} />
+          </span>
+          {more > 0 && <span className="ca-approval-folded-more">+{more} more</span>}
+        </button>
+      )}
+      {where && (
+        <button type="button" className="ca-linkbtn" onClick={onOpen}>
+          Open in {where}
+        </button>
+      )}
+      <Button variant="ghost" size="sm" icon={folded ? 'chevron-up' : 'chevron-down'} className="ca-approval-fold" aria-expanded={!folded} aria-label={folded ? 'Show the questions' : 'Minimize'} title={folded ? 'Show the questions' : 'Minimize, to read the conversation while you think'} onClick={() => onFold(!folded)} />
+    </div>
+  );
+}
+
 interface QuestionsProps {
   questions: Question[];
   /** That what it wrote with them isn't in the conversation yet, and where it is, in a sentence. */
@@ -1355,13 +1398,16 @@ interface QuestionsProps {
    *  otherwise, so one click on Answer answers with them. */
   suggested?: Suggestions | null;
   onDismissSuggested?: () => void;
+  /** Minimized to its head, keeping your picks and words for when it shows again. */
+  folded: boolean;
+  onFold: (on: boolean) => void;
 }
 
 /** Questions a session asks you (Claude Code's AskUserQuestion): pick a choice, several where a
  *  question takes more, or type your own answer; your picks go back as its answer. Several show
  *  one at a time, as Claude Code's own prompt shows them, with a strip of their headers to go
  *  between them: all at once, a few long ones ran off the bottom of the panel. */
-function Questions({ questions, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, suggested, onDismissSuggested }: QuestionsProps) {
+function Questions({ questions, unwritten, where, onOpen, keys, busy, note, given, onAnswer, onDecline, suggested, onDismissSuggested, folded, onFold }: QuestionsProps) {
   // Your picks, by question; a question you haven't touched has the ones suggested for it.
   const [picks, setPicks] = useState<Record<string, string[]>>(() => givenBack(questions, given).picks);
   const [own, setOwn] = useState<Record<string, string>>(() => givenBack(questions, given).own);
@@ -1418,8 +1464,10 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, give
   };
   const answerRef = useRef((_on: boolean) => {});
   answerRef.current = (on) => {
+    // Minimized, ⌘⏎ shows the questions again rather than answer what you can't see.
+    if (folded) onFold(false);
     // ⌘⏎ does what the button does: on to the next question while one has no answer.
-    if (next !== null) go(next);
+    else if (next !== null) go(next);
     else if (ready && !busy) onAnswer(answers, on);
   };
   useEffect(() => {
@@ -1437,17 +1485,11 @@ function Questions({ questions, unwritten, where, onOpen, keys, busy, note, give
     return () => window.removeEventListener('keydown', onKey);
   }, [keys]);
   const q = questions[at];
+  const head = <AsksHead question={q.question} more={questions.length - 1} where={where} onOpen={onOpen} folded={folded} onFold={onFold} />;
+  if (folded) return <div className="ca-composer is-approval is-questions is-folded">{head}</div>;
   return (
     <div className="ca-composer is-approval is-questions">
-      <div className="ca-approval-head">
-        <Icon name="help" size={14} />
-        <span>Asks you</span>
-        {where && (
-          <button type="button" className="ca-linkbtn" onClick={onOpen}>
-            Open in {where}
-          </button>
-        )}
-      </div>
+      {head}
       {unwritten && <p className="ca-approval-unwritten">{unwritten}</p>}
       {questions.length > 1 && (
         <Seg
