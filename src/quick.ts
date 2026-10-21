@@ -16,7 +16,7 @@ import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } f
 import { prFlag } from './prStatus';
 import type { Codec } from './stored';
 import { platform } from './platform';
-import type { Attachment, Board, DeviceFound, DeviceView, Lane, PrItem, PrState, RoutePick, Session, Status, TextHit, Todo } from './types';
+import type { Attachment, Board, DeviceFound, DeviceView, Lane, PrItem, PrState, RoutePick, Session, TextHit, Todo } from './types';
 
 export const ALL_PROJECTS = 'All projects';
 /** What the panel's empty box says, and the box in the main window's title bar that opens it. */
@@ -231,25 +231,45 @@ export function titleMarks(title: string, words: string[]): [number, number][] {
   return out;
 }
 
-const STATUS_RANK: Record<Status, number> = { needs: 0, error: 0, unread: 1, working: 2, idle: 3, stopped: 4 };
-/** A snoozed session that isn't running ranks with the idle ones: it doesn't wait on you yet. */
-const statusRank = (s: Session) => (snoozedApart(s) ? STATUS_RANK.idle : STATUS_RANK[s.status]);
+/**
+ * How far down a search puts a session for how closely the words name it (`findSessions`), in
+ * doublings of its age: its title or name is the words; its title or name has them all; the rest
+ * of what describes it does (account, worktree, repo, branch, project, PR); only what was said in
+ * it does. A title with the words stays ahead of a repo or branch with them until it's four times
+ * older, and ahead of a session that only mentions them until it's some sixty times older: a title
+ * from two days ago comes before a session working now that mentions the words, and one from ten
+ * days ago after a mention an hour old. What was said is weak: a long session mentions most words.
+ */
+const CLOSENESS = { exact: 0, named: 3, described: 5, said: 9 };
+/** What a line of what was said scores at best (search.rs `match_score`): the words as typed, by
+ *  you. A session found by a weaker line goes a quarter of a doubling further down for each point
+ *  short of it. */
+const SAID_BEST = 7;
+const HOUR = 60 * 60 * 1000;
+
+/** Where a search puts a session, the lowest first: how closely the words name it (`CLOSENESS`),
+ *  then how many times its age has doubled, in hours since it was last active (an hour old is one,
+ *  three hours two, a day about five, a week seven). An archived one counts one more: you mostly
+ *  look for what you still work on. */
+function searchCost(closeness: number, s: Session, now: number): number {
+  return closeness + (s.archived ? 1 : 0) + Math.log2(1 + Math.max(0, now - s.lastActivity) / HOUR);
+}
 
 /** The shortest search that's sent to the text search: fewer letters match nearly everything. */
 export const TEXT_SEARCH_MIN = 3;
 
 /**
  * Sessions with every typed word somewhere in what describes them, or in what was said in them
- * (`said`, the text search's hits by session key), best first by how closely the words name each,
- * as `codealong sessions find` ranks them (cli.rs `Match`): a title or name that is the words,
- * then a title or name that has them all, then the rest of what describes it, then what was said,
- * the best match first there (the words as typed beat them apart). Archived sessions are left
- * out unless `archived` asks for them, and then come after the others that match as closely: a
- * session you find by its title comes before those that only mention it, archived or not. Within
- * each, by status (needs you, your turn, working, the rest, snoozed ones among the rest), then the
- * most recently active.
+ * (`said`, the text search's hits by session key), the likeliest first. How closely the words name
+ * each counts, in the order `codealong sessions find` ranks them (cli.rs `Match`): a title or name
+ * that is the words, then a title or name that has them all, then the rest of what describes it,
+ * then what was said, the words as typed best there. How long ago it was last active counts too,
+ * enough that a recent session that matches less closely comes before an old one that matches
+ * better (`CLOSENESS` says how far): the session you look for is most often one you worked in
+ * lately, and a common word names hundreds of old ones. Archived sessions are left out unless
+ * `archived` asks for them, and then count as older than they are.
  */
-export function findSessions(board: Board, project: string, query: string, limit = MAX_ROWS, said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without'): SessionRow[] {
+export function findSessions(board: Board, project: string, query: string, now: number, limit = MAX_ROWS, said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without'): SessionRow[] {
   const words = queryWords(query);
   if (words.length === 0) return [];
   const asked = words.join(' ');
@@ -260,24 +280,16 @@ export function findSessions(board: Board, project: string, query: string, limit
     // Each name on its own: words split between a title and a name don't name the session.
     const names = s.name ? [s.title, s.name] : [s.title];
     const named = names.filter((n) => hasWords(n.toLowerCase(), words));
-    if (named.length > 0) return [{ row: row(), tier: named.some((n) => queryWords(n).join(' ') === asked) ? 0 : 1, score: 0 }];
+    if (named.length > 0) return [{ row: row(), cost: searchCost(named.some((n) => queryWords(n).join(' ') === asked) ? CLOSENESS.exact : CLOSENESS.named, s, now) }];
     const pr = lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '';
     const hay = [...names, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr].join('\n').toLowerCase();
-    if (hasWords(hay, words)) return [{ row: row(), tier: 2, score: 0 }];
+    if (hasWords(hay, words)) return [{ row: row(), cost: searchCost(CLOSENESS.described, s, now) }];
     const hit = said.get(s.key);
     if (!hit) return [];
-    return [{ row: { ...row(), said: saidLine(hit, words) }, tier: 3, score: hit.score ?? 0 }];
+    return [{ row: { ...row(), said: saidLine(hit, words) }, cost: searchCost(CLOSENESS.said + (SAID_BEST - Math.min(hit.score ?? 0, SAID_BEST)) / 4, s, now) }];
   });
   return found
-    .sort(
-      (a, b) =>
-        a.tier - b.tier ||
-        Number(a.row.session.archived) - Number(b.row.session.archived) ||
-        b.score - a.score ||
-        statusRank(a.row.session) - statusRank(b.row.session) ||
-        b.row.session.lastActivity - a.row.session.lastActivity ||
-        a.row.key.localeCompare(b.row.key),
-    )
+    .sort((a, b) => a.cost - b.cost || b.row.session.lastActivity - a.row.session.lastActivity || a.row.key.localeCompare(b.row.key))
     .slice(0, limit)
     .map((f) => f.row);
 }
@@ -297,14 +309,14 @@ export const SEND_TO = 40;
  * `findSessions` puts them. Jev doesn't pick an archived session (route.rs), and one archived
  * since Jev answered isn't taken for a pick. `count` is how many there are in all.
  */
-export function sendTargets(board: Board, project: string, words: string, picks: RoutePick[], said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without', limit = SEND_TO): { rows: SessionRow[]; count: number } {
+export function sendTargets(board: Board, project: string, words: string, picks: RoutePick[], now: number, said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without', limit = SEND_TO): { rows: SessionRow[]; count: number } {
   const likely = new Map(picks.map((x) => [x.id, x.p]));
   const rank = new Map(picks.map((x, i) => [x.id, i]));
   // The panel keeps Jev's answer while the board moves on: a pick archived since isn't one.
   const at = (r: SessionRow) => (r.session.archived ? Infinity : (rank.get(r.session.key) ?? Infinity));
   const found =
     queryWords(words).length > 0
-      ? findSessions(board, project, words, Infinity, said, archived)
+      ? findSessions(board, project, words, now, Infinity, said, archived)
       : sessionsIn(board, project, archived)
           .sort((a, b) => Number(a.session.archived) - Number(b.session.archived) || b.session.lastPromptAt - a.session.lastPromptAt || a.session.key.localeCompare(b.session.key))
           .map(({ lane, session }): SessionRow => ({ kind: 'session', key: session.key, group: 'sendto', lane, session, marks: [] }));

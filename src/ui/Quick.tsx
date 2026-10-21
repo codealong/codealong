@@ -774,11 +774,11 @@ export function Quick() {
   const { found: textFound, said } = useTextSearch(inSendTo ? sendTo : query, { ready: !!board, devices: false });
   const searching = !!query && !inSendTo;
   const archivedMode = withArchived ? 'with' : 'without';
-  const foundSessions = useMemo(() => (board && searching ? findSessions(board, current, query, FOUND_ALL, said, archivedMode) : []), [board, current, query, searching, said, archivedMode]);
+  const foundSessions = useMemo(() => (board && searching ? findSessions(board, current, query, now, FOUND_ALL, said, archivedMode) : []), [board, current, query, searching, said, archivedMode, now]);
   // How many archived sessions match, for the toggle that lists them or leaves them out.
   const archivedFound = useMemo(
-    () => (!board || !query ? 0 : inSendTo ? sendTargets(board, current, sendTo, [], said, 'only', 0).count : findSessions(board, current, query, FOUND_ALL, said, 'only').length),
-    [board, current, query, inSendTo, sendTo, said],
+    () => (!board || !query ? 0 : inSendTo ? sendTargets(board, current, sendTo, [], now, said, 'only', 0).count : findSessions(board, current, query, now, FOUND_ALL, said, 'only').length),
+    [board, current, query, inSendTo, sendTo, said, now],
   );
   // A search lists its first few sessions, so todos and PRs fit below; a row under them lists
   // the rest, until what's typed changes.
@@ -789,7 +789,7 @@ export function Quick() {
   // What's typed is a prompt rather than a word or two of a search: it can be sent to any of the
   // project's sessions, by Send to under the sessions found (⌘F), as well as to the ones Jev
   // suggests. With routing off too.
-  const sendable = useMemo(() => (board && !inSendTo && worthRouting(query) ? sendTargets(board, current, '', [], undefined, archivedMode, 0).count : 0), [board, current, query, inSendTo, archivedMode]);
+  const sendable = useMemo(() => (board && !inSendTo && worthRouting(query) ? sendTargets(board, current, '', [], now, undefined, archivedMode, 0).count : 0), [board, current, query, inSendTo, archivedMode, now]);
 
   // With routing on, what you type (and any pictures attached to it) goes to Jev once you pause,
   // and its suggestions lead the list, so ⏎ does the likeliest. A word or two alone is a search
@@ -883,7 +883,7 @@ export function Quick() {
   // likely each is (the last answer's while the next is worked out, as the sessions found have
   // it), found by what's typed in the box.
   const jevPicks = (route ?? lastRoute)?.sessions;
-  const sendList = useMemo(() => (board && inSendTo ? sendTargets(board, current, sendTo, jevPicks ?? [], said, archivedMode) : null), [board, current, inSendTo, sendTo, jevPicks, said, archivedMode]);
+  const sendList = useMemo(() => (board && inSendTo ? sendTargets(board, current, sendTo, jevPicks ?? [], now, said, archivedMode) : null), [board, current, inSendTo, sendTo, jevPicks, said, archivedMode, now]);
   const rows: Row[] = inSendTo
     ? (sendList?.rows ?? [])
     : slash
@@ -892,8 +892,8 @@ export function Quick() {
         ? [...suggested, ...(sendToIn === 'suggested' ? sendToRow : []), ...(showAll ? ranked : ranked.slice(0, FOUND_SESSIONS)), ...moreRow, ...(sendToIn === 'found' ? sendToRow : []), ...foundTodos, ...foundPrs]
         : [...(attention?.rows ?? []), ...(readyList?.rows ?? []), ...(recent?.rows ?? [])];
   /** Lists archived sessions in searches, or leaves them out, from now on (Sessions' heading has
-   *  the box, ⇧⌘A presses it). They come after all the others, so turned on, the search lists all
-   *  it finds, and the ones just asked for show. */
+   *  the box, ⇧⌘A presses it). They rank further down than the others, so turned on, the search
+   *  lists all it finds, and the ones just asked for show. */
   const toggleArchived = () => {
     if (!withArchived) setAllFor(query);
     setWithArchived(!withArchived);

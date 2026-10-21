@@ -1687,20 +1687,21 @@ on the floating bar, then the PRs waiting on your review under Review requested,
 first, then the sessions whose turn ended (the working ones when nothing waits on you), and under
 them the first three todos ready to start, in your order, then the rest of the sessions started in
 the last day. A snoozed session doesn't wait on you there until its time: it's listed with the rest,
-and a search finds it among the idle ones, with a chip saying how long until it's back. Typed words find sessions by title,
+and a search finds it as it finds any other, with a chip saying how long until it's back. Typed words find sessions by title,
 account, worktree, branch, repo, project or PR, then by what was said in them (your prompts and the
 agents' replies, for sessions active in the last `[search] days`, with the matching line shown; the
-words as you typed them rank first), six at first and the rest a row away, and under them todos by
+words as you typed them rank higher), six at first and the rest a row away, and under them todos by
 title, description, label, project, or the worktrees and sessions linked to them, then PRs by
 number, title, repo, branch or author. A word of one or two letters among others counts only as a
 whole word, so "class c" doesn't find everything with a c in it. Sessions come by how closely the
-words name them: one whose title (or name) is the words first, then titles that have them all, then
-the rest of what describes them, then what was said; within each, the ones that need you first, then
-the latest. Archived sessions are left out unless you ask for them: the Archived box at the end of
-the Sessions heading, there whenever you search, says how many match, and checked (a click, or ⇧⌘A)
-lists them, each with an Archived chip, after the others that match as closely (an archived session
-whose title has the words comes before one that only mentions them), in this and later searches
-until you uncheck it. ⏎ on a session shows it in
+words name them and how lately each was active, the latest counting for a lot: a title (or name)
+that is the words, then titles that have them all, then the rest of what describes them, then what
+was said, but a session whose branch or repo has the words passes a title about four times older,
+and one that only mentions them a title some sixty times older (a mention an hour ago passes a title
+from ten days ago, not one from two days ago). Archived sessions are left out unless you ask for them: the
+Archived box at the end of the Sessions heading, there whenever you search, says how many match, and
+checked (a click, or ⇧⌘A) lists them, each with an Archived chip, ranked as if they were twice as
+old, in this and later searches until you uncheck it. ⏎ on a session shows it in
 Codealong, with its conversation and a box to answer it (one found by what was said, with the find
 bar on the words), and ⌥⏎ opens it where it lives. ⏎ on a todo
 shows its session the same way, or, when it has none, gets a session ready to start for it (its

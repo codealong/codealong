@@ -1,14 +1,14 @@
 // Checks that the quick panel leaves a snoozed session out of what waits on you until its time,
 // as the floating bar and the waiting window do (quick.ts `groupOf`), and says it's snoozed
 // wherever it still lists it: with nothing typed it's in Last 24 hours, not Needs you, and a
-// search finds it after the ones that wait on you, each time with the snooze chip
+// search ranks it as any other, by how lately it was active, each time with the snooze chip
 // (LaneRow.tsx `SnoozeChip`) that the main window's rows have.
 //   scripts/preview.sh quick '' scripts/preview/quick-snoozed-check.js
 (function () {
   // This runs before the app's script: two of the board's sessions get titles nothing else has
-  // and both need you, one of them snoozed for an hour, and the rest are archived so they can't
-  // fill the lists ahead of them. The board has no todos or PRs and the text search finds
-  // nothing, so a search for the word lists those two.
+  // and both need you, one of them snoozed for an hour and active the later, and the rest are
+  // archived so they can't fill the lists ahead of them. The board has no todos or PRs and the
+  // text search finds nothing, so a search for the word lists those two.
   localStorage.setItem('codealong.quick.project', 'All projects');
   localStorage.removeItem('codealong.quick.archived');
   var WORD = 'pangolin';
@@ -36,6 +36,7 @@
           s.archived = false;
           s.startedAt = now - 60 * 60 * 1000;
           s.statusSince = now - (n === 0 ? 90 : 120) * 1000;
+          s.lastActivity = now - (n === 0 ? 120 : 1) * 60 * 1000;
           if (n === 1) s.snoozedUntil = now + 60 * 60 * 1000;
           else delete s.snoozedUntil;
           n++;
@@ -65,7 +66,7 @@
       return until(function () { return groupOf(row(AWAKE)) === 'Sessions' && groupOf(row(NAPPING)) === 'Sessions'; }, 5000, 'both found by the search');
     })
     .then(function () {
-      check('a search finds the snoozed one after the one that waits on you', rows().indexOf(row(NAPPING)) > rows().indexOf(row(AWAKE)));
+      check('a search ranks the snoozed one by how lately it was active, as any other', rows().indexOf(row(NAPPING)) < rows().indexOf(row(AWAKE)));
       check('with the snooze chip there too', !!chip(row(NAPPING)) && !chip(row(AWAKE)));
     })
     .catch(function (e) { check('ran', false, String(e) + ' rows: ' + rows().map(function (r) { return groupOf(r) + ': ' + r.textContent.slice(0, 60); }).join(' / ')); })

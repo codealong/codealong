@@ -108,19 +108,19 @@ describe('findSessions', () => {
   ]);
 
   it('needs every word somewhere: title, account, worktree, branch, repo or project', () => {
-    expect(findSessions(b, ALL_PROJECTS, 'login').map((r) => r.key)).toEqual(['s2', 's1', 's4']);
-    expect(findSessions(b, ALL_PROJECTS, 'login claude2').map((r) => r.key)).toEqual(['s2']);
-    expect(findSessions(b, ALL_PROJECTS, 'LOGIN   flake').map((r) => r.key)).toEqual(['s1']);
-    expect(findSessions(b, ALL_PROJECTS, 'acme upgrade').map((r) => r.key)).toEqual(['s3']);
-    expect(findSessions(b, ALL_PROJECTS, 'nothing like it')).toEqual([]);
-    expect(findSessions(b, ALL_PROJECTS, '   ')).toEqual([]);
+    expect(findSessions(b, ALL_PROJECTS, 'login', NOW).map((r) => r.key)).toEqual(['s2', 's1', 's4']);
+    expect(findSessions(b, ALL_PROJECTS, 'login claude2', NOW).map((r) => r.key)).toEqual(['s2']);
+    expect(findSessions(b, ALL_PROJECTS, 'LOGIN   flake', NOW).map((r) => r.key)).toEqual(['s1']);
+    expect(findSessions(b, ALL_PROJECTS, 'acme upgrade', NOW).map((r) => r.key)).toEqual(['s3']);
+    expect(findSessions(b, ALL_PROJECTS, 'nothing like it', NOW)).toEqual([]);
+    expect(findSessions(b, ALL_PROJECTS, '   ', NOW)).toEqual([]);
   });
 
-  it('puts titles with every word first, then by status, then the latest', () => {
+  it('puts titles with every word first, then the latest', () => {
     // s4 needs you but has "login" only in its branch; the titles that say it come first.
-    expect(findSessions(b, ALL_PROJECTS, 'login')[2].key).toBe('s4');
-    // Among titles with the word, the working one before the idle one.
-    expect(findSessions(b, ALL_PROJECTS, 'login').slice(0, 2).map((r) => r.key)).toEqual(['s2', 's1']);
+    expect(findSessions(b, ALL_PROJECTS, 'login', NOW)[2].key).toBe('s4');
+    // Among titles with the word, the latest first.
+    expect(findSessions(b, ALL_PROJECTS, 'login', NOW).slice(0, 2).map((r) => r.key)).toEqual(['s2', 's1']);
   });
 
   it('adds sessions found by what was said, after the ones that match otherwise', () => {
@@ -128,37 +128,54 @@ describe('findSessions', () => {
       ['s3', { key: 's3', snippet: 'The login retries are in auth.ts', you: false, at: NOW }],
       ['s1', { key: 's1', snippet: 'login again', you: true, at: NOW }],
     ]);
-    const rows = findSessions(b, ALL_PROJECTS, 'login', 9, said);
+    const rows = findSessions(b, ALL_PROJECTS, 'login', NOW, 9, said);
     expect(rows.map((r) => r.key)).toEqual(['s2', 's1', 's4', 's3']);
     // A session its title already found keeps its usual line.
     expect(rows[1].said).toBeUndefined();
     expect(rows[3].said).toEqual({ text: 'The login retries are in auth.ts', you: false, marks: [[4, 9]] });
   });
 
-  it('ranks what was said by how well it matched before status', () => {
+  it('ranks what was said by how well it matched', () => {
     const said = new Map([
       ['s4', { key: 's4', snippet: 'a checkout, and a class of tests', you: false, at: NOW, score: 4 }],
       ['s1', { key: 's1', snippet: 'against our class C status', you: true, at: NOW, score: 7 }],
     ]);
     // s4 needs you, but s1 said the words as typed.
-    expect(findSessions(b, ALL_PROJECTS, 'class c', 9, said).map((r) => r.key)).toEqual(['s1', 's4']);
+    expect(findSessions(b, ALL_PROJECTS, 'class c', NOW, 9, said).map((r) => r.key)).toEqual(['s1', 's4']);
   });
 
-  it('ranks a snoozed session that isn’t running with the idle ones', () => {
+  const HOUR = 60 * 60 * 1000;
+  const DAY = 24 * HOUR;
+  const aged = (key: string, age: number, title: string, status: Session['status'] = 'stopped') => session(key, status, NOW - age, { title });
+  const mention = (key: string, score: number) => [key, { key, snippet: 'the harbor watch', you: false, at: NOW, score }] as const;
+
+  it('puts the latest first among sessions that match as closely, whatever waits on you', () => {
+    const b2 = board([lane('app2', [aged('asks', 8 * DAY, 'Login question', 'needs'), aged('open', 3 * DAY, 'Login idle', 'idle'), aged('done', 2 * HOUR, 'Login done')])]);
+    expect(findSessions(b2, ALL_PROJECTS, 'login', NOW).map((r) => r.key)).toEqual(['done', 'open', 'asks']);
+  });
+
+  it('lets a recent session that matches less closely pass an old one', () => {
     const b2 = board([
-      lane('app2', [
-        session('idle', 'idle', NOW - 10, { title: 'Login idle' }),
-        session('napping', 'needs', NOW - 100, { title: 'Login question', snoozedUntil: NOW + 60_000 }),
-        session('busy', 'working', NOW - 200, { title: 'Login busy', snoozedUntil: NOW + 60_000 }),
-      ]),
+      lane('app2', [aged('two-days', 2 * DAY, 'Harbor watch import'), aged('week', 7 * DAY, 'Harbor watch alerts'), aged('ten-days', 10 * DAY, 'Harbor watch export'), aged('busy', 0, 'Checkout tests', 'working'), aged('hour', HOUR, 'Upgrade deps')]),
+      lane('harbor-watch', [aged('branch', HOUR, 'Release notes')]),
     ]);
-    expect(findSessions(b2, ALL_PROJECTS, 'login').map((r) => r.key)).toEqual(['busy', 'idle', 'napping']);
+    const said = new Map([mention('busy', 4), mention('hour', 4)]);
+    // The branch an hour ago passes every title; a title two days old stays ahead of a session
+    // working now that only mentions the words, and one ten days old falls behind a mention an
+    // hour old.
+    expect(findSessions(b2, ALL_PROJECTS, 'harbor watch', NOW, 9, said).map((r) => r.key)).toEqual(['branch', 'two-days', 'busy', 'week', 'hour', 'ten-days']);
+  });
+
+  it('puts a recent mention before an old one that said the words as typed', () => {
+    const b2 = board([lane('app2', [aged('old', 21 * DAY, 'Checkout tests'), aged('new', HOUR, 'Upgrade deps')])]);
+    const said = new Map([mention('old', 7), mention('new', 4)]);
+    expect(findSessions(b2, ALL_PROJECTS, 'harbor watch', NOW, 9, said).map((r) => r.key)).toEqual(['new', 'old']);
   });
 
   it('takes a short word among others only whole', () => {
     // Every session's account is claude, which has a c; none has the word c.
-    expect(findSessions(b, ALL_PROJECTS, 'login c')).toEqual([]);
-    expect(findSessions(b, ALL_PROJECTS, 'c').length).toBe(4);
+    expect(findSessions(b, ALL_PROJECTS, 'login c', NOW)).toEqual([]);
+    expect(findSessions(b, ALL_PROJECTS, 'c', NOW).length).toBe(4);
     expect(titleMarks('Class C audit', ['class', 'c'])).toEqual([
       [0, 5],
       [6, 7],
@@ -175,11 +192,11 @@ describe('findSessions', () => {
       ]),
     ]);
     const said = new Map([['mention', { key: 'mention', snippet: 'after the login change', you: false, at: NOW }]]);
-    expect(findSessions(withGone, ALL_PROJECTS, 'login', 9, said).map((r) => r.key)).toEqual(['s1', 'mention']);
-    // An archived title comes after the idle one, though it needs you and is the latest, and
-    // before the session that only mentions the word.
-    expect(findSessions(withGone, ALL_PROJECTS, 'login', 9, said, 'with').map((r) => r.key)).toEqual(['s1', 'gone', 'gone2', 'mention']);
-    expect(findSessions(withGone, ALL_PROJECTS, 'login', 9, said, 'only').map((r) => r.key)).toEqual(['gone', 'gone2']);
+    expect(findSessions(withGone, ALL_PROJECTS, 'login', NOW, 9, said).map((r) => r.key)).toEqual(['s1', 'mention']);
+    // An archived title comes after the other, though it's the latest, and before the session
+    // that only mentions the word.
+    expect(findSessions(withGone, ALL_PROJECTS, 'login', NOW, 9, said, 'with').map((r) => r.key)).toEqual(['s1', 'gone', 'gone2', 'mention']);
+    expect(findSessions(withGone, ALL_PROJECTS, 'login', NOW, 9, said, 'only').map((r) => r.key)).toEqual(['gone', 'gone2']);
   });
 
   it('puts the session whose title or name is the words first, then titles and names that have them', () => {
@@ -194,13 +211,13 @@ describe('findSessions', () => {
       ]),
     ]);
     const said = new Map([['quoted', { key: 'quoted', snippet: 'ask the harbor watch first', you: false, at: NOW }]]);
-    expect(findSessions(named, ALL_PROJECTS, 'harbor watch', 9, said, 'with').map((r) => r.key)).toEqual(['exact', 'longer', 'by-name', 'split', 'quoted']);
+    expect(findSessions(named, ALL_PROJECTS, 'harbor watch', NOW, 9, said, 'with').map((r) => r.key)).toEqual(['exact', 'longer', 'by-name', 'split', 'quoted']);
     // A name that is the words is as close as a title that is.
-    expect(findSessions(named, ALL_PROJECTS, 'nightly harbor watch', 9, said, 'with')[0].key).toBe('by-name');
+    expect(findSessions(named, ALL_PROJECTS, 'nightly harbor watch', NOW, 9, said, 'with')[0].key).toBe('by-name');
   });
 
   it('marks where the words are in the title', () => {
-    expect(findSessions(b, ALL_PROJECTS, 'login flake')[0].marks).toEqual([
+    expect(findSessions(b, ALL_PROJECTS, 'login flake', NOW)[0].marks).toEqual([
       [8, 13],
       [14, 19],
     ]);
@@ -220,10 +237,11 @@ describe('sendTargets', () => {
   ]);
 
   it('lists Jev’s picks first, in its order with how likely each is, then the rest by your last prompt', () => {
-    const { rows, count } = sendTargets(b, ALL_PROJECTS, '', [
+    const picks = [
       { id: 'old', p: 0.6 },
       { id: 'done', p: 0.2 },
-    ]);
+    ];
+    const { rows, count } = sendTargets(b, ALL_PROJECTS, '', picks, NOW);
     expect(rows.map((r) => [r.key, r.p])).toEqual([
       ['old', 0.6],
       ['done', 0.2],
@@ -235,17 +253,17 @@ describe('sendTargets', () => {
   });
 
   it('leaves out helpers that don’t need you, and archived sessions unless asked, last', () => {
-    expect(sendTargets(b, ALL_PROJECTS, '', []).rows.map((r) => r.key)).not.toContain('helper');
-    expect(sendTargets(b, ALL_PROJECTS, '', [], new Map(), 'with').rows.map((r) => r.key)).toEqual(['elsewhere', 'done', 'busy', 'old', 'gone']);
-    expect(sendTargets(b, ALL_PROJECTS, '', [], new Map(), 'only').count).toBe(1);
+    expect(sendTargets(b, ALL_PROJECTS, '', [], NOW).rows.map((r) => r.key)).not.toContain('helper');
+    expect(sendTargets(b, ALL_PROJECTS, '', [], NOW, new Map(), 'with').rows.map((r) => r.key)).toEqual(['elsewhere', 'done', 'busy', 'old', 'gone']);
+    expect(sendTargets(b, ALL_PROJECTS, '', [], NOW, new Map(), 'only').count).toBe(1);
   });
 
   it('finds sessions by what’s typed in its box, what was said in them too, Jev’s picks first', () => {
     const said = new Map([['done', { key: 'done', snippet: 'the login retries', you: false, at: NOW }]]);
-    expect(sendTargets(b, ALL_PROJECTS, 'login', [], said).rows.map((r) => r.key)).toEqual(['busy', 'old', 'done']);
+    expect(sendTargets(b, ALL_PROJECTS, 'login', [], NOW, said).rows.map((r) => r.key)).toEqual(['busy', 'old', 'done']);
     // An archived one whose title has the words comes before one that only mentions them.
-    expect(sendTargets(b, ALL_PROJECTS, 'login', [], said, 'with').rows.map((r) => r.key)).toEqual(['busy', 'old', 'gone', 'done']);
-    const picked = sendTargets(b, ALL_PROJECTS, 'login', [{ id: 'done', p: 0.4 }], said).rows;
+    expect(sendTargets(b, ALL_PROJECTS, 'login', [], NOW, said, 'with').rows.map((r) => r.key)).toEqual(['busy', 'old', 'gone', 'done']);
+    const picked = sendTargets(b, ALL_PROJECTS, 'login', [{ id: 'done', p: 0.4 }], NOW, said).rows;
     expect(picked.map((r) => r.key)).toEqual(['done', 'busy', 'old']);
     expect(picked[0].said?.text).toBe('the login retries');
   });
@@ -253,15 +271,15 @@ describe('sendTargets', () => {
   it('doesn’t take a session archived since Jev answered for a pick', () => {
     // The panel keeps Jev's answer while the board changes under it.
     const stale = [{ id: 'gone', p: 0.7 }];
-    const empty = sendTargets(b, ALL_PROJECTS, '', stale, new Map(), 'with').rows;
+    const empty = sendTargets(b, ALL_PROJECTS, '', stale, NOW, new Map(), 'with').rows;
     expect(empty.map((r) => r.key)).toEqual(['elsewhere', 'done', 'busy', 'old', 'gone']);
     expect(empty[4].p).toBeUndefined();
-    expect(sendTargets(b, ALL_PROJECTS, 'login', stale, new Map(), 'with').rows.map((r) => r.key)).toEqual(['busy', 'old', 'gone']);
+    expect(sendTargets(b, ALL_PROJECTS, 'login', stale, NOW, new Map(), 'with').rows.map((r) => r.key)).toEqual(['busy', 'old', 'gone']);
   });
 
   it('keeps to the project, and lists at most the limit while counting them all', () => {
-    expect(sendTargets(b, 'Globex', '', []).rows.map((r) => r.key)).toEqual(['elsewhere']);
-    const few = sendTargets(b, ALL_PROJECTS, '', [], new Map(), 'without', 2);
+    expect(sendTargets(b, 'Globex', '', [], NOW).rows.map((r) => r.key)).toEqual(['elsewhere']);
+    const few = sendTargets(b, ALL_PROJECTS, '', [], NOW, new Map(), 'without', 2);
     expect(few.rows.length).toBe(2);
     expect(few.count).toBe(4);
   });
