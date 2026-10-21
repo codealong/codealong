@@ -296,13 +296,14 @@ fn services(readings: &[crate::mcp::Mcp], startable: &[&str]) -> Vec<Service> {
 }
 
 /// `services` for the accounts that can start a session, each service's accounts led by the one
-/// Auto would pick of them, on the model it would pick.
+/// Auto would pick of them, on the model it would pick: its routing group, the board's sessions
+/// and history, and its model fallback, as a start on Auto has them (`start::resolve_group`).
 fn service_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> Vec<Service> {
     let names: Vec<&str> = startable(cfg).map(|a| a.name.as_str()).collect();
     services(&board.mcp, &names)
         .into_iter()
         .map(|mut s| {
-            if let Some(first) = crate::start::pick_where(cfg, &board.usage, &[], None, now, |a| s.accounts.contains(&a.name)) {
+            if let Some(Ok(first)) = crate::start::resolve_group(cfg, Some(board), "auto", &[], None, None, false, now, |a| s.accounts.contains(&a.name)) {
                 s.accounts.retain(|a| *a != first.account);
                 s.accounts.insert(0, first.account);
                 s.model = first.model;
@@ -836,6 +837,29 @@ mod tests {
         assert!(services(&readings, &["claude", "codex"]).is_empty());
         assert!(services(&readings, &["claude2"]).is_empty());
         assert!(services(&[], &["claude", "codex"]).is_empty());
+    }
+
+    #[test]
+    fn a_service_leads_with_the_account_and_model_auto_would_start() {
+        use crate::model::{Meter, Severity};
+        let (one, two) = (crate::fixtures::scratch("needs-one"), crate::fixtures::scratch("needs-two"));
+        std::fs::write(one.join("settings.json"), r#"{"model": "claude-fable-5-1"}"#).unwrap();
+        let account = |name: &str, dir: &std::path::Path| crate::config::AccountCfg { name: name.into(), harness: "claude".into(), home: dir.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let cfg = crate::config::Config { accounts: vec![account("claude", &one), account("claude2", &two)], ..Default::default() };
+        let meter = |key: &str, percent: f64, model: Option<&str>| Meter { key: key.into(), label: key.into(), window: key.into(), percent, resets_at: None, severity: if percent >= 90.0 { Severity::Critical } else { Severity::Normal }, model: model.map(String::from) };
+        let usage = |a: &crate::config::AccountCfg, meters: Vec<Meter>| crate::model::Usage { meters, as_of: Some(NOW), loading: false, ..crate::usage::loading(a) };
+        let mut b = board();
+        b.mcp = vec![reading("claude", &[("Gmail", &[]), ("Slack", &[])]), reading("claude2", &[("Slack", &[])])];
+        // claude's week has room but its Fable limit is nearly used, so Auto starts it on another
+        // model; claude2's week is nearly used.
+        b.usage = vec![usage(&cfg.accounts[0], vec![meter("week", 10.0, None), meter("model:Fable", 95.0, Some("Fable"))]), usage(&cfg.accounts[1], vec![meter("week", 97.0, None)])];
+        let got = service_candidates(&b, &cfg, NOW);
+        let lead = |name: &str| got.iter().find(|s| s.name == name).map(|s| (s.accounts.clone(), s.model.clone())).unwrap();
+        assert_eq!(lead("Gmail"), (vec!["claude".to_string()], Some("opus".to_string())));
+        assert_eq!(lead("Slack"), (vec!["claude".to_string(), "claude2".to_string()], Some("opus".to_string())));
+        // With claude's week nearly used instead, claude2 leads, on its own default.
+        b.usage = vec![usage(&cfg.accounts[0], vec![meter("week", 97.0, None)]), usage(&cfg.accounts[1], vec![meter("week", 10.0, None)])];
+        assert_eq!(service_candidates(&b, &cfg, NOW).iter().find(|s| s.name == "Slack").map(|s| (s.accounts[0].as_str(), s.model.clone())), Some(("claude2", None)));
     }
 
     #[test]
