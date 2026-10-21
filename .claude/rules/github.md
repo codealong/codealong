@@ -71,7 +71,14 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
 - Automatic reviews (autoreview.rs) never submit a review unless `[reviews] submit` says to
   submit the agent's verdict (`Job::Submit`, through `github.rs` `review_with`, which submits your
   draft with it; not run for real): any review you submit, a comment one too, takes you off the
-  PR's requested reviewers, and the review is otherwise still yours to give. By
+  PR's requested reviewers, and the review is otherwise still yours to give. Commits after the
+  round's commit, while `viewerLatestReview` is still that comment or request for changes, bring
+  the PR back to wait on you (`autoreview.rs` `asked_again`, from reviews.json's submission, not
+  one from the PR's box), as an author who pushes the fixes doesn't always ask GitHub again. Not
+  from the review's text: Codealong's marks stay in a draft you rewrote (`edit_draft`), and your
+  words go before the agent's from the box. Not the review's commit either: a draft begun on an
+  earlier commit keeps it. Only in repos whose PRs are read: the search (`review-requested:@me`)
+  never lists it. By
   default they go into a pending review on your account (`github.rs` `draft_review`,
   `add_to_draft`, `pending_review`): GraphQL `addPullRequestReview` with no `event` leaves it
   `PENDING`, which only its author sees, its `threads` each a `path`, a `line` in the file's new

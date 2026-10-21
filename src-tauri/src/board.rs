@@ -2120,6 +2120,7 @@ pub fn compose(inp: Inputs) -> Board {
     }
     lanes.sort_by(lane_order);
     let mut pr_list = pr_items(seeds, &lanes, prs, requested, github_login, pr_links);
+    crate::autoreview::asked_again(&mut pr_list, auto_reviews.0, &polled_slugs(seeds));
     apply_review_snoozes(&mut pr_list, review_snoozes, now);
     crate::autoreview::apply(&mut pr_list, auto_reviews.0, auto_reviews.1, session_settings, auto_reviews.2, &lanes, now);
     // Once the PRs say whose they are and which session opened each.

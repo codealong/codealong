@@ -723,8 +723,9 @@ that wait on your review), a view with none of them yet says it's reading them, 
 than that there are none. When GitHub can't be asked (`gh` missing or signed out, a rate limit), it
 says why instead.
 
-Sorted by status, as it starts, the PRs that aren't pinned are under Review requested, Yours,
-Others and Snoozed; sorted by when they were opened, the open ones are under the day each was
+Sorted by status, as it starts, the PRs that aren't pinned are under Review requested (which has
+a PR your review is back with once commits come after the agent's review submitted for you, see
+`[reviews] submit`), Yours, Others and Snoozed; sorted by when they were opened, the open ones are under the day each was
 opened, the newest first, snoozed ones too. Merged & closed is folded at the end either way.
 
 #### Nudging a PR's primary session
@@ -964,7 +965,14 @@ blocking anything. `"request-changes"` and `"comment"` do the same where the age
 changes, but never approve: a PR it would approve waits on you, for you to approve yourself.
 When the agent can't tell (`Verdict: comment`), it's left to you whatever the
 setting. Your draft is what's submitted, its comments and all, and the PR leaves what waits on you;
-it's held out of it until then, and its card says what was submitted for you. Without a draft, a
+it's held out of it until then, and its card says what was submitted for you. GitHub ends its
+request to you at any review you submit, so when commits come after a comment or request for
+changes submitted for you, the author's answer to it, the PR waits on your review again (Review
+requested, reading Re-review, and the floating bar) and the agent reviews the new commits,
+whether or not the author asked GitHub for your review again. Only on the Mac that submitted it,
+and not in a repo checked out only on its default branch, whose PRs aren't read and which
+GitHub's search for review requests no longer lists it in. One you submitted yourself, from the
+box or on GitHub, ends the request as GitHub has it. Without a draft, a
 request for changes or a comment links to the agent's review posted as a comment, or with posting
 off carries the review itself; one whose draft went (submitted or thrown away) isn't submitted. Not
 when your draft holds words of yours (the part of its text that isn't the agent's), which is said

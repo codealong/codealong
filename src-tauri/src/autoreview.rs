@@ -78,11 +78,13 @@
 //! which doesn't hold the PR back. Your draft review is what's submitted, unless it holds words of
 //! yours; without one, a comment or a request for changes points to the review posted as a comment,
 //! or carries the review with posting off (`without_draft`). A PR that waits on your review is held
-//! out of what waits on you until its review is submitted, when it's to be. An agent that can't
+//! out of what waits on you until its review is submitted, when it's to be; GitHub then asks
+//! nobody, until commits come after it, when it waits on you again (`asked_again`) and is reviewed
+//! again, as though the author had asked GitHub for your review. An agent that can't
 //! tell leaves it to you. The PR's box submits it by hand, as the verdict its agent suggests, with
 //! what you wrote before it (`submit_now`, through lib.rs `review_pr`).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -91,7 +93,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{support_dir, AccountCfg, Config, ReviewPost, ReviewStart, ReviewSubmit, ReviewsCfg};
 use crate::engine::Handle;
 use crate::github::{LineComment, PendingReview, Verdict};
-use crate::model::{AutoReview, Board, Harness, Lane, PartState, PrItem, PrState, ReviewPart, ReviewStage, Session, Status};
+use crate::model::{AutoReview, Board, Harness, Lane, LastReviewState, PartState, PrItem, PrState, ReviewPart, ReviewStage, Session, Status};
 use crate::prlinks::pr_key;
 use crate::start::{Place, ResumeIn, StartSpec};
 use crate::transcript::Item;
@@ -131,6 +133,14 @@ const COMMENT_MAX: usize = 60_000;
 /// How long a PR that waits on your review is held out of what waits on you for a review that
 /// isn't done (`apply`): one that takes longer, or never starts, hands it to you.
 const HOLD_MS: i64 = 2 * 60 * 60_000;
+/// How much later than Codealong's clock GitHub may date a review Codealong submitted, which
+/// GitHub dates before Codealong hears it went (`back_with_you`): the clocks' difference, with
+/// little room for a review of yours given just after.
+const SUBMITTED_SLACK_MS: i64 = 30_000;
+/// How soon after its review is posted `[reviews] submit` submits it: at the next look, later only
+/// when that failed and was tried again. A submission kept without saying how it went that came
+/// later was the PR's box (`back_with_you`).
+const SUBMITS_WITHIN_MS: i64 = 2 * 60_000;
 /// What the reviewer is called when config.toml names no account: the one Auto would start.
 pub const AUTO: &str = "auto";
 /// What a reviewer is told to do when `[reviews] prompt` doesn't say (Settings shows it to edit).
@@ -319,6 +329,10 @@ pub struct Submission {
     pub verdict: Verdict,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed: Option<String>,
+    /// Submitted with the PR's box (`submit_now`), yours, rather than for you (`[reviews] submit`).
+    /// None in a reviews.json from before it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_hand: Option<bool>,
 }
 
 fn approval() -> Verdict {
@@ -526,7 +540,8 @@ pub enum Job {
     /// Submit a review of a PR that waits on your review as you, as `verdict`, for its round's
     /// review of `head` (`to_submit`): your draft review, else `text` (`without_draft`; none
     /// when only the draft would do).
-    Submit { pr: PrItem, head: String, verdict: Verdict, text: Option<String> },
+    /// `by_hand` when it's the PR's box that submits it (`submit_now`), not `[reviews] submit`.
+    Submit { pr: PrItem, head: String, verdict: Verdict, text: Option<String>, by_hand: bool },
 }
 
 impl Job {
@@ -992,7 +1007,7 @@ impl Reviewer {
             if let Some((r, verdict)) = self.store.prs.get(&key).and_then(|t| t.rounds.last()).and_then(|r| Some((r, submit_due(cfg, pr, r, &head)?))) {
                 let text = without_draft(r, pr, &head, verdict);
                 self.busy.insert(key);
-                jobs.push(Job::Submit { pr: pr.clone(), head, verdict, text });
+                jobs.push(Job::Submit { pr: pr.clone(), head, verdict, text, by_hand: false });
                 continue;
             }
             if !want {
@@ -1209,18 +1224,18 @@ impl Reviewer {
                 said = Err(Said::from(format!("Codealong couldn't hand its review of {} to the session that opened it: {why}", pr.key)));
             }
             (Job::Send { .. }, _) => {}
-            (Job::Submit { head, verdict, .. }, Went::Submitted) => {
+            (Job::Submit { head, verdict, by_hand, .. }, Went::Submitted) => {
                 self.post_failures.remove(&key);
                 if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
-                    r.submitted = Some(Submission { at: now, verdict: *verdict, failed: None });
+                    r.submitted = Some(Submission { at: now, verdict: *verdict, failed: None, by_hand: Some(*by_hand) });
                 }
             }
-            (Job::Submit { head, verdict, .. }, Went::NotSubmitted(why)) => {
+            (Job::Submit { head, verdict, by_hand, .. }, Went::NotSubmitted(why)) => {
                 if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
-                    r.submitted = Some(Submission { at: now, verdict: *verdict, failed: Some(why) });
+                    r.submitted = Some(Submission { at: now, verdict: *verdict, failed: Some(why), by_hand: Some(*by_hand) });
                 }
             }
-            (Job::Submit { head, verdict, .. }, Went::PostFailed(why)) => {
+            (Job::Submit { head, verdict, by_hand, .. }, Went::PostFailed(why)) => {
                 let failures = self.post_failures.entry(key.clone()).or_default();
                 *failures += 1;
                 if *failures < POST_TRIES {
@@ -1229,7 +1244,7 @@ impl Reviewer {
                 }
                 self.post_failures.remove(&key);
                 if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
-                    r.submitted = Some(Submission { at: now, verdict: *verdict, failed: Some(why.clone()) });
+                    r.submitted = Some(Submission { at: now, verdict: *verdict, failed: Some(why.clone()), by_hand: Some(*by_hand) });
                 }
                 said = Err(Said::from(format!("Codealong couldn't {} {} for you: {why}", verdict.verb(), pr.key)));
             }
@@ -1360,6 +1375,46 @@ fn asked_to_review(board: &Board, store: &Store, global: &ReviewsCfg, review: &S
     let asked = store.prs.get(key).is_some_and(|t| t.asked().any(|s| s == review.key));
     let opens = review.first_prompt.as_deref().is_some_and(|f| opens_review_of(f, &pr.repo_slug, pr.number));
     asked && opens && origin(&board.lanes, pr).is_some_and(|(_, s)| s.key == to) && board.repo_settings.reviews(global, pr).own.send
+}
+
+/// Has the PRs that wait on your review again, though GitHub asks nobody, say so
+/// (`back_with_you`). Before the snoozes and `apply`, which go by whether a PR waits on you. Only
+/// in the repos whose PRs are read (`board::polled_slugs`): another's are kept as last read, and
+/// GitHub's search has the last word on them (`board::pr_items`).
+pub fn asked_again(prs: &mut [PrItem], store: &Store, polled: &BTreeSet<String>) {
+    for pr in prs.iter_mut().filter(|p| polled.contains(&p.repo_slug)) {
+        if store.prs.get(&pr_key(&pr.key)).is_some_and(|t| back_with_you(pr, t)) {
+            pr.review_requested = true;
+        }
+    }
+}
+
+/// Whether a PR that doesn't ask for your review waits on it again: Codealong submitted its
+/// agent's review of it for you (`[reviews] submit`, not the PR's box), a comment or a request for
+/// changes, that's still the review GitHub has of yours, and commits have come after the commit
+/// it was of, the author's answer to it. GitHub ends a request to you at any review you submit,
+/// and an author who pushes the fixes and asks for your approval in a comment rather than asking
+/// GitHub again left specbook#1278 waiting on nobody (2026-10-20). The commit is the round's: a
+/// draft begun on an earlier one keeps that one on GitHub. Only this Mac, which submitted it,
+/// knows; who asked, and since when, is left unsaid. A submission kept before saying whether it
+/// was by hand is taken for `[reviews] submit`'s when it came as soon as that submits. Where it
+/// guesses wrong (one from the box that soon, a review of yours within `SUBMITTED_SLACK_MS` of
+/// Codealong's), the PR asks you to look at the author's new commits, as an author asking again
+/// would; the other way, it would leave their answer waiting on nobody.
+fn back_with_you(pr: &PrItem, t: &Tracked) -> bool {
+    if pr.review_requested || pr.mine || !pr.state.is_open() || pr.state == PrState::Draft {
+        return false;
+    }
+    let Some(head) = pr.head_oid.as_deref() else { return false };
+    let Some((r, s)) = t.rounds.iter().rev().find_map(|r| Some((r, r.submitted.as_ref().filter(|s| s.failed.is_none())?))) else { return false };
+    let state = match s.verdict {
+        Verdict::Comment => LastReviewState::Commented,
+        Verdict::RequestChanges => LastReviewState::Changes,
+        Verdict::Approve => return false,
+    };
+    let still = pr.last_review.as_ref().is_some_and(|l| l.state == state && l.at.is_some_and(|at| at <= s.at + SUBMITTED_SLACK_MS));
+    let by_hand = s.by_hand.unwrap_or_else(|| r.ended_at.is_none_or(|posted| s.at - posted > SUBMITS_WITHIN_MS));
+    !by_hand && still && r.head != head
 }
 
 /// Each PR's automatic review, for its card, from reviews.json (`Store`): its latest round, else
@@ -2305,7 +2360,7 @@ pub fn submit_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, verdic
         }
         let text = without_draft(round, pr, &head, verdict);
         r.busy.insert(k.clone());
-        Job::Submit { pr: pr.clone(), head, verdict, text }
+        Job::Submit { pr: pr.clone(), head, verdict, text, by_hand: true }
     };
     let Job::Submit { text, .. } = &job else { unreachable!() };
     let sent = crate::github::your_review(&pr.repo_slug, pr.number).map_err(|e| format!("{e:#}")).and_then(|y| {
@@ -2512,7 +2567,7 @@ pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
         Job::CarryOn { pr, session, model, effort, .. } => carry_on(engine, pr, session, model.as_deref(), effort.as_deref()),
         Job::Post { pr, head, review, agent, round } => post(engine, pr, head, review, agent, *round),
         Job::Send { .. } => send(engine, &job, false),
-        Job::Submit { pr, head, verdict, text } => submit(engine, pr, head, *verdict, text.as_deref()),
+        Job::Submit { pr, head, verdict, text, .. } => submit(engine, pr, head, *verdict, text.as_deref()),
     }))
     .unwrap_or_else(|_| Went::Failed("It stopped partway.".into()));
     let said = reviewer.lock().unwrap_or_else(|e| e.into_inner()).told(&job, went, now_ms());
@@ -2605,7 +2660,7 @@ mod tests {
                 Job::CarryOn { pr, part, session, model, effort, .. } => format!("carry on {} part {part} in {session} on {model:?} at {effort:?}", pr.number),
                 Job::Post { pr, review, agent, .. } => format!("post {} {review:?} by {agent}", pr.number),
                 Job::Send { pr, head, session, agent, .. } => format!("send {} {} by {agent} to {session}", pr.number, short(head)),
-                Job::Submit { pr, head, verdict, text } => format!("{} {} {}{}", verdict.verb(), pr.number, short(head), text.as_deref().map(|t| format!(" saying {t:?}")).unwrap_or_default()),
+                Job::Submit { pr, head, verdict, text, .. } => format!("{} {} {}{}", verdict.verb(), pr.number, short(head), text.as_deref().map(|t| format!(" saying {t:?}")).unwrap_or_default()),
             })
             .collect()
     }
@@ -2976,6 +3031,68 @@ mod tests {
     }
 
     #[test]
+    fn a_pr_whose_request_the_agents_submitted_review_took_waits_on_you_again_once_commits_come() {
+        use crate::model::LastReview;
+        let cfg = ReviewsCfg { submit: ReviewSubmit::Comment, ..on() };
+        let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 60_000)]);
+        let mut r = Reviewer::default();
+        let job = r.due(&done, &cfg, NOW).pop().unwrap();
+        r.told(&job, Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        read(&mut r, &done, &cfg, NOW + 61_000, "Two problems.\n\nVerdict: request changes", "Codex");
+        let post = r.due(&done, &cfg, NOW + 62_000).pop().unwrap();
+        r.told(&post, Went::Drafted("https://github.com/o/r/pull/7/files".into()), NOW + 63_000).unwrap();
+        let submit = r.due(&done, &cfg, NOW + 64_000).pop().unwrap();
+        assert_eq!(kinds(std::slice::from_ref(&submit)), ["comment on 7 1111111"]);
+        r.told(&submit, Went::Submitted, NOW + 65_000).unwrap();
+        // GitHub asks nobody now: your latest review is the one submitted, a comment.
+        let yours = |state: LastReviewState, at: i64| Some(LastReview { state, commit: Some(HEAD.into()), at: Some(at) });
+        let after = |head: &str, last_review: Option<LastReview>| PrItem { review_requested: false, requested_at: None, last_review, ..pr(7, head) };
+        let polled = BTreeSet::from(["o/r".to_string()]);
+        let again = |prs: &[PrItem], store: &Store| {
+            let mut prs = prs.to_vec();
+            asked_again(&mut prs, store, &polled);
+            prs.iter().map(|p| p.review_requested).collect::<Vec<_>>()
+        };
+        let submitted = yours(LastReviewState::Commented, NOW + 64_900);
+        assert_eq!(again(&[after(HEAD, submitted.clone()), after(NEXT, submitted.clone())], &r.store), [false, true], "once commits come");
+        // Not once you've reviewed it since, a minute after too, nor when you approved it, nor for a
+        // draft or a PR of yours.
+        let later = yours(LastReviewState::Commented, NOW + 65_000 + 60_000);
+        let approved = yours(LastReviewState::Approved, NOW + 64_900);
+        let draft = PrItem { state: PrState::Draft, ..after(NEXT, submitted.clone()) };
+        let mine = PrItem { mine: true, ..after(NEXT, submitted.clone()) };
+        assert_eq!(again(&[after(NEXT, later), after(NEXT, approved), draft, mine, after(NEXT, None)], &r.store), [false; 5]);
+        // A draft begun on an earlier commit keeps that commit on GitHub: what counts is the round's.
+        let earlier = Some(LastReview { commit: Some("0000000".into()), ..submitted.clone().unwrap() });
+        assert_eq!(again(&[after(HEAD, earlier)], &r.store), [false]);
+        // Back with you, the new commits are reviewed.
+        let back = board(vec![PrItem { review_requested: true, ..after(NEXT, submitted.clone()) }], vec![session(Status::Unread, NOW + 60_000)]);
+        assert!(r.due(&back, &cfg, NOW + 70_000).is_empty(), "once the branch holds still");
+        assert!(kinds(&r.due(&back, &cfg, NOW + 70_000 + QUIET_MS)).iter().any(|k| k.starts_with("review 7 2222222")), "{:?}", kinds(&r.due(&back, &cfg, NOW + 70_000 + QUIET_MS)));
+        // One you submitted from the PR's box is yours, as GitHub has it.
+        let mut hand = Reviewer::default();
+        hand.store = r.store.clone();
+        let by_box = Job::Submit { pr: pr(7, HEAD), head: HEAD.into(), verdict: Verdict::Comment, text: None, by_hand: true };
+        hand.told(&by_box, Went::Submitted, NOW + 65_000).unwrap();
+        assert_eq!(again(&[after(NEXT, submitted.clone())], &hand.store), [false]);
+        let kept: Round = serde_json::from_str(&serde_json::to_string(hand.store.prs["o/r#7"].rounds.last().unwrap()).unwrap()).unwrap();
+        assert_eq!(kept.submitted.unwrap().by_hand, Some(true), "kept in reviews.json");
+        // One kept before that was said: `[reviews] submit`'s when it came as soon as the review was
+        // posted, as that submits, else the box's.
+        let mut old = r.store.clone();
+        let round = old.prs.get_mut("o/r#7").unwrap().rounds.last_mut().unwrap();
+        round.submitted.as_mut().unwrap().by_hand = None;
+        assert_eq!(again(&[after(NEXT, submitted.clone())], &old), [true]);
+        let round = old.prs.get_mut("o/r#7").unwrap().rounds.last_mut().unwrap();
+        round.ended_at = Some(NOW + 65_000 - SUBMITS_WITHIN_MS - 1);
+        assert_eq!(again(&[after(NEXT, submitted.clone())], &old), [false]);
+        // A repo whose PRs aren't read keeps its PRs as last read, which GitHub's search settles.
+        let mut elsewhere = vec![after(NEXT, submitted)];
+        asked_again(&mut elsewhere, &r.store, &BTreeSet::new());
+        assert!(!elsewhere[0].review_requested);
+    }
+
+    #[test]
     fn the_agents_verdict_is_submitted_as_yours_as_config_toml_says() {
         let cfg = |submit: ReviewSubmit| ReviewsCfg { submit, ..on() };
         let approving = cfg(ReviewSubmit::Approve);
@@ -3071,7 +3188,7 @@ mod tests {
         }
         // What reviews.json said when only approvals were reads as an approval.
         let old: Round = serde_json::from_str(r#"{"head":"1111111","stage":"drafted","at":1,"approved":{"at":5}}"#).unwrap();
-        assert_eq!(old.submitted, Some(Submission { at: 5, verdict: Verdict::Approve, failed: None }));
+        assert_eq!(old.submitted, Some(Submission { at: 5, verdict: Verdict::Approve, failed: None, by_hand: None }));
         // A draft of only Codealong's rounds is submitted; one with words of yours isn't.
         assert!(codealongs_only("Fine.\n<!-- codealong-review o/r#7 abc -->"));
         assert!(codealongs_only("Round one.\n<!-- codealong-review o/r#7 abc -->\n\n---\n\nRound two.\n<!-- codealong-review o/r#7 def -->"));
