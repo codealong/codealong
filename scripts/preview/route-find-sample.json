@@ -1,0 +1,7 @@
+{
+  "action": "find",
+  "actions": [["find", 0.64], ["send", 0.24], ["start", 0.12]],
+  "sessions": [{ "id": "$session:0", "p": 0.9 }, { "id": "$session:1", "p": 0.06 }],
+  "noSession": 0.04,
+  "lanes": [{ "id": "$lane:0", "p": 0.8 }]
+}

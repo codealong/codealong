@@ -47,6 +47,15 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   as words and each question asks one plain thing: `jev.rs` and `route.rs` (module headers). The
   blog post for 1.14 says every model does worse on images than on text, and to ask the simplest
   questions about them.
+- A search or a message (route.rs `actions`, 1.14, 46 real sessions, 2026-10-21): with `find`
+  as "only names or searches for a session … asks for no work", 7 of 17 searches (a session's
+  title or words of it, typed to find it; one an exact title, at send 0.65) came back send or
+  start. Saying that a search asks and says nothing, and that words of a title are one, read all
+  17 as find, and of 22 prompts none as a search under either wording (the misses were sends
+  taken for starts and back, close calls both ways). A yes/no question of its own ("only words
+  to find a session by?") did worse than the reworded option. With the request's other
+  questions in, a two-word chat title still came back send 0.51, find 0.40: route.ts gives the
+  other of the two a row.
 - Which service a message needs (route.rs `needs_question`, `NEEDS_AT`): asked "what does my email
   say about the launch", "summarize what was said in slack today" and "implement the settings
   screen from the figma design", 1.14 gave the service 0.92 to 0.98; "fix the flaky test" gave

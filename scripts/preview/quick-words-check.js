@@ -4,6 +4,7 @@
 // them, so two builds run on one snapshot can be told apart by their notes.
 //   PREVIEW_ROUTE=scripts/preview/route-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-words-check.js
 //   PREVIEW_ROUTE=scripts/preview/route-start-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-words-check.js
+//   PREVIEW_ROUTE=scripts/preview/route-find-sample.json PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-words-check.js
 (function () {
   var text = function (sel, root) { var el = q(sel, root); return el ? el.textContent : null; };
   var compose = function () { return q('.ca-quick-compose'); };

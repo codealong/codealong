@@ -133,6 +133,76 @@ describe('suggestions', () => {
     expect(suggestions(r, b).map((x) => [x.kind, x.key])).toEqual([['open', 'open:s:copy']]);
   });
 
+  it('offers opening the session next when what’s typed may be a search for it, and sending to it when a search may be a prompt', () => {
+    const sendFirst = route({
+      action: 'send',
+      actions: [
+        ['send', 0.6],
+        ['find', 0.3],
+        ['start', 0.1],
+      ],
+      sessions: [{ id: 's:fix', p: 0.9 }],
+      noSession: 0.1,
+      lanes: [{ id: '/api', p: 1 }],
+    });
+    expect(rows(sendFirst)).toEqual([
+      ['send:s:fix', 0.54],
+      ['open:s:fix', 0.27],
+    ]);
+    const findFirst = route({
+      ...sendFirst,
+      action: 'find',
+      actions: [
+        ['find', 0.6],
+        ['send', 0.3],
+        ['start', 0.1],
+      ],
+    });
+    expect(rows(findFirst)).toEqual([
+      ['open:s:fix', 0.54],
+      ['send:s:fix', 0.27],
+    ]);
+    // A session waiting on you is opened either way: one row.
+    expect(rows({ ...findFirst, sessions: [{ id: 's:ask', p: 0.9 }] })).toEqual([['open:s:ask', 0.54]]);
+    // Not when the other is unlikely.
+    expect(rows({ ...sendFirst, actions: [['send', 0.9], ['find', 0.1]] }).map(([k]) => k)).toEqual(['send:s:fix']);
+  });
+
+  it('offers opening a session after new work when what’s typed may be a search for it', () => {
+    const r = route({
+      action: 'start',
+      actions: [
+        ['start', 0.6],
+        ['find', 0.3],
+        ['send', 0.1],
+      ],
+      sessions: [{ id: 's:copy', p: 0.8 }],
+      noSession: 0.2,
+      lanes: [{ id: '/web', p: 1 }],
+    });
+    expect(rows(r)).toEqual([
+      ['start:/web', 0.6],
+      ['open:s:copy', 0.24],
+      ['send:s:copy', 0.08],
+    ]);
+  });
+
+  it('suggests no session for a search none of them fits, and new work only when that’s likely itself', () => {
+    const r = route({
+      action: 'find',
+      actions: [
+        ['find', 0.9],
+        ['start', 0.1],
+      ],
+      sessions: [{ id: 's:copy', p: 0.1 }],
+      noSession: 0.9,
+      lanes: [{ id: '/web', p: 1 }],
+    });
+    // What the panel finds by the words leads instead.
+    expect(rows(r)).toEqual([]);
+    expect(rows({ ...r, actions: [['find', 0.7], ['start', 0.3]] })).toEqual([['start:/web', 0.3]]);
+  });
+
   it('keeps a note for later as a todo, with starting on it as the runner-up', () => {
     const r = route({
       action: 'todo',

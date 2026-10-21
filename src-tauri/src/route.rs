@@ -361,10 +361,13 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
     let mut images = crate::jev::Images::default();
     let message = images.swap(text);
 
+    // A search is told apart by what it lacks: Jev took a session's own title, typed to find it,
+    // for a message to that session until `find` said a search asks and says nothing, and that
+    // words of a title are one (jev.md).
     let actions = json!({
-        "send": "The message is for one of the sessions in `sessions`: it continues, answers, corrects, redirects or follows up on that session's work, or asks that session a question.",
-        "start": "The message asks for work that no session in `sessions` is doing, so a new session should start on it.",
-        "find": "The message only names or searches for a session in `sessions` (a few words of its title, a branch, a pull request) in order to open it. It asks for no work.",
+        "send": "The message says something to one of the sessions in `sessions`: it tells it to do something, asks it a question, answers it, corrects it or follows up on its work.",
+        "start": "The message asks for work, or asks a question, that no session in `sessions` is doing, so a new session should start on it.",
+        "find": "The message asks for nothing and says nothing to anyone: it is only a few words to find a session by, such as a session's title or words from it, a branch, a pull request, a repo or a topic. Words that are, or are part of, a session's title are a search for that session.",
         "todo": "The message is a note to do something later rather than now, and says so (for example 'later', 'todo', 'remember to', 'at some point', 'next week').",
     });
 
@@ -490,8 +493,10 @@ fn ranked(mut picks: Vec<Pick>) -> Vec<Pick> {
 }
 
 /// Reads Jev's answer into a route. The action is Jev's likeliest, with one correction made in
-/// code: sending needs a session, so when "none" is the likelier session, new work is meant.
-/// Sessions are ranked with running ones favored (`favor_running`).
+/// code: sending needs a session, so when "none" is the likelier session, new work is meant. A
+/// search that fits none of the sessions stays a search: it's for something the panel finds by
+/// its words (a PR, an older session), not work to start. Sessions are ranked with running ones
+/// favored (`favor_running`).
 pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
     let answers = response.get("answers").ok_or_else(|| anyhow!("TypeSafe's answer has no answers"))?;
     let action_p = probabilities(&answers["action"]);
@@ -564,7 +569,7 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         .map(|(s, p)| NeedPick { name: s.name.clone(), accounts: s.accounts.clone(), model: s.model.clone(), p });
 
     let mut action = actions.first().map_or(Action::Start, |a| a.0);
-    if matches!(action, Action::Send | Action::Find) && no_session > top_session {
+    if action == Action::Send && no_session > top_session {
         action = Action::Start;
     }
 
@@ -775,6 +780,15 @@ mod tests {
         let r = read(&req, &answer(&[("send", 0.55), ("start", 0.45)], &[("s1", 0.2), ("none", 0.7)], &[("w1", 1.0)], 0.9), 1).unwrap();
         assert_eq!(r.action, Action::Start);
         assert_eq!(r.own_worktree, 0.9);
+    }
+
+    #[test]
+    fn a_search_that_fits_no_session_stays_a_search() {
+        let b = board();
+        let req = request(&b, "Acme", "PR 418", "m", NOW).unwrap();
+        let r = read(&req, &answer(&[("find", 0.9), ("start", 0.1)], &[("s1", 0.1), ("none", 0.9)], &[("w1", 1.0)], 0.0), 1).unwrap();
+        assert_eq!(r.action, Action::Find);
+        assert_eq!(r.no_session, 0.9);
     }
 
     #[test]

@@ -1235,7 +1235,8 @@ pub enum Action {
     Send,
     /// Start a new session with it.
     Start,
-    /// It names a session to open.
+    /// It's a search: for a session to open, or, with `no_session` likelier than any session,
+    /// for something else a search finds by its words (a PR, an older session).
     Find,
     /// Keep it as a todo.
     Todo,
