@@ -25,7 +25,9 @@
     }
     if (cmd !== 'get_board') return p;
     return p.then(function (board) {
+      // Nothing pinned: a pinned session is listed with the pinned ones, not under its worktree.
       board.pinnedWorktrees = [];
+      board.pinned = [];
       if (lanes.length === 0) {
         // With a session listed, so Sessions has its heading.
         var mine = board.lanes.filter(function (l) { return !l.hidden && !l.device && l.project !== 'Elsewhere' && l.origin !== 'main' && l.sessions.some(function (s) { return !s.archived && !s.visitor; }); });

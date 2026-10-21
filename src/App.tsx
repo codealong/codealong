@@ -46,7 +46,7 @@ import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
 import { PR_ROWS, PR_SORTS, PrsView, type PrRowItem, type PrSort } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { groupKeyOf, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type GroupActs, type SessionGroup, type SessionGroupBy, type SessionItem, type SessionSort } from './ui/SessionsView';
+import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type GroupActs, type SessionGroup, type SessionGroupBy, type SessionItem, type SessionSort } from './ui/SessionsView';
 import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
 import { TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { KanbanView } from './ui/KanbanView';
@@ -740,13 +740,20 @@ export function App() {
   // you're moving stays in Sessions' panel as it was until its copy takes its place (`moving`).
   const [selectedLaneId, selectedSessionKey] = selectedKey?.split('::') ?? [];
   const held = view === 'sessions' && moving && moving.from.session.key === selectedSessionKey ? moving.from : undefined;
+  // In Sessions, a worktree selected by its id is selected whether the list has its heading or not
+  // (one shown from elsewhere, `focusLane`, in a list not grouped by worktree or with no session of
+  // it): its panel shows, and ⌘N, ⌃`, Enter and its chords act on it.
+  const chosenLane = useMemo(() => {
+    const lane = view === 'sessions' && selectedKey && !selectedKey.includes('::') ? laneById.get(selectedKey) : undefined;
+    return lane ? headItem(lane) : undefined;
+  }, [view, selectedKey, laneById]);
   const selected =
     visible.find((r) => r.key === selectedKey) ??
     (view === 'todo' || (view === 'kanban' && selectedKey?.startsWith('todo:'))
       ? todoItems.find((r) => r.key === selectedKey)
       : view === 'prs'
         ? prRows.find((r) => r.key === selectedKey)
-        : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ?? held ?? visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
+        : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ?? held ?? chosenLane ?? visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
     visible.find((r) => r.kind === 'agent') ??
     visible[0] ??
     null;
@@ -758,9 +765,7 @@ export function App() {
     const top = selected?.key;
     if (selectedKey === null && top !== undefined) setSelectedKey((k) => k ?? top);
   }, [selectedKey, selected?.key]);
-  // A worktree selected by its id with no row for it (one shown from elsewhere in a list with no
-  // session to show it from: `laneAsked`) still has its panel.
-  const selectedLane = selected?.lane ?? (selectedKey && !selectedKey.includes('::') ? (laneById.get(selectedKey) ?? null) : null);
+  const selectedLane = selected?.lane ?? null;
   // What the find bar in a session's panel opens on, wherever the panel shows it: for a session
   // this window's search found by what was said in it, the words it found there; else the words
   // the quick panel found it by (`Reveal.find`), until another session is selected or a search is
@@ -896,16 +901,6 @@ export function App() {
   useEffect(() => {
     if (drill && drill.from !== panelFrom) setDrill(null);
   }, [drill, panelFrom]);
-  // A worktree asked for where the list may have no heading for it (`focusLane`): once the list is
-  // drawn, its heading, selected, where there is one, else its panel in place of the row selected
-  // instead (its own latest session's, when one is listed), or with no row at all, its panel alone
-  // (`selectedLane`).
-  const [laneAsked, setLaneAsked] = useState<string | null>(null);
-  useEffect(() => {
-    if (!laneAsked || loading) return;
-    setLaneAsked(null);
-    if (selected && selected.key !== laneAsked) setDrill({ from: selected.key, key: laneAsked, lane: true });
-  }, [laneAsked, loading, selected]);
   /** A press on a list's row, before it selects the row. On the row whose panel shows a PR or
    *  session in its place, it brings the row's own panel back, which selecting a row that's
    *  selected already wouldn't. */
@@ -1515,7 +1510,7 @@ export function App() {
    *  selected; else its panel in place of the one beside the list, with the way back to it
    *  (`drill`), from `row` where a row's menu asked (selecting the row), or from what the panel
    *  shows. With no panel to show it from, or in another project than the one shown (`moved`),
-   *  in Sessions, as the list has it then (`laneAsked`). */
+   *  selected in Sessions, its heading or not (`chosenLane`). */
   const focusLane = (lane: Lane, row?: { key: string; select: () => void }, moved = false) => {
     if (!moved && view === 'canvas' && canvasEntities.lanes.has(lane.id)) {
       showOnCanvas('worktree', lane.id);
@@ -1537,7 +1532,6 @@ export function App() {
     setQuery('');
     setDrill(null);
     setSelectedKey(lane.id);
-    setLaneAsked(lane.id);
   };
 
   // Where the bar shows: floating, docked in the notch, or off; changed here, from its own menu or

@@ -9,9 +9,10 @@
 // five sessions lists five and folds the rest, which its fold row lists, and folds again. Grouped
 // by repo, each repo heads its sessions, a heading that isn't a row to select, and the rows say
 // their worktrees. A worktree shown from elsewhere with no heading listed (App.tsx `focusLane`)
-// is its panel in place of the row selected, with the way back; from another project too, once
-// the window has gone to that project (`laneAsked`), and in a project with no session listed, its
-// panel alone.
+// is its panel in place of the row selected, with the way back. From another project, once the
+// window has gone there, it's selected by itself, with no row for it (App.tsx `chosenLane`), in
+// a project with sessions listed and in one with none: its panel shows, and ⌘N starts there and
+// ⌃⌘P pins it, as on its heading.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/group-by-check.js
 // The check gives the latest worktree with a session six more, made from that session, so it has
 // a group to fold, and adds a worktree with no sessions beside it, in another project when there
@@ -97,6 +98,22 @@
   var topIn = function (g) { return sessionsIn(g).filter(function (r) { return !r.classList.contains('is-nested'); }); };
   var press = function (el, init) { el.dispatchEvent(new MouseEvent('mousedown', Object.assign({ bubbles: true, cancelable: true, button: 0 }, init))); };
   var keyDown = function (init) { (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
+  // ⌘N and ⌃⌘P on a worktree selected with no row for it: they're for it.
+  var keysActOn = function (lane) {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    keyDown({ key: 'n', code: 'KeyN', metaKey: true });
+    return wait(200).then(function () {
+      var asked = last('show_quick');
+      check('⌘N starts a session in ' + lane.callsign, !!asked && asked.context.laneId === lane.id, JSON.stringify(asked && asked.context));
+      keyDown({ key: 'p', code: 'KeyP', metaKey: true, ctrlKey: true });
+      return wait(200);
+    }).then(function () {
+      var pins = last('set_pinned_worktrees');
+      check('⌃⌘P pins ' + lane.callsign, !!pins && pins.ids.indexOf(lane.id) >= 0, JSON.stringify(pins));
+      keyDown({ key: 'p', code: 'KeyP', metaKey: true, ctrlKey: true });
+      return wait(200);
+    });
+  };
   var selectedId = function () { var s = q('.ca-board-list [role="option"][aria-selected="true"]'); return s ? s.id : ''; };
 
   say('group by check: waiting for Sessions');
@@ -240,7 +257,9 @@
           return until(function () { var p = q('.ca-insp:not(.ca-sessinsp)'); return localStorage.getItem('codealong.project') === empty.project && p && p.getAttribute('aria-label') === 'group-by-empty details' && p; }, 3000, 'its project, and its panel');
         })
         .then(function (p) {
-          if (p) check('from another project, the window goes there and shows its panel, with the way back', !!q('.ca-panelback', p) && !!selectedId(), selectedId());
+          if (!p) return;
+          check('from another project, the window goes there and shows its panel', !selectedId(), selectedId());
+          return keysActOn(empty);
         });
     })
     .then(function () {
@@ -250,6 +269,7 @@
     })
     .then(function () {
       check('in a project with no session listed, it shows its panel alone', !q('.ca-board-list .ca-lane.is-agent') && !selectedId(), selectedId());
+      return keysActOn(alone);
     })
     .then(done)
     .catch(stopped);
