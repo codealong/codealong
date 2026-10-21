@@ -79,6 +79,12 @@ impl Days {
         self.0 & (1 << wday) != 0
     }
 
+    /// Whether two of the days follow one another, Saturday to Sunday included.
+    fn in_a_row(self) -> bool {
+        let next = ((self.0 << 1) | (self.0 >> 6)) & Days::ALL.0;
+        self.0 & next != 0
+    }
+
     /// As a sentence starts with them: "Every day", "Weekdays", "Mondays and Thursdays".
     fn words(self) -> String {
         const NAMES: [&str; 7] = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"];
@@ -193,7 +199,10 @@ pub fn shortest_gap(rule: &Rule) -> Option<i64> {
     let slots = day_slots(rule);
     let (first, last) = (*slots.first()?, *slots.last()?);
     let within = slots.windows(2).map(|w| w[1] - w[0]).min();
-    let across = days_in_a_row(rule).then_some(DAY_MINUTES - last + first);
+    // A day's last run to the next day's first, only where that's shorter than the rest, and the
+    // calendar is looked through (`days_in_a_row`) only then.
+    let wrap = DAY_MINUTES - last + first;
+    let across = (wrap < DAY_MINUTES && within.is_none_or(|w| wrap < w) && days_in_a_row(rule)).then_some(wrap);
     within.into_iter().chain(across).min()
 }
 
@@ -224,11 +233,17 @@ fn runs_on(rule: &Rule, days: i64) -> bool {
     }
 }
 
-/// Whether a rule can run on two days in a row: looked for over four years of the calendar, which
-/// has every weekday on every date and a February 29th.
+/// Whether a rule can run on two days in a row: from its weekdays, else looked for over 28 years
+/// of the calendar, after which dates fall on the same weekdays again (until 2100, which isn't a
+/// leap year), so every date meets every weekday, February 29th included.
 fn days_in_a_row(rule: &Rule) -> bool {
-    let from = days_from_civil(2028, 1, 1);
-    (from..from + 4 * 366).any(|d| runs_on(rule, d) && runs_on(rule, d + 1))
+    match rule {
+        Rule::Times { days, .. } | Rule::Every { days, .. } => days.in_a_row(),
+        _ => {
+            let from = days_from_civil(2001, 1, 1);
+            (from..days_from_civil(2029, 1, 1)).any(|d| runs_on(rule, d) && runs_on(rule, d + 1))
+        }
+    }
 }
 
 /// A time of day as written: `9`, `9am`, `9:30`, `09:30pm`, `21:15`, `noon`, `midnight`. `pm`
@@ -737,6 +752,9 @@ pub mod tests {
         assert!(parse_checked("monthly last 1 00:01 23:58").unwrap_err().contains("every 5 minutes"));
         assert!(parse_checked("cron 1,58 0,23 * * mon").is_ok());
         assert!(parse_checked("cron 1,58 0,23 * * mon,tue").unwrap_err().contains("every 5 minutes"));
+        // Saturday the 27th of February and the 28th: in 2027, outside any four years from 2028.
+        assert!(parse_checked("cron 1,58 0,23 28 2 sat").unwrap_err().contains("every 5 minutes"));
+        assert!(parse_checked("sat,sun 00:01 23:58").unwrap_err().contains("every 5 minutes"));
         assert!(parse_checked("once 2026-10-21 9:00").is_ok());
     }
 

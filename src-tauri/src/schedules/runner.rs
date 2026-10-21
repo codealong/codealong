@@ -409,7 +409,9 @@ pub fn apply(runs: &mut Runs, note: &Note) {
         }
         Note::Passed { id, due, missed } => {
             let t = runs.of.entry(id.clone()).or_default();
-            t.last_due = Some(*due);
+            // Planned before a later cutoff was written (a resume between the plan and its note),
+            // it leaves that one: times only go forward.
+            t.last_due = Some(t.last_due.map_or(*due, |d| d.max(*due)));
             if *missed {
                 note_run(t, RunRecord { at: now_ms(), due: Some(*due), why: "Missed".into(), outcome: Outcome::Missed, said: "The Mac was asleep or Codealong was closed when it came.".into(), ..RunRecord::default() });
             }
@@ -469,9 +471,7 @@ fn apply_done(runs: &mut Runs, id: &str, done: Done) {
     }
     note_seen(t, done.seen);
     if let Some(r) = done.record {
-        if !done.delivered {
-            counted(t, &r, now_ms(), &rule::Local);
-        }
+        counted(t, &r, !done.delivered, now_ms(), &rule::Local);
         note_run(t, r);
     }
     runs.fired.retain(|f| !done.fired.contains(&f.id));
@@ -479,15 +479,18 @@ fn apply_done(runs: &mut Runs, id: &str, done: Done) {
 
 /// What a run that went counts toward, apart from the history, which keeps only the latest few:
 /// the day's runs, and the session a new-session run started, which the next waits for.
-fn counted(t: &mut Track, r: &RunRecord, now: i64, zone: &dyn Zone) {
+/// `on_the_day` is false for what waited for a session, going now: it counted as it was taken.
+fn counted(t: &mut Track, r: &RunRecord, on_the_day: bool, now: i64, zone: &dyn Zone) {
     if !matches!(r.outcome, Outcome::Started | Outcome::Sent | Outcome::Resumed | Outcome::Queued) {
         return;
     }
-    let day = day_of(now, zone);
-    t.day = Some(match t.day {
-        Some(d) if d.day == day => RunDay { day, runs: d.runs + 1 },
-        _ => RunDay { day, runs: 1 },
-    });
+    if on_the_day {
+        let day = day_of(now, zone);
+        t.day = Some(match t.day {
+            Some(d) if d.day == day => RunDay { day, runs: d.runs + 1 },
+            _ => RunDay { day, runs: 1 },
+        });
+    }
     if r.outcome == Outcome::Started && r.session.is_some() {
         t.started = r.session.clone();
     }
@@ -607,6 +610,11 @@ fn watch(engine: &Handle, id: &str) {
         t.seeded = seeded;
         // What it printed is its last look from now on, and what's new is noted as run for before
         // the run goes: a run that falls over isn't run again for the same lines.
+        // Its first look's lines are seen from then on too, so a line that goes and comes back
+        // later isn't new.
+        if !track.seeded {
+            note_seen(t, lines.iter().flatten().cloned());
+        }
         if let Some(lines) = lines {
             t.looked = lines;
         }
@@ -1114,10 +1122,10 @@ mod tests {
         let z = Fake::utc();
         let now = ms(&z, 2026, 10, 20, 9, 0);
         let mut t = Track::default();
-        counted(&mut t, &RunRecord { outcome: Outcome::Started, session: Some("k".into()), ..RunRecord::default() }, now, &z);
+        counted(&mut t, &RunRecord { outcome: Outcome::Started, session: Some("k".into()), ..RunRecord::default() }, true, now, &z);
         for _ in 0..40 {
             let skip = RunRecord { outcome: Outcome::Skipped, ..RunRecord::default() };
-            counted(&mut t, &skip, now, &z);
+            counted(&mut t, &skip, true, now, &z);
             note_run(&mut t, skip);
         }
         assert_eq!((runs_today(&t, now, &z), t.started.as_deref()), (1, Some("k")));
@@ -1187,9 +1195,10 @@ mod tests {
         let now = ms(&z, 2026, 10, 20, 9, 0);
         let mut runs = Runs::default();
         let queued = RunRecord { at: now, outcome: Outcome::Queued, session: Some("k".into()), ..RunRecord::default() };
-        counted(runs.of.entry("a".into()).or_default(), &queued, now, &z);
-        apply_done(&mut runs, "a", Done { record: Some(RunRecord { at: now, outcome: Outcome::Sent, ..RunRecord::default() }), delivered: true, ..Done::default() });
-        assert_eq!(runs.of["a"].day.map(|d| d.runs), Some(1));
+        counted(runs.of.entry("a".into()).or_default(), &queued, true, now, &z);
+        apply_done(&mut runs, "a", Done { record: Some(RunRecord { at: now, outcome: Outcome::Started, session: Some("new".into()), ..RunRecord::default() }), delivered: true, ..Done::default() });
+        // Once on the day, and the session its delivery started is still the one the next waits for.
+        assert_eq!((runs.of["a"].day.map(|d| d.runs), runs.of["a"].started.as_deref()), (Some(1), Some("new")));
     }
 
     #[test]
@@ -1202,6 +1211,23 @@ mod tests {
         let (jobs, notes) = plan(&File { schedules: vec![s] }, &runs, &board(), &HashSet::new(), now, &z);
         assert!(jobs.is_empty());
         assert_eq!(notes, vec![Note::Passed { id: "a".into(), due: ms(&z, 2026, 10, 2, 9, 0), missed: true }]);
+    }
+
+    #[test]
+    fn a_later_cutoff_isnt_moved_back_by_a_note_planned_before_it() {
+        let mut runs = Runs { of: [("a".to_string(), Track { last_due: Some(900), ..armed(1) })].into(), ..Runs::default() };
+        apply(&mut runs, &Note::Passed { id: "a".into(), due: 600, missed: false });
+        assert_eq!(runs.of["a"].last_due, Some(900));
+    }
+
+    #[test]
+    fn a_first_looks_line_that_goes_and_comes_back_isnt_new() {
+        // Its first look printed `x`: seen from then on, as in its last look.
+        let mut t = Track { looked: vec!["x".into()], seeded: true, ..armed(1) };
+        note_seen(&mut t, ["x".to_string()]);
+        // A look that printed nothing, then `x` again.
+        t.looked = Vec::new();
+        assert!(!new_line(&t, "x"));
     }
 
     #[test]
