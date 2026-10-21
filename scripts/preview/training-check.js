@@ -4,7 +4,7 @@
 // pointer is on it, opens the provider's page, and turns training off, saying how that went in a
 // toast; one that didn't take says why. Then Settings › Accounts tags each account it can tell
 // about.
-//   PREVIEW_TRAINING=scripts/preview/training-sample.json PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/training-check.js
+//   PREVIEW_TRAINING=scripts/preview/training-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/training-check.js
 (function () {
   var chipOf = function (account) {
     return all('.ca-usagebar-accts .ca-uchip').filter(function (c) { return (q('.ca-uchip-name', c) || {}).textContent === account; })[0];

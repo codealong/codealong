@@ -147,6 +147,9 @@ pub struct Board {
     /// Pinned PRs (`owner/name#number`), in order.
     #[serde(default)]
     pub pinned_prs: Vec<String>,
+    /// Pinned repos (a board's repo key: the GitHub slug, else `project/name`), in order.
+    #[serde(default)]
+    pub pinned_repos: Vec<String>,
     /// Every PR in the repos the projects cover, newest activity first.
     pub prs: Vec<PrItem>,
     /// Who `gh` is signed in as.
@@ -313,7 +316,7 @@ pub struct PrItem {
     pub updated_at: i64,
     pub merged_at: Option<i64>,
     pub closed_at: Option<i64>,
-    /// Worktrees that hold the PR: the ones the Worktrees view shows it on.
+    /// Worktrees that hold the PR: the ones whose heading in Sessions shows it.
     pub lanes: Vec<String>,
     /// The sessions that worked on the PR, each with the worktree it's listed under.
     pub sessions: Vec<PrSession>,

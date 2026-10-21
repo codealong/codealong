@@ -1,7 +1,7 @@
 //! What you've seen, pinned and snoozed. A finished turn is "Your turn" until you open the
 //! session from Codealong or mark it seen, and one you marked unread is Your turn again until
-//! you see it or prompt it (`board::apply_unread`). Pinned sessions stay at the top of the Sessions view
-//! and pinned worktrees at the top of the Worktrees view, each in your order. A snoozed session
+//! you see it or prompt it (`board::apply_unread`). Pinned sessions stay at the top of the Sessions view,
+//! and grouped, pinned worktrees or repos after them, each in your order. A snoozed session
 //! stays off the floating bar's Needs you and Your turn until its time (`board::apply_snooze`),
 //! and a PR whose review you snoozed stays out of Review requested, the bar's reviews and the
 //! mark until its time (`board::apply_review_snoozes`). A quiet session's turns don't wait on you
@@ -40,6 +40,10 @@ pub struct SeenState {
     /// Pinned PRs by key (`owner/name#number`), in the order you put them.
     #[serde(default)]
     pub pinned_prs: Vec<String>,
+    /// Pinned repos, which head Sessions grouped by repo, by the key boards name a repo by (its
+    /// GitHub slug, else `project/name`), in the order you put them.
+    #[serde(default)]
+    pub pinned_repos: Vec<String>,
     /// Sessions archived from Codealong, and when.
     #[serde(default)]
     pub archived: Vec<ArchivedSession>,
@@ -233,6 +237,11 @@ impl SeenState {
         self.pinned_prs = unique(keys);
     }
 
+    /// Replaces the pinned repos, keeping the first of any repeats.
+    pub fn set_pinned_repos(&mut self, keys: Vec<String>) {
+        self.pinned_repos = unique(keys);
+    }
+
     /// Records an archive (or its undoing) made from Codealong.
     pub fn set_archived(&mut self, key: &str, archived: bool, at: i64) {
         self.archived.retain(|a| a.key != key);
@@ -401,6 +410,18 @@ mod tests {
         let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{},"pinnedWorktrees":["/r/main"]}"#).unwrap();
         assert!(old.pinned_prs.is_empty());
         assert!(serde_json::to_string(&s).unwrap().contains(r#""pinnedPrs":["o/r#12","o/r#3"]"#));
+    }
+
+    #[test]
+    fn pinned_repos_are_a_list_of_their_own() {
+        let mut s = SeenState::default();
+        s.set_pinned_worktrees(vec!["/r/main".into()]);
+        s.set_pinned_repos(vec!["acme/web".into(), "Atlas/kestrel".into(), "acme/web".into(), "".into()]);
+        assert_eq!(s.pinned_repos, vec!["acme/web".to_string(), "Atlas/kestrel".to_string()]);
+        assert_eq!(s.pinned_worktrees, vec!["/r/main".to_string()]);
+        let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{},"pinnedWorktrees":["/r/main"]}"#).unwrap();
+        assert!(old.pinned_repos.is_empty());
+        assert!(serde_json::to_string(&s).unwrap().contains(r#""pinnedRepos":["acme/web","Atlas/kestrel"]"#));
     }
 
     #[test]

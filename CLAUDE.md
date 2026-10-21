@@ -260,8 +260,8 @@ Each rule names the file whose header has the rest.
   peers that say they know it.
 - `src-tauri/src/board.rs` holds the model's rules as pure functions with tests; each harness's
   reader gathers a session's inputs and calls them, and the engine the rest. `src/lanes.ts`
-  mirrors `bay_of`, the agent bays' headlines and the order of sessions and lanes
-  (`sort_sessions`, `lane_prompt_at`) for the filters; keep them in step.
+  mirrors `bay_of`, the agent bays' headlines and the order of sessions (`sort_sessions`) for
+  the filters; keep them in step.
 - What the main window's views list is worked out from the board, the filters and the search in
   `src/boardLists.ts`, as pure functions with tests; a new list or filter goes there, not into
   `App.tsx`. The quick panel's words are pure functions in `start.ts`, `route.ts` and

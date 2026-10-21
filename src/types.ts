@@ -1193,6 +1193,8 @@ export interface Board {
   pinnedWorktrees: string[];
   /** Pinned PRs (`owner/name#number`), in order. */
   pinnedPrs?: string[];
+  /** Pinned repos (boards/rules.ts `repoOf`), in order. Absent from engines of older builds. */
+  pinnedRepos?: string[];
   /** Every PR in the repos the projects cover, newest activity first. */
   prs: PrItem[];
   /** Who `gh` is signed in as. */

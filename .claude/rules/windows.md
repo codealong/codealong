@@ -176,7 +176,7 @@ under `src-tauri/src/`.
   (muda 0.19.3 parses it as Backquote). The preview shows the terminal it asks for
   (`terminal-key-check.js`).
 
-- Not yet checked by hand (2026-10-12): pressing ⇧⌘S, ⇧⌘W, ⇧⌘P, ⇧⌘T and ⇧⌘B in the real app
+- Not yet checked by hand (2026-10-12): pressing ⇧⌘S, ⇧⌘P, ⇧⌘T and ⇧⌘B in the real app
   (`src/mainKeys.ts` `VIEW_CHORDS`). They're key equivalents, which reach the page before the
   menu bar (above), so they should behave as the preview shows (`view-keys-check.js`). The
   sidebar's keycaps on hover were seen in the real app (2026-10-12). Canvas isn't ⇧⌘C because

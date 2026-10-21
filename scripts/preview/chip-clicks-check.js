@@ -1,12 +1,12 @@
 // Checks the chips on the lists' rows (LaneRow.tsx): a click on one selects its row, as a click
 // anywhere on the row does, and opens nothing; a double-click does the chip's own thing (the
 // session where it runs, the todo in Todo, the app in Chrome) in place of the row's. Sessions has
-// PR, agent and todo chips; Worktrees has agent chips on its lines, and the app's and the PR's on
-// the worktree's own part, where a click selects the row's first line. A PR's chip takes its own
-// clicks: a double-click opens it on GitHub, not the session, and leaves the row and the view as
-// they were (what a click does, showing it in PRs, is pr-chip-check.js's).
+// PR, agent and todo chips; grouped by worktree, each worktree's heading has the app's and the
+// PR's, where a click selects the heading. A PR's chip takes its own clicks: a double-click opens
+// it on GitHub, not the session, and leaves the row and the view as they were (what a click does,
+// showing it in PRs, is pr-chip-check.js's).
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-clicks-check.js
-//   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-clicks-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/chip-clicks-check.js
 // A chip no row has is noted and skipped. Sessions is on two lines, where its agent and todo
 // chips are.
 (function () {
@@ -17,15 +17,12 @@
   var dbl = function (el) { click(el); fire(el, 'mousedown', 2); fire(el, 'mouseup', 2); fire(el, 'click', 2); fire(el, 'dblclick', 2); };
   var opens = function (from) { return window.__calls.slice(from).filter(function (c) { return c[0] === 'open_target' || c[0] === 'open_url'; }); };
   var said = function (cs) { return cs.map(function (c) { return c[0] + ' ' + (c[1].url || c[1].targetId); }).join(', ') || 'none'; };
-  // The row a click on a chip selects: the one it's on, or on a worktree's own part, beside its
-  // lines, the first of them.
-  var rowOf = function (c) {
-    var group = c.closest('[role="group"]');
-    return c.closest('[role="option"]') || (group && group.querySelector('[role="option"]'));
-  };
-  // A chip on a row that isn't selected, so the click has something to do.
+  // The row a click on a chip selects: the one it's on, a session's or a worktree's heading.
+  var rowOf = function (c) { return c.closest('[role="option"]'); };
+  // A chip on a row that isn't selected, so the click has something to do. `sel` is the chip,
+  // within a row.
   var chipOn = function (sel) {
-    return Array.prototype.filter.call(document.querySelectorAll('.ca-lane ' + sel), function (c) {
+    return Array.prototype.filter.call(document.querySelectorAll(sel), function (c) {
       var r = rowOf(c);
       return r && !r.classList.contains('is-selected') && r.getBoundingClientRect().height > 0;
     })[0];
@@ -77,25 +74,24 @@
   until(function () { return document.querySelector('[role="option"]'); }, 20000)
     .then(function () { return wait(500); })
     .then(function () {
-      var label = list().getAttribute('aria-label');
-      if (label === 'Sessions') {
+      if (!document.querySelector('.ca-grouphead.is-worktree-head')) {
         return Promise.resolve()
-          .then(prStep('.ca-pr'))
-          .then(step('agent chip', '.ca-agentrow-chips .ca-chip[title*="to open in"]', function (o) {
+          .then(prStep('.ca-lane .ca-pr'))
+          .then(step('agent chip', '.ca-lane .ca-agentrow-chips .ca-chip[title*="to open in"]', function (o) {
             check('agent chip: a double-click opens the session once', o.length === 1 && o[0][0] === 'open_target', said(o));
           }))
-          .then(step('todo chip', '.ca-todochip', function (o) {
+          .then(step('todo chip', '.ca-lane .ca-todochip', function (o) {
             return wait(200).then(function () {
               check('todo chip: a double-click shows it in Todo', list().getAttribute('aria-label') === 'Todos' && o.length === 0, list().getAttribute('aria-label') + ', ' + said(o));
             });
           }));
       }
       return Promise.resolve()
-        .then(step('app chip', '.ca-previewchip', function (o) {
+        .then(step('app chip', '.ca-grouphead.is-worktree-head .ca-previewchip', function (o) {
           check('app chip: a double-click opens the app, not the session', o.length === 1 && o[0][1].targetId === 'l|preview', said(o));
         }))
-        .then(prStep('.ca-seg-call .ca-pr'))
-        .then(step('agent chip', '.ca-agentline-main .ca-chip[title*="to open in"]', function (o) {
+        .then(prStep('.ca-grouphead.is-worktree-head .ca-pr'))
+        .then(step('agent chip', '.ca-lane .ca-agentrow-chips .ca-chip[title*="to open in"]', function (o) {
           check('agent chip: a double-click opens the session once', o.length === 1 && o[0][0] === 'open_target', said(o));
         }));
     })

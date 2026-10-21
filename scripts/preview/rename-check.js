@@ -4,7 +4,6 @@
 // show in the session header (SessionHeader.tsx), the quick panel's Rename… opening the waiting
 // window on it. Run it in each:
 //   scripts/preview.sh sessions '' scripts/preview/rename-check.js
-//   scripts/preview.sh worktrees '' scripts/preview/rename-check.js
 //   scripts/preview.sh bar '' scripts/preview/rename-check.js
 //   PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/rename-check.js
 //   scripts/preview.sh quick '' scripts/preview/rename-check.js
@@ -25,8 +24,8 @@
   // shows it at once; `r` on the list opens it too (⌃⌘R in Sessions), and Escape leaves the name
   // alone.
   if (surface === 'main') {
-    var sessions = (localStorage.getItem('codealong.view') || 'worktrees') === 'sessions';
-    var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-lane.is-agent, .ca-agentline')); };
+    var sessions = (localStorage.getItem('codealong.view') || 'sessions') === 'sessions';
+    var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-lane.is-agent')); };
     var row;
     until(function () { return rows().length > 0; }, 20000)
       .then(function () {

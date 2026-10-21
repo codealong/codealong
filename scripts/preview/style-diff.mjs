@@ -115,6 +115,7 @@ function setupFor(scene, data) {
   let css = '';
   let scripts = '';
   if (scene.project) js += `localStorage.setItem('codealong.project',${JSON.stringify(scene.project)});`;
+  if (scene.group) js += `localStorage.setItem('codealong.sessionGroup',${JSON.stringify(scene.group)});`;
   if (scene.loading) js += 'window.__PREVIEW_LOADING__=true;';
   const key = scene.transcript ? JSON.parse(readFileSync(join(data, scene.transcript, 'transcript-key.json'), 'utf8')).key : '';
   if (view === 'bar') {

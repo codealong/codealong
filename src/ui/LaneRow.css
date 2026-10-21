@@ -1,63 +1,9 @@
-/* Worktree and session rows (LaneRow.tsx): the delta, agent lines, reuse marks, and
-   the slim one-line session row (the layout it shares with PRs' and todos' is rows.css's). */
+/* Session rows and group headings (LaneRow.tsx): a session's text, its chips, what's listed under
+   it, the slim one-line row (the layout it shares with PRs' and todos' is rows.css's), and the
+   headings of Sessions' groups. */
 
-/* Each row as high as the name's line and the repo's beside it, so it sits level with them. */
-.ca-delta-row {
-  display: grid;
-  grid-template-columns: 5ch 5ch 6px;
-  column-gap: 5px;
-  justify-items: end;
-  font: var(--type-code-sm);
-  line-height: 20px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  color: var(--ink-3);
-}
-/* What only this branch has reads stronger than what it lacks. */
-.ca-delta-row > .is-gain {
-  color: var(--ink-2);
-}
-
-/* An agent on its worktree's row: its status, its two lines as Sessions has them, and its age,
-   each level with its first line. Several stack, each as tall as one alone. */
-.ca-agentline {
-  display: flex;
-  flex: 1 0 auto;
-  min-width: 0;
-}
-.ca-agentline + .ca-agentline {
-  border-top: 1px solid var(--line);
-}
-.ca-agentline[role='option']:hover {
-  background: var(--surface-hover);
-}
-.ca-agentline.is-selected,
-.ca-agentline.is-selected:hover {
-  background: var(--surface-selected);
-}
-.ca-board-list:focus-visible .ca-agentline.is-selected {
-  box-shadow: inset 0 0 0 2px var(--focus);
-}
-
-.ca-agentline-glyph {
-  display: flex;
-  flex: none;
-  padding: 11px 0 0 var(--space-3);
-}
-.ca-agentline-glyph > .ca-glyph {
-  flex: none;
-}
-.ca-agentline-main {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  flex: 1;
-  min-width: 0;
-  padding: 7px var(--space-3) 7px var(--space-2);
-}
 /* A session's title, the label for what it waits on you for, and what it's doing or said last.
-   The line fills what's left and pushes a worktree line's todo and insight to its end; the
-   detail gives way first, then the title. */
+   The line fills what's left; the detail gives way first, then the title. */
 .ca-agentline-text {
   display: flex;
   align-items: center;
@@ -83,35 +29,6 @@
   flex: 1 1 0;
   margin-left: 0;
 }
-.ca-agentline-age {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: flex-start;
-  flex: none;
-  width: 52px;
-  box-sizing: border-box;
-  padding: var(--space-2) var(--space-3) 0;
-  font: var(--type-meta);
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
-/* A worktree no agent has worked in says so where an agent's title would start, past the place
-   of its glyph, and on its line. */
-.ca-lane.is-empty .ca-agentline-glyph {
-  width: 10px;
-}
-.ca-lane.is-empty .ca-agentline-main > .ca-none {
-  font: var(--type-body);
-}
-
-/* The row a right-click's menu is for, while the menu is up: ringed, not selected. */
-.ca-lane[data-menu],
-.ca-agentline[data-menu] {
-  outline: 2px solid var(--line-strong);
-  outline-offset: -2px;
-}
-
 .ca-chip.ca-snoozechip,
 .ca-chip.ca-quietchip,
 .ca-chip.ca-suggestedchip,
@@ -257,56 +174,87 @@
   padding: var(--space-1) 0;
 }
 
-/* A reusable worktree's mark, before its repo and branch (LaneRow.tsx): green, as an app that
-   runs is, while new work can start there. */
-.ca-reusemark {
-  display: inline-flex;
-  vertical-align: -2px;
-  margin-right: var(--space-1);
-  color: var(--ink-3);
-}
-.ca-reusemark.is-ready {
-  color: var(--pr-open);
-}
-
-/* The worktree's two lines (LaneRow.tsx `WorktreeCell`): its name, then Jev's read and its app;
-   its repo and branch, then its PR. Each lane of chips is laid from the line's end, so apps
-   and PRs line up down the board. Short of room the name keeps its line and the chips beside it
-   give way, the app last; on the second line the repo and branch shorten, all the way on a narrow
-   board, before the PR gives way. */
-.ca-lane-cellline {
-  display: flex;
-  align-items: center;
-  gap: var(--chip-gap);
-  min-width: 0;
-  min-height: 20px;
-}
-.ca-lane-cellline > .ca-lane-call {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-.ca-lane-cellline > .ca-lane-sub {
-  flex: 0 1000000 auto;
-  min-width: 0;
-}
-.ca-chips.ca-lane-own {
-  flex: 1 1 auto;
-  flex-direction: row-reverse;
-}
-.ca-lane-call + .ca-chips.ca-lane-own {
-  flex-shrink: 1000000;
-}
-.ca-chips.ca-lane-own:empty {
-  display: none;
-}
-/* The lane's empty first piece sits at its right end here, so the gap it takes back is on its
-   left. */
-.ca-chips.ca-lane-own::before {
-  margin-right: 0;
-  margin-left: calc(0px - var(--chip-gap));
-}
 /* The app's globe alone: about as wide as it is high. */
 .ca-chip.ca-previewchip.is-bare {
   padding: 0 6px;
 }
 
+
+/* A group's heading in Sessions (LaneRow.tsx `WorktreeHead`, `RepoHead`): a worktree or a repo,
+   on one line, shaded as the place its sessions under it share. Its name, then where it is, which
+   gives way first, then its chips, which give way from the end, and at the line's end where a
+   worktree stands against the default branch. A repo's isn't selected, so it doesn't light up
+   under the pointer. */
+.ca-lane.ca-grouphead {
+  grid-template-columns: 32px minmax(0, 1fr);
+  min-height: 32px;
+  background: var(--surface-sunken);
+}
+.ca-lane.ca-grouphead.is-selected {
+  background: var(--surface-selected);
+}
+.ca-lane.ca-grouphead.is-worktree-head:hover:not(.is-selected) {
+  background: var(--surface-hover);
+}
+.ca-grouphead .ca-seg-glyph {
+  color: var(--ink-3);
+}
+.ca-grouphead .ca-seg-main {
+  padding-left: 0;
+  border-left: 0;
+}
+.ca-grouphead-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ca-grouphead-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--type-callsign);
+}
+.ca-grouphead-sub {
+  flex: 0 1000000 auto;
+}
+.ca-chips.ca-grouphead-chips {
+  flex: 0 1 auto;
+}
+.ca-chips.ca-grouphead-chips:empty {
+  display: none;
+}
+.ca-grouphead-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  margin-left: auto;
+  padding-right: var(--space-3);
+}
+.ca-grouphead-end:empty {
+  display: none;
+}
+.ca-grouphead-end > .ca-diff {
+  min-width: 0;
+}
+
+/* Whether a reusable worktree can take new work (LaneRow.tsx `ReuseChip`): green while it's free,
+   as an app that runs is. */
+.ca-chip.ca-reusechip {
+  padding: 0 7px 0 6px;
+  font: var(--type-caption-heading);
+  color: var(--ink-3);
+}
+.ca-chip.ca-reusechip.is-ready,
+.ca-chip.ca-reusechip.is-ready .ca-icon {
+  color: var(--pr-open);
+}
+
+/* The way to a group's sessions folded away (LaneRow.tsx `GroupFoldRow`), as a fold under a
+   session is, but not set in. */
+.ca-lane.is-agent.is-fold.ca-groupfold .ca-seg-glyph {
+  padding-left: 0;
+}

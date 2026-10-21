@@ -2,7 +2,7 @@
 // many, its card lists each, a review that didn't start is tried again from its Try again, a
 // notice dismissed there leaves the others, config.toml's opens Settings on the file, and the
 // chip's own button dismisses what's left. Dismissals are kept.
-//   PREVIEW_NOTICES=scripts/preview/notices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/notices-check.js
+//   PREVIEW_NOTICES=scripts/preview/notices-sample.json PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/notices-check.js
 (function () {
   var label = function () { var c = q('.ca-notice-open'); return c ? c.textContent : null; };
   var kept = function () { return JSON.parse(window.localStorage.getItem('codealong.dismissedNotices') || '[]'); };

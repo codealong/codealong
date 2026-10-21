@@ -1,7 +1,7 @@
 // Checks a linked device's color in Settings › Devices (DevicesSection.tsx): a color picked from
 // its dot's menu asks the engine for it, and one the engine refuses (it couldn't save it) says why
 // in the section, as Link and Unlink do; the next that goes through clears it.
-//   PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh worktrees '' scripts/preview/device-color-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json scripts/preview.sh sessions '' scripts/preview/device-color-check.js
 (function () {
   var refuse = false;
   var real = window.__TAURI_INTERNALS__.invoke;

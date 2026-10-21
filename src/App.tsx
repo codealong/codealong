@@ -14,8 +14,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
-import { homeOf, narrowed, rowItems, runsShownKey, sidesShownKey, worktreeRow, type BoardRow, type Filter, type WorktreeRow } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -38,10 +38,7 @@ import { PreviewDialog } from './ui/PreviewBits';
 import { RenameDialog } from './ui/RenameDialog';
 import { MergeDoneDialog } from './ui/MergeDone';
 import type { HelperActions } from './ui/HelpersCard';
-import { LaneRow } from './ui/LaneRow';
-import { PinnedSection } from './ui/PinnedSection';
-import { useRowDrag, type DragProps } from './ui/useRowDrag';
-import { BayHeader, Button, cx, Icon, Kbd, Seg } from './ui/primitives';
+import { Button, cx, Icon, Kbd, Seg } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
 import { useLogo } from './logo';
 import { usePrLinks } from './ui/PrLink';
@@ -49,7 +46,7 @@ import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
 import { PR_ROWS, PR_SORTS, PrsView, type PrRowItem, type PrSort } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionItem, type SessionSort } from './ui/SessionsView';
+import { groupKeyOf, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type GroupActs, type SessionGroup, type SessionGroupBy, type SessionItem, type SessionSort } from './ui/SessionsView';
 import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
 import { TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { KanbanView } from './ui/KanbanView';
@@ -78,7 +75,7 @@ import { useSessionHistory } from './history';
 import { QUEUE_CHORDS } from './queue';
 import { SESSION_READS, shownSession as queueShown, useWaitingQueue } from './useWaitingQueue';
 import { openWhere, where } from './open';
-import { asText, flag, oneOf, strings, useStored } from './stored';
+import { asText, flag, oneOf, readStored, strings, useStored } from './stored';
 import { useBoard } from './useBoard';
 import { useTextSearch } from './useTextSearch';
 import { useLatest } from './latest';
@@ -119,6 +116,7 @@ const AGE_KEY = 'codealong.age';
 const DISMISSED_KEY = 'codealong.dismissedNotices';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
 const SESSION_ROWS_KEY = 'codealong.sessionRows';
+const SESSION_GROUP_KEY = 'codealong.sessionGroup';
 const PR_ROWS_KEY = 'codealong.prRows';
 const PR_SORT_KEY = 'codealong.prSort';
 const TODO_SORT_KEY = 'codealong.todoSort';
@@ -142,10 +140,9 @@ const COPY_WAIT_MS = 60_000;
 
 /** The views. Kanban and Canvas are the Board view's two layouts (BoardBar.tsx), each with a
  *  chord of its own; the sidebar lists the Board view once. */
-type View = 'worktrees' | 'sessions' | 'prs' | 'todo' | 'kanban' | 'canvas';
+type View = 'sessions' | 'prs' | 'todo' | 'kanban' | 'canvas';
 const VIEWS: { id: View; label: string; icon: string }[] = [
   { id: 'sessions', label: 'Sessions', icon: 'terminal' },
-  { id: 'worktrees', label: 'Worktrees', icon: 'folder' },
   { id: 'prs', label: 'PRs', icon: 'pr' },
   { id: 'todo', label: 'Todo', icon: 'list-check' },
   { id: 'kanban', label: 'Kanban', icon: 'layout-kanban' },
@@ -156,7 +153,6 @@ const VIEWS_SANS_BOARDS = VIEWS.filter((v) => v.id !== 'kanban' && v.id !== 'can
 /** What each view says until the engine has read this Mac's board once. */
 const READING: Record<View, string> = {
   sessions: 'Reading sessions…',
-  worktrees: 'Reading worktrees…',
   prs: 'Reading repos…',
   todo: 'Reading todos…',
   kanban: 'Reading todos…',
@@ -165,7 +161,6 @@ const READING: Record<View, string> = {
 /** What the list's find says it finds in, in each view (ui/ListBar.tsx). */
 const FIND_IN: Record<View, string> = {
   sessions: 'Find in sessions',
-  worktrees: 'Find in worktrees',
   prs: 'Find in PRs',
   todo: 'Find in todos',
   kanban: 'Find in todos and sessions',
@@ -184,11 +179,6 @@ type Row = BoardRow | PrRowItem | TodoItem;
 /** No rows, as one list, so what's keyed on the rows shown doesn't see a new one on every render. */
 const NO_ROWS: Row[] = [];
 
-/** What selecting a worktree on the board selects: its first agent's line, else the worktree. */
-function boardRowKey(lane: Lane): string {
-  return rowItems(worktreeRow(lane))[0].key;
-}
-
 /** A row's element id, for the list's active descendant. From its key, not its place in the
  *  list, so a row keeps its id when others move and needn't render again. */
 function domIdOf(key: string): string {
@@ -198,7 +188,9 @@ function domId(r: { key: string }): string {
   return domIdOf(r.key);
 }
 
-// How each remembered choice is read back: one of the ids it can be, else the default.
+// How each remembered choice is read back: one of the ids it can be, else the default. A window
+// left on the Worktrees view, which Sessions grouped by worktree took the place of, opens on
+// Sessions, grouped by worktree until you pick otherwise (`sessionGroup`).
 const VIEW_STORED = oneOf(VIEWS.map((v) => v.id));
 const LAYOUT_STORED = oneOf<BoardLayout>(['kanban', 'canvas']);
 const AGE_STORED = oneOf(AGES.map((a) => a.id));
@@ -206,6 +198,7 @@ const SORT_STORED = oneOf(SESSION_SORTS.map((o) => o.id));
 const PR_SORT_STORED = oneOf(PR_SORTS.map((o) => o.id));
 const TODO_SORT_STORED = oneOf(TODO_SORTS.map((o) => o.id));
 const ROWS_STORED = oneOf(SESSION_ROWS.map((o) => o.id));
+const GROUP_STORED = oneOf(SESSION_GROUPS.map((o) => o.id));
 
 /** A dragged panel width for the grid's style; left out, the panel takes its default from the CSS. */
 const widthVar = (width: number | null) => (width == null ? undefined : `${width}px`);
@@ -293,7 +286,6 @@ export function App() {
   const [showDonePrs, setShowDonePrs] = useState(false);
   // PRs being approved, by key: the button waits on GitHub.
   const [approving, setApproving] = useState<Set<string>>(() => new Set());
-  const [showParked, setShowParked] = useState(false);
   // What went wrong with something you did here, what's under way, and the ways back (Toasts.tsx).
   const toasts = useToasts();
   const { setToast, track, report, setTodoUndo } = toasts;
@@ -430,19 +422,30 @@ export function App() {
     (name: string) => {
       setProject(name);
       clearFilters();
-      setShowParked(false);
       setSelectedKey(null);
     },
     [setProject, clearFilters],
   );
 
-  // Pinned sessions head the Sessions view and pinned worktrees the Worktrees view, each in
+  // Pinned sessions head the Sessions view, then grouped, its pinned worktrees or repos, each in
   // your order.
   const sessionPins = usePins(board?.pinned, setPinned, setToast);
   const lanePins = usePins(board?.pinnedWorktrees, setPinnedWorktrees, setToast);
+  const repoPins = usePins(board?.pinnedRepos, setPinnedRepos, setToast);
   const prPins = usePins(board?.pinnedPrs, setPinnedPrs, setToast);
   // How Sessions orders the sessions that aren't pinned: by status, or the newest start first.
   const [sessionSort, setSessionSort] = useStored<SessionSort>(SESSION_SORT_KEY, SORT_STORED, 'status');
+  // Whether Sessions groups them by worktree or by repo, as you left it; the groups opened past
+  // their fold, until the window closes; and the pins of the groups it's grouped by.
+  const [leftOnWorktrees] = useState(() => readStored(VIEW_KEY, asText, '') === 'worktrees');
+  const [sessionGroup, setSessionGroup] = useStored<SessionGroupBy>(SESSION_GROUP_KEY, GROUP_STORED, leftOnWorktrees ? 'worktree' : 'none');
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const groupPins = sessionGroup === 'repo' ? repoPins : lanePins;
+  const toggleGroup = useCallback((key: string) => setOpenGroups((o) => {
+    const next = new Set(o);
+    if (!next.delete(key)) next.add(key);
+    return next;
+  }), []);
   // How PRs and Todo order what isn't pinned or done: by status, or the newest opened or added first.
   const [prSort, setPrSort] = useStored<PrSort>(PR_SORT_KEY, PR_SORT_STORED, 'status');
   const [todoSort, setTodoSort] = useStored<TodoSort>(TODO_SORT_KEY, TODO_SORT_STORED, 'status');
@@ -490,21 +493,14 @@ export function App() {
     deviceNeeds,
     deviceWorking,
     archivedItems,
-    recentLanes,
     saidOf,
     shownSessionCount,
     pinnedRows,
     pinnedHelpers,
     sessionSecs,
+    groupedSecs,
     sessionRows,
     waitingRows,
-    pinnedLaneRows,
-    bays,
-    shownBays,
-    foldParked,
-    parkedCount,
-    worktreeRows,
-    worktreeItems,
     laneById,
     prRowOf,
     prRows,
@@ -558,9 +554,11 @@ export function App() {
     lanePins,
     prPins,
     sessionSort,
+    sessionGroup,
+    groupPins,
+    openGroups,
     prSort,
     todoSort,
-    showParked,
     showArchived,
     showDonePrs,
     todos: todoStore.todos,
@@ -727,7 +725,7 @@ export function App() {
 
   // Nothing is listed until the board is read, so nothing can be selected: not the other devices'
   // rows that come first.
-  const visible = loading ? NO_ROWS : view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'kanban' ? kanbanVisible : view === 'canvas' ? NO_ROWS : worktreeItems;
+  const visible = loading ? NO_ROWS : view === 'sessions' ? sessionRows : view === 'prs' ? prVisible : view === 'todo' ? todoVisible : view === 'kanban' ? kanbanVisible : NO_ROWS;
   // The PRs view with none of its PRs yet, while GitHub's are on their way: it says it's reading
   // them, as the board does before its first read, rather than that there are none.
   const prsComing = boardRead && view === 'prs' && prRows.length === 0 && githubPrs === 'coming';
@@ -749,10 +747,12 @@ export function App() {
       : view === 'prs'
         ? prRows.find((r) => r.key === selectedKey)
         : (visible.find((r) => r.kind === 'agent' && r.session.key === selectedSessionKey) ?? held ?? visible.find((r) => r.kind !== 'pr' && r.kind !== 'todo' && r.lane.id === selectedLaneId))) ??
+    visible.find((r) => r.kind === 'agent') ??
     visible[0] ??
     null;
   // With nothing picked yet (the window just opened, or you changed projects) the panel shows
-  // the top row, and it holds there: a session that comes to the top later doesn't take it.
+  // the top session (grouped, not its worktree's heading), and it holds there: a session that
+  // comes to the top later doesn't take it.
   // A click in the moment before this runs has picked a row already: it isn't taken back.
   useEffect(() => {
     const top = selected?.key;
@@ -962,7 +962,8 @@ export function App() {
     setQuery('');
     setDrill(null);
     if (lane && r.kind === 'worktree') {
-      focusLane(lane);
+      // In another project, what's listed now isn't what will be.
+      focusLane(lane, undefined, current !== ALL_PROJECTS && current !== home);
     } else if (archivedLane && archived) {
       // Its row in the Archived fold, opened, with its conversation in the panel; the age
       // filter doesn't apply there.
@@ -983,6 +984,7 @@ export function App() {
       const wider = ageListingChain(chainOf(item, items).map((r) => r.session), sessionPins.set, AGES, age, Date.now());
       if (wider) setAge(wider);
       setHelpersShownList((prev) => revealing(prev, items, item));
+      unfold(item, items);
       setSelectedKey(`${lane.id}::${session.key}`);
     } else if (pr) {
       if (r.kind === 'pr' && r.tab) showPrTab(pr.key, r.tab);
@@ -1209,7 +1211,6 @@ export function App() {
     selected,
     setSelectedKey,
     sessionRows,
-    worktreeRows,
     prVisible,
     showArchived,
     report,
@@ -1297,7 +1298,7 @@ export function App() {
       review: reviewItems(p),
       approve: mayApprove(p) ? () => approve(p) : undefined,
       snooze: snoozeReview(p),
-      showLane: lane ? { lane, run: () => focusLane(lane) } : undefined,
+      showLane: lane ? { lane, run: () => focusLane(lane, view === 'prs' ? { key: r.key, select: () => picks.prs.select(r, 'one') } : undefined) } : undefined,
       pin: { label: prPins.set.has(p.key) ? 'Unpin PR' : 'Pin PR', run: () => prPins.toggle(p.key), accelerator: 'P' },
       desktop: onDesktop,
       boards: boardItems('pr', p.key),
@@ -1310,7 +1311,7 @@ export function App() {
     if (lane.pr) openUrl(lane.pr.url).catch((e: unknown) => setToast(String(e)));
   };
   /** A click on a PR's chip, or on a link to it in a panel (PrLink.tsx), wherever this window shows
-   *  one. In Sessions, Worktrees and Todo, the PR's panel shows in place of the one beside the
+   *  one. In Sessions, Todo and Kanban, the PR's panel shows in place of the one beside the
    *  list, with the way back to it (`drill`), so the list stays as it was; a chip on a list's row
    *  selects the row first (`row`), so the way back is to its panel. In PRs and on the canvas, its
    *  row or card (`reveal`). A PR the board doesn't list has no panel here, so it opens on GitHub
@@ -1322,7 +1323,7 @@ export function App() {
       return;
     }
     const from = row?.key ?? panelFrom;
-    if ((view !== 'sessions' && view !== 'worktrees' && view !== 'todo' && view !== 'kanban') || !from) {
+    if ((view !== 'sessions' && view !== 'todo' && view !== 'kanban') || !from) {
       reveal.current({ kind: 'pr', key: item.key });
       return;
     }
@@ -1437,7 +1438,7 @@ export function App() {
   /** A worktree's right-click menu, as every window has it (menus.ts), with this window's own. */
   const laneCan = (lane: Lane): menus.LaneCan => ({
       report,
-      keys: true,
+      keys: view === 'sessions' ? 'chords' : true,
       open,
       editors,
       newSession: () => newSession({ laneId: lane.id }),
@@ -1477,43 +1478,54 @@ export function App() {
   // arranging its canvas (boards/useBoardAsks.ts).
   useBoardAsks({ deviceLanes, deviceFilter, shown: shownBoard, canvas, apply: boards.apply });
 
-  // A worktree's row dragged on the board: among the pinned ones to pin it there or move it, from
-  // them down to the bays to unpin it, out of the window onto the desktop (useRowDrag.tsx).
-  // What's on another device has no card here.
-  const laneDrag = useRowDrag({
-    onPlace: (id, index) => lanePins.place(pinnedLaneRows.map((r) => r.lane.id), id, index),
-    joins: true,
-    onLeave: lanePins.remove,
-    desktop: (id) => (laneById.get(id)?.device ? null : { ref: 'worktree', key: id }),
-    label: (id) => laneById.get(id)?.callsign ?? '',
-  });
-
   /** Moves a pinned session to insertion point `index` among the pinned ones showing. */
   const movePinnedSession = useCallback(
     (key: string, index: number) => sessionPins.move(pinnedRows.map((r) => r.session.key), key, index),
     [sessionPins, pinnedRows],
   );
 
+  // The pinned groups showing, in your order: what a pinned group's heading moves among.
+  const pinnedGroups = useMemo(() => groupedSecs?.pinned.map((g) => g.key) ?? [], [groupedSecs]);
+  const pinnedLanes = sessionGroup === 'worktree' ? pinnedGroups : NO_PICKS;
   /** Moves a pinned worktree to insertion point `index` among the pinned ones showing. */
-  const movePinnedLane = useCallback(
-    (id: string, index: number) => lanePins.move(pinnedLaneRows.map((r) => r.lane.id), id, index),
-    [lanePins, pinnedLaneRows],
-  );
+  const movePinnedLane = useCallback((id: string, index: number) => lanePins.move([...pinnedLanes], id, index), [lanePins, pinnedLanes]);
 
-  /** Selects a worktree from the sidebar, in the Worktrees view: its first agent's line, else the worktree. */
-  const focusLane = (lane: Lane) => {
-    // On the canvas, the worktree's card: selected, in view, with its panel. One the board's
-    // project doesn't have (another project's, under All projects) is shown in Worktrees.
-    if (view === 'canvas' && canvasEntities.lanes.has(lane.id)) {
+  /** Lists a session's group in full, and the groups of the ones it's listed under, when Sessions
+   *  is grouped: a session shown from elsewhere is listed whatever its group folds away. */
+  const unfold = (item: SessionItem, all: SessionItem[]) => {
+    if (sessionGroup === 'none') return;
+    const by = sessionGroup;
+    const keys = chainOf(item, all).map((r) => groupKeyOf(r.lane, by));
+    setOpenGroups((o) => (keys.every((k) => o.has(k)) ? o : new Set([...o, ...keys])));
+  };
+
+  /** Shows a worktree: on the canvas its card; in Sessions grouped by worktree its heading,
+   *  selected; else its panel in place of the one beside the list, with the way back to it
+   *  (`drill`), from `row` where a row's menu asked (selecting the row), or from what the panel
+   *  shows. With no panel to show it from, or in another project than the one shown (`moved`),
+   *  Sessions grouped by worktree, at its heading. */
+  const focusLane = (lane: Lane, row?: { key: string; select: () => void }, moved = false) => {
+    if (!moved && view === 'canvas' && canvasEntities.lanes.has(lane.id)) {
       showOnCanvas('worktree', lane.id);
       return;
     }
-    setView('worktrees');
+    if (!moved && view === 'sessions' && sessionRows.some((r) => r.kind === 'lane' && r.key === lane.id)) {
+      setDrill(null);
+      setSelectedKey(lane.id);
+      return;
+    }
+    const from = moved ? null : (row?.key ?? panelFrom);
+    if (view !== 'canvas' && from) {
+      row?.select();
+      setDrill({ from, key: lane.id, lane: true });
+      return;
+    }
+    setView('sessions');
+    setSessionGroup('worktree');
     clearFilters();
-    if (lane.parked) setShowParked(true);
-    // Its own panel, though its row was selected already, with a PR in that panel's place.
+    setQuery('');
     setDrill(null);
-    setSelectedKey(boardRowKey(lane));
+    setSelectedKey(lane.id);
   };
 
   // Where the bar shows: floating, docked in the notch, or off; changed here, from its own menu or
@@ -1553,9 +1565,8 @@ export function App() {
     terminalAt,
     projects,
     pinnedRows,
-    pinnedLaneRows,
+    pinnedLanes,
     pinnedPrRows,
-    shownBays,
     sessionPins,
     lanePins,
     prPins,
@@ -1707,44 +1718,41 @@ export function App() {
   // The canvas's selected card, which the panel on the right shows on the canvas.
   const canvasPick = view === 'canvas' ? canvasPicked(canvasSel, canvasEntities, todoItems) : null;
 
-  /** A worktree's row on the board: `index` is its place among the pinned ones. */
-  const laneRow = (r: WorktreeRow, index: number | null, drag: DragProps) => (
-    <LaneRow
-      key={r.key}
-      row={r}
-      now={now}
-      selectedKey={selected?.key ?? null}
-      picked={picks.worktrees.keys.has(r.key)}
-      domId={domIdOf}
-      // A press with ⌘ or ⇧ picks the whole worktree, whichever part of its row it's on.
-      onSelect={(key, how) => {
-        if (how !== 'one') return picks.worktrees.select(r, how);
-        picks.worktrees.clear();
-        pressRow(key, how);
-        setSelectedKey(key);
-      }}
-      onOpen={(lane) => open(lane, lane.defaultTarget)}
-      onOpenTarget={open}
-      pinned={index != null}
-      // On a worktree picked with others, the menu is for all of them.
-      onContextMenu={() => (picks.worktrees.keys.has(r.key) ? picks.worktrees.menu() : laneMenu(r.lane))}
-      onAgentMenu={(s) => (picks.worktrees.keys.has(r.key) ? picks.worktrees.menu() : sessionMenu(r.lane, s, 'worktree'))}
-      onPrMenu={() => lanePrMenu(r.lane)}
-      // As a press on the worktree's part of the row selects: its first line, or it whole.
-      onPrShow={() => {
-        const key = r.lines[0]?.key ?? r.lane.id;
-        const select = () => {
-          picks.worktrees.clear();
-          setSelectedKey(key);
-        };
-        if (r.lane.pr) showPrOf(r.lane.pr, { key, select });
-      }}
-      onPrOpen={() => openLanePr(r.lane)}
-      todosFor={todosFor}
-      onShowTodo={showTodo}
-      drag={drag}
-    />
-  );
+  /** What a group's heading does in Sessions (SessionsView.tsx): a worktree's is a row, selected
+   *  for its panel and picked with others; a repo's has its menu. Both are pinned and dragged. */
+  const groupActs: GroupActs = {
+    onSelect: (g, how) => {
+      if (how !== 'one') {
+        picks.sessions.clear();
+        picks.worktrees.select({ kind: 'lane', key: g.lane.id, lane: g.lane }, how);
+        return;
+      }
+      picks.worktrees.clear();
+      picks.sessions.clear();
+      pressRow(g.lane.id, how);
+      setSelectedKey(g.lane.id);
+    },
+    onOpen: (g) => open(g.lane, g.lane.defaultTarget),
+    onOpenTarget: open,
+    // On a worktree picked with others, the menu is for all of them.
+    onMenu: (g) => (g.by === 'repo' ? repoMenu(g) : picks.worktrees.keys.has(g.lane.id) ? picks.worktrees.menu() : laneMenu(g.lane)),
+    onPrMenu: (g) => lanePrMenu(g.lane),
+    onPrShow: (g) => {
+      if (g.lane.pr) showPrOf(g.lane.pr, { key: g.lane.id, select: () => setSelectedKey(g.lane.id) });
+    },
+    onPrOpen: (g) => openLanePr(g.lane),
+    onToggle: (g) => toggleGroup(g.key),
+    onPlace: (key, index) => groupPins.place(pinnedGroups, key, index),
+    onUnpin: groupPins.remove,
+    // What's on another device has no card here; a repo has none.
+    desktop: (g) => (g.by === 'worktree' && !g.lane.device ? { ref: 'worktree', key: g.lane.id } : null),
+    picked: picks.worktrees.keys,
+  };
+  /** A repo's menu, on its heading: its page on GitHub, its pin, its name. */
+  const repoMenu = (g: SessionGroup) =>
+    void showContextMenu(
+      menus.repoMenu({ name: g.lane.repo, slug: g.lane.repoSlugNow ?? g.lane.repoSlug }, { report, pin: { label: repoPins.set.has(g.key) ? 'Unpin repo' : 'Pin repo', run: () => repoPins.toggle(g.key) } }),
+    ).catch((e: unknown) => setToast(String(e)));
 
   // Which panel is on the right, for its width: the view's own, or on the canvas the selected card's.
   const panelKind =
@@ -1782,19 +1790,17 @@ export function App() {
       // The Board's keys are those of the layout a click on it shows: the one showing, else the last.
       kbd: menus.chordKeys(VIEW_CHORDS[board ? layoutShown : v.id]),
       count:
-        v.id === 'worktrees'
-          ? recentLanes.length
-          : v.id === 'sessions'
-            ? shownSessionCount
-            : v.id === 'todo'
-              ? openTodoCount
-              : board
-                ? isProjects(shownBoard)
-                  ? boardCount
-                  : ''
-                : githubPrs === 'coming' && openPrCount === 0
-                  ? ''
-                  : openPrCount,
+        v.id === 'sessions'
+          ? shownSessionCount
+          : v.id === 'todo'
+            ? openTodoCount
+            : board
+              ? isProjects(shownBoard)
+                ? boardCount
+                : ''
+              : githubPrs === 'coming' && openPrCount === 0
+                ? ''
+                : openPrCount,
       badge: v.id === 'prs' && requestedCount > 0 ? requestedCount : undefined,
       badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,
     };
@@ -1846,6 +1852,10 @@ export function App() {
     if (v.project !== current && (v.project === ALL_PROJECTS || projects.some((p) => p.name === v.project))) pickProject(v.project);
     const known = views.find((x) => x.id === v.view);
     if (known) setView(known.id);
+    else if (v.view === 'worktrees') {
+      setView('sessions');
+      setSessionGroup('worktree');
+    }
     setDeviceFilter(v.device.filter((id) => id === 'here' || devices?.devices.some((d) => d.short === id)));
     const a = AGES.find((x) => x.id === v.age);
     if (a) setAge(a.id);
@@ -2041,7 +2051,7 @@ export function App() {
               {(view === 'kanban' || view === 'canvas') && (
                 <BoardBar board={shownBoard} project={shownBoard.project !== current ? shownBoard.project : null} layout={boardLayout} labels={todoStore.labels} onLayout={setView} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
               )}
-              {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} lines={sessionLines} onLines={setSessionLines} />}
+              {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} group={sessionGroup} onGroup={setSessionGroup} lines={sessionLines} onLines={setSessionLines} />}
               {view === 'prs' && (
                 <ListTools label="How PRs are listed">
                   <ListSeg label="Sort by" options={PR_SORTS} value={prSort} onPick={setPrSort} />
@@ -2106,19 +2116,6 @@ export function App() {
                     : 'No sessions in the last 14 days.'}
             </div>
           )}
-          {board && !board.loading && view === 'worktrees' && bays.length === 0 && pinnedLaneRows.length === 0 && (
-            <div className="ca-board-empty">
-              {query
-                ? `Nothing in ${current} matches “${query}”.`
-                : bayFilter.length === 1 && bayFilter[0] === 'work'
-                  ? 'No PRs need work: no failing checks or changes requested.'
-                  : bayFilter.length > 0
-                    ? 'Nothing here right now.'
-                  : cutoff > 0
-                    ? `No worktrees ${AGES.find((a) => a.id === age)?.title.toLowerCase()}.`
-                    : 'No worktrees yet. Codealong looks for repos under the folders in config.toml and for the agents working in them.'}
-            </div>
-          )}
           {view === 'canvas' && board && canvas.doc && !loading && (
             <CanvasView
               doc={canvas.doc}
@@ -2151,7 +2148,7 @@ export function App() {
           {view !== 'canvas' && !loading && (
           <div
             role="listbox"
-            aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : view === 'kanban' ? 'Todos and sessions' : 'Agents and worktrees'}
+            aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : 'Todos and sessions'}
             aria-activedescendant={selected ? domId(selected) : undefined}
             aria-multiselectable
             tabIndex={0}
@@ -2280,6 +2277,8 @@ export function App() {
                 pinned={pinnedRows}
                 pinnedHelpers={pinnedHelpers}
                 sections={sessionSecs}
+                groups={groupedSecs}
+                groupActs={groupActs}
                 sort={sessionSort}
                 lines={sessionLines}
                 now={now}
@@ -2288,6 +2287,7 @@ export function App() {
                 domId={domId}
                 onSelect={(r, how) => {
                   pressRow(r.key, how);
+                  picks.worktrees.clear();
                   picks.sessions.select(r, how);
                   if (how === 'one') focusBox();
                 }}
@@ -2325,40 +2325,6 @@ export function App() {
                 saidOf={saidOf}
               />
             )}
-            {/* The first pin lands at the top of the board. */}
-            {view === 'worktrees' && pinnedLaneRows.length === 0 && laneDrag.dropIndex === 0 && <div className="ca-dropline" />}
-            {view === 'worktrees' && pinnedLaneRows.length > 0 && (
-              <PinnedSection items={pinnedLaneRows} row={(r, i) => laneRow(r, i, laneDrag.rowProps(r.lane.id, i, pinnedLaneRows.length))} />
-            )}
-            {view === 'worktrees' && laneDrag.ghost}
-            {view === 'worktrees' &&
-              shownBays.map((b) => {
-                const count = bays.find((x) => x.bay === b.bay)?.rows.length ?? b.rows.length;
-                const unreadKeys = b.bay === 'unread' ? b.rows.flatMap((r) => r.lines.filter((a) => a.session.status === 'unread').map((a) => a.session.key)) : [];
-                return (
-                  <section key={b.bay} className="ca-bayblock">
-                    <BayHeader
-                      bay={b.bay}
-                      count={count}
-                      action={
-                        unreadKeys.length > 0 ? (
-                          <button type="button" className="ca-linkbtn" onClick={() => markSeen(unreadKeys)}>
-                            Mark all seen
-                          </button>
-                        ) : undefined
-                      }
-                    />
-                    <div className="ca-bay-lanes">
-                      {b.rows.map((r) => laneRow(r, null, laneDrag.rowProps(r.lane.id, null, pinnedLaneRows.length)))}
-                      {b.bay === 'idle' && foldParked && parkedCount > 0 && (
-                        <button type="button" className="ca-parked" onClick={() => setShowParked(true)}>
-                          Show {parkedCount} parked {parkedCount === 1 ? 'worktree' : 'worktrees'}
-                        </button>
-                      )}
-                    </div>
-                  </section>
-                );
-              })}
           </div>
           )}
         </main>

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead, quietAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import { setPlatform } from './platform';
 import type { Report } from './report';
@@ -656,6 +656,17 @@ describe('Clean up worktree', () => {
     expect(lanesActions([main], { report, cleanUp: pick }).cleanUp).toMatchObject({ label: 'Clean up worktree (the main checkout)', enabled: false });
     expect(lanesActions([main, main], { report, cleanUp: pick }).cleanUp).toMatchObject({ label: 'Clean up worktrees (none can go)', enabled: false });
     expect(labels(lanesMenu([done, other], { report, cleanUp: pick }))).toContain('Clean up 2 worktrees…');
+  });
+});
+
+describe('repoMenu', () => {
+  it('opens the repo on GitHub, pins it and copies its name, with no keys: its heading isn’t a row the keyboard selects', () => {
+    const pin = { label: 'Pin repo', run: noop };
+    const menu = repoMenu({ name: 'web', slug: 'acme/web' }, { report, pin });
+    expect(labels(menu)).toEqual(['Open on GitHub', '-', 'Pin repo', '-', 'Copy repo name']);
+    expect(menu.some((i) => i !== 'separator' && 'accelerator' in i && i.accelerator)).toBe(false);
+    // A repo with no remote on GitHub has no page there.
+    expect(labels(repoMenu({ name: 'scratch', slug: null }, { report, pin }))).toEqual(['Pin repo', '-', 'Copy repo name']);
   });
 });
 

@@ -1,6 +1,7 @@
 // Checks a worktree's PR chip on the rows and cards that show it: a click shows the PR in
-// Codealong, once no second click has come, and a double-click opens it on GitHub. In the
-// Sessions, Worktrees and Todo views, where a click on a row is the row's: its tooltip says so; a
+// Codealong, once no second click has come, and a double-click opens it on GitHub. In Sessions
+// (grouped by worktree, on a worktree's heading) and Todo, where a click on a row is the row's: its
+// tooltip says so; a
 // double-click on a row's PR chip opens the PR once, and not the session, nor selects the row;
 // the row's right-click menu has Open PR (but a todo's); Enter on the chip with the keyboard is
 // the chip's, not the window's, which would open the selected row or, in Todo with two picked,
@@ -15,7 +16,7 @@
 // click opens on GitHub a PR the board doesn't list, and the card's menu has Open PR, and on a
 // worktree's Open preview.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-chip-check.js
-//   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/pr-chip-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/pr-chip-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh todo '' scripts/preview/pr-chip-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_PIN=session scripts/preview.sh desktop '' scripts/preview/pr-chip-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_PIN=worktree scripts/preview.sh desktop '' scripts/preview/pr-chip-check.js
@@ -160,14 +161,12 @@
   // On a list's row the chip takes its own clicks (primitives.tsx chipHandlers' `twice`): a
   // click shows the PR in PRs once no second has come, and a double-click opens it on GitHub, in
   // place of the row's session; neither selects the row.
-  // The row a chip is on: its own, or on a worktree's row with agents' lines (a group), where the
-  // chip is on the line under them, its first agent's.
-  var rowOf = function (chip) {
-    var group = chip.closest('[role="group"]');
-    return chip.closest('[role="option"]') || (group && group.querySelector('[role="option"]'));
-  };
+  // The row a chip is on: a session's, a todo's, or a worktree's heading.
+  var rowOf = function (chip) { return chip.closest('[role="option"]'); };
+  // Grouped by worktree, a worktree's PR is on its heading, and its sessions' rows leave it there.
+  var grouped = localStorage.getItem('codealong.view') === 'sessions' && localStorage.getItem('codealong.sessionGroup') === 'worktree';
   var chipRow = function () {
-    var chips = all('.ca-board-list .ca-pr');
+    var chips = all(grouped ? '.ca-board-list .ca-grouphead .ca-pr' : '.ca-board-list .ca-pr');
     for (var i = 0; i < chips.length; i++) {
       var r = rowOf(chips[i]);
       if (r && r.getAttribute('aria-selected') !== 'true') return { chip: chips[i], row: r };
@@ -183,7 +182,7 @@
   var before = null;
   // The row and its chip as the page has them now.
   var row = function () { return document.getElementById(hit.row.id); };
-  var chip = function () { return (row().closest('[role="group"]') || row()).querySelector('.ca-pr'); };
+  var chip = function () { return row().querySelector('.ca-pr'); };
   say('pr chip check: waiting for a row with a PR');
   until(function () { return !!chipRow(); }, 20000)
     // What the window does as the board first lands goes first: until its effects have run, the
@@ -281,12 +280,11 @@
     })
     .then(function () {
       if (!listed[url]) return;
-      // In Worktrees, the PR's panel names the worktree it's shown from: a click there is the
-      // worktree's own panel again. Shown first from the row's chip, which selects the row's first
-      // line as the list shows it, then from the worktree's panel, whose own chip leaves the
-      // selection where showing the worktree puts it: the second click selects what's selected
-      // already.
-      if (from === 'Agents and worktrees') {
+      // Grouped by worktree, the PR's panel names the worktree it's shown from: a click there is the
+      // worktree's own panel again. Shown first from the heading's chip, which selects the heading,
+      // then from the worktree's panel, whose own chip leaves the selection where showing the
+      // worktree puts it: the second click selects what's selected already.
+      if (grouped) {
         var laneId = hit.row.id.slice('row-'.length).split('::')[0];
         var worktree = function () { return all('.ca-prinsp .ca-wtchip').filter(function (c) { return (c.title || '').indexOf(laneId) === 0; })[0]; };
         var round = function (show, what) {

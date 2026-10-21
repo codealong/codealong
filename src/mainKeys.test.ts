@@ -4,7 +4,7 @@ import { CHORDS, chordKeys } from './menus';
 import { setPlatform } from './platform';
 import { QUEUE_CHORDS } from './queue';
 
-const VIEWS = [{ id: 'sessions' }, { id: 'worktrees' }, { id: 'prs' }, { id: 'todo' }, { id: 'canvas' }] as const;
+const VIEWS = [{ id: 'sessions' }, { id: 'prs' }, { id: 'todo' }, { id: 'canvas' }] as const;
 // A key as macOS reports it with ⇧ held: the capital letter.
 const press = (letter: string, mods: { ctrl?: boolean; cmd?: boolean; alt?: boolean; shift?: boolean } = { cmd: true, shift: true }) => ({
   key: mods.shift ? letter.toUpperCase() : letter.toLowerCase(),
@@ -17,8 +17,10 @@ const press = (letter: string, mods: { ctrl?: boolean; cmd?: boolean; alt?: bool
 
 describe('view chords', () => {
   it('go to each view by a letter of its name, ⇧⌘ with it', () => {
-    expect(VIEWS.map((v) => chordKeys(VIEW_CHORDS[v.id]).join(''))).toEqual(['⇧⌘S', '⇧⌘W', '⇧⌘P', '⇧⌘T', '⇧⌘B']);
-    expect(['s', 'w', 'p', 't', 'b'].map((l) => viewOfKey(press(l), VIEWS))).toEqual(VIEWS.map((v) => v.id));
+    expect(VIEWS.map((v) => chordKeys(VIEW_CHORDS[v.id]).join(''))).toEqual(['⇧⌘S', '⇧⌘P', '⇧⌘T', '⇧⌘B']);
+    expect(['s', 'p', 't', 'b'].map((l) => viewOfKey(press(l), VIEWS))).toEqual(VIEWS.map((v) => v.id));
+    // ⇧⌘W went with the Worktrees view, which Sessions grouped by worktree took the place of.
+    expect(viewOfKey(press('w'), VIEWS)).toBeNull();
   });
 
   it('need exactly ⇧⌘: the same letter with ⌘, ⌃⌘ or ⌥⇧⌘ is another key', () => {
@@ -37,8 +39,8 @@ describe('view chords', () => {
   it('are Ctrl+Shift and the letter on Linux, where ⌘ is Ctrl', () => {
     setPlatform('linux');
     try {
-      expect(VIEWS.map((v) => chordKeys(VIEW_CHORDS[v.id]).join('+'))).toEqual(['Ctrl+Shift+S', 'Ctrl+Shift+W', 'Ctrl+Shift+P', 'Ctrl+Shift+T', 'Ctrl+Shift+B']);
-      expect(['s', 'w', 'p', 't', 'b'].map((l) => viewOfKey(press(l, { ctrl: true, shift: true }), VIEWS))).toEqual(VIEWS.map((v) => v.id));
+      expect(VIEWS.map((v) => chordKeys(VIEW_CHORDS[v.id]).join('+'))).toEqual(['Ctrl+Shift+S', 'Ctrl+Shift+P', 'Ctrl+Shift+T', 'Ctrl+Shift+B']);
+      expect(['s', 'p', 't', 'b'].map((l) => viewOfKey(press(l, { ctrl: true, shift: true }), VIEWS))).toEqual(VIEWS.map((v) => v.id));
       expect(viewOfKey(press('s'), VIEWS)).toBeNull();
     } finally {
       setPlatform(null);

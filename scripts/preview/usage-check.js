@@ -3,7 +3,7 @@
 // have cost, what was paid and the leverage; the days and the account ask the ledger again; a
 // chip on the usage bar opens it on that account; a session's row shows the session; and Plan
 // prices… goes to Settings › Accounts.
-//   scripts/preview.sh worktrees '' scripts/preview/usage-check.js
+//   scripts/preview.sh sessions '' scripts/preview/usage-check.js
 (function () {
   var dialog = function () { return q('.ca-usage'); };
   var tiles = function () { return all('.ca-usage-stat').map(function (t) { return t.textContent; }); };

@@ -936,7 +936,7 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
 /// Every PR in a repo a project covers, with the worktrees that hold it and the sessions that
 /// worked on it.
 ///
-/// A worktree holds the PR the Worktrees view shows on it (`find_pr`), so a long-lived branch
+/// A worktree holds the PR its heading in Sessions shows (`find_pr`), so a long-lived branch
 /// that carries one PR after another holds only the latest.
 ///
 /// A session worked on the PR if it was on the PR's branch while the PR was open: active after
@@ -2167,6 +2167,7 @@ pub fn compose(inp: Inputs) -> Board {
         pinned: pinned.to_vec(),
         pinned_worktrees: Vec::new(),
         pinned_prs: Vec::new(),
+        pinned_repos: Vec::new(),
         prs: pr_list,
         github_login: github_login.map(str::to_string),
         theme: Default::default(),
@@ -2947,7 +2948,7 @@ mod tests {
         let listed = |key: &str| PrSession { key: key.into(), lane: "/r/spark-portal".into(), pushes: 0 };
         assert_eq!(get(1037).lanes, vec!["/r/spark-portal".to_string()]);
         assert_eq!(get(1037).sessions, vec![listed(&latest.key)]);
-        assert!(get(1015).lanes.is_empty(), "the worktree holds the newer PR, as the Worktrees view shows");
+        assert!(get(1015).lanes.is_empty(), "the worktree holds the newer PR, as its heading in Sessions shows");
         assert_eq!(get(1015).sessions, vec![listed(&earlier.key)], "its sessions still show, under the worktree they ran in");
     }
 

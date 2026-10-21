@@ -2,7 +2,7 @@
 // is no drag; one that moves along the row lifts the chip and the chips it passes make way;
 // Escape puts it back; letting go puts its account in the new place, writes the order
 // (order_accounts) and opens nothing. A click still opens the Usage window on its account.
-//   scripts/preview.sh worktrees '' scripts/preview/usage-sort-check.js
+//   scripts/preview.sh sessions '' scripts/preview/usage-sort-check.js
 (function () {
   var row = function () { return q('.ca-usagebar-accts'); };
   var chips = function () { return all('.ca-usagebar-accts > .ca-uchip'); };

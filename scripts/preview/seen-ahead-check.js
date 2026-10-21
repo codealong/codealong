@@ -1,7 +1,7 @@
-// Checks that marking sessions seen shows at once, before the engine answers (ahead.ts): the
-// Worktrees board's "Mark all seen" in the Your turn bay empties the bay while mark_seen is still
-// on its way, and a mark_seen the engine turns down brings the bay back with why.
-//   scripts/preview.sh worktrees '' scripts/preview/seen-ahead-check.js
+// Checks that marking sessions seen shows at once, before the engine answers (ahead.ts): Mark as
+// seen, in the menu of a session in Your turn, takes it out of Your turn while mark_seen is still
+// on its way, and a mark_seen the engine turns down brings it back with why.
+//   scripts/preview.sh sessions '' scripts/preview/seen-ahead-check.js
 // The project needs a session whose turn ended.
 (function () {
   // mark_seen waits until the check lets it answer, as it does behind a busy engine.
@@ -12,22 +12,30 @@
     window.__calls.push([cmd, args, options]);
     return new Promise(function (res, rej) { waiting.push({ res: res, rej: rej }); });
   };
-  var button = function () { return Array.prototype.find.call(document.querySelectorAll('.ca-linkbtn'), function (b) { return b.textContent === 'Mark all seen'; }); };
+  var id = null;
+  var unread = function () { var r = id && document.getElementById(id); return !!r && r.classList.contains('is-unread'); };
   var toast = function () { var t = document.querySelector('.ca-toast'); return t ? t.textContent : ''; };
   say('seen check: waiting for the board');
-  until(function () { return !!document.querySelector('.ca-bayblock'); }, 20000)
+  until(function () { return !!document.querySelector('.ca-sessionlist'); }, 20000)
     .then(function () {
-      if (!button()) throw new Error('no session in Your turn');
-      button().click();
-      return until(function () { return !button(); }, 2000);
+      var row = document.querySelector('.ca-sessionlist .ca-lane.is-agent.is-unread[id^="row-"]');
+      if (!row) throw new Error('no session in Your turn');
+      id = row.id;
+      return menuOf(row);
+    })
+    .then(function (labels) {
+      var seen = menuItem('Mark as seen');
+      if (!seen) throw new Error('no Mark as seen in ' + labels.join(' | '));
+      seen();
+      return until(function () { return !unread(); }, 2000);
     })
     .then(function () {
-      check('the bay empties before the engine answers', !button() && waiting.length === 1, String(waiting.length));
+      check('its turn is seen before the engine answers', !unread() && waiting.length === 1, String(waiting.length));
       waiting[0].rej('Codealong’s engine stopped.');
-      return until(function () { return !!button(); }, 2000);
+      return until(unread, 2000);
     })
     .then(function () {
-      check('turned down, it comes back', !!button());
+      check('turned down, it comes back', unread());
       check('with why', /engine stopped/.test(toast()), toast());
       done();
     })

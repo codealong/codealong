@@ -907,8 +907,9 @@ export interface LaneCan {
   desktop?: ReadonlySet<string>;
   /** Add to board, and Remove from board on the board it's on. */
   boards?: MenuSpec;
-  /** Shows the main window's keys beside the actions they run (`KEYS`). */
-  keys?: boolean;
+  /** Shows the main window's keys beside the actions they run: letters (`KEYS`), or chords
+   *  (`CHORDS`) where letters alone do nothing, as in Sessions. */
+  keys?: boolean | 'chords';
 }
 
 /** A worktree's actions by name, as `SessionActions` are a session's. */
@@ -984,6 +985,25 @@ const LANE_MENU = [
 /** A worktree's menu, as every window has it. */
 export function laneMenu(lane: Lane, can: LaneCan): MenuSpec {
   return laidOut(LANE_MENU, laneActions(lane, can), { todos: can.todos ?? [], boards: can.boards ?? [] }, can.keys);
+}
+
+export interface RepoCan {
+  report: Report;
+  /** Pins it to the top of Sessions grouped by repo. A repo's heading isn't a row the keyboard
+   *  selects, so its menu shows no keys. */
+  pin?: MenuAction;
+}
+
+/** The order of a repo's menu, where Sessions groups sessions by repo: its page on GitHub, its
+ *  pin, and its name copied. */
+const REPO_MENU = [['github'], ['pin'], ['copyName']] as const;
+
+/** A repo's menu, on its heading in Sessions grouped by repo. `slug` is its name on GitHub, where
+ *  it has one. */
+export function repoMenu(repo: { name: string; slug: string | null }, can: RepoCan): MenuSpec {
+  const { slug } = repo;
+  const github = slug ? { label: 'Open on GitHub', run: () => void openUrl(`https://github.com/${slug}`).catch((e: unknown) => can.report.error(errorText(e))) } : undefined;
+  return laidOut(REPO_MENU, { github, pin: can.pin, copyName: copyItem('Copy repo name', slug ?? repo.name, 'repo name', can.report) }, {});
 }
 
 /** ⌃` opens a new terminal in the folder of what a window shows, as it opens VS Code's terminal:

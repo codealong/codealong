@@ -172,6 +172,8 @@ pub enum Msg {
     SetPinnedWorktrees(Vec<String>),
     /// The full list of pinned PRs (`owner/name#number`), in order.
     SetPinnedPrs(Vec<String>),
+    /// The full list of pinned repos (a board's repo keys), in order.
+    SetPinnedRepos(Vec<String>),
     /// Sessions archived (true) or unarchived from Codealong; Codex has already done its part.
     /// The reply is the time of the board that shows them, published at once.
     SetArchived(Vec<String>, bool, Sender<i64>),
@@ -434,6 +436,10 @@ impl Handle {
 
     pub fn set_pinned_prs(&self, keys: Vec<String>) {
         let _ = self.tx.send(Msg::SetPinnedPrs(keys));
+    }
+
+    pub fn set_pinned_repos(&self, keys: Vec<String>) {
+        let _ = self.tx.send(Msg::SetPinnedRepos(keys));
     }
 
     /// A change to a todo or the labels. Returns once a board that shows it has gone out, with
@@ -2171,6 +2177,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.save_state();
                     self.dirty = true;
                 }
+                Ok(Msg::SetPinnedRepos(keys)) => {
+                    self.seen.set_pinned_repos(keys);
+                    self.save_state();
+                    self.dirty = true;
+                }
                 Ok(Msg::SetTheme(theme)) => {
                     // Published now, not on the next tick: the app's appearance follows the board.
                     self.cfg.appearance.theme = theme;
@@ -3467,6 +3478,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
 
         board.pinned_worktrees = self.seen.pinned_worktrees.clone();
         board.pinned_prs = self.seen.pinned_prs.clone();
+        board.pinned_repos = self.seen.pinned_repos.clone();
         board.theme = self.cfg.appearance.theme;
         board.zoom = self.cfg.appearance.zoom;
         board.quick_shortcut = self.cfg.shortcuts.quick_panel.clone();

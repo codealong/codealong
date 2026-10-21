@@ -559,6 +559,12 @@ export async function setPinnedPrs(keys: string[]): Promise<void> {
   await invoke('set_pinned_prs', { keys });
 }
 
+/** Saves the whole list of pinned repos (boards/rules.ts `repoOf`), in order. */
+export async function setPinnedRepos(keys: string[]): Promise<void> {
+  if (!inTauri) return;
+  await invoke('set_pinned_repos', { keys });
+}
+
 export async function refreshUsage(): Promise<void> {
   if (!inTauri) return;
   await invoke('refresh_usage');

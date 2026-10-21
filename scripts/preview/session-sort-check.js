@@ -1,8 +1,8 @@
 // Checks the Sessions list (SessionsView.tsx, App.tsx): Pinned first, and a
 // drag still reorders them; the rest under the headings the other views have, by status or by
 // the day they started. Sort by, icon buttons in the bar over the list, switches between status
-// and start and remembers it. The bar stays at the top as the list scrolls; Sort by shows only in
-// Sessions, and Worktrees has no tools there; the sidebar has no Sort by.
+// and start and remembers it. The bar stays at the top as the list scrolls; its tools are each
+// view's own, so PRs has no Group by; the sidebar has no Sort by.
 //   scripts/preview.sh sessions '' scripts/preview/session-sort-check.js
 // It pins three of the shown project's latest sessions itself, in place of yours.
 (function () {
@@ -68,7 +68,8 @@
       }
       board.scrollTop = 0;
       var sortIcons = Array.prototype.map.call(document.querySelectorAll('.ca-listtools button'), function (b) { return !!b.querySelector('svg') && !b.textContent.trim() && !!b.getAttribute('aria-label') && !!b.title; });
-      check('the bar’s buttons are icons, each named and with a tooltip', sortIcons.length === 4 && sortIcons.every(Boolean), sortIcons.join(','));
+      // Sort by's two, Group by's three and Rows' two.
+      check('the bar’s buttons are icons, each named and with a tooltip', sortIcons.length === 7 && sortIcons.every(Boolean), sortIcons.join(','));
       check('headings by status, Pinned first, as the other views head them', headings()[0] === 'Pinned' && inOrderOf(headings(), STATUS_HEADS), headings().join(' | '));
       var counts = Array.prototype.map.call(document.querySelectorAll('.ca-sessionlist .ca-bayblock'), function (b) { return Number(b.querySelector('.ca-bay-count').textContent) === b.querySelectorAll('.ca-lane').length; });
       check('each heading counts the rows under it', counts.length > 1 && counts.every(Boolean));
@@ -116,11 +117,11 @@
       });
     })
     .then(function () {
-      nav('Worktrees').click();
+      nav('PRs').click();
       return until(function () { return !document.querySelector('.ca-sessionlist'); }, 2000);
     })
     .then(function () {
-      check('Worktrees has no tools in the bar', !document.querySelector('.ca-listtools'));
+      check('PRs has its own tools in the bar, and no Group by', !!document.querySelector('.ca-listtools') && !document.querySelector('.ca-listtools [aria-label="Group by"]'));
     })
     .then(done)
     .catch(stopped);

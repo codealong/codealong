@@ -2,13 +2,14 @@
 // its title, TodoView.tsx, and .ca-chips in src/styles/chips.css): every chip is one height and
 // shape, and none is cut off, each showing whole or not at all. In Sessions, PRs and Todo it also
 // checks that Rows in the bar over the list starts on one line and puts each row back on two and
-// remembers it, both ways with no lines between a row's parts (nor between an agent's line and its
-// age in Worktrees); that on one line a title gives way only after the chips, which sit at the
-// line's end, and a point on a row finds that row, in a board that's a stacking context of its own;
-// that a session's account is on its status on one line and on the second line on two; and in
-// every list that a right-click (or ⌃-click) opens a row's menu without selecting it.
+// remembers it, both ways with no lines between a row's parts; that on one line a title gives way
+// only after the chips, which sit at the line's end, and a point on a row finds that row, in a
+// board that's a stacking context of its own; that a session's account is on its status on one
+// line and on the second line on two, after its worktree, which grouped by worktree is left to
+// the worktree's heading (whose chips are checked with the rest); and in every list that a
+// right-click (or ⌃-click) opens a row's menu without selecting it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
-//   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/chip-lanes-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/chip-lanes-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/chip-lanes-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh todo '' scripts/preview/chip-lanes-check.js
 // PREVIEW_SIZE=1290,800 checks a narrow list, where the lanes are shortest.
@@ -108,7 +109,8 @@
 
   // The lists with Rows, each with its rows and where it remembers the choice.
   var LISTS = {
-    Sessions: { rows: '.ca-sessionlist .ca-lane.is-agent', key: 'codealong.sessionRows' },
+    // A session's rows, not the folds that list more of them.
+    Sessions: { rows: '.ca-sessionlist .ca-lane.is-agent:not(.is-fold)', key: 'codealong.sessionRows' },
     'Pull requests': { rows: '.ca-prrow', key: 'codealong.prRows' },
     Todos: { rows: '.ca-todorow', key: 'codealong.todoRows' },
   };
@@ -116,7 +118,7 @@
   // No line between a row's parts: its status, what it is and its age share one ground.
   var ruled = function (rows) {
     return rows.filter(function (r) {
-      return all('.ca-seg-main, .ca-seg-age, .ca-agentline-age', r).some(function (seg) { return parseFloat(getComputedStyle(seg).borderLeftWidth) > 0; });
+      return all('.ca-seg-main, .ca-seg-age', r).some(function (seg) { return parseFloat(getComputedStyle(seg).borderLeftWidth) > 0; });
     });
   };
   var account = function (row) { return all('.ca-chip', row).filter(function (c) { return /Double-click to open in/.test(c.title); })[0]; };
@@ -196,11 +198,22 @@
     if (name !== 'Sessions') return;
     var tops = rows.filter(function (r) { return !r.classList.contains('is-nested'); });
     check('a session’s first line has no chip but what it waits on you for', tops.every(function (r) { return all('.ca-agentrow-line1 .ca-chip', r).every(function (c) { return c.classList.contains('ca-insight'); }); }));
-    check('its account is on the second line, after its worktree', tops.every(function (r) {
+    // Grouped by worktree, the heading says the worktree and its rows don't.
+    var grouped = !!document.querySelector('.ca-grouphead.is-worktree-head');
+    var under = tops.filter(function (r) { return !grouped || !r.closest('.ca-group') || !r.closest('.ca-group').querySelector('.is-worktree-head'); });
+    check('its account is on the second line, after its worktree', under.every(function (r) {
       var a = account(r);
       var lane = r.querySelector('.ca-agentrow-chips');
       return a && lane && a.parentElement === lane && lane.firstElementChild.classList.contains('ca-wtchip') && lane.lastElementChild === a;
     }));
+    if (grouped) {
+      var headed = tops.filter(function (r) { return under.indexOf(r) < 0; });
+      check('under a worktree’s heading, its account ends the second line, with no worktree chip', headed.length > 0 && headed.every(function (r) {
+        var a = account(r);
+        var lane = r.querySelector('.ca-agentrow-chips');
+        return a && lane && lane.lastElementChild === a && !r.querySelector('.ca-wtchip');
+      }), headed.length + ' rows under headings');
+    }
   };
 
   var rowsOf = function (name) {
@@ -232,8 +245,6 @@
       check('Rows shows in Sessions, PRs and Todo', !!rowsButton('One line') === !!LISTS[label], label);
       if (LISTS[label]) return rows(label);
       report(label);
-      var lined = ruled(all('.ca-lane').filter(shown));
-      check(label + ': no line between an agent’s line and its age', lined.length === 0, lined.length + ' rows');
       return rightClicks();
     })
     .catch(function (e) { check('ran', false, String(e)); })

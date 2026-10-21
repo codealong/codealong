@@ -4,13 +4,13 @@
 #
 #   scripts/preview.sh [view] [project] [check.js]
 #
-#   view     worktrees | sessions | prs | todo | kanban | canvas, bar for the floating bar, notch for the
+#   view     sessions | prs | todo | kanban | canvas, bar for the floating bar, notch for the
 #            bar docked in the notch, peek for the bar's peek, kept for a session kept on the
 #            desktop (the peek's session, in a window of its size), side for the peek's
 #            session's side conversation popped out into a window of its own, quick for the
 #            quick panel, waiting for the window that works through what waits on you, desktop for a card
 #            pinned to the desktop, or lineage for the lines between desktop cards over
-#            stand-ins for them (default worktrees)
+#            stand-ins for them (default sessions)
 #   project  the project to show (default: the first one)
 #   check.js optional script run in the page, after scripts/preview/prelude.js, which gives it
 #            check(), until(), calls() and the rest, and done(), which puts its result in
@@ -100,6 +100,8 @@
 # (--snapshot --setup); scripts/preview/setup-init.js opens the wizard.
 # PREVIEW_EMBLEMS=1 gives every session an emblem made up from its key, as `[jev] emblems` would
 # once Jev had picked their icons: some with a harness's color too, for the two-tone gradient.
+# PREVIEW_GROUP=worktree|repo shows Sessions grouped by worktree or by repo (Group by, over the
+# list); without it, as the window was left: not grouped.
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
 # finished: nothing read yet, and other devices' worktrees (PREVIEW_DEVICES) already in.
 #
@@ -110,7 +112,7 @@
 #   "$(scripts/engine.sh)" --snapshot --pr owner/name 123 > .preview/pr-detail.json
 set -euo pipefail
 cd "$(dirname "$0")/.."
-view="${1:-worktrees}"
+view="${1:-sessions}"
 project="${2:-}"
 check="${3:-}"
 dir="${PREVIEW_DIR:-.preview}"
@@ -201,6 +203,7 @@ cp "${PREVIEW_SETUP:-$dir/setup-here.json}" "$dir/setup.json"
 # by their labels there (sidebar-check.js folds it).
 setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');localStorage.setItem('codealong.sidebarCollapsed','0');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
+[ -n "${PREVIEW_GROUP:-}" ] && setup="$setup localStorage.setItem('codealong.sessionGroup','$PREVIEW_GROUP');"
 [ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
 [ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__=true;"
 # The window remembers whether boards were on, for before the board comes: as the stub has them.

@@ -112,15 +112,16 @@
     .then(function (e) {
       var f = field();
       check('⌘F gives it the keyboard back, the words selected', e.defaultPrevented && document.activeElement === f && f.selectionStart === 0 && f.selectionEnd === word.length, f && f.selectionStart + '–' + f.selectionEnd);
-      return view('W');
+      return view('T');
     })
     .then(function () {
-      check('a view’s keys take it along', !!q('.ca-board[aria-label="Worktrees"]') && !!field() && field().value === word && document.activeElement === field(), document.activeElement && document.activeElement.className);
-      check('and it says that view', field().placeholder === 'Find in worktrees', field().placeholder);
+      check('a view’s keys take it along', !!q('.ca-board[aria-label="Todo"]') && !!field() && field().value === word && document.activeElement === field(), document.activeElement && document.activeElement.className);
+      check('and it says that view', field().placeholder === 'Find in todos', field().placeholder);
       return press(field(), { key: 'Escape' });
     })
     .then(function () {
-      check('Escape clears it and puts it away', !field() && !q('.ca-listbar'));
+      // Todo keeps its own tools in the strip.
+      check('Escape clears it and puts it away', !field() && !q('.ca-listfind'));
       return view('S');
     })
     .then(function () {

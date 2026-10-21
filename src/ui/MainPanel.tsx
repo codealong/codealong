@@ -1,9 +1,10 @@
 // The panel on the right of the main window, as the view and its selection have it: a
-// worktree's (Inspector), a session's with its conversation (SessionPanel) or the sessions picked
-// together, a PR's, a todo's or the todos picked together, the canvas's selected card, or what to
-// select. A PR's or todo's panel can show one of its sessions in its place, and a session's,
-// worktree's or todo's the PR its chip shows, with the way back (`drill`), the list staying as it
-// was. The window passes what the panels show and what their clicks do.
+// worktree's (Inspector), a session's with its conversation (SessionPanel), or the sessions or
+// worktrees picked together, a PR's, a todo's or the todos picked together, the canvas's selected
+// card, or what to select. A PR's or todo's panel can show one of its sessions in its place, any
+// panel the worktree a chip or link shows, and a session's, worktree's or todo's the PR its chip
+// shows, with the way back (`drill`), the list staying as it was. The window passes what the
+// panels show and what their clicks do.
 
 import { useRef, type ReactNode } from 'react';
 import { dismissTodoHint, openUrl } from '../api';
@@ -33,11 +34,12 @@ import { WorktreePickPanel } from './WorktreePickPanel';
 import { TodoPanel, TodoPickPanel } from './TodoPanel';
 
 /** A panel shown in place of another: `from` is the row whose panel it is, `key` the session it
- *  shows, or with `pr` the PR. */
+ *  shows, with `pr` the PR, or with `lane` the worktree. */
 export interface Drill {
   from: string;
   key: string;
   pr?: boolean;
+  lane?: boolean;
 }
 
 /** What the canvas's selected card is, as its panel shows it; null when nothing is selected or
@@ -89,12 +91,12 @@ export interface MainPanelProps {
   prRowOf: (pr: PrItem) => PrRowItem;
   pickedRows: TodoItem[];
   todo: Pick<TodoView, 'startForTodo' | 'startForTodos' | 'todoMenu' | 'todoLinkMenu' | 'todoMoreMenu' | 'labelMenu' | 'projectsForTodos' | 'duePick' | 'duePicked' | 'selectTodoRow' | 'pickMenu'>;
-  /** Rows picked together in Sessions, on the Worktrees board and in PRs (useListPicks.ts):
-   *  their panel shows in place of one row's. */
+  /** Rows picked together in Sessions (sessions, or worktrees' headings) and in PRs
+   *  (useListPicks.ts): their panel shows in place of one row's. */
   picks: ReturnType<typeof useListPicks>;
   approving: Set<string>;
-  /** What a panel shows in its place, and from which: the session a PR's or todo's panel shows, or
-   *  the PR (`pr`) a session's, worktree's or todo's does. */
+  /** What a panel shows in its place, and from which: the session a PR's or todo's panel shows,
+   *  the PR (`pr`) a session's, worktree's or todo's does, or the worktree (`lane`) any of them does. */
   drill: Drill | null;
   setDrill: (drill: Drill | null) => void;
   /** Sessions' way through what waits on you, which its panel works through. */
@@ -216,8 +218,9 @@ export function MainPanel(props: MainPanelProps) {
       back={back}
     />
   );
-  const inspector = (lane: Lane | null, focusKey: string | null) => (
+  const inspector = (lane: Lane | null, focusKey: string | null, back?: PanelBackTo) => (
     <Inspector
+      back={back}
       lane={lane}
       focusKey={focusKey}
       apps={board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' }}
@@ -290,10 +293,15 @@ export function MainPanel(props: MainPanelProps) {
     );
   };
   /** What the panel of `from` was asked to show in its place, with the way back: a session a PR's
-   *  or todo's panel lists, or the PR a session's, worktree's or todo's chip shows. */
+   *  or todo's panel lists, the PR a session's, worktree's or todo's chip shows, or the worktree
+   *  a chip or link shows. */
   const drilledPanel = (from: string | undefined, label: string): ReactNode => {
     if (!drill || drill.from !== from) return null;
     const back = { label, onBack: () => setDrill(null) };
+    if (drill.lane) {
+      const lane = laneById.get(drill.key);
+      return lane ? inspector(lane, null, back) : null;
+    }
     if (drill.pr) {
       const pr = board?.prs.find((p) => p.key === drill.key);
       // In Sessions it takes the session's panel's place in the whole window too, and gives the
@@ -367,7 +375,7 @@ export function MainPanel(props: MainPanelProps) {
       onLeaveOut={(r) => picks.sessions.select(r, 'toggle')}
       onMoreMenu={picks.sessions.menu}
     />
-  ) : view === 'worktrees' && picks.worktrees.rows.length > 0 ? (
+  ) : view === 'sessions' && picks.worktrees.rows.length > 0 ? (
     <WorktreePickPanel
       items={picks.worktrees.rows}
       actions={picks.worktrees.actions()}

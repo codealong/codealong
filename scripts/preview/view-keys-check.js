@@ -1,7 +1,8 @@
-// Checks the views' keys (mainKeys.ts `VIEW_CHORDS`): ⇧⌘S, ⇧⌘W, ⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go to
-// Sessions, Worktrees, PRs, Todo, and the Board view as Kanban and as Canvas, from the list, the
-// search field and a session's box, and ⇧⌘C, which clipboard managers take, goes nowhere; ⌥⌘C
-// copies the selected worktree's path. The sidebar lists the Board view once, with the keys of the
+// Checks the views' keys (mainKeys.ts `VIEW_CHORDS`): ⇧⌘S, ⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go to
+// Sessions, PRs, Todo, and the Board view as Kanban and as Canvas, from the list, the search field
+// and a session's box; ⇧⌘W, the Worktrees view's until Sessions grouped by worktree took its
+// place, and ⇧⌘C, which clipboard managers take, go nowhere; ⌥⌘C copies the selected row's
+// worktree path. The sidebar lists the Board view once, with the keys of the
 // layout a click on it shows, and shows each view's keys in its count's place while the pointer is
 // on it, and the rail it folds to says them.
 //   scripts/preview.sh sessions '' scripts/preview/view-keys-check.js
@@ -14,8 +15,8 @@
   var copied = [];
   navigator.clipboard.writeText = function (text) { copied.push(text); return Promise.resolve(); };
 
-  var VIEWS = ['Sessions', 'Worktrees', 'PRs', 'Todo', 'Board'];
-  var LETTERS = ['S', 'W', 'P', 'T', 'K'];
+  var VIEWS = ['Sessions', 'PRs', 'Todo', 'Board'];
+  var LETTERS = ['S', 'P', 'T', 'K'];
   var shown = function () { var m = document.querySelector('main.ca-board'); return m ? m.getAttribute('aria-label') : null; };
   var navs = function () { return all('.ca-side .ca-nav.has-kbd'); };
   var key = function (el, init) { (el || document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, init))); };
@@ -51,7 +52,7 @@
       check('the keys are hidden until pointed at', rows.every(function (r) { return !shows(r.querySelector('.ca-kbds')); }));
       check('the rows say ⌃Tab goes through them', rows.every(function (r) { return r.title === '⌃Tab goes to the next view'; }), rows[0].title);
       check('the hover rules are there', hoverAs('ca-test-hover') === 2);
-      // The longest label with the most keys: three caps beside Worktrees.
+      // Each label beside its three caps.
       return rows.reduce(function (p, row) {
         return p.then(function () {
           var height = row.getBoundingClientRect().height;
@@ -71,25 +72,31 @@
     })
     .then(function () {
       go(document.querySelector('.ca-board-list') || document.body, 'W');
-      return on('Worktrees');
+      return wait(300);
     })
     .then(function () {
-      check('⇧⌘W goes to Worktrees', shown() === 'Worktrees', shown());
+      check('⇧⌘W goes nowhere', shown() === 'Sessions', shown());
       var row = document.querySelector('.ca-board-list [id^="row-"]');
-      if (!row) return note('no worktree to select, so ⌥⌘C went unchecked');
+      if (!row) return note('no row to select, so ⌥⌘C went unchecked');
       row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       return wait(300).then(function () {
+        // A click on a session puts the cursor in its box, which keeps ⌥⌘C for itself: Escape
+        // gives the list its keys back.
+        var box = document.activeElement && document.activeElement.closest('.ca-composer');
+        if (box) key(document.activeElement, { key: 'Escape' });
+        return wait(100);
+      }).then(function () {
         copied.length = 0;
         // ⌥ changes the character: ⌥C is ç on a US layout.
         key(document.body, { key: 'ç', code: 'KeyC', metaKey: true, altKey: true });
         return wait(200);
       }).then(function () {
-        check('⌥⌘C copies the selected worktree’s path', copied.length === 1 && copied[0].charAt(0) === '/', JSON.stringify(copied));
+        check('⌥⌘C copies the selected row’s worktree path', copied.length === 1 && copied[0].charAt(0) === '/', JSON.stringify(copied));
         copied.length = 0;
         go(document.body, 'C');
         return wait(200);
       }).then(function () {
-        check('⇧⌘C copies nothing and leaves the view', copied.length === 0 && shown() === 'Worktrees', JSON.stringify(copied) + ' ' + shown());
+        check('⇧⌘C copies nothing and leaves the view', copied.length === 0 && shown() === 'Sessions', JSON.stringify(copied) + ' ' + shown());
       });
     })
     .then(function () {
@@ -133,7 +140,7 @@
     .then(function () {
       check('⌘W without ⇧ doesn’t change the view', shown() === 'Sessions', shown());
       var row = document.querySelector('.ca-board-list [id^="row-"]');
-      if (!row) return note('no session to open, so ⇧⌘W from its box went unchecked');
+      if (!row) return note('no session to open, so ⇧⌘P from its box went unchecked');
       row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       // Once the session has opened, its box drawn again: the click that opens it shows Sessions
       // after a moment.
@@ -143,15 +150,15 @@
           var box = document.querySelector('.ca-sessinsp .ca-composer textarea');
           box.focus();
           check('the box has the cursor', document.activeElement === box);
-          go(box, 'W');
-          return on('Worktrees');
+          go(box, 'P');
+          return on('PRs');
         })
         .then(function () {
-          check('⇧⌘W from a session’s box goes to Worktrees', shown() === 'Worktrees', shown());
+          check('⇧⌘P from a session’s box goes to PRs', shown() === 'PRs', shown());
           go(document.body, 'S');
           return on('Sessions');
         })
-        .catch(function () { note('the session had no box, so ⇧⌘W from it went unchecked'); });
+        .catch(function () { note('the session had no box, so ⇧⌘P from it went unchecked'); });
     })
     .then(function () {
       // ⌃⌘S folds the sidebar from the list, not from a text field.
@@ -162,7 +169,7 @@
     .then(function () {
       var titles = all('.ca-rail .ca-rail-btn').slice(0, VIEWS.length).map(function (b) { return b.title; });
       // The Board shows Canvas, the layout it showed last, by now.
-      var letters = LETTERS.slice(0, 4).concat(['B']);
+      var letters = LETTERS.slice(0, 3).concat(['B']);
       check('the rail says each view’s keys', titles.every(function (t, i) { return t.indexOf(VIEWS[i] + ' (⇧⌘' + letters[i] + ')') === 0; }), titles.join(' | '));
       key(document.body, { key: 's', code: 'KeyS', ctrlKey: true, metaKey: true });
       return until(function () { return navs().length === VIEWS.length; }, 3000, 'the sidebar again');

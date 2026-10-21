@@ -5,7 +5,9 @@
 // (boardLists.ts `ageListingSession`), or Sessions selects another session in its place; one
 // that's active today shows with no change to the filter. An archived one, which no list but the
 // Archived fold has, shows there, with the fold opened.
-//   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/session-reveal-check.js
+// Grouped by worktree, the session's group lists it whatever the group folds away.
+//   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/session-reveal-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh prs '' scripts/preview/session-reveal-check.js
 (function () {
   var DAY = 86400e3;
   localStorage.setItem('codealong.project', 'All projects');

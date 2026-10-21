@@ -1,22 +1,22 @@
-// Several worktrees picked together on the Worktrees board, each whole (picks.ts), in the pick
-// panel (PickPanel.tsx): marking their sessions seen and pinning them, as buttons that say their
-// keys, and each of them. The actions are the menu's (menus.ts `lanesActions`).
+// Several worktrees picked together by their headings in Sessions grouped by worktree (picks.ts),
+// in the pick panel (PickPanel.tsx): marking their sessions seen and pinning them, as buttons
+// that say their chords, and each of them. The actions are the menu's (menus.ts `lanesActions`).
 
 import { count } from '../format';
-import { worktreeName, type WorktreeRow } from '../lanes';
-import { KEYS, type LanesActions } from '../menus';
+import { worktreeName, type LaneItem } from '../lanes';
+import { CHORDS, chordSigns, type LanesActions } from '../menus';
 import { PickKeys, PickList, PickPanel, PickRow } from './PickPanel';
 import { LaneGlyph } from './primitives';
 import { Hotkey } from './SessionPanel';
 
 interface WorktreePickPanelProps {
-  /** The worktrees picked, in the board's order. */
-  items: WorktreeRow[];
+  /** The worktrees picked, in the list's order. */
+  items: LaneItem[];
   actions: LanesActions;
   /** Selects only this one. */
-  onShow: (item: WorktreeRow) => void;
+  onShow: (item: LaneItem) => void;
   /** Takes it out of the ones picked. */
-  onLeaveOut: (item: WorktreeRow) => void;
+  onLeaveOut: (item: LaneItem) => void;
   /** The ⋯ button and a right-click on the header: everything that can be done to them. */
   onMoreMenu: (at?: { x: number; y: number }) => void;
 }
@@ -33,8 +33,8 @@ export function WorktreePickPanel({ items, actions, onShow, onLeaveOut, onMoreMe
       onMoreMenu={onMoreMenu}
       actions={
         <PickKeys>
-          <Hotkey label="Seen" keys={KEYS.seen} title={seen ? `${seen.label}: their turns that ended go idle and leave what waits on you` : 'None of their sessions has anything to mark as seen'} run={seen && (() => seen.run())} />
-          <Hotkey label={pin?.label.startsWith('Unpin') ? 'Unpin' : 'Pin'} keys={KEYS.pin} title={pin?.label ?? 'Pin'} run={pin && (() => pin.run())} />
+          <Hotkey label="Seen" keys={chordSigns(CHORDS.seen ?? '')} title={seen ? `${seen.label}: their turns that ended go idle and leave what waits on you` : 'None of their sessions has anything to mark as seen'} run={seen && (() => seen.run())} />
+          <Hotkey label={pin?.label.startsWith('Unpin') ? 'Unpin' : 'Pin'} keys={chordSigns(CHORDS.pin ?? '')} title={pin?.label ?? 'Pin'} run={pin && (() => pin.run())} />
         </PickKeys>
       }
     >

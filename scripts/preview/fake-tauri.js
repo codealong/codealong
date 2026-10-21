@@ -256,7 +256,7 @@ function withExperiments(board) {
   return Object.assign(board, { experimental: Object.assign({}, board.experimental, { boards: !window.__PREVIEW_BOARDS_OFF__ }) });
 }
 function loadingBoard(board) {
-  return Object.assign(withExperiments(board), { loading: true, generatedAt: 0, projects: [], lanes: [], notices: [], githubAt: null, usage: [], pinned: [], pinnedWorktrees: [], pinnedPrs: [], prs: [], githubLogin: null, todos: [], labels: [], todoHints: {} });
+  return Object.assign(withExperiments(board), { loading: true, generatedAt: 0, projects: [], lanes: [], notices: [], githubAt: null, usage: [], pinned: [], pinnedWorktrees: [], pinnedPrs: [], pinnedRepos: [], prs: [], githubLogin: null, todos: [], labels: [], todoHints: {} });
 }
 function loadingFeed(feed) {
   return Object.assign(feed, { loading: true, generatedAt: 0, projects: [], items: [], recent: [], snoozed: [], reviews: [], todos: [] });

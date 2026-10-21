@@ -3,8 +3,8 @@
 // yours and has no review yet (else the first repo on the board), read from that PR's base branch,
 // with words for every review, approvals never submitted, nudges kept to feedback and checks, and
 // three suggestions you don't have yet. Your own table for the repo says each review is a draft.
-// `window.__TEAM__` says which repo, branch and PR. In the worktrees view without a check, it
-// opens Settings › Automation on that repo, for a screenshot:
+// `window.__TEAM__` says which repo, branch and PR. In Sessions without a check, it opens
+// Settings › Automation on that repo, for a screenshot:
 //   PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_NAME=team-settings scripts/preview.sh
 (function () {
   var place = null;
@@ -63,7 +63,7 @@
   // For a screenshot: Settings › Automation, the repo picked as a worktree's menu picks it.
   (async function () {
     await until(function () { return !!q('.ca-side-config') && !!place; }, 20000, 'the board never came');
-    if (document.querySelector('script[src="./check.js"]') || localStorage.getItem('codealong.view') !== 'worktrees' || !place.repo) return;
+    if (document.querySelector('script[src="./check.js"]') || localStorage.getItem('codealong.view') !== 'sessions' || !place.repo) return;
     q('.ca-side-config').click();
     var nav = function () { return all('.ca-settings-nav button').filter(function (b) { return b.textContent.trim() === 'Automation'; })[0]; };
     await until(function () { return !!nav(); }, 3000, 'no Automation in Settings');

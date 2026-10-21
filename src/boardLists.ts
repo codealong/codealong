@@ -1,6 +1,6 @@
 // What the main window's views list, worked out from the board, the sidebar's filters and the
-// search: the project's worktrees in their bays, its sessions with the pinned ones first, its
-// PRs and todos in their sections, a board's todos and sessions in its Kanban's columns, and the
+// search: the project's sessions with the pinned ones first, grouped by worktree or repo when
+// they're asked to be, its PRs and todos in their sections, a board's todos and sessions in its Kanban's columns, and the
 // counts the sidebar and the switcher show. The rules
 // are pure functions with tests (boardLists.test.ts); `useBoardLists` keeps each list until
 // what it's made from changes, so rows and memos downstream see the same lists between pushes.
@@ -8,17 +8,17 @@
 import { useCallback, useMemo } from 'react';
 import type { DeviceFilter } from './devices';
 import { needsOn, withDevices, workingOn } from './devices';
-import { AGENT_BAY, buildBays, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, narrowed, prNeedsWork, rowItems, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, worktreeRow, type BoardRow, type Filter, type LaneCopies, type Placed, type WorktreeRow } from './lanes';
+import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, prNeedsWork, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
 import type { Pins } from './pins';
 import type { RefKind } from './canvas/model';
 import { columnsOf, isProjects, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
 import { columnOf, memberTest, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSort } from './todos';
-import type { Bay, Board, DevicesView, Label, Lane, PrItem, ProjectSummary, Session, TextHit, Todo } from './types';
+import type { Board, DevicesView, Label, Lane, PrItem, ProjectSummary, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
 import { prIsOpen, prPlaces, prSections, waitsOnReview, type PrRowItem, type PrSort } from './ui/PrsView';
-import { helpersUnder, sessionSections, waitingQueue, type SessionItem, type SessionSort } from './ui/SessionsView';
+import { groupedRows, groupSessions, helpersUnder, sessionSections, waitingQueue, type SessionGroupBy, type SessionItem, type SessionSort } from './ui/SessionsView';
 
 const ELSEWHERE = 'Elsewhere';
 
@@ -573,28 +573,6 @@ export function inPinOrder<T>(rows: T[], keys: string[], keyOf: (r: T) => string
   return keys.flatMap((k) => byKey.get(k) ?? []);
 }
 
-/** Pinned worktrees that match the search and the status filter, in your order. Each shows at the
- *  top of the board and leaves the bays below. */
-export function pinnedLaneRowsOf(lanes: Lane[], keys: string[], query: string, filter: readonly Filter[], since: string, said: Said = NO_HITS): WorktreeRow[] {
-  const byId = new Map(lanes.map((l) => [l.id, l]));
-  return keys.flatMap((id): WorktreeRow[] => {
-    const lane = byId.get(id);
-    const shown = lane && laneInQuery(lane, query, said) ? narrowed(lane, filter, since) : null;
-    return shown ? [worktreeRow(shown)] : [];
-  });
-}
-
-/** Every other worktree once, in the bay its status puts it in. The status filter narrows each to
- *  what it's about, which can move it to that bay. */
-export function bayRowsOf(lanes: Lane[], query: string, pinned: Set<string>, filter: readonly Filter[], since: string, said: Said = NO_HITS): { bay: Bay; rows: WorktreeRow[] }[] {
-  return buildBays(lanes.flatMap((l) => (laneInQuery(l, query, said) && !pinned.has(l.id) ? (narrowed(l, filter, since) ?? []) : [])));
-}
-
-/** The bays with parked worktrees folded away, unless they're asked for or searched. */
-export function folded(bays: { bay: Bay; rows: WorktreeRow[] }[], foldParked: boolean): { bay: Bay; rows: WorktreeRow[] }[] {
-  return bays.map((b) => ({ ...b, rows: b.rows.filter((r) => !foldParked || !r.lane.parked) }));
-}
-
 /** Each session by its worktree's id and its key, in the worktree it's listed under. */
 export function sessionIndexOf(lanes: Lane[]): Map<string, { lane: Lane; session: Session }> {
   const m = new Map<string, { lane: Lane; session: Session }>();
@@ -884,9 +862,13 @@ export interface ListsInput {
   lanePins: Pins;
   prPins: Pins;
   sessionSort: SessionSort;
+  /** Whether Sessions is grouped, and by what; the groups pinned (worktrees' or repos', as it
+   *  is), and the groups opened past their fold. */
+  sessionGroup: SessionGroupBy;
+  groupPins: Pins;
+  openGroups: ReadonlySet<string>;
   prSort: PrSort;
   todoSort: TodoSort;
-  showParked: boolean;
   showArchived: boolean;
   showDonePrs: boolean;
   todos: Todo[];
@@ -902,7 +884,7 @@ export interface ListsInput {
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, prSort, todoSort, showParked, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, shownBoard, columnOpen } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionGroup, groupPins, openGroups, prSort, todoSort, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, shownBoard, columnOpen } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
@@ -951,25 +933,21 @@ export function useBoardLists(input: ListsInput) {
       now,
     );
   }, [shownSessions, sessionPins.set, pinnedHelpers, sessionSort, now]);
-  const sessionList = useMemo(() => sessionSecs.flatMap((s) => s.rows), [sessionSecs]);
+  // Grouped by worktree or repo (SessionsView.tsx `groupSessions`): the pinned groups after the
+  // pinned sessions, then each group under its first session's heading. A pinned group with no
+  // session listed still shows while only the age narrows the list.
+  const narrowing = !!query || filter.length > 0 || !!facets.agents?.length;
+  const groupedSecs = useMemo(
+    () => (sessionGroup === 'none' ? null : groupSessions(sessionSecs, sessionGroup, { pinned: groupPins.keys, lanes: projectLanes, empty: !narrowing, opened: openGroups, whole: !!query })),
+    [sessionGroup, sessionSecs, groupPins.keys, projectLanes, narrowing, openGroups, query],
+  );
+  const sessionList = useMemo<ListRow[]>(() => (groupedSecs ? groupedRows(groupedSecs) : sessionSecs.flatMap((s) => s.rows)), [groupedSecs, sessionSecs]);
   const sessionRows = useMemo<ListRow[]>(
     () => [...pinnedRows.flatMap((r) => [r, ...(pinnedHelpers.get(r.session.key) ?? [])]), ...sessionList, ...(showArchived ? archivedItems : [])],
     [pinnedRows, pinnedHelpers, sessionList, showArchived, archivedItems],
   );
   // What waits on you, for working through it from a session's panel (useWaitingQueue.ts).
   const waitingRows = useMemo(() => waitingQueue(shownSessions), [shownSessions]);
-
-  // The board: pinned worktrees, then every other worktree once in its bay.
-  const pinnedLaneRows = useMemo(() => pinnedLaneRowsOf(recentLanes, lanePins.keys, query, filter, since, said), [recentLanes, lanePins.keys, query, filter, since, said]);
-  const bays = useMemo(() => bayRowsOf(recentLanes, query, lanePins.set, filter, since, said), [recentLanes, query, lanePins.set, filter, since, said]);
-  const foldParked = !showParked && !query;
-  const shownBays = useMemo(() => folded(bays, foldParked), [bays, foldParked]);
-  // How many parked worktrees Idle folds away, for its Show button.
-  const parkedCount = useMemo(() => bays.flatMap((b) => b.rows).filter((r) => r.lane.parked).length, [bays]);
-  // The board's worktrees top to bottom, which are picked together whole; and what you can
-  // select on it: agents' lines, and worktrees without any.
-  const worktreeRows = useMemo(() => [...pinnedLaneRows, ...shownBays.flatMap((b) => b.rows)], [pinnedLaneRows, shownBays]);
-  const worktreeItems = useMemo(() => worktreeRows.flatMap(rowItems), [worktreeRows]);
 
   // The PRs view: the project's PRs with the worktrees that hold them and the sessions that
   // worked on them.
@@ -1061,15 +1039,9 @@ export function useBoardLists(input: ListsInput) {
     pinnedRows,
     pinnedHelpers,
     sessionSecs,
+    groupedSecs,
     sessionRows,
     waitingRows,
-    pinnedLaneRows,
-    bays,
-    shownBays,
-    foldParked,
-    parkedCount,
-    worktreeRows,
-    worktreeItems,
     laneById,
     prRowOf: prRow,
     prRows,

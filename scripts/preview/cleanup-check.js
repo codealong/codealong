@@ -1,13 +1,15 @@
-// Checks Clean up worktree… (menus.ts `cleanUpItem`, ui/CleanUpDialog.tsx) on the Worktrees
-// board, with two of this Mac's worktrees the board says can go and one it says stays: a
-// right-click on one that can go offers it, with an ellipsis, beside Reuse for new work; one
-// that stays has it dimmed, saying why. Picked, the dialog lists what would run (a dry run of
-// `remove_worktree`, answered here) and removes nothing until asked; Remove sends the removal
-// and the window's toast says what happened. Several picked offer it for the ones that can go.
-//   scripts/preview.sh worktrees '' scripts/preview/cleanup-check.js
+// Checks Clean up worktree… (menus.ts `cleanUpItem`, ui/CleanUpDialog.tsx) on worktrees'
+// headings in Sessions grouped by worktree, with two of this Mac's worktrees the board says can go
+// and one it says stays: a right-click on one that can go offers it, with an ellipsis, beside
+// Reuse for new work; one that stays has it dimmed, saying why. Picked, the dialog lists what
+// would run (a dry run of `remove_worktree`, answered here) and removes nothing until asked;
+// Remove sends the removal and the window's toast says what happened. Several picked offer it
+// for the ones that can go.
+//   scripts/preview.sh sessions '' scripts/preview/cleanup-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
-  localStorage.setItem('codealong.view', 'worktrees');
+  localStorage.setItem('codealong.view', 'sessions');
+  localStorage.setItem('codealong.sessionGroup', 'worktree');
   localStorage.removeItem('codealong.age');
   // The worktrees the check took: the first two can go, the third stays.
   var lanes = [];
@@ -25,7 +27,8 @@
     return p.then(function (board) {
       board.pinnedWorktrees = [];
       if (lanes.length === 0) {
-        var mine = board.lanes.filter(function (l) { return !l.hidden && !l.device && l.project !== 'Elsewhere' && l.origin !== 'main'; });
+        // With a session listed, so Sessions has its heading.
+        var mine = board.lanes.filter(function (l) { return !l.hidden && !l.device && l.project !== 'Elsewhere' && l.origin !== 'main' && l.sessions.some(function (s) { return !s.archived && !s.visitor; }); });
         if (mine.length < 3) return board;
         lanes = mine.slice(0, 3).map(function (l) { return l.id; });
       }
@@ -37,16 +40,14 @@
     });
   };
 
-  var row = function (i) {
-    var cell = all('.ca-lane.is-worktree .ca-seg-call').filter(function (c) { return c.title.indexOf(lanes[i]) === 0; })[0];
-    return cell ? cell.closest('.ca-lane') : null;
-  };
+  // A worktree's heading: a row of its own, by its id.
+  var row = function (i) { return document.getElementById('row-' + lanes[i]); };
   var item = function (label) { return lastMenu().filter(function (i) { return i.text === label; })[0]; };
   var dialog = function () { return q('.ca-dialog.ca-cleanup'); };
   var button = function (text) { return all('.ca-dialog.ca-cleanup button').filter(function (b) { return b.textContent.trim() === text; })[0]; };
 
   say('cleanup check: waiting for the board');
-  until(function () { return lanes.length === 3 && row(0) && row(1) && row(2); }, 20000, 'three worktrees of this Mac’s outside a main checkout')
+  until(function () { return lanes.length === 3 && row(0) && row(1) && row(2); }, 20000, 'three worktrees of this Mac’s outside a main checkout, with sessions')
     .then(function () { return menuOf(row(2)); })
     .then(function (labels) {
       var stays = item('Clean up worktree (2 commits on no remote)');
@@ -75,9 +76,13 @@
     })
     .then(function (toast) {
       note(toast.textContent);
-      // ⌘A picks every worktree on the board: the menu takes only the ones that can go.
-      (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'a', code: 'KeyA', metaKey: true }));
-      return wait(150);
+      // With a heading selected, ⌘A picks every worktree listed: the menu takes only the ones
+      // that can go.
+      row(0).dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+      return wait(150).then(function () {
+        (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'a', code: 'KeyA', metaKey: true }));
+        return wait(150);
+      });
     })
     .then(function () { return menuOf(row(1)); })
     .then(function (labels) {

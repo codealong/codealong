@@ -1,6 +1,6 @@
-/* List rows (.ca-lane) and their segments, as worktree rows, session rows, PR rows and todo rows
-   share them; bay headers (.ca-bay) and bay blocks; the grip, the drop line and the parked note.
-   What a kind of row adds is beside its component (LaneRow.css, PrsView.css, TodoView.css). */
+/* List rows (.ca-lane) and their segments, as session rows, group headings, PR rows and todo rows
+   share them; bay headers (.ca-bay) and bay blocks; the grip and the drop line. What a kind of
+   row adds is beside its component (LaneRow.css, PrsView.css, TodoView.css). */
 
 .ca-bay { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 var(--space-3); font: var(--type-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
 .ca-bay--needs { color: var(--attn); }
@@ -11,15 +11,14 @@
 .ca-lane:hover { background: var(--surface-hover); }
 .ca-lane.is-selected { background: var(--surface-selected); }
 .ca-lane:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+/* The row a right-click's menu is for, while the menu is up: ringed, not selected. */
+.ca-lane[data-menu] { outline: 2px solid var(--line-strong); outline-offset: -2px; }
 /* After .ca-lane, which it overrides: of two rules alike the later wins. */
 @media (prefers-reduced-motion: reduce) {
   .ca-lane { transition: none; }
 }
 .ca-seg { display: flex; flex-direction: column; justify-content: center; min-width: 0; padding: 0 var(--space-3); border-left: 1px solid var(--line); }
 .ca-seg-glyph { align-items: center; padding: 0; border-left: 0; }
-.ca-seg-call { gap: 2px; background: var(--surface-sunken); }
-.ca-lane.is-needs .ca-seg-call { background: var(--attn-tint); }
-.ca-lane-call { font: var(--type-callsign); letter-spacing: 0.005em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-lane-sub { font: var(--type-code-caption); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-seg-main { gap: 5px; }
 .ca-lane-line1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-body); }
@@ -32,8 +31,6 @@
 
 .ca-bayblock { margin-top: var(--space-2); }
 .ca-bay-lanes { border-top: 1px solid var(--line); }
-.ca-parked { display: block; width: 100%; height: 32px; padding: 0 0 0 44px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--ink-3); font: var(--type-meta-strong); text-align: left; cursor: pointer; }
-.ca-parked:hover { background: var(--surface-hover); color: var(--ink-2); }
 
 /* A hint is a note beside the heading, quieter than it: caption's size, and caps no taller than
    the hotkey strip's, so the header keeps its height. */
@@ -47,48 +44,6 @@
   height: 16px;
 }
 
-/* Worktree rows. On the left, shaded as one block, the worktree: its name over its repo and
-   branch, with what belongs to the worktree at that line's end, then a column of where it stands
-   against the default branch, lines over commits, its rows in step with the name's. The name's
-   column grows with the board, so a long name shows more of itself. A narrow board drops the
-   delta column: the panel has the same counts. On the right, its agents' lines. */
-.ca-lane.is-worktree {
-  grid-template-columns: 32px clamp(160px, 24%, 220px) 92px minmax(0, 1fr) 52px;
-}
-.ca-lane.is-worktree .ca-seg-lines {
-  grid-column: 4 / 6;
-}
-/* The worktree's two lines sit level with its first agent's two (LaneRow.css .ca-agentline): its
-   name with the agent's title, its repo and PR with the agent's chips, and its status with the
-   agent's. */
-.ca-lane.is-worktree .ca-seg-glyph {
-  justify-content: flex-start;
-  padding-top: 11px;
-}
-.ca-lane.is-worktree .ca-seg-call {
-  justify-content: flex-start;
-  gap: var(--space-1);
-  padding-top: 6px;
-  padding-bottom: 7px;
-}
-.ca-seg-delta {
-  align-items: flex-end;
-  padding-left: 0;
-  border-left: 0;
-}
-
-@container board (max-width: 600px) {
-  .ca-lane.is-worktree {
-    grid-template-columns: 32px 160px minmax(0, 1fr) 52px;
-  }
-  .ca-lane.is-worktree .ca-seg-delta {
-    display: none;
-  }
-  .ca-lane.is-worktree .ca-seg-lines {
-    grid-column: 3 / 5;
-  }
-}
-
 /* A row's second line: its lane (the lead), then what always shows at the right (a session's PR
    and diff, a todo's worktrees and PR, a PR's diff). Short of room, the lead's pieces give way
    from the end. */
@@ -100,29 +55,6 @@
 }
 .ca-lane-right {
   gap: var(--chip-gap);
-}
-
-/* A worktree's row with a line for each agent that needs you, is working or just finished:
-   the worktree once on the left, its agents stacked on the right, each with its own age. You
-   select, open and right-click a line as you would a row. */
-.ca-lane.is-group:hover {
-  background: var(--surface);
-}
-.ca-lane.is-group.has-selection .ca-seg-glyph {
-  background: var(--surface-selected);
-}
-/* Picked whole with other worktrees (picks.ts): the whole row reads as selected, its name and its
-   lines. */
-.ca-lane.is-group.is-picked,
-.ca-lane.is-group.is-picked:hover {
-  background: var(--surface-selected);
-}
-.ca-seg-lines {
-  grid-column: 3 / 5;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  border-left: 1px solid var(--line);
 }
 
 /* Drop lines and the drag grip sit inside the row. */
@@ -175,8 +107,7 @@
 /* Rows of one thing each (.is-item): a session, a PR or a todo, in Sessions, PRs and Todo. Its
    status, what it is, and its age, with no lines between them: the ground is one, and the row's
    hairline below parts it from the next. On two lines the first says what it is (its title, then
-   what it's doing or says) and the second where and why, its status and age level with the first.
-   A worktree's row (.is-worktree) is a block of its own, beside its agents. */
+   what it's doing or says) and the second where and why, its status and age level with the first. */
 .ca-lane.is-item {
   grid-template-columns: 32px minmax(0, 1fr) 52px;
 }

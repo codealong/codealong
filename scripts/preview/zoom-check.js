@@ -19,7 +19,7 @@
   var key = function (init, el) { (el || document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true, metaKey: true }, init))); };
   var steps = function () { return sent('zoom').map(function (a) { return a.step; }).join(' '); };
   var toast = function () { return Array.prototype.map.call(document.querySelectorAll('.ca-toast'), function (t) { return t.textContent; }).join(' | '); };
-  var rows = function () { return document.querySelectorAll('.ca-lane.is-agent, .ca-agentline'); };
+  var rows = function () { return document.querySelectorAll('.ca-lane.is-agent'); };
   var canvas = function () { return document.querySelector('.ca-cv-zoom'); };
 
   if (localStorage.getItem('codealong.view') === 'canvas') {

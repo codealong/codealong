@@ -1,12 +1,13 @@
-// Checks the Open in menus (editors.ts, App.tsx): a worktree's right-click menu on the board has
-// Open in <your editor> and an Open in submenu of the other editors installed, a session's in
+// Checks the Open in menus (editors.ts, App.tsx): a worktree's right-click menu, on its heading in
+// Sessions grouped by worktree, has Open in <your editor> and an Open in submenu of the other
+// editors installed, a session's in
 // Sessions has Open folder in with your terminal and every editor, yours first, and the worktree's
 // Open button lists the editors too, each with its app's icon. Picking one opens the folder there
 // (`l|editor|<id>`; the terminal, a new one in the session's folder, `s|<key>|terminal`). The
 // session's header has the same under its Open button, the terminal's saying which folder.
 // Needs two or more editors installed, and a PREVIEW_BIN built with editors.rs if the shared
 // build predates it.
-//   scripts/preview.sh worktrees '' scripts/preview/open-in-check.js
+//   scripts/preview.sh sessions '' scripts/preview/open-in-check.js
 (function () {
   var opens = function () { return window.__calls.filter(function (c) { return c[0] === 'open_target'; }).map(function (c) { return c[1].targetId; }); };
   var labels = menuLabels;
@@ -15,7 +16,9 @@
   var board;
 
   localStorage.setItem('codealong.project', 'All projects');
-  localStorage.setItem('codealong.view', 'worktrees');
+  localStorage.setItem('codealong.view', 'sessions');
+  localStorage.setItem('codealong.sessionGroup', 'worktree');
+  var heading = function () { return document.querySelector('.ca-board .ca-grouphead.is-worktree-head'); };
 
   var down = function (el) { el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 })); };
 
@@ -26,11 +29,11 @@
       board = b.apps;
       check('the board lists the editors installed here', (board.editors || []).length >= 2, JSON.stringify(board.editors));
       // The icons come a moment after the board: a menu shown before has none yet.
-      return until(function () { return document.querySelector('.ca-board .ca-lane') && window.__calls.some(function (c) { return c[0] === 'editor_icons'; }); }, 20000).then(function () { return wait(500); });
+      return until(function () { return heading() && window.__calls.some(function (c) { return c[0] === 'editor_icons'; }); }, 20000).then(function () { return wait(500); });
     })
     .then(function () {
       var others = board.editors.filter(function (e) { return e.id !== board.editorId; });
-      rightClick(document.querySelector('.ca-board .ca-lane'));
+      rightClick(heading());
       return wait(200).then(function () {
         var l = labels();
         check('a worktree opens in your editor', l.indexOf('Open in ' + board.editor) >= 0, l.slice(0, 6).join(' | '));
@@ -46,10 +49,11 @@
       });
     })
     .then(function () {
-      // The worktree's panel: its Open button's menu has them after Open in <yours>.
-      down(document.querySelector('.ca-board .ca-lane .ca-seg-call'));
-      return until(function () { return document.querySelector('.ca-insp .ca-split-caret'); }, 5000).then(function () {
-        document.querySelector('.ca-insp .ca-split-caret').click();
+      // The worktree's panel, its heading selected: its Open button's menu has them after Open in
+      // <yours>.
+      down(heading());
+      return until(function () { return document.querySelector('.ca-insp:not(.ca-sessinsp) .ca-split-caret'); }, 5000).then(function () {
+        document.querySelector('.ca-insp:not(.ca-sessinsp) .ca-split-caret').click();
         return wait(100).then(function () {
           var items = Array.prototype.map.call(document.querySelectorAll('.ca-openin .ca-menu-item .ca-menu-label > span:first-child'), function (e) { return e.textContent; });
           var at = items.indexOf('Open in ' + board.editor);

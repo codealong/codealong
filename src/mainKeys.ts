@@ -9,7 +9,7 @@ import type { ListRow } from './boardLists';
 import type { MenuAction } from './contextMenu';
 import { findsAt } from './findKeys';
 import { historyChord } from './history';
-import { AGENT_BAY, rowItems, seenable, type WorktreeRow } from './lanes';
+import { AGENT_BAY, seenable } from './lanes';
 import { useLatest } from './latest';
 import * as menus from './menus';
 import type { Pins } from './pins';
@@ -50,7 +50,7 @@ function viewTab(e: KeyboardEvent): boolean {
 /** Each view's chord: ⇧⌘ and the view's first letter, from any view and any field. Canvas has B
  *  (board) because clipboard managers take ⇧⌘C for themselves (Maccy's popup ships on it). The
  *  sidebar shows a view's chord as you point at it. */
-export const VIEW_CHORDS: Record<string, string> = { sessions: 'Shift+Cmd+S', worktrees: 'Shift+Cmd+W', prs: 'Shift+Cmd+P', todo: 'Shift+Cmd+T', kanban: 'Shift+Cmd+K', canvas: 'Shift+Cmd+B' };
+export const VIEW_CHORDS: Record<string, string> = { sessions: 'Shift+Cmd+S', prs: 'Shift+Cmd+P', todo: 'Shift+Cmd+T', kanban: 'Shift+Cmd+K', canvas: 'Shift+Cmd+B' };
 
 /** The view a key event goes to (`VIEW_CHORDS`), or none. */
 export function viewOfKey<V extends string>(e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, views: readonly { id: V }[]): V | null {
@@ -88,9 +88,9 @@ export interface MainKeys<V extends string> {
   terminalAt: { lane: Lane; session: Session | null } | null;
   projects: ProjectSummary[];
   pinnedRows: SessionItem[];
-  pinnedLaneRows: WorktreeRow[];
+  /** The worktrees pinned in Sessions grouped by worktree, by id, as they show. */
+  pinnedLanes: readonly string[];
   pinnedPrRows: PrRowItem[];
-  shownBays: { bay: Bay; rows: WorktreeRow[] }[];
   sessionPins: Pins;
   lanePins: Pins;
   prPins: Pins;
@@ -144,7 +144,7 @@ export interface MainKeys<V extends string> {
 
 /** Does what a key pressed in the main window does. */
 export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>): void {
-  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, sessionPins, lanePins, prPins, searchRef, boardRef, listRef, canvasKeys, kanbanKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
+  const { view, views: VIEWS, settings, previewFor, renaming, panelMax, selected, visible, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, projects, pinnedRows, pinnedLanes, pinnedPrRows, sessionPins, lanePins, prPins, searchRef, boardRef, listRef, canvasKeys, kanbanKeys, gPending, todoKeys, travel, actionsRef, openSettings, runQueue, toggleSidebar, pickProject, startForTodos, startForTodo, newSession, openFind, setQuery, setCanvasFit, openRow, setView, togglePanelMax, togglePrPanelMax, movePinnedSession, movePinnedLane, move, focusBox, open, copy, say, markSeen, setSelectedKey, zoom } = keys;
   const typing = document.activeElement === searchRef.current;
   // ⌘ held, whatever else is (Ctrl on Linux, platform.ts).
   const mod = cmd(e);
@@ -278,6 +278,12 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     else say('None of them has a turn to mark seen.');
     return;
   }
+  // On a worktree's heading, ⌘E marks its sessions seen, and stays on it.
+  if (queueStep === 'seen' && selected?.kind === 'lane') {
+    e.preventDefault();
+    markSeen(selected.lane.sessions.filter(seenable).map((s) => s.key));
+    return;
+  }
   if (queueStep === 'next' || queueStep === 'back' || queueStep === 'seen') {
     e.preventDefault();
     runQueue(queueStep, queueStep === 'seen' ? inBox : true);
@@ -356,10 +362,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   if (gPending.current) {
     gPending.current = false;
     const bay = ({ n: 'needs', w: 'working', t: 'unread', r: 'review' } as Record<string, Bay | undefined>)[key];
-    const first =
-      view === 'worktrees'
-        ? [...pinnedLaneRows, ...shownBays.flatMap((b) => b.rows)].filter((r) => r.lane.bay === bay).flatMap(rowItems)[0]
-        : visible.find((r) => r.kind === 'agent' && AGENT_BAY[r.session.status] === bay);
+    const first = visible.find((r) => r.kind === 'agent' && AGENT_BAY[r.session.status] === bay);
     if (first) setSelectedKey(first.key);
     return;
   }
@@ -413,10 +416,11 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
   }
   // P, A and R run the selected row's menu actions (menus.ts `KEYS`), plain outside Sessions and
   // with ⌃⌘ anywhere, so each applies where the menu's would; ⌃⌘W closes a session's terminal
-  // and ⌃⌘1 to ⌃⌘4 snooze it for one of its menu's times, which no letter alone does. P pins what the view lists: worktrees on the board, sessions
-  // in Sessions. E, below, marks seen more than one session at once.
+  // and ⌃⌘1 to ⌃⌘4 snooze it for one of its menu's times, which no letter alone does. P pins what's
+  // selected: a session, or a worktree's heading in Sessions grouped by worktree. E, below, marks
+  // seen more than one session at once.
   if (((!mod && letters) || chord) && selected && selected.kind !== 'pr' && selected.kind !== 'todo') {
-    const acts = selected.kind === 'agent' ? actionsRef.current.session(selected.lane, selected.session, view === 'worktrees' ? 'worktree' : 'session') : actionsRef.current.lane(selected.lane);
+    const acts = selected.kind === 'agent' ? actionsRef.current.session(selected.lane, selected.session, 'session') : actionsRef.current.lane(selected.lane);
     const found = menus.keyed(acts, key, chord);
     if (found && found.id !== 'seen') {
       // Not typed into a field the action opens (Rename's).
@@ -437,7 +441,7 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     prPins.toggle(selected.pr.key);
     return;
   }
-  // ⌃⌘↑ ⌃⌘↓ move a pinned session, worktree or PR among the pins (a todo in Todos, above).
+  // ⌃⌘↑ ⌃⌘↓ move a pinned session, worktree's heading or PR among the pins (a todo in Todos, above).
   const reorder = reorderKey(e);
   if (reorder) {
     e.preventDefault();
@@ -445,8 +449,8 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
     const step = (i: number) => (reorder < 0 ? i - 1 : i + 2);
     if (view === 'sessions' && selected?.kind === 'agent' && sessionPins.set.has(selected.session.key)) {
       movePinnedSession(selected.session.key, step(pinnedRows.findIndex((r) => r.key === selected.key)));
-    } else if (view === 'worktrees' && selected && selected.kind !== 'pr' && selected.kind !== 'todo' && lanePins.set.has(selected.lane.id)) {
-      movePinnedLane(selected.lane.id, step(pinnedLaneRows.findIndex((r) => r.key === selected.lane.id)));
+    } else if (view === 'sessions' && selected?.kind === 'lane' && lanePins.set.has(selected.lane.id)) {
+      movePinnedLane(selected.lane.id, step(pinnedLanes.indexOf(selected.lane.id)));
     } else if (view === 'prs' && selected?.kind === 'pr' && prPins.set.has(selected.pr.key)) {
       prPins.move(pinnedPrRows.map((r) => r.pr.key), selected.pr.key, step(pinnedPrRows.findIndex((r) => r.key === selected.key)));
     }
@@ -522,10 +526,10 @@ export function onMainKey<V extends string>(e: KeyboardEvent, keys: MainKeys<V>)
  *  ⌘.) keeps hearing a key before this one does. */
 export function useMainKeys<V extends string>(keys: MainKeys<V>): void {
   const latest = useLatest(keys);
-  const { visible, selected, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, togglePrPanelMax, actionsRef, todoKeys, travel } = keys;
+  const { visible, selected, pickedRows, listPicks, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLanes, pinnedPrRows, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, togglePrPanelMax, actionsRef, todoKeys, travel } = keys;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => onMainKey(e, latest.current);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [latest, visible, selected, pickedRows, listPicks?.count, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLaneRows, pinnedPrRows, shownBays, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, togglePrPanelMax, actionsRef, todoKeys, travel]);
+  }, [latest, visible, selected, pickedRows, listPicks?.count, selectedLane, startLaneId, terminalAt, move, open, openRow, copy, say, settings, previewFor, renaming, openSettings, newSession, startForTodo, startForTodos, view, setView, runQueue, markSeen, sessionPins, lanePins, prPins, pinnedRows, pinnedLanes, pinnedPrRows, movePinnedSession, movePinnedLane, projects, pickProject, toggleSidebar, panelMax, togglePanelMax, togglePrPanelMax, actionsRef, todoKeys, travel]);
 }

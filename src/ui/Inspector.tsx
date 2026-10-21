@@ -8,7 +8,7 @@ import { branchLabel } from '../lanes';
 import { REUSE_WORDS } from '../reusable';
 import type { Board, Lane, Origin, Session, Target, Todo } from '../types';
 import { InsightChips } from './InsightBits';
-import { BranchLabel, Button, cx, driftWords, HarnessChip, headerMenu, Icon, Kbd, LaneGlyph, PrChip, Rich, SessionEmblem, SessionGlyph } from './primitives';
+import { BranchLabel, Button, cx, driftWords, HarnessChip, headerMenu, Icon, Kbd, LaneGlyph, PanelBack, PrChip, Rich, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { useDismiss } from './useDismiss';
 import { PreviewChip, PreviewSection } from './PreviewBits';
 import { TodoChips, TodoGlyph } from './TodoBits';
@@ -182,9 +182,11 @@ interface InspectorProps {
   onReviewPr?: (button: Element) => void;
   /** Opens the sheet that sets where its app opens; this device's worktrees only. */
   onSetPreview?: () => void;
+  /** Shown in another panel's place (a session's, a PR's, a todo's): the way back to it. */
+  back?: PanelBackTo;
 }
 
-export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onMenu, onPrMenu, onShowPr, onReviewPr, onSetPreview }: InspectorProps) {
+export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, todos, todosFor, onShowTodo, onMenu, onPrMenu, onShowPr, onReviewPr, onSetPreview, back }: InspectorProps) {
   const [showAll, setShowAll] = useState(false);
   useEffect(() => setShowAll(false), [lane?.id]);
   const icons = useEditorIcons(apps);
@@ -202,6 +204,7 @@ export function Inspector({ lane, focusKey, apps, now, onOpen, onNewSession, tod
   return (
     <aside className="ca-insp" aria-label={`${lane.callsign} details`}>
       <header onContextMenu={headerMenu(onMenu)}>
+        {back && <PanelBack back={back} />}
         <div className="ca-insp-title">
           <LaneGlyph lane={lane} />
           <span className="ca-insp-call" title={lane.callsign}>

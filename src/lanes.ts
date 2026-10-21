@@ -1,4 +1,4 @@
-// Lanes on the board: grouped into bays, seen through the age and status filters, and sorted.
+// Lanes on the board: their bays, seen through the age and status filters, and their sessions sorted.
 // The engine sets a lane's bay and headline from all of its sessions; when a filter hides some
 // of them, the lane's status and sentence are worked out again from what's left, with the same
 // rules as the engine (board.rs, `bay_of` and `headline`). As there, a reusable worktree's
@@ -12,31 +12,18 @@ import type { InsightLabel } from './insights';
 import { resetsPhrase } from './format';
 import type { Bay, ConnectionLost, Lane, Pr, PrItem, Session, SessionLimit, SideGlance, Status } from './types';
 
-export const BAYS: Bay[] = ['needs', 'working', 'unread', 'review', 'idle', 'merged'];
 /** The status filter an agent falls under, for the statuses that have one. */
 export const AGENT_BAY: Partial<Record<Status, Bay>> = { needs: 'needs', error: 'needs', working: 'working', unread: 'unread' };
 /** How urgent a status is, as the engine ranks it. Idle and stopped rank the same: a Codex
  *  thread is never stopped, so telling them apart would only sort the harnesses apart. */
 const URGENCY: Record<Status, number> = { needs: 0, error: 1, working: 2, unread: 3, idle: 4, stopped: 4 };
 
-/** An agent in the worktree it runs in: a line in a worktree's row, or a row in Sessions. */
+/** An agent in the worktree it runs in: a row in Sessions. */
 export type AgentItem = { kind: 'agent'; key: string; lane: Lane; session: Session };
-/** A worktree no agent has worked in, which its row selects whole. */
+/** A worktree's heading in Sessions grouped by worktree, which is selected for its panel. */
 export type LaneItem = { kind: 'lane'; key: string; lane: Lane };
-/** Something you can select on the Worktrees board or in Sessions. */
+/** Something you can select in Sessions. */
 export type BoardRow = AgentItem | LaneItem;
-/**
- * A worktree's row on the board: the worktree, and a line for each of its agents that needs you,
- * is working or just finished; with none of those, a line for the agent that last worked in it.
- * Every line is a session, however busy the worktree is: what belongs to the worktree itself (its
- * PR, its app, its todo) is beside its name, never a line of its own.
- */
-export interface WorktreeRow {
-  key: string;
-  lane: Lane;
-  /** Empty only for a worktree no agent has worked in. */
-  lines: AgentItem[];
-}
 /** A status the sidebar narrows the board to: agents in one state, or worktrees whose PR is in
  *  review or needs work. Several narrow it to what's in any of them; none, to nothing. */
 export type Filter = Bay | 'work';
@@ -294,30 +281,6 @@ export function branchLabel(lane: Pick<Lane, 'branch' | 'detached'>): string | n
  *  worktree) says more. */
 export function worktreeName(lane: Lane): string {
   return lane.origin === 'main' ? 'main' : lane.callsign;
-}
-
-/** When you last sent a prompt to one of a worktree's own agents; with none, when anything last happened in it. */
-export function lanePromptAt(lane: Lane): number {
-  // A helper's prompts are its agent's, not yours, and a headless run's its script's.
-  const own = lane.sessions.filter((s) => !s.visitor && !s.archived && !unattended(s));
-  return own.length > 0 ? Math.max(...own.map((s) => s.lastPromptAt)) : lane.lastActivity;
-}
-
-/** How long a worktree in Needs you has waited, as the engine has it (`lane_waiting_since`):
- *  since the longest wait of its own agents that need you and aren't snoozed. Null when it needs
- *  you only through snoozed agents. */
-function laneWaitingSince(lane: Lane): number | null {
-  const waits = lane.sessions.filter((s) => !s.visitor && !s.archived && !s.snoozedUntil).flatMap((s) => waitingSince(s) ?? []);
-  return waits.length > 0 ? Math.min(...waits) : null;
-}
-
-/** Worktrees in a bay, as the engine sorts them (`lane_order`): in Needs you the longest wait
- *  first, then those with no agent waiting; within that, and in the other bays, the one you
- *  last sent a prompt first. */
-function byLane(a: Lane, b: Lane): number {
-  const [x, y] = a.bay === 'needs' ? [laneWaitingSince(a), laneWaitingSince(b)] : [null, null];
-  const waited = x === y ? 0 : x === null ? 1 : y === null ? -1 : x - y;
-  return waited || lanePromptAt(b) - lanePromptAt(a) || b.lastActivity - a.lastActivity;
 }
 
 function prOpen(pr: Pick<Pr, 'state'>): boolean {
@@ -622,36 +585,6 @@ export function filterByAge(lanes: Lane[], cutoff: number, pinnedLanes: Set<stri
 /** The one most recently active. */
 function latestOf(sessions: Session[]): Session | null {
   return sessions.reduce<Session | null>((a, s) => (a == null || s.lastActivity > a.lastActivity ? s : a), null);
-}
-
-/**
- * A worktree's row: a line for each own agent that needs you, is working or just finished, in
- * the engine's order. With none, one quiet line for the agent that last worked in it, as the
- * engine's sentence for an idle worktree names it (board.rs `headline`): its own latest (not
- * archived, nor a reusable worktree's earlier work), else the latest that made it or worked in it.
- */
-export function worktreeRow(lane: Lane): WorktreeRow {
-  const own = lane.sessions.filter(inStatus);
-  const agents = own.filter((s) => AGENT_BAY[s.status]).sort(bySession);
-  const quiet = agents.length > 0 ? null : (latestOf(own) ?? latestOf(lane.sessions.filter((s) => s.visitor && !s.archived)));
-  const shown = agents.length > 0 ? agents : quiet ? [quiet] : [];
-  return { key: lane.id, lane, lines: shown.map((session): AgentItem => ({ kind: 'agent', key: `${lane.id}::${session.key}`, lane, session })) };
-}
-
-/** What you can select in a row: its lines, or the worktree itself when no agent has worked in it. */
-export function rowItems(row: WorktreeRow): BoardRow[] {
-  return row.lines.length > 0 ? row.lines : [{ kind: 'lane', key: row.lane.id, lane: row.lane }];
-}
-
-/**
- * Each worktree once, in the bay its status puts it in, with its agents on its row. In Needs
- * you the worktree that has waited longest comes first; in the other bays, the one you last
- * sent a prompt.
- */
-export function buildBays(lanes: Lane[]): { bay: Bay; rows: WorktreeRow[] }[] {
-  const groups: Record<Bay, Lane[]> = { needs: [], working: [], unread: [], review: [], idle: [], merged: [] };
-  for (const lane of lanes) groups[lane.bay].push(lane);
-  return BAYS.map((bay) => ({ bay, rows: groups[bay].sort(byLane).map(worktreeRow) })).filter((g) => g.rows.length > 0);
 }
 
 /**

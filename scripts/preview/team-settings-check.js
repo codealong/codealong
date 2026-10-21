@@ -1,5 +1,5 @@
 // Checks a repo's settings (repoSettings.ts, teamfile.rs), with a repo that has team settings
-// (team-init.js). In the worktrees view: a worktree's menu has Automation for its repo, which
+// (team-init.js). In Sessions grouped by worktree: a worktree's heading's menu has Automation for its repo, which
 // opens Settings › Automation with that repo picked. With the team's repo picked, the team's
 // settings show over the fields: where they're read from, approvals never submitted, and what
 // they suggest that you don't have, with Use them (take_team_settings). Each field says where its
@@ -9,7 +9,7 @@
 // team's PR, with no review yet, has the team's suggestions in its Reviews tab in place of what an
 // empty one says; Use them takes them, and the cross dismisses them for good (localStorage), the
 // empty tab's words back.
-//   PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/team-settings-check.js
+//   PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/team-settings-check.js
 //   PREVIEW_INIT=scripts/preview/team-init.js PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/team-settings-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -63,8 +63,8 @@
       }
 
       // A worktree's menu opens Settings on its repo.
-      await until(function () { return !!q('.ca-board .ca-lane'); }, 10000, 'no worktree on the board');
-      var lane = all('.ca-board .ca-lane').filter(function (l) { rightClick(l); return menuLabels().some(function (x) { return /^Automation for /.test(x); }); })[0];
+      await until(function () { return !!q('.ca-board .ca-grouphead.is-worktree-head'); }, 10000, 'no worktree’s heading in Sessions');
+      var lane = all('.ca-board .ca-grouphead.is-worktree-head').filter(function (l) { rightClick(l); return menuLabels().some(function (x) { return /^Automation for /.test(x); }); })[0];
       check('a worktree’s menu has Automation for its repo', !!lane, menuLabels().join(' | '));
       if (lane) {
         rightClick(lane);

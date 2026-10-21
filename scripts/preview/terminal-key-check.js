@@ -1,7 +1,7 @@
 // Checks ⌃`, a new terminal in the folder of what a window shows (menus.ts `CHORDS.terminal`,
 // mainKeys.ts, SessionCard.tsx): in Sessions from the session's box, a new terminal in the
 // session's folder (`s|<key>|terminal`), shown beside that item in its header's Open menu and its
-// right-click menu; in Worktrees, one in a session line's folder, or in a worktree with none
+// right-click menu; grouped by worktree, on a worktree's heading, one in the worktree
 // (`l|terminal`); in Todo from a todo's title, one in the todo's worktree; and in the peek from
 // its box, in the session's folder.
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh sessions '' scripts/preview/terminal-key-check.js
@@ -92,31 +92,20 @@
     })
     .then(function () {
       if (peek) return;
-      // On the board, a session's line is what's selected in a worktree with sessions: a terminal
-      // in its folder, as its menu says. A worktree with none: a terminal in the worktree.
-      nav('Worktrees').click();
-      var press = function (row) {
-        down(row);
-        return wait(300).then(function () {
-          var n = opens().length;
-          ctrlTick(document.body);
-          return opened(n, '⌃` on ' + row.id);
-        });
-      };
-      return until(function () { return q('.ca-board .ca-agentline[id^="row-"]'); }, 5000, 'a session’s line')
-        .then(function () {
-          var line = q('.ca-board .ca-agentline[id^="row-"]');
-          var key = line.id.slice(4).split('::')[1];
-          return press(line).then(function (o) {
-            check('⌃` on a session’s line opens a terminal in its folder', o && o.targetId === 's|' + key + '|terminal', JSON.stringify(o) + ' for ' + key);
-          });
-        })
-        .then(function () {
-          var only = q('.ca-board .ca-lane.is-worktree[id^="row-"]');
-          if (!only) { check('a worktree with no sessions on the board', false, 'none in this project'); return; }
-          var id = only.id.slice(4);
-          return press(only).then(function (o) {
-            check('⌃` on a worktree with no sessions opens a terminal in it', o && o.targetId === 'l|terminal' && o.laneId === id, JSON.stringify(o) + ' for ' + id);
+      // Grouped by worktree, a worktree's heading selected: a terminal in the worktree.
+      var group = q('.ca-listtools [aria-label="Group by"] button[aria-label="Worktree"]');
+      if (!group) { check('Sessions can be grouped by worktree', false, 'no Group by in the bar'); return; }
+      group.click();
+      return until(function () { return all('.ca-board .ca-grouphead.is-worktree-head[id^="row-"]').filter(function (h) { return !h.classList.contains('is-away'); })[0]; }, 5000, 'a worktree’s heading')
+        .then(function (head) {
+          var id = head.id.slice(4);
+          down(head);
+          return wait(300).then(function () {
+            var n = opens().length;
+            ctrlTick(document.body);
+            return opened(n, '⌃` on ' + head.id);
+          }).then(function (o) {
+            check('⌃` on a worktree’s heading opens a terminal in the worktree', o && o.targetId === 'l|terminal' && o.laneId === id, JSON.stringify(o) + ' for ' + id);
           });
         });
     })

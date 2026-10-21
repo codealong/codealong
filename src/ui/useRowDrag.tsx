@@ -17,6 +17,9 @@ import { chordMod } from '../platform';
 
 /** What a draggable row needs. */
 export interface DragProps {
+  /** Which drag it's one of (`useRowDrag`), where a list has two: the rows each takes drops among
+   *  are its own. */
+  dragOf: string;
   /** Position among the ordered rows, for a row that's one of them. */
   pinIndex?: number;
   onPointerDown: (e: ReactPointerEvent<HTMLElement>) => void;
@@ -137,13 +140,19 @@ function inWindow(x: number, y: number): boolean {
   return x >= 0 && y >= 0 && x <= window.innerWidth && y <= window.innerHeight;
 }
 
+/** Each drag's name for its rows, so two in one list (Sessions' sessions and its groups'
+ *  headings) each look only at their own. */
+let drags = 0;
+
 /**
  * Drags for the rows of one list: the element marked `data-drag-list` around them, where the
- * ordered rows carry a `data-pin-index`. Spread `rowProps` on each row and render `ghost`.
+ * ordered rows carry a `data-pin-index`, and every row its drag's name (`data-drag-of`). Spread
+ * `rowProps` on each row and render `ghost`.
  */
 export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOptions<T>) {
   const opts = useRef(options);
   opts.current = options;
+  const [name] = useState(() => `drag${++drags}`);
   const live = useRef<Live<T> | null>(null);
   // A row let go outside the window: the engine says whether its card stayed on the desktop.
   const out = useRef<{ key: string; inOrder: boolean; timer: number } | null>(null);
@@ -162,8 +171,8 @@ export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOp
     }
     const area = (d.scroller ?? d.list)?.getBoundingClientRect();
     if (!d.list || !area || d.x < area.left || d.x > area.right || d.y < area.top || d.y > area.bottom || !canOrder(d)) return { at: 'none' };
-    const ordered = [...d.list.querySelectorAll('[data-pin-index]')].map(spanOf);
-    const first = d.list.querySelector('.ca-lane');
+    const ordered = [...d.list.querySelectorAll(`[data-drag-of="${name}"][data-pin-index]`)].map(spanOf);
+    const first = d.list.querySelector(`[data-drag-of="${name}"]`);
     const at = zoneAt(d.y, ordered, first ? spanOf(first) : null, spanOf(d.row), d.inOrder, !!opts.current.joins);
     return at === 'list' ? { at: 'list' } : { at: 'order', index: at };
   };
@@ -312,7 +321,7 @@ export function useRowDrag<T extends DropTarget = DropTarget>(options: RowDragOp
   const rowProps = (key: string, index: number | null, count: number): DragProps => {
     const at = drag?.zone.at === 'order' ? drag.zone.index : -1;
     const extraClass = cx(drag?.key === key && 'is-drag-source', index != null && at === index && 'is-drop-before', index != null && index === count - 1 && at === count && 'is-drop-after');
-    return { pinIndex: index ?? undefined, onPointerDown: (e) => start(e, key, index), extraClass: extraClass || undefined };
+    return { dragOf: name, pinIndex: index ?? undefined, onPointerDown: (e) => start(e, key, index), extraClass: extraClass || undefined };
   };
 
   // What the pointer holds: the row's title, and what a drop here would do when that isn't plain.

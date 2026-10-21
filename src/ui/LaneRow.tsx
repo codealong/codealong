@@ -1,22 +1,22 @@
-// One worktree as a flight strip, read left to right as where, then who. On the left, shaded as
-// one block, the worktree and everything that belongs to it: its name, its repo and branch, what
-// it holds (its app, its PR, and whether new work can start there) and its lines and commits
-// against the default branch. On the right its agents, a line each, every line a session built the same way: the
-// ones that need you, are working or just finished, else the one that last worked there. A
-// worktree shows once however many agents run in it.
+// Rows of the Sessions view: a session's (`AgentRow`), on two lines or one; what's listed under
+// it (`SideRow`, `FoldRow`); and, grouped, the heading of each worktree or repo (`WorktreeHead`,
+// `RepoHead`) and the way to a group's sessions folded away (`GroupFoldRow`). A worktree's heading
+// says on one line everything that belongs to the worktree: its name, where it is (its device,
+// repo and branch), whether new work can start there, Jev's read, its app and its PR, and where it
+// stands against the default branch.
 
 import { REUSE_WORDS } from '../reusable';
 import { DeviceBadge } from './DeviceBadge';
 import { memoRow } from './memoRow';
-import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
-import { absolute, ago, agoPhrase, count, middleTruncate, untilShort } from '../format';
-import { branchLabel, foldWords, helperLine, sideTitle, startedOf, worktreeName, type AgentItem, type Fold, type WorktreeRow } from '../lanes';
+import type { ReactNode } from 'react';
+import { absolute, ago, agoPhrase, middleTruncate, untilShort } from '../format';
+import { branchLabel, foldWords, helperLine, sideTitle, startedOf, worktreeName, type Fold } from '../lanes';
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { SaidLine } from '../quick';
 import type { GitInfo, Lane, Session, SideGlance, Suggestions, Todo } from '../types';
-import { Chip, cx, driftWords, HarnessChip, Icon, LaneGlyph, PrChip, Rich, Row, SaidText, selects, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
+import { Chip, cx, Drift, HarnessChip, Icon, PrChip, Rich, Row, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
 import type { DragProps } from './useRowDrag';
 import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { HelpersCard, type HelperActions } from './HelpersCard';
@@ -25,43 +25,10 @@ import { PreviewChip } from './PreviewBits';
 import { TodoChips } from './TodoBits';
 import { cmd } from '../platform';
 
-interface LaneRowProps {
-  row: WorktreeRow;
-  now: number;
-  /** The selected item: one of the row's lines, or the worktree when it has none. */
-  selectedKey: string | null;
-  /** Picked whole together with other worktrees (picks.ts). */
-  picked?: boolean;
-  /** The element id of an item, for the list's active descendant. */
-  domId: (key: string) => string;
-  /** A press on one of its items: alone, or with ⌘ or ⇧ held, picking the worktree with others. */
-  onSelect: (key: string, how: SelectHow) => void;
-  /** Double-click on the worktree: opens its most recent session. */
-  onOpen: (lane: Lane) => void;
-  /** Opens one session where it lives: a click on its chip, or a double-click on its line. */
-  onOpenTarget: (lane: Lane, targetId: string) => void;
-  pinned?: boolean;
-  /** Right-click on the worktree: its menu (open, pin, copy…). */
-  onContextMenu?: () => void;
-  /** Right-click on one of its agents: the session's menu. */
-  onAgentMenu?: (session: Session) => void;
-  /** Right-click on its PR: the PR's menu (open it, copy its link…). */
-  onPrMenu?: () => void;
-  /** A click on its PR: shows it in PRs. */
-  onPrShow?: () => void;
-  /** A double-click on its PR: opens it on GitHub. */
-  onPrOpen?: () => void;
-  /** Dragging the row (useRowDrag.tsx): among the pinned ones, or out of the window. */
-  drag?: DragProps;
-  /** Todos a session is linked to, for its line. */
-  todosFor?: (sessionKey: string) => Todo[] | undefined;
-  onShowTodo?: (todo: Todo) => void;
-}
-
 /** `web · billing`: the repo, and the branch when the worktree's name doesn't already say it. */
 function laneSub(lane: Lane): { sub: string; branch: string | null } {
   const branch = branchLabel(lane);
-  return { branch, sub: branch && branch !== worktreeName(lane) ? `${lane.repo} · ${middleTruncate(branch, 26)}` : lane.repo };
+  return { branch, sub: branch && branch !== worktreeName(lane) ? `${lane.repo} · ${middleTruncate(branch, 40)}` : lane.repo };
 }
 
 /** A worktree on another of your devices, a device that's away included: its rows are dimmed. */
@@ -73,157 +40,93 @@ function away(lane: Lane): boolean {
 function Diff({ git: g }: { git: GitInfo | null }) {
   if (!g || ((g.added ?? 0) === 0 && (g.removed ?? 0) === 0 && g.dirty === 0)) return null;
   return (
-    <span className="ca-diff">
+    <span className="ca-diff" title={g.added != null ? `Lines added and removed against ${g.base ?? 'the default branch'}, uncommitted changes included` : undefined}>
       {g.added != null && ((g.added ?? 0) > 0 || (g.removed ?? 0) > 0) ? `+${g.added.toLocaleString('en-US')} −${(g.removed ?? 0).toLocaleString('en-US')}` : ''}
       {g.dirty > 0 ? <span title={`${g.dirty} uncommitted files`}> ●</span> : null}
     </span>
   );
 }
 
-/** A count in at most five characters with its sign: `987`, `5.4k`, `12k`. Tooltips have it
- *  exactly. */
-function shortCount(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
-  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
-  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-}
-
-/**
- * Where the worktree stands against the default branch, in a column beside its name: lines added
- * and removed (with a dot for uncommitted files) over commits ahead and behind. What the branch
- * adds lines up in one column and what it lacks in the next, so rows read as a table.
- */
-function DeltaSeg({ git: g, onMouseDown, onDoubleClick }: { git: GitInfo | null; onMouseDown?: (e: ReactMouseEvent) => void; onDoubleClick?: () => void }) {
-  const ahead = g?.baseAhead ?? 0;
-  const behind = g?.baseBehind ?? 0;
-  const added = g?.added ?? 0;
-  const removed = g?.removed ?? 0;
-  const dirty = g?.dirty ?? 0;
-  const lines = added > 0 || removed > 0;
-  const words = g
-    ? [
-        lines ? `${count(added, 'line')} added and ${removed.toLocaleString('en-US')} removed against ${g.base ?? 'the default branch'}, uncommitted changes included` : null,
-        dirty > 0 ? `${count(dirty, 'uncommitted file')}` : null,
-        driftWords(g),
-      ].filter(Boolean)
-    : [];
+/** Whether a reusable worktree can take new work, on its heading: Free while it holds none,
+ *  Landed once its work merged, else Reusable; its tooltip says what it holds now. Free is green,
+ *  as an app that runs is. A worktree kept for one piece of work has none. */
+export function ReuseChip({ lane }: { lane: Lane }) {
+  if (!lane.reuse) return null;
+  const word = lane.reuse === 'free' ? 'Free' : lane.reuse === 'landed' ? 'Landed' : 'Reusable';
   return (
-    <div className="ca-seg ca-seg-call ca-seg-delta" title={words.length ? `${words.join('. ')}.` : undefined} onMouseDown={onMouseDown} onDoubleClick={onDoubleClick}>
-      {words.length > 0 && (
-        <>
-          <span className="ca-delta-row">
-            <span className="is-gain">{added > 0 ? `+${shortCount(added)}` : ''}</span>
-            <span>{removed > 0 ? `−${shortCount(removed)}` : ''}</span>
-            <span>{dirty > 0 ? '●' : ''}</span>
-          </span>
-          <span className="ca-delta-row">
-            <span className="is-gain">{ahead > 0 ? `↑${shortCount(ahead)}` : ''}</span>
-            <span>{behind > 0 ? `↓${shortCount(behind)}` : ''}</span>
-            <span />
-          </span>
-        </>
-      )}
-    </div>
+    <Chip className={cx('ca-reusechip', lane.reuse === 'free' && 'is-ready')} title={`Reusable: it takes one piece of work after another. ${REUSE_WORDS[lane.reuse]}`}>
+      <Icon name="repeat" size={12} />
+      {word}
+    </Chip>
   );
 }
 
-interface CellProps {
+interface WorktreeHeadProps {
   lane: Lane;
   now: number;
-  /** Gives the name a tooltip of its own, where the column has none. */
-  titled: boolean;
+  domId: string;
+  selected: boolean;
+  /** Picked together with other worktrees (picks.ts). */
+  picked: boolean;
+  pinned: boolean;
+  /** A press: alone, or with ⌘ or ⇧ held, picking it with other worktrees. */
+  onSelect: (how: SelectHow) => void;
+  /** Double-click: opens its most recent session. */
+  onOpen: () => void;
+  /** Opens one of its places: its app, from its chip. */
   onOpenTarget: (lane: Lane, targetId: string) => void;
+  /** Right-click: the worktree's menu. */
+  onMenu?: () => void;
+  /** Right-click on its PR: the PR's menu. */
   onPrMenu?: () => void;
+  /** A click on its PR: shows it in Codealong. */
   onPrShow?: () => void;
+  /** A double-click on its PR: opens it on GitHub. */
   onPrOpen?: () => void;
+  /** Dragging it among the pinned groups, or out of the window. */
+  drag?: DragProps;
 }
 
 /**
- * The worktree's column, with what belongs to the worktree at the end of each of its lines: its
- * name, then finished as Jev reads it and its app (a globe, green while it runs); its repo and
- * branch, after its reuse mark (green when new work can start there), then its PR. Each line is laid from its end,
- * so apps and PRs line up down the board. Short of room, the name keeps its line and the chips
- * beside it give way, the app last; the repo and branch give way before the PR does.
+ * A worktree heading its sessions, on one line: its name, then where it is (its device, its repo
+ * and branch), whether new work can start there, Jev's read, its app and its PR; at the end where
+ * it stands against the default branch, lines then commits. Short of room the repo and branch
+ * give way first, then the chips from the end. Selected, its panel shows; a double-click opens its
+ * most recent session, as its sessions' rows open theirs.
  */
-function WorktreeCell({ lane, now, titled, onOpenTarget, onPrMenu, onPrShow, onPrOpen }: CellProps) {
+function WorktreeHeadView({ lane, now, domId, selected, picked, pinned, onSelect, onOpen, onOpenTarget, onMenu, onPrMenu, onPrShow, onPrOpen, drag }: WorktreeHeadProps) {
   const { sub, branch } = laneSub(lane);
   return (
-    <>
-      <span className="ca-lane-cellline">
-        <span className="ca-lane-call" title={titled ? (lane.origin === 'main' ? `The main worktree of ${lane.repo}` : lane.callsign) : undefined}>
-          {worktreeName(lane)}
-        </span>
-        <span className="ca-chips ca-lane-own">
-          <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} inRow bare />
-          <LooksFinished lane={lane} />
-        </span>
-      </span>
-      <span className="ca-lane-cellline">
-        <span className="ca-lane-sub" title={branch ?? lane.path}>
-          {lane.device && <DeviceBadge device={lane.device} now={now} />}
-          <ReuseMark lane={lane} />
-          {sub}
-        </span>
-        <span className="ca-chips ca-lane-own">{lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />}</span>
-      </span>
-    </>
-  );
-}
-
-/** A reusable worktree's mark, before its repo and branch: it takes one piece of work after
- *  another. Green while it's ready for new work, as an app that runs is; its tooltip says what it
- *  holds now. */
-export function ReuseMark({ lane }: { lane: Lane }) {
-  if (!lane.reuse) return null;
-  return (
-    <span className={cx('ca-reusemark', lane.reuse === 'free' && 'is-ready')} title={`Reusable. ${REUSE_WORDS[lane.reuse]}`}>
-      <Icon name="repeat" size={11} />
-    </span>
-  );
-}
-
-function LaneRowView(props: LaneRowProps) {
-  return props.row.lines.length > 0 ? <GroupRow {...props} /> : <EmptyRow {...props} />;
-}
-
-// `domId` and `todosFor` answer while the row renders, so they're compared as values.
-export const LaneRow = memoRow(LaneRowView, ['domId', 'todosFor']);
-
-/** A worktree no agent has worked in: on the right, only that it has none, and its age. You
- *  select it whole. */
-function EmptyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag }: LaneRowProps) {
-  const { lane } = row;
-  const selected = picked || selectedKey === lane.id;
-  return (
     <Row
-      id={domId(lane.id)}
-      selected={selected}
-      className={cx('ca-lane', 'is-worktree', 'is-empty', `is-${lane.bay}`, pinned && 'is-pinned', away(lane) && 'is-away')}
+      id={domId}
+      selected={selected || picked}
+      className={cx('ca-lane', 'ca-grouphead', 'is-worktree-head', `is-${lane.bay}`, pinned && 'is-pinned', away(lane) && 'is-away')}
       drag={drag}
-      onSelect={(e) => onSelect(lane.id, selectHow(e))}
+      onSelect={(e) => onSelect(selectHow(e))}
       onOpen={(e) => {
-        if (!cmd(e) && !e.shiftKey) onOpen(lane);
+        if (!cmd(e) && !e.shiftKey) onOpen();
       }}
-      onMenu={onContextMenu}
+      onMenu={onMenu}
     >
-      <div className="ca-seg ca-seg-glyph">
-        <LaneGlyph lane={lane} />
+      <div className="ca-seg ca-seg-glyph" aria-hidden="true">
+        <Icon name="folder" size={14} />
       </div>
-      <div className="ca-seg ca-seg-call">
-        <WorktreeCell lane={lane} now={now} titled onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrShow={onPrShow} onPrOpen={onPrOpen} />
-      </div>
-      <DeltaSeg git={lane.git} />
-      <div className="ca-seg-lines">
-        <div className="ca-agentline">
-          <span className="ca-agentline-glyph" />
-          <span className="ca-agentline-main">
-            <span className="ca-none" title={lane.sessions.length ? `Its ${count(lane.sessions.length, 'earlier session')}, archived or from before it last took new work, are in its panel.` : undefined}>
-              No agents
-            </span>
+      <div className="ca-seg ca-seg-main" title={`${lane.path}. Double-click to open its most recent session.`}>
+        <div className="ca-grouphead-line">
+          <span className="ca-grouphead-name">{worktreeName(lane)}</span>
+          <span className="ca-lane-sub ca-grouphead-sub" title={branch ?? lane.path}>
+            {lane.device && <DeviceBadge device={lane.device} now={now} />}
+            {sub}
           </span>
-          <span className="ca-agentline-age" title={lane.lastActivity ? `Last active ${absolute(lane.lastActivity)}` : undefined}>
-            {lane.lastActivity ? ago(lane.lastActivity, now) : ''}
+          <span className="ca-chips ca-grouphead-chips">
+            <ReuseChip lane={lane} />
+            <LooksFinished lane={lane} />
+            <PreviewChip preview={lane.preview} now={now} onOpen={() => onOpenTarget(lane, 'l|preview')} inRow bare />
+            {lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />}
+          </span>
+          <span className="ca-grouphead-end">
+            <Diff git={lane.git} />
+            <Drift git={lane.git} />
           </span>
         </div>
       </div>
@@ -231,59 +134,53 @@ function EmptyRow({ row, now, selectedKey, picked = false, domId, onSelect, onOp
   );
 }
 
-/**
- * A worktree with agents: the worktree once on the left, and a line for each agent, which you
- * select, open and right-click like a row of its own.
- */
-function GroupRow({ row, now, selectedKey, picked = false, domId, onSelect, onOpen, onOpenTarget, pinned, onContextMenu, onAgentMenu, onPrMenu, onPrShow, onPrOpen, drag, todosFor, onShowTodo }: LaneRowProps) {
-  const { lane, lines } = row;
-  // Picked, the worktree is selected whole: each of its lines.
-  const isSelected = (key: string) => picked || key === selectedKey;
-  const hasSelection = lines.some((a) => isSelected(a.key));
-  // The worktree's own part selects its first line; with ⌘ or ⇧ it picks the worktree.
-  const pressFirst = (e: ReactMouseEvent) => {
-    if (selects(e)) onSelect(lines[0].key, selectHow(e));
-  };
+export const WorktreeHead = memoRow(WorktreeHeadView);
+
+/** A repo heading its sessions: its name, and its slug on GitHub where that says more. It isn't a
+ *  row to select (there's no repo panel), but it has a menu and is pinned and dragged as a
+ *  worktree's heading is. */
+function RepoHeadView({ lane, pinned, onMenu, drag }: { lane: Lane; pinned: boolean; onMenu?: () => void; drag?: DragProps }) {
+  const slug = lane.repoSlugNow ?? lane.repoSlug;
   return (
-    <Row
-      role="group"
-      label={`${lane.callsign}, ${count(lines.length, 'agent')}`}
-      className={cx('ca-lane', 'is-worktree', 'is-group', `is-${lane.bay}`, hasSelection && 'has-selection', picked && 'is-picked', pinned && 'is-pinned', away(lane) && 'is-away')}
-      drag={drag}
-      onMenu={onContextMenu}
-    >
-      <div className="ca-seg ca-seg-glyph" onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)}>
-        <LaneGlyph lane={lane} />
+    <Row role="heading" level={4} className={cx('ca-lane', 'ca-grouphead', 'is-repo-head', pinned && 'is-pinned')} drag={drag} onMenu={onMenu}>
+      <div className="ca-seg ca-seg-glyph" aria-hidden="true">
+        <Icon name="book" size={14} />
       </div>
-      <div className="ca-seg ca-seg-call" onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)} title={`${lane.path}. Double-click to open its most recent session.`}>
-        <WorktreeCell lane={lane} now={now} titled={false} onOpenTarget={onOpenTarget} onPrMenu={onPrMenu} onPrShow={onPrShow} onPrOpen={onPrOpen} />
-      </div>
-      <DeltaSeg git={lane.git} onMouseDown={pressFirst} onDoubleClick={() => onOpen(lane)} />
-      <div className="ca-seg-lines">
-        {lines.map((a) => (
-          <AgentLine
-            key={a.key}
-            item={a}
-            now={now}
-            domId={domId(a.key)}
-            selected={isSelected(a.key)}
-            onSelect={(how) => onSelect(a.key, how)}
-            onOpen={() => onOpenTarget(lane, a.session.openTarget)}
-            onContextMenu={onAgentMenu ? () => onAgentMenu(a.session) : undefined}
-            todos={todosFor?.(a.session.key)}
-            onShowTodo={onShowTodo}
-          />
-        ))}
+      <div className="ca-seg ca-seg-main" title={slug ?? lane.repo}>
+        <div className="ca-grouphead-line">
+          <span className="ca-grouphead-name">{lane.repo}</span>
+          {slug && slug !== lane.repo && <span className="ca-lane-sub ca-grouphead-sub">{slug}</span>}
+        </div>
       </div>
     </Row>
+  );
+}
+
+export const RepoHead = memoRow(RepoHeadView);
+
+/** The end of a group with sessions folded away (SessionsView.tsx `GROUP_SHOWN`): how many, and a
+ *  click lists them all; opened, a click folds them again. Like `FoldRow`, it isn't a row to
+ *  select. */
+export function GroupFoldRow({ folded, opened, onToggle }: { folded: number; opened: boolean; onToggle: () => void }) {
+  return (
+    <div className="ca-lane is-item is-agent is-slim is-fold ca-groupfold" role="presentation">
+      <div className="ca-seg ca-seg-glyph" aria-hidden="true">
+        <Icon name={opened ? 'chevron-up' : 'chevron-down'} size={12} />
+      </div>
+      <div className="ca-seg ca-seg-main">
+        <button type="button" className="ca-linkbtn ca-foldrow-btn" onClick={onToggle}>
+          {opened ? 'Show fewer' : `Show ${folded} more`}
+        </button>
+      </div>
+    </div>
   );
 }
 
 /**
  * A session's line: its emblem and title first, then a label for what it waits on you for (or at
  * the line's end with the other chips when `flag` is false), then what it's doing or said last,
- * which gives way first when the line is short. A session another worktree has, on this one's row,
- * says what it did here first: made it, or worked in it.
+ * which gives way first when the line is short. A session another worktree has, listed with this
+ * one, says what it did here first: made it, or worked in it.
  */
 function SessionText({ s, now, flag = true }: { s: Session; now: number; flag?: boolean }) {
   return (
@@ -306,16 +203,16 @@ function SessionText({ s, now, flag = true }: { s: Session; now: number; flag?: 
 interface SessionLinesProps {
   s: Session;
   now: number;
-  /** Where it is, first on the second line: its worktree in Sessions; nothing on its worktree's row. */
+  /** Where it is, first on the second line: its worktree, unless its group's heading says it. */
   where?: ReactNode;
-  /** What shows at the second line's end: in Sessions, its worktree's PR and diff. */
+  /** What shows at the second line's end: its worktree's PR and diff. */
   end?: ReactNode;
   todos?: Todo[];
   onShowTodo?: (todo: Todo) => void;
   /** Opens it where it lives: a double-click on its account's chip. */
   onOpen: () => void;
-  /** The helpers its agent started, in Sessions, and whether all of them are listed under it,
-   *  which `onToggleHelpers` turns on and off; what their chip's card does with one. */
+  /** The helpers its agent started, and whether all of them are listed under it, which
+   *  `onToggleHelpers` turns on and off; what their chip's card does with one. */
   helpers?: HelperCount;
   helpersShown?: boolean;
   onToggleHelpers?: () => void;
@@ -365,48 +262,6 @@ function SessionLines({ s, now, where, end, todos, onShowTodo, onOpen, helpers, 
         {end && <span className="ca-lane-right">{end}</span>}
       </div>
     </>
-  );
-}
-
-interface AgentLineProps {
-  item: AgentItem;
-  now: number;
-  domId: string;
-  selected: boolean;
-  onSelect: (how: SelectHow) => void;
-  onOpen: () => void;
-  onContextMenu?: () => void;
-  /** Todos the agent's session is linked to. */
-  todos?: Todo[];
-  onShowTodo?: (todo: Todo) => void;
-}
-
-/** One agent on its worktree's row, on the two lines Sessions gives it (`SessionLines`) less its
- *  worktree, which the row has on its left: its status, its title and what it's doing, then its
- *  todo, Jev's read and its account's chip (double-click to open); and its age. */
-function AgentLine({ item, now, domId, selected, onSelect, onOpen, onContextMenu, todos, onShowTodo }: AgentLineProps) {
-  const s = item.session;
-  return (
-    <Row
-      id={domId}
-      selected={selected}
-      className={cx('ca-agentline', `is-${s.status === 'error' ? 'needs' : s.status}`)}
-      onSelect={(e) => onSelect(selectHow(e))}
-      onOpen={(e) => {
-        if (!cmd(e) && !e.shiftKey) onOpen();
-      }}
-      onMenu={onContextMenu}
-    >
-      <span className="ca-agentline-glyph">
-        <SessionGlyph s={s} size={10} />
-      </span>
-      <span className="ca-agentline-main">
-        <SessionLines s={s} now={now} todos={todos} onShowTodo={onShowTodo} onOpen={onOpen} />
-      </span>
-      <span className="ca-agentline-age" title={`Last active ${absolute(s.lastActivity)}. You last sent it a prompt ${agoPhrase(s.lastPromptAt, now)}, which sets its place in the list.`}>
-        {ago(s.lastActivity, now)}
-      </span>
-    </Row>
   );
 }
 
@@ -461,6 +316,9 @@ interface AgentRowProps {
   nested?: boolean;
   /** A nested helper in another worktree than its session's, which its row names. */
   elsewhere?: boolean;
+  /** Listed under its worktree's heading, which says the worktree, its PR and its diff, so the
+   *  row doesn't. */
+  inWorktree?: boolean;
   /** What a search found it by when that's what was said in it (boardLists.ts `saidLinesOf`). */
   said?: SaidLine;
 }
@@ -629,13 +487,15 @@ export function SuggestedChip({ suggestions: g }: { suggestions: Suggestions | u
  * then its status, worktree and PR chips at the line's end, the worktree giving way before the
  * status chips. A helper under the session it works for is on one line either way, and says only
  * what the session's row doesn't: its worktree only when it works in another, and no PR or diff.
- * A search that found it by what was said in it adds the line that has the words, under the
- * first.
+ * Under its worktree's heading (`inWorktree`) it leaves those to the heading too. A search that
+ * found it by what was said in it adds the line that has the words, under the first.
  */
-function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere, said }: AgentRowProps) {
+function AgentRowView({ lane, session: s, domId, now, age, slim = false, selected, onSelect, onOpen, pinned, onContextMenu, onPrMenu, onPrShow, onPrOpen, drag, todos, onShowTodo, helpers, helpersShown, onToggleHelpers, helperActions, runs, runsShown, onToggleRuns, sides, sidesShown, onToggleSides, sideActions, nested, elsewhere, inWorktree = false, said }: AgentRowProps) {
   const started = age === 'started';
   const oneLine = slim || nested;
-  const pr = lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />;
+  // Where it works, said where neither its session's row nor its heading says it.
+  const where = nested ? !!elsewhere : !inWorktree;
+  const pr = !nested && !inWorktree && lane.pr && <PrChip pr={lane.pr} compact onMenu={onPrMenu} onShow={onPrShow} onOpen={onPrOpen} inRow />;
   return (
     <Row
       id={domId}
@@ -667,9 +527,9 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
               <QuietChip quiet={s.quiet} />
               <SuggestedChip suggestions={s.suggestions} />
               <InsightChips session={s} />
-              {(!nested || elsewhere) && <WorktreeChip lane={lane} short />}
+              {where && <WorktreeChip lane={lane} short />}
             </span>
-            {!nested && pr}
+            {pr}
           </div>
           {said && <SaidText said={said} className="ca-agentrow-said" />}
         </div>
@@ -678,12 +538,14 @@ function AgentRowView({ lane, session: s, domId, now, age, slim = false, selecte
           <SessionLines
             s={s}
             now={now}
-            where={<WorktreeChip lane={lane} />}
+            where={where && <WorktreeChip lane={lane} />}
             end={
-              <>
-                {pr}
-                <Diff git={lane.git} />
-              </>
+              !inWorktree && (
+                <>
+                  {pr}
+                  <Diff git={lane.git} />
+                </>
+              )
             }
             todos={todos}
             onShowTodo={onShowTodo}

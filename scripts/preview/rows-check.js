@@ -1,15 +1,15 @@
 // Checks a board list across pushes, now that unchanged rows skip rendering (memoRow.ts). It
-// works on a session's row: an agent's line on its worktree's row in Worktrees, a row of its own
-// in Sessions, either way with the id `row-<lane id>::<session key>`, where a worktree without
-// agent lines has its lane id alone. A push that changes the session shows on its row and renders
-// that worktree's rows again while every other row, in the list and the sidebar, skips rendering,
+// works on a session's row in Sessions, with the id `row-<lane id>::<session key>`, and grouped by
+// worktree under its worktree's heading, whose id is `row-<lane id>`. A push that changes the
+// session shows on its row and renders that worktree's rows again (its heading too) while every
+// other row, in the list and the sidebar, skips rendering,
 // another worktree's that the check gave an archived session included; a todo linked later
 // appears (Sessions on two lines, where a row shows it); a double-click opens where the latest
 // push says the session lives; the arrow keys move the selection (in Sessions once Escape has
 // taken the keyboard from the box a click puts it in); and a hidden window catches up when it's
 // shown.
-//   PREVIEW_WAIT=120000 scripts/preview.sh worktrees '' scripts/preview/rows-check.js
 //   PREVIEW_WAIT=120000 scripts/preview.sh sessions '' scripts/preview/rows-check.js
+//   PREVIEW_WAIT=120000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/rows-check.js
 (function () {
   // Sessions on two lines, where a session's row shows its todo.
   localStorage.setItem('codealong.sessionRows', 'two');
@@ -31,11 +31,14 @@
       var f = stack.pop();
       var name = typeof f.type === 'function' ? String(f.type.displayName || '') : '';
       if (name.indexOf('memoRow(') === 0) {
-        // The sidebar's rows have lane ids for keys too, so a row is known by its kind and key.
+        // The sidebar's rows have lane ids for keys too, so a row is known by its kind and key. A
+        // worktree's heading is keyed by its group around it, so it's known by its lane's id.
         if (!kinds.has(f.type)) kinds.set(f.type, kinds.size);
-        var id = kinds.get(f.type) + ' ' + f.key;
+        var p = f.memoizedProps || {};
+        var key = f.key != null ? f.key : p.domId ? String(p.domId).replace(/^row-/, '') : p.lane ? p.lane.id : null;
+        var id = kinds.get(f.type) + ' ' + key;
         var r = rows.get(id);
-        if (!r) rows.set(id, (r = { key: f.key, props: null, fiber: null, count: 0 }));
+        if (!r) rows.set(id, (r = { key: key, props: null, fiber: null, count: 0 }));
         // memoRow's row renders a memo of the component, and the memo the component itself.
         var inner = f.child && f.child.child;
         if (inner && inner.memoizedProps !== r.props) {
@@ -98,7 +101,8 @@
   var laneIn = function (b, id) { return b.lanes.find(function (l) { return l.id === id; }); };
   var options = function () { return document.querySelectorAll('.ca-board-list [role="option"][id^="row-"]'); };
   // The first session row listed. A row's id is `row-` and its key, which for a session is
-  // `<lane id>::<session key>` (worktreeRow in lanes.ts, the Sessions view's items in App.tsx).
+  // `<lane id>::<session key>` (boardLists.ts `sessionItemOf`), and for a worktree's heading its
+  // lane id.
   var pickRow = function () {
     var keys = {};
     base.lanes.forEach(function (l) {
@@ -111,8 +115,8 @@
     }
     return null;
   };
-  // Worktrees lists a session only while it needs you, works or has news. With none doing any of
-  // that, the newest session of the first worktree listed is pushed as unread, which gives it a line.
+  // With no session listed (a filter could leave none), the newest session of the first worktree
+  // listed is pushed as unread, which lists it.
   var made = false;
   var makeRow = function () {
     var all = options();
@@ -268,9 +272,14 @@
     // A main worktree's chip says its repo's name rather than its callsign (primitives.tsx
     // WorktreeChip), so both change.
     push(function (b) { var l = laneIn(b, pick.lane); l.callsign = 'Seen when shown'; l.repo = 'Seen when shown'; });
-    // The worktree's name shows beside its agents' lines in Worktrees and in a chip on the row in
-    // Sessions: either way inside the row's `.ca-lane`.
-    var shows = function () { var el = row(); var lane = el && el.closest('.ca-lane'); return !!lane && lane.textContent.indexOf('Seen when shown') >= 0; };
+    // The worktree's name shows in a chip on the session's row, or grouped by worktree on the
+    // worktree's heading.
+    var shows = function () {
+      var el = row();
+      var lane = el && el.closest('.ca-lane');
+      var head = document.getElementById('row-' + pick.lane);
+      return (!!lane && lane.textContent.indexOf('Seen when shown') >= 0) || (!!head && head.textContent.indexOf('Seen when shown') >= 0);
+    };
     return wait(400).then(function () {
       check('held while hidden', document.body.textContent.indexOf('Seen when shown') < 0);
       hidden = false;

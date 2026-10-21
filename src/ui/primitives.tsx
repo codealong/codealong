@@ -812,9 +812,10 @@ export function headerMenu(show: (() => void) | undefined): ((e: Pick<ReactMouse
 
 interface RowProps {
   id?: string;
-  /** An `option` (the default) is a row the list selects. A `group` holds rows of its own (a
-   *  worktree's agents, each a line): it isn't selected itself, and `label` says what it is. */
-  role?: 'option' | 'group';
+  /** An `option` (the default) is a row the list selects. A `heading` heads the rows after it (a
+   *  repo's sessions, in Sessions grouped by repo) at `level`: it isn't selected itself. */
+  role?: 'option' | 'heading';
+  level?: number;
   label?: string;
   selected?: boolean;
   className?: string;
@@ -833,14 +834,16 @@ interface RowProps {
 
 /** A list's row: every list's rows are this, so a press, a double-click, a right-click and a
  *  drag mean the same in each. What's in the row, and its classes, are the list's own. */
-export function Row({ id, role = 'option', label, selected = false, className, drag, onSelect, onOpen, onMenu, children }: RowProps) {
+export function Row({ id, role = 'option', level, label, selected = false, className, drag, onSelect, onOpen, onMenu, children }: RowProps) {
   return (
     <div
       id={id}
       role={role}
+      aria-level={level}
       aria-label={label}
       aria-selected={role === 'option' ? selected : undefined}
       className={cx(className, selected && 'is-selected', drag?.extraClass)}
+      data-drag-of={drag?.dragOf}
       data-pin-index={drag?.pinIndex}
       onPointerDown={drag?.onPointerDown}
       onMouseDown={onSelect && ((e) => selects(e) && onSelect(e))}

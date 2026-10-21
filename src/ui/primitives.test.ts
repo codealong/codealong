@@ -243,14 +243,16 @@ describe('Row', () => {
     expect(html({ className: 'ca-lane', selected: true })).toBe('<div role="option" aria-selected="true" class="ca-lane is-selected">x</div>');
   });
 
-  it('is a named group where it holds rows of its own', () => {
-    expect(html({ role: 'group', label: 'main, 2 agents', className: 'ca-lane is-group' })).toBe('<div role="group" aria-label="main, 2 agents" class="ca-lane is-group">x</div>');
+  it('is a heading at its level where it heads the rows after it, and isn’t selected', () => {
+    expect(html({ role: 'heading', level: 4, className: 'ca-lane ca-grouphead' })).toBe('<div role="heading" aria-level="4" class="ca-lane ca-grouphead">x</div>');
   });
 
   it('carries its place and a grip when it can be dragged', () => {
-    const out = html({ className: 'ca-lane', drag: { pinIndex: 1, onPointerDown: () => {}, extraClass: 'is-drop-before' } });
-    expect(out).toMatch(/^<div role="option" aria-selected="false" class="ca-lane is-drop-before" data-pin-index="1"><span class="ca-grip" aria-hidden="true"><svg/);
-    expect(html({ className: 'ca-lane', drag: { onPointerDown: () => {} } })).not.toContain('data-pin-index');
+    // Which drag it's one of, so two in one list (Sessions' sessions and its groups' headings)
+    // each look only at their own rows.
+    const out = html({ className: 'ca-lane', drag: { dragOf: 'drag2', pinIndex: 1, onPointerDown: () => {}, extraClass: 'is-drop-before' } });
+    expect(out).toMatch(/^<div role="option" aria-selected="false" class="ca-lane is-drop-before" data-drag-of="drag2" data-pin-index="1"><span class="ca-grip" aria-hidden="true"><svg/);
+    expect(html({ className: 'ca-lane', drag: { dragOf: 'drag2', onPointerDown: () => {} } })).not.toContain('data-pin-index');
   });
 });
 

@@ -11,7 +11,7 @@
   var count = function () { return window.__menu().length + ' items'; };
   var right = function (el) { rightClick(el, { clientX: 40, clientY: 40 }); };
   var head = function () { return document.querySelector('.ca-sessinsp .ca-sessinsp-head'); };
-  var rows = function () { return document.querySelectorAll('.ca-lane.is-agent, .ca-agentline'); };
+  var rows = function () { return document.querySelectorAll('.ca-lane.is-agent'); };
   var session = '';
 
   say('header menu check: waiting for a session');

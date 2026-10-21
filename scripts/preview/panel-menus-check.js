@@ -1,14 +1,16 @@
 // Checks a right-click on the header of each panel of the main window that isn't a session's
-// (headerMenu in primitives.tsx; a session's is header-menu-check.js): a worktree's, a PR's and a
-// todo's give the menu their row gives in the list, at the pointer, and so does a todo's title
+// (headerMenu in primitives.tsx; a session's is header-menu-check.js): a worktree's (its heading's
+// panel in Sessions grouped by worktree), a PR's and a todo's give the menu their row gives in the
+// list, at the pointer, and so does a todo's title
 // you aren't typing in, which then lets go of the keyboard the right-click gave it, while one
 // you're typing in keeps its own menu. Several sessions picked together give the menu a picked
 // row gives, the one their ⋯ drops.
-//   PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh worktrees '' scripts/preview/panel-menus-check.js
+//   PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh sessions '' scripts/preview/panel-menus-check.js
 // A step is noted as skipped where this Mac has no PR, or fewer than two sessions.
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
-  localStorage.setItem('codealong.view', 'worktrees');
+  localStorage.setItem('codealong.view', 'sessions');
+  localStorage.setItem('codealong.sessionGroup', 'worktree');
   localStorage.removeItem('codealong.age');
 
   var press = function (el, init) { el.dispatchEvent(new MouseEvent('mousedown', Object.assign({ bubbles: true, cancelable: true, button: 0 }, init))); };
@@ -50,7 +52,7 @@
   };
 
   say('panel menus check: waiting for the board');
-  until(function () { return q('.ca-lane.is-worktree .ca-seg-call') || q('.ca-lane.is-worktree'); }, 20000, 'a worktree')
+  until(function () { return q('.ca-grouphead.is-worktree-head'); }, 20000, 'a worktree’s heading')
     .then(function (row) {
       press(row);
       return same('worktree', row, function () { return q('.ca-insp:not(.ca-sessinsp) header .ca-insp-call'); });
@@ -95,7 +97,7 @@
       return view('Sessions');
     })
     .then(function () {
-      var rows = all('.ca-sessionlist .ca-lane.is-agent');
+      var rows = all('.ca-sessionlist .ca-lane.is-agent:not(.is-fold)');
       if (rows.length < 2) return void note('picked sessions skipped: fewer than two');
       press(rows[0]);
       press(rows[1], { metaKey: true });

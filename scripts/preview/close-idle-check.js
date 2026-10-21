@@ -4,7 +4,7 @@
 // be archived only, and is remembered; the button says what it will do to what's ticked, the
 // engine is asked to close the ticked ones and archive them, and the toast counts what was
 // closed, stopped and archived.
-//   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/close-idle-check.js
+//   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/close-idle-check.js
 (function () {
   localStorage.removeItem('codealong.closeIdle.archive');
   var now = Date.now();

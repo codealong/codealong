@@ -1,18 +1,19 @@
 // Checks dragging rows in the lists (useRowDrag.tsx): a row dragged up among the pinned ones is
 // pinned there, a pinned one dragged down to the list is unpinned, the drag tells the engine what
 // its card would be (drag_to_desktop, which pins it once the pointer leaves the window), and a
-// pinned row let go on the desktop leaves the list's pins. Todos reorder as before and go to the
-// desktop too.
+// pinned row let go on the desktop leaves the list's pins. Grouped by worktree, a worktree's
+// heading is dragged the same way among the pinned worktrees. Todos reorder as before and go to
+// the desktop too.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/drag-check.js
-//   PREVIEW_WAIT=60000 scripts/preview.sh worktrees '' scripts/preview/drag-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_GROUP=worktree scripts/preview.sh sessions '' scripts/preview/drag-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh prs '' scripts/preview/drag-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/drag-check.js
-// Sessions, worktrees and PRs need three rows or more. The pins are the check's, whatever this
-// Mac has pinned.
+// Sessions, worktrees' headings and PRs need three rows or more. The pins are the check's, whatever
+// this Mac has pinned.
 (function () {
   // The pins the board comes with (as many as you keep) can push the rest of the list below the
-  // window, where a drop lands on the desktop, so the check starts from its own: in Sessions and
-  // Worktrees the shown project's latest session or worktree, so the first drop lands among pins
+  // window, where a drop lands on the desktop, so the check starts from its own: in Sessions, and
+  // grouped by worktree, the shown project's latest session and worktree, so the first drop lands among pins
   // and the last drag has a pinned row; in PRs none, so the first drop pins the first. This runs
   // before the app's script, so the first board the page reads has them.
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -35,7 +36,9 @@
   var mark = function () { from = window.__calls.length; };
   var calls = function (cmd) { return window.__calls.slice(from).filter(function (c) { return c[0] === cmd; }); };
   var last = function (cmd) { var c = calls(cmd); return c.length ? c[c.length - 1][1] : null; };
-  var view = localStorage.getItem('codealong.view') || 'worktrees';
+  var view = localStorage.getItem('codealong.view') || 'sessions';
+  // Sessions grouped by worktree drags the worktrees' headings.
+  if (view === 'sessions' && localStorage.getItem('codealong.sessionGroup') === 'worktree') view = 'worktrees';
   var pointer = function (target, type, x, y) {
     target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: 'mouse' }));
   };
@@ -68,7 +71,7 @@
       };
     }
     return {
-      rows: function () { return all('.ca-board-list > .ca-bayblock .ca-lane.is-worktree'); },
+      rows: function () { return all('.ca-sessionlist .ca-grouphead.is-worktree-head'); },
       key: null,
       save: 'set_pinned_worktrees', arg: 'ids', ref: 'worktree',
     };
@@ -129,11 +132,13 @@
         });
       })
       .then(function () {
-        // A pinned row dragged down to the list is unpinned.
+        // A pinned row dragged down to the list is unpinned: onto a row below the pins, or as far
+        // down the window as the list goes, where a long group puts the rows below it.
         var row = pinned()[0];
         var target = loose()[Math.min(2, loose().length - 1)];
+        var down = Math.min(mid(target).y, window.innerHeight - 10);
         mark();
-        drag(row, [{ y: mid(row).y + 10 }, { y: mid(target).y }], true);
+        drag(row, [{ y: mid(row).y + 10 }, { y: down }], true);
         return wait(50).then(function () {
           check('over the list a pinned row says Unpin', !!ghost() && /Unpin/.test(ghost().textContent), ghost() && ghost().textContent);
           check('with no line', !document.querySelector('.is-drop-before, .is-drop-after, .ca-dropline'));
@@ -146,7 +151,7 @@
           return wait(50);
         }).then(function () {
           check('and saying it is back shows it again', getComputedStyle(ghost()).display !== 'none' && /Unpin/.test(ghost().textContent));
-          pointer(window, 'pointerup', mid(row).x, mid(target).y);
+          pointer(window, 'pointerup', mid(row).x, down);
           return wait(50);
         }).then(function () {
           var s = saved();
@@ -251,7 +256,7 @@
     });
   };
 
-  say('drag check: waiting for the ' + view + ' view');
+  say('drag check: waiting for the ' + (view === 'worktrees' ? 'worktrees’ headings' : view + ' view'));
   (view === 'todo' ? todos() : pins().then(prMenu))
     .then(done)
     .catch(stopped);

@@ -1,6 +1,6 @@
 // Rows picked together in the main window's lists (⌘-click, ⇧-click, ⇧↑ ⇧↓, ⌘A; picks.ts):
-// sessions in Sessions, worktrees on the Worktrees board (each whole, whichever part of its row
-// is pressed) and PRs in PRs, each with what's done to all of them (menus.ts `sessionsActions`,
+// sessions in Sessions, worktrees by their headings in Sessions grouped by worktree, and PRs in
+// PRs, each with what's done to all of them (menus.ts `sessionsActions`,
 // `lanesActions`, `prsActions`) for their right-click menu, their panel (PickPanel.tsx) and the
 // keys (mainKeys.ts). The Todo view's picks, for starting one session on several todos, are its
 // own (useTodoView.ts).
@@ -9,7 +9,7 @@ import { useMemo } from 'react';
 import type { ListRow } from './boardLists';
 import { showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { count } from './format';
-import type { WorktreeRow } from './lanes';
+import type { LaneItem } from './lanes';
 import * as menus from './menus';
 import { usePicks, type SelectHow } from './picks';
 import type { Pins } from './pins';
@@ -27,9 +27,8 @@ export interface ListPicksInput {
   /** The row selected, as the window resolves it. */
   selected: ListRow | null;
   setSelectedKey: (key: string) => void;
+  /** Sessions' rows, top to bottom: sessions, and grouped by worktree, the worktrees' headings. */
   sessionRows: ListRow[];
-  /** The board's worktrees, top to bottom. */
-  worktreeRows: WorktreeRow[];
   prVisible: ListRow[];
   /** Sessions' Archived fold is open, so archived sessions stay listed. */
   showArchived: boolean;
@@ -72,13 +71,13 @@ export interface ListPicksKeys {
 }
 
 export function useListPicks(input: ListPicksInput) {
-  const { view, loading, selected, setSelectedKey, sessionRows, worktreeRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve, cleanUp } = input;
+  const { view, loading, selected, setSelectedKey, sessionRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve, cleanUp } = input;
   const sessionItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is SessionItem => r.kind === 'agent') : null), [view, loading, sessionRows]);
-  const laneItems = useMemo(() => (view === 'worktrees' && !loading ? worktreeRows : null), [view, loading, worktreeRows]);
+  const laneItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is LaneItem => r.kind === 'lane') : null), [view, loading, sessionRows]);
   const prItems = useMemo(() => (view === 'prs' && !loading ? prVisible.filter((r): r is PrRowItem => r.kind === 'pr') : null), [view, loading, prVisible]);
-  // A worktree is picked by its id, whichever of its lines is selected: picking one selects it,
-  // which selects its first line.
-  const selectedLane = selected && selected.kind !== 'pr' && selected.kind !== 'todo' ? selected.lane.id : null;
+  // Sessions and worktrees aren't picked together: a ⌘-click on a heading with a session selected
+  // starts a pick of worktrees.
+  const selectedLane = selected?.kind === 'lane' ? selected.key : null;
   const sessions = usePicks(sessionItems, selected?.key ?? null, setSelectedKey);
   const worktrees = usePicks(laneItems, selectedLane, setSelectedKey);
   const prs = usePicks(prItems, selected?.key ?? null, setSelectedKey);
@@ -106,7 +105,7 @@ export function useListPicks(input: ListPicksInput) {
       sessions.leave(new Set(rows.filter((r) => keys.includes(r.session.key)).map((r) => r.key)));
     },
   });
-  const lanesOf = (rows: WorktreeRow[]): menus.LanesCan => ({ report, keys: true, pin: pinItem(lanePins, rows.map((r) => r.lane.id), 'worktree'), cleanUp });
+  const lanesOf = (rows: LaneItem[]): menus.LanesCan => ({ report, keys: 'chords', pin: pinItem(lanePins, rows.map((r) => r.lane.id), 'worktree'), cleanUp });
   const prsOf = (rows: PrRowItem[]): menus.PrsCan => ({ report, keys: true, approve, pin: pinItem(prPins, rows.map((r) => r.pr.key), 'PR') });
   const lanes = worktrees.picked.map((r) => r.lane);
   const pickedPrs = prs.picked.map((r) => r.pr);
@@ -119,7 +118,7 @@ export function useListPicks(input: ListPicksInput) {
     actions: () => menus.sessionsActions(sessions.picked, sessionsOf(sessions.picked)),
     menu: (at) => showMenu(menus.sessionsMenu(sessions.picked, sessionsOf(sessions.picked)), at),
   };
-  const worktreePick: ListPick<WorktreeRow, menus.LanesActions> = {
+  const worktreePick: ListPick<LaneItem, menus.LanesActions> = {
     rows: worktrees.picked,
     keys: worktrees.keys,
     select: worktrees.select,
@@ -144,11 +143,12 @@ export function useListPicks(input: ListPicksInput) {
     if (to && i >= 0) select(to, 'range');
   };
   // The view's picks, as the keys go by them.
+  // In Sessions, the worktrees' while a heading is selected or they're picked, else the sessions'.
   const keys: ListPicksKeys | null =
-    view === 'sessions'
-      ? { count: sessions.picked.length, step: (dir) => stepIn(sessionItems, selected?.key ?? null, sessions.select, dir), all: sessions.all, clear: sessions.clear, actions: sessionPick.actions }
-      : view === 'worktrees'
-        ? { count: worktrees.picked.length, step: (dir) => stepIn(laneItems, selectedLane, worktrees.select, dir), all: worktrees.all, clear: worktrees.clear, actions: worktreePick.actions }
+    view === 'sessions' && (worktrees.picked.length > 0 || selectedLane !== null)
+      ? { count: worktrees.picked.length, step: (dir) => stepIn(laneItems, selectedLane, worktrees.select, dir), all: worktrees.all, clear: worktrees.clear, actions: worktreePick.actions }
+      : view === 'sessions'
+        ? { count: sessions.picked.length, step: (dir) => stepIn(sessionItems, selected?.key ?? null, sessions.select, dir), all: sessions.all, clear: sessions.clear, actions: sessionPick.actions }
         : view === 'prs'
           ? { count: prs.picked.length, step: (dir) => stepIn(prItems, selected?.key ?? null, prs.select, dir), all: prs.all, clear: prs.clear, actions: prPick.actions }
           : null;

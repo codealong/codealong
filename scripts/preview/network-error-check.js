@@ -57,7 +57,7 @@
       await until(function () { return key && rowOf(); }, 20000, 'no Claude Code session row to put a lost connection on');
       var text = rowOf();
       // Beside its title on two lines, in the chips at the line's end on one.
-      var row = text.closest('.ca-agentline, .ca-lane') || text.parentElement;
+      var row = text.closest('.ca-lane') || text.parentElement;
       var chips = all('.ca-insight', row).map(function (c) { return c.textContent; });
       var flag = all('.ca-insight', row).filter(function (c) { return c.textContent === 'Network error'; })[0];
       check('its row says Network error', !!flag, chips.join(', '));

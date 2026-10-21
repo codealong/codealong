@@ -21,13 +21,13 @@ it is, how to install it and how to get going. The settings file is annotated in
 
 ## The main window
 
-**Five views** of the current project, each in a window of its own if you like (⌘⇧N): Sessions,
-Worktrees, PRs, Todo, and its boards, each shown as Kanban or as Canvas (an experiment, off until
-Settings › Experimental turns it on: see *Boards*). The project
+**Four views** of the current project, each in a window of its own if you like (⌘⇧N): Sessions
+(grouped by worktree or by repo if you like), PRs, Todo, and its boards, each shown as Kanban or as
+Canvas (an experiment, off until Settings › Experimental turns it on: see *Boards*). The project
 switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch projects, ⌥⌘0 shows them all. Add
 project… at its foot opens Settings › Projects with a new project's form, and Edit projects… the
-list. ⇧⌘S, ⇧⌘W,
-⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go straight to Sessions, Worktrees, PRs, Todo, and the board as Kanban and as
+list. ⇧⌘S,
+⇧⌘P, ⇧⌘T, ⇧⌘K and ⇧⌘B go straight to Sessions, PRs, Todo, and the board as Kanban and as
 Canvas (B for board: ⇧⌘C is often a clipboard manager's), from a text field too, and a view in the
 sidebar shows its keys while you point at it (the folded rail says them; the Board's are those of
 the layout a click on it shows); ⌃Tab and ⌃⇧Tab go through
@@ -54,7 +54,7 @@ A click on a row's chips selects the row, as a click anywhere on it does, and a 
 the chip's own thing (the session where it runs, its todo, its app) in place of opening the row; in
 a panel, a click does. A PR's chip is the same wherever it is, a row, a panel or a card: a click
 shows the PR in Codealong, and a double-click opens it on GitHub; a PR Codealong doesn't list opens
-on GitHub on a click too. In Sessions, Worktrees and Todo, the PR's panel shows in place of the one
+on GitHub on a click too. In Sessions, Todo and Kanban, the PR's panel shows in place of the one
 beside the list, the chip's row selected, with a link back to the row's own panel over it, so the
 list stays as it was; a click on the row goes back too. The same holds for a session shown in a PR's
 or todo's panel: a click on the PR's or todo's row is its own panel again. From PRs, the canvas (its card, when the canvas has one) and the floating
@@ -87,8 +87,9 @@ chips at the line's end, the last of them giving way first, then the title.
 
 Every session, under headings as the other views have them. Pinned ones come first in your order
 (drag or ⌃⌘↑ ⌃⌘↓). Drag any session up among them to pin it there,
-and a pinned one down to the rest to unpin it. The bar over the list has two groups of icon buttons,
-each named in its tooltip. Sort by orders the rest: Status puts Needs you, Your turn and Working
+and a pinned one down to the rest to unpin it. The bar over the list has three groups of icon
+buttons, each named in its tooltip: Sort by, Group by (see [Grouped by worktree or
+repo](#grouped-by-worktree-or-repo)) and Rows. Sort by orders the rest: Status puts Needs you, Your turn and Working
 first, as the floating bar orders them, then Snoozed, the soonest back first, then the rest under
 the day they were last active (Today, Yesterday, Last 7 days, Older), the one you last sent a prompt
 first. Started puts the newest session first, under the day it started, and each row's age then
@@ -101,6 +102,48 @@ the line's end, and its status says its account when you point at it. A snoozed 
 back, and a quiet one's says Quiet. Here letters alone do nothing, so a word typed on the list by
 mistake doesn't pin, archive or rename: the keys are the chords, and they work from the panel's box
 too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their pins show only here.
+
+#### Grouped by worktree or repo
+
+Group by lists the sessions that aren't pinned under their worktree or under their repo, or as one
+list, as it starts; it stays as you left it. Each worktree or repo heads its sessions once, under
+the heading its first session is under: a worktree with a session that needs you is under Needs
+you, with all of its sessions in Sort by's order, and a heading counts only the sessions under it
+for themselves. A group lists five sessions and folds the rest behind Show N more (never one that
+waits on you or is working, and none while a search is on), and a helper is in its session's
+group, under it, wherever it works.
+
+A worktree's heading is one line of what belongs to the worktree: its name, then where it is (its
+device, its repo and its branch), Free when it's a reusable worktree new work can start in
+(Landed once its work merged, else Reusable, its tooltip saying what it holds; see [Reusable
+worktrees](#reusable-worktrees)), Looks finished when Jev reads every session there as done, its
+app (a globe, green while it runs) and its PR; and at the line's end where it stands against the
+default branch on the remote (`origin/main`), whatever its branch tracks: lines added and removed
+(a dot for uncommitted files), then `↑3` for commits it has that the remote doesn't and `↓42` for
+commits the remote has that it doesn't. Canvas cards show the same. Its sessions' rows leave out
+what the heading says: the worktree, its PR and its diff. The heading is a row of its own: a click
+shows the worktree's panel (all of its sessions, earlier work too, its todos, its app and its git),
+a double-click opens its most recent session, a right-click is its menu (Clean up worktree…
+beside Reuse for new work, dimmed with why when it can't go: see [Clean up
+worktrees](#clean-up-worktrees)), ⌘E marks its sessions seen, and ⌘-click or ⇧-click picks
+worktrees together, for Mark as seen, Pin, Reuse for new work, Clean up worktrees… and copies of
+their paths and branch names. A repo's heading has a menu (Open on GitHub, Pin repo, Copy repo
+name) and isn't a row to select.
+
+Pin a group from its heading's menu (⌃⌘P on a worktree's), or by dragging its heading up among
+the pinned groups; reorder them by dragging or with ⌃⌘↑ ⌃⌘↓, and drag one down to the list to
+unpin it. Pinned groups follow the pinned sessions, in your order, worktrees' and repos' each their
+own, and one with no session listed still shows its heading while nothing but the age narrows the
+list. A worktree shown from elsewhere (its chip in a session's panel, a PR's Show worktree, a link)
+is its heading, selected, where the list has one, else its panel in place of the one beside the
+list, with the way back.
+
+An agent is listed under the worktree it's working in, where most of its latest commands ran and
+edits landed, even if it started somewhere else; resuming it still happens where it started.
+Sessions outside your projects are listed under Elsewhere, in the repo or folder each ran in, and
+show in All projects only while they need you. Chats you start without a folder in the Claude app,
+or outside a project in the Codex app, are one worktree for each app, Claude app chats and Codex
+chats.
 
 #### Archive, close and mark as done
 
@@ -661,42 +704,6 @@ were. Clicking a
 session puts the cursor in its box; ⌥↑ ⌥↓ from there move along with the cursor in the next one's
 box, the arrows on the list leave the keys with the list, and Escape in the box gives them back.
 
-### Worktrees
-
-Each worktree once, pinned ones first in your order, then the rest by status: Needs you, Working,
-Your turn, In review, Idle, Merged. A row reads as where, then who. On its left, shaded as one
-block, the worktree and what belongs to it: its name, then Free when it's a reusable worktree new
-work can start in, and its app (a globe, green while it runs); its repo and branch, then its PR; and
-beside them where it stands against the default branch: lines added and removed (a dot for
-uncommitted files) over commits ahead and behind, dropped on a narrow board. On its right, its
-agents, a line each, every line a session: each one that needs you, is working or just finished, or
-with none of those, the one that last worked there (a worktree no agent has worked in says so). You
-select, open or right-click a line as you would a row, and its todo, Jev's read and its account are
-at its end. The worktree's panel lists the rest of its sessions and todos. An agent is listed under
-the worktree it's working in, where most of its latest commands ran and edits landed, even if it
-started somewhere else; resuming it still happens where it started. Sessions outside your projects
-are listed under Elsewhere, in the repo or folder each ran in, and show in All projects only while
-they need you. Chats you start without a folder in the Claude app, or outside a project in the Codex
-app, are one worktree for each app, Claude app chats and Codex chats, shown like your projects'
-worktrees. Needs you is a queue: the worktree and the agent that have waited longest come first, so
-newer ones can't keep an old one down (worktrees that need you only through snoozed agents come
-after). Needs you, Working and Your turn are about agents: a worktree whose PR has failing checks or
-changes requested stays in In review, and the sidebar's PR needs work lists it. Within the other
-statuses, the worktree and the agent you last sent a prompt come first, so rows hold still while
-agents work. Stuck agents (busy but silent for 30 minutes, or left waiting on a command that looks
-stuck, such as a sign-in) show in Needs you with the command they're stuck on, and still take a
-message, as they would in their own terminal. The sidebar's statuses narrow each worktree to the
-agents they're about. Pin a worktree with `p`, the right-click menu of the worktree or one of its
-agents, or by dragging its row up to the top of the board, among the pinned ones; reorder pins by dragging or with ⌃⌘↑ ⌃⌘↓, and
-drag one down to the bays to unpin it. A pinned worktree stays whatever the age filter says. Beside
-its line diff, a row shows how far the worktree has moved from the default branch on the remote
-(`origin/main`), whatever its branch tracks: `↑3` for commits it has that the remote doesn't, `↓42`
-for commits the remote has that it doesn't. Canvas cards show the same. Worktrees are picked whole,
-from any part of their row: picked together they take Mark as seen for their sessions (`e`), Pin
-(`p`), Reuse for new work, Clean up worktrees… and copies of their paths and branch names. A
-worktree's right-click menu has Clean up worktree… beside Reuse for new work, dimmed with why when
-it can't go ([Clean up worktrees](#clean-up-worktrees)).
-
 ### PRs
 
 Every PR in the project's repos, with the worktree and sessions that worked on each: the ones that
@@ -1106,7 +1113,7 @@ when the repo's PRs are next read in full. Selecting a PR shows a short header: 
 title, one line of its repo, branch, author and last update, its pills and size, its labels, and
 the worktrees and sessions behind it on this Mac as chips (a worktree's
 chip, then its sessions', each named by its title with its account on hover, the PR's primary
-session marked and first, after its worktree's chip; a click on a session shows it in the panel, on a worktree shows it in Worktrees,
+session marked and first, after its worktree's chip; a click on a session or a worktree shows it in the panel,
 and a right-click gives either's menu). A PR's row on two lines names one of its sessions the same
 way, its primary one first, and how many more; a todo's row names up to three. The chevron
 beside the title opens its details, and they stay open for the next PR until you close them: the
@@ -1389,7 +1396,7 @@ a project's own board.
 
 ### Sidebar
 
-Picks the view (Sessions, Worktrees, PRs, Todo, Board) and the board it shows, and narrows it: to the devices you
+Picks the view (Sessions, PRs, Todo, Board) and the board it shows, and narrows it: to the devices you
 pick, to what was active in the last 24h, 3d or 7d, and to the statuses you pick (Needs you, Your
 turn, Working, In review, PR needs work; any of them). Some views have more to narrow by, each pick
 with its count: Sessions its agents (the accounts sessions run on), PRs their repos, their labels
@@ -1950,16 +1957,16 @@ started.
 
 A worktree that takes one piece of work after another (its right-click menu's Reuse for new work, or
 `codealong reuse on`), where others are kept for one piece of work each. A repo's main worktree
-(named `main` on its row, as git calls it) and a worktree that has taken new work three times or
+(named `main` on its heading, as git calls it) and a worktree that has taken new work three times or
 more (another branch checked out, or its branch reset, as its HEAD's reflog says) are reusable
-unless turned off. Its row shows a repeat mark before its repo, and Free while it holds no work:
-nothing uncommitted or unlanded, and no agent at work (otherwise work under way, in review, or
-landed once its PR merged). Jev suggests new work only in reusable worktrees: the repo's free or
+unless turned off. Its heading in Sessions grouped by worktree says Free while it holds no work:
+nothing uncommitted or unlanded, and no agent at work; Landed once its PR merged, and Reusable
+while its work is under way or in review. Jev suggests new work only in reusable worktrees: the repo's free or
 landed ones first, joining the work under way in one only when Jev is sure the work belongs there,
 else the main worktree. A new worktree is suggested only in a repo where you often start in one from
 the quick panel (three or more, and half your latest starts there), and a repo named in what you
 type keeps other repos' worktrees out of the suggestions. When a reusable worktree takes new work,
-the sessions from before move to Earlier work in its panel, off its row and out of its status.
+the sessions from before move to Earlier work in its panel, out of its status.
 Settings › Projects lists them, and suggests worktrees whose branch has carried several merged PRs.
 
 ## Answering agents from anywhere
@@ -2179,7 +2186,7 @@ off, as do Window › Floating bar and Bar in the notch and the bar's own right-
 ### Pin to desktop
 
 *A session's, worktree's, todo's or PR's right-click menu, in any view or on the canvas; or drag it
-out of its window: a row out of the Sessions, Worktrees, PRs or Todo list, a result out of the quick
+out of its window: a row (or a worktree's heading) out of the Sessions, PRs or Todo list, a result out of the quick
 panel, a session's pill off the bar*
 
 Puts its card, the one a board's canvas shows, on the desktop, floating over every window, on every
