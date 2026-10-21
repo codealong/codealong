@@ -724,7 +724,8 @@ made, edited or commented on it, or pushed to it (from their own records: Claude
 `gitOperation` results and its `pr-link` lines, Codex's commands and attached PRs), the ones on its
 branch while it was open, any in the repo whose records show they pushed to its branch from a
 branch of their own (`git push origin mine:theirs`), and any linked by hand (`codealong pr
-link|unlink`). One of them is the PR's primary session, listed first and tagged Primary on its card
+link|unlink`). A PR from a fork your checkout has no remote for is from another branch than yours
+of the same name, so sessions on yours aren't listed on it by their branch or their pushes. One of them is the PR's primary session, listed first and tagged Primary on its card
 and in its panel, whose tooltip says why it's the one:
 
 - the one picked, under Primary session in the PR's menu or with `codealong pr nudge --session`;

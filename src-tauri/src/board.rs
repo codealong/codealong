@@ -946,7 +946,9 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
 /// branch that it made or worked in: the one that made it whenever it started before the PR
 /// ended, since it wrote the branch even if the PR was opened later, and one that worked there
 /// in the same window as the rest. A PR from the default branch (a fork's `main`) links no
-/// sessions by branch: every session on `main` would match.
+/// sessions by branch: every session on `main` would match. Nor does a PR from a fork the
+/// worktree's checkout has no remote for, to it or its sessions' pushes: its branch is another
+/// of the same name (someone's `app3` beside yours), as `find_pr` has it.
 ///
 /// So do sessions in the repo whose records show they pushed to the PR's branch while they
 /// worked in the PR's time (`links.pushed`): one in a worktree on a branch of its own that
@@ -962,6 +964,7 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
 /// lists doesn't wait on you, though an earlier read of the repo said so.
 pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<PrRaw>>, requested: &HashMap<String, Vec<PrRaw>>, login: Option<&str>, links: &PrLinks) -> Vec<PrItem> {
     let repos = repos_of(seeds);
+    let owners = owners_of(seeds);
     let polled = polled_slugs(seeds);
     let mut out = Vec::new();
     for (slug, list) in prs {
@@ -972,7 +975,7 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
             if searched.is_some_and(|found| found.iter().any(|x| x.number == p.number)) {
                 continue;
             }
-            let mut item = pr_item(lanes, slug, repo, p, branch_freed(list, p), login, links);
+            let mut item = pr_item(lanes, &owners, slug, repo, p, branch_freed(list, p), login, links);
             if searched.is_some() {
                 item.review_requested = false;
                 item.requested_by = None;
@@ -985,7 +988,7 @@ pub fn pr_items(seeds: &[LaneSeed], lanes: &[Lane], prs: &HashMap<String, Vec<Pr
         let Some(&repo) = repos.get(slug.as_str()).filter(|_| !polled.contains(slug)) else { continue };
         // The search lists only open PRs; the repo's last read has the ones that ended.
         let history = || prs.get(slug).into_iter().flatten().chain(list);
-        out.extend(list.iter().map(|p| pr_item(lanes, slug, repo, p, branch_freed(history(), p), login, links)));
+        out.extend(list.iter().map(|p| pr_item(lanes, &owners, slug, repo, p, branch_freed(history(), p), login, links)));
     }
     out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     out
@@ -1018,13 +1021,20 @@ pub fn polled_slugs(seeds: &[LaneSeed]) -> BTreeSet<String> {
 /// new, lowercased), is the one it's matched in.
 pub fn pr_card(seeds: &[LaneSeed], lanes: &[Lane], slug: &str, renamed: &HashMap<String, String>, p: &PrRaw, login: Option<&str>, links: &PrLinks) -> PrItem {
     let repos = repos_of(seeds);
+    let owners = owners_of(seeds);
     let found = repos.iter().find(|(s, _)| {
         s.eq_ignore_ascii_case(slug) || renamed.get(&s.to_ascii_lowercase()).is_some_and(|now| now.eq_ignore_ascii_case(slug))
     });
     match found {
-        Some((&local, &repo)) => pr_item(lanes, local, repo, p, None, login, links),
-        None => pr_item(lanes, slug, ("", slug.rsplit('/').next().unwrap_or(slug), None), p, None, login, links),
+        Some((&local, &repo)) => pr_item(lanes, &owners, local, repo, p, None, login, links),
+        None => pr_item(lanes, &owners, slug, ("", slug.rsplit('/').next().unwrap_or(slug), None), p, None, login, links),
     }
+}
+
+/// The GitHub owners each worktree's checkout has a remote for (`LaneSeed::head_owners`), by
+/// its path, a lane's id: the forks whose branches it can be on.
+fn owners_of(seeds: &[LaneSeed]) -> HashMap<&Path, &[String]> {
+    seeds.iter().map(|s| (s.path.as_path(), s.head_owners.as_slice())).collect()
 }
 
 /// Each project's repo by its slug: the project, the repo's name and its default branch.
@@ -1048,8 +1058,11 @@ fn branch_freed<'a>(list: impl IntoIterator<Item = &'a PrRaw>, p: &PrRaw) -> Opt
 
 /// A PR with its worktrees and sessions, as `pr_items` says. `freed` is when an earlier PR from
 /// its branch ended (`branch_freed`), when that's known.
-fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &str, Option<&str>), p: &PrRaw, freed: Option<i64>, login: Option<&str>, links: &PrLinks) -> PrItem {
+fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (project, repo, default_branch): (&str, &str, Option<&str>), p: &PrRaw, freed: Option<i64>, login: Option<&str>, links: &PrLinks) -> PrItem {
     let here: Vec<&Lane> = lanes.iter().filter(|l| l.repo_slug.as_deref() == Some(slug)).collect();
+    // Whether a lane's branch of the PR's name can be the PR's: not when the PR comes from a fork
+    // its checkout has no remote for. A lane with no seed to say (a test's) can.
+    let holds_head = |l: &Lane| p.head_owner.as_ref().map_or(true, |o| owners.get(Path::new(&l.id)).map_or(true, |have| have.contains(o)));
     let head = p.head_ref.as_str();
     let (opened, ended) = (p.created_at, p.merged_at.or(p.closed_at));
     let before_end = move |s: &Session| ended.map_or(true, |end| s.started_at.unwrap_or(s.last_activity) <= end);
@@ -1057,24 +1070,25 @@ fn pr_item(lanes: &[Lane], slug: &str, (project, repo, default_branch): (&str, &
     // How often a session listed under a lane of the repo pushed to the branch in the PR's time,
     // as `during` has it, and after an earlier PR from the branch ended: a branch used for one PR
     // after another (`yolo`) has the earlier ones' pushes too, and one of the same name in another
-    // repo its own. A PR from the default branch counts none, as it lists no sessions by branch.
+    // repo, or a fork the lane's checkout has no remote for, its own. A PR from the default
+    // branch counts none, as it lists no sessions by branch.
     let by_branch = default_branch != Some(head);
     let since = (opened - 3_600_000).max(freed.map_or(i64::MIN, |t| t + 1));
     let pushes = move |l: &Lane, k: &str| -> u32 {
-        let pushed = links.pushed.get(k).filter(|_| by_branch && l.repo_slug.as_deref() == Some(slug)).into_iter().flatten();
+        let pushed = links.pushed.get(k).filter(|_| by_branch && l.repo_slug.as_deref() == Some(slug) && holds_head(l)).into_iter().flatten();
         pushed.filter(|(b, at)| b == head && *at >= since && ended.map_or(true, |end| *at <= end)).count() as u32
     };
     let mut sessions: Vec<PrSession> = Vec::new();
     if by_branch {
         // Sessions in their own lanes first, then ones that came to a worktree on the branch.
-        let own = here.iter().flat_map(|&l| {
+        let own = here.iter().filter(|l| holds_head(l)).flat_map(|&l| {
             // A session that works here from another folder records that folder's branch,
             // so it goes by this worktree's.
             let here_branch = move |s: &Session| s.branch.is_none() || !Path::new(&s.cwd).starts_with(&l.id);
             let on_branch = move |s: &Session| s.branch.as_deref() == Some(head) || (here_branch(s) && l.branch.as_deref() == Some(head));
             l.sessions.iter().filter(move |s| s.visitor.is_none() && on_branch(s) && during(s)).map(move |s| (l, s))
         });
-        let guests = here.iter().filter(|l| l.branch.as_deref() == Some(head)).flat_map(|&l| {
+        let guests = here.iter().filter(|l| l.branch.as_deref() == Some(head) && holds_head(l)).flat_map(|&l| {
             let counts = move |s: &Session| match s.visitor.as_deref() {
                 None => false,
                 Some(MADE_IT) => before_end(s),
@@ -2568,6 +2582,31 @@ mod tests {
         assert_eq!(p.lanes, vec!["/r/spark-portal".to_string()]);
         assert_eq!(p.sessions, vec![PrSession { key: on_branch.key, lane: "/r/spark-portal".into(), pushes: 0 }]);
         assert_eq!(board.github_login.as_deref(), Some("gwen"));
+    }
+
+    #[test]
+    fn a_pr_from_a_fork_the_checkout_has_no_remote_for_is_from_another_branch() {
+        let s = |key: &str, started: i64| Session { cwd: "/r/spark-portal".into(), branch: Some("portal".into()), started_at: Some(started), last_activity: NOW, ..crate::fixtures::session(key) };
+        let opened = NOW - 86_400_000;
+        let lane = Lane { repo_slug: Some("sprucehq/spark".into()), branch: Some("portal".into()), ..crate::fixtures::lane("/r/spark-portal", vec![s("ours", opened), s("reviewer", opened + 1_000)]) };
+        let lanes = vec![lane];
+        // The checkout's remotes are sprucehq's and gwen's.
+        let seeds = vec![seed("/r/spark-portal", "portal")];
+        let push = vec![("portal".to_string(), opened + 3_600_000)];
+        let links = PrLinks {
+            worked: HashMap::from([("sprucehq/spark#1037".to_string(), vec!["reviewer".to_string()])]),
+            pushed: HashMap::from([("ours".to_string(), push.clone()), ("reviewer".to_string(), push)]),
+            ..Default::default()
+        };
+        let listed = |owner: &str| {
+            let p = PrRaw { head_owner: Some(owner.into()), author: Some(owner.into()), ..pr(PrState::Open, 0) };
+            let item = pr_card(&seeds, &lanes, "sprucehq/spark", &HashMap::new(), &p, Some("gwen"), &links);
+            item.sessions.into_iter().map(|x| (x.key, x.pushes)).collect::<Vec<_>>()
+        };
+        assert_eq!(listed("gwen"), vec![("ours".to_string(), 1), ("reviewer".to_string(), 1)]);
+        // Ana's `portal` isn't the one checked out here: only the session whose records show it
+        // worked on her PR is listed, and its pushes to this `portal` weren't to hers.
+        assert_eq!(listed("ana"), vec![("reviewer".to_string(), 0)]);
     }
 
     #[test]
