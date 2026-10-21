@@ -582,9 +582,10 @@ fn board_problem(s: &Schedule, board: &Board) -> Option<String> {
 /// When a schedule's watch looks next: `every` after its last look, or now when it hasn't.
 pub fn next_check(every: &str, track: Option<&Track>) -> Option<i64> {
     let every = duration_ms(every)?.max(MIN_WATCH_MS);
-    // Not armed yet, it looks as soon as the scheduler has it.
+    // Its first look is as soon as the scheduler has it: a look an `every` later would take what
+    // happened meanwhile for what was there already, and never run for it.
     let track = track.filter(|t| t.armed_at > 0)?;
-    Some(track.check.as_ref().map_or(track.armed_at, |c| c.at) + every)
+    Some(track.check.as_ref().map_or(track.armed_at, |c| c.at + every))
 }
 
 /// The next time a schedule's rule names after the last it ran (or was armed), which may have
@@ -1032,6 +1033,15 @@ mod tests {
         let mut t = Track { armed_at: 5, last_due: Some(10), seeded: true, ..Track::default() };
         resumed(&mut t, 500);
         assert_eq!((t.last_due, t.armed_at, t.seeded), (Some(500), 0, false));
+    }
+
+    #[test]
+    fn a_watch_looks_first_as_soon_as_its_armed() {
+        assert_eq!(next_check("1h", None), None);
+        let armed = Track { armed_at: 1000, ..Track::default() };
+        assert_eq!(next_check("1h", Some(&armed)), Some(1000));
+        let looked = Track { check: Some(Check { at: 2000, ok: true, ..Check::default() }), ..armed };
+        assert_eq!(next_check("1h", Some(&looked)), Some(2000 + 3_600_000));
     }
 
     #[test]
