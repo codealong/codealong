@@ -34,6 +34,8 @@ pub struct TailState {
     pub offset: u64,
     /// Tool calls still waiting on a result: (id, request, when it was made).
     pub open_tools: Vec<(String, String, i64)>,
+    /// When the latest reply, message or turn's end was written (`said`).
+    pub said_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -63,6 +65,12 @@ pub struct TranscriptInfo {
     pub last_prompt_at: Option<i64>,
     pub started_at: Option<i64>,
     pub last_ts: i64,
+    /// When its last turn ended, while a compaction has come since with no reply or message
+    /// after it. Claude Code compacts a long conversation left idle for about 54 minutes, before
+    /// its prompt cache expires (from 2.1.296, behind a remote flag; its notice says "Compacted
+    /// while idle"), and the registry goes busy and idle again around it, though no turn was
+    /// taken. The lines it writes, and the links it stamps again as it starts, are timed then.
+    pub compacted: Option<i64>,
     /// The tool call waiting on a result, e.g. "Bash · `yarn test`".
     pub pending_tool: Option<String>,
     /// The latest tool call as an activity, e.g. "editing `App.tsx`", since the latest prompt
@@ -113,6 +121,14 @@ pub struct TranscriptInfo {
     /// The worktree Claude Code made for the session and holds, from the latest `worktree-state`
     /// line (`own_worktree`).
     pub own_worktree: Option<String>,
+}
+
+impl TranscriptInfo {
+    /// When it last did something: its last line, or the end of its last turn while a compaction
+    /// is all that came since (`compacted`).
+    pub fn active_at(&self) -> i64 {
+        self.compacted.unwrap_or(self.last_ts)
+    }
 }
 
 /// Transcript files modified since `since_ms`, one level below `<home>/projects`.
@@ -217,8 +233,12 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
                 head.copied_from = Some(std::mem::replace(&mut head.session_id, own)).filter(|s| !s.is_empty());
             }
             let tail = read_tail(path, len.saturating_sub(FRESH_TAIL)).ok()?;
-            let info = from_head(&head);
-            (head, info, TailState::default(), tail)
+            let mut info = from_head(&head);
+            // The tail reads on from what was said before it, and a compaction's own lines can
+            // run past it (up to 450 KB of them here).
+            let (said_at, compacted) = said_before(path, tail.start);
+            info.compacted = said_at.filter(|_| compacted);
+            (head, info, TailState { said_at, ..TailState::default() }, tail)
         }
     };
     // Only whole lines are read; a line still being written is read next time.
@@ -312,6 +332,47 @@ fn prompt_before(path: &Path, end: u64) -> Option<(i64, Option<String>)> {
     at
 }
 
+/// When the latest reply, message or turn's end before `end` (a line start) was written, reading
+/// backwards, and whether a compaction's boundary came after it.
+fn said_before(path: &Path, end: u64) -> (Option<i64>, bool) {
+    let mut at = None;
+    let mut compacted = false;
+    scan_lines_back(path, 0, end, |line| {
+        // Only these can be either.
+        if !["\"type\":\"assistant\"", "\"type\":\"user\"", "\"turn_duration\"", "\"compact_boundary\""].iter().any(|s| line.contains(s)) {
+            return false;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+        compacted |= compaction_step(&v) == Some(true);
+        at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).filter(|_| said(&v));
+        at.is_some()
+    });
+    (at, compacted)
+}
+
+/// Whether a line is something the conversation said: a reply, a message or a turn's end, as
+/// against what Claude Code writes around them (titles, links stamped again, a recap of the turn
+/// while you're away, a compaction).
+fn said(v: &Value) -> bool {
+    compaction_step(v) == Some(false) || v.get("type").and_then(Value::as_str) == Some("system") && str_of(v, "subtype").as_deref() == Some("turn_duration")
+}
+
+/// What a line says of a compaction (`TranscriptInfo::compacted`): Some(true) for its boundary,
+/// Some(false) for a reply or a message, which come only once it's over, None for the rest. After
+/// the boundary come the summary (a `user` line with `isCompactSummary`), the files, listings and
+/// hook output it attaches again, and with an idle one a `system` / `informational` notice.
+fn compaction_step(v: &Value) -> Option<bool> {
+    if v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    match v.get("type").and_then(Value::as_str)? {
+        "system" => (str_of(v, "subtype").as_deref() == Some("compact_boundary")).then_some(true),
+        "assistant" => Some(false),
+        "user" => (v.get("isCompactSummary").and_then(Value::as_bool) != Some(true)).then_some(false),
+        _ => None,
+    }
+}
+
 fn from_head(head: &HeadInfo) -> TranscriptInfo {
     TranscriptInfo {
         session_id: head.session_id.clone(),
@@ -354,8 +415,17 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
         info.flagged |= flagged(&v);
         let kind = v.get("type").and_then(Value::as_str);
+        let ts = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms);
+        match compaction_step(&v) {
+            Some(true) => info.compacted = state.said_at,
+            Some(false) => info.compacted = None,
+            None => {}
+        }
+        if said(&v) {
+            state.said_at = state.said_at.max(ts);
+        }
         // Moving the conversation to the background isn't something it did.
-        if let Some(ts) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).filter(|_| kind != Some("continued-in")) {
+        if let Some(ts) = ts.filter(|_| kind != Some("continued-in")) {
             info.last_ts = info.last_ts.max(ts);
         }
         // Sessions switch branches; the latest line says which one it's on now.
@@ -1671,6 +1741,61 @@ mod tests {
         let writing = r#"{"type":"assistant","timestamp":"2026-10-12T18:23:40.000Z","message":{"stop_reason":null,"content":[{"type":"text","text":"It"}]}}"#;
         let helper = r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-10-12T18:23:40.000Z","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Found it."}]}}"#;
         assert_eq!(parse_lines(HEAD, &format!("{CALL}\n{KILLED}\n{writing}\n{helper}\n")).unfinished, killed);
+    }
+
+    #[test]
+    fn a_compaction_is_nothing_new() {
+        let at = |ts: &str| parse_rfc3339_ms(ts);
+        let ended = r#"{"type":"assistant","timestamp":"2026-10-21T16:58:26.000Z","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Landed."}]}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-10-21T16:58:30.000Z"}
+{"type":"system","subtype":"away_summary","timestamp":"2026-10-21T17:14:04.000Z","content":"You asked for the schedule pickers. They're done."}"#;
+        // Compacted while idle, nearly an hour on, as 2.1.306 writes it: the PR's link stamped
+        // again as it starts, the boundary once it's done, and what follows it.
+        let boundary = r#"{"type":"pr-link","sessionId":"25b09e0e","prNumber":12,"prUrl":"https://github.com/atlas/app/pull/12","prRepository":"atlas/app","timestamp":"2026-10-21T17:52:12.000Z"}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-10-21T17:53:08.248Z","compactMetadata":{"trigger":"auto","preTokens":246565,"postTokens":20935}}
+{"type":"user","isCompactSummary":true,"timestamp":"2026-10-21T17:53:08.250Z","message":{"role":"user","content":"This session is being continued from a previous conversation that ran out of context."}}"#;
+        let attached = |text: &str| format!(r#"{{"type":"attachment","timestamp":"2026-10-21T17:53:08.300Z","attachment":{{"type":"file","filename":"/r/app/src/main.ts","content":"{text}"}}}}"#);
+        let notice = r#"{"type":"system","subtype":"informational","level":"notice","timestamp":"2026-10-21T17:53:08.725Z","content":"Compacted while idle, before the prompt cache expired"}
+{"type":"ai-title","aiTitle":"Ship the schedule pickers"}"#;
+        let compaction = format!("{boundary}\n{}\n{notice}", attached("export {}"));
+        let info = parse_lines(HEAD, &format!("{ended}\n{compaction}\n"));
+        assert_eq!(info.compacted, at("2026-10-21T16:58:30.000Z"));
+        assert_eq!((info.last_ts, Some(info.active_at())), (at("2026-10-21T17:53:08.725Z").unwrap(), info.compacted));
+        // Read a line at a time, as it's written.
+        let mut info = parse_lines(HEAD, "");
+        let mut state = TailState::default();
+        for line in ended.lines().chain(compaction.lines()) {
+            apply_tail(&mut info, &mut state, line);
+        }
+        assert_eq!(info.compacted, at("2026-10-21T16:58:30.000Z"));
+        // A message after it ends it, and so does the reply a compaction partway through a turn
+        // goes on to.
+        let prompt = r#"{"type":"user","timestamp":"2026-10-21T18:10:00.000Z","origin":{"kind":"human"},"message":{"content":"Thanks"}}"#;
+        let reply = r#"{"type":"assistant","timestamp":"2026-10-21T17:53:20.000Z","message":{"stop_reason":"tool_use","content":[]}}"#;
+        for (after, ts) in [(prompt, "2026-10-21T18:10:00.000Z"), (reply, "2026-10-21T17:53:20.000Z")] {
+            let info = parse_lines(HEAD, &format!("{ended}\n{compaction}\n{after}\n"));
+            assert_eq!((info.compacted, Some(info.active_at())), (None, at(ts)), "{after}");
+        }
+
+        // A compaction's lines can run past the tail a first read takes: its boundary, and what
+        // was said before it, are further back.
+        let dir = crate::fixtures::scratch("compacted");
+        let path = dir.join("s.jsonl");
+        let big = attached(&"x".repeat(300_000));
+        std::fs::write(&path, format!("{HEAD}{ended}\n{boundary}\n{big}\n{notice}\n")).unwrap();
+        let parsed = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!(parsed.1.compacted, at("2026-10-21T16:58:30.000Z"));
+        use std::io::Write;
+        writeln!(std::fs::OpenOptions::new().append(true).open(&path).unwrap(), "{prompt}").unwrap();
+        let parsed = parse_transcript(&path, 2, Some(parsed)).unwrap();
+        assert_eq!(parsed.1.compacted, None);
+        // Compacted again later, read on from there, it's the prompt's turn that ended before it.
+        writeln!(std::fs::OpenOptions::new().append(true).open(&path).unwrap(), "{compaction}").unwrap();
+        assert_eq!(parse_transcript(&path, 3, Some(parsed)).unwrap().1.compacted, at("2026-10-21T18:10:00.000Z"));
+        // One a message came after is over, wherever the tail starts.
+        std::fs::write(&path, format!("{HEAD}{ended}\n{compaction}\n{prompt}\n{big}\n{notice}\n")).unwrap();
+        assert_eq!(parse_transcript(&path, 1, None).unwrap().1.compacted, None);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

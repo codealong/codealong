@@ -613,6 +613,27 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `system` line, `subtype: "compact_boundary"`, whose `compactMetadata` has `trigger` (`auto`,
   `manual`), `preTokens` and `postTokens`, what's left (967,152 to 6,627 here). A reply names its
   model without the context size a `/model` switch gave it.
+- Idle compaction (2.1.306's code; seen from 2.1.296, 2026-10-10, 38 times here by 2026-10-21):
+  in the terminal, a conversation of 200K tokens or more left idle for 90% of its one-hour prompt
+  cache (about 54 minutes) is compacted before the cache expires. The remote flag
+  `tengu_sunny_locket` sets the mode (`off`, `log`, `compact`, `compact_on_return`), the minimum
+  and the fraction; `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` the minimum too, and settings.json's
+  `"idleCompaction": false` turns it off. The registry goes `busy` for the minute it takes and
+  `idle` again, moving `statusUpdatedAt`, though no turn was taken. As it starts, the transcript
+  often gets the `pr-link` and `frame-link` lines stamped again; once it's done, a
+  `compact_boundary` (`trigger: "auto"`, as one partway through a turn has), the summary (a `user`
+  line with `isCompactSummary`), the files, listings and hook output it attaches again (more than
+  256 KB of them in a third of 109 compactions here) and a `system` / `informational` notice,
+  "Compacted while idle, before the prompt cache expired", and no reply. So neither the registry
+  nor the transcript's last line says when the turn ended; the last reply, message or
+  `turn_duration` before the boundary does (a `system` / `away_summary`, the recap Claude Code
+  writes about three minutes after a turn while you're away, isn't one). `compact_on_return`
+  compacts as you come back instead, its notice "Compacted after an hour idle…" coming before
+  your prompt's turn. Read as a turn, it brought a session you'd seen back to Your turn an hour
+  after its last one: `claude/transcript.rs` (`TranscriptInfo::compacted`, `said`,
+  `said_before`), `board.rs` (`claude_session`). While it runs nothing in the transcript says
+  so, so the session shows as working, and that takes away its tag and suggested replies
+  (`board::moved_on`).
 - Provider flags (2026-10-19): assistant lines with `message.stop_reason: "refusal"`,
   including the synthetic `error: "invalid_request"` reply whose text says the model's safeguards
   flagged the session. The refusal is also on the preceding empty assistant message. Read by

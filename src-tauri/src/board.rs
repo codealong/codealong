@@ -214,7 +214,7 @@ pub fn moved_registry(r: &RegistryEntry, from: &TranscriptInfo) -> RegistryEntry
     let mut r = r.clone();
     r.started_at = from.started_at.or(r.started_at);
     if r.status == "idle" {
-        r.status_updated_at = Some(from.last_ts);
+        r.status_updated_at = Some(from.active_at());
     }
     r
 }
@@ -248,7 +248,13 @@ pub fn claude_session(
         .zip(tr)
         .filter(|(r, t)| r.status == "idle" && r.started_at.is_some_and(|s| s > t.last_ts))
         .map(|(r, t)| moved_registry(r, t));
-    let reg = restarted.as_ref().or(reg);
+    // Nor has one that has only compacted its conversation since its last turn
+    // (`TranscriptInfo::compacted`): it came back as Your turn an hour after you'd seen it.
+    let compacted = reg
+        .zip(tr)
+        .filter(|(r, t)| matches!(r.status.as_str(), "idle" | "shell") && t.compacted.is_some())
+        .map(|(r, t)| RegistryEntry { status_updated_at: Some(t.active_at()), ..r.clone() });
+    let reg = restarted.as_ref().or(compacted.as_ref()).or(reg);
     // The registry doesn't refresh while a session is busy; its transcript, status changes and
     // subagent logs do. Stuck mid-turn, it can't go on without you.
     let stalled_since = claude_busy_since(reg, tr)
@@ -259,7 +265,7 @@ pub fn claude_session(
     let status = match reg {
         // Its process ended, closed or with the Mac restarting, but a turn you haven't seen is
         // still yours to read for a while.
-        None if tr.is_some_and(|t| t.last_ts > seen_at && now - t.last_ts < CLAUDE_UNSEEN_STOPPED_MS) => Status::Unread,
+        None if tr.map(TranscriptInfo::active_at).is_some_and(|t| t > seen_at && now - t < CLAUDE_UNSEEN_STOPPED_MS) => Status::Unread,
         None => Status::Stopped,
         Some(_) if stalled_since.is_some() => Status::Needs,
         Some(r) => match r.status.as_str() {
@@ -303,7 +309,7 @@ pub fn claude_session(
         .or_else(|| reg.and_then(|r| r.name.clone()))
         .unwrap_or_else(|| format!("Session {}", short_id(&id)));
     let last_activity = [
-        tr.map(|t| t.last_ts),
+        tr.map(TranscriptInfo::active_at),
         reg.and_then(|r| r.status_updated_at),
         reg.and_then(|r| r.started_at),
     ]
@@ -3240,6 +3246,27 @@ mod tests {
         assert_eq!((s.status, s.started_at, s.last_activity), (Status::Unread, Some(NOW - 60_000), NOW - 9_000));
         let busy = claude_session(&a, Some(&job("busy", NOW - 30_000)), Some(&said), NOW - 2 * 3_600_000, NOW, &Quiet::default()).unwrap();
         assert_eq!((busy.status, busy.started_at), (Status::Working, Some(NOW - 60_000)));
+    }
+
+    #[test]
+    fn a_conversation_compacted_while_idle_keeps_its_place_and_what_you_saw() {
+        let a = acct("claude");
+        // Its turn ended an hour ago and you saw it; Claude Code compacted it a minute ago, going
+        // busy and idle again and writing lines of its own.
+        let compacted = TranscriptInfo { last_ts: NOW - 50_000, compacted: Some(NOW - 3_600_000), ..tr() };
+        let seen = NOW - 30 * 60_000;
+        let s = claude_session(&a, Some(&reg("idle", NOW - 49_000)), Some(&compacted), seen, NOW, &Quiet::default()).unwrap();
+        assert_eq!((s.status, s.status_since, s.last_activity), (Status::Idle, Some(NOW - 3_600_000), NOW - 3_600_000));
+        assert_eq!(s.excerpt.as_deref(), Some("Done."));
+        // A turn you hadn't seen still waits for you.
+        assert_eq!(claude_session(&a, Some(&reg("idle", NOW - 49_000)), Some(&compacted), NOW - 2 * 3_600_000, NOW, &Quiet::default()).unwrap().status, Status::Unread);
+        // Its process gone since, it's stopped, not unread.
+        assert_eq!(claude_session(&a, None, Some(&compacted), seen, NOW, &Quiet::default()).unwrap().status, Status::Stopped);
+        // Without the compaction, the registry's time is a turn that ended.
+        let said = TranscriptInfo { compacted: None, ..compacted.clone() };
+        assert_eq!(claude_session(&a, Some(&reg("idle", NOW - 49_000)), Some(&said), seen, NOW, &Quiet::default()).unwrap().status, Status::Unread);
+        // While it compacts it's working.
+        assert_eq!(claude_session(&a, Some(&reg("busy", NOW - 30_000)), Some(&compacted), seen, NOW, &Quiet::default()).unwrap().status, Status::Working);
     }
 
     #[test]
