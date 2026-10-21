@@ -29,7 +29,9 @@ projects, ⌥⌘0 shows them all. Add project… at its foot opens Settings › 
 project's form, and Edit projects… the list. ⇧⌘S,
 ⇧⌘P, ⇧⌘T, ⇧⌘L, ⇧⌘K and ⇧⌘B go straight to Sessions, PRs, Todo, Schedules (L for later), and the
 board as Kanban and as Canvas (B for board: ⇧⌘C is often a clipboard manager's), from a text field
-too, and a view in the
+too. In the windows that float (the notch's session, the quick panel, the waiting window, the
+peek and a session kept on the desktop) they bring Codealong's window forward on that view, putting
+the notch's session, the quick panel and the peek away as Show in Codealong does. A view in the
 sidebar shows its keys while you point at it (the folded rail says them; the Board's are those of
 the layout a click on it shows); ⌃Tab and ⌃⇧Tab go through
 the views (`v` too, outside Sessions), ⌥↑ ⌥↓ move along a list as the arrows do, and ⌃⌘↑ ⌃⌘↓ reorder

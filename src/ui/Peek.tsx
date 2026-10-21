@@ -31,6 +31,7 @@ import { renameAhead, sentWorthSaying } from '../ahead';
 import { readDraft } from '../drafts';
 import { followBoard } from '../followBoard';
 import { useLatest } from '../latest';
+import { useViewKeys } from '../mainKeys';
 import { endSide } from '../side';
 import { homeOf } from '../lanes';
 import { attentionRows, ALL_PROJECTS } from '../quick';
@@ -277,6 +278,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
   const away = () => {
     if (!kept) void peekHide();
   };
+  useViewKeys(away);
 
   // An edge being dragged: where the pointer went down, and the window's size then.
   const sizing = useRef<{ edge: Edge; x: number; y: number; w: number; h: number; moved: boolean; frame: number; to: [number, number] } | null>(null);

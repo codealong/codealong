@@ -5,6 +5,7 @@
 // Keyboard map: the design system's Surfaces page.
 
 import { useEffect, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react';
+import { showMain } from './api';
 import type { ListRow } from './boardLists';
 import type { MenuAction } from './contextMenu';
 import { findsAt } from './findKeys';
@@ -55,6 +56,31 @@ export const VIEW_CHORDS: Record<string, string> = { sessions: 'Shift+Cmd+S', pr
 /** The view a key event goes to (`VIEW_CHORDS`), or none. */
 export function viewOfKey<V extends string>(e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, views: readonly { id: V }[]): V | null {
   return views.find((v) => chordPressed(VIEW_CHORDS[v.id] ?? '', e))?.id ?? null;
+}
+
+/** Every view with a chord, for the windows that don't know which the board's window has. */
+const EVERY_VIEW = Object.keys(VIEW_CHORDS).map((id) => ({ id }));
+
+/** A view's chord pressed in a window that floats (the notch, the quick panel, the waiting
+ *  window, the peek and a session kept on the desktop) brings Codealong's window forward on that
+ *  view, once `away` has put away what has to go for it, as Show in Codealong does. It's taken
+ *  before the window's own keys and its fields' (the quick panel has ⌘P and ⌘T with ⇧ too), as
+ *  the board's window takes it from any field. */
+export function useViewKeys(away?: () => void): void {
+  const awayNow = useLatest(away);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || dialogUp()) return;
+      const view = viewOfKey(e, EVERY_VIEW);
+      if (!view) return;
+      e.preventDefault();
+      e.stopPropagation();
+      awayNow.current?.();
+      void showMain({ kind: 'view', view });
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [awayNow]);
 }
 
 /** Whether the keyboard is in a text field (other than search, which has keys of its own). */

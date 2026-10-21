@@ -476,7 +476,7 @@ In Codealong:
 
 | Keys | What they do |
 | --- | --- |
-| ⇧⌘S · ⇧⌘P · ⇧⌘T · ⇧⌘L · ⇧⌘K · ⇧⌘B | Sessions, PRs, Todo, Schedules, the board as Kanban, as Canvas (with boards turned on) |
+| ⇧⌘S · ⇧⌘P · ⇧⌘T · ⇧⌘L · ⇧⌘K · ⇧⌘B | Sessions, PRs, Todo, Schedules, the board as Kanban, as Canvas (with boards turned on); from the notch, the quick panel or the waiting window, Codealong's window on that view |
 | ⌘P | Switch project (⌥⌘1 – ⌥⌘9 jump to one, ⌥⌘0 shows them all) |
 | ⌘K | The quick panel, in this window's project |
 | ⌘N / ⇧⌘N | New session / new window |

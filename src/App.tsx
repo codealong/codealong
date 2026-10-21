@@ -960,6 +960,13 @@ export function App() {
   // when it's the row selected already.
   const [revealed, setRevealed] = useState(0);
   const reveal = useLatest((r: Reveal) => {
+    // A view's chord pressed in a window that floats: that view, as the chord goes to it here.
+    // One this window doesn't have (a board's, with boards off) leaves it on the one it shows.
+    if (r.kind === 'view') {
+      const to = views.find((v) => v.id === r.view);
+      if (to) setView(to.id);
+      return;
+    }
     setRevealed((n) => n + 1);
     setRevealFind(r.kind === 'session' && r.find ? { key: r.key, ask: { words: r.find, n: Date.now() } } : null);
     // A board `codealong board open` asked for, or the canvas `board arrange --show` laid out,

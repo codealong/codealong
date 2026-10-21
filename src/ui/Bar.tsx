@@ -24,6 +24,7 @@ import { ago } from '../format';
 import * as menus from '../menus';
 import { usePerf } from '../perf';
 import { useLatest } from '../latest';
+import { useViewKeys } from '../mainKeys';
 import { barAhead, barView, observe, seenAhead, snoozeAhead, useAhead } from '../ahead';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { snoozeMenu, untilWords } from '../snooze';
@@ -582,14 +583,21 @@ export function Bar() {
     });
   };
 
-  /** Shows the session in Codealong's window: what a click on its pill, or an item in the bar's
-   *  menus, does. */
-  const reveal = (i: BarItem | BarRecent | BarSnoozed) => {
+  /** Puts the peek and the notch's session away, for Codealong's window to come forward. */
+  const away = () => {
     stopHover();
     if (peekedNow.current.key) void peekHide();
     stage.close();
+  };
+
+  /** Shows the session in Codealong's window: what a click on its pill, or an item in the bar's
+   *  menus, does. */
+  const reveal = (i: BarItem | BarRecent | BarSnoozed) => {
+    away();
     void showMain({ kind: 'session', laneId: i.laneId, key: i.key });
   };
+  // A view's keys, while the notch's session has the keyboard.
+  useViewKeys(away);
 
   /** What picking a session from one of the bar's menus does: it shows in Codealong's window, or,
    *  docked, in the notch, as a click on its pill has it. */

@@ -111,6 +111,7 @@ import { errorText, type Report } from '../report';
 import { openWhere, where } from '../open';
 import { asText, flag, readStored, strings, useStored, writeStored } from '../stored';
 import { useLatest } from '../latest';
+import { useViewKeys } from '../mainKeys';
 import { useStartChoice, useStartPicks } from '../useStartChoice';
 import { findFor } from '../threadFind';
 import { useTextSearch } from '../useTextSearch';
@@ -983,6 +984,7 @@ export function Quick() {
     void hideQuick();
     void showMain({ kind: 'session', laneId: lane.id, key: session.key, find });
   };
+  useViewKeys(() => void hideQuick());
 
   /** What picking a session does: Codealong shows it, with its conversation, rather than the
    *  terminal or app it runs in. The search that found it is done with, as when it opens there;

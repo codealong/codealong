@@ -34,6 +34,7 @@ import { followBoard } from '../followBoard';
 import { useSessionHistory } from '../history';
 import { liveOrLatest } from '../lanes';
 import { useLatest } from '../latest';
+import { useViewKeys } from '../mainKeys';
 import * as menus from '../menus';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { openWhere, where } from '../open';
@@ -215,6 +216,8 @@ export function Waiting() {
   const revealSession = (lane: Lane, s: Session) => void showMain({ kind: 'session', laneId: lane.id, key: s.key });
   const revealPr = (pr: PrItem, tab?: PrTab | null) => void showMain({ kind: 'pr', key: pr.key, tab: tab ?? undefined });
   const revealLane = (lane: Lane) => void showMain({ kind: 'worktree', laneId: lane.id });
+  // A view's keys: Codealong's window comes forward over this one, as Show in Codealong has it.
+  useViewKeys();
 
   /** What the window does for a session's actions (SessionCard.tsx has the rest): the one shown
    *  goes on to the next that waits once it's left what waits on you; another is shown here. */
