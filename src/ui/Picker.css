@@ -108,6 +108,10 @@
   font: var(--type-meta);
   color: var(--ink-3);
 }
+/* The row that opens the folded options: quieter than the options. */
+.ca-picker-more {
+  color: var(--ink-2);
+}
 .ca-picker-empty {
   margin: 0;
   padding: 6px 10px 10px;

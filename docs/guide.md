@@ -1883,7 +1883,9 @@ app thread.
 
 **New session**, the panel's last row: pick the worktree (⌘T; it starts at whatever's selected in
 Codealong: a worktree, a session's, a PR's, or for a PR with none here its repo's main checkout;
-pinned ones first), the account and model in one menu (⌘L, every account on every model it can start
+pinned ones first, then each repo's main checkout and reusable worktrees, and the rest folded
+away under *N more*, which opens on a click or ⏎ and while what you type matches one of them),
+the account and model in one menu (⌘L, every account on every model it can start
 on, with its limits, and the effort under them: Default, Low, Medium, High, Extra or Max, for Codex
 Extra high and Ultra too, ← → to change it), and where it runs, a row under the effort (⌘O opens
 the same menu; the chip says the place after the account and model, and each place says what it

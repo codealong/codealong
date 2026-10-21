@@ -412,10 +412,38 @@ describe('laneGroups', () => {
     expect(laneGroups(lanes, ['p', 'gone']).map((g) => [g.label, g.lanes.map((l) => l.id)])).toEqual([
       ['Pinned', ['p']],
       ['b', ['b1']],
-      ['a', ['a', 'a1']],
+      ['a', ['a']],
+      // A repo's worktrees that are neither its main checkout nor reusable come after every
+      // repo's, to be folded away; b's main checkout isn't listed, so b1 stays where it was.
+      ['a', ['a1']],
     ]);
+    expect(laneGroups(lanes, []).map((g) => g.more ?? false)).toEqual([false, false, true]);
     // Across projects, a repo's heading names its project.
     expect(laneGroups([lane('x', [], { repo: 'r' }), lane('y', [], { repo: 'r', project: 'Globex' })], []).map((g) => g.label).sort()).toEqual(['Acme · r', 'Globex · r']);
+  });
+
+  it('puts every main checkout and reusable worktree before the rest, the rest by repo in the same order', () => {
+    const lanes = [
+      lane('a', [], { repo: 'a', origin: 'main', lastActivity: 1 }),
+      lane('a-old', [], { repo: 'a', lastActivity: 2 }),
+      lane('a-reuse', [], { repo: 'a', reuse: 'free', lastActivity: 3 }),
+      lane('a-new', [], { repo: 'a', lastActivity: 8 }),
+      lane('b', [], { repo: 'b', origin: 'main', reuse: 'open', lastActivity: 5 }),
+      lane('b1', [], { repo: 'b', lastActivity: 9 }),
+    ];
+    expect(laneGroups(lanes, []).map((g) => [g.label, g.more ?? false, g.lanes.map((l) => l.id)])).toEqual([
+      ['b', false, ['b']],
+      ['a', false, ['a', 'a-reuse']],
+      ['b', true, ['b1']],
+      ['a', true, ['a-new', 'a-old']],
+    ]);
+    // A repo whose main checkout is pinned still has its other worktrees folded away.
+    expect(laneGroups(lanes, ['b']).map((g) => [g.label, g.more ?? false, g.lanes.map((l) => l.id)])).toEqual([
+      ['Pinned', false, ['b']],
+      ['a', false, ['a', 'a-reuse']],
+      ['b', true, ['b1']],
+      ['a', true, ['a-new', 'a-old']],
+    ]);
   });
 });
 

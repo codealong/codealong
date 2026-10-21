@@ -17,7 +17,7 @@ import type { Board, Schedule, ScheduleEvent, ScheduleTimes, ScheduleWhen, Start
 import { AgentPromptBox } from './AgentPromptBox';
 import { FieldPicker } from './FieldPicker';
 import type { PickerSection } from './Picker';
-import { chatOption, laneOption, sessionOption } from './pickerOptions';
+import { chatOption, laneSections, sessionOption } from './pickerOptions';
 import { BoxText, Button, CheckBox, Dialog, Icon, Seg } from './primitives';
 
 type WhenKind = ScheduleWhen['kind'];
@@ -108,7 +108,7 @@ export function ScheduleDialog({ schedule, board, now, onClose, onSaved }: Sched
     const none = run.to === 'session' ? { id: '', text: 'no worktree home folder', label: 'No worktree', detail: 'Its commands run in your home folder', lead: <Icon name="home" size={12} /> } : chatOption('');
     const gone = run.folder && !worktrees.some((l) => l.path === run.folder) ? [{ key: 'gone', options: [{ id: run.folder, text: run.folder, label: tildePath(run.folder), detail: 'Not on the board', lead: <Icon name="folder" size={12} /> }] }] : [];
     const groups = laneGroups(worktrees, board.pinnedWorktrees ?? []);
-    return [{ key: 'none', options: [none] }, ...gone, ...groups.map((g) => ({ key: g.label, head: g.label, options: g.lanes.map((l) => laneOption(l, l.path)) }))];
+    return [{ key: 'none', options: [none] }, ...gone, ...laneSections(groups, (l) => l.path)];
   }, [worktrees, board.pinnedWorktrees, run.to, run.folder]);
   const worktree = worktrees.find((l) => l.path === run.folder);
   // The session it sends to: those in its worktree first, then the rest, the latest first.

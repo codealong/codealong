@@ -2,12 +2,13 @@
 // panel's worktree menu, and the schedule dialog's worktree and session fields. A worktree reads
 // as the quick panel has it, by name and branch with its status; a session by its title, where it
 // works and its account (said last), with its status and how long since it last did anything.
+// Both worktree menus list them in laneGroups' order, the seldom picked folded away.
 
 import { ago } from '../format';
 import { laneWaits } from '../lanes';
-import { laneBranch, NO_PROJECT } from '../quick';
+import { laneBranch, NO_PROJECT, type LaneGroup } from '../quick';
 import type { Lane, Session } from '../types';
-import type { PickerOption } from './Picker';
+import type { PickerOption, PickerSection } from './Picker';
 import { Icon, SessionGlyph, StatusGlyph } from './primitives';
 
 /** A worktree, picked by `id` (its lane id in the quick panel, its folder in a schedule). */
@@ -19,6 +20,17 @@ export function laneOption(l: Lane, id: string = l.id): PickerOption {
     detail: laneBranch(l),
     lead: <StatusGlyph status={l.glyph} size={10} title="" waiting={laneWaits(l)} />,
   };
+}
+
+/** The worktree menus' sections, from quick.ts `laneGroups`: a repo's worktrees other than its
+ *  main checkout and reusable ones folded away under a heading of their own. */
+export function laneSections(groups: LaneGroup[], id?: (l: Lane) => string): PickerSection[] {
+  return groups.map((g) => ({
+    key: g.more ? `more:${g.label}` : g.label,
+    head: g.more ? `${g.label} · other worktrees` : g.label,
+    options: g.lanes.map((l) => laneOption(l, id?.(l))),
+    folded: g.more,
+  }));
 }
 
 /** A chat of its own, in no project: Codealong's chats, apart from every worktree. */

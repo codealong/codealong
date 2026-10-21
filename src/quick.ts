@@ -451,26 +451,46 @@ export function readyTodos(board: Board, project: string, limit = READY_TODOS): 
   return { rows, count: ready.length };
 }
 
-/** Where a new session can start, for the worktree menu: pinned worktrees first, in your order,
+/** A heading of the worktree menu and the worktrees under it. `more`: a repo's worktrees that are
+ *  rarely started in, which the menus fold away (Picker.tsx `folded`). */
+export interface LaneGroup {
+  label: string;
+  lanes: Lane[];
+  more?: boolean;
+}
+
+/** Where a new session can start, for the worktree menus: pinned worktrees first, in your order,
  *  then the rest by repo, the most recently active repo first. In each repo its main checkout
- *  leads, then the most recently active worktrees: the main checkout can be on any branch, so
- *  its place is what finds it. */
-export function laneGroups(lanes: Lane[], pinned: string[]): { label: string; lanes: Lane[] }[] {
+ *  leads, then its reusable worktrees, the most recently active first: the main checkout can be
+ *  on any branch, so its place is what finds it. A repo's other worktrees, each kept for one
+ *  piece of work, are seldom started in again: they come after every repo's, as groups marked
+ *  `more`. A repo whose main checkout isn't listed keeps them with the rest, having nothing else
+ *  to start in. */
+export function laneGroups(lanes: Lane[], pinned: string[]): LaneGroup[] {
   const byId = new Map(lanes.map((l) => [l.id, l]));
   const pins = pinned.flatMap((id) => byId.get(id) ?? []);
   const pinnedIds = new Set(pins.map((l) => l.id));
   const projects = new Set(lanes.map((l) => l.project)).size;
+  const labelOf = (l: Lane) => (projects > 1 ? `${l.project} · ${l.repo}` : l.repo);
+  const withMain = new Set(lanes.filter((l) => l.origin === 'main').map(labelOf));
   const groups = new Map<string, Lane[]>();
   for (const l of lanes) {
     if (pinnedIds.has(l.id)) continue;
-    const label = projects > 1 ? `${l.project} · ${l.repo}` : l.repo;
-    groups.set(label, [...(groups.get(label) ?? []), l]);
+    groups.set(labelOf(l), [...(groups.get(labelOf(l)) ?? []), l]);
   }
   const latest = (ls: Lane[]) => Math.max(...ls.map((l) => l.lastActivity));
   const repos = [...groups.entries()]
-    .map(([label, ls]) => ({ label, lanes: [...ls].sort((a, b) => Number(b.origin === 'main') - Number(a.origin === 'main') || b.lastActivity - a.lastActivity) }))
-    .sort((a, b) => latest(b.lanes) - latest(a.lanes));
-  return pins.length > 0 ? [{ label: 'Pinned', lanes: pins }, ...repos] : repos;
+    .sort(([, a], [, b]) => latest(b) - latest(a))
+    .map(([label, ls]) => {
+      const sorted = [...ls].sort((a, b) => Number(b.origin === 'main') - Number(a.origin === 'main') || b.lastActivity - a.lastActivity);
+      const often = (l: Lane) => !withMain.has(label) || l.origin === 'main' || !!l.reuse;
+      return { label, lanes: sorted.filter(often), rest: sorted.filter((l) => !often(l)) };
+    });
+  return [
+    ...(pins.length > 0 ? [{ label: 'Pinned', lanes: pins }] : []),
+    ...repos.filter((r) => r.lanes.length > 0).map((r) => ({ label: r.label, lanes: r.lanes })),
+    ...repos.filter((r) => r.rest.length > 0).map((r) => ({ label: r.label, lanes: r.rest, more: true })),
+  ];
 }
 
 /** A worktree's branch, when it says more than its name. */

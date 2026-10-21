@@ -95,7 +95,7 @@ import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttac
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { chatOption, laneOption } from './pickerOptions';
+import { chatOption, laneSections } from './pickerOptions';
 import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
@@ -1590,7 +1590,7 @@ export function Quick() {
   const worktreeSections: PickerSection[] = [
     // First, so a long list of worktrees doesn't hide it.
     ...(chatLane ? [{ key: 'chat', options: [chatOption(chatLane.id)] }] : []),
-    ...groups.map((g) => ({ key: g.label, head: g.label, options: g.lanes.map((l) => laneOption(l)) })),
+    ...laneSections(groups),
   ];
 
   const agentSections: PickerSection[] = useMemo(
