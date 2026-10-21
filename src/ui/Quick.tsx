@@ -512,7 +512,9 @@ export function Quick() {
     el.style.height = `${Math.min(el.scrollHeight, tallest)}px`;
   }, [text, sendTo, opens]);
 
-  const refocus = () => window.requestAnimationFrame(() => input.current?.focus());
+  // Not out of a menu that opened since: a press on another menu's button closes the one open,
+  // which asks for this, and its click can open the other before the frame comes.
+  const refocus = () => window.requestAnimationFrame(() => document.activeElement?.closest('.ca-picker') || input.current?.focus());
 
   /* ---- Where ---- */
 
