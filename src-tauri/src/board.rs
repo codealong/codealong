@@ -897,6 +897,12 @@ fn lane_order(a: &Lane, b: &Lane) -> std::cmp::Ordering {
         .then(b.last_activity.cmp(&a.last_activity))
 }
 
+/// Whether a checkout's remotes (`LaneSeed::head_owners`) include a PR's head owner. GitHub
+/// names owners in its own case, and a remote's URL in whatever case it was typed.
+fn has_owner(owners: &[String], owner: &str) -> bool {
+    owners.iter().any(|o| o.eq_ignore_ascii_case(owner))
+}
+
 /// The PR for a lane: an open one on its branch, else one merged or closed in the last
 /// seven days whose head is still the lane's HEAD.
 pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> Option<Pr> {
@@ -906,7 +912,7 @@ pub fn find_pr(seed: &LaneSeed, prs: &HashMap<String, Vec<PrRaw>>, now: i64) -> 
         return None;
     }
     let list = prs.get(slug)?;
-    let ours = |p: &&PrRaw| &p.head_ref == branch && p.head_owner.as_ref().map(|o| seed.head_owners.contains(o)).unwrap_or(true);
+    let ours = |p: &&PrRaw| &p.head_ref == branch && p.head_owner.as_ref().map_or(true, |o| has_owner(&seed.head_owners, o));
     let open = list.iter().filter(ours).filter(|p| p.state.is_open()).max_by_key(|p| p.updated_at);
     let pick = open.or_else(|| {
         list.iter()
@@ -1062,7 +1068,7 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
     let here: Vec<&Lane> = lanes.iter().filter(|l| l.repo_slug.as_deref() == Some(slug)).collect();
     // Whether a lane's branch of the PR's name can be the PR's: not when the PR comes from a fork
     // its checkout has no remote for. A lane with no seed to say (a test's) can.
-    let holds_head = |l: &Lane| p.head_owner.as_ref().map_or(true, |o| owners.get(Path::new(&l.id)).map_or(true, |have| have.contains(o)));
+    let holds_head = |l: &Lane| p.head_owner.as_ref().map_or(true, |o| owners.get(Path::new(&l.id)).map_or(true, |have| has_owner(have, o)));
     let head = p.head_ref.as_str();
     let (opened, ended) = (p.created_at, p.merged_at.or(p.closed_at));
     let before_end = move |s: &Session| ended.map_or(true, |end| s.started_at.unwrap_or(s.last_activity) <= end);
@@ -2604,6 +2610,8 @@ mod tests {
             item.sessions.into_iter().map(|x| (x.key, x.pushes)).collect::<Vec<_>>()
         };
         assert_eq!(listed("gwen"), vec![("ours".to_string(), 1), ("reviewer".to_string(), 1)]);
+        // GitHub may name the owner in another case than the remote's URL.
+        assert_eq!(listed("Gwen"), listed("gwen"));
         // Ana's `portal` isn't the one checked out here: only the session whose records show it
         // worked on her PR is listed, and its pushes to this `portal` weren't to hers.
         assert_eq!(listed("ana"), vec![("reviewer".to_string(), 0)]);
@@ -4525,6 +4533,8 @@ mod tests {
         let mut prs = HashMap::new();
         prs.insert("sprucehq/spark".to_string(), vec![pr(PrState::Approved, 0)]);
         assert_eq!(find_pr(&s, &prs, NOW).map(|p| p.number), Some(1037));
+        prs.insert("sprucehq/spark".to_string(), vec![PrRaw { head_owner: Some("Gwen".into()), ..pr(PrState::Open, 0) }]);
+        assert_eq!(find_pr(&s, &prs, NOW).map(|p| p.number), Some(1037), "an owner in another case than the remote's");
         let mut other_owner = pr(PrState::Open, 0);
         other_owner.head_owner = Some("stranger".into());
         prs.insert("sprucehq/spark".to_string(), vec![other_owner]);
