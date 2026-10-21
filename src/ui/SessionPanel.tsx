@@ -164,10 +164,13 @@ function roomFor(strip: HTMLElement): Room {
   const px = (value: string) => parseFloat(value) || 0;
   const wide = (el: Element) => el.getBoundingClientRect().width / scale;
   // From where what it says starts (after the title bar's room for the window's buttons, say),
-  // less the least kept for that, to the strip's end, where the buttons end however they're laid.
+  // less the least kept for that, to the end of the strip's own box: the buttons' may run past
+  // it where they never wrap (the notch's).
+  const own = getComputedStyle(strip);
   const note = strip.querySelector('.ca-reply-queue-note');
-  const end = keys.getBoundingClientRect().right;
-  const room = note ? (end - note.getBoundingClientRect().left) / scale - px(getComputedStyle(note).minWidth) - px(getComputedStyle(strip).columnGap) : wide(keys);
+  const end = strip.getBoundingClientRect().right - (px(own.paddingRight) + px(own.borderRightWidth)) * scale;
+  const start = note ? note.getBoundingClientRect().left : strip.getBoundingClientRect().left + (px(own.paddingLeft) + px(own.borderLeftWidth)) * scale;
+  const room = (end - start) / scale - (note ? px(getComputedStyle(note).minWidth) + px(own.columnGap) : 0);
   const items = [...keys.children];
   const taken = items.reduce((sum, el) => {
     const style = getComputedStyle(el);

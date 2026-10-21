@@ -13,8 +13,12 @@
 // session is made the primary of a real PR, made ready; the peek's card holds the dialog
 // (SessionCard.tsx), the main window's Sessions App.tsx. In Sessions ⇧⌘M works from the session's
 // box too, as ⇧⌘E does. Its keys are the platform's (PREVIEW_PLATFORM=linux: Ctrl+Shift+M).
+// On the strip it says its words, then its key, wherever they fit, from a strip 420 to 1100px
+// wide, the buttons on one line and inside it; in the notch, whose buttons never wrap, only that
+// is checked.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/merge-done-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/merge-done-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_SIZE=1512,720 scripts/preview.sh notch '' scripts/preview/merge-done-check.js
 (function () {
   var linux = window.__CODEALONG_PLATFORM__ === 'linux' || /\bLinux\b/.test(navigator.userAgent);
   localStorage.setItem('codealong.project', 'All projects');
@@ -32,11 +36,16 @@
 
   // A session on this Mac that runs in a terminal, and a PR to make it the primary of.
   var board = get('./board.json');
+  // In the notch, one the floating bar's feed has, for its pill.
+  var notched = !!(window.__BAR_MODE__ && window.__BAR_MODE__.mode === 'notch');
+  var feed = notched ? get('./bar-feed.json') : null;
+  var fed = {};
+  (feed ? feed.items : []).forEach(function (i) { fed[i.key] = i; });
   var picked = null;
   var home = null;
   (board ? board.lanes : []).forEach(function (l) {
     l.sessions.forEach(function (s) {
-      if (picked || l.hidden || l.device || s.archived || s.visitor || s.helper) return;
+      if (picked || l.hidden || l.device || s.archived || s.visitor || s.helper || (notched && !fed[s.key])) return;
       picked = s;
       home = l;
     });
@@ -126,6 +135,77 @@
     return window.__TAURI_INTERNALS__.invoke('get_board').then(function (b) { window.__emit('board', b); });
   };
 
+  // Its words, then its key, show wherever the strip has room for them beside the rest and the
+  // least it keeps for what it says, and only there: at each width the buttons keep to one line
+  // and inside the strip, and what's left out wouldn't have fit. Too narrow for the rest alone
+  // (the notch's never wrap), they may wrap or run over with it saying no more than its icon.
+  var sweep = async function (button) {
+    var stripEl = button.closest('.ca-reply-queue.has-keys');
+    var noteEl = q('.ca-reply-queue-note', stripEl);
+    var shows = function (el) { return el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'; };
+    var wordsEl = q('span', button);
+    var keyEl = q('kbd', button);
+    var seenWords = false;
+    var seenBare = false;
+    var wrong = null;
+    var widths = [420, 480, 540, 600, 660, 720, 780, 860, 960, 1100];
+    for (var i = 0; i < widths.length && !wrong; i++) {
+      stripEl.style.width = widths[i] + 'px';
+      await wait(120);
+      var buttons = all('.ca-hotkeys .ca-hotkey', stripEl);
+      var tops = buttons.map(function (b) { return Math.round(b.getBoundingClientRect().top); });
+      var end = stripEl.getBoundingClientRect().right - parseFloat(getComputedStyle(stripEl).paddingRight);
+      var over = Math.max.apply(null, buttons.map(function (b) { return b.getBoundingClientRect().right; })) - end;
+      var spare = noteEl.getBoundingClientRect().width - parseFloat(getComputedStyle(noteEl).minWidth);
+      var gap = parseFloat(getComputedStyle(button).columnGap) || 0;
+      var said = (shows(wordsEl) ? 'words ' : '') + (shows(keyEl) ? 'key' : '') || 'icon';
+      wrong = tops.some(function (t) { return t !== tops[0]; }) && said !== 'icon'
+        ? 'the buttons took two lines'
+        : over > 0.5 && said !== 'icon'
+          ? 'the buttons ran ' + over.toFixed(1) + 'px past the strip'
+          : spare < -0.5
+            ? 'what it says has ' + spare.toFixed(1) + 'px less than it keeps'
+            : !shows(wordsEl) && shows(keyEl) && spare >= wordsEl.getBoundingClientRect().width + gap
+              ? 'its words would have fit (' + spare.toFixed(1) + 'px spare)'
+              : !shows(keyEl) && spare >= keyEl.getBoundingClientRect().width + gap
+                ? 'its key would have fit (' + spare.toFixed(1) + 'px spare)'
+                : shows(wordsEl) && !shows(keyEl)
+                  ? 'its words without its key'
+                  : null;
+      if (shows(wordsEl)) seenWords = true;
+      else seenBare = true;
+      if (wrong) check('at ' + widths[i] + 'px the strip says as much of it as fits (' + said + ')', false, wrong);
+    }
+    if (!wrong) check('from ' + widths[0] + ' to ' + widths[widths.length - 1] + 'px the strip says as much of it as fits, on one line', seenWords && seenBare, seenWords ? 'its words never left' : 'its words never showed');
+    stripEl.style.width = '';
+    await wait(120);
+  };
+
+  // In the notch, whose buttons never wrap, only the strip is checked: the rest is the same
+  // card's as the peek's. Its one pill is the session's, so the notch is as narrow as it gets.
+  if (notched) {
+    (async function () {
+      try {
+        say('merge done check: waiting for the notch');
+        var shape = await until(function () { return q('.ca-notch') && calls('notch_shape').length > 0 && q('.ca-notch-shape'); }, 15000, 'the notch');
+        var item = Object.assign({}, fed[key], { group: 'unread', status: 'unread', asks: false, snoozedUntil: null, hidden: false });
+        window.__emit('bar-feed', Object.assign({}, feed, { loading: false, items: [item], recent: [], snoozed: [], reviews: [], todos: [] }));
+        shape.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+        var pill = await until(function () { return q('.ca-notch-body .ca-hud-pill[data-key="' + key + '"]'); }, 10000, 'no pill for “' + picked.title + '” in the notch');
+        // Once it's open, as the pointer would find it.
+        await wait(500);
+        pill.click();
+        await until(function () { return q('.ca-notch.is-session.is-open .ca-notch-session'); }, 5000, 'a click on its pill didn’t open the notch on “' + picked.title + '”');
+        var button = await until(function () { return all('.ca-notch-session .ca-hotkeys .ca-hotkey').filter(function (b) { return b.textContent.indexOf('Merge and done') === 0; })[0]; }, 10000, 'no Merge and done on the notch’s strip');
+        await sweep(button);
+      } catch (e) {
+        return stopped(e);
+      }
+      done();
+    })();
+    return;
+  }
+
   (async function () {
     try {
       say('merge done check: waiting for the session');
@@ -150,43 +230,7 @@
       if (stripped) {
         var button = await until(mergeButton, 5000, 'no Merge and done on the strip over “' + picked.title + '”');
         check('the strip has it first, before Seen, saying its key', all('.ca-hotkeys .ca-hotkey')[0] === button && stripButton('Seen') && !!(button.compareDocumentPosition(stripButton('Seen')) & Node.DOCUMENT_POSITION_FOLLOWING) && (q('kbd', button) || {}).textContent === (linux ? 'Ctrl+Shift+M' : '⇧⌘M'), button.textContent);
-        // Its words, then its key, show wherever the strip has room for them beside the rest
-        // and the least it keeps for what it says, and only there: at each width the buttons
-        // keep to one line, and what's left out wouldn't have fit.
-        var stripEl = q('.ca-reply-queue.has-keys');
-        var noteEl = q('.ca-reply-queue-note', stripEl);
-        var shows = function (el) { return el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'; };
-        var wordsEl = q('span', button);
-        var keyEl = q('kbd', button);
-        var seenWords = false;
-        var seenBare = false;
-        var widths = [420, 480, 540, 600, 660, 720, 780, 860, 960, 1100];
-        for (var i = 0; i < widths.length; i++) {
-          stripEl.style.width = widths[i] + 'px';
-          await wait(120);
-          var tops = all('.ca-hotkeys .ca-hotkey').map(function (b) { return Math.round(b.getBoundingClientRect().top); });
-          var spare = noteEl.getBoundingClientRect().width - parseFloat(getComputedStyle(noteEl).minWidth);
-          var gap = parseFloat(getComputedStyle(button).columnGap) || 0;
-          var said = (shows(wordsEl) ? 'words ' : '') + (shows(keyEl) ? 'key' : '') || 'icon';
-          // Too narrow for the rest alone, they wrap without it saying more than its icon.
-          var wrong = tops.some(function (t) { return t !== tops[0]; }) && said !== 'icon'
-            ? 'the buttons took two lines'
-            : spare < -0.5
-              ? 'what it says has ' + spare.toFixed(1) + 'px less than it keeps'
-              : !shows(wordsEl) && shows(keyEl) && spare >= wordsEl.getBoundingClientRect().width + gap
-                ? 'its words would have fit (' + spare.toFixed(1) + 'px spare)'
-                : !shows(keyEl) && spare >= keyEl.getBoundingClientRect().width + gap
-                  ? 'its key would have fit (' + spare.toFixed(1) + 'px spare)'
-                  : shows(wordsEl) && !shows(keyEl)
-                    ? 'its words without its key'
-                    : null;
-          if (shows(wordsEl)) seenWords = true;
-          if (!shows(wordsEl)) seenBare = true;
-          if (wrong) { check('at ' + widths[i] + 'px the strip says as much of it as fits (' + said + ')', false, wrong); break; }
-        }
-        if (!wrong) check('from ' + widths[0] + ' to ' + widths[widths.length - 1] + 'px the strip says as much of it as fits, on one line', seenWords && seenBare, seenWords ? 'its words never left' : 'its words never showed');
-        stripEl.style.width = '';
-        await wait(120);
+        await sweep(button);
         doneAt = stripButton('Done').getBoundingClientRect().left;
         stripHeight = q('.ca-hotkeys').getBoundingClientRect().height;
       } else {
