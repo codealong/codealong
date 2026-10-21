@@ -27,8 +27,15 @@
   var selected = function () { return q('[role="option"][aria-selected="true"]', list()); };
 
   say('group lists check: waiting for ' + (prs ? 'PRs' : 'Todo'));
+  // Each row's status as its box says it, and the folded section's count, before grouping.
+  var glyphs = function () { var m = {}; rows().forEach(function (r) { var g = q('.ca-todoglyph, .ca-lane-pricon, .ca-seg-glyph > *', r); m[r.id] = g ? g.outerHTML : ''; }); return m; };
+  var foldCount = function () { var b = all('.ca-bayblock', list()).filter(function (x) { return /^(Merged & closed|Done)/i.test((q('.ca-bay', x) || {}).textContent || ''); })[0]; return b ? (q('.ca-bay-count', b) || {}).textContent : null; };
+  var before = null;
+  var countBefore = null;
   until(function () { return button('No groups') && rows().length > 1; }, 20000, 'the list, with Group by in its bar')
     .then(function () {
+      before = glyphs();
+      countBefore = foldCount();
       var labels = all('.ca-listtools [role="radiogroup"][aria-label="Group by"] button').map(function (b) { return b.getAttribute('aria-label'); });
       check('Group by has its three buttons', labels.join('|') === 'No groups|Worktree|Repo', labels.join('|'));
       check('the list starts with no groups', on('No groups') && heads().length === 0);
@@ -37,6 +44,10 @@
     })
     .then(function () {
       check('Worktree groups the list, and this list remembers it', on('Worktree') && localStorage.getItem(KEY) === 'worktree' && localStorage.getItem(prs ? 'codealong.todoGroup' : 'codealong.prGroup') === null, localStorage.getItem(KEY));
+      var after = glyphs();
+      var changed = Object.keys(after).filter(function (id) { return id in before && before[id] !== after[id]; });
+      check('a row’s box says its own status, grouped as not', changed.length === 0, changed.slice(0, 3).join(' | '));
+      check('the folded section counts all its rows, grouped as not', foldCount() === countBefore, foldCount() + ' was ' + countBefore);
       var loose = rows().filter(function (r) { return !r.closest('.ca-group') && !r.closest('.ca-pinned:not(:has(.ca-group))'); });
       check('every row is under a heading', loose.length === 0, loose.length + ' loose');
       var wt = heads().filter(function (h) { return h.classList.contains('is-worktree-head'); });

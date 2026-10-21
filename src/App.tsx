@@ -956,7 +956,11 @@ export function App() {
   // The floating bar, the quick panel or a card on the desktop asks to show a session, worktree,
   // PR or todo here: in its project, with no search hiding it, nor one of its sessions shown in
   // its panel's place (`drill`), which selecting what's selected already would leave.
+  // Each time something asks to show a row here, which opens the group that folds it away even
+  // when it's the row selected already.
+  const [revealed, setRevealed] = useState(0);
   const reveal = useLatest((r: Reveal) => {
+    setRevealed((n) => n + 1);
     setRevealFind(r.kind === 'session' && r.find ? { key: r.key, ask: { words: r.find, n: Date.now() } } : null);
     // A board `codealong board open` asked for, or the canvas `board arrange --show` laid out,
     // with the frames it made in view. The command turns these down while boards are off.
@@ -1534,12 +1538,20 @@ export function App() {
   // A row selected where its group folds it away (shown from elsewhere, from a chip or the
   // history, or just made) opens its group, once as it's selected: folding the group again
   // later leaves it folded. A session's group is the one of the session it's listed under.
+  // So is one shown again (`revealed`), or selected as its list comes to be grouped. Once opened,
+  // the list goes to it as it shows (`scrollTo`): its key, which the scroll above goes by, may not
+  // have changed.
   const unfoldedFor = useRef<string | null>(null);
+  const [scrollTo, setScrollTo] = useState<string | null>(null);
   useEffect(() => {
-    if (loading || !selectedKey || unfoldedFor.current === selectedKey) return;
-    unfoldedFor.current = selectedKey;
+    const ask = `${selectedKey}#${revealed}#${view}:${view === 'prs' ? prGroup : view === 'todo' ? todoGroup : sessionGroup}`;
+    if (loading || !selectedKey || unfoldedFor.current === ask) return;
+    unfoldedFor.current = ask;
     if (visible.some((r) => r.key === selectedKey)) return;
-    const opening = (set: Dispatch<SetStateAction<ReadonlySet<string>>>, keys: string[]) => set((o) => (keys.every((k) => o.has(k)) ? o : new Set([...o, ...keys])));
+    const opening = (set: Dispatch<SetStateAction<ReadonlySet<string>>>, keys: string[]) => {
+      set((o) => (keys.every((k) => o.has(k)) ? o : new Set([...o, ...keys])));
+      setScrollTo(selectedKey);
+    };
     if (view === 'sessions' && sessionGroup !== 'none') {
       const by = sessionGroup;
       const home = homes.get(selectedKey.split('::')[1] ?? '');
@@ -1551,7 +1563,12 @@ export function App() {
       const r = todoItems.find((x) => x.key === selectedKey);
       if (r) opening(setOpenTodoGroups, [placeIn(r.lane, todoGroup).key]);
     }
-  }, [loading, selectedKey, visible, view, sessionGroup, prGroup, todoGroup, homes, lanes, prRows, todoItems]);
+  }, [loading, selectedKey, revealed, visible, view, sessionGroup, prGroup, todoGroup, homes, lanes, prRows, todoItems]);
+  useEffect(() => {
+    if (!scrollTo || !visible.some((r) => r.key === scrollTo)) return;
+    document.getElementById(domIdOf(scrollTo))?.scrollIntoView({ block: 'nearest' });
+    setScrollTo(null);
+  }, [scrollTo, visible]);
 
   /** Shows a worktree: on the canvas its card; in Sessions grouped by worktree its heading,
    *  selected; else its panel in place of the one beside the list, with the way back to it

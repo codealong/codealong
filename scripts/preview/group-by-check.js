@@ -25,6 +25,8 @@
   var board = null;
   var folding = null;
   var empty = null;
+  // The last of the sessions the check made, which its group folds away.
+  var lastClone = null;
   var alone = null;
   var NOTHING = 'Group by nothing';
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -43,6 +45,7 @@
         for (var i = 0; i < EXTRA; i++) {
           var s = JSON.parse(JSON.stringify(from));
           s.key = from.key + '-group-by-' + i;
+          lastClone = s.key;
           s.id = from.id + '-group-by-' + i;
           s.title = 'Group by check ' + i;
           s.status = 'idle';
@@ -210,6 +213,36 @@
         check('and then folds them again', !!again && again.textContent === 'Show fewer', again ? again.textContent : 'no fold row');
         again.click();
         return until(function () { return sessionsIn(groupOf(folding)).length === before; }, 3000, 'folded again').then(function () { check('which it does', true); });
+      });
+    })
+    .then(function () {
+      // A session its group folds away, shown from elsewhere: its group opens, with it selected.
+      var id = 'row-' + folding + '::' + lastClone;
+      check('the last session made is folded away', !document.getElementById(id));
+      window.__emit('reveal', { kind: 'session', laneId: folding, key: lastClone });
+      return until(function () { var r = document.getElementById(id); return r && r.getAttribute('aria-selected') === 'true'; }, 3000, 'it listed and selected').then(function () {
+        check('shown from elsewhere, a folded session opens its group, selected', true);
+        q('.ca-groupfold button', groupOf(folding)).click();
+        return until(function () { return !document.getElementById(id); }, 3000, 'folded again, with it selected');
+      }).then(function () {
+        // Shown again while it's still the one selected: its group opens again.
+        window.__emit('reveal', { kind: 'session', laneId: folding, key: lastClone });
+        return until(function () { return !!document.getElementById(id); }, 3000, 'it listed again');
+      }).then(function () {
+        check('shown again while selected, it opens its group again', document.getElementById(id).getAttribute('aria-selected') === 'true');
+        // Selected with no groups, then grouped: its group opens with it.
+        q('.ca-groupfold button', groupOf(folding)).click();
+        button('No groups').click();
+        return until(function () { return heads().length === 0 && document.getElementById(id); }, 3000, 'the list with no groups');
+      }).then(function () {
+        press(document.getElementById(id));
+        return wait(200).then(function () {
+          button('Worktree').click();
+          return until(function () { return heads().length > 0; }, 3000, 'grouped again');
+        });
+      }).then(function () {
+        var r = document.getElementById(id);
+        check('selected as its list is grouped, a session’s group opens with it', !!r && r.getAttribute('aria-selected') === 'true', r ? 'not selected' : 'folded away');
       });
     })
     .then(function () {

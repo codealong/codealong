@@ -343,7 +343,8 @@ function Section({ section, groups, count, props }: { section: Pick<TodoSection,
   const drag = useTodoDrag(rows, status && !groups ? (id, index) => onMove(status, id, index) : undefined);
   const draggable = !!status && !groups && canReorder && rows.length > 1;
   const hint = draggable && selectedKey && picked.size === 0 && rows.some((r) => r.key === selectedKey) ? <ReorderHint /> : undefined;
-  const sectionOf = (r: TodoItem) => status ?? itemSection(r, todos);
+  // Grouped, a section's groups hold todos of other statuses too, which their boxes still say.
+  const sectionOf = (r: TodoItem) => (groups ? null : status) ?? itemSection(r, todos);
   return (
     <section className="ca-bayblock">
       {status ? <SectionHead id={status} count={count} hint={hint} /> : <SectionHeader label={section.label} count={count} />}
@@ -403,7 +404,7 @@ export function TodoView(props: TodoViewProps) {
         <section className="ca-bayblock ca-todo-done">
           <SectionHead
             id="done"
-            count={doneRows.length}
+            count={groupedDone ? groupedDone.count : doneRows.length}
             hint={
               <button type="button" className="ca-linkbtn" aria-expanded={showDone} onClick={onToggleDone}>
                 {showDone ? 'Hide' : 'Show'}
