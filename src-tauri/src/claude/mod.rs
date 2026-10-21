@@ -20,6 +20,7 @@ mod conversation;
 pub mod daemon;
 pub mod held;
 pub mod live;
+mod mcp;
 mod mode;
 mod names;
 pub mod peer;
@@ -993,6 +994,11 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn stop_training(&self, account: &AccountCfg) -> anyhow::Result<()> {
         training::stop(account)
+    }
+
+    /// Its claude.ai connectors, its own servers and its plugins'.
+    fn mcp(&self, account: &AccountCfg) -> crate::mcp::Mcp {
+        mcp::read(account)
     }
 
     fn reader(&self, _wake: crate::harness::Wake) -> Box<dyn crate::harness::Reader> {

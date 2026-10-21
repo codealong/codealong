@@ -1,5 +1,6 @@
 // Settings › Accounts: the Claude Code, Codex, OpenCode, Antigravity and Cursor accounts Codealong
-// reads, each with whether its provider may train on what it sends (training.ts) and a switch that
+// reads, each with the MCP servers its agents have (mcp.rs), whether its provider may train on what
+// it sends (training.ts) and a switch that
 // turns it off (config.toml's `disabled`), and under Found on this Mac the ones it could (detect.rs). Saving rewrites the
 // [[accounts]] tables in config.toml and leaves the rest of the file as you wrote it. Adding an
 // account can put Codealong in it too (install.rs: the plugin in Claude Code, the skill elsewhere), as
@@ -10,8 +11,8 @@ import { agentsStatus, foundAccounts, getAccounts, installAgents, openUrl, saveA
 import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
 import { afterStop, flagged, readNote, trainingOf, trainingTag } from '../training';
-import type { AccountCfg, AccountInfo, FoundAccount, Harness, StartPlace, Training, Usage } from '../types';
-import { Button, CheckBox, cx, Icon, Rich, Seg } from './primitives';
+import type { AccountCfg, AccountInfo, FoundAccount, Harness, Mcp, StartPlace, Training, Usage } from '../types';
+import { Button, CheckBox, Chip, cx, Icon, Rich, Seg } from './primitives';
 import { asOfPhrase, UsageMeter } from './UsageBar';
 
 interface Draft {
@@ -31,6 +32,46 @@ interface Draft {
   usageCap: string;
   /** Whether you typed in these fields; untouched ones follow the name. */
   touched: { home: boolean; command: boolean };
+}
+
+/** MCP servers shown before the rest fold into a `+N` that shows them. */
+export const MCP_SHOWN = 3;
+
+/** A server's tooltip: where it comes from, and how many tools it has where that's known. */
+export function serverTitle(s: Mcp['servers'][number]): string {
+  const tools = s.tools?.length ? ` · ${s.tools.length} ${s.tools.length === 1 ? 'tool' : 'tools'}` : '';
+  return `${s.from}${tools}`;
+}
+
+/** An account's MCP servers: the first few, then a `+N` that shows the rest. */
+function McpServers({ mcp }: { mcp: Mcp }) {
+  const [all, setAll] = useState(false);
+  const { servers } = mcp;
+  // A whole server or none: `+1` takes the room of the one it would hide.
+  const folds = servers.length > MCP_SHOWN + 1;
+  const shown = all || !folds ? servers : servers.slice(0, MCP_SHOWN);
+  const why = mcp.stale ?? mcp.note;
+  return (
+    <dd className="ca-acct-mcp" title={mcp.stale ? `Last read before: ${mcp.stale}` : undefined}>
+      {servers.length === 0 && <span className="ca-acct-mcp-none">None</span>}
+      {shown.map((s) => (
+        <Chip key={`${s.from}:${s.name}`} title={serverTitle(s)}>
+          {s.name}
+        </Chip>
+      ))}
+      {folds && !all && (
+        <Chip className="ca-chip--more" act={() => setAll(true)} title={`Show the other ${servers.length - MCP_SHOWN}`} label={`Show ${servers.length - MCP_SHOWN} more MCP servers`}>
+          +{servers.length - MCP_SHOWN}
+        </Chip>
+      )}
+      {folds && all && (
+        <Chip className="ca-chip--more" act={() => setAll(false)} title="Show fewer" label="Show fewer MCP servers">
+          Fewer
+        </Chip>
+      )}
+      {why && <span className="ca-acct-mcp-note">{why.replace(/`/g, '')}</span>}
+    </dd>
+  );
 }
 
 /** What turning an account off does. */
@@ -177,13 +218,14 @@ interface AccountsSectionProps {
   focus: string | null;
   usage: Usage[];
   training?: Training[];
+  mcp?: Mcp[];
   terminal: string;
   now: number;
   /** Something was saved: the settings behind the other sections changed too. */
   onSaved: () => void;
 }
 
-export function AccountsSection({ focus, usage, training, terminal, now, onSaved }: AccountsSectionProps) {
+export function AccountsSection({ focus, usage, training, mcp, terminal, now, onSaved }: AccountsSectionProps) {
   const [accounts, setAccounts] = useState<AccountInfo[] | null>(null);
   const [found, setFound] = useState<FoundAccount[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -450,6 +492,7 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
       {(accounts ?? []).map((a) => {
         if (draft?.original === a.name) return <div key={a.name}>{form}</div>;
         const u = usage.find((x) => x.account === a.name);
+        const servers = mcp?.find((m) => m.account === a.name);
         const t = trainingOf(training, a.name);
         const tag = trainingTag(t);
         const status = a.signedIn ? (a.signInNote ?? a.email ?? 'Signed in') : a.folderExists ? 'Not signed in' : 'Not set up';
@@ -497,6 +540,12 @@ export function AccountsSection({ focus, usage, training, terminal, now, onSaved
                 <>
                   <dt>Starts in</dt>
                   <dd>{placeName(a.start ?? startPlaces(a.harness, a.home)[0], terminal)}</dd>
+                </>
+              )}
+              {servers && (
+                <>
+                  <dt>MCP servers</dt>
+                  <McpServers mcp={servers} />
                 </>
               )}
               {t && (

@@ -1575,6 +1575,27 @@ about a pull request, and no pick of it by Auto or in the quick panel. Its usage
 leaves the usage bar and Settings › Agents. Its sessions still show on the board, and running ones
 still take what you send them. **Turn on** brings it back; **Remove** stops reading it at all.
 
+Each card lists the MCP servers its agents have wherever they run: the first three, then **+N**,
+which shows the rest (**Fewer** folds them again), each saying on hover where it comes from and how
+many tools it has where that's known. They're read at launch, every hour and when you click the
+usage bar's refresh, and nothing is started to read them:
+
+- Claude Code: the claude.ai connectors the account has connected (as Claude Code asks for them
+  when a session starts, so one added in claude.ai but never connected isn't listed), the servers
+  added for every folder (`claude mcp add --scope user`), and its plugins' (the ones claude.ai
+  syncs to it too).
+- Codex: the ChatGPT apps it has turned on (Gmail, Google Drive, GitHub…), the servers in its
+  `config.toml` that aren't `enabled = false`, and the ones its plugins bring.
+- Cursor: the servers in its folder's `mcp.json`. One turned off in Cursor's settings is still
+  listed: Cursor keeps that elsewhere.
+- Antigravity: the servers in `~/.gemini/config/mcp_config.json` that aren't `disabled`.
+- OpenCode: the servers in its config's `mcp` (`~/.config/opencode`) that aren't `enabled: false`.
+
+A service with two names (claude.ai's Figma and the figma plugin) is listed once. Servers a repo
+adds for itself (its `.mcp.json`) belong to the repo, not the account, and aren't listed. When some
+couldn't be read (a sign-in that expired, a file that doesn't parse), the card says why, and the
+last full list is kept meanwhile. `codealong --snapshot --mcp` prints them all.
+
 ## Finding and starting work
 
 ### Quick panel
@@ -1663,7 +1684,13 @@ search), saying it's working until Jev answers. At the next key the last answer'
 where they were, dimmed and without keys, doing nothing until Jev answers again, and the group only
 grows while you type, so the rows under it hold still. With `[routing] prompt` set (Settings ›
 Routing), Jev also suggests an agent, model or routing group for a new session, resolved to an
-account with room; without one, a new session starts on the one the start menu shows. The API key stays in
+account with room; without one, a new session starts on the one the start menu shows. When your
+accounts don't all reach the same MCP servers (see *Settings window*), Jev is also asked which
+service what you typed needs, and when it's sure (70% or more), new work starts on an account that
+reaches it, the one with room among them, and the row says so: "what does my email say" goes to
+an account connected to Gmail, even when Jev's agent pick or the start menu names one that isn't.
+Work on code, which needs none, starts as it would anyway. The service names and their tools'
+names go to TypeSafe with the rest. The API key stays in
 the login keychain. What you type, repo names and session titles and latest lines go to TypeSafe.
 Images you paste go too, each where it is in the text, so a screenshot can say which app or
 session you mean: up to four, scaled down to what Jev takes (padded out when they're tiny). When

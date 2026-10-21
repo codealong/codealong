@@ -88,6 +88,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--accounts", takes: "", run: accounts },
     Mode { flag: "--training-off", takes: "<account>", run: training_off },
     Mode { flag: "--training", takes: "", run: |_, _| Ok(pretty(&crate::training::read_all(&config::current().map_err(failed)?.accounts))) },
+    Mode { flag: "--mcp", takes: "", run: |_, _| Ok(pretty(&crate::mcp::read_all(&config::current().map_err(failed)?.accounts))) },
     Mode { flag: "--pr-side", takes: "<owner/name> <number> <account> <question> [a follow-up…] [--model <model>] [--effort <level>]", run: pr_side },
     Mode { flag: "--pr-card", takes: "<owner/name> <number>", run: pr_card },
     Mode { flag: "--pr-draft", takes: "<owner/name> <number>", run: |_, rest| { let (repo, number) = repo_and_number(rest)?; Ok(pretty(&crate::github::your_review(repo, number).map_err(failed)?)) } },
@@ -499,7 +500,11 @@ fn start_plan(args: &Args, rest: &[String]) -> Done {
 fn route_text(args: &Args, rest: &[String]) -> Done {
     let [text, ..] = rest else { return Err(Stop::Usage) };
     let project = args.option("--project").unwrap_or(route::ALL_PROJECTS);
-    Ok(pretty(&act(api::ROUTE, "", params::Route { project: project.to_string(), text: text.clone() })?))
+    // The accounts' MCP servers, which the app reads in the background, for Jev's `needs`.
+    let mut board = engine::snapshot(false, false);
+    board.mcp = crate::mcp::read_all(&config::current().map_err(failed)?.accounts);
+    let params = params::Route { project: project.to_string(), text: text.clone() };
+    Ok(pretty(&actions::local(&engine::Handle::over(board), &From::Device, api::ROUTE, "", params).map_err(Stop::Failed)?))
 }
 
 fn accounts(_: &Args, _: &[String]) -> Done {

@@ -135,6 +135,10 @@ pub struct Board {
     /// accounts read so far, in config order. This Mac's own: not sent to other devices.
     #[serde(default)]
     pub training: Vec<crate::training::Training>,
+    /// The MCP servers each account's agents have (mcp.rs), for the accounts read so far, in
+    /// config order. This Mac's own: not sent to other devices.
+    #[serde(default)]
+    pub mcp: Vec<crate::mcp::Mcp>,
     /// The side conversations asked here (side.rs `glances`), kept and open, by the key of the
     /// session or PR they're about, the latest started first. This Mac's own: not sent to other
     /// devices.

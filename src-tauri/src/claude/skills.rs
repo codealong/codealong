@@ -26,18 +26,41 @@ const SYNCED: &str = "anthropic-skills";
 /// An account's own skills: its home's, the synced ones, its enabled plugins' and the enabled
 /// ones of those claude.ai syncs.
 pub fn of_account(home: &Path) -> Vec<Root> {
+    let roots = |plugins: Vec<(String, PathBuf)>| plugins.into_iter().flat_map(|(name, dir)| [Root::skills(dir.join("skills"), 1).of_plugin(&name), Root::commands(dir.join("commands")).of_plugin(&name)]);
+    let found = Plugins::of(home);
     let mut out = in_folder(home);
-    let read_at = |path: PathBuf| std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).unwrap_or(Value::Null);
-    let read = |file: &str| read_at(home.join(file));
-    let settings = read("settings.json");
-    out.extend(plugin_roots(&read("plugins/installed_plugins.json"), &settings));
-    // What claude.ai syncs is for the sign-in, and only the one Claude Code is signed in with
-    // is loaded: the others' folders stay after a switch.
-    let Some(bucket) = synced_bucket(&read_at(state_file(home))) else { return out };
+    out.extend(roots(found.own));
+    let Some(bucket) = found.bucket else { return out };
     out.push(Root::skills(home.join("skills/synced").join(&bucket), 1).of_plugin(SYNCED));
-    let plugins = home.join("plugins/synced").join(&bucket);
-    out.extend(synced_plugin_roots(&plugins, &read_at(plugins.join("manifest.json")), &settings));
+    out.extend(roots(found.synced));
     out
+}
+
+/// An account's plugins, each by name with its folder: those it has for every folder, then
+/// those claude.ai syncs into it, less the ones its settings turn off.
+pub fn plugins(home: &Path) -> Vec<(String, PathBuf)> {
+    let found = Plugins::of(home);
+    found.own.into_iter().chain(found.synced).collect()
+}
+
+struct Plugins {
+    own: Vec<(String, PathBuf)>,
+    /// The sign-in's folder of what claude.ai syncs (`synced_bucket`).
+    bucket: Option<String>,
+    synced: Vec<(String, PathBuf)>,
+}
+
+impl Plugins {
+    /// What claude.ai syncs is for the sign-in, and only the one Claude Code is signed in with
+    /// is loaded: the others' folders stay after a switch.
+    fn of(home: &Path) -> Plugins {
+        let read = |path: PathBuf| std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).unwrap_or(Value::Null);
+        let settings = read(home.join("settings.json"));
+        let own = plugin_dirs(&read(home.join("plugins/installed_plugins.json")), &settings);
+        let bucket = synced_bucket(&read(state_file(home)));
+        let synced = bucket.as_ref().map(|b| home.join("plugins/synced").join(b)).map(|dir| synced_plugin_dirs(&dir, &read(dir.join("manifest.json")), &settings)).unwrap_or_default();
+        Plugins { own, bucket, synced }
+    }
 }
 
 /// The folder under `skills/synced` and `plugins/synced` that holds what claude.ai syncs for
@@ -50,15 +73,15 @@ fn synced_bucket(state: &Value) -> Option<String> {
     Some(format!("{}_{}", org.to_lowercase(), account.to_lowercase()))
 }
 
-/// The skills and commands of the plugins claude.ai syncs into an account, under its sign-in's
-/// folder (`bucket`), less the ones its settings turn off: each by `enabledPlugins`
+/// The plugins claude.ai syncs into an account, under its sign-in's folder (`bucket`), less the
+/// ones its settings turn off: each by `enabledPlugins`
 /// (`<plugin>@synced: false`), and all of them by `syncClaudeAiPlugins: false`. The folder's
 /// `manifest.json` lists the plugins in use, each `{name, generation}`, and a plugin's files are
 /// in the folder of that generation: `<name>` for the first (no `generation`), `<name>~g<n>`
 /// for another. A copy updated while a session used the old one goes in a free generation, the
 /// first included, and a plugin taken off the list keeps its folder while it's in use, so
 /// neither the folders there nor their numbers say which is current (2.1.299's code).
-fn synced_plugin_roots(bucket: &Path, manifest: &Value, settings: &Value) -> Vec<Root> {
+fn synced_plugin_dirs(bucket: &Path, manifest: &Value, settings: &Value) -> Vec<(String, PathBuf)> {
     if settings["syncClaudeAiPlugins"] == Value::Bool(false) {
         return Vec::new();
     }
@@ -72,15 +95,14 @@ fn synced_plugin_roots(bucket: &Path, manifest: &Value, settings: &Value) -> Vec
             Some(n) if n > 1 => bucket.join(format!("{name}~g{n}")),
             _ => bucket.join(name),
         };
-        out.push(Root::skills(dir.join("skills"), 1).of_plugin(name));
-        out.push(Root::commands(dir.join("commands")).of_plugin(name));
+        out.push((name.to_string(), dir));
     }
     out
 }
 
-/// The skills and commands of the plugins an account has for every folder (`scope: "user"`),
-/// from its `installed_plugins.json`, less the ones its settings turn off.
-fn plugin_roots(installed: &Value, settings: &Value) -> Vec<Root> {
+/// The plugins an account has for every folder (`scope: "user"`), from its
+/// `installed_plugins.json`, less the ones its settings turn off.
+fn plugin_dirs(installed: &Value, settings: &Value) -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
     for (id, installs) in installed["plugins"].as_object().into_iter().flatten() {
         if settings["enabledPlugins"][id] == Value::Bool(false) {
@@ -88,9 +110,8 @@ fn plugin_roots(installed: &Value, settings: &Value) -> Vec<Root> {
         }
         let name = id.split('@').next().unwrap_or(id);
         for install in installs.as_array().into_iter().flatten().filter(|i| i["scope"] == "user") {
-            let Some(path) = install["installPath"].as_str().map(Path::new) else { continue };
-            out.push(Root::skills(path.join("skills"), 1).of_plugin(name));
-            out.push(Root::commands(path.join("commands")).of_plugin(name));
+            let Some(path) = install["installPath"].as_str() else { continue };
+            out.push((name.to_string(), PathBuf::from(path)));
         }
     }
     out
@@ -114,35 +135,34 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn an_accounts_plugins_give_their_skills_unless_turned_off() {
+    fn an_accounts_plugins_count_unless_turned_off() {
         let installed = json!({ "version": 2, "plugins": {
             "figma@official": [{ "scope": "user", "installPath": "/cache/figma/2" }],
             "off@official": [{ "scope": "user", "installPath": "/cache/off/1" }],
             "here@official": [{ "scope": "project", "installPath": "/cache/here/1", "projectPath": "/repo" }],
         } });
         let settings = json!({ "enabledPlugins": { "figma@official": true, "off@official": false } });
-        let roots = plugin_roots(&installed, &settings);
-        assert_eq!(roots, vec![Root::skills(PathBuf::from("/cache/figma/2/skills"), 1).of_plugin("figma"), Root::commands(PathBuf::from("/cache/figma/2/commands")).of_plugin("figma")]);
-        assert_eq!(plugin_roots(&Value::Null, &Value::Null), vec![]);
+        assert_eq!(plugin_dirs(&installed, &settings), vec![("figma".to_string(), PathBuf::from("/cache/figma/2"))]);
+        assert_eq!(plugin_dirs(&Value::Null, &Value::Null), vec![]);
     }
 
     #[test]
-    fn the_plugins_claude_ai_syncs_give_their_skills_unless_turned_off() {
+    fn the_plugins_claude_ai_syncs_count_unless_turned_off() {
         let bucket = Path::new("/home/plugins/synced/org_me");
         // As 2.1.299 writes it, cut short.
         let manifest = json!({ "lastUpdated": 1790893702322i64, "plugins": [{ "pluginId": "plugin_01B", "name": "acme", "version": "0002" }, { "pluginId": "plugin_015", "name": "codex", "version": "0001" }] });
         let settings = json!({ "enabledPlugins": { "codex@synced": false } });
-        assert_eq!(synced_plugin_roots(bucket, &manifest, &settings), vec![Root::skills(bucket.join("acme/skills"), 1).of_plugin("acme"), Root::commands(bucket.join("acme/commands")).of_plugin("acme")]);
-        assert_eq!(synced_plugin_roots(bucket, &manifest, &json!({ "syncClaudeAiPlugins": false })), vec![]);
-        assert_eq!(synced_plugin_roots(bucket, &manifest, &Value::Null).len(), 4);
-        assert_eq!(synced_plugin_roots(bucket, &Value::Null, &Value::Null), vec![]);
+        assert_eq!(synced_plugin_dirs(bucket, &manifest, &settings), vec![("acme".to_string(), bucket.join("acme"))]);
+        assert_eq!(synced_plugin_dirs(bucket, &manifest, &json!({ "syncClaudeAiPlugins": false })), vec![]);
+        assert_eq!(synced_plugin_dirs(bucket, &manifest, &Value::Null).len(), 2);
+        assert_eq!(synced_plugin_dirs(bucket, &Value::Null, &Value::Null), vec![]);
     }
 
     #[test]
     fn a_synced_plugin_is_the_generation_its_manifest_names() {
         let bucket = Path::new("/b");
         let skills_of = |manifest: Value| -> Vec<(String, PathBuf)> {
-            synced_plugin_roots(bucket, &manifest, &Value::Null).into_iter().filter(|r| matches!(r.kind, crate::skills::Kind::Skills { .. })).map(|r| (r.prefix.unwrap(), r.dir)).collect()
+            synced_plugin_dirs(bucket, &manifest, &Value::Null).into_iter().map(|(name, dir)| (name, dir.join("skills"))).collect()
         };
         // Back at the first generation while a session still holds `acme~g3`: the first's.
         assert_eq!(skills_of(json!({ "plugins": [{ "name": "acme" }] })), vec![("acme".to_string(), bucket.join("acme/skills"))]);

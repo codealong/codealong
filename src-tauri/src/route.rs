@@ -9,6 +9,10 @@
 //!
 //! The request goes through jev.rs, which holds the key. Images pasted into what you type go
 //! with it, each where it was in the text (`jev::Images`).
+//!
+//! When the accounts that can start a session don't all reach the same services through MCP
+//! servers and connectors (mcp.rs: Gmail on one, not on another), Jev is also asked which one the
+//! message needs, so "what does my email say" starts on an account that has Gmail.
 
 use std::collections::{BTreeMap, HashSet};
 use std::time::Instant;
@@ -31,7 +35,7 @@ const STOPPED_WITHIN_MS: i64 = 3 * 24 * 3600 * 1000;
 /// How much of a session's title, prompt or doing line goes in.
 const TEXT_CHARS: usize = 240;
 
-pub use codealong_peer::api::{Action, AgentPick, Pick, Route};
+pub use codealong_peer::api::{Action, AgentPick, NeedPick, Pick, Route};
 
 /// What goes to Jev, and how to read its answer back: option keys (`s1`, `w1`) stand for
 /// session keys and lane ids, so long paths never reach the model as labels.
@@ -49,7 +53,27 @@ pub struct Request {
     images: crate::jev::Images,
     /// The `(account, model)` options offered for the `agent` question (`a1`, `a2`, …).
     agents: Vec<(String, Option<String>)>,
+    /// The services offered for the `needs` question (`c1`, `c2`, …).
+    services: Vec<Service>,
 }
+
+/// A service the accounts' agents reach through an MCP server or connector, as the `needs`
+/// question offers it.
+#[derive(Debug, Clone, PartialEq)]
+struct Service {
+    name: String,
+    tools: Vec<String>,
+    /// The accounts that reach it, in the order they're given.
+    accounts: Vec<String>,
+}
+
+/// Jev's pick of a service counts when it's at least this sure, and surer than of none. Messages
+/// about mail, chat and calendars came back 0.95 and more; "fix the flaky test" once gave GitHub
+/// 0.63 (2026-10-20), and code work started on the one account with a GitHub app would be a
+/// worse start, not a better one.
+const NEEDS_AT: f64 = 0.7;
+/// Tool names that go in to say what a service does, at most.
+const SERVICE_TOOLS: usize = 12;
 
 /// Sessions that could already be doing the work: running, and not waiting on you.
 fn could_be_doing(s: &Session) -> bool {
@@ -234,6 +258,53 @@ fn agent_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> (Ma
     (cards, picks)
 }
 
+/// The services to ask about, given each account's reading (`readings`) and the accounts that
+/// can start a session (`startable`, in the order their lists keep): each once whoever names it
+/// (`mcp::key`), the first name read standing for it. None when every one of them reaches the
+/// same services, since the answer would change nothing then.
+fn services(readings: &[crate::mcp::Mcp], startable: &[&str]) -> Vec<Service> {
+    let mut by_key: BTreeMap<String, Service> = BTreeMap::new();
+    let mut order = Vec::new();
+    for account in startable {
+        let Some(reading) = readings.iter().find(|m| m.account == *account) else { continue };
+        for server in &reading.servers {
+            let key = crate::mcp::key(&server.name);
+            let service = by_key.entry(key.clone()).or_insert_with(|| {
+                order.push(key);
+                Service { name: server.name.clone(), tools: server.tools.clone(), accounts: Vec::new() }
+            });
+            if service.tools.is_empty() {
+                service.tools = server.tools.clone();
+            }
+            if !service.accounts.iter().any(|a| a == account) {
+                service.accounts.push(account.to_string());
+            }
+        }
+    }
+    let differ = by_key.values().any(|s| s.accounts.len() < startable.len());
+    if !differ {
+        return Vec::new();
+    }
+    order.into_iter().filter_map(|k| by_key.remove(&k)).collect()
+}
+
+/// `services` for the accounts that can start a session, each service's accounts led by the one
+/// Auto would pick of them.
+fn service_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> Vec<Service> {
+    let home = crate::util::home();
+    let startable: Vec<&str> = cfg.accounts.iter().filter(|a| !a.disabled && crate::start::ordered_places(a, &home).is_ok_and(|p| !p.is_empty())).map(|a| a.name.as_str()).collect();
+    services(&board.mcp, &startable)
+        .into_iter()
+        .map(|mut s| {
+            if let Some(first) = crate::start::pick_account_where(cfg, &board.usage, &[], None, now, |a| s.accounts.contains(&a.name)) {
+                s.accounts.retain(|a| *a != first);
+                s.accounts.insert(0, first);
+            }
+            s
+        })
+        .collect()
+}
+
 /// The request for what you typed, in the panel's project.
 #[cfg(test)]
 pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) -> Result<Request> {
@@ -290,6 +361,7 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
     });
 
     let (agent_cards, agents) = cfg.map(|c| agent_candidates(board, c, now)).unwrap_or_default();
+    let services = cfg.map(|c| service_candidates(board, c, now)).unwrap_or_default();
 
     let mut body = json!({
         "model": model,
@@ -337,6 +409,10 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
         });
     }
 
+    if !services.is_empty() {
+        body["questions"]["needs"] = needs_question(&services);
+    }
+
     Ok(Request {
         body,
         sessions: sessions.iter().map(|(_, s)| s.key.clone()).collect(),
@@ -346,6 +422,31 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
         named: named_repos(text, &lanes),
         images,
         agents,
+        services,
+    })
+}
+
+/// Which service `message` needs: one option for each (`c1`, `c2`, …), its tools saying what it
+/// does where its name doesn't.
+fn needs_question(services: &[Service]) -> Value {
+    let mut criteria = Map::new();
+    for (i, s) in services.iter().enumerate() {
+        let mut card = Map::new();
+        card.insert("service".into(), json!(s.name));
+        if !s.tools.is_empty() {
+            let more = if s.tools.len() > SERVICE_TOOLS { ", …" } else { "" };
+            card.insert("tools".into(), json!(format!("{}{more}", s.tools[..s.tools.len().min(SERVICE_TOOLS)].join(", "))));
+        }
+        criteria.insert(format!("c{}", i + 1), Value::Object(card));
+    }
+    criteria.insert(
+        "none".into(),
+        json!("None of these: the message needs no outside service, or one that isn't listed. Work on code, files, tests, branches, commits and pull requests needs none: the agents already have the repositories, git, GitHub's command line and a shell."),
+    );
+    json!({
+        "type": "choice",
+        "instructions": "The user's coding agents can reach these services through tools connected to them. Is what `message` asks about kept in one of them (mail, a calendar, chat messages, meeting notes, documents, designs, records), so that the agent must use that service to do it? Which one?",
+        "criteria": Value::Object(criteria),
     })
 }
 
@@ -445,6 +546,15 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
     agents.sort_by(|a, b| b.p.partial_cmp(&a.p).unwrap_or(std::cmp::Ordering::Equal).then(a.account.cmp(&b.account)));
     agents.truncate(TOP);
 
+    let needs_p = probabilities(&answers["needs"]);
+    let no_need = needs_p.get("none").copied().unwrap_or(0.0);
+    let needs = needs_p
+        .iter()
+        .filter_map(|(k, p)| Some((req.services.get(k.strip_prefix('c')?.parse::<usize>().ok()?.checked_sub(1)?)?, *p)))
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .filter(|(_, p)| *p >= NEEDS_AT && *p > no_need)
+        .map(|(s, p)| NeedPick { name: s.name.clone(), accounts: s.accounts.clone(), p });
+
     let mut action = actions.first().map_or(Action::Start, |a| a.0);
     if matches!(action, Action::Send | Action::Find) && no_session > top_session {
         action = Action::Start;
@@ -463,6 +573,7 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         habit: Default::default(),
         duplicate,
         agents,
+        needs,
         model: response["model"].as_str().unwrap_or_default().to_string(),
         ms,
         input_tokens: response["usage"]["input_tokens"].as_u64().unwrap_or(0),
@@ -694,6 +805,58 @@ mod tests {
         let r = read(&req, &answer(&[("start", 1.0)], &[("none", 1.0)], &[(&w, 0.3), (&a, 0.7)], 0.0), 1).unwrap();
         assert_eq!(r.lanes.len(), 2);
         assert!(request(&b, "Acme", "tidy the web-app and webby", "m", NOW).unwrap().named.is_empty());
+    }
+
+    fn reading(account: &str, servers: &[(&str, &[&str])]) -> crate::mcp::Mcp {
+        let servers = servers.iter().map(|(name, tools)| crate::mcp::Server { tools: tools.iter().map(|t| t.to_string()).collect(), ..crate::mcp::Server::new(*name, "claude.ai connector") }).collect();
+        crate::mcp::Mcp { account: account.into(), servers, note: None, as_of: Some(1), stale: None }
+    }
+
+    #[test]
+    fn services_are_asked_about_only_when_the_accounts_differ() {
+        let readings = [
+            reading("claude", &[("Gmail", &["search_threads"]), ("Slack", &[])]),
+            reading("claude2", &[("Slack", &["slack_read_channel"])]),
+            reading("codex", &[("gmail", &[]), ("Slack", &[])]),
+            reading("off", &[("Kestrel", &[])]),
+        ];
+        let got = services(&readings, &["claude", "claude2", "codex"]);
+        let names = |s: &[Service]| s.iter().map(|s| (s.name.clone(), s.accounts.join(" "))).collect::<Vec<_>>();
+        // Gmail and gmail are one; an account that can't start (off) isn't asked about.
+        assert_eq!(names(&got), [("Gmail".to_string(), "claude codex".to_string()), ("Slack".to_string(), "claude claude2 codex".to_string())]);
+        assert_eq!(got[1].tools, ["slack_read_channel"], "the tools of whichever account lists them");
+        // Every account reaching the same services: nothing to ask.
+        assert!(services(&readings, &["claude", "codex"]).is_empty());
+        assert!(services(&readings, &["claude2"]).is_empty());
+        assert!(services(&[], &["claude", "codex"]).is_empty());
+    }
+
+    #[test]
+    fn the_needs_question_says_what_each_service_does() {
+        let tools: Vec<String> = (1..=14).map(|i| format!("t{i}")).collect();
+        let q = needs_question(&[Service { name: "Gmail".into(), tools, accounts: vec!["claude".into()] }, Service { name: "Kestrel".into(), tools: vec![], accounts: vec!["codex".into()] }]);
+        assert_eq!(q["type"], "choice");
+        assert_eq!(q["criteria"]["c1"]["service"], "Gmail");
+        assert_eq!(q["criteria"]["c1"]["tools"], "t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, …");
+        assert!(q["criteria"]["c2"].get("tools").is_none());
+        assert!(q["criteria"]["none"].is_string());
+    }
+
+    #[test]
+    fn reads_the_service_the_work_needs_when_jev_is_sure_enough() {
+        let b = board();
+        let mut req = request(&b, "Acme", "what does my email say about the launch", "m", NOW).unwrap();
+        assert!(req.body["questions"].get("needs").is_none(), "no settings, nothing to ask");
+        req.services = vec![Service { name: "Gmail".into(), tools: vec![], accounts: vec!["codex".into(), "claude".into()] }, Service { name: "Slack".into(), tools: vec![], accounts: vec!["claude".into()] }];
+        let with_needs = |needs: Value| {
+            let mut v = answer(&[("start", 1.0)], &[("none", 1.0)], &[("none", 1.0)], 0.0);
+            v["answers"]["needs"] = json!({ "type": "choice", "probabilities": needs });
+            read(&req, &v, 1).unwrap().needs
+        };
+        assert_eq!(with_needs(json!({ "c1": 0.8, "c2": 0.05, "none": 0.15 })), Some(NeedPick { name: "Gmail".into(), accounts: vec!["codex".into(), "claude".into()], p: 0.8 }));
+        assert_eq!(with_needs(json!({ "c1": 0.45, "none": 0.55 })), None, "not sure enough");
+        assert_eq!(with_needs(json!({ "c9": 0.9, "none": 0.1 })), None, "no such option");
+        assert_eq!(read(&req, &answer(&[("start", 1.0)], &[("none", 1.0)], &[("w1", 1.0)], 0.0), 1).unwrap().needs, None, "not asked");
     }
 
     #[test]

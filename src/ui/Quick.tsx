@@ -665,7 +665,9 @@ export function Quick() {
     pickEffort,
     effortShown,
   } = useStartChoice(startPicks, optionsForStart, usage, now, allLanes);
-  const choiceForAgent = (suggestedAgent: string | undefined, overWorktree: boolean) =>
+  /** A suggested start's agent as it would start, among `only` when it needs a service only they
+   *  reach (route.ts `resolveSuggestedAgent`). */
+  const choiceForAgent = (suggestedAgent: string | undefined, overWorktree: boolean, only: string[] | null = null) =>
     suggestedChoice(
       suggestedAgent,
       accounts,
@@ -680,6 +682,7 @@ export function Quick() {
       routingGroups,
       now,
       allLanes,
+      only,
     );
   // A chat has no repo to make a worktree of.
   const makesWorktree = harnessMakesWorktree && !lane?.startsChats;
@@ -836,7 +839,7 @@ export function Quick() {
   const startRowFacts: StartFacts | null = lane ? { laneId: lane.id, newWorktree: inNewWorktree, account, model: modelNow, effort: effortNow, place: placeNow } : null;
   const isStartRow = (sg: Suggestion) => {
     if (sg.kind !== 'start' || !startRowFacts) return false;
-    const c = sg.agent ? choiceForAgent(sg.agent, sg.newWorktree) : null;
+    const c = sg.agent ? choiceForAgent(sg.agent, sg.newWorktree, sg.needs?.accounts) : null;
     const tree = (c ? c.makesWorktree : harnessMakesWorktree) && !sg.lane.startsChats && sg.newWorktree;
     return sameStart({ laneId: sg.lane.id, newWorktree: tree, account: c ? c.account : account, model: c ? c.modelNow : modelNow, effort: c ? c.effortNow : effortNow, place: c ? c.placeNow : placeNow }, startRowFacts);
   };
@@ -1101,7 +1104,7 @@ export function Quick() {
         show([...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }, 'separator' as const] : []), ...sessionMenuSpec(sg.lane, sg.session)]);
       } else {
         show([
-          { label: `Start a session in ${sg.lane.callsign}`, run: () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree, agent: sg.kind === 'start' ? sg.agent : undefined }) },
+          { label: `Start a session in ${sg.lane.callsign}`, run: () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree, agent: sg.kind === 'start' ? sg.agent : undefined, only: sg.kind === 'start' ? sg.needs?.accounts : undefined }) },
           { label: `Save as a todo in ${sg.lane.project}`, run: () => saveTodo(sg.lane) },
         ]);
       }
@@ -1172,9 +1175,9 @@ export function Quick() {
   };
 
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
-  const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string }) => {
+  const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string; only?: string[] }) => {
     const where = over?.lane ?? lane;
-    const sgChoice = over?.agent ? choiceForAgent(over.agent, over.newWorktree) : null;
+    const sgChoice = over?.agent ? choiceForAgent(over.agent, over.newWorktree, over.only) : null;
     const targetAccount = sgChoice ? sgChoice.account : account;
     const targetPlace = sgChoice ? sgChoice.placeNow : placeNow;
     const targetModel = sgChoice ? sgChoice.modelNow : modelNow;
@@ -1303,7 +1306,7 @@ export function Quick() {
   const suggest = (sg: Suggestion, alt: boolean) => {
     if (sg.kind === 'send') alt ? revealSession(sg.lane, sg.session) : send(sg.session);
     else if (sg.kind === 'open') (alt ? openSession : showSession)(sg.lane, sg.session);
-    else if (sg.kind === 'start') start({ lane: sg.lane, newWorktree: sg.newWorktree, agent: sg.agent });
+    else if (sg.kind === 'start') start({ lane: sg.lane, newWorktree: sg.newWorktree, agent: sg.agent, only: sg.needs?.accounts });
     else saveTodo(sg.lane);
   };
 
@@ -1664,7 +1667,7 @@ export function Quick() {
 
   /** A suggestion's row: what ⏎ does, and where. */
   const describe = (sg: Suggestion) => {
-    const sgChoice = sg.kind === 'start' && sg.agent ? choiceForAgent(sg.agent, sg.newWorktree) : null;
+    const sgChoice = sg.kind === 'start' && sg.agent ? choiceForAgent(sg.agent, sg.newWorktree, sg.needs?.accounts) : null;
     const sgAccount = sgChoice ? sgChoice.account : account;
     const sgPlace = sgChoice ? sgChoice.placeNow : placeNow;
     const sgMakesWorktree = (sgChoice ? sgChoice.makesWorktree : harnessMakesWorktree) && !sg.lane.startsChats;

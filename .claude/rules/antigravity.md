@@ -21,7 +21,8 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   `antigravity-ide`. The sign-in was a token file (mode 600) until `agy` 1.3.4 moved it into the
   login keychain (service `gemini`, account `antigravity`; go-keyring, whose item `security
   find-generic-password` without `-w` finds without a prompt) and deleted the file, on a sign-in
-  on 2026-10-13. `~/.gemini/config` holds the skills, plugins and MCP servers both share. The
+  on 2026-10-13. `~/.gemini/config` holds the skills, plugins and MCP servers both share (`mcp_config.json`, which
+  was in the app's own folder before; `antigravity.rs` `Antigravity::mcp`). The
   command line can't go on with one of the app's conversations ("trajectory not found").
 - `conversation_summaries.db` (SQLite in WAL mode, written by gorm), its columns, statuses and
   times, and each folder's table listing the other's conversations: `antigravity.rs`

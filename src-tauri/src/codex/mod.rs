@@ -11,6 +11,7 @@
 mod applog;
 mod appserver;
 mod conversation;
+mod mcp;
 pub mod ipc;
 mod models;
 mod queue;
@@ -81,6 +82,11 @@ impl crate::harness::Adapter for Codex {
 
     fn stop_training(&self, account: &crate::config::AccountCfg) -> anyhow::Result<()> {
         training::stop(account)
+    }
+
+    /// Its ChatGPT apps, its config.toml's servers and its plugins'.
+    fn mcp(&self, account: &crate::config::AccountCfg) -> crate::mcp::Mcp {
+        mcp::read(account)
     }
 
     fn installed(&self, _home: &Path, on_path: &dyn Fn(&str) -> bool) -> bool {

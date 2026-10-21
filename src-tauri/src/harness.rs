@@ -729,6 +729,12 @@ pub trait Adapter: Sync {
         bail!("Codealong can't turn training off for {}; its provider's settings can.", account.name)
     }
 
+    /// The MCP servers the account's agents have wherever they run: its provider's connectors,
+    /// its settings' servers and its plugins' (mcp.rs). It can take seconds.
+    fn mcp(&self, account: &AccountCfg) -> crate::mcp::Mcp {
+        crate::mcp::Mcp::unknown(account, format!("Codealong can't read {}'s MCP servers yet.", self.harness().word()))
+    }
+
     /// Archives a session in the harness itself, or takes it out of its archive, where the
     /// harness has one another program can reach. Elsewhere a session is archived in Codealong
     /// only, until it's active again.

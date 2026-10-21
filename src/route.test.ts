@@ -295,6 +295,15 @@ describe('suggestionWords', () => {
   const open = (over: Partial<Session>): Suggestion => ({ kind: 'open', key: 'k', lane: at, session: fx.session({ title: 'Fix it', account: 'work', startedAt: null, ...over }), p: 1 });
   const start = (l: Lane, newWorktree = false): Suggestion => ({ kind: 'start', key: 'k', lane: l, newWorktree, p: 1 });
 
+  it('says why it starts on an account connected to the service the work needs', () => {
+    const chats = lane('/chats', [], 'Chats', { project: 'Elsewhere', startsChats: true, callsign: 'Chats' });
+    const needing = (l: Lane): Suggestion => ({ kind: 'start', key: 'k', lane: l, newWorktree: false, p: 1, needs: { name: 'Gmail', accounts: ['work', 'codex'] } });
+    expect(suggestionWords(needing(chats), ctx()).why).toBe('Starts work in a folder of its own in Ghostty. work is connected to Gmail.');
+    expect(suggestionWords(needing(at), ctx()).why).toMatch(/ work is connected to Gmail\. It joins the work under way there\.$/);
+    // On an account that isn't (one picked by hand), it says nothing of it.
+    expect(suggestionWords(needing(chats), ctx({ account: 'home' })).why).toBe('Starts home in a folder of its own in Ghostty.');
+  });
+
   it('says a chat starts in a folder of its own', () => {
     const chats = lane('/chats', [], 'Chats', { project: 'Elsewhere', startsChats: true, callsign: 'Chats' });
     expect(suggestionWords(start(chats, true), ctx())).toEqual({ icon: 'message-circle', title: 'Start a chat in no project', why: 'Starts work in a folder of its own in Ghostty.', where: 'No project' });
@@ -402,6 +411,16 @@ describe('resolveSuggestedAgent', () => {
     expect(suggestions(rGroup, b)[0]).toMatchObject({ kind: 'start', agent: 'fast' });
     const groups = [{ name: 'fast', strategy: 'usage' as const, members: [{ account: 'claude2', model: 'sonnet' }] }];
     expect(resolveSuggestedAgent('fast', accounts, groups, u, fx.NOW)).toEqual({ account: 'claude2', model: 'sonnet' });
+
+    // Work that needs a service only some accounts reach starts on one of them: without an agent
+    // pick, the one Auto picked of them; with one whose harness has none, the one of them with room.
+    const needing = route({ action: 'start', actions: [['start', 1]], lanes: [{ id: '/api', p: 1 }], needs: { name: 'Gmail', accounts: ['claude2', 'codex'], p: 0.9 } });
+    expect(suggestions(needing, b)[0]).toMatchObject({ kind: 'start', agent: 'claude2', needs: { name: 'Gmail', accounts: ['claude2', 'codex'] } });
+    expect(resolveSuggestedAgent('claude2', accounts, [], u, fx.NOW, [], ['claude2', 'codex'])).toEqual({ account: 'claude2', model: null });
+    expect(resolveSuggestedAgent('claude:opus', accounts, [], u, fx.NOW, [], ['codex'])).toEqual({ account: 'codex', model: null });
+    expect(resolveSuggestedAgent('fast', accounts, groups, u, fx.NOW, [], ['codex'])).toEqual({ account: 'codex', model: null });
+    // Without it, a harness with room elsewhere is still found as before.
+    expect(resolveSuggestedAgent('claude:opus', accounts, [], u, fx.NOW, [], ['claude', 'claude2'])).toEqual({ account: 'claude2', model: 'opus' });
 
     // With the picker on Claude app + high effort + newWorktree, Jev selecting Codex resolves a
     // start choice that drops Claude-only place, effort, and worktree capabilities.

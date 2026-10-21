@@ -2163,6 +2163,7 @@ pub fn compose(inp: Inputs) -> Board {
         github_current: Default::default(),
         usage: Vec::new(),
         training: Vec::new(),
+        mcp: Vec::new(),
         sides: Default::default(),
         pinned: pinned.to_vec(),
         pinned_worktrees: Vec::new(),

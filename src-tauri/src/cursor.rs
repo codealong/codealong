@@ -1976,6 +1976,17 @@ impl crate::harness::Adapter for Cursor {
         stop_privacy(account)
     }
 
+    /// The servers in its folder's `mcp.json` (`mcpServers`), which the app and its command line
+    /// share. A server turned off in the app's settings is kept in its state database, not there,
+    /// so it's listed still.
+    fn mcp(&self, account: &AccountCfg) -> crate::mcp::Mcp {
+        let file = account.home_path().join("mcp.json");
+        match crate::mcp::json_file(&file) {
+            Ok(v) => crate::mcp::Mcp::new(account, v.map(|v| crate::mcp::servers_in(&v["mcpServers"], &crate::util::tilde(&file))).unwrap_or_default(), None),
+            Err(why) => crate::mcp::Mcp::new(account, Vec::new(), Some(why)),
+        }
+    }
+
     fn records(&self, account: &AccountCfg, s: &Session) -> Vec<PathBuf> {
         match s.surface {
             Surface::App => app_db(&account.home_path()).into_iter().collect(),

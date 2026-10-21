@@ -95,6 +95,11 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   `GET /accounts/data_usage_for_training` (with `ChatGPT-Account-Id`) says `permitted`; a personal
   Pro account said `permitted`. The plan is the token's `chatgpt_plan_type` claim, which reads
   `business` for Enterprise too.
+- An account's MCP servers and ChatGPT apps (0.160.1, 2026-10-20): `codex/mcp.rs` (module
+  header). Not there: `app/list` also says each app's `isAccessible` and `pluginDisplayNames`;
+  `mcpServerStatus/list` names `codex_apps`, the one server the apps go through (525 tools here),
+  with each other server's `pluginId`, `authStatus` and tools, and `runtimeStatus` null with
+  `detail: "toolsAndAuthOnly"`.
 - Plan usage, from each turn's `token_count` event: `codex/rollout.rs` (`RateLimit`,
   `parse_rate_limit`), `codex/usage.rs`. The same event's `info` has the thread's context meter:
   `last_token_usage.total_tokens` and `model_context_window` (258,400 for gpt-6-astra on

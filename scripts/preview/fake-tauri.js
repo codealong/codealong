@@ -275,6 +275,7 @@ window.__TAURI_INTERNALS__ = {
         optionalJson('./insights-fixture.json'),
         optionalJson('./notices-fixture.json'),
         optionalJson('./training-fixture.json'),
+        optionalJson('./mcp-fixture.json'),
       ]).then(function (all) {
         var board = withExperiments(all[1] ? withFixture(all[0], all[1]) : all[0]);
         // Background failures from notices-fixture.json (PREVIEW_NOTICES), `untilIn` minutes
@@ -289,6 +290,13 @@ window.__TAURI_INTERNALS__ = {
         if (all[6]) {
           board.training = all[6].training.map(function (t) {
             return Object.assign({ canStop: false, url: null }, t, { asOf: t.readAgo == null ? null : Date.now() - t.readAgo * 60e3 });
+          });
+        }
+        // Each account's MCP servers, from mcp-fixture.json (PREVIEW_MCP), read `readAgo` minutes
+        // ago.
+        if (all[7]) {
+          board.mcp = all[7].mcp.map(function (m) {
+            return Object.assign({}, m, { asOf: m.readAgo == null ? null : Date.now() - m.readAgo * 60e3 });
           });
         }
         if (all[4]) board = withInsights(board, all[4]);

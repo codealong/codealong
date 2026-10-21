@@ -152,7 +152,12 @@ pub(super) enum Fetch {
 /// One call to Anthropic's API as the account, with `body` as JSON when there is one: plan usage
 /// here, its privacy settings in training.rs.
 pub(super) fn request(token: &str, method: &str, url: &str, body: Option<&Value>) -> Result<Value, Fetch> {
-    let headers = [format!("Authorization: Bearer {token}"), "anthropic-beta: oauth-2025-04-20".to_string()];
+    request_with(token, method, url, body, &["anthropic-beta: oauth-2025-04-20"])
+}
+
+/// `request` with headers of its own: another API's beta (mcp.rs's connectors).
+pub(super) fn request_with(token: &str, method: &str, url: &str, body: Option<&Value>, extra: &[&str]) -> Result<Value, Fetch> {
+    let headers: Vec<String> = std::iter::once(format!("Authorization: Bearer {token}")).chain(extra.iter().map(|h| h.to_string())).collect();
     let reply = crate::http::call(method, url, &headers, body, Duration::from_secs(15)).map_err(Fetch::Failed)?;
     match reply.status {
         200..=299 => reply.json().ok_or_else(|| Fetch::Failed("unexpected response".into())),

@@ -82,7 +82,7 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
 - `--snapshot --accounts`, `--snapshot --found`, `--snapshot --config`: accounts and sign-in;
   accounts on this Mac config.toml doesn't list; the settings as Settings gets them.
   `--snapshot --setup`: what the setup wizard offers (setup.rs). `--snapshot --training`: whether each account's provider may train on it, asked of each
-  provider (training.rs).
+  provider (training.rs). `--snapshot --mcp`: each account's MCP servers and connectors (mcp.rs).
 - `--snapshot --open <lane id> <target id>`: runs a click's open action; `--snapshot --link
   <url>`: where a click on a web link would open it (a worktree's app opens in its preview's
   Chrome profile).

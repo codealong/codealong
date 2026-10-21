@@ -211,3 +211,6 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   only (`usage_meters`).
 - A start or a resume with `--model <name>` (and `auto`): read from the command line's code and
   its `models` text.
+- MCP servers: `~/.cursor/mcp.json` (`mcpServers`), the app's and the command line's; a workspace's
+  `.cursor/mcp.json` beside it asks approval first. One turned off in Cursor's settings stays in
+  the file: `cursor.rs` (`Cursor::mcp`). The file was empty (0 bytes) here, 2026-10-20.

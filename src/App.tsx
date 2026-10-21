@@ -2403,6 +2403,7 @@ export function App() {
           focus={settings.focus}
           usage={board?.usage ?? []}
           training={board?.training}
+          mcp={board?.mcp}
           apps={board?.apps ?? { terminal: 'Terminal', editor: 'Editor' }}
           theme={theme}
           onPickTheme={pickTheme}

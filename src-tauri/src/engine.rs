@@ -162,8 +162,11 @@ pub enum Msg {
     /// it fell over or never started.
     TrainingRead(Option<Vec<training::Training>>),
     /// One account's data setting, read again after Codealong turned training off, for the
-    /// account the turn-off began on (`training::identity`).
+    /// account the turn-off began on (`accountpoll::identity`).
     TrainingOne(String, training::Training),
+    /// The read of the accounts' MCP servers is over (mcp.rs): what it read, or none when it fell
+    /// over or never started.
+    McpRead(Option<Vec<crate::mcp::Mcp>>),
     /// A harness's reader has something new that it read off this thread (`harness::Wake`).
     Read,
     /// The full pinned list, in order.
@@ -614,7 +617,7 @@ impl Handle {
         let cfg = config::current()?;
         let a = cfg.accounts.iter().find(|a| a.name == name).ok_or_else(|| anyhow!("There's no account named {name}."))?;
         let after = training::stop(a)?;
-        let _ = self.tx.send(Msg::TrainingOne(training::identity(a), after.clone()));
+        let _ = self.tx.send(Msg::TrainingOne(crate::accountpoll::identity(a), after.clone()));
         Ok(after)
     }
 
@@ -1215,6 +1218,8 @@ struct Engine {
     team_files: teamfile::TeamFiles,
     /// Whether each account's provider may train on it (training.rs).
     training: training::TrainingPoll,
+    /// The MCP servers each account's agents have (mcp.rs).
+    mcp: crate::mcp::McpPoll,
     dirty: bool,
     /// Only git results changed since the last publish; they go out in batches.
     dirty_git: bool,
@@ -1332,6 +1337,7 @@ impl Engine {
             tab_looks: launch::TabLooks::default(),
             team_files: teamfile::TeamFiles::default(),
             training: training::TrainingPoll::default(),
+            mcp: crate::mcp::McpPoll::default(),
             dirty: false,
             loading: true,
             dirty_git: false,
@@ -1947,6 +1953,23 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         });
     }
 
+    /// Reads the MCP servers of the accounts that are due (`McpPoll::due`), on a background
+    /// thread.
+    fn read_mcp(&mut self) {
+        if self.passing {
+            return;
+        }
+        let asks = self.mcp.due(&self.cfg.accounts, Instant::now());
+        if asks.is_empty() {
+            return;
+        }
+        let tx = self.tx.clone();
+        // `on_read` hears that the read is over however it ends, so the next one can go.
+        throttle::background("codealong-mcp", move || crate::mcp::read_all(&asks), move |list| {
+            let _ = tx.send(Msg::McpRead(list));
+        });
+    }
+
     /// The team files due to be read now (`TeamFiles::due`), marked under way.
     fn team_file_asks(&mut self) -> Vec<teamfile::Ask> {
         let repos: Vec<teamfile::Repo> = self
@@ -2016,6 +2039,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.usage.retain(|name, _| self.cfg.accounts.iter().any(|a| &a.name == name));
         self.usage_inflight = false;
         self.training.keep_only(&self.cfg.accounts);
+        self.mcp.keep_only(&self.cfg.accounts);
         self.fetch_usage();
         self.watch();
         self.dirty = true;
@@ -2104,6 +2128,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.fetch_usage();
                     self.training.on_refresh();
                     self.read_training();
+                    self.mcp.on_refresh();
+                    self.read_mcp();
                 }
                 Ok(Msg::LimitMoved(why)) => {
                     self.limit_move_warning = why;
@@ -2232,7 +2258,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                 Ok(Msg::Processes(listed)) => self.on_processes(listed),
                 Ok(Msg::TeamFiles(answers)) => self.dirty |= self.team_files.on_read(answers),
                 Ok(Msg::TrainingRead(list)) => self.dirty |= self.training.on_read(list),
-                Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_stopped(&asked_as, t),
+                Ok(Msg::TrainingOne(asked_as, t)) => self.dirty |= self.training.on_changed(&asked_as, t),
+                Ok(Msg::McpRead(list)) => self.dirty |= self.mcp.on_read(list),
                 Ok(Msg::MarkSeen(keys, reply)) => {
                     let now = now_ms();
                     for k in keys {
@@ -2692,6 +2719,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         }
         self.read_team_files();
         self.read_training();
+        self.read_mcp();
         // Sessions that started in tmux while the screen was locked open in your terminal once
         // it isn't, those started while Codealong was closed too (`launch::TabLooks`).
         if crate::os::is_macos() && self.tab_looks.on_tick(launch::screen_locked(), launch::take_marked()) {
@@ -3458,6 +3486,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         board.notices.extend(stuck);
         board.usage = usage;
         board.training = self.training.list(&self.cfg.accounts);
+        board.mcp = self.mcp.list(&self.cfg.accounts);
         board.sides = crate::side::glances();
         board.github_polled = self.github.polled();
         board.github_current = self.github.current();

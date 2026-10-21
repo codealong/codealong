@@ -7,7 +7,7 @@ import { agoPhrase } from './format';
 import { homeOf, sessionWhy, stuckMidTurn, waitsOnYou } from './lanes';
 import { mainCheckoutOf, newWorkIn } from './reusable';
 import { agentId, autoPick, pickFromGroup, startChoice, startDoes, startTitleWords, startWhereWords, type AgentOption, type AutoPick, type ChosenStart, type ModelOption, type StartPicks } from './start';
-import type { Board, Lane, Route, RoutePick, RoutingGroup, Session, StartAccount, StartPlace, Usage } from './types';
+import type { Board, Lane, NeedPick, Route, RoutePick, RoutingGroup, Session, StartAccount, StartPlace, Usage } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
 export type Sureness = 'sure' | 'likely' | 'unsure';
@@ -15,10 +15,13 @@ export type Sureness = 'sure' | 'likely' | 'unsure';
 export type Suggestion =
   | { kind: 'send'; key: string; lane: Lane; session: Session; p: number }
   | { kind: 'open'; key: string; lane: Lane; session: Session; p: number }
-  | { kind: 'start'; key: string; lane: Lane; newWorktree: boolean; p: number; agent?: string }
+  | { kind: 'start'; key: string; lane: Lane; newWorktree: boolean; p: number; agent?: string; needs?: Pick<NeedPick, 'name' | 'accounts'> }
   | { kind: 'todo'; key: string; lane: Lane; p: number };
 
-/** Resolves a Jev `route.agents` id (a routing group name or `<account-or-harness>[:<model>]`) to an account and model. */
+/** Resolves a Jev `route.agents` id (a routing group name or `<account-or-harness>[:<model>]`) to an account and model.
+ *  With `only` (the accounts that reach the service the work needs, `Route.needs`), it picks
+ *  among those, and when the group or harness asked for has none of them, the one of them with
+ *  room: the service is what the work can't do without. */
 export function resolveSuggestedAgent(
   agent: string | undefined,
   accounts: StartAccount[],
@@ -26,21 +29,28 @@ export function resolveSuggestedAgent(
   usage: Usage[],
   now: number,
   lanes: Lane[] = [],
+  only: string[] | null = null,
 ): { account: string; model: string | null } | null {
   if (!agent) return null;
+  const allowed = only && only.length > 0 ? accounts.filter((a) => only.includes(a.name)) : accounts;
+  const anyAllowed = () => {
+    const picked = autoPick(allowed, usage, now, null, null, lanes);
+    return picked ? { account: picked.account, model: picked.model ?? null } : null;
+  };
   const g = groups.find((x) => x.name === agent);
   if (g) {
-    const gp = pickFromGroup(g, accounts, usage, now, null, null, lanes);
-    return gp ? { account: gp.account, model: gp.model ?? null } : null;
+    const gp = pickFromGroup(g, allowed, usage, now, null, null, lanes);
+    return gp ? { account: gp.account, model: gp.model ?? null } : only ? anyAllowed() : null;
   }
   const at = agent.indexOf(':');
   const target = at < 0 ? agent : agent.slice(0, at);
   const model = at < 0 ? null : agent.slice(at + 1) || null;
   const byName = accounts.find((a) => a.name === target && a.places.length > 0);
   const harness = byName ? byName.harness : target;
-  const matching = accounts.filter((a) => a.harness === harness && a.places.length > 0);
+  const matching = allowed.filter((a) => a.harness === harness && a.places.length > 0);
   const picked = autoPick(matching, usage, now, model, null, lanes);
-  return picked ? { account: picked.account, model: model ?? picked.model ?? null } : null;
+  if (picked) return { account: picked.account, model: model ?? picked.model ?? null };
+  return only ? anyAllowed() : null;
 }
 
 /** Resolves the full start choice (`ChosenStart`) for a Jev-suggested agent/model, retaining the
@@ -59,8 +69,9 @@ export function suggestedChoice(
   groups: RoutingGroup[] = [],
   now = 0,
   lanes: Lane[] = [],
+  only: string[] | null = null,
 ): ChosenStart | null {
-  const sg = resolveSuggestedAgent(suggestedAgent, accounts, groups, usage, now, lanes);
+  const sg = resolveSuggestedAgent(suggestedAgent, accounts, groups, usage, now, lanes, only);
   if (!sg) return null;
   return startChoice(
     accounts,
@@ -144,7 +155,11 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
     return found ? toSessionSuggestion(found.lane, found.session, p, find) : null;
   };
   const topAgent = route.agents?.[0];
-  const agentPick = topAgent ? (topAgent.model ? `${topAgent.account}:${topAgent.model}` : topAgent.account) : undefined;
+  // Work that needs a service only some accounts reach starts on one of them: Jev's agent when it
+  // has one, else the one Auto would pick of them.
+  const needs = route.needs ? { name: route.needs.name, accounts: route.needs.accounts } : null;
+  const agentPick = topAgent ? (topAgent.model ? `${topAgent.account}:${topAgent.model}` : topAgent.account) : needs?.accounts[0];
+  const startFor = { ...(agentPick ? { agent: agentPick } : {}), ...(needs ? { needs } : {}) };
   /** Starting new work from Jev's worktree pick, `actionP` as likely as the action. In the very
    *  worktree Jev picked, it's as likely as that worktree; one chosen for it in the repo, or a new
    *  worktree, as likely as the repo. */
@@ -158,7 +173,7 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
     const lane = newWorktree ? (mainCheckoutOf(picked, board.lanes) ?? picked) : (reusable ?? picked);
     const repoP = route.repos.find((r) => r.id === `${picked.project}/${picked.repo}`)?.p;
     const p = actionP * (!newWorktree && lane.id === picked.id ? pick.p : (repoP ?? pick.p));
-    return { kind: 'start', key: newWorktree ? `start:new:${lane.project}/${lane.repo}` : `start:${lane.id}`, lane, newWorktree, p, ...(agentPick ? { agent: agentPick } : {}) };
+    return { kind: 'start', key: newWorktree ? `start:new:${lane.project}/${lane.repo}` : `start:${lane.id}`, lane, newWorktree, p, ...startFor };
   };
   const [s1, s2] = route.sessions;
   const [l1, l2] = route.lanes;
@@ -167,7 +182,7 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
   // of its own, in no project, when Jev thinks so more than it thinks of any one worktree.
   const noRepo = route.noRepo ?? 0;
   const chats = board.lanes.find((l) => l.startsChats && !l.device);
-  const startChat = (actionP: number): Suggestion | null => (chats && noRepo > 0 ? { kind: 'start', key: 'start:chat', lane: chats, newWorktree: false, p: actionP * noRepo, ...(agentPick ? { agent: agentPick } : {}) } : null);
+  const startChat = (actionP: number): Suggestion | null => (chats && noRepo > 0 ? { kind: 'start', key: 'start:chat', lane: chats, newWorktree: false, p: actionP * noRepo, ...startFor } : null);
   const inChat = !!chats && noRepo > sessionP(l1);
   const startNew = (actionP: number) => (inChat ? startChat(actionP) : startIn(l1, actionP));
 
@@ -305,18 +320,20 @@ export function suggestionWords(sg: Suggestion, c: SuggestionContext): { icon: s
   }
   const tree = c.makesWorktree && sg.newWorktree && !sg.lane.startsChats;
   const who = c.account ? `${c.account}${c.onModel}` : 'a session';
+  // Why it starts on that account, when it's for a service only some reach.
+  const reaches = sg.needs && c.account && sg.needs.accounts.includes(c.account) ? ` ${c.account} is connected to ${sg.needs.name}.` : '';
   // Said as the start row below says its own start (start.ts), so the two read alike.
   const why = startDoes({ lane: sg.lane, who, onModel: c.account ? c.onModel : '', place: c.place, newWorktree: tree, prompted: true, terminal: c.terminal, behind: c.behind });
   const title = startTitleWords(sg.lane, tree);
   const where = startWhereWords(sg.lane);
   if (sg.lane.startsChats) {
-    const warnedChat = c.duplicate ? `“${c.duplicate.session.title}” may already be on this. ${why}` : why;
+    const warnedChat = c.duplicate ? `“${c.duplicate.session.title}” may already be on this. ${why}${reaches}` : `${why}${reaches}`;
     return { icon: 'message-circle', title, why: warnedChat, where };
   }
   // What the reusable worktree it starts in holds (reusable.ts): new work joins work under way
   // only in a worktree Jev matched it to, not the main worktree.
   const held = tree || !sg.lane.reuse ? '' : sg.lane.reuse === 'free' ? ' It holds no work now.' : sg.lane.reuse === 'landed' ? ' Its last work landed.' : sg.lane.origin === 'main' ? '' : ' It joins the work under way there.';
   // The warning leads: the row's line is cut short when it's long.
-  const warned = c.duplicate ? `“${c.duplicate.session.title}” may already be on this. ${why}${held}` : `${why}${held}`;
+  const warned = c.duplicate ? `“${c.duplicate.session.title}” may already be on this. ${why}${reaches}${held}` : `${why}${reaches}${held}`;
   return { icon: 'plus', title, why: warned, where };
 }

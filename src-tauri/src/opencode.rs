@@ -1151,6 +1151,25 @@ impl crate::harness::Adapter for OpenCode {
         crate::training::Training::unknown(account, "OpenCode sends your work to the providers it's signed in to, and each one's own settings say whether it trains on it.")
     }
 
+    /// The servers in its config's `mcp` (`enabled: false` turning one off), whatever the
+    /// account: `config.json`, `opencode.json` and `opencode.jsonc` in `~/.config/opencode`, each
+    /// read over the one before (2.0.16's bundle).
+    fn mcp(&self, account: &AccountCfg) -> crate::mcp::Mcp {
+        let dir = crate::util::home().join(".config/opencode");
+        let mut servers = serde_json::Map::new();
+        let mut notes = Vec::new();
+        for file in ["config.json", "opencode.json", "opencode.jsonc"].map(|f| dir.join(f)) {
+            let Ok(text) = std::fs::read_to_string(&file) else { continue };
+            match serde_json::from_str::<Value>(&without_comments(&text)) {
+                Ok(v) => servers.extend(v["mcp"].as_object().cloned().unwrap_or_default()),
+                Err(_) if text.trim().is_empty() => {}
+                Err(_) => notes.push(format!("{} doesn't parse", crate::util::tilde(&file))),
+            }
+        }
+        let from = crate::util::tilde(&dir);
+        crate::mcp::Mcp::new(account, crate::mcp::servers_in(&Value::Object(servers), &from), (!notes.is_empty()).then(|| notes.join("; ")))
+    }
+
     fn records(&self, account: &crate::config::AccountCfg, _s: &crate::model::Session) -> Vec<PathBuf> {
         vec![account.home_path().join("opencode.db")]
     }
@@ -1345,9 +1364,69 @@ fn permission_request(svc: &Service, session: &str) -> Option<PermissionRequest>
     })
 }
 
+/// JSON with comments, as OpenCode takes its config (`opencode.jsonc`): `//` and `/* */` comments
+/// and commas before a closing bracket left out, strings as they are.
+fn without_comments(text: &str) -> String {
+    // Each pass keeps strings whole: a `"` opens one outside a string, and a `\` in one keeps
+    // the character after it.
+    fn pass(text: &str, mut outside: impl FnMut(char, &mut std::iter::Peekable<std::str::Chars>, &mut String)) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars().peekable();
+        let mut in_string = false;
+        while let Some(c) = chars.next() {
+            if in_string {
+                out.push(c);
+                match c {
+                    '\\' => out.extend(chars.next()),
+                    '"' => in_string = false,
+                    _ => {}
+                }
+            } else if c == '"' {
+                in_string = true;
+                out.push(c);
+            } else {
+                outside(c, &mut chars, &mut out);
+            }
+        }
+        out
+    }
+    let uncommented = pass(text, |c, chars, out| match (c, chars.peek()) {
+        ('/', Some('/')) => {
+            while chars.peek().is_some_and(|&n| n != '\n') {
+                chars.next();
+            }
+        }
+        ('/', Some('*')) => {
+            chars.next();
+            let mut last = ' ';
+            for n in chars.by_ref() {
+                if last == '*' && n == '/' {
+                    break;
+                }
+                last = n;
+            }
+        }
+        _ => out.push(c),
+    });
+    pass(&uncommented, |c, chars, out| {
+        let closes = || chars.clone().find(|n| !n.is_whitespace()).is_some_and(|n| n == '}' || n == ']');
+        if c != ',' || !closes() {
+            out.push(c);
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn its_config_may_have_comments_and_trailing_commas() {
+        let text = "{\n  // servers\n  \"mcp\": {\n    \"northwind\": { \"type\": \"local\", \"command\": [\"nw\", \"--url=http://x//y\"] }, /* parked */\n    \"off\": { \"type\": \"remote\", \"url\": \"https://e.com\", \"enabled\": false },\n  },\n}\n";
+        let v: Value = serde_json::from_str(&without_comments(text)).unwrap();
+        assert_eq!(v["mcp"]["northwind"]["command"][1], "--url=http://x//y");
+        assert_eq!(crate::mcp::servers_in(&v["mcp"], "f").iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["northwind"]);
+    }
 
     /// A request the session still waits on keeps the time it was first seen, whatever else
     /// changes and through a poll that missed it; a new one takes the time of the poll that saw

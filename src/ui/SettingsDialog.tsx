@@ -14,7 +14,7 @@ import { REUSE_WORDS } from '../reusable';
 import { groupReviewWords, reviewsRunIn } from '../review';
 import { type Field, mineOf, offerWords, pullRequestsFor, repoChoices, reviewsEverywhere, reviewsFor, type Reviews, sourceOf, type Source, teamFileOf, withOwn, withPullRequests, withRepo, withReviews, without, PULL_REQUESTS_OFF } from '../repoSettings';
 import { BUFFER, modelName, withLists } from '../start';
-import type { AtLogin, ChromeProfile, Config, ConfigView, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, WhenLimited } from '../types';
+import type { AtLogin, ChromeProfile, Config, ConfigView, ExperimentalCfg, GroupMemberCfg, JevCfg, Lane, Mcp, NewTerminal, NudgeAbout, OwnReviewsCfg, Profile, ProjectCfg, PullRequestsCfg, RepoCfg, Reuse, ReviewPost, ReviewsCfg, ReviewStart, ReviewSubmit, RoutingCfg, RoutingGroup, RoutingGroupCfg, RoutingStrategy, SessionsCfg, ShortcutStatus, SoundsCfg, StartAccount, TeamCfg, TeamFile, Theme, TmuxUse, Training, Usage, Verdict, WhenLimited } from '../types';
 import { AccountsSection } from './AccountsSection';
 import { AgentMenu, type AgentPick } from './AgentMenu';
 import { AgentPromptBox } from './AgentPromptBox';
@@ -103,6 +103,8 @@ interface SettingsDialogProps {
   usage: Usage[];
   /** Whether each account's provider may train on it (training.ts), for Accounts. */
   training?: Training[];
+  /** The MCP servers each account's agents have (mcp.rs), for Accounts. */
+  mcp?: Mcp[];
   /** The terminal's and editor's names, for copy. */
   apps: { terminal: string; editor: string };
   theme: Theme;
@@ -117,7 +119,7 @@ interface SettingsDialogProps {
   teamFiles: TeamFile[];
 }
 
-export function SettingsDialog({ section, onSection, focus, usage, training, apps, theme, onPickTheme, now, onClose, onOpenConfig, lanes, teamFiles }: SettingsDialogProps) {
+export function SettingsDialog({ section, onSection, focus, usage, training, mcp, apps, theme, onPickTheme, now, onClose, onOpenConfig, lanes, teamFiles }: SettingsDialogProps) {
   const [view, setView] = useState<ConfigView | null>(null);
   const [error, setError] = useState<string | null>(null);
   // What you've typed in the config.toml section, kept while you look at another section.
@@ -187,7 +189,7 @@ export function SettingsDialog({ section, onSection, focus, usage, training, app
   // of sight, and nothing in it takes the keyboard from the search.
   const aim = searching ? null : focus;
   const paneOf = (s: SettingsSection): React.ReactNode => {
-    if (s === 'accounts') return <AccountsSection focus={aim} usage={usage} training={training} terminal={apps.terminal} now={now} onSaved={() => void load()} />;
+    if (s === 'accounts') return <AccountsSection focus={aim} usage={usage} training={training} mcp={mcp} terminal={apps.terminal} now={now} onSaved={() => void load()} />;
     if (s === 'agents') return <AgentsSection cfg={cfg} disabled={!!broken} onSave={save} />;
     if (view === null) return error ? <p className="ca-form-error">{error}</p> : <p className="ca-empty">Reading settings…</p>;
     if (s === 'file') return <FilePane view={view} draft={fileDraft} onDraft={setFileDraft} editor={apps.editor} onOpenConfig={onOpenConfig} onSaved={() => void load()} />;
@@ -1470,8 +1472,8 @@ const JEV_FEATURES: { id: JevFeature; label: string; does: string; sends: string
   {
     id: 'quick_panel',
     label: 'Quick panel suggestions',
-    does: 'As you type, suggests the session to send it to or the worktree to start it in; ⏎ does the first. Warns when a running session may already be on the same work, puts the sessions it thinks you mean first in the search, and, when Auto starts Claude Code, a smaller model for a small change.',
-    sends: 'What you type, with the images you paste into it, and the project’s session titles and latest lines, branches, pull request titles and worktree names. Once each time you pause typing.',
+    does: 'As you type, suggests the session to send it to or the worktree to start it in; ⏎ does the first. Warns when a running session may already be on the same work, puts the sessions it thinks you mean first in the search, starts work that needs a service (your mail, say) on an account whose MCP servers reach it, and, when Auto starts Claude Code, a smaller model for a small change.',
+    sends: 'What you type, with the images you paste into it, and the project’s session titles and latest lines, branches, pull request titles and worktree names, with the names of the services your accounts’ MCP servers reach and of their tools when the accounts differ. Once each time you pause typing.',
   },
   {
     id: 'sessions',

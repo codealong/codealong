@@ -1271,6 +1271,19 @@ pub struct AgentPick {
     pub p: f64,
 }
 
+/// A service the work needs that the device's agents reach through an MCP server or connector
+/// (Gmail, Slack, Figma…), with the accounts connected to it (`Route::needs`).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NeedPick {
+    /// As an account's harness names it.
+    pub name: String,
+    /// The accounts that can start a session and reach it: the one Auto would pick of them
+    /// first, then the rest in config order.
+    pub accounts: Vec<String>,
+    pub p: f64,
+}
+
 /// A repo's latest starts from the quick panel: how many went into a new worktree, of how many.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Default)]
 pub struct Habit {
@@ -1312,6 +1325,11 @@ pub struct Route {
     /// likely first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agents: Vec<AgentPick>,
+    /// The service the work needs, when Jev is sure enough of one and the accounts don't all
+    /// reach the same ones: new work starts on an account that reaches it. Macs of earlier builds
+    /// don't send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needs: Option<NeedPick>,
     /// The versioned model that answered, such as `jev-1.13.0`.
     pub model: String,
     pub ms: u64,

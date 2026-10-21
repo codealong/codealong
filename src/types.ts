@@ -635,6 +635,28 @@ export interface Training {
   stale?: string | null;
 }
 
+/** One MCP server an account's agents can call (mcp.rs). */
+export interface McpServer {
+  /** As its harness names it: "Gmail", "figma". */
+  name: string;
+  /** Where it comes from, in words: "claude.ai connector", "figma plugin", "~/.cursor/mcp.json". */
+  from: string;
+  /** Its tools' names, where the harness lists them without starting it. */
+  tools?: string[];
+}
+
+/** The MCP servers an account's agents have (mcp.rs): its provider's connectors, its settings'
+ *  servers and its plugins'. */
+export interface Mcp {
+  account: string;
+  servers: McpServer[];
+  /** Why some or all of them couldn't be read. */
+  note?: string | null;
+  asOf: number | null;
+  /** Why the latest read couldn't tell, when this is an older answer kept. */
+  stale?: string | null;
+}
+
 /** An `[[accounts]]` table in config.toml. */
 export interface AccountCfg {
   name: string;
@@ -1183,6 +1205,9 @@ export interface Board {
   /** Whether each account's provider may train on what it sends (training.rs), for the accounts
    *  read so far. Absent from engines of older builds. */
   training?: Training[];
+  /** The MCP servers each account's agents have (mcp.rs), for the accounts read so far. Absent
+   *  from engines of older builds. */
+  mcp?: Mcp[];
   /** The side conversations asked on this Mac (side.rs `glances`), kept and open, by the key of
    *  the session or PR they're about, the latest started first. Absent from engines of older
    *  builds. */
@@ -1344,9 +1369,20 @@ export interface Route {
   duplicate: RoutePick | null;
   /** Agent or model picks Jev weighed when `[routing] prompt` is set, the likeliest first. */
   agents?: AgentPick[];
+  /** The service the work needs, when only some accounts reach it (route.rs `needs`). Missing
+   *  from Macs of earlier builds. */
+  needs?: NeedPick | null;
   model: string;
   ms: number;
   inputTokens: number;
+}
+
+/** A service the work needs, reached through an MCP server or connector, with the accounts that
+ *  reach it: the one Auto would pick of them first. */
+export interface NeedPick {
+  name: string;
+  accounts: string[];
+  p: number;
 }
 
 /** An agent, model or routing group Jev weighed when `[routing] prompt` is set (route.rs). */

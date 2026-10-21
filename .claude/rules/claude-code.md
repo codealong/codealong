@@ -571,6 +571,15 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
 - Sign-in in the login keychain (its services, the account, reading it without a prompt) and
   never refreshing, logging or passing the token in arguments: `claude/usage.rs` (module header,
   `keychain_services`, `read_sign_in`, `fetch`).
+- An account's MCP servers (2.1.306, 2026-10-20): the claude.ai connectors from `GET
+  https://api.anthropic.com/v1/mcp_servers?limit=1000&include_additional_installs=true` with the
+  sign-in's token, `anthropic-beta: mcp-servers-2025-12-04` and `anthropic-version: 2023-06-01`
+  (the sign-in needs the `user:mcp_servers` scope), the state file's `mcpServers` and the
+  plugins' (`plugin:<plugin>:<name>`): `claude/mcp.rs` (module header, `connected`),
+  `claude/skills.rs` (`plugins`). Claude Code also keeps `claudeAiMcpEverConnected` in the
+  state file, every connector that ever connected, which kept two the account no longer loads;
+  it skips a connector whose URL a plugin's server has too (Figma here). `claude mcp list` starts
+  every server to say it's connected.
 - Help improve Claude (whether Anthropic trains on the account), read and changed through the
   account's settings: `claude/training.rs`. The settings answer holds much else (dismissed
   banners, feature flags) and `grove_updated_at`, `grove_notice_viewed_at`. Claude Code's notice

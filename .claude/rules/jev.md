@@ -47,3 +47,10 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   as words and each question asks one plain thing: `jev.rs` and `route.rs` (module headers). The
   blog post for 1.14 says every model does worse on images than on text, and to ask the simplest
   questions about them.
+- Which service a message needs (route.rs `needs_question`, `NEEDS_AT`): asked "what does my email
+  say about the launch", "summarize what was said in slack today" and "implement the settings
+  screen from the figma design", 1.14 gave the service 0.92 to 0.98; "fix the flaky test" gave
+  GitHub 0.63 until "none" said code work needs none, then nothing,
+  while "review the open pull requests on github" still gave GitHub 0.71, and "what did we decide
+  in yesterday's meeting" gave none with a meeting-notes service offered (2026-10-20). A request
+  with it was about 33,000 tokens.

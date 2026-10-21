@@ -2010,6 +2010,18 @@ impl crate::harness::Adapter for Antigravity {
         stop_telemetry(account)
     }
 
+    /// The servers in `mcp_config.json` (`mcpServers`, `disabled: true` turning one off), which
+    /// the app and `agy` share in `~/.gemini/config`; before that folder, the app kept it in its
+    /// own folder.
+    fn mcp(&self, account: &AccountCfg) -> crate::mcp::Mcp {
+        let shared = crate::util::home().join(".gemini/config/mcp_config.json");
+        let file = if shared.is_file() { shared } else { account.home_path().join("mcp_config.json") };
+        match crate::mcp::json_file(&file) {
+            Ok(v) => crate::mcp::Mcp::new(account, v.map(|v| crate::mcp::servers_in(&v["mcpServers"], &crate::util::tilde(&file))).unwrap_or_default(), None),
+            Err(why) => crate::mcp::Mcp::new(account, Vec::new(), Some(why)),
+        }
+    }
+
     fn records(&self, account: &AccountCfg, s: &Session) -> Vec<PathBuf> {
         let dir = folder_of(account, s);
         transcript_file(&dir, &s.id).into_iter().chain([dir.join("conversations").join(format!("{}.db", s.id)), dir.join(SUMMARIES)]).collect()

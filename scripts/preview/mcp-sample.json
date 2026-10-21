@@ -1,0 +1,35 @@
+{
+  "mcp": [
+    {
+      "account": "claude",
+      "servers": [
+        { "name": "Claude Docs", "from": "claude.ai connector" },
+        { "name": "Gmail", "from": "claude.ai connector", "tools": ["search_threads", "get_thread", "create_draft"] },
+        { "name": "Google Calendar", "from": "claude.ai connector", "tools": ["list_events", "create_event"] },
+        { "name": "Google Drive", "from": "claude.ai connector", "tools": ["search_files", "read_file_content"] },
+        { "name": "Linear", "from": "claude.ai connector", "tools": ["list_issues"] },
+        { "name": "Slack", "from": "claude.ai connector", "tools": ["slack_read_channel", "slack_send_message"] },
+        { "name": "figma", "from": "figma plugin" },
+        { "name": "northwind", "from": "~/.claude.json" }
+      ],
+      "readAgo": 3
+    },
+    {
+      "account": "claude2",
+      "servers": [{ "name": "Claude Docs", "from": "claude.ai connector" }],
+      "note": "Couldn't read its claude.ai connectors: sign-in expired, run `claude2` once to sign in again",
+      "readAgo": 3
+    },
+    {
+      "account": "codex",
+      "servers": [
+        { "name": "GitHub", "from": "ChatGPT app" },
+        { "name": "Gmail", "from": "ChatGPT app" },
+        { "name": "Google Calendar", "from": "ChatGPT app" },
+        { "name": "atlas", "from": "~/.codex/config.toml" }
+      ],
+      "readAgo": 3
+    },
+    { "account": "cursor", "servers": [], "readAgo": 3 }
+  ]
+}

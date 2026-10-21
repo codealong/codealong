@@ -1,5 +1,6 @@
 //! Codealong: every agent runs in a worktree, and every worktree is a lane.
 
+mod accountpoll;
 mod acp;
 mod actions;
 mod agentdone;
@@ -64,6 +65,7 @@ mod limits;
 mod nudges;
 mod lineage;
 mod logo;
+mod mcp;
 mod model;
 mod peerfeed;
 use codealong_peer::proto as peerproto;

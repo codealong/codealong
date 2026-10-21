@@ -89,6 +89,9 @@
 # PREVIEW_TRAINING=<file> says which accounts' providers may train on them (training-sample.json
 # has some), for the accounts bar's flags and Settings › Accounts: the snapshot reads none, since
 # that asks every provider (`codealong --snapshot --training` does).
+# PREVIEW_MCP=<file> lists the MCP servers each account's agents have (mcp-sample.json has some),
+# for Settings › Accounts: the snapshot reads none, since that asks each provider
+# (`codealong --snapshot --mcp` does).
 # PREVIEW_DEVICES=<file> shows your other devices from it (scripts/preview/devices-sample.json
 # has some): Settings › Devices, the sidebar's Devices, and a few of the board's own worktrees
 # shown as if they were on those devices.
@@ -182,6 +185,7 @@ fixture usage "${PREVIEW_USAGE:-}"
 fixture devices "${PREVIEW_DEVICES:-}"
 fixture notices "${PREVIEW_NOTICES:-}"
 fixture training "${PREVIEW_TRAINING:-}"
+fixture mcp "${PREVIEW_MCP:-}"
 fixture skills "${PREVIEW_SKILLS:-}"
 fixture tokens "${PREVIEW_TOKENS:-}"
 rm -f "$dir/transcript.json" "$dir/transcript-key.json" "$dir/pending.json"

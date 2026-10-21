@@ -54,3 +54,20 @@
 /* Its plan price: "$ [200] a month" on one line, the field as wide as a price. */
 .ca-acct-monthly { display: flex; align-items: center; gap: 6px; font: var(--type-meta); color: var(--ink-2); }
 .ca-acct-monthly input { width: 96px; }
+
+/* Its MCP servers: chips that wrap, unlike the other values, which are cut to a line. */
+.ca-kv dd.ca-acct-mcp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--chip-gap);
+  overflow: visible;
+  white-space: normal;
+}
+/* Services are named in words ("Google Calendar"), so in a label's face, not a machine name's. */
+.ca-kv dd.ca-acct-mcp .ca-chip { font: var(--type-caption-strong); }
+.ca-acct-mcp-none { color: var(--ink-3); }
+.ca-acct-mcp-note {
+  flex-basis: 100%;
+  color: var(--ink-3);
+}
