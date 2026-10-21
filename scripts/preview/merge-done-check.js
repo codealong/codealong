@@ -150,6 +150,43 @@
       if (stripped) {
         var button = await until(mergeButton, 5000, 'no Merge and done on the strip over “' + picked.title + '”');
         check('the strip has it first, before Seen, saying its key', all('.ca-hotkeys .ca-hotkey')[0] === button && stripButton('Seen') && !!(button.compareDocumentPosition(stripButton('Seen')) & Node.DOCUMENT_POSITION_FOLLOWING) && (q('kbd', button) || {}).textContent === (linux ? 'Ctrl+Shift+M' : '⇧⌘M'), button.textContent);
+        // Its words, then its key, show wherever the strip has room for them beside the rest
+        // and the least it keeps for what it says, and only there: at each width the buttons
+        // keep to one line, and what's left out wouldn't have fit.
+        var stripEl = q('.ca-reply-queue.has-keys');
+        var noteEl = q('.ca-reply-queue-note', stripEl);
+        var shows = function (el) { return el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'; };
+        var wordsEl = q('span', button);
+        var keyEl = q('kbd', button);
+        var seenWords = false;
+        var seenBare = false;
+        var widths = [420, 480, 540, 600, 660, 720, 780, 860, 960, 1100];
+        for (var i = 0; i < widths.length; i++) {
+          stripEl.style.width = widths[i] + 'px';
+          await wait(120);
+          var tops = all('.ca-hotkeys .ca-hotkey').map(function (b) { return Math.round(b.getBoundingClientRect().top); });
+          var spare = noteEl.getBoundingClientRect().width - parseFloat(getComputedStyle(noteEl).minWidth);
+          var gap = parseFloat(getComputedStyle(button).columnGap) || 0;
+          var said = (shows(wordsEl) ? 'words ' : '') + (shows(keyEl) ? 'key' : '') || 'icon';
+          // Too narrow for the rest alone, they wrap without it saying more than its icon.
+          var wrong = tops.some(function (t) { return t !== tops[0]; }) && said !== 'icon'
+            ? 'the buttons took two lines'
+            : spare < -0.5
+              ? 'what it says has ' + spare.toFixed(1) + 'px less than it keeps'
+              : !shows(wordsEl) && shows(keyEl) && spare >= wordsEl.getBoundingClientRect().width + gap
+                ? 'its words would have fit (' + spare.toFixed(1) + 'px spare)'
+                : !shows(keyEl) && spare >= keyEl.getBoundingClientRect().width + gap
+                  ? 'its key would have fit (' + spare.toFixed(1) + 'px spare)'
+                  : shows(wordsEl) && !shows(keyEl)
+                    ? 'its words without its key'
+                    : null;
+          if (shows(wordsEl)) seenWords = true;
+          if (!shows(wordsEl)) seenBare = true;
+          if (wrong) { check('at ' + widths[i] + 'px the strip says as much of it as fits (' + said + ')', false, wrong); break; }
+        }
+        if (!wrong) check('from ' + widths[0] + ' to ' + widths[widths.length - 1] + 'px the strip says as much of it as fits, on one line', seenWords && seenBare, seenWords ? 'its words never left' : 'its words never showed');
+        stripEl.style.width = '';
+        await wait(120);
         doneAt = stripButton('Done').getBoundingClientRect().left;
         stripHeight = q('.ca-hotkeys').getBoundingClientRect().height;
       } else {

@@ -23,7 +23,7 @@
 // expands it to the whole window, so the list is out of the way while you do. Rename in a pill's
 // or a row's menu shows it with its name ready to change.
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { runCommand } from '../api';
 import { below, showContextMenu, type MenuGroup, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
@@ -32,7 +32,7 @@ import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
 import { AWAY_CHORD, QUEUE_CHORDS, type QueueAction } from '../queue';
 import { SNOOZE_CHORDS } from '../snooze';
 import type { Sent, Session, TranscriptItem } from '../types';
-import { cardZoom } from '../zoom';
+import { cardZoom, scaleOf } from '../zoom';
 import { EditDialog } from './EditFrom';
 import { MoveDialog } from './MoveAccount';
 import { Button, cx, Icon, OneLine, Rich } from './primitives';
@@ -132,17 +132,72 @@ export function queueSigns(action: QueueAction): string[] {
 }
 
 /** A button on the strip that says its key. One that doesn't apply to the session shown stays in
- *  its place, dimmed, so the strip holds still from one session to the next. A `roomy` one, there
- *  only at times, says its label and key only where the strip has room to spare for them
- *  (SessionPanel.css), its icon always, so its coming never wraps a strip that fits without it. */
-export function Hotkey({ label, icon, keys, title, run, roomy = false }: { label?: string; icon?: string; keys?: string; title: string; run: ((el: HTMLElement) => void) | undefined; roomy?: boolean }) {
+ *  its place, dimmed, so the strip holds still from one session to the next. One there only at
+ *  times says as much of itself as the strip has `room` for (`roomFor`), its icon always, so its
+ *  coming never wraps a strip that fits without it. */
+export function Hotkey({ label, icon, keys, title, run, room }: { label?: string; icon?: string; keys?: string; title: string; run: ((el: HTMLElement) => void) | undefined; room?: Room }) {
   return (
-    <button type="button" className={cx('ca-hotkey', roomy && 'is-roomy')} title={title} aria-label={label && !roomy ? undefined : title} disabled={!run} onClick={(e) => run?.(e.currentTarget)}>
+    <button type="button" className={cx('ca-hotkey', room && 'is-roomy', room && room !== 'all' && 'is-wordless', room === 'icon' && 'is-keyless')} title={title} aria-label={label && !room ? undefined : title} disabled={!run} onClick={(e) => run?.(e.currentTarget)}>
       {icon && <Icon name={icon} size={12} />}
       {label && <span>{label}</span>}
       {keys && <kbd>{keysSaid(keys)}</kbd>}
     </button>
   );
+}
+
+/** How much of a button that's there only at times the strip has room for: its words and key, its
+ *  key alone, or its icon alone. */
+export type Room = 'all' | 'key' | 'icon';
+
+/** As much of the strip's button that's there only at times (`Hotkey` `room`) as fits on one line
+ *  beside the rest, with the room kept at the strip's start for what it says. Measured, not read
+ *  off the strip's width: what's beside it differs from window to window (the notch's and the
+ *  waiting window's Back and ×, a panel's Next alone) and Linux says its keys in words. Its words
+ *  and key are measured whether they show or not (SessionPanel.css), so what it finds doesn't
+ *  depend on what it found before. */
+function roomFor(strip: HTMLElement): Room {
+  const keys = strip.querySelector<HTMLElement>('.ca-hotkeys');
+  const button = keys?.querySelector<HTMLElement>('.ca-hotkey.is-roomy');
+  if (!keys || !button) return 'all';
+  // Rects are drawn at a card's zoom, lengths in the element's own CSS pixels (zoom.ts).
+  const scale = scaleOf(strip);
+  const px = (value: string) => parseFloat(value) || 0;
+  const wide = (el: Element) => el.getBoundingClientRect().width / scale;
+  // From where what it says starts (after the title bar's room for the window's buttons, say),
+  // less the least kept for that, to the strip's end, where the buttons end however they're laid.
+  const note = strip.querySelector('.ca-reply-queue-note');
+  const end = keys.getBoundingClientRect().right;
+  const room = note ? (end - note.getBoundingClientRect().left) / scale - px(getComputedStyle(note).minWidth) - px(getComputedStyle(strip).columnGap) : wide(keys);
+  const items = [...keys.children];
+  const taken = items.reduce((sum, el) => {
+    const style = getComputedStyle(el);
+    return sum + wide(el) + px(style.marginLeft) + px(style.marginRight);
+  }, px(getComputedStyle(keys).columnGap) * (items.length - 1));
+  const gap = px(getComputedStyle(button).columnGap);
+  const part = (el: Element | null) => (el ? { width: wide(el) + gap, shown: getComputedStyle(el).position !== 'absolute' } : { width: 0, shown: false });
+  const words = part(button.querySelector(':scope > span'));
+  const key = part(button.querySelector(':scope > kbd'));
+  const bare = taken - (words.shown ? words.width : 0) - (key.shown ? key.width : 0);
+  if (bare + words.width + key.width <= room) return 'all';
+  return bare + key.width <= room ? 'key' : 'icon';
+}
+
+/** `roomFor` the strip, again as it or its buttons change size. */
+function useRoom(strip: RefObject<HTMLDivElement | null>, on: boolean): Room {
+  const [room, setRoom] = useState<Room>('all');
+  useLayoutEffect(() => {
+    const el = strip.current;
+    if (!on || !el) return;
+    const measure = () => setRoom(roomFor(el));
+    // Once now, before the strip is drawn, then as the window or the buttons beside it change.
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    const keys = el.querySelector('.ca-hotkeys');
+    if (keys) observer.observe(keys);
+    return () => observer.disconnect();
+  }, [strip, on]);
+  return room;
 }
 
 interface QueueStripProps {
@@ -165,6 +220,8 @@ interface QueueStripProps {
 export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, buttons: own }: QueueStripProps) {
   const next = queue?.next;
   const [nextKey, nextToo] = queueSigns('next');
+  const stripRef = useRef<HTMLDivElement>(null);
+  const room = useRoom(stripRef, !!hotkeys && !own && !!actions?.mergeDone);
   if (!hotkeys) {
     if (!notice && !next) return null;
     return (
@@ -192,7 +249,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
         <>
           {/* Only where there's a PR to merge, and first, where its coming and going moves
               nothing else: the strip keeps to the right. */}
-          {mergeDone && <Hotkey label="Merge and done" icon="merge" keys={sign('mergeDone')} roomy title={`${mergeDone.label.replace('…', '')} (${sign('mergeDone')}): it merges once you confirm, and then this session is marked done`} run={() => mergeDone.run()} />}
+          {mergeDone && <Hotkey label="Merge and done" icon="merge" keys={sign('mergeDone')} room={room} title={`${mergeDone.label.replace('…', '')} (${sign('mergeDone')}): it merges once you confirm, and then this session is marked done`} run={() => mergeDone.run()} />}
           <Hotkey
             label="Seen"
             keys={sign('seen')}
@@ -224,7 +281,7 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
     </div>
   );
   return (
-    <div className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
+    <div ref={stripRef} className={cx('ca-reply-queue', 'has-keys', hotkeys.titleBar && 'is-titlebar')} data-tauri-drag-region={hotkeys.titleBar ? 'deep' : undefined}>
       <StripNote notice={notice} />
       {buttons}
     </div>

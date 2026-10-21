@@ -144,26 +144,17 @@
   color: var(--ink-3);
   font: 500 10px/1 var(--font-sans);
 }
-/* A button there only at times (Merge and done…, `Hotkey` `roomy`) takes only the room the strip
-   has to spare beside the rest: its words from the width where they fit with the notch's and the
-   waiting window's buttons, its key down to the narrowest one-line strip, its icon always. */
-@container queuestrip (max-width: 779px) {
-  .ca-hotkey.is-roomy > span {
-    display: none;
-  }
+/* A button there only at times (Merge and done…, `Hotkey` `room`) takes only the room the strip
+   has to spare beside the rest, as SessionPanel.tsx `roomFor` measures it: its words and key, its
+   key alone or its icon alone. What it leaves out is still laid out, unseen and out of the line,
+   so it's measured whether it shows or not. */
+.ca-hotkey.is-roomy {
+  position: relative;
 }
-@container queuestrip (max-width: 520px) {
-  .ca-hotkey.is-roomy > kbd {
-    display: none;
-  }
-}
-/* Linux's keys in words (below) take half again the room: there its words and key show from a
-   wider strip, and short of it, its icon alone. */
-@container queuestrip (max-width: 919px) {
-  .is-linux .ca-hotkey.is-roomy > span,
-  .is-linux .ca-hotkey.is-roomy > kbd {
-    display: none;
-  }
+.ca-hotkey.is-wordless > span,
+.ca-hotkey.is-keyless > kbd {
+  position: absolute;
+  visibility: hidden;
 }
 /* Short of room, the buttons draw closer, as the notch's always are, so the strip keeps to one
    line at the widths a session's panel usually has. */
