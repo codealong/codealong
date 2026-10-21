@@ -50,5 +50,11 @@ paths:
 - Git is the engine's biggest cost and starts during load by construction. `throttle.rs` spaces
   runs in one worktree two seconds apart and publishes git-only changes in two-second batches
   (session changes still go out at once); `procs.rs` runs git at nice 10
-  (`run_background`) and puts the engine and git threads in the utility QoS class
-  (`utility_thread`). At launch, worktrees with the latest activity go first.
+  (`run_background`) and puts the git threads in the utility QoS class (`utility_thread`). At
+  launch, worktrees with the latest activity go first.
+- The engine's own thread is user-initiated (`user_initiated_thread`), ahead of the agents'
+  builds. In the utility class from 2026-09-24 it sat at priority 20 in `ps -M` and, at a load
+  of 30 to 130 on ten cores, messages waited 15 to 40 s for it while it used ~4% of a core and
+  composed a board in 66 ms (2026-10-20): its lag was waiting for the CPU, not work. A thread on
+  macOS starts in the default class whatever its starter's, so the threads the engine spawns
+  keep theirs.

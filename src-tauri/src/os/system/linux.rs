@@ -42,8 +42,8 @@ pub fn footprint(pid: u32) -> Option<u64> {
 /// handlers among them, which `user_initiated_thread` couldn't raise as macOS's classes are.
 pub fn utility_thread() {}
 
-/// Work a person waits on from another device. A thread can't be raised above the app's own
-/// priority without privileges, so it's left at that.
+/// Work a person waits on: the engine's thread, and another device's requests. A thread can't be
+/// raised above the app's own priority without privileges, so it's left at that.
 pub fn user_initiated_thread() {}
 
 /// Linux has no App Nap.

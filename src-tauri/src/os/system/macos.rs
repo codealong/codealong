@@ -48,9 +48,11 @@ pub fn utility_thread() {
     thread_qos(0x11);
 }
 
-/// Puts the calling thread in macOS's user-initiated class, for work a person is waiting on from
-/// another device (their phone opening a session, a Mac asking for a page): it goes ahead of the
-/// agents' builds rather than behind them, as the engine's own scanning does.
+/// Puts the calling thread in macOS's user-initiated class, for work a person is waiting on: the
+/// engine's thread, which every change goes through to reach the windows, and another device's
+/// requests (their phone opening a session, a Mac asking for a page). It goes ahead of the agents'
+/// builds rather than behind them, as git's scanning does. Only the calling thread: a thread it
+/// starts begins in the default class, whatever its starter's.
 pub fn user_initiated_thread() {
     thread_qos(0x19);
 }

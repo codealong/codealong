@@ -828,7 +828,11 @@ pub fn start(emit: impl Fn(&Board) + Send + 'static) -> Handle {
     std::thread::Builder::new()
         .name("codealong-engine".into())
         .spawn(move || {
-            crate::os::system::utility_thread();
+            // Every change waits on this thread to reach the windows, and its own work is small
+            // (a few percent of a core). In the utility class it waited behind the agents' builds:
+            // at a load of 30 to 130 on ten cores, 15 to 40 s, while composing a board took 66 ms
+            // (2026-10-20). Git, the heavy part, keeps to its own utility threads.
+            crate::os::system::user_initiated_thread();
             let back = tx.clone();
             let mut engine = Engine::new(Box::new(emit), tx, board);
             engine.servers = previews::watch(move |servers| back.send(Msg::Servers(servers)).is_ok());
