@@ -77,7 +77,24 @@
       type(box, 'Review what merged today.');
       box.dispatchEvent(new FocusEvent('blur'));
       box.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-      return wait(100);
+      var where = q('.ca-scheddlg .ca-fieldpick-btn');
+      check('a new one starts in the project’s worktree', where.textContent.indexOf('No project') < 0, where.textContent);
+      where.click();
+      return until(function () { return q('.ca-fieldpick .ca-picker-filter'); }, 3000, 'the worktree menu');
+    })
+    .then(function () {
+      // No project's id is empty, and ⏎ still picks it.
+      var filter = q('.ca-fieldpick .ca-picker-filter');
+      type(filter, 'no project');
+      return wait(50).then(function () {
+        filter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        return until(function () { return !q('.ca-fieldpick .ca-picker'); }, 3000, 'the worktree menu to close');
+      });
+    })
+    .then(function () {
+      var where = q('.ca-scheddlg .ca-fieldpick-btn');
+      check('⏎ on No project makes it a chat of its own', where.textContent.indexOf('No project') >= 0, where.textContent);
+      return wait(50);
     })
     .then(function () {
       var n = sent('schedule_op').length;
@@ -89,7 +106,7 @@
       var s = op.schedule || {};
       check('saving sends the schedule', op.op === 'save' && s.name === 'Nightly review' && s.when.kind === 'time' && s.when.rule === 'every 2h', JSON.stringify(op));
       check('with what it’s told', s.run && s.run.prompt === 'Review what merged today.', JSON.stringify(s.run));
-      check('in the project’s worktree, as the view had it', s.run && s.run.folder !== '', JSON.stringify(s.run));
+      check('in no worktree, as it was picked', s.run && s.run.folder === '', JSON.stringify(s.run));
       return until(function () { return !q('.ca-scheddlg'); }, 3000, 'the dialog to close');
     })
     .then(function () {
@@ -104,8 +121,19 @@
     .then(function () {
       var field = q('.ca-fieldpick-btn[aria-label="The session it sends to"]');
       check('the session field starts empty', field.textContent.indexOf('Pick a session') >= 0, field.textContent);
+      all('.ca-scheddlg .ca-fieldpick-btn')[1].click();
+      return until(function () { return q('.ca-fieldpick .ca-picker'); }, 3000, 'the worktree menu');
+    })
+    .then(function () {
+      // A press on the other field's button closes this menu as it opens that one.
+      var field = q('.ca-fieldpick-btn[aria-label="The session it sends to"]');
+      press(field);
       field.click();
-      return until(function () { return q('.ca-fieldpick .ca-picker-opt'); }, 3000, 'the sessions');
+      return until(function () { return q('.ca-fieldpick .ca-picker-opt .ca-picker-trail'); }, 3000, 'the sessions');
+    })
+    .then(function () {
+      check('one menu is open at a time', all('.ca-picker').length === 1, all('.ca-picker').length + ' open');
+      return wait(10);
     })
     .then(function () {
       var opts = all('.ca-fieldpick .ca-picker-opt');

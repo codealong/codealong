@@ -285,9 +285,9 @@ export function ScheduleDialog({ schedule, board, now, onClose, onSaved }: Sched
               none={run.session ? 'A session that’s gone' : 'Pick a session'}
               placeholder="Session, worktree, project or account"
               empty="No session matches."
-              // A session brings its worktree: the project that lists the schedule, and where its
-              // watch and Only if run.
-              onPick={(session) => setRun({ session, folder: sessionFolder(board.lanes, session) || run.folder })}
+              // A session brings its worktree, none for a chat: the project that lists the
+              // schedule, and where its watch and Only if run.
+              onPick={(session) => setRun({ session, folder: sessionFolder(board.lanes, session) })}
             />
             {worktreeField}
             <BoxText aria-label="What it sends" lines={6} hint="What it sends each time" value={run.prompt} onChange={(e) => setRun({ prompt: e.target.value })} />

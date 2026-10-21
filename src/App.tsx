@@ -52,7 +52,7 @@ import { TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { ScheduleDialog } from './ui/ScheduleDialog';
 import { SchedulePanel } from './ui/SchedulePanel';
 import { SchedulesView } from './ui/SchedulesView';
-import { blankSchedule, newScheduleFolder, scheduleOf } from './schedules';
+import { blankSchedule, newScheduleFolder, scheduleOf, scheduleProject } from './schedules';
 import { KanbanView } from './ui/KanbanView';
 import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanStep, orderedIds, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
@@ -959,8 +959,12 @@ export function App() {
       if (r.focus?.length) setCanvasFocus((f) => ({ ids: r.focus ?? [], n: (f?.n ?? 0) + 1 }));
       return;
     }
-    // A schedule a session came from: the Schedules view, on it.
+    // A schedule a session came from: the Schedules view, on it, in the project that lists it
+    // (All projects for one in none).
     if (r.kind === 'schedule') {
+      const x = board?.schedules?.find((s) => s.id === r.id);
+      const home = x ? (scheduleProject(x, board?.lanes ?? []) ?? ALL_PROJECTS) : current;
+      if (current !== ALL_PROJECTS && current !== home) pickProject(home);
       setQuery('');
       setView('schedules');
       setScheduleId(r.id);

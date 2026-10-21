@@ -69,8 +69,14 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
     box.current?.querySelector('.ca-picker-opt.is-on')?.scrollIntoView({ block: 'nearest' });
   }, [activeId]);
 
-  // A press anywhere else closes it; the button that opened it closes it itself.
-  useDismiss(box, onClose, { inside: '[data-picker-trigger]' });
+  // A press anywhere else closes it, on another menu's button too; its own button, beside it,
+  // closes it itself.
+  useDismiss(box, onClose, {
+    inside: (t) => {
+      const own = box.current?.parentElement;
+      return !!own && t.closest('[data-picker-trigger]')?.parentElement === own;
+    },
+  });
 
   const move = (delta: number) => {
     if (pickable.length === 0) return;
@@ -100,7 +106,8 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
           } else if (e.key === 'Enter') {
             e.preventDefault();
             e.stopPropagation();
-            if (activeId) onPick(activeId);
+            // An option's id may be empty: a schedule's No worktree.
+            if (activeId !== null) onPick(activeId);
           } else if (e.key === 'Escape') {
             e.preventDefault();
             e.stopPropagation();
