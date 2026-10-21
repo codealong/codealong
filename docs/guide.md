@@ -1767,9 +1767,9 @@ session that's already going, start new work in a worktree (a new one when it's 
 or, for a question that needs none of your repos, in a chat of its own, open a session, or keep it
 as a todo. A session's title, or a few words of it, typed to find it is a search, and opens it. A
 few words that could be a search for a session or a message to it get both rows, the likelier
-first, so Open is one ↓ from Send to, and the other way round. A search that fits none of the
-sessions Jev weighed (a PR's number, an older session) suggests none of them, nor new work unless
-that's likely too, so ⏎ opens what the search found. The rows the likeliest leave go to more of
+first, so Open is one ↓ from Send to, and the other way round. For a search, Send to another
+session sits under the sessions found, and a search that fits none of the sessions Jev weighed (a
+PR's number, an older session) suggests nothing, so ⏎ opens what the search found. The rows the likeliest leave go to more of
 the sessions it weighed, in its order, while each is at least 5% likely to be the one meant. ⏎
 does the first. A start that would start just
 what the new session's row at the foot does (the same worktree, account, model, effort and place)

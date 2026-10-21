@@ -187,20 +187,18 @@ describe('suggestions', () => {
     ]);
   });
 
-  it('suggests no session for a search none of them fits, and new work only when that’s likely itself', () => {
+  it('suggests nothing for a search none of the sessions fits, so ⏎ opens what the search found', () => {
     const r = route({
       action: 'find',
       actions: [
-        ['find', 0.9],
-        ['start', 0.1],
+        ['find', 0.6],
+        ['start', 0.4],
       ],
       sessions: [{ id: 's:copy', p: 0.1 }],
       noSession: 0.9,
       lanes: [{ id: '/web', p: 1 }],
     });
-    // What the panel finds by the words leads instead.
     expect(rows(r)).toEqual([]);
-    expect(rows({ ...r, actions: [['find', 0.7], ['start', 0.3]] })).toEqual([['start:/web', 0.3]]);
   });
 
   it('keeps a note for later as a todo, with starting on it as the runner-up', () => {

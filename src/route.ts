@@ -132,9 +132,9 @@ export function toSessionSuggestion(lane: Lane, session: Session, p: number, fin
  * (or the other way) when what's typed may be a search for it, another likely session, or
  * starting new work when that's likely too, so a wrong guess is one ↓ away from the right one;
  * the rows left go to more of the sessions Jev weighed, in its order, so there's more than one
- * guess to pick from. A search that fits none of the sessions Jev weighed (route.rs `read`) is for
- * something the panel finds by its words, a PR or an older session, so it suggests none of them,
- * and new work only when that's likely itself. A session that
+ * guess to pick from. A search that fits none of the sessions Jev weighed (Jev's own odds for a
+ * search, route.rs `read`) is for something the panel finds by its words, a PR or an older
+ * session, so nothing is suggested and ⏎ opens what the search found. A session that
  * waits on you for a prompt is opened, never sent to: what's typed would answer the prompt. One
  * whose reply asks you something is sent to: what's typed is its answer.
  *
@@ -194,19 +194,18 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
   const startNew = (actionP: number) => (inChat ? startChat(actionP) : startIn(l1, actionP));
 
   const find = route.action === 'find';
-  const searchesElsewhere = find && route.noSession > sessionP(s1);
+  // A search for none of the sessions: what the search found leads.
+  if (find && route.noSession > sessionP(s1)) return out;
 
   switch (route.action) {
     case 'send':
     case 'find': {
       const p = prob(route.action);
-      if (!searchesElsewhere) {
-        add(toSession(s1, p * sessionP(s1), find));
-        // A few words can be a search for a session or a message to it: the other is next.
-        const other = find ? 'send' : 'find';
-        if (prob(other) >= RUNNER_UP) add(toSession(s1, prob(other) * sessionP(s1), !find));
-        if (sessionP(s2) >= RUNNER_UP) add(toSession(s2, p * sessionP(s2), find));
-      }
+      add(toSession(s1, p * sessionP(s1), find));
+      // A few words can be a search for a session or a message to it: the other is next.
+      const other = find ? 'send' : 'find';
+      if (prob(other) >= RUNNER_UP) add(toSession(s1, prob(other) * sessionP(s1), !find));
+      if (sessionP(s2) >= RUNNER_UP) add(toSession(s2, p * sessionP(s2), find));
       const startP = find ? prob('start') : Math.max(prob('start'), route.noSession);
       if (startP >= RUNNER_UP) add(startNew(startP));
       break;
@@ -235,7 +234,7 @@ export function suggestions(route: Route, board: Board): Suggestion[] {
   }
   // Each as likely as sending to a session at all (opening one, for a search) times this one.
   const moreP = prob(find ? 'find' : 'send');
-  if (!searchesElsewhere) for (const s of route.sessions) if (sessionP(s) >= MORE_AT) add(toSession(s, moreP * sessionP(s), find));
+  for (const s of route.sessions) if (sessionP(s) >= MORE_AT) add(toSession(s, moreP * sessionP(s), find));
   return out;
 }
 

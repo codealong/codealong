@@ -496,7 +496,8 @@ fn ranked(mut picks: Vec<Pick>) -> Vec<Pick> {
 /// code: sending needs a session, so when "none" is the likelier session, new work is meant. A
 /// search that fits none of the sessions stays a search: it's for something the panel finds by
 /// its words (a PR, an older session), not work to start. Sessions are ranked with running ones
-/// favored (`favor_running`).
+/// favored (`favor_running`), but for a search: opening a session resumes nothing, so it takes
+/// Jev's own, and the panel can tell from them whether any fits (route.ts `suggestions`).
 pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
     let answers = response.get("answers").ok_or_else(|| anyhow!("TypeSafe's answer has no answers"))?;
     let action_p = probabilities(&answers["action"]);
@@ -520,8 +521,12 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         .collect();
     // Whether any session fits at all is Jev's call, before running ones are favored.
     let top_session = picked.iter().map(|(p, _)| p.p).fold(0.0, f64::max);
-    let sessions = ranked(favor_running(picked));
     let no_session = session_p.get("none").copied().unwrap_or(if req.sessions.is_empty() { 1.0 } else { 0.0 });
+    let mut action = actions.first().map_or(Action::Start, |a| a.0);
+    if action == Action::Send && no_session > top_session {
+        action = Action::Start;
+    }
+    let sessions = ranked(if action == Action::Find { picked.into_iter().map(|(p, _)| p).collect() } else { favor_running(picked) });
     let mut repo_sum: BTreeMap<String, f64> = BTreeMap::new();
     for (k, p) in &lane_p {
         if let Some(repo) = at(k, 'w', &req.lane_repos) {
@@ -567,11 +572,6 @@ pub fn read(req: &Request, response: &Value, ms: u64) -> Result<Route> {
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
         .filter(|(_, p)| *p >= NEEDS_AT && *p > no_need)
         .map(|(s, p)| NeedPick { name: s.name.clone(), accounts: s.accounts.clone(), model: s.model.clone(), p });
-
-    let mut action = actions.first().map_or(Action::Start, |a| a.0);
-    if action == Action::Send && no_session > top_session {
-        action = Action::Start;
-    }
 
     Ok(Route {
         action,
@@ -789,6 +789,21 @@ mod tests {
         let r = read(&req, &answer(&[("find", 0.9), ("start", 0.1)], &[("s1", 0.1), ("none", 0.9)], &[("w1", 1.0)], 0.0), 1).unwrap();
         assert_eq!(r.action, Action::Find);
         assert_eq!(r.no_session, 0.9);
+    }
+
+    #[test]
+    fn a_search_takes_jevs_sessions_as_they_are() {
+        let mut b = board();
+        b.lanes[0].sessions[1].last_prompt_at = NOW - 3_600_000;
+        let req = request(&b, "Acme", "old stopped", "m", NOW).unwrap();
+        // c:1 runs; c:old doesn't, and favoring c:1 would leave c:old less likely than none.
+        let answered = |action: &str| read(&req, &answer(&[(action, 1.0)], &[("s1", 0.2), ("s3", 0.45), ("none", 0.35)], &[("w1", 1.0)], 0.0), 1).unwrap();
+        let found = answered("find");
+        assert_eq!(found.sessions, vec![Pick { id: "c:old".into(), p: 0.45 }, Pick { id: "c:1".into(), p: 0.2 }]);
+        assert!(found.sessions[0].p > found.no_session);
+        let sent = answered("send");
+        assert_eq!(sent.action, Action::Send);
+        assert!(sent.sessions[0].p < sent.no_session);
     }
 
     #[test]

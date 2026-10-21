@@ -81,6 +81,7 @@
 # board's own sessions and worktrees (scripts/preview/route-sample.json sends to a session;
 # route-start-sample.json starts new work, with a session that may already be on it;
 # route-find-sample.json takes it for a search for a session, opening it, sending to it next;
+# route-search-sample.json for a search none of the sessions fits;
 # route-late-sample.json sends as route-sample.json does, a second and a half late).
 # scripts/preview/quick-search-init.js types a search for a screenshot of the suggestions.
 #

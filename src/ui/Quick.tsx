@@ -163,7 +163,7 @@ interface MoreRow {
   count: number;
 }
 
-/** Under Jev's suggestions for a prompt (under the sessions found, with routing off), the way to
+/** Under Jev's suggestions for a prompt (under the sessions found for a search, and with routing off), the way to
  *  send it to any session, not only one Jev suggests: the box then finds the session while the
  *  prompt waits under it (`sendTo`). */
 interface SendToRow {
@@ -879,8 +879,11 @@ export function Quick() {
   // put first don't drop back at every key.
   const ranked = rankedBy(foundSessions, route ?? lastRoute);
   const moreRow: MoreRow[] = !showAll && ranked.length > FOUND_SESSIONS ? [{ kind: 'more', key: 'more:found', group: 'found', count: ranked.length - FOUND_SESSIONS }] : [];
-  // Under Jev's suggestions while what's typed goes to Jev, else under the sessions found.
-  const sendToRow: SendToRow[] = sendable > 0 ? [{ kind: 'sendto', key: 'sendto', group: routeFor ? 'suggested' : 'found', count: sendable }] : [];
+  // Under Jev's suggestions while what's typed goes to Jev, else under the sessions found; there too
+  // when Jev takes it for a search (the last answer's word standing while the next is worked out),
+  // so ⏎ opens what the search found even when Jev suggests nothing.
+  const asSearch = (route ?? lastRoute)?.action === 'find';
+  const sendToRow: SendToRow[] = sendable > 0 ? [{ kind: 'sendto', key: 'sendto', group: routeFor && !asSearch ? 'suggested' : 'found', count: sendable }] : [];
   const sendToIn = sendToRow[0]?.group ?? null;
   // Send to's list: every session the prompt could go to, Jev's picks for it first with how
   // likely each is (the last answer's while the next is worked out, as the sessions found have
@@ -1702,8 +1705,8 @@ export function Quick() {
           <Icon name={routeProblem ? 'alert' : 'sparkles'} size={13} stroke={2} />
         </span>
         <span className="ca-quick-row-main">
-          <span className="ca-quick-row-title">{routing ? 'Working out where this goes…' : routeProblem ? 'Couldn’t suggest where this goes' : startRowSuggested ? 'Jev suggests the start below' : 'No suggestion for this'}</span>
-          <span className="ca-quick-row-why">{routing ? 'Jev is reading what you’ve typed.' : (routeProblem ?? (startRowSuggested ? keysIn(`It’s just what the new session’s row starts.${startLeads ? ' ⏎ starts it.' : ''}`) : 'Start it below, or keep typing.'))}</span>
+          <span className="ca-quick-row-title">{routing ? 'Working out where this goes…' : routeProblem ? 'Couldn’t suggest where this goes' : startRowSuggested ? 'Jev suggests the start below' : asSearch ? 'This looks like a search' : 'No suggestion for this'}</span>
+          <span className="ca-quick-row-why">{routing ? 'Jev is reading what you’ve typed.' : (routeProblem ?? (startRowSuggested ? keysIn(`It’s just what the new session’s row starts.${startLeads ? ' ⏎ starts it.' : ''}`) : asSearch ? 'None of the sessions Jev read fits it. What the search finds is below.' : 'Start it below, or keep typing.'))}</span>
         </span>
       </div>
     );
