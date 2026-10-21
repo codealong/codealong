@@ -954,7 +954,13 @@ export function sendAhead(s: Session, text: string, { toDraft = true, now = fals
  * when it doesn't go it's still held, and rejects with why.
  */
 export function steerAhead(s: Session, m: QueuedMessage): Promise<string> {
-  const a = made({ kind: 'send', key: s.key, text: m.text, working: true, starts: false, steers: m.id });
+  // One of yours it holds is still its send's, which the thread hides behind the queue's row (by
+  // `queuedAs`): this takes its place, its words as you wrote them, and gives it back if it
+  // doesn't go.
+  const was = all.find((x) => x.change.kind === 'send' && x.change.key === s.key && x.queuedAs === m.id);
+  const text = was && was.change.kind === 'send' ? was.change.text : m.text;
+  const a = made({ kind: 'send', key: s.key, text, working: true, starts: false, steers: m.id });
+  if (was) drop(was.id, true);
   put(a, true);
   return sessionSteer(s.key, m.id).then(
     (said) => {
@@ -963,6 +969,7 @@ export function steerAhead(s: Session, m: QueuedMessage): Promise<string> {
     },
     (e: unknown) => {
       drop(a.id, true);
+      if (was) put(was, true);
       throw e;
     },
   );

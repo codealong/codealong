@@ -175,33 +175,50 @@
       return wait(6000);
     })
     .then(function () {
+      push({ status: 'working', steerable: false });
+      queueing = true;
+      return send('Then the docs');
+    })
+    .then(function () {
+      queueing = false;
       var at = Date.now();
-      push({ queuedAt: at, queued: [{ id: 'app-2', at: at - 1000, text: 'Then the release notes' }, { id: 'app-3', at: at, text: 'Queued in the app' }], status: 'working', steerable: false });
-      return until(function () { return !!saying('Queued in the app'); }, 5000, 'two queued');
+      push({ queuedAt: at, queued: [{ id: 'q:Then the docs', at: at - 1000, text: 'Then the docs' }, { id: 'app-3', at: at, text: 'Queued in the app' }] });
+      return until(function () { var u = saying('Then the docs'); return u && u.says === 'Queued until this turn ends' && !!saying('Queued in the app'); }, 5000, 'two queued');
     })
     .then(function () {
-      check('no Send now on what’s held while the turn can’t take it sooner', !sendNow('Queued in the app'));
+      check('no Send now on what’s held while the turn can’t take it sooner', !sendNow('Then the docs') && !sendNow('Queued in the app'));
       push({ steerable: true });
-      return until(function () { return !!sendNow('Queued in the app'); }, 5000, 'Send now on what’s held');
+      return until(function () { return !!sendNow('Then the docs'); }, 5000, 'Send now on what’s held');
     })
     .then(function () {
-      check('Send now on each held message while the turn can take it sooner', !!sendNow('Then the release notes') && !!sendNow('Queued in the app'));
-      sendNow('Queued in the app').click();
-      return until(function () { var u = saying('Queued in the app'); return u && u.says === 'Sent'; }, 5000, 'the held message sent now');
+      check('Send now on each held message while the turn can take it sooner', !!sendNow('Then the docs') && !!sendNow('Queued in the app'));
+      sendNow('Then the docs').click();
+      return until(function () { var u = saying('Then the docs'); return u && u.says === 'Sent'; }, 5000, 'yours sent now');
     })
     .then(function () {
       var asked = sent('session_steer');
-      check('Send now asks for the held message by its id', asked.length === 1 && asked[0].key === picked.key && asked[0].id === 'app-3', JSON.stringify(asked));
-      var shown = sayingAll('Queued in the app');
-      check('sent now, it shows once, as sent, while the board still lists it', shown.length === 1 && shown[0].says === 'Sent', shown.map(function (u) { return u.says; }).join(', '));
+      check('Send now asks for the held message by its id', asked.length === 1 && asked[0].key === picked.key && asked[0].id === 'q:Then the docs', JSON.stringify(asked));
+      var shown = sayingAll('Then the docs');
+      check('one of yours sent now shows once, as sent, while the board still lists it', shown.length === 1 && shown[0].says === 'Sent', shown.map(function (u) { return u.says; }).join(', '));
       // Out of the queue; the turn takes it in at its next step.
       var at = Date.now();
-      push({ queuedAt: at - 1000, queued: [{ id: 'app-2', at: at - 1000, text: 'Then the release notes' }] });
+      push({ queuedAt: at, queued: [{ id: 'app-3', at: at, text: 'Queued in the app' }] });
       return wait(1500);
     })
     .then(function () {
-      var shown = sayingAll('Queued in the app');
+      var shown = sayingAll('Then the docs');
       check('and once, sent, out of the queue until the record has it', shown.length === 1 && shown[0].says === 'Sent', shown.map(function (u) { return u.says; }).join(', '));
+      sendNow('Queued in the app').click();
+      return until(function () { var u = saying('Queued in the app'); return u && u.says === 'Sent'; }, 5000, 'one queued elsewhere sent now');
+    })
+    .then(function () {
+      var shown = sayingAll('Queued in the app');
+      check('one queued elsewhere sent now shows once, as sent', shown.length === 1 && shown[0].says === 'Sent', shown.map(function (u) { return u.says; }).join(', '));
+      var at = Date.now();
+      push({ queuedAt: at, queued: [{ id: 'app-2', at: at, text: 'Then the release notes' }] });
+      return until(function () { return !!sendNow('Then the release notes'); }, 5000, 'another queued');
+    })
+    .then(function () {
       steerFails = 'Codex didn’t take it into the turn: its turn had ended.';
       sendNow('Then the release notes').click();
       return until(function () { var u = saying('Then the release notes'); return u && !!q('.ca-thread-askrow', u.el); }, 5000, 'why it didn’t go');
