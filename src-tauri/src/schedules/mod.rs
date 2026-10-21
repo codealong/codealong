@@ -297,6 +297,10 @@ pub struct Track {
     /// When its watch last looked and the command worked: what it's told as `CODEALONG_SINCE`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_ok: Option<i64>,
+    /// The lines its watch's last good look printed, every one: a line is new only when it's
+    /// neither here nor in `seen`, which keeps only the latest it ran for.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub looked: Vec<String>,
 }
 
 /// The runs that went on one day.
@@ -589,9 +593,9 @@ pub fn next_due(s: &Schedule, track: Option<&Track>, now: i64, zone: &dyn Zone) 
     let When::Time { rule } = &s.when else { return None };
     let parsed = rule::parse(rule).ok()?;
     // From the last it ran, else from when it was made: one added while Codealong was closed, its
-    // time passing before the scheduler first had it, still runs then. A week back at most.
+    // time passing before the scheduler first had it, still runs then (or is noted as missed).
     let made = Some(s.created_at).filter(|&c| c > 0).or_else(|| track.map(|t| t.armed_at).filter(|&a| a > 0));
-    let since = track.and_then(|t| t.last_due).or(made).unwrap_or(now).max(now - 7 * crate::util::DAY_MS);
+    let since = track.and_then(|t| t.last_due).or(made).unwrap_or(now);
     rule::next_after(&parsed, since, s.created_at, zone)
 }
 
@@ -822,6 +826,12 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
             serde_json::json!({ "removed": removed })
         }
         Op::Pause { id, paused } => {
+            // Resuming notes where its times go on from before it's let run, so the scheduler,
+            // reading between the two files, can't run a time that passed while it was paused.
+            if !paused {
+                let id = found(&load()?, &id)?;
+                change_runs(|r| resumed(r.of.entry(id.clone()).or_default(), now))?;
+            }
             let s = change(|file| {
                 let id = found(file, &id)?;
                 let s = file.schedules.iter_mut().find(|s| s.id == id).expect("found");
@@ -829,13 +839,6 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
                 s.updated_at = now;
                 Ok(s.clone())
             })?;
-            if !paused {
-                change_runs(|r| {
-                    if let Some(t) = r.of.get_mut(&s.id) {
-                        resumed(t, now);
-                    }
-                })?;
-            }
             serde_json::to_value(s)?
         }
         Op::Run { id } => {

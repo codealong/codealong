@@ -179,29 +179,56 @@ pub fn parse_checked(text: &str) -> Result<Rule, String> {
 }
 
 /// The shortest time, in minutes, between two of a rule's runs, worked out from what it names
-/// rather than from a few of its times, so a close pair late in a long list is found too. Times on
-/// two days are taken as on days in a row (a day's last and the next one's first), which is the
-/// closest they come. None for one that runs once.
+/// rather than from a few of its times, so a close pair late in a long list is found too: between
+/// a day's times, and from a day's last to the next day's first where it can run on two days in a
+/// row (`days_in_a_row`). None where no two runs come within a day of each other, or it runs once.
 pub fn shortest_gap(rule: &Rule) -> Option<i64> {
-    // The gaps between sorted values in a cycle of `round`: each to the next, and the last round
-    // to the first.
-    let cyclic = |values: &[i64], round: i64| -> Option<i64> {
-        let first = *values.first()?;
-        let last = *values.last()?;
-        values.windows(2).map(|w| w[1] - w[0]).chain(std::iter::once(round - last + first)).min()
-    };
-    match rule {
-        Rule::Times { times, .. } | Rule::Monthly { times, .. } => cyclic(times, DAY_MINUTES),
-        Rule::Every { minutes, .. } => Some(*minutes),
-        Rule::Cron(c) => {
-            let within = c.minutes.windows(2).map(|w| w[1] - w[0]).min();
-            // From an hour's last minute to the next hour's first.
-            let hours = cyclic(&c.hours, 24)?;
-            let across = hours * 60 - c.minutes.last()? + c.minutes.first()?;
-            Some(within.map_or(across, |w| w.min(across)))
+    // An interval that doesn't divide a day counts from when the schedule was made, not from each
+    // day's start.
+    if let Rule::Every { minutes, window: None, .. } = rule {
+        if DAY_MINUTES % minutes != 0 {
+            return Some(*minutes);
         }
-        Rule::Once(_) => None,
     }
+    let slots = day_slots(rule);
+    let (first, last) = (*slots.first()?, *slots.last()?);
+    let within = slots.windows(2).map(|w| w[1] - w[0]).min();
+    let across = days_in_a_row(rule).then_some(DAY_MINUTES - last + first);
+    within.into_iter().chain(across).min()
+}
+
+/// The times a rule names on a day it runs, in minutes into the day, in order: its times, an
+/// interval's from the start of its hours (or of the day), cron's hours and minutes.
+fn day_slots(rule: &Rule) -> Vec<i64> {
+    let mut slots: Vec<i64> = match rule {
+        Rule::Times { times, .. } | Rule::Monthly { times, .. } => times.clone(),
+        Rule::Every { minutes, window, .. } => {
+            let (from, to) = window.unwrap_or((0, DAY_MINUTES - 1));
+            (0..).map(|k| from + k * minutes).take_while(|&m| m <= to).collect()
+        }
+        Rule::Cron(c) => c.hours.iter().flat_map(|&h| c.minutes.iter().map(move |&m| h * 60 + m)).collect(),
+        Rule::Once(_) => Vec::new(),
+    };
+    slots.sort_unstable();
+    slots.dedup();
+    slots
+}
+
+/// Whether a rule runs on a date (days since 1970).
+fn runs_on(rule: &Rule, days: i64) -> bool {
+    match rule {
+        Rule::Times { days: d, .. } | Rule::Every { days: d, .. } => d.has(weekday(days)),
+        Rule::Monthly { dates, .. } => dates.contains(&civil_from_days(days).2) || (dates.contains(&0) && civil_from_days(days + 1).2 == 1),
+        Rule::Cron(c) => c.on(days),
+        Rule::Once(_) => false,
+    }
+}
+
+/// Whether a rule can run on two days in a row: looked for over four years of the calendar, which
+/// has every weekday on every date and a February 29th.
+fn days_in_a_row(rule: &Rule) -> bool {
+    let from = days_from_civil(2028, 1, 1);
+    (from..from + 4 * 366).any(|d| runs_on(rule, d) && runs_on(rule, d + 1))
 }
 
 /// A time of day as written: `9`, `9am`, `9:30`, `09:30pm`, `21:15`, `noon`, `midnight`. `pm`
@@ -551,25 +578,12 @@ pub fn next_after(rule: &Rule, after: i64, anchor: i64, zone: &dyn Zone) -> Opti
 
 /// The times the rule names on a day, in order.
 fn on_day(rule: &Rule, days: i64, zone: &dyn Zone) -> Vec<i64> {
+    if !runs_on(rule, days) {
+        return Vec::new();
+    }
     let (year, month, day) = civil_from_days(days);
-    let at = |minutes: i64| zone.at(year, month, day, minutes / 60, minutes % 60);
-    let mut out: Vec<i64> = match rule {
-        Rule::Times { days: d, times } if d.has(weekday(days)) => times.iter().filter_map(|&t| at(t)).collect(),
-        Rule::Monthly { dates, times } => {
-            let month_ends = civil_from_days(days + 1).2 == 1;
-            if dates.contains(&day) || (dates.contains(&0) && month_ends) {
-                times.iter().filter_map(|&t| at(t)).collect()
-            } else {
-                Vec::new()
-            }
-        }
-        Rule::Every { minutes, days: d, window } if d.has(weekday(days)) => {
-            let (from, to) = window.unwrap_or((0, DAY_MINUTES - 1));
-            (0..).map(|k| from + k * minutes).take_while(|&m| m <= to).filter_map(at).collect()
-        }
-        Rule::Cron(c) if c.on(days) => c.hours.iter().flat_map(|&h| c.minutes.iter().map(move |&m| h * 60 + m)).filter_map(at).collect(),
-        _ => Vec::new(),
-    };
+    let mut out: Vec<i64> = day_slots(rule).into_iter().filter_map(|m| zone.at(year, month, day, m / 60, m % 60)).collect();
+    // Two times can land on one instant where summer time skips an hour.
     out.sort_unstable();
     out.dedup();
     out
@@ -713,6 +727,16 @@ pub mod tests {
         assert!(parse_checked("daily 23:58 0:01").unwrap_err().contains("every 5 minutes"));
         assert!(parse_checked("cron 59,0 9,10 * * *").unwrap_err().contains("every 5 minutes"));
         assert!(parse_checked("cron 0,30 9 * * *").is_ok());
+        // From a day's last run to the next day's first, where it runs on days in a row.
+        assert!(parse_checked("every 1439m 00:00-23:59").unwrap_err().contains("every 5 minutes"));
+        assert!(parse_checked("every 30m 09:00-18:00").is_ok());
+        // Not where the next day it runs is days away.
+        assert!(parse_checked("mon 00:01 23:58").is_ok());
+        assert!(parse_checked("mon,tue 00:01 23:58").unwrap_err().contains("every 5 minutes"));
+        assert!(parse_checked("monthly 15 00:01 23:58").is_ok());
+        assert!(parse_checked("monthly last 1 00:01 23:58").unwrap_err().contains("every 5 minutes"));
+        assert!(parse_checked("cron 1,58 0,23 * * mon").is_ok());
+        assert!(parse_checked("cron 1,58 0,23 * * mon,tue").unwrap_err().contains("every 5 minutes"));
         assert!(parse_checked("once 2026-10-21 9:00").is_ok());
     }
 

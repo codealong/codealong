@@ -126,6 +126,8 @@ struct Done {
     due: Option<i64>,
     /// For a schedule that sends to a session: the session that went on as `thread`.
     follows: Option<String>,
+    /// What waited for a session, going now: counted toward the day as it was taken, not again.
+    delivered: bool,
 }
 
 static POKE: OnceLock<Mutex<Tx<()>>> = OnceLock::new();
@@ -159,8 +161,18 @@ pub fn spawn(engine: Handle) {
                 Err(_) => continue,
             };
             for job in jobs {
+                let id = job.id().map(str::to_string);
                 let (engine, scheduler) = (engine.clone(), scheduler.clone());
-                std::thread::spawn(move || run(&engine, &scheduler, job));
+                // Its schedule is free for the next once the job is over, however it ended: done, fallen
+                // over, or never started for want of a thread.
+                crate::throttle::background("codealong-schedule-run", move || run(&engine, job), move |went| {
+                    if went.is_none() {
+                        eprintln!("codealong: a schedule's run fell over");
+                    }
+                    if let (Some(id), Ok(mut s)) = (id, scheduler.lock()) {
+                        s.busy.remove(&id);
+                    }
+                });
             }
         })
         .expect("the scheduler's thread");
@@ -325,7 +337,10 @@ pub fn plan(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, now
 fn latest_due(s: &Schedule, first: i64, now: i64, zone: &dyn Zone) -> i64 {
     let When::Time { rule } = &s.when else { return first };
     let Ok(parsed) = rule::parse(rule) else { return first };
-    let mut due = first;
+    // Every time more than a week back is missed whatever comes after it: the search starts from
+    // the week's first time, where there's one, rather than going through each since `first`.
+    let week = rule::next_after(&parsed, now - CATCH_UP_MS, s.created_at, zone).filter(|&t| t > first && t <= now);
+    let mut due = week.unwrap_or(first);
     for _ in 0..100_000 {
         match rule::next_after(&parsed, due, s.created_at, zone) {
             Some(next) if next <= now => due = next,
@@ -454,7 +469,9 @@ fn apply_done(runs: &mut Runs, id: &str, done: Done) {
     }
     note_seen(t, done.seen);
     if let Some(r) = done.record {
-        counted(t, &r, now_ms(), &rule::Local);
+        if !done.delivered {
+            counted(t, &r, now_ms(), &rule::Local);
+        }
         note_run(t, r);
     }
     runs.fired.retain(|f| !done.fired.contains(&f.id));
@@ -476,22 +493,15 @@ fn counted(t: &mut Track, r: &RunRecord, now: i64, zone: &dyn Zone) {
     }
 }
 
-/// Runs a job, and frees its schedule for the next.
-pub fn run(engine: &Handle, scheduler: &Mutex<Scheduler>, job: Job) {
-    let id = job.id().map(str::to_string);
-    let went = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match job {
+/// Runs a job.
+pub fn run(engine: &Handle, job: Job) {
+    match job {
         Job::Fire { id, cause } => finish(&id, fire(engine, &id, cause)),
         Job::Check { id } => watch(engine, &id),
         Job::Deliver { id, queued } => finish(&id, deliver_queued(engine, &id, queued)),
         Job::Quiet { keys } => {
             engine.quiet(keys, true);
         }
-    }));
-    if went.is_err() {
-        eprintln!("codealong: a schedule's run fell over");
-    }
-    if let (Some(id), Ok(mut s)) = (id, scheduler.lock()) {
-        s.busy.remove(&id);
     }
 }
 
@@ -556,21 +566,21 @@ fn watch(engine: &Handle, id: &str) {
     let now = now_ms();
     let looked = run_command(s, command, track.last_ok);
     let mut found = Vec::new();
-    let (check, seen, value, seeded) = match looked {
-        Err(why) => (Check { at: now, ok: false, said: why, failures: track.check.as_ref().map_or(0, |c| c.failures) + 1 }, Vec::new(), track.value.clone(), track.seeded),
+    let (check, lines, value, seeded) = match looked {
+        Err(why) => (Check { at: now, ok: false, said: why, failures: track.check.as_ref().map_or(0, |c| c.failures) + 1 }, None, track.value.clone(), track.seeded),
         Ok(out) => match mode {
             WatchMode::Lines => {
                 let lines = found_in(&out);
                 let ids: Vec<String> = lines.iter().map(|f| f.id.clone()).collect();
                 if track.seeded {
-                    found = lines.into_iter().filter(|f| !track.seen.contains(&f.id)).collect();
+                    found = lines.into_iter().filter(|f| new_line(&track, &f.id)).collect();
                 }
                 let said = match (track.seeded, found.len()) {
                     (false, _) => format!("First look: {} line{} noted as there already", ids.len(), if ids.len() == 1 { "" } else { "s" }),
                     (true, 0) => "Nothing new".to_string(),
                     (true, n) => format!("{n} new"),
                 };
-                (Check { at: now, ok: true, said, failures: 0 }, ids, track.value.clone(), true)
+                (Check { at: now, ok: true, said, failures: 0 }, Some(ids), track.value.clone(), true)
             }
             WatchMode::Value => {
                 let v = out.trim().to_string();
@@ -583,7 +593,7 @@ fn watch(engine: &Handle, id: &str) {
                     (true, true) => "Changed".to_string(),
                     (true, false) => "No change".to_string(),
                 };
-                (Check { at: now, ok: true, said, failures: 0 }, Vec::new(), if v.is_empty() { track.value.clone() } else { Some(v) }, true)
+                (Check { at: now, ok: true, said, failures: 0 }, None, if v.is_empty() { track.value.clone() } else { Some(v) }, true)
             }
         },
     };
@@ -595,9 +605,12 @@ fn watch(engine: &Handle, id: &str) {
         t.check = Some(check);
         t.value = value;
         t.seeded = seeded;
-        // What it printed is noted as seen now, what's new included, before the run for it goes:
-        // a run that falls over isn't run again for the same lines.
-        note_seen(t, seen);
+        // What it printed is its last look from now on, and what's new is noted as run for before
+        // the run goes: a run that falls over isn't run again for the same lines.
+        if let Some(lines) = lines {
+            t.looked = lines;
+        }
+        note_seen(t, found.iter().map(|f| f.id.clone()));
     });
     if let Err(e) = noted {
         eprintln!("codealong: couldn't note schedule {id}'s watch: {e:#}");
@@ -611,6 +624,11 @@ fn watch(engine: &Handle, id: &str) {
         };
         finish(id, fire(engine, id, Cause { why, said, found, ..Cause::default() }));
     }
+}
+
+/// Whether a watch's line is new: not in its last look, nor among what it has run for.
+fn new_line(track: &Track, id: &str) -> bool {
+    !track.looked.iter().any(|l| l == id) && !track.seen.iter().any(|l| l == id)
 }
 
 /// How many of a schedule's runs went today, on this Mac's clock (`counted`).
@@ -804,6 +822,7 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
         seen: cause.found.iter().filter(|f| !f.id.is_empty()).map(|f| f.id.clone()).collect(),
         fired: cause.fired.clone(),
         due: cause.due,
+        delivered: false,
     })
 }
 
@@ -893,7 +912,7 @@ fn deliver_queued(engine: &Handle, id: &str, q: Queued) -> Option<Done> {
         other => other,
     };
     let (rec, went, _) = act(engine, &board, &cfg, &s, &track, step, &prompt, &cause, None);
-    Some(Done { record: Some(rec), thread: (s.run.to != To::New).then_some(went), follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()), ..Done::default() })
+    Some(Done { record: Some(rec), thread: (s.run.to != To::New).then_some(went), follows: (s.run.to == To::Session).then(|| s.run.session.trim().to_string()), delivered: true, ..Done::default() })
 }
 
 /// Runs a schedule now, as Run now does, on this thread, and notes it: for `--snapshot
@@ -925,7 +944,7 @@ pub fn check_now(s: &Schedule, track: &Track) -> serde_json::Value {
         Err(why) => serde_json::json!({ "command": command, "ok": false, "said": why }),
         Ok(out) => {
             let new: Vec<Found> = match mode {
-                Some(WatchMode::Lines) => found_in(&out).into_iter().filter(|f| !track.seen.contains(&f.id)).collect(),
+                Some(WatchMode::Lines) => found_in(&out).into_iter().filter(|f| new_line(track, &f.id)).collect(),
                 Some(WatchMode::Value) if track.value.as_deref() != Some(out.trim()) && !out.trim().is_empty() => vec![Found { id: "value".into(), title: crate::util::one_line(out.trim(), 120), ..Found::default() }],
                 _ => Vec::new(),
             };
@@ -1147,6 +1166,42 @@ mod tests {
         // An earlier time doesn't put it back.
         claim(&mut runs, &Job::Fire { id: "a".into(), cause: Cause { due: Some(600), ..Cause::default() } });
         assert_eq!(runs.of["a"].last_due, Some(900));
+    }
+
+    #[test]
+    fn a_watch_never_runs_again_for_what_its_last_look_printed() {
+        let lines: Vec<String> = (0..1500).map(|i| format!("deploy {i}")).collect();
+        // Its first look, then a run for one new line that trims what it ran for.
+        let mut t = Track { looked: lines.clone(), seeded: true, ..armed(1) };
+        note_seen(&mut t, ["deploy 1500".to_string()]);
+        for _ in 0..3 {
+            note_seen(&mut t, Vec::<String>::new());
+        }
+        assert!(lines.iter().all(|l| !new_line(&t, l)));
+        assert!(new_line(&t, "deploy 1501"));
+    }
+
+    #[test]
+    fn a_run_that_waited_counts_once() {
+        let z = Fake::utc();
+        let now = ms(&z, 2026, 10, 20, 9, 0);
+        let mut runs = Runs::default();
+        let queued = RunRecord { at: now, outcome: Outcome::Queued, session: Some("k".into()), ..RunRecord::default() };
+        counted(runs.of.entry("a".into()).or_default(), &queued, now, &z);
+        apply_done(&mut runs, "a", Done { record: Some(RunRecord { at: now, outcome: Outcome::Sent, ..RunRecord::default() }), delivered: true, ..Done::default() });
+        assert_eq!(runs.of["a"].day.map(|d| d.runs), Some(1));
+    }
+
+    #[test]
+    fn a_time_missed_long_ago_is_still_noted_as_missed() {
+        let z = Fake::utc();
+        let made = ms(&z, 2026, 10, 1, 8, 0);
+        let s = Schedule { created_at: made, ..schedule("a", When::Time { rule: "once 2026-10-02 9:00".into() }) };
+        let runs = Runs { of: [("a".to_string(), armed(ms(&z, 2026, 10, 20, 9, 0)))].into(), ..Runs::default() };
+        let now = ms(&z, 2026, 10, 20, 9, 0);
+        let (jobs, notes) = plan(&File { schedules: vec![s] }, &runs, &board(), &HashSet::new(), now, &z);
+        assert!(jobs.is_empty());
+        assert_eq!(notes, vec![Note::Passed { id: "a".into(), due: ms(&z, 2026, 10, 2, 9, 0), missed: true }]);
     }
 
     #[test]
