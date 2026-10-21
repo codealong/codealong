@@ -67,7 +67,8 @@ import { todoItem, type TodoItem } from './todos';
 import * as fx from './testing/fixtures';
 import { prSections } from './ui/PrsView';
 import type { Board, Lane, Pr, PrItem, ProjectSummary, ScheduleItem, Session, SideGlance, TextHit, Todo } from './types';
-import { familiesOf, GROUP_SHOWN, groupedRows, groupSessions, helpersUnder, sessionSections, type GroupOptions, type SessionItem } from './ui/SessionsView';
+import { familiesOf, groupedRows, groupSessions, helpersUnder, sessionSections, type SessionItem } from './ui/SessionsView';
+import { GROUP_SHOWN, type GroupOptions } from './groups';
 
 const NOW = fx.NOW;
 const DAY = 86_400_000;
@@ -687,7 +688,7 @@ describe('the Sessions view’s lists', () => {
 describe('Sessions grouped', () => {
   const at = (key: string, status: Session['status'], ago: number) => session(key, { status, lastActivity: NOW - ago, lastPromptAt: NOW - ago });
   const rowsOf = (lanes: Lane[]) => sessionItemsOf(lanes);
-  const opts = (over: Partial<GroupOptions> = {}): GroupOptions => ({ pinned: [], lanes: [], empty: true, opened: new Set(), whole: false, ...over });
+  const opts = (over: Partial<GroupOptions<SessionItem>> = {}): GroupOptions<SessionItem> => ({ pinned: [], lanes: [], empty: true, opened: new Set(), whole: false, ...over });
   const a = lane('/r/a', [at('claude:claude:a1', 'needs', 60_000), at('claude:claude:a2', 'idle', 120_000)]);
   const b = lane('/r/b', [at('claude:claude:b1', 'working', 30_000), at('claude:claude:b2', 'idle', 180_000)]);
   const c = lane('/r/c', [at('claude:claude:c1', 'idle', 240_000)]);

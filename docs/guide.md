@@ -76,11 +76,12 @@ and size in every list, and none is cut off: on a row short of room a long name 
 chip, and the last chips drop out whole.
 
 Sessions, PRs and Todo list their rows alike: each row's status at the left, what it is, and its
-age at the right, with no lines between them. The bar over each of those lists has two groups of
+age at the right, with no lines between them. The bar over each of those lists has three groups of
 icon buttons, each named in its tooltip. Sort by orders the list by status, as it starts, or
 newest first under the day each started, was opened or was added (Today, Yesterday, Last 7 days,
-Older), each row's age then saying when; Rows puts each row on one line, as they start, or on
-two. Each list keeps its own choices. On
+Older), each row's age then saying when; Group by puts the rows under their worktrees or repos
+(see [Grouped by worktree or repo](#grouped-by-worktree-or-repo)); Rows puts each row on one line,
+as they start, or on two. Each list keeps its own choices. On
 one line a row leads with its title, then what it's doing or says while there's room, then its
 chips at the line's end, the last of them giving way first, then the title.
 
@@ -106,13 +107,21 @@ too. Sessions are pinned here, with ⌃⌘P or the right-click menu, and their p
 
 #### Grouped by worktree or repo
 
-Group by lists the sessions that aren't pinned under their worktree or under their repo, or as one
-list, as it starts; it stays as you left it. Each worktree or repo heads its sessions once, under
-the heading its first session is under: a worktree with a session that needs you is under Needs
-you, with all of its sessions in Sort by's order, and a heading counts only the sessions under it
-for themselves. A group lists five sessions and folds the rest behind Show N more (never one that
-waits on you or is working, and none while a search is on), and a helper is in its session's
-group, under it, wherever it works.
+Group by, in Sessions, PRs and Todo, lists the rows that aren't pinned under their worktree or
+under their repo, or as one list, as it starts; each list keeps its own. Each worktree or repo
+heads its rows once, under the heading its first row is under: a worktree with a session that
+needs you is under Needs you, with all of its sessions in Sort by's order, and a heading counts
+only the rows under it for themselves. A group lists five rows and folds the rest behind Show N
+more (never a session that waits on you or is working, a review asked of you, or a todo in
+progress or in review, and none while a search is on), and a helper is in its session's group,
+under it, wherever it works. A row selected while its group folds it away (shown from elsewhere,
+say) opens its group.
+
+In PRs a PR is under the worktree here that holds it, or under its repo by its name on GitHub; in
+Todo a todo is under the worktree its actions use (the first linked, else its newest session's).
+The ones in no worktree here go under No worktree here (No worktree in Todo), last in each
+section rather than pulled under the first one's heading, and Merged & closed (Done in Todo) stays
+folded, grouped among its own. Grouped, todos keep your order but aren't reordered by hand.
 
 A worktree's heading is one line of what belongs to the worktree: its name, then where it is (its
 device, its repo and its branch), Free when it's a reusable worktree new work can start in
@@ -128,14 +137,17 @@ a double-click opens its most recent session, a right-click is its menu (Clean u
 beside Reuse for new work, dimmed with why when it can't go: see [Clean up
 worktrees](#clean-up-worktrees)), ⌘E marks its sessions seen, and ⌘-click or ⇧-click picks
 worktrees together, for Mark as seen, Pin, Reuse for new work, Clean up worktrees… and copies of
-their paths and branch names. A repo's heading has a menu (Open on GitHub, Pin repo, Copy repo
-name) and isn't a row to select.
+their paths and branch names. In PRs and Todo it isn't a row to select: a click on it shows the
+worktree's panel in place of the one beside the list, with the way back, as a worktree's chip
+does. A repo's heading has a menu (Open on GitHub, Pin repo, Copy repo name) and isn't a row to
+select.
 
 Pin a group from its heading's menu (⌃⌘P on a worktree's), or by dragging its heading up among
 the pinned groups; reorder them by dragging or with ⌃⌘↑ ⌃⌘↓, and drag one down to the list to
 unpin it. Pinned groups follow the pinned sessions, in your order, worktrees' and repos' each their
 own, and one with no session listed still shows its heading while nothing but the age narrows the
-list. A worktree shown from elsewhere (its chip in a session's panel, a PR's Show worktree, a link)
+list. The same worktrees and repos are pinned in PRs and Todo, after the pinned PRs, listed while
+they have something there; they're reordered in Sessions. A worktree shown from elsewhere (its chip in a session's panel, a PR's Show worktree, a link)
 is its heading, selected, where the list has one, else its panel in place of the one beside the
 list, with the way back.
 

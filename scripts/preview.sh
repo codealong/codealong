@@ -107,8 +107,8 @@
 # (--snapshot --setup); scripts/preview/setup-init.js opens the wizard.
 # PREVIEW_EMBLEMS=1 gives every session an emblem made up from its key, as `[jev] emblems` would
 # once Jev had picked their icons: some with a harness's color too, for the two-tone gradient.
-# PREVIEW_GROUP=worktree|repo shows Sessions grouped by worktree or by repo (Group by, over the
-# list); without it, as the window was left: not grouped.
+# PREVIEW_GROUP=worktree|repo shows Sessions, PRs and Todo grouped by worktree or by repo (Group
+# by, over each list); without it, as the window was left: not grouped.
 # PREVIEW_LOADING=1 shows every window as it is at launch, before the engine's first scan has
 # finished: nothing read yet, and other devices' worktrees (PREVIEW_DEVICES) already in.
 #
@@ -212,7 +212,7 @@ cp "${PREVIEW_SETUP:-$dir/setup-here.json}" "$dir/setup.json"
 # by their labels there (sidebar-check.js folds it).
 setup="localStorage.setItem('codealong.view','$view');localStorage.setItem('codealong.age','all');localStorage.setItem('codealong.sidebarCollapsed','0');"
 [ -n "$project" ] && setup="$setup localStorage.setItem('codealong.project','$project');"
-[ -n "${PREVIEW_GROUP:-}" ] && setup="$setup localStorage.setItem('codealong.sessionGroup','$PREVIEW_GROUP');"
+[ -n "${PREVIEW_GROUP:-}" ] && setup="$setup localStorage.setItem('codealong.sessionGroup','$PREVIEW_GROUP'); localStorage.setItem('codealong.prGroup','$PREVIEW_GROUP'); localStorage.setItem('codealong.todoGroup','$PREVIEW_GROUP');"
 [ -n "${PREVIEW_LOADING:-}" ] && setup="$setup window.__PREVIEW_LOADING__=true;"
 [ -n "${PREVIEW_EMBLEMS:-}" ] && setup="$setup window.__PREVIEW_EMBLEMS__=true;"
 # The window remembers whether boards were on, for before the board comes: as the stub has them.

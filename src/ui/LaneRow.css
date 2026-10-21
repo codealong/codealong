@@ -258,3 +258,10 @@
 .ca-lane.is-agent.is-fold.ca-groupfold .ca-seg-glyph {
   padding-left: 0;
 }
+
+/* The heading over a section's rows in no worktree or repo (LaneRow.tsx `NoneHead`): what they
+   lack, quieter than a worktree's or a repo's name. */
+.ca-grouphead-none {
+  font: var(--type-body);
+  color: var(--ink-3);
+}

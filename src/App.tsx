@@ -11,7 +11,7 @@
 // anything; ⌘F finds in the view's list (ui/ListBar.tsx).
 // Keyboard map: the design system's Surfaces page.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
@@ -44,11 +44,13 @@ import { useLogo } from './logo';
 import { usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
 import { mayApprove } from './prStatus';
-import { PR_ROWS, PR_SORTS, PrsView, type PrRowItem, type PrSort } from './ui/PrsView';
+import { PR_GROUPS, PR_ROWS, PR_SORTS, prPlace, PrsView, type PrRowItem, type PrSort } from './ui/PrsView';
 import { Resizer, usePanelWidth } from './ui/Resizer';
-import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type GroupActs, type SessionGroup, type SessionGroupBy, type SessionItem, type SessionSort } from './ui/SessionsView';
+import { groupKeyOf, headItem, SESSION_GROUPS, SESSION_ROWS, SESSION_SORTS, SessionsBar, SessionsView, type SessionItem, type SessionSort } from './ui/SessionsView';
+import type { GroupActs } from './ui/Groups';
+import { placeIn, type ListGroupBy, type RepoName } from './groups';
 import { ListBar, ListFind, ListSeg, ListTools, RowsSeg, type RowLines } from './ui/ListBar';
-import { TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
+import { TODO_GROUPS, TODO_ROWS, TODO_SORTS, TodoComposer, TodoView } from './ui/TodoView';
 import { ScheduleDialog } from './ui/ScheduleDialog';
 import { SchedulePanel } from './ui/SchedulePanel';
 import { SchedulesView } from './ui/SchedulesView';
@@ -121,6 +123,8 @@ const DISMISSED_KEY = 'codealong.dismissedNotices';
 const SESSION_SORT_KEY = 'codealong.sessionSort';
 const SESSION_ROWS_KEY = 'codealong.sessionRows';
 const SESSION_GROUP_KEY = 'codealong.sessionGroup';
+const PR_GROUP_KEY = 'codealong.prGroup';
+const TODO_GROUP_KEY = 'codealong.todoGroup';
 const PR_ROWS_KEY = 'codealong.prRows';
 const PR_SORT_KEY = 'codealong.prSort';
 const TODO_SORT_KEY = 'codealong.todoSort';
@@ -447,17 +451,17 @@ export function App() {
   const prPins = usePins(board?.pinnedPrs, setPinnedPrs, setToast);
   // How Sessions orders the sessions that aren't pinned: by status, or the newest start first.
   const [sessionSort, setSessionSort] = useStored<SessionSort>(SESSION_SORT_KEY, SORT_STORED, 'status');
-  // Whether Sessions groups them by worktree or by repo, as you left it; the groups opened past
-  // their fold, until the window closes; and the pins of the groups it's grouped by.
+  // Whether Sessions, PRs and Todo group by worktree or by repo, each as you left it, and each
+  // one's groups opened past their fold, until the window closes (groups.ts).
   const [leftOnWorktrees] = useState(() => readStored(VIEW_KEY, asText, '') === 'worktrees');
-  const [sessionGroup, setSessionGroup] = useStored<SessionGroupBy>(SESSION_GROUP_KEY, GROUP_STORED, leftOnWorktrees ? 'worktree' : 'none');
+  const [sessionGroup, setSessionGroup] = useStored<ListGroupBy>(SESSION_GROUP_KEY, GROUP_STORED, leftOnWorktrees ? 'worktree' : 'none');
+  const [prGroup, setPrGroup] = useStored<ListGroupBy>(PR_GROUP_KEY, GROUP_STORED, 'none');
+  const [todoGroup, setTodoGroup] = useStored<ListGroupBy>(TODO_GROUP_KEY, GROUP_STORED, 'none');
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
-  const groupPins = sessionGroup === 'repo' ? repoPins : lanePins;
-  const toggleGroup = useCallback((key: string) => setOpenGroups((o) => {
-    const next = new Set(o);
-    if (!next.delete(key)) next.add(key);
-    return next;
-  }), []);
+  const [openPrGroups, setOpenPrGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const [openTodoGroups, setOpenTodoGroups] = useState<ReadonlySet<string>>(() => new Set());
+  // The pins of Sessions' groups: the worktrees' or the repos'.
+  const sessionGroupPins = sessionGroup === 'repo' ? repoPins : lanePins;
   // How PRs and Todo order what isn't pinned or done: by status, or the newest opened or added first.
   const [prSort, setPrSort] = useStored<PrSort>(PR_SORT_KEY, PR_SORT_STORED, 'status');
   const [todoSort, setTodoSort] = useStored<TodoSort>(TODO_SORT_KEY, TODO_SORT_STORED, 'status');
@@ -511,6 +515,8 @@ export function App() {
     pinnedHelpers,
     sessionSecs,
     groupedSecs,
+    groupedPrs,
+    groupedTodos,
     sessionRows,
     waitingRows,
     laneById,
@@ -567,8 +573,12 @@ export function App() {
     prPins,
     sessionSort,
     sessionGroup,
-    groupPins,
+    repoPins,
     openGroups,
+    prGroup,
+    openPrGroups,
+    todoGroup,
+    openTodoGroups,
     prSort,
     todoSort,
     showArchived,
@@ -803,8 +813,10 @@ export function App() {
         ? isProjects(shownBoard)
           ? kanbanCols.filter((c) => c.column?.sort === 'hand').map((c) => c.cards.filter((x): x is TodoItem => x.kind === 'todo'))
           : []
-        : todoSecs.filter((s) => s.id !== 'done' && statusSection(s.id)).map((s) => s.rows),
-    [view, kanbanCols, todoSecs, shownBoard],
+        : todoGroup !== 'none'
+          ? []
+          : todoSecs.filter((s) => s.id !== 'done' && statusSection(s.id)).map((s) => s.rows),
+    [view, kanbanCols, todoSecs, shownBoard, todoGroup],
   );
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
   const {
@@ -1014,7 +1026,6 @@ export function App() {
       const wider = ageListingChain(chainOf(item, items).map((r) => r.session), sessionPins.set, AGES, age, Date.now());
       if (wider) setAge(wider);
       setHelpersShownList((prev) => revealing(prev, items, item));
-      unfold(item, items);
       setSelectedKey(`${lane.id}::${session.key}`);
     } else if (pr) {
       if (r.kind === 'pr' && r.tab) showPrTab(pr.key, r.tab);
@@ -1520,14 +1531,27 @@ export function App() {
   /** Moves a pinned worktree to insertion point `index` among the pinned ones showing. */
   const movePinnedLane = useCallback((id: string, index: number) => lanePins.move([...pinnedLanes], id, index), [lanePins, pinnedLanes]);
 
-  /** Lists a session's group in full, and the groups of the ones it's listed under, when Sessions
-   *  is grouped: a session shown from elsewhere is listed whatever its group folds away. */
-  const unfold = (item: SessionItem, all: SessionItem[]) => {
-    if (sessionGroup === 'none') return;
-    const by = sessionGroup;
-    const keys = chainOf(item, all).map((r) => groupKeyOf(r.lane, by));
-    setOpenGroups((o) => (keys.every((k) => o.has(k)) ? o : new Set([...o, ...keys])));
-  };
+  // A row selected where its group folds it away (shown from elsewhere, from a chip or the
+  // history, or just made) opens its group, once as it's selected: folding the group again
+  // later leaves it folded. A session's group is the one of the session it's listed under.
+  const unfoldedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading || !selectedKey || unfoldedFor.current === selectedKey) return;
+    unfoldedFor.current = selectedKey;
+    if (visible.some((r) => r.key === selectedKey)) return;
+    const opening = (set: Dispatch<SetStateAction<ReadonlySet<string>>>, keys: string[]) => set((o) => (keys.every((k) => o.has(k)) ? o : new Set([...o, ...keys])));
+    if (view === 'sessions' && sessionGroup !== 'none') {
+      const by = sessionGroup;
+      const home = homes.get(selectedKey.split('::')[1] ?? '');
+      if (home) opening(setOpenGroups, chainOf(sessionItemOf(home), sessionItemsOf(lanes)).map((r) => groupKeyOf(r.lane, by)));
+    } else if (view === 'prs' && prGroup !== 'none') {
+      const r = prRows.find((x) => x.key === selectedKey);
+      if (r) opening(setOpenPrGroups, [prPlace(r, prGroup).key]);
+    } else if (view === 'todo' && todoGroup !== 'none') {
+      const r = todoItems.find((x) => x.key === selectedKey);
+      if (r) opening(setOpenTodoGroups, [placeIn(r.lane, todoGroup).key]);
+    }
+  }, [loading, selectedKey, visible, view, sessionGroup, prGroup, todoGroup, homes, lanes, prRows, todoItems]);
 
   /** Shows a worktree: on the canvas its card; in Sessions grouped by worktree its heading,
    *  selected; else its panel in place of the one beside the list, with the way back to it
@@ -1747,46 +1771,74 @@ export function App() {
   // The canvas's selected card, which the panel on the right shows on the canvas.
   const canvasPick = view === 'canvas' ? canvasPicked(canvasSel, canvasEntities, todoItems) : null;
 
-  /** What a group's heading does in Sessions (SessionsView.tsx): a worktree's is a row, selected
-   *  for its panel and picked with others; a repo's has its menu. Both are pinned and dragged. */
-  const groupActs: GroupActs = {
+  /** Opens a folded group, or folds it again. */
+  const toggleIn = (set: Dispatch<SetStateAction<ReadonlySet<string>>>) => (key: string) =>
+    set((o) => {
+      const next = new Set(o);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  /** What a group's heading does (Groups.tsx). In Sessions (`rows`) a worktree's is a row: selected
+   *  for its panel, picked with others, and dragged among the pinned groups. In PRs and Todo a
+   *  press on one shows the worktree as its chip does (`focusLane`). A repo's has its menu. */
+  const groupActsFor = (rows: boolean, toggle: (key: string) => void): GroupActs => ({
     onSelect: (g, how) => {
+      const lane = g.lane;
+      if (!lane) return;
+      if (!rows) {
+        if (how === 'one') focusLane(lane);
+        return;
+      }
       if (how !== 'one') {
         picks.sessions.clear();
-        picks.worktrees.select({ kind: 'lane', key: g.lane.id, lane: g.lane }, how);
+        picks.worktrees.select(headItem(lane), how);
         return;
       }
       picks.worktrees.clear();
       picks.sessions.clear();
-      pressRow(g.lane.id, how);
-      setSelectedKey(g.lane.id);
+      pressRow(lane.id, how);
+      setSelectedKey(lane.id);
     },
-    onOpen: (g) => open(g.lane, g.lane.defaultTarget),
+    onOpen: (g) => {
+      if (g.lane) open(g.lane, g.lane.defaultTarget);
+    },
     onOpenTarget: open,
     // On a worktree picked with others, the menu is for all of them.
-    onMenu: (g) => (g.by === 'repo' ? repoMenu(g) : picks.worktrees.keys.has(g.lane.id) ? picks.worktrees.menu() : laneMenu(g.lane)),
-    onPrMenu: (g) => lanePrMenu(g.lane),
+    onMenu: (g) => {
+      if (g.repo) repoMenu(g.key, g.repo);
+      else if (g.lane) (rows && picks.worktrees.keys.has(g.lane.id) ? picks.worktrees.menu() : laneMenu(g.lane));
+    },
+    onPrMenu: (g) => {
+      if (g.lane) lanePrMenu(g.lane);
+    },
     onPrShow: (g) => {
-      // Its PR in its own panel's place, not in that of the worktrees picked with it.
+      const lane = g.lane;
+      if (!lane?.pr) return;
+      // In Sessions, its PR in its own panel's place, not in that of the worktrees picked with it.
       const select = () => {
         picks.worktrees.clear();
-        setSelectedKey(g.lane.id);
+        setSelectedKey(lane.id);
       };
-      if (g.lane.pr) showPrOf(g.lane.pr, { key: g.lane.id, select });
+      showPrOf(lane.pr, rows ? { key: lane.id, select } : undefined);
     },
-    onPrOpen: (g) => openLanePr(g.lane),
-    onToggle: (g) => toggleGroup(g.key),
-    onPlace: (key, index) => groupPins.place(pinnedGroups, key, index),
-    onUnpin: groupPins.remove,
-    // What's on another device has no card here; a repo has none.
-    desktop: (g) => (g.by === 'worktree' && !g.lane.device ? { ref: 'worktree', key: g.lane.id } : null),
-    picked: picks.worktrees.keys,
-  };
+    onPrOpen: (g) => {
+      if (g.lane) openLanePr(g.lane);
+    },
+    onToggle: (g) => toggle(g.key),
+    ...(rows && {
+      onPlace: (key: string, index: number) => sessionGroupPins.place(pinnedGroups, key, index),
+      onUnpin: sessionGroupPins.remove,
+      // What's on another device has no card here; a repo has none.
+      desktop: (g: { lane: Lane | null }) => (g.lane && !g.lane.device ? { ref: 'worktree' as const, key: g.lane.id } : null),
+      picked: picks.worktrees.keys,
+    }),
+  });
+  const groupActs = groupActsFor(true, toggleIn(setOpenGroups));
+  const prGroupActs = groupActsFor(false, toggleIn(setOpenPrGroups));
+  const todoGroupActs = groupActsFor(false, toggleIn(setOpenTodoGroups));
   /** A repo's menu, on its heading: its page on GitHub, its pin, its name. */
-  const repoMenu = (g: SessionGroup) =>
-    void showContextMenu(
-      menus.repoMenu({ name: g.lane.repo, slug: g.lane.repoSlugNow ?? g.lane.repoSlug }, { report, pin: { label: repoPins.set.has(g.key) ? 'Unpin repo' : 'Pin repo', run: () => repoPins.toggle(g.key) } }),
-    ).catch((e: unknown) => setToast(String(e)));
+  const repoMenu = (key: string, repo: RepoName) =>
+    void showContextMenu(menus.repoMenu(repo, { report, pin: { label: repoPins.set.has(key) ? 'Unpin repo' : 'Pin repo', run: () => repoPins.toggle(key) } })).catch((e: unknown) => setToast(String(e)));
 
   // The Schedules view: the project's schedules, as the find narrows them, the one selected (the
   // first, until one is picked), and what's done to them from its rows, panel and menus.
@@ -2117,12 +2169,14 @@ export function App() {
               {view === 'prs' && (
                 <ListTools label="How PRs are listed">
                   <ListSeg label="Sort by" options={PR_SORTS} value={prSort} onPick={setPrSort} />
+                  <ListSeg label="Group by" options={PR_GROUPS} value={prGroup} onPick={setPrGroup} />
                   <RowsSeg options={PR_ROWS} value={prLines} onPick={setPrLines} />
                 </ListTools>
               )}
               {view === 'todo' && (
                 <ListTools label="How Todo is listed">
                   <ListSeg label="Sort by" options={TODO_SORTS} value={todoSort} onPick={setTodoSort} />
+                  <ListSeg label="Group by" options={TODO_GROUPS} value={todoGroup} onPick={setTodoGroup} />
                   <RowsSeg options={TODO_ROWS} value={todoLines} onPick={setTodoLines} />
                 </ListTools>
               )}
@@ -2275,6 +2329,8 @@ export function App() {
             {view === 'todo' && board && (
               <TodoView
                 sections={todoSecs}
+                groups={groupedTodos}
+                groupActs={todoGroupActs}
                 todos={todoStore.todos}
                 sort={todoSort}
                 lines={todoLines}
@@ -2283,7 +2339,7 @@ export function App() {
                 picked={pickedKeys}
                 domId={domId}
                 showProject={current === ALL_PROJECTS}
-                canReorder={todoSort === 'status'}
+                canReorder={todoSort === 'status' && todoGroup === 'none'}
                 onSelect={(r, how) => {
                   pressRow(r.key, how);
                   selectTodoRow(r, how);
@@ -2325,6 +2381,8 @@ export function App() {
                 onPlacePinned={(key, index) => prPins.place(pinnedPrRows.map((r) => r.pr.key), key, index)}
                 onUnpin={prPins.remove}
                 sections={prSecs}
+                groups={groupedPrs}
+                groupActs={prGroupActs}
                 sort={prSort}
                 onShowRepo={(slug) => setFacets((f) => onlyPick(f, 'repos', slug))}
                 lines={prLines}

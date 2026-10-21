@@ -7,22 +7,33 @@
 // it's in.
 // Type in the box at the top and press Return to add one. ⌘-click and ⇧-click pick several, to
 // start in one session. The bar over the list sorts the todos that aren't done by status or by
-// when they were added, under the days they were (`TODO_SORTS`), and puts each on one line or two
-// (`TODO_ROWS`).
+// when they were added, under the days they were (`TODO_SORTS`), puts each on one line or two
+// (`TODO_ROWS`), and groups them under their worktrees or repos (groups.ts, Groups.tsx; a todo's
+// worktree is the one its actions use, `TodoItem.lane`): then they keep your order but aren't
+// reordered, Done is grouped among itself, and the ones with no worktree go under a heading of
+// their own.
 
 import { forwardRef, type ReactNode } from 'react';
 import { absolute, ago, middleTruncate } from '../format';
+import { groupOptions, type Grouped, type ListGroup } from '../groups';
 import { selectHow, type SelectHow } from '../picks';
 import { attachmentsIn, blockedBy, itemSection, SECTION_WORD, snippet, statusSection, todoPr, type TodoItem, type TodoSection, type TodoSectionId, type TodoSort } from '../todos';
 import type { Label, Lane, Pr, Session, Todo, TodoHint, TodoStatus } from '../types';
 import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, ReorderHint, Row, SectionHeader, WorktreeChip } from './primitives';
 import { rowsOptions, type RowLines } from './ListBar';
+import { GroupBlock, PinnedGroups, type GroupActs } from './Groups';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
 import { cmd } from '../platform';
 
 /** How much each todo's row says: when it's due, its labels, sessions, worktree and PR on a second
  *  line, or one line with them at the end, as many as fit. */
+/** Group by's buttons over Todo (groups.ts). */
+export const TODO_GROUPS = groupOptions('todos');
+
+/** What the heading over todos in no worktree says. */
+export const TODO_NONE = 'No worktree';
+
 export const TODO_ROWS = rowsOptions('under each todo, when it’s due, its labels, sessions, worktree and PR', 'each todo with its chips at the end, as many as fit, and its PR');
 
 export const TODO_SORTS: { id: TodoSort; label: string; icon: string; title: string }[] = [
@@ -115,6 +126,8 @@ interface TodoRowProps {
   /** Jev says its work looks done. */
   hint?: TodoHint;
   drag?: DragProps;
+  /** The worktree whose heading it's under, which its row then leaves out. */
+  under?: string;
 }
 
 const CHIPS_SHOWN = 3;
@@ -122,12 +135,12 @@ const CHIPS_SHOWN = 3;
 /** A todo in the list: its title and the start of its description, then when it's due, its labels,
  *  what it waits on, the sessions on it and the worktrees and PR it's in. On one line (`slim`)
  *  they follow its title at the line's end, the last giving way first, its PR always shown. */
-function TodoRow({ item, section, domId, now, slim, added, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, blocked, hint, drag }: TodoRowProps) {
+function TodoRow({ item, section, domId, now, slim, added, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, blocked, hint, drag, under }: TodoRowProps) {
   const { todo } = item;
   const pr = todoPr(item);
   const detail = snippet(todo.description);
   const sessions = item.sessions.slice(0, CHIPS_SHOWN);
-  const lanes = item.places.map((p) => p.lane);
+  const lanes = item.places.map((p) => p.lane).filter((l) => l.id !== under);
   const waiting = todo.pending.length > 0;
   const attached = attachmentsIn(todo.description);
   const chips = (
@@ -238,6 +251,10 @@ function TodoRow({ item, section, domId, now, slim, added, selected, showProject
 
 interface TodoViewProps {
   sections: TodoSection[];
+  /** The todos grouped instead, when the list is grouped (groups.ts), and what the groups'
+   *  headings do. */
+  groups?: Grouped<TodoSection, TodoItem> | null;
+  groupActs?: GroupActs;
   /** Every todo, in any project: what a row waits on can be anywhere. */
   todos: Todo[];
   /** Sorted by when added, the open todos are under the days they were added. */
@@ -286,41 +303,58 @@ function SectionHead({ id, count, hint }: { id: TodoSectionId; count: number; hi
   );
 }
 
+/** A todo's row, as every section lists it: `section` is the one it's listed in, `drag` how it's
+ *  dragged, and `under` the worktree whose heading it's under. */
+function todoRow(props: TodoViewProps, r: TodoItem, section: TodoSectionId, drag: DragProps, under?: string) {
+  const { todos, sort, lines, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel } = props;
+  return (
+    <TodoRow
+      key={r.key}
+      item={r}
+      section={section}
+      domId={domId(r)}
+      now={now}
+      slim={lines === 'one'}
+      added={sort === 'added'}
+      selected={r.key === selectedKey || picked.has(r.key)}
+      showProject={showProject}
+      onSelect={(how) => onSelect(r, how)}
+      onOpen={() => onOpen(r)}
+      onContextMenu={() => onContextMenu(r)}
+      onOpenSession={onOpenSession}
+      onShowPr={(pr) => onShowPr(pr, r)}
+      onOpenPr={onOpenPr}
+      onFilterLabel={onFilterLabel}
+      blocked={blockedBy(r.todo, todos)}
+      hint={props.hints?.[r.todo.id]}
+      drag={drag}
+      under={under}
+    />
+  );
+}
+
 /** A status's section, in your order, or a day's, sorted by when added, where each todo's box
- *  still says its status and nothing is reordered. */
-function Section({ section, props }: { section: TodoSection; props: TodoViewProps }) {
-  const { todos, sort, lines, now, selectedKey, picked, domId, showProject, canReorder, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, onMove } = props;
+ *  still says its status and nothing is reordered. Grouped (`groups`), its groups, each its
+ *  heading and its todos in their order, none reordered. */
+function Section({ section, groups, count, props }: { section: Pick<TodoSection, 'id' | 'label'> & { rows?: TodoItem[] }; groups?: ListGroup<TodoItem>[]; count: number; props: TodoViewProps }) {
+  const { todos, selectedKey, picked, canReorder, onMove, groupActs, now } = props;
   const status = statusSection(section.id) ? section.id : null;
-  const drag = useTodoDrag(section.rows, status ? (id, index) => onMove(status, id, index) : undefined);
-  const draggable = !!status && canReorder && section.rows.length > 1;
-  const hint = draggable && selectedKey && picked.size === 0 && section.rows.some((r) => r.key === selectedKey) ? <ReorderHint /> : undefined;
+  const rows = groups ? groups.flatMap((g) => g.rows) : (section.rows ?? []);
+  const drag = useTodoDrag(rows, status && !groups ? (id, index) => onMove(status, id, index) : undefined);
+  const draggable = !!status && !groups && canReorder && rows.length > 1;
+  const hint = draggable && selectedKey && picked.size === 0 && rows.some((r) => r.key === selectedKey) ? <ReorderHint /> : undefined;
+  const sectionOf = (r: TodoItem) => status ?? itemSection(r, todos);
   return (
     <section className="ca-bayblock">
-      {status ? <SectionHead id={status} count={section.rows.length} hint={hint} /> : <SectionHeader label={section.label} count={section.rows.length} />}
+      {status ? <SectionHead id={status} count={count} hint={hint} /> : <SectionHeader label={section.label} count={count} />}
       <div className="ca-bay-lanes" data-drag-list>
-        {section.rows.map((r, i) => (
-          <TodoRow
-            key={r.key}
-            item={r}
-            section={status ?? itemSection(r, todos)}
-            domId={domId(r)}
-            now={now}
-            slim={lines === 'one'}
-            added={sort === 'added'}
-            selected={r.key === selectedKey || picked.has(r.key)}
-            showProject={showProject}
-            onSelect={(how) => onSelect(r, how)}
-            onOpen={() => onOpen(r)}
-            onContextMenu={() => onContextMenu(r)}
-            onOpenSession={onOpenSession}
-            onShowPr={(pr) => onShowPr(pr, r)}
-            onOpenPr={onOpenPr}
-            onFilterLabel={onFilterLabel}
-            blocked={blockedBy(r.todo, todos)}
-            hint={props.hints?.[r.todo.id]}
-            drag={drag.rowProps(r.todo.id, draggable ? i : null, section.rows.length)}
-          />
-        ))}
+        {groups && groupActs
+          ? groups.map((g) => (
+              <GroupBlock key={`group:${g.key}`} g={g} acts={groupActs} now={now} rows={false} pinned={false} none={TODO_NONE}>
+                {g.rows.map((r) => todoRow(props, r, sectionOf(r), drag.rowProps(r.todo.id, null, 0), g.lane?.id))}
+              </GroupBlock>
+            ))
+          : rows.map((r, i) => todoRow(props, r, sectionOf(r), drag.rowProps(r.todo.id, draggable ? i : null, rows.length)))}
       </div>
       {drag.ghost}
     </section>
@@ -338,23 +372,38 @@ function useTodoDrag(rows: TodoItem[], onMove?: (id: string, index: number) => v
 }
 
 export function TodoView(props: TodoViewProps) {
-  const { sections, todos, sort, lines, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, showDone, onToggleDone, composer, empty } = props;
+  const { sections, groups, groupActs, now, showDone, onToggleDone, composer, empty } = props;
   const open = sections.filter((s) => s.id !== 'done');
   const done = sections.find((s) => s.id === 'done');
+  const groupedDone = groups?.sections.find((s) => s.id === 'done');
+  const doneRows = groupedDone ? groupedDone.groups.flatMap((g) => g.rows) : (done?.rows ?? []);
   // Done todos keep no order of yours; they can still go to the desktop.
-  const doneDrag = useTodoDrag(done?.rows ?? []);
+  const doneDrag = useTodoDrag(doneRows);
   return (
     <>
       {composer}
       {sections.length === 0 && <div className="ca-board-empty">{empty}</div>}
-      {open.map((s) => (
-        <Section key={s.id} section={s} props={props} />
-      ))}
+      {groups && groupActs ? (
+        <>
+          {groups.pinned.length > 0 && (
+            <PinnedGroups by={groups.by} count={groups.pinned.length} reorder={false}>
+              <PinnedTodos groups={groups.pinned} acts={groupActs} props={props} />
+            </PinnedGroups>
+          )}
+          {groups.sections
+            .filter((s) => s.id !== 'done')
+            .map((s) => (
+              <Section key={s.id} section={s} groups={s.groups} count={s.count} props={props} />
+            ))}
+        </>
+      ) : (
+        open.map((s) => <Section key={s.id} section={s} count={s.rows.length} props={props} />)
+      )}
       {done && (
         <section className="ca-bayblock ca-todo-done">
           <SectionHead
             id="done"
-            count={done.rows.length}
+            count={doneRows.length}
             hint={
               <button type="button" className="ca-linkbtn" aria-expanded={showDone} onClick={onToggleDone}>
                 {showDone ? 'Hide' : 'Show'}
@@ -363,33 +412,34 @@ export function TodoView(props: TodoViewProps) {
           />
           {showDone && (
             <div className="ca-bay-lanes">
-              {done.rows.map((r) => (
-                <TodoRow
-                  key={r.key}
-                  item={r}
-                  section="done"
-                  domId={domId(r)}
-                  now={now}
-                  slim={lines === 'one'}
-                  added={sort === 'added'}
-                  selected={r.key === selectedKey || picked.has(r.key)}
-                  showProject={showProject}
-                  onSelect={(how) => onSelect(r, how)}
-                  onOpen={() => onOpen(r)}
-                  onContextMenu={() => onContextMenu(r)}
-                  onOpenSession={onOpenSession}
-                  onShowPr={(pr) => onShowPr(pr, r)}
-                  onOpenPr={onOpenPr}
-                  onFilterLabel={onFilterLabel}
-                  blocked={blockedBy(r.todo, todos)}
-                  drag={doneDrag.rowProps(r.todo.id, null, 0)}
-                />
-              ))}
+              {groupedDone && groupActs
+                ? groupedDone.groups.map((g) => (
+                    <GroupBlock key={`group:${g.key}`} g={g} acts={groupActs} now={now} rows={false} pinned={false} none={TODO_NONE}>
+                      {g.rows.map((r) => todoRow(props, r, 'done', doneDrag.rowProps(r.todo.id, null, 0), g.lane?.id))}
+                    </GroupBlock>
+                  ))
+                : doneRows.map((r) => todoRow(props, r, 'done', doneDrag.rowProps(r.todo.id, null, 0)))}
             </div>
           )}
           {doneDrag.ghost}
         </section>
       )}
+    </>
+  );
+}
+
+/** The pinned worktrees' or repos' todos, each under its heading, each todo's box saying its
+ *  status. */
+function PinnedTodos({ groups, acts, props }: { groups: ListGroup<TodoItem>[]; acts: GroupActs; props: TodoViewProps }) {
+  const drag = useTodoDrag(groups.flatMap((g) => g.rows));
+  return (
+    <>
+      {groups.map((g) => (
+        <GroupBlock key={`group:${g.key}`} g={g} acts={acts} now={props.now} rows={false} pinned none={TODO_NONE}>
+          {g.rows.map((r) => todoRow(props, r, itemSection(r, props.todos), drag.rowProps(r.todo.id, null, 0), g.lane?.id))}
+        </GroupBlock>
+      ))}
+      {drag.ghost}
     </>
   );
 }

@@ -175,8 +175,8 @@ Five views of your work, each in a window of its own if you like (⇧⌘N):
 | View | What it shows |
 | --- | --- |
 | **Sessions** | Every agent session in one list, the ones that need you first, or grouped under each worktree (its branch, its PR, how far it is from main) or each repo. Pin the ones you're watching. |
-| **PRs** | Every pull request in your repos, with its review, checks and the sessions that worked on it. Reviews asked of you come first. |
-| **Todo** | Work you mean to hand an agent, with notes, screenshots, labels and what each todo waits on. |
+| **PRs** | Every pull request in your repos, with its review, checks and the sessions that worked on it. Reviews asked of you come first. Group them by worktree or repo too. |
+| **Todo** | Work you mean to hand an agent, with notes, screenshots, labels and what each todo waits on, grouped by worktree or repo if you like. |
 | **Board** (experimental) | Your work as a board, the whole project's or one you make for a release or a fix: as **Kanban**, todos and sessions as cards in To do, In progress, In review and Done (or columns of your own), what needs you first in each; as **Canvas**, laid out in space, a frame per repo, a column per worktree, cards you arrange. |
 
 Select anything to see it in the panel on the right; right-click anything for its menu. The

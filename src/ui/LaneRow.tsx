@@ -1,6 +1,7 @@
 // Rows of the Sessions view: a session's (`AgentRow`), on two lines or one; what's listed under
-// it (`SideRow`, `FoldRow`); and, grouped, the heading of each worktree or repo (`WorktreeHead`,
-// `RepoHead`) and the way to a group's sessions folded away (`GroupFoldRow`). A worktree's heading
+// it (`SideRow`, `FoldRow`); and, in any list grouped by worktree or repo (Groups.tsx), the
+// heading of each worktree or repo (`WorktreeHead`, `RepoHead`, `NoneHead`) and the way to a
+// group's rows folded away (`GroupFoldRow`). A worktree's heading
 // says on one line everything that belongs to the worktree: its name, where it is (its device,
 // repo and branch), whether new work can start there, Jev's read, its app and its PR, and where it
 // stands against the default branch.
@@ -14,6 +15,7 @@ import { branchLabel, foldWords, helperLine, sideTitle, startedOf, worktreeName,
 import { selectHow, type SelectHow } from '../picks';
 import { untilWords } from '../snooze';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
+import type { RepoName } from '../groups';
 import type { SaidLine } from '../quick';
 import type { GitInfo, Lane, Session, SideGlance, Suggestions, Todo } from '../types';
 import { Chip, cx, Drift, HarnessChip, Icon, PrChip, Rich, Row, SaidText, STATUS_WORD, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
@@ -64,7 +66,10 @@ export function ReuseChip({ lane }: { lane: Lane }) {
 interface WorktreeHeadProps {
   lane: Lane;
   now: number;
-  domId: string;
+  /** A row of the list (Sessions), selected and picked as one, with its element id; else a heading
+   *  a press on which shows the worktree (PRs, Todo). */
+  role: 'option' | 'heading';
+  domId?: string;
   selected: boolean;
   /** Picked together with other worktrees (picks.ts). */
   picked: boolean;
@@ -88,17 +93,19 @@ interface WorktreeHeadProps {
 }
 
 /**
- * A worktree heading its sessions, on one line: its name, then where it is (its device, its repo
+ * A worktree heading its rows (sessions, PRs, todos), on one line: its name, then where it is (its device, its repo
  * and branch), whether new work can start there, Jev's read, its app and its PR; at the end where
  * it stands against the default branch, lines then commits. Short of room the repo and branch
  * give way first, then the chips from the end. Selected, its panel shows; a double-click opens its
  * most recent session, as its sessions' rows open theirs.
  */
-function WorktreeHeadView({ lane, now, domId, selected, picked, pinned, onSelect, onOpen, onOpenTarget, onMenu, onPrMenu, onPrShow, onPrOpen, drag }: WorktreeHeadProps) {
+function WorktreeHeadView({ lane, now, role, domId, selected, picked, pinned, onSelect, onOpen, onOpenTarget, onMenu, onPrMenu, onPrShow, onPrOpen, drag }: WorktreeHeadProps) {
   const { sub, branch } = laneSub(lane);
   return (
     <Row
       id={domId}
+      role={role}
+      level={role === 'heading' ? 4 : undefined}
       selected={selected || picked}
       className={cx('ca-lane', 'ca-grouphead', 'is-worktree-head', `is-${lane.bay}`, pinned && 'is-pinned', away(lane) && 'is-away')}
       drag={drag}
@@ -136,20 +143,20 @@ function WorktreeHeadView({ lane, now, domId, selected, picked, pinned, onSelect
 
 export const WorktreeHead = memoRow(WorktreeHeadView);
 
-/** A repo heading its sessions: its name, and its slug on GitHub where that says more. It isn't a
+/** A repo heading its rows: its name, and its slug on GitHub where that says more. It isn't a
  *  row to select (there's no repo panel), but it has a menu and is pinned and dragged as a
  *  worktree's heading is. */
-function RepoHeadView({ lane, pinned, onMenu, drag }: { lane: Lane; pinned: boolean; onMenu?: () => void; drag?: DragProps }) {
-  const slug = lane.repoSlugNow ?? lane.repoSlug;
+function RepoHeadView({ repo, pinned, onMenu, drag }: { repo: RepoName; pinned: boolean; onMenu?: () => void; drag?: DragProps }) {
+  const { name, slug } = repo;
   return (
     <Row role="heading" level={4} className={cx('ca-lane', 'ca-grouphead', 'is-repo-head', pinned && 'is-pinned')} drag={drag} onMenu={onMenu}>
       <div className="ca-seg ca-seg-glyph" aria-hidden="true">
         <Icon name="book" size={14} />
       </div>
-      <div className="ca-seg ca-seg-main" title={slug ?? lane.repo}>
+      <div className="ca-seg ca-seg-main" title={slug ?? name}>
         <div className="ca-grouphead-line">
-          <span className="ca-grouphead-name">{lane.repo}</span>
-          {slug && slug !== lane.repo && <span className="ca-lane-sub ca-grouphead-sub">{slug}</span>}
+          <span className="ca-grouphead-name">{name}</span>
+          {slug && slug !== name && <span className="ca-lane-sub ca-grouphead-sub">{slug}</span>}
         </div>
       </div>
     </Row>
@@ -158,7 +165,24 @@ function RepoHeadView({ lane, pinned, onMenu, drag }: { lane: Lane; pinned: bool
 
 export const RepoHead = memoRow(RepoHeadView);
 
-/** The end of a group with sessions folded away (SessionsView.tsx `GROUP_SHOWN`): how many, and a
+/** The heading of a section's rows in no worktree or repo (a PR no worktree here holds, a todo
+ *  with none linked), last in the section: what they lack, and nothing to do. */
+export function NoneHead({ label }: { label: string }) {
+  return (
+    <Row role="heading" level={4} className="ca-lane ca-grouphead is-none-head">
+      <div className="ca-seg ca-seg-glyph" aria-hidden="true">
+        <Icon name="folder" size={14} />
+      </div>
+      <div className="ca-seg ca-seg-main">
+        <div className="ca-grouphead-line">
+          <span className="ca-grouphead-none">{label}</span>
+        </div>
+      </div>
+    </Row>
+  );
+}
+
+/** The end of a group with rows folded away (groups.ts `GROUP_SHOWN`): how many, and a
  *  click lists them all; opened, a click folds them again. Like `FoldRow`, it isn't a row to
  *  select. */
 export function GroupFoldRow({ folded, opened, onToggle }: { folded: number; opened: boolean; onToggle: () => void }) {

@@ -7,10 +7,14 @@
 // the PR. Drag a PR up among the pinned ones to pin it there, a pinned one down to the list to
 // unpin it, and any out of the window to pin it to the desktop (useRowDrag.tsx). ⌘-click and
 // ⇧-click (or ⇧↑ ⇧↓, ⌘A) pick several, to open, approve, snooze, pin or copy together (picks.ts,
-// PrPickPanel.tsx). Rows, in the bar over the list, puts each PR on one line (`PR_ROWS`).
+// PrPickPanel.tsx). Rows, in the bar over the list, puts each PR on one line (`PR_ROWS`), and Group
+// by puts the PRs under the worktrees that hold them or under their repos (groups.ts, Groups.tsx;
+// `prPlace`), the ones no worktree here holds under a heading of their own, and Merged & closed
+// grouped among themselves.
 
 import { byDay, newestFirst, type DayId } from '../days';
 import { absolute, ago, count } from '../format';
+import { groupOptions, groupsOf, placeIn, type GroupBy, type Grouped, type Place } from '../groups';
 import { selectHow, type SelectHow } from '../picks';
 import { heldForAgent, prFlag } from '../prStatus';
 import type { GitInfo, Lane, PrItem, Session } from '../types';
@@ -19,6 +23,7 @@ import { PinnedSection } from './PinnedSection';
 import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
 import { cx, HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, RepoChip, Row, SectionHeader, WorktreeChip } from './primitives';
+import { GroupBlock, PinnedGroups, type GroupActs } from './Groups';
 import { SnoozeChip } from './LaneRow';
 import { useRowDrag, type DragProps } from './useRowDrag';
 import { cmd } from '../platform';
@@ -81,6 +86,20 @@ export const PR_SORTS: { id: PrSort; label: string; icon: string; title: string 
   { id: 'status', label: 'Status', icon: 'sort-descending-shapes', title: 'Sort by status: reviews asked of you first, then yours, then everyone else’s, then the ones you snoozed' },
   { id: 'opened', label: 'Opened', icon: 'sort-descending-numbers', title: 'Sort by when opened: the newest PR first, under the day it was opened' },
 ];
+
+/** Group by's buttons over PRs (groups.ts). */
+export const PR_GROUPS = groupOptions('PRs');
+
+/** What the heading over PRs that no worktree here holds says. */
+export const PR_NONE = 'No worktree here';
+
+/** Where a PR goes, grouped: the worktree that holds it, or none here; its repo, by its slug on
+ *  GitHub, whether or not a worktree here has it. */
+export function prPlace(r: PrRowItem, by: GroupBy): Place {
+  if (by === 'worktree') return placeIn(r.lane, by);
+  const slug = r.pr.repoSlug;
+  return { key: slug, lane: null, repo: { name: r.pr.repo, slug } };
+}
 
 export interface PrSection {
   id: 'requested' | 'mine' | 'others' | 'snoozed' | 'done' | DayId;
@@ -151,13 +170,15 @@ interface PrRowProps {
   onContextMenu: () => void;
   /** Starts a drag of the row; with a `pinIndex`, it's one of the pinned ones. */
   drag?: DragProps;
+  /** Under its worktree's or its repo's heading, which says that for it. */
+  under?: GroupBy;
 }
 
 /** A PR in the list: its number, title and labels, then its repo's chip, its standing (pills), its
  *  branch and author, a session that worked on it and its worktree, and its size. On one line
  *  (`slim`): its number and title, then its labels as they fit, and its repo, standing and size at
  *  the line's end. */
-function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect, onOpen, onOpenSession, onContextMenu, drag }: PrRowProps) {
+function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect, onOpen, onOpenSession, onContextMenu, drag, under }: PrRowProps) {
   const { pr } = item;
   const requested = waitsOnReview(pr);
   const flag = prFlag(pr);
@@ -165,7 +186,7 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
   // leave neither readable on a row's line; the +n names the rest, and the PR panel lists them all.
   const sessions = [...item.sessions].sort((a, b) => Number(b.session.key === pr.primary) - Number(a.session.key === pr.primary));
   const shown = sessions.slice(0, 1);
-  const repo = <RepoChip repo={pr.repo} slug={pr.repoSlug} onShowOnly={onShowRepo && (() => onShowRepo(pr.repoSlug))} />;
+  const repo = under !== 'repo' && <RepoChip repo={pr.repo} slug={pr.repoSlug} onShowOnly={onShowRepo && (() => onShowRepo(pr.repoSlug))} />;
   const snooze = reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away="out of Review requested and off the floating bar" />;
   const diff = (
     <span className="ca-diff">
@@ -233,7 +254,7 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
                   <MoreChip names={sessions.slice(shown.length).map(({ session }) => `${session.title} · ${session.account}`)} />
                 </span>
               )}
-              {item.lane && <WorktreeChip lane={item.lane} short />}
+              {item.lane && under !== 'worktree' && <WorktreeChip lane={item.lane} short />}
             </div>
             <span className="ca-lane-right">{diff}</span>
           </div>
@@ -251,6 +272,10 @@ interface PrsViewProps {
   pinned: PrRowItem[];
   /** The rest under their headings, in `sort`'s order. */
   sections: PrSection[];
+  /** The rest grouped instead, when the list is grouped (groups.ts), and what the groups' headings
+   *  do. */
+  groups?: Grouped<PrSection, PrRowItem> | null;
+  groupActs?: GroupActs;
   /** Sorted by when opened, the rows show when each was opened. */
   sort: PrSort;
   /** A double-click on a row's repo chip: only that repo's PRs, by its slug. */
@@ -280,8 +305,8 @@ interface PrsViewProps {
 const SECTION_ICON: Partial<Record<PrSection['id'], string>> = { requested: 'eye', mine: 'user', others: 'pr', snoozed: 'zzz', done: 'merge' };
 
 export function PrsView(props: PrsViewProps) {
-  const { pinned, sections, sort, onShowRepo, lines, now, selectedKey, picked, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
-  const byKey = (key: string) => pinned.find((r) => r.pr.key === key) ?? sections.flatMap((s) => s.rows).find((r) => r.pr.key === key);
+  const { pinned, sections, groups, groupActs, sort, onShowRepo, lines, now, selectedKey, picked, domId, showDone, onToggleDone, onSelect, onOpen, onOpenSession, onContextMenu, onPlacePinned, onUnpin } = props;
+  const byKey = (key: string) => pinned.find((r) => r.pr.key === key) ?? (groups ? groupsOf(groups).flatMap((g) => g.rows) : sections.flatMap((s) => s.rows)).find((r) => r.pr.key === key);
   const drag = useRowDrag({
     onPlace: onPlacePinned,
     joins: true,
@@ -292,8 +317,8 @@ export function PrsView(props: PrsViewProps) {
       return r ? `#${r.pr.number} ${r.pr.title}` : '';
     },
   });
-  /** A PR's row: `index` is its place among the pinned ones. */
-  const row = (r: PrRowItem, index: number | null) => (
+  /** A PR's row: `index` is its place among the pinned ones; `under`, the heading it's under. */
+  const row = (r: PrRowItem, index: number | null, under?: GroupBy) => (
     <PrRow
       key={r.key}
       item={r}
@@ -308,7 +333,29 @@ export function PrsView(props: PrsViewProps) {
       onOpenSession={onOpenSession}
       onContextMenu={() => onContextMenu(r)}
       drag={drag.rowProps(r.pr.key, index, pinned.length)}
+      under={under}
     />
+  );
+  /** A section's heading, with Merged & closed's way to show or hide its PRs. */
+  const header = (s: { id: PrSection['id']; label: string }, count: number) => (
+    <SectionHeader
+      icon={SECTION_ICON[s.id]}
+      label={s.label}
+      count={count}
+      hint={
+        s.id === 'done' && (
+          <button type="button" className="ca-linkbtn" aria-expanded={showDone} onClick={onToggleDone}>
+            {showDone ? 'Hide' : 'Show'}
+          </button>
+        )
+      }
+    />
+  );
+  /** A group: its heading and its PRs. A press on a worktree's heading shows the worktree. */
+  const group = (g: Grouped<PrSection, PrRowItem>['pinned'][number], acts: GroupActs, pin: boolean) => (
+    <GroupBlock key={`group:${g.key}`} g={g} acts={acts} now={now} rows={false} pinned={pin} none={PR_NONE}>
+      {g.rows.map((r) => row(r, null, g.key ? g.by : undefined))}
+    </GroupBlock>
   );
   return (
     <>
@@ -316,25 +363,28 @@ export function PrsView(props: PrsViewProps) {
       {pinned.length === 0 && drag.dropIndex === 0 && <div className="ca-dropline" />}
       {pinned.length > 0 && <PinnedSection items={pinned} row={row} />}
       {drag.ghost}
-      {sections.map((s) => (
-        <section key={s.id} className={cx('ca-bayblock', s.id === 'requested' && 'ca-prs-requested')}>
-          <SectionHeader
-            icon={SECTION_ICON[s.id]}
-            label={s.label}
-            count={s.rows.length}
-            hint={
-              s.id === 'done' && (
-                <button type="button" className="ca-linkbtn" aria-expanded={showDone} onClick={onToggleDone}>
-                  {showDone ? 'Hide' : 'Show'}
-                </button>
-              )
-            }
-          />
-          {(s.id !== 'done' || showDone) && (
-            <div className="ca-bay-lanes">{s.rows.map((r) => row(r, null))}</div>
+      {groups && groupActs ? (
+        <>
+          {groups.pinned.length > 0 && (
+            <PinnedGroups by={groups.by} count={groups.pinned.length} reorder={false}>
+              {groups.pinned.map((g) => group(g, groupActs, true))}
+            </PinnedGroups>
           )}
-        </section>
-      ))}
+          {groups.sections.map((s) => (
+            <section key={s.id} className={cx('ca-bayblock', s.id === 'requested' && 'ca-prs-requested')}>
+              {header(s, s.count)}
+              {(s.id !== 'done' || showDone) && <div className="ca-bay-lanes">{s.groups.map((g) => group(g, groupActs, false))}</div>}
+            </section>
+          ))}
+        </>
+      ) : (
+        sections.map((s) => (
+          <section key={s.id} className={cx('ca-bayblock', s.id === 'requested' && 'ca-prs-requested')}>
+            {header(s, s.rows.length)}
+            {(s.id !== 'done' || showDone) && <div className="ca-bay-lanes">{s.rows.map((r) => row(r, null))}</div>}
+          </section>
+        ))
+      )}
     </>
   );
 }

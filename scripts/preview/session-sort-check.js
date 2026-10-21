@@ -121,7 +121,9 @@
       return until(function () { return !document.querySelector('.ca-sessionlist'); }, 2000);
     })
     .then(function () {
-      check('PRs has its own tools in the bar, and no Group by', !!document.querySelector('.ca-listtools') && !document.querySelector('.ca-listtools [aria-label="Group by"]'));
+      // Its own Group by, apart from Sessions': grouped there, PRs starts with none.
+      var group = document.querySelector('.ca-listtools [aria-label="Group by"] [aria-checked="true"]');
+      check('PRs has its own tools in the bar, its Group by its own', !!document.querySelector('.ca-listtools') && !!group && group.getAttribute('aria-label') === 'No groups', group ? group.getAttribute('aria-label') : 'no Group by');
     })
     .then(done)
     .catch(stopped);

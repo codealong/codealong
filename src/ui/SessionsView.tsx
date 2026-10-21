@@ -21,18 +21,19 @@
 // end that takes them away again (`FoldRow`).
 
 import { Fragment } from 'react';
-import { repoOf } from '../boards/rules';
 import { byDay, newestFirst } from '../days';
+import { groupOptions, groupRows, groupsOf, placeIn, type GroupBy, type Grouped, type GroupOptions, type ListGroup, type ListGroupBy } from '../groups';
 import { bySession, byStatusTime, foldsOf, runsShownKey, sidesListed, sidesShownKey, snoozedApart, startedOf, waitingSince, workingFor, type Fold, type LaneItem } from '../lanes';
 import type { SelectHow } from '../picks';
 import type { HelperCount, RunCount, SideCount } from '../boardLists';
 import type { SaidLine } from '../quick';
 import type { Bay, DesktopPinned, Lane, Session, SideGlance, Status, Todo } from '../types';
 import type { HelperActions } from './HelpersCard';
-import { AgentRow, FoldRow, GroupFoldRow, RepoHead, SideRow, WorktreeHead } from './LaneRow';
+import { GroupBlock, PinnedGroups, useGroupDrag, type GroupActs } from './Groups';
+import { AgentRow, FoldRow, SideRow } from './LaneRow';
 import { PinnedSection } from './PinnedSection';
 import { ListSeg, ListTools, RowsSeg, rowsOptions, type RowLines } from './ListBar';
-import { BAY_WORD, BayHeader, ReorderHint, SectionHeader } from './primitives';
+import { BAY_WORD, BayHeader, SectionHeader } from './primitives';
 import { useRowDrag, type DragProps } from './useRowDrag';
 
 export interface SessionItem {
@@ -58,117 +59,32 @@ export const SESSION_SORTS: { id: SessionSort; label: string; icon: string; titl
  *  or one line with its worktree and PR at the end. */
 export const SESSION_ROWS = rowsOptions('under each session, its worktree, todo, account, PR and diff', 'each session with its worktree and PR at the end');
 
-/** Whether the sessions that aren't pinned are grouped, and by what. */
-export type SessionGroupBy = 'none' | 'worktree' | 'repo';
-export type GroupBy = Exclude<SessionGroupBy, 'none'>;
+/** Whether the sessions that aren't pinned are grouped, and by what (groups.ts). */
+export type SessionGroupBy = ListGroupBy;
 
-export const SESSION_GROUPS: { id: SessionGroupBy; label: string; icon: string; title: string }[] = [
-  { id: 'none', label: 'No groups', icon: 'layout-rows', title: 'No groups: one list of sessions' },
-  { id: 'worktree', label: 'Worktree', icon: 'folder', title: 'Group by worktree: each worktree once, saying its branch and PR, its app, whether new work can start there and where it stands against the default branch, with its sessions under it' },
-  { id: 'repo', label: 'Repo', icon: 'book', title: 'Group by repo: each repo once, with its sessions under it' },
-];
-
-/** How many sessions a group lists, each with what's listed under it, before it folds the rest
- *  away; more when more of them wait on you or are working, which never fold. */
-export const GROUP_SHOWN = 5;
+export const SESSION_GROUPS = groupOptions('sessions');
 
 /** A worktree or a repo heading its sessions in Sessions grouped by it. */
-export interface SessionGroup {
-  /** The worktree's id, or the repo's key (boards/rules.ts `repoOf`): what pins it. */
-  key: string;
-  by: GroupBy;
-  /** The worktree; for a repo, one of its worktrees, which names it. */
-  lane: Lane;
-  rows: SessionItem[];
-  /** How many of its sessions are folded away (`GROUP_SHOWN`). */
-  folded: number;
-  /** Opened past `GROUP_SHOWN`, so it can be folded again. */
-  opened: boolean;
-}
-
-/** A heading in the grouped list and the groups under it. Its count is of its own sessions: the
- *  ones in its groups that are under it for themselves, not for their group's first session. */
-export interface GroupSection {
-  id: string;
-  label: string;
-  bay?: Bay;
-  icon?: string;
-  count: number;
-  groups: SessionGroup[];
-}
-
-export interface GroupedSessions {
-  by: GroupBy;
-  /** The groups pinned, in your order, after the pinned sessions. */
-  pinned: SessionGroup[];
-  sections: GroupSection[];
-}
+export type SessionGroup = ListGroup<SessionItem>;
+export type GroupedSessions = Grouped<SessionSection, SessionItem>;
 
 /** What a group's key is for a worktree: its own id, or its repo's. */
 export function groupKeyOf(lane: Lane, by: GroupBy): string {
-  return by === 'worktree' ? lane.id : repoOf(lane);
-}
-
-export interface GroupOptions {
-  /** The groups pinned, in your order. */
-  pinned: readonly string[];
-  /** The project's worktrees, for the pinned groups with no session listed. */
-  lanes: readonly Lane[];
-  /** Whether a pinned group with no session listed shows: nothing narrows the list but its age. */
-  empty: boolean;
-  /** The groups opened past `GROUP_SHOWN`. */
-  opened: ReadonlySet<string>;
-  /** Every group lists all its sessions: a search found them. */
-  whole: boolean;
+  return placeIn(lane, by).key;
 }
 
 /**
- * The sections `sessionSections` made, grouped by worktree or by repo. Each group is listed once,
- * under the heading of its first session, with all of its sessions (each with the rows nested
- * under it, in its group whatever worktree they're in) in the order the sections list them; the
- * groups under a heading are in the order of their first sessions. Pinned groups leave the
- * sections for `pinned`, in your order, and show with no session listed while `empty`. A group
- * folds its sessions after `GROUP_SHOWN` until it's opened, unless a search found them (`whole`),
- * but never one that waits on you or is working, nor one with such a helper under it, whatever
- * the sort: by start, one can come after five idle ones.
+ * The sections `sessionSections` made, grouped by worktree or by repo (groups.ts `groupRows`): a
+ * session with the rows nested under it is listed and folded whole, in its group whatever
+ * worktree they're in, and one that waits on you or is working never folds away, nor one with
+ * such a helper under it, whatever the sort: by start, one can come after five idle ones.
  */
-export function groupSessions(sections: SessionSection[], by: GroupBy, o: GroupOptions): GroupedSessions {
-  type Family = { rows: SessionItem[]; from: string };
-  const found = new Map<string, { lane: Lane; families: Family[]; at: number }>();
-  sections.forEach((s, at) => {
-    for (const { head, kids } of familiesOf(s.rows)) {
-      const key = groupKeyOf(head.lane, by);
-      const g = found.get(key) ?? { lane: head.lane, families: [], at };
-      g.families.push({ rows: [head, ...kids], from: s.id });
-      found.set(key, g);
-    }
+export function groupSessions(sections: SessionSection[], by: GroupBy, o: Omit<GroupOptions<SessionItem>, 'units' | 'awake' | 'apart'>): GroupedSessions {
+  return groupRows(sections, by, (r) => placeIn(r.lane, by), {
+    ...o,
+    units: (rows) => familiesOf(rows).map(({ head, kids }) => [head, ...kids]),
+    awake: (unit) => unit.some((r) => ATTENTION.some((g) => inGroup(g.statuses)(r))),
   });
-  const awake = (f: Family) => f.rows.some((r) => ATTENTION.some((g) => inGroup(g.statuses)(r)));
-  const build = (key: string, lane: Lane, families: Family[]): SessionGroup => {
-    const away = o.whole ? [] : families.filter((f, i) => i >= GROUP_SHOWN && !awake(f));
-    const opened = away.length > 0 && o.opened.has(key);
-    const shown = opened ? families : families.filter((f) => !away.includes(f));
-    const folded = opened ? 0 : away.reduce((n, f) => n + f.rows.length, 0);
-    return { key, by, lane, rows: shown.flatMap((f) => f.rows), folded, opened };
-  };
-  // A repo with no session listed is named by its main worktree, else by any of its worktrees.
-  const emptyLane = (key: string) => {
-    const of = o.lanes.filter((l) => groupKeyOf(l, by) === key);
-    return of.find((l) => l.origin === 'main') ?? of[0];
-  };
-  const pinnedKeys = new Set(o.pinned);
-  const pinned = o.pinned.flatMap((key) => {
-    const g = found.get(key);
-    if (g) return [build(key, g.lane, g.families)];
-    const lane = o.empty ? emptyLane(key) : undefined;
-    return lane ? [build(key, lane, [])] : [];
-  });
-  const grouped = sections.map((s, at): GroupSection => {
-    const mine = [...found].filter(([key, g]) => g.at === at && !pinnedKeys.has(key));
-    const count = mine.reduce((n, [, g]) => n + g.families.filter((f) => f.from === s.id).reduce((m, f) => m + f.rows.length, 0), 0);
-    return { id: s.id, label: s.label, bay: s.bay, icon: s.icon, count, groups: mine.map(([key, g]) => build(key, g.lane, g.families)) };
-  });
-  return { by, pinned, sections: grouped.filter((s) => s.groups.length > 0) };
 }
 
 /** A worktree's heading as a row of the list: selected for its panel, and picked with others. */
@@ -179,7 +95,7 @@ export function headItem(lane: Lane): LaneItem {
 /** The grouped list's rows top to bottom, as the keyboard goes through them: each worktree's
  *  heading, then its sessions. A repo's heading isn't a row. */
 export function groupedRows(g: GroupedSessions): (SessionItem | LaneItem)[] {
-  return [...g.pinned, ...g.sections.flatMap((s) => s.groups)].flatMap((x): (SessionItem | LaneItem)[] => (x.by === 'worktree' ? [headItem(x.lane), ...x.rows] : x.rows));
+  return groupsOf(g).flatMap((x): (SessionItem | LaneItem)[] => (x.lane ? [headItem(x.lane), ...x.rows] : x.rows));
 }
 
 /** A heading in the list and the sessions under it. The ones for what wants you or is running
@@ -329,30 +245,6 @@ export function SessionsBar({ sort, onSort, group, onGroup, lines, onLines }: { 
   );
 }
 
-/** What a group's heading does, and how it's dragged among the pinned ones. */
-export interface GroupActs {
-  /** A worktree's heading pressed, alone or with ⌘ or ⇧ (picking it with other worktrees). */
-  onSelect: (g: SessionGroup, how: SelectHow) => void;
-  /** Double-click on a worktree's heading: opens its most recent session. */
-  onOpen: (g: SessionGroup) => void;
-  /** Opens one of a worktree's places: its app, from its chip. */
-  onOpenTarget: (lane: Lane, targetId: string) => void;
-  onMenu: (g: SessionGroup) => void;
-  onPrMenu: (g: SessionGroup) => void;
-  onPrShow: (g: SessionGroup) => void;
-  onPrOpen: (g: SessionGroup) => void;
-  /** Opens a folded group, or folds it again. */
-  onToggle: (g: SessionGroup) => void;
-  /** Puts a group at insertion point `index` among the pinned ones showing, pinning it if it
-   *  isn't; and unpins one dragged down to the list or out of the window. */
-  onPlace: (key: string, index: number) => void;
-  onUnpin: (key: string) => void;
-  /** What a group's heading pins to the desktop when it's dragged out of the window, if it can be. */
-  desktop: (g: SessionGroup) => DesktopPinned | null;
-  /** The worktrees picked together, by id. */
-  picked: ReadonlySet<string>;
-}
-
 interface SessionsViewProps {
   pinned: SessionItem[];
   /** The helpers listed under each pinned session (boardLists.ts `helpersUnder`). */
@@ -430,7 +322,7 @@ const NO_KEYS: ReadonlySet<string> = new Set();
 export function SessionsView(props: SessionsViewProps) {
   const { pinned, pinnedHelpers, sections, groups, groupActs, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onPrMenu, onPrShow, onPrOpen, onPlacePinned, onUnpin, desktop, archived, showArchived, onToggleArchived, todosFor, helpersOf, helpersShown, onToggleHelpers, runsOf, onToggleRuns, sidesOf, sideGlancesOf, onToggleSides, onShowSide, helperActions, onShowTodo, saidOf } = props;
   const shown = helpersShown ?? NO_KEYS;
-  const allGroups = groups ? [...groups.pinned, ...groups.sections.flatMap((s) => s.groups)] : [];
+  const allGroups = groups ? groupsOf(groups) : [];
   const listed = groups ? allGroups.flatMap((g) => g.rows) : sections.flatMap((s) => s.rows);
   const byKey = (key: string) => pinned.find((r) => r.session.key === key) ?? [...(pinnedHelpers?.values() ?? [])].flat().find((r) => r.session.key === key) ?? listed.find((r) => r.session.key === key);
   // Only the pinned rows carry an index: the others join them when dropped among them.
@@ -445,21 +337,8 @@ export function SessionsView(props: SessionsViewProps) {
     label: (key) => byKey(key)?.session.title ?? '',
   });
   // The groups' headings are dragged apart from the sessions: among the pinned groups, or out of
-  // the window (useRowDrag.tsx keeps each drag to its own rows).
-  const groupOf = (key: string) => allGroups.find((g) => g.key === key);
-  const groupDrag = useRowDrag({
-    onPlace: groupActs?.onPlace,
-    joins: true,
-    onLeave: groupActs?.onUnpin,
-    desktop: (key) => {
-      const g = groupOf(key);
-      return g && groupActs ? groupActs.desktop(g) : null;
-    },
-    label: (key) => {
-      const g = groupOf(key);
-      return g ? (g.by === 'worktree' ? g.lane.callsign : g.lane.repo) : '';
-    },
-  });
+  // the window.
+  const groupDrag = useGroupDrag(allGroups, groupActs);
 
   /** A session's row: `index` is its place among the pinned ones; the archived aren't dragged.
    *  In a worktree's group it leaves out what the heading says: the worktree, its PR and diff. */
@@ -535,37 +414,13 @@ export function SessionsView(props: SessionsViewProps) {
   };
   const listedRow = (x: SessionItem) => drag.rowProps(x.session.key, null, pinned.length);
 
-  /** A group: its heading, its sessions, and the way to the ones folded away. `index` is its place
-   *  among the pinned groups. */
-  const group = (g: SessionGroup, index: number | null, acts: GroupActs, count: number) => {
-    const held = groupDrag.rowProps(g.key, index, count);
-    return (
-      <div key={`group:${g.key}`} className="ca-group">
-        {g.by === 'worktree' ? (
-          <WorktreeHead
-            lane={g.lane}
-            now={now}
-            domId={domId({ key: g.lane.id })}
-            selected={selectedKey === g.lane.id}
-            picked={acts.picked.has(g.lane.id)}
-            pinned={index != null}
-            onSelect={(how) => acts.onSelect(g, how)}
-            onOpen={() => acts.onOpen(g)}
-            onOpenTarget={acts.onOpenTarget}
-            onMenu={() => acts.onMenu(g)}
-            onPrMenu={() => acts.onPrMenu(g)}
-            onPrShow={() => acts.onPrShow(g)}
-            onPrOpen={() => acts.onPrOpen(g)}
-            drag={held}
-          />
-        ) : (
-          <RepoHead lane={g.lane} pinned={index != null} onMenu={() => acts.onMenu(g)} drag={held} />
-        )}
-        {familiesOf(g.rows).map(({ head, kids }) => family(head, kids, null, listedRow, g.by === 'worktree'))}
-        {(g.folded > 0 || g.opened) && <GroupFoldRow folded={g.folded} opened={g.opened} onToggle={() => acts.onToggle(g)} />}
-      </div>
-    );
-  };
+  /** A group: its heading, a row of its own for a worktree, its sessions, and the way to the ones
+   *  folded away. `index` is its place among the pinned groups. */
+  const group = (g: SessionGroup, index: number | null, acts: GroupActs, count: number) => (
+    <GroupBlock key={`group:${g.key}`} g={g} acts={acts} now={now} rows domId={g.lane ? domId({ key: g.lane.id }) : undefined} selected={!!g.lane && selectedKey === g.lane.id} pinned={index != null} drag={groupDrag.rowProps(g.key, index, count)} none="">
+      {familiesOf(g.rows).map(({ head, kids }) => family(head, kids, null, listedRow, !!g.lane))}
+    </GroupBlock>
+  );
   const listedCount = pinned.length + (groups ? groups.pinned.length + groups.sections.length : sections.length);
   return (
     <>
@@ -585,10 +440,9 @@ export function SessionsView(props: SessionsViewProps) {
               {/* The first pinned group lands after the pinned sessions. */}
               {groups.pinned.length === 0 && groupDrag.dropIndex === 0 && <div className="ca-dropline" />}
               {groups.pinned.length > 0 && (
-                <section className="ca-bayblock ca-pinned">
-                  <SectionHeader icon="pinned" label={groups.by === 'worktree' ? 'Pinned worktrees' : 'Pinned repos'} count={groups.pinned.length} hint={<ReorderHint />} />
-                  <div className="ca-bay-lanes">{groups.pinned.map((g, i) => group(g, i, groupActs, groups.pinned.length))}</div>
-                </section>
+                <PinnedGroups by={groups.by} count={groups.pinned.length} reorder>
+                  {groups.pinned.map((g, i) => group(g, i, groupActs, groups.pinned.length))}
+                </PinnedGroups>
               )}
               {groups.sections.map((s) => (
                 <section key={s.id} className="ca-bayblock">
