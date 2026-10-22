@@ -437,7 +437,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   to Manual. Bypass is offered to a session started in it (`--dangerously-skip-permissions`,
   `--permission-mode bypassPermissions`, `defaultMode`) or let to (`--allow-dangerously-skip-permissions`)
   unless `permissions.disableBypassPermissionsMode` is `disable`; Auto unless `disableAutoMode`
-  (at the top or under `permissions`) is `disable`, `tengu_auto_mode_config.enabled` (kept in the
+  (at the top or under `permissions`) is `disable`, in any settings file (the account's, the
+  repo's `.claude/settings.json` and `settings.local.json`, the managed
+  `/Library/Application Support/ClaudeCode/managed-settings.json`, `/etc/claude-code` on Linux,
+  which ranks over all; an organization's from Anthropic's servers or a macOS profile, and the
+  managed drop-in folder, aren't read), `tengu_auto_mode_config.enabled` (kept in the
   state file's `cachedGrowthBookFeatures`, `enabled` when missing) is `disabled`, or the model
   doesn't take it (its list wasn't looked into); `opt-in` there wasn't either. Its key parser
   takes `ESC [ Z` as Shift+Tab whatever keyboard protocol it pushed. A permission prompt takes

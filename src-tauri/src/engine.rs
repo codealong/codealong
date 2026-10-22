@@ -380,7 +380,7 @@ impl Handle {
 
     /// A session Codealong runs started or ended a turn, or asked or stopped asking something;
     /// or a Claude Code session's hook handed the app a permission request, or took it back
-    /// (claude/asks.rs).
+    /// (claude/asks.rs); or a session was switched to another mode (cycle.rs).
     pub fn hosted_changed(&self) {
         let _ = self.tx.send(Msg::Hosted);
     }

@@ -971,7 +971,10 @@ fn switch_effort(engine: &Handle, c: &Call) -> Result<Value, String> {
 /// happened, and the mode it's in now.
 fn switch_mode(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Mode = c.read()?;
-    to_value(send::switch_mode(&engine.board(), &cfg()?, c.session()?, &p.mode).map_err(words)?)
+    let switched = send::switch_mode(&engine.board(), &cfg()?, c.session()?, &p.mode).map_err(words)?;
+    // The mode a press in a terminal is expected to have led to shows from the next board.
+    engine.hosted_changed();
+    to_value(switched)
 }
 
 /// Stops the turn it's taking: one Codealong runs, through its agent; any other, through its

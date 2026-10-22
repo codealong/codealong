@@ -54,9 +54,9 @@ pub fn session_mode(raw: &str) -> Option<SessionMode> {
 /// Auto where it does, and round to Manual. Don't Ask steps to Manual. Claude Code writes the
 /// mode it's switched to only with the next prompt, so what a press leads to is worked out from
 /// this (cycle.rs). `recorded` is the mode its record says it's in, `command` its process's
-/// command line, `home` the account's folder.
-pub fn cycled_modes(home: &Path, recorded: Option<&str>, command: Option<&str>) -> Vec<SessionMode> {
-    let offers = offers(home);
+/// command line, `home` the account's folder and `cwd` the session's.
+pub fn cycled_modes(home: &Path, cwd: &Path, recorded: Option<&str>, command: Option<&str>) -> Vec<SessionMode> {
+    let offers = offers(home, cwd);
     let started = started_in(command.unwrap_or_default());
     let starts = started.mode.as_deref().or(offers.default_mode.as_deref());
     // Offered to a session that started bypassing, or was let to (`isBypassPermissionsModeAvailable`).
@@ -64,9 +64,9 @@ pub fn cycled_modes(home: &Path, recorded: Option<&str>, command: Option<&str>) 
     // Offered unless settings or Anthropic's flag turn it off (`q_`, whose default is on), or
     // the flag leaves it to an opt-in this session shows it took. Whether the model takes it
     // isn't known here.
-    let auto = !offers.no_auto && match offers.auto_flag.as_str() {
-        "disabled" => false,
-        "opt-in" => starts == Some("auto") || recorded == Some("auto"),
+    let auto = !offers.no_auto && match offers.auto_flag.as_deref() {
+        Some("disabled") => false,
+        Some("opt-in") => starts == Some("auto") || recorded == Some("auto"),
         _ => true,
     };
     let ids = ["default", "acceptEdits", "plan"].into_iter().chain(bypass.then_some("bypassPermissions")).chain(auto.then_some("auto"));
@@ -107,8 +107,8 @@ fn started_in(command: &str) -> Started {
     out
 }
 
-/// What an account's settings.json and the flags Claude Code keeps in its state file say of the
-/// modes it offers (2.1.308's code). A repo's own settings aren't read.
+/// What Claude Code's settings and the flags it keeps in its state file say of the modes it
+/// offers (2.1.308's code): one file's (`file_offers`), or all of a session's (`offers`).
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Offers {
     /// `permissions.defaultMode`: the mode a session starts in without `--permission-mode`.
@@ -117,40 +117,62 @@ struct Offers {
     no_bypass: bool,
     /// `disableAutoMode: "disable"`, at the top or under `permissions`.
     no_auto: bool,
-    /// `cachedGrowthBookFeatures.tengu_auto_mode_config.enabled`: `enabled` (also where it's
-    /// missing, as Claude Code takes it), `disabled` or `opt-in`.
-    auto_flag: String,
+    /// `cachedGrowthBookFeatures.tengu_auto_mode_config.enabled`, in the state file: `enabled`,
+    /// `disabled` or `opt-in`, `enabled` where it's missing, as Claude Code takes it.
+    auto_flag: Option<String>,
 }
 
-/// An account's `Offers`, read again only when one of its files changed: the state file is
-/// tens of kilobytes, and this is asked of each running session whenever the board is put
-/// together.
-fn offers(home: &Path) -> Offers {
+/// What a session in `cwd` on the account at `home` is offered: the settings files Codealong
+/// reads (`settings_files`), any of which can turn a mode off and the highest of which says the
+/// mode it starts in, and the account's state file.
+fn offers(home: &Path, cwd: &Path) -> Offers {
+    let files: Vec<Offers> = settings_files(home, cwd).iter().map(|f| file_offers(f)).collect();
+    Offers {
+        default_mode: files.iter().rev().find_map(|f| f.default_mode.clone()),
+        no_bypass: files.iter().any(|f| f.no_bypass),
+        no_auto: files.iter().any(|f| f.no_auto),
+        auto_flag: file_offers(&super::trust::state_file(home)).auto_flag,
+    }
+}
+
+/// The files Claude Code takes settings from that Codealong reads, lowest first as it ranks
+/// them: the account's, the repo's, the repo's local ones, and the managed ones over all
+/// (2.1.308's code). Not read: what an organization hands down from Anthropic's servers or as a
+/// macOS profile, the managed drop-in folder, and `--settings`.
+fn settings_files(home: &Path, cwd: &Path) -> [PathBuf; 4] {
+    let managed = match crate::os::current() {
+        crate::os::Os::MacOs => "/Library/Application Support/ClaudeCode",
+        crate::os::Os::Linux => "/etc/claude-code",
+    };
+    [home.join("settings.json"), cwd.join(".claude/settings.json"), cwd.join(".claude/settings.local.json"), Path::new(managed).join("managed-settings.json")]
+}
+
+/// A file's `Offers`, read again only when it changed: the state file is tens of kilobytes, and
+/// this is asked of each running session whenever the board is put together.
+fn file_offers(path: &Path) -> Offers {
     type Stamp = Option<(std::time::SystemTime, u64)>;
-    static KEPT: Mutex<Option<HashMap<PathBuf, ((Stamp, Stamp), Offers)>>> = Mutex::new(None);
-    let (settings, state) = (home.join("settings.json"), super::trust::state_file(home));
-    let stamp_of = |p: &Path| std::fs::metadata(p).ok().and_then(|m| Some((m.modified().ok()?, m.len())));
-    let stamp = (stamp_of(&settings), stamp_of(&state));
+    static KEPT: Mutex<Option<HashMap<PathBuf, (Stamp, Offers)>>> = Mutex::new(None);
+    let stamp: Stamp = std::fs::metadata(path).ok().and_then(|m| Some((m.modified().ok()?, m.len())));
     let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
     let kept = kept.get_or_insert_with(HashMap::new);
-    if let Some((at, offers)) = kept.get(home) {
+    if let Some((at, offers)) = kept.get(path) {
         if *at == stamp {
             return offers.clone();
         }
     }
-    let read = |p: &Path| std::fs::read(p).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).unwrap_or(Value::Null);
-    let offers = offers_in(&read(&settings), &read(&state));
-    kept.insert(home.to_path_buf(), (stamp, offers.clone()));
+    let read = std::fs::read(path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).unwrap_or(Value::Null);
+    let offers = offers_in(&read);
+    kept.insert(path.to_path_buf(), (stamp, offers.clone()));
     offers
 }
 
-fn offers_in(settings: &Value, state: &Value) -> Offers {
-    let said = |v: &Value, path: &str| v.pointer(path).and_then(Value::as_str).map(str::to_string);
+fn offers_in(file: &Value) -> Offers {
+    let said = |path: &str| file.pointer(path).and_then(Value::as_str).map(str::to_string);
     Offers {
-        default_mode: said(settings, "/permissions/defaultMode"),
-        no_bypass: said(settings, "/permissions/disableBypassPermissionsMode").as_deref() == Some("disable"),
-        no_auto: ["/disableAutoMode", "/permissions/disableAutoMode"].iter().any(|p| said(settings, p).as_deref() == Some("disable")),
-        auto_flag: said(state, "/cachedGrowthBookFeatures/tengu_auto_mode_config/enabled").filter(|f| ["disabled", "opt-in"].contains(&f.as_str())).unwrap_or_else(|| "enabled".into()),
+        default_mode: said("/permissions/defaultMode"),
+        no_bypass: said("/permissions/disableBypassPermissionsMode").as_deref() == Some("disable"),
+        no_auto: ["/disableAutoMode", "/permissions/disableAutoMode"].iter().any(|p| said(p).as_deref() == Some("disable")),
+        auto_flag: said("/cachedGrowthBookFeatures/tengu_auto_mode_config/enabled"),
     }
 }
 
@@ -187,25 +209,37 @@ mod tests {
     fn steps_through_the_modes_its_session_offers_in_claude_codes_order() {
         let ids = |modes: Vec<SessionMode>| modes.into_iter().map(|m| m.id).collect::<Vec<_>>();
         let home = crate::fixtures::scratch("cycled");
+        let repo = home.join("repo");
+        std::fs::create_dir_all(repo.join(".claude")).unwrap();
         // Nothing set: Auto is on by Anthropic's default, and nothing started it bypassing.
-        assert_eq!(ids(cycled_modes(&home, Some("default"), Some("claude --session-id 1 hi"))), ["default", "acceptEdits", "plan", "auto"]);
+        assert_eq!(ids(cycled_modes(&home, &repo, Some("default"), Some("claude --session-id 1 hi"))), ["default", "acceptEdits", "plan", "auto"]);
         // Started bypassing, or let to: Bypass before Auto.
-        assert_eq!(ids(cycled_modes(&home, Some("acceptEdits"), Some("claude --dangerously-skip-permissions"))), ["default", "acceptEdits", "plan", "bypassPermissions", "auto"]);
-        assert_eq!(ids(cycled_modes(&home, None, Some("claude --allow-dangerously-skip-permissions --resume x"))), ["default", "acceptEdits", "plan", "bypassPermissions", "auto"]);
-        assert_eq!(ids(cycled_modes(&home, None, Some("claude --permission-mode=bypassPermissions"))).len(), 5);
-        assert_eq!(ids(cycled_modes(&home, Some("bypassPermissions"), None)).len(), 5, "it's in it, so it was offered");
+        assert_eq!(ids(cycled_modes(&home, &repo, Some("acceptEdits"), Some("claude --dangerously-skip-permissions"))), ["default", "acceptEdits", "plan", "bypassPermissions", "auto"]);
+        assert_eq!(ids(cycled_modes(&home, &repo, None, Some("claude --allow-dangerously-skip-permissions --resume x"))), ["default", "acceptEdits", "plan", "bypassPermissions", "auto"]);
+        assert_eq!(ids(cycled_modes(&home, &repo, None, Some("claude --permission-mode=bypassPermissions"))).len(), 5);
+        assert_eq!(ids(cycled_modes(&home, &repo, Some("bypassPermissions"), None)).len(), 5, "it's in it, so it was offered");
         // Settings that turn them off, and a default mode that starts it bypassing.
         std::fs::write(home.join("settings.json"), r#"{"permissions":{"defaultMode":"bypassPermissions","disableAutoMode":"disable"}}"#).unwrap();
-        assert_eq!(ids(cycled_modes(&home, Some("default"), None)), ["default", "acceptEdits", "plan", "bypassPermissions"]);
-        assert_eq!(ids(cycled_modes(&home, None, Some("claude --permission-mode plan"))), ["default", "acceptEdits", "plan"], "the flag wins over the default");
+        assert_eq!(ids(cycled_modes(&home, &repo, Some("default"), None)), ["default", "acceptEdits", "plan", "bypassPermissions"]);
+        assert_eq!(ids(cycled_modes(&home, &repo, None, Some("claude --permission-mode plan"))), ["default", "acceptEdits", "plan"], "the flag wins over the default");
         std::fs::write(home.join("settings.json"), r#"{"permissions":{"disableBypassPermissionsMode":"disable"}}"#).unwrap();
-        assert_eq!(ids(cycled_modes(&home, None, Some("claude --dangerously-skip-permissions"))), ["default", "acceptEdits", "plan", "auto"]);
+        assert_eq!(ids(cycled_modes(&home, &repo, None, Some("claude --dangerously-skip-permissions"))), ["default", "acceptEdits", "plan", "auto"]);
         // Anthropic's flag, as the state file keeps it.
         std::fs::write(home.join("settings.json"), "{}").unwrap();
         std::fs::write(super::super::trust::state_file(&home), r#"{"cachedGrowthBookFeatures":{"tengu_auto_mode_config":{"enabled":"opt-in"}}}"#).unwrap();
-        assert_eq!(ids(cycled_modes(&home, Some("plan"), None)), ["default", "acceptEdits", "plan"]);
-        assert_eq!(ids(cycled_modes(&home, Some("auto"), None)), ["default", "acceptEdits", "plan", "auto"], "one in Auto took the opt-in");
-        assert_eq!(cycled_modes(&home, Some("auto"), None)[3].label, "Auto");
+        assert_eq!(ids(cycled_modes(&home, &repo, Some("plan"), None)), ["default", "acceptEdits", "plan"]);
+        assert_eq!(ids(cycled_modes(&home, &repo, Some("auto"), None)), ["default", "acceptEdits", "plan", "auto"], "one in Auto took the opt-in");
+        assert_eq!(cycled_modes(&home, &repo, Some("auto"), None)[3].label, "Auto");
+        // The repo's own settings, the local ones over the shared, and any file turns a mode off.
+        std::fs::write(home.join(".claude.json"), "{}").unwrap();
+        std::fs::write(repo.join(".claude/settings.json"), r#"{"permissions":{"defaultMode":"bypassPermissions"}}"#).unwrap();
+        assert_eq!(ids(cycled_modes(&home, &repo, Some("default"), None)).len(), 5);
+        std::fs::write(repo.join(".claude/settings.local.json"), r#"{"disableAutoMode":"disable","permissions":{"defaultMode":"acceptEdits"}}"#).unwrap();
+        assert_eq!(ids(cycled_modes(&home, &repo, Some("default"), None)), ["default", "acceptEdits", "plan"]);
+        // The managed file, wherever Claude Code looks for it on this OS, ranks over all.
+        let files = settings_files(&home, &repo);
+        assert!(files[3].ends_with("managed-settings.json") && files[0] == home.join("settings.json"), "{files:?}");
+        crate::os::as_if(crate::os::Os::Linux, || assert_eq!(settings_files(&home, &repo)[3], Path::new("/etc/claude-code/managed-settings.json")));
         assert_eq!(mode_id("manual"), "default");
         assert_eq!(started_in("claude --permission-mode"), Started::default());
     }

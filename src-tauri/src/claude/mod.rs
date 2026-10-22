@@ -1361,7 +1361,7 @@ impl crate::harness::Reader for Reader {
                     // The modes Shift+Tab steps its terminal through, which Codealong presses
                     // there where it can (cycle.rs), counting from the mode its record says.
                     let command = s.pid.and_then(|pid| look.ps.all().iter().find(|p| p.pid == pid)).map(|p| p.command.as_str());
-                    s.modes = mode::cycled_modes(&a.home_path(), Some(recorded), command);
+                    s.modes = mode::cycled_modes(&a.home_path(), Path::new(&s.cwd), Some(recorded), command);
                     s.mode = s.mode.map(|m| m.with_id(recorded));
                 }
                 s.continues = from.map(|f| f.id);

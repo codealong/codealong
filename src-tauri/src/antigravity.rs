@@ -521,7 +521,8 @@ const TOOL_CONFIG: [u64; 4] = [19, 12, 1, 13];
 /// and `--dangerously-skip-permissions` are both EAGER (3). The agent mode (`accept-edits`,
 /// `auto`, `plan`: the settings' `agentMode`, `--mode`, Shift+Tab) goes into it too (a turn in
 /// Auto ran with AUTO, 2, on 1.4.5), and only the command line's log says which it is
-/// (`Said::agent_mode`) and what the default one asks (`Said::tool_permission`, `session_mode`).
+/// (`Said::agent_mode`) and, unless its latest turn went in the default one, what the default one
+/// asks (`Said::tool_permission`, `session_mode`).
 fn turn_mode(dir: &Path, id: &str) -> Option<SessionMode> {
     let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
     let step: Vec<u8> = db.query_row("SELECT step_payload FROM steps WHERE step_type = ?1 ORDER BY idx DESC LIMIT 1", [STEP_USER_INPUT], |r| r.get(0)).ok()?;
@@ -1153,6 +1154,8 @@ pub struct Said {
     /// The tool permission it started with (`permission_mode`), which decides what it asks in
     /// the default agent mode.
     pub tool_permission: Option<String>,
+    /// The agent mode it was in as it sent its latest prompt (`prompted`).
+    prompted_in: Option<String>,
 }
 
 impl Said {
@@ -1165,6 +1168,7 @@ impl Said {
         if let Some(rest) = text.strip_prefix(LOG_PROMPTED) {
             let id = rest.split_whitespace().next().unwrap_or_default();
             self.prompted = Some((id.to_string(), at));
+            self.prompted_in = self.agent_mode.clone();
             self.flushed = std::mem::take(&mut self.queued);
         } else if let Some(typed) = text.strip_prefix(LOG_TYPED) {
             // Text led by `/` may be a command the UI runs itself and never sends in (no log here
@@ -1195,6 +1199,13 @@ impl Said {
     /// It started a turn in conversation `id` and hasn't stopped it.
     pub fn started(&self, id: &str) -> bool {
         self.prompted.as_ref().is_some_and(|(to, at)| to == id && self.stopped.map_or(true, |s| s < *at))
+    }
+
+    /// Its latest prompt into conversation `id` went in the default agent mode: that turn ran
+    /// with what the tool permission asked then, a change made in `/config` since it started
+    /// included.
+    pub fn prompted_in_default(&self, id: &str) -> bool {
+        self.prompted.as_ref().is_some_and(|(to, _)| to == id) && self.prompted_in.as_deref() == Some(AGENT_MODES[0])
     }
 
     /// It stopped the reply its latest prompt started.
@@ -2759,9 +2770,14 @@ mod tests {
         assert_eq!(said.tool_permission.as_deref(), Some("request-review"));
         read(&mut said, glog("15:34:34.242793", "SetCycleMode called: auto"));
         assert_eq!(said.agent_mode.as_deref(), Some("auto"));
+        read(&mut said, glog("15:34:35.000000", "Forwarding user message to conversation c1 (items=1, media=0)"));
+        assert!(!said.prompted_in_default("c1"));
         read(&mut said, glog("15:34:41.405240", "SetCycleMode called: plan"));
         read(&mut said, glog("15:34:43.413633", "SetCycleMode called: "));
         assert_eq!(said.agent_mode.as_deref(), Some("default"));
+        assert!(!said.prompted_in_default("c1"), "it switched after the prompt");
+        read(&mut said, glog("15:34:50.000000", "Forwarding user message to conversation c1 (items=1, media=0)"));
+        assert!(said.prompted_in_default("c1") && !said.prompted_in_default("c2"));
         // One a remote agent overrides isn't taken.
         read(&mut said, glog("15:35:00.000000", "SetCycleMode called: accept-edits"));
         read(&mut said, glog("15:35:00.000100", "SetCycleMode(\"accept-edits\") ignored: agent mode is overridden by remote agent"));
@@ -2796,6 +2812,42 @@ mod tests {
         assert_eq!(permission_mode("strict").map(|m| m.label).as_deref(), Some("Strict"));
         assert_eq!(permission_mode("always-proceed").map(|m| m.kind), Some(ModeKind::Skips));
         assert_eq!(permission_mode("someday"), None);
+    }
+
+    /// What the board says of a command line conversation's mode: its agent mode while a terminal
+    /// UI has it open, the default one named by what its tool permission asks, from the latest
+    /// turn when that went in the default mode; and from the latest turn alone otherwise.
+    #[test]
+    fn the_board_says_the_mode_its_terminal_ui_is_in() {
+        let account = AccountCfg { name: "antigravity".into(), harness: "antigravity".into(), home: "/h/.gemini/antigravity-cli".into(), command: None, start: None, usage_cap: None, acp: None, monthly: None, per_token: false, disabled: false };
+        let ui = Process { pid: 41, conversation: Some("c1".into()), terminal: true, logs: Vec::new() };
+        let said = |lines: &[&str]| {
+            let mut said = Said { agent_mode: Some("default".into()), ..Said::default() };
+            for (i, line) in lines.iter().enumerate() {
+                said.on_line(&glog(&format!("15:00:{:02}.000000", i), line), (2026, 10));
+            }
+            said
+        };
+        // The turn ran in Auto, which went into its policy; the UI started on Request review.
+        let c = |said: Said| Conversation { id: "c1".into(), cli: true, mode: policy_mode(2, false), said, ..Default::default() };
+        let started = "CLI settings initialized: permissions=<nil>, toolPermission=request-review";
+        let shown = |c: &Conversation, p: Option<&Process>| {
+            let s = crate::board::antigravity_session(&account, c, p, false, 0, 1_792_000_000_000);
+            (s.mode.map(|m| (m.label, m.id)), s.modes.into_iter().map(|m| m.label).collect::<Vec<_>>())
+        };
+        let auto = c(said(&[started, "SetCycleMode called: auto", "Forwarding user message to conversation c1 (items=1, media=0)"]));
+        assert_eq!(shown(&auto, Some(&ui)), (Some(("Auto".into(), "auto".into())), vec!["Request review".to_string(), "Accept edits".into(), "Auto".into(), "Plan".into()]));
+        // Back in the default mode: what the tool permission asks, as the UI started with it.
+        let back = c(said(&[started, "SetCycleMode called: auto", "Forwarding user message to conversation c1 (items=1, media=0)", "SetCycleMode called: "]));
+        assert_eq!(shown(&back, Some(&ui)).0, Some(("Request review".into(), "default".into())));
+        // A turn in the default mode says what it asks now, `/config` changes included.
+        let strict = Conversation { mode: policy_mode(1, true), ..c(said(&[started, "Forwarding user message to conversation c1 (items=1, media=0)"])) };
+        assert_eq!(shown(&strict, Some(&ui)).0, Some(("Strict".into(), "default".into())));
+        // No terminal UI has it: the latest turn's, and nothing to switch.
+        assert_eq!(shown(&auto, None), (Some(("Auto".into(), String::new())), Vec::<String>::new()));
+        // A print run has it: its mode, but no terminal to press keys in.
+        let print = Process { terminal: false, ..ui.clone() };
+        assert_eq!(shown(&auto, Some(&print)), (Some(("Auto".into(), String::new())), Vec::<String>::new()));
     }
 
     #[test]

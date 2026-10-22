@@ -113,7 +113,7 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
     // Nothing says until its next prompt: pressed as often as its order takes from the mode it's
     // in as far as Codealong knows, and expected to be there.
     let ids: Vec<&str> = s.modes.iter().map(|m| m.id.as_str()).collect();
-    let presses = presses_to(&ids, s.mode.as_ref().map(|m| m.id.as_str()), &to.id).ok_or_else(|| anyhow!("{:?} isn't a mode {title} steps through.", to.id))?;
+    let presses = presses_to(&ids, known_mode(s, pid).as_deref(), &to.id).ok_or_else(|| anyhow!("{:?} isn't a mode {title} steps through.", to.id))?;
     if presses == 0 {
         return Ok(ModeSwitched { message: format!("{title} is in {} mode already.", to.label), mode: to.id.clone() });
     }
@@ -127,6 +127,19 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
     let times = if presses == 1 { String::new() } else { format!(" {presses} times") };
     let message = format!("{title} should be in {} mode now: Codealong pressed Shift+Tab in its terminal{times}, and {} says which mode it's in only with your next message.", to.label, s.harness.word());
     Ok(ModeSwitched { message, mode: to.id.clone() })
+}
+
+/// The mode a session is in as far as Codealong knows, for presses to count from: the one it was
+/// last pressed to while that holds over its record, though the board `s` comes from may not
+/// show it yet (two presses in a row), else the one its record says.
+fn known_mode(s: &Session, pid: u32) -> Option<String> {
+    let all = expected();
+    let e = all.as_ref().and_then(|all| all.get(&s.key)).filter(|e| e.pid == pid);
+    match e {
+        // An expectation laid over it already: the latest press is as new or newer.
+        Some(e) if s.mode.as_ref().is_some_and(|m| m.expected) => Some(e.mode.clone()),
+        e => holds(e, s).map(|m| m.id).or_else(|| s.mode.as_ref().map(|m| m.id.clone()).filter(|id| !id.is_empty())),
+    }
 }
 
 /// How many presses step from `from` to `to` in `order`, round again at its end: one past the
@@ -235,6 +248,24 @@ mod tests {
         overlay_expected(&mut recorded);
         assert!(recorded.mode.as_ref().is_some_and(|m| !m.expected));
         assert!(expected().as_ref().is_some_and(|all| !all.contains_key(&s.key)));
+    }
+
+    /// A second press before the board shows the first counts from the first's mode.
+    #[test]
+    fn presses_count_from_the_latest_press() {
+        let mut s = claude("auto");
+        s.key = "claude:claude:cycle-count".into();
+        assert_eq!(known_mode(&s, 7).as_deref(), Some("auto"));
+        expect(&s, 7, "default", 2_000);
+        // The board it was read from doesn't show the press yet, or shows it.
+        assert_eq!(known_mode(&s, 7).as_deref(), Some("default"));
+        let mut shown = s.clone();
+        overlay_expected(&mut shown);
+        expect(&shown, 7, "acceptEdits", 3_000);
+        assert_eq!(known_mode(&shown, 7).as_deref(), Some("acceptEdits"), "a board that shows the first press");
+        assert_eq!(known_mode(&s, 7).as_deref(), Some("acceptEdits"), "a board that shows neither");
+        // Another process starts in its own.
+        assert_eq!(known_mode(&s, 8).as_deref(), Some("auto"));
     }
 
     /// `overlay` without the look at the process tree.
