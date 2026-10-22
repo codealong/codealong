@@ -45,6 +45,7 @@ function pieceOf(el: Element): Piece<Element> {
  */
 function paint(layer: HTMLElement, sections: Iterable<Element>, words: string[]) {
   const origin = layer.getBoundingClientRect();
+  const clipOf = clipsIn(layer.parentElement);
   const range = document.createRange();
   const boxes: HTMLElement[] = [];
   for (const section of sections) {
@@ -52,19 +53,67 @@ function paint(layer: HTMLElement, sections: Iterable<Element>, words: string[])
       acceptNode: (node) => (node.parentElement?.closest(`[${OUT}], textarea`) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
     });
     for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
-      for (const [from, to] of spansIn(node.data, words)) {
+      const spans = spansIn(node.data, words);
+      if (spans.length === 0) continue;
+      const clip = clipOf(node.parentElement);
+      for (const [from, to] of spans) {
         range.setStart(node, from);
         range.setEnd(node, to);
         // A mark the line wraps through has a box on each line.
         for (const r of range.getClientRects()) {
+          const left = Math.max(r.left, clip.left);
+          const top = Math.max(r.top, clip.top);
+          const width = Math.min(r.right, clip.right) - left;
+          const height = Math.min(r.bottom, clip.bottom) - top;
+          if (width <= 0 || height <= 0) continue;
           const box = document.createElement('span');
-          box.style.cssText = `left:${r.left - origin.left}px;top:${r.top - origin.top}px;width:${r.width}px;height:${r.height}px`;
+          box.style.cssText = `left:${left - origin.left}px;top:${top - origin.top}px;width:${width}px;height:${height}px`;
           boxes.push(box);
         }
       }
     }
   }
   layer.replaceChildren(...boxes);
+}
+
+/** The part of the page an element's ancestors leave in sight, in the page's coordinates. */
+interface Clip {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * What of an element inside `root` its ancestors' overflow leaves in sight, where they cut it
+ * off (an ellipsis, a list that scrolls), in the page's coordinates: the marks are drawn in a
+ * layer of `root`'s, which clips only to `root`, so a mark over the text an ellipsis cut off would
+ * show there and widen the pane. Each element's is worked out once.
+ */
+function clipsIn(root: Element | null): (el: Element | null) => Clip {
+  const all: Clip = { left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity };
+  const known = new Map<Element, Clip>();
+  const clipOf = (el: Element | null): Clip => {
+    if (!el || el === root) return all;
+    const was = known.get(el);
+    if (was) return was;
+    let clip = clipOf(el.parentElement);
+    const { overflowX, overflowY } = getComputedStyle(el);
+    if (overflowX !== 'visible' || overflowY !== 'visible') {
+      const r = el.getBoundingClientRect();
+      const left = r.left + el.clientLeft;
+      const top = r.top + el.clientTop;
+      clip = {
+        left: overflowX === 'visible' ? clip.left : Math.max(clip.left, left),
+        right: overflowX === 'visible' ? clip.right : Math.min(clip.right, left + el.clientWidth),
+        top: overflowY === 'visible' ? clip.top : Math.max(clip.top, top),
+        bottom: overflowY === 'visible' ? clip.bottom : Math.min(clip.bottom, top + el.clientHeight),
+      };
+    }
+    known.set(el, clip);
+    return clip;
+  };
+  return clipOf;
 }
 
 /**

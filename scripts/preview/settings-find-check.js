@@ -28,6 +28,20 @@
     return c ? Number(c.textContent) : 0;
   };
   var marks = function () { return all('.ca-settings-find-marks > span'); };
+  // How far past its width the found settings reach: a mark over text an ellipsis cut off would.
+  var widened = function () {
+    var pane = q('.ca-settings-found');
+    return pane ? pane.scrollWidth - pane.clientWidth : 0;
+  };
+  // How far past the right of what `el` shows a mark on its lines reaches.
+  var pastRight = function (el) {
+    var r = el.getBoundingClientRect();
+    var right = r.left + el.clientLeft + el.clientWidth;
+    return marks()
+      .map(function (m) { return m.getBoundingClientRect(); })
+      .filter(function (b) { return b.bottom > r.top && b.top < r.bottom; })
+      .reduce(function (most, b) { return Math.max(most, Math.round(b.right - right)); }, 0);
+  };
   // Whether every place the word shows in a setting that's found has a mark over it, as it's
   // laid out now.
   var markedWhere = function (word) {
@@ -99,6 +113,7 @@
       pane.scrollTop = pane.scrollHeight / 2;
       var where = markedWhere('pull');
       check('the marks scroll with the words', pane.scrollTop > 0 && where.places > 0 && where.missed.length === 0, 'scrolled to ' + pane.scrollTop + ', ' + where.places + ' places, missed: ' + where.missed.join(' | '));
+      check('the marks don’t widen the pane', widened() <= 0, widened() + 'px past it');
       return search('sounds');
     })
     .then(function () {
@@ -135,8 +150,22 @@
       var card = function () {
         return all('.ca-settings-found [data-section="projects"] .ca-ucard').filter(function (c) { return shown(c) && (q('.ca-ucard-name', c) || {}).textContent === project.name; })[0];
       };
+      var found = function () { return until(card, 5000, 'the project ' + project.name + ' found by its repo'); };
+      // A project's repos show on one line, cut off where they run out of room: with Settings as
+      // narrow as a small window leaves it, the repo's name is past the cut.
+      var dialog = q('.ca-settings');
+      dialog.style.width = '420px';
       return search(word)
-        .then(function () { return until(card, 5000, 'the project ' + project.name + ' found by its repo'); })
+        .then(found)
+        .then(function (c) {
+          var dd = all('dd', c).filter(function (d) { return d.textContent.toLowerCase().indexOf(word.toLowerCase()) >= 0; })[0];
+          if (!dd || dd.scrollWidth <= dd.clientWidth) note('the repos weren’t cut off at 420px: marks under an ellipsis unchecked');
+          else check('marks stop where an ellipsis cuts the words off', pastRight(dd) <= 0, pastRight(dd) + 'px past it');
+          dialog.style.width = '';
+          return search('');
+        })
+        .then(function () { return search(word); })
+        .then(found)
         .then(function (found) {
           all('button', found).filter(function (b) { return b.textContent.trim() === 'Edit'; })[0].click();
           return wait(300);
