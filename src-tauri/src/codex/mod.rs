@@ -36,7 +36,7 @@ use crate::util::{mtime_ms, parallel_map, parse_rfc3339_ms, read_first_line};
 
 use conversation::open_calls;
 use ipc::{codex_interrupt_turn, codex_start_turn};
-use rollout::{app_project_roots, archived_rollout_files, chats_dir, meta_written, parse_meta, parse_rollout, prose_of, read_index, rollout_files, thread_id_of};
+use rollout::{app_project_roots, archived_rollout_files, chats_dir, never_shown, parse_meta, parse_rollout, prose_of, read_index, rollout_files, thread_id_of};
 use side::{last_turn, SideThread};
 use terminals::{codex_cli, held_rollouts, latest_day, pair_terminals, terminals, Terminal};
 
@@ -701,9 +701,10 @@ impl Reader {
         match mtime_ms(p) {
             Some(m) => {
                 let parsed = parse_rollout(p, m, prev);
-                // A new rollout without its session meta yet says nothing of its thread: it's read
-                // again as it's written to, and by the poll, not taken for one that never shows.
-                if is_new && parsed.is_none() && !meta_written(p) {
+                // A new rollout without its session meta yet says nothing of its thread, nor does
+                // one whose meta was written since the parse: it's read again as it's written to,
+                // and by the poll, not taken for one that never shows.
+                if is_new && parsed.is_none() && !never_shown(p) {
                     return;
                 }
                 out.added |= is_new && parsed.is_some();
@@ -738,7 +739,7 @@ impl crate::harness::Reader for Reader {
             for (path, parsed) in parallel_map(files, |(p, m)| {
                 let parsed = parse_rollout(&p, m, None);
                 // One made a moment ago may have no session meta yet: the poll reads it once it has.
-                (parsed.is_some() || meta_written(&p)).then_some((p, parsed))
+                (parsed.is_some() || never_shown(&p)).then_some((p, parsed))
             }) {
                 self.rollouts.insert(path, (a.name.clone(), parsed));
             }

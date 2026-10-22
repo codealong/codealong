@@ -305,18 +305,24 @@ pub fn thread_id_of(path: &Path) -> Option<String> {
 /// How much of a rollout's first line, its session meta, is read.
 const META_MAX: u64 = 4 * 1024 * 1024;
 
-/// Whether a rollout's first line is written whole, so a parse that found no thread in it is the
-/// thread's own say (a guardian review, a subagent) and not a look too soon: Codex makes the file
-/// before it writes its session meta, and `thread/start` left one empty for 2ms before its 22KB
-/// first line (0.156.1's app-server on a scratch `CODEX_HOME`, 2026-10-22). A look in between,
-/// as the file appeared, took a helper Codealong started for a thread that never shows
-/// (`Reader::read_rollout`). A first line too long to read whole never will be.
-pub fn meta_written(path: &Path) -> bool {
-    read_first_line(path, META_MAX).is_some_and(|l| l.ends_with('\n') || l.len() as u64 >= META_MAX)
+/// Whether a rollout is of a thread that never shows (a guardian review, a subagent), as its
+/// first line says once it's written whole, rather than one a parse found nothing in because it
+/// looked too soon: Codex makes the file before it writes its session meta, and `thread/start`
+/// left one empty for 2ms before its 22KB first line (0.156.1's app-server on a scratch
+/// `CODEX_HOME`, 2026-10-22). A look in between, as the file appeared, took a helper Codealong
+/// started for a thread that never shows (`Reader::read_rollout`). One read decides it, so a line
+/// finished since the parse reads as the thread it is. A first line too long to read whole
+/// never will be.
+pub fn never_shown(path: &Path) -> bool {
+    match read_first_line(path, META_MAX) {
+        Some(line) if line.ends_with('\n') => parse_meta(&line).is_none(),
+        Some(line) => line.len() as u64 >= META_MAX,
+        None => false,
+    }
 }
 
 /// Parses a rollout. Threads you didn't start (guardian reviews, subagents) return `None`, and
-/// so does one whose session meta isn't written yet (`meta_written` tells them apart).
+/// so does one whose session meta isn't written yet (`never_shown` tells them apart).
 /// With an earlier result and the offset it stopped at, only new lines are read.
 ///
 /// A first parse reads the last 256KB, then reads back further for whatever that missed that
@@ -964,6 +970,25 @@ mod tests {
         assert!(parse_rollout(&path, 2, Some(parsed)).unwrap().0.flagged);
         assert!(parse_rollout(&path, 2, None).unwrap().0.flagged);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Only a whole first line says a rollout never shows. A parse that looked before Codex wrote
+    /// the line found nothing, and a thread's line written since must not take that for its say.
+    #[test]
+    fn only_a_whole_first_line_says_a_rollout_never_shows() {
+        let dir = crate::fixtures::scratch("codex-never-shown");
+        let path = dir.join("rollout-2026-10-22T13-30-18-01a1654e-b202-7d20-8f43-1e676c07126b.jsonl");
+        let thread = r#"{"type":"session_meta","payload":{"id":"t","cwd":"/codealong-test-missing-repo","originator":"codealong"}}"#;
+        let says = |text: &str| {
+            std::fs::write(&path, text).unwrap();
+            never_shown(&path)
+        };
+        assert!(!says(""), "nothing written yet");
+        assert!(!says(&thread[..40]), "half a first line");
+        assert!(!says(&format!("{thread}\n")), "a thread's, written since a parse found nothing");
+        assert!(says("{\"type\":\"session_meta\",\"payload\":{\"id\":\"g\",\"cwd\":\"/x\",\"source\":{\"subagent\":{\"other\":\"guardian\"}}}}\n"), "a guardian review's");
+        assert!(says("{\"type\":\"session_meta\",\"payload\":{\"id\":\"s\",\"cwd\":\"/x\",\"thread_source\":\"subagent\"}}\n"), "a subagent's");
+        assert!(says("not a rollout\n"), "a whole line that's no session meta");
     }
 
     #[test]

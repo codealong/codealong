@@ -12,7 +12,7 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - Rollouts, `archived_sessions/` and the thread index (`session_index.jsonl`):
   `codex/rollout.rs` (header, `archived_rollout_files`). Codex's shared state is in
   `state_5.sqlite`. A rollout is made empty before its session meta is written, so a reader can
-  find it without its first line (`codex/rollout.rs` `meta_written`); archiving a thread whose
+  find it without its first line (`codex/rollout.rs` `never_shown`); archiving a thread whose
   rollout is in `archived_sessions` already is refused ("no rollout found for thread id"),
   `codex/mod.rs` (`already_archived`).
 - Turns (`task_started` … `task_complete` or `turn_aborted`), reading back for the event that
