@@ -106,6 +106,8 @@ pub enum Msg {
     /// Helpers made sessions of your own. The reply is the time of the board that shows it,
     /// published at once.
     Own(Vec<String>, Sender<i64>),
+    /// A helper you sent a message to, or one an agent sent a message to (`SeenState::talking`).
+    Talking(String, bool),
     /// The setup wizard was finished or skipped (setup.rs).
     SetupDone,
     /// suggestions.json just changed at a request here: the board is published again at once.
@@ -344,6 +346,13 @@ impl Handle {
         let (tx, rx) = channel();
         self.tx.send(Msg::Own(keys, tx)).ok()?;
         rx.recv_timeout(SHOWN_WAIT).ok()
+    }
+
+    /// Notes that you sent the session `key` a message (`yours`), or that an agent or a review's
+    /// next round did: a helper you're talking to is yours until then (`Helper::yours`). Any
+    /// session is noted, as one is a helper only by what the board reads of it.
+    pub fn talking(&self, key: &str, yours: bool) {
+        let _ = self.tx.send(Msg::Talking(key.to_string(), yours));
     }
 
     /// The setup wizard was finished or skipped: it shows again only when asked for. Whether it
@@ -1684,7 +1693,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
     /// session that started it as one (origins.json), or the PR whose automatic review it is
     /// (reviews.json, or its first prompt: `autoreview::reviewers`), else the session whose
     /// scratch folder it runs in (`board::scratch_helpers`), unless you made it your own
-    /// (`SeenState::own`).
+    /// (`SeenState::own`); and whether you're talking to it (`SeenState::talking`).
     fn with_origins(&self, mut sessions: Vec<Session>) -> Vec<Session> {
         let store = origins::current();
         let reviewers = autoreview::reviewers(&self.reviews, &sessions);
@@ -1700,6 +1709,13 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             }
         }
         board::scratch_helpers(&mut sessions, crate::harness::scratch_owner, |k| self.seen.is_own(k));
+        if !self.seen.talking.is_empty() {
+            for s in sessions.iter_mut() {
+                if let Some(h) = s.helper.as_mut() {
+                    h.yours = self.seen.is_talking(&s.key);
+                }
+            }
+        }
         sessions
     }
 
@@ -2355,6 +2371,15 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                         self.publish();
                     }
                     let _ = reply.send(self.board.read().map(|b| b.generated_at).unwrap_or(0));
+                }
+                Ok(Msg::Talking(key, yours)) => {
+                    // Only a helper's is kept: what anyone says to one of your own sessions
+                    // changes nothing, and an agent's message ends it for any.
+                    let helper = self.board.read().is_ok_and(|b| b.session(&key).is_some_and(|(_, s)| s.helper.is_some()));
+                    if (helper || !yours) && self.seen.set_talking(&key, yours) {
+                        self.save_state();
+                        self.publish();
+                    }
                 }
                 Ok(Msg::SetupDone) => {
                     if !self.seen.setup_done {
@@ -3145,15 +3170,17 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         });
     }
 
-    /// What pr-links.json and the sessions' records say of PRs, for the board.
+    /// What pr-links.json and the sessions' records say of PRs, for the board, a moved
+    /// conversation's records going on in its copy (`prlinks::carry_moves`).
     fn pr_links(&self) -> board::PrLinks {
-        let (worked, unlinked, made) = prlinks::resolve(&self.pr_marks, &self.pr_store);
+        let moves = origins::current().moves();
+        let (worked, unlinked, made) = prlinks::resolve(&prlinks::carry_moves(&self.pr_marks, &moves, prlinks::add_mark), &self.pr_store);
         let picked = self.pr_store.links.iter().filter(|l| l.linked && l.primary).map(|l| (prlinks::pr_key(&l.pr), l.session.clone())).collect();
         board::PrLinks {
             worked,
             unlinked,
             made,
-            pushed: self.pr_pushes.clone(),
+            pushed: prlinks::carry_moves(&self.pr_pushes, &moves, prlinks::add_push),
             picked,
             nudged: self.pr_store.nudges.iter().cloned().collect(),
             not_nudged: self.pr_store.nudges_off.iter().cloned().collect(),

@@ -255,7 +255,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   the parent is known by its ID alone and its account is the one whose transcripts have it
   (`Reader::parent_key`). Haiku took on a Sonnet conversation too, and
   `--no-session-persistence` wrote nothing but an empty `memory` folder for the project
-  (2.1.287, 2026-10-02).
+  (2.1.287, 2026-10-02). The copy is written from the conversation's last `compact_boundary` on
+  (a conversation compacted twice moved on 2026-10-19: the copy's first message was that
+  boundary's, and none of the original's lines before it were there), so what the session did
+  before then (a PR it opened, its pushes) is in the original's transcript alone: `prlinks.rs`
+  (`carry_moves`).
 - `/btw <question>` in a session asks a separate call over the conversation's context that has
   no tools and answers once; the answer shows in that terminal only and isn't written to the
   transcript, so typing it into a session from outside is no use. The same thing is the

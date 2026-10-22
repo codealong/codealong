@@ -69,6 +69,12 @@ pub struct SeenState {
     /// (`Session::helper`), for good.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub own: Vec<String>,
+    /// Helpers you sent a message from Codealong after an agent last did, or asked about on the
+    /// side, by key: still helpers, but what they say now is for you (`Helper::yours`), until an
+    /// agent sends one a message or a review's next round goes to it (actions.rs `note_talking`,
+    /// autoreview.rs `hand`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub talking: Vec<String>,
 }
 
 fn set_up_before() -> bool {
@@ -198,6 +204,22 @@ impl SeenState {
 
     pub fn is_own(&self, key: &str) -> bool {
         self.own.iter().any(|k| k == key)
+    }
+
+    /// Notes that you're talking to a helper, or that an agent took it back. True when that
+    /// changed it.
+    pub fn set_talking(&mut self, key: &str, on: bool) -> bool {
+        let was = self.is_talking(key);
+        if on && !was {
+            self.talking.push(key.to_string());
+        } else if !on && was {
+            self.talking.retain(|k| k != key);
+        }
+        was != on
+    }
+
+    pub fn is_talking(&self, key: &str) -> bool {
+        self.talking.iter().any(|k| k == key)
     }
 
     /// Snoozes your review of a PR until `until`, in place of any snooze it had.
@@ -496,6 +518,18 @@ mod tests {
         assert!(serde_json::to_string(&s).unwrap().contains(r#""own":["codex:codex:h"]"#));
         let old: SeenState = serde_json::from_str(r#"{"firstRun":5,"seen":{}}"#).unwrap();
         assert!(old.own.is_empty() && !serde_json::to_string(&old).unwrap().contains("\"own\""));
+    }
+
+    #[test]
+    fn a_helper_youre_talking_to_is_yours_until_an_agent_takes_it_back() {
+        let mut s = SeenState::default();
+        assert!(s.set_talking("codex:codex:h", true));
+        assert!(!s.set_talking("codex:codex:h", true), "once");
+        assert!(s.is_talking("codex:codex:h") && !s.is_talking("codex:codex:other"));
+        assert!(serde_json::to_string(&s).unwrap().contains(r#""talking":["codex:codex:h"]"#));
+        assert!(s.set_talking("codex:codex:h", false) && !s.is_talking("codex:codex:h"));
+        assert!(!s.set_talking("codex:codex:h", false));
+        assert!(!serde_json::to_string(&s).unwrap().contains("talking"));
     }
 
     #[test]

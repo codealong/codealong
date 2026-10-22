@@ -446,6 +446,12 @@ pub struct Helper {
     /// --report`), on the Mac they run on.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub report: bool,
+    /// You sent it a message from Codealong after an agent last did (state.rs `talking`), so what
+    /// it says now is for you: it's listed, and its turns wait on you, as a session of yours does,
+    /// still as what it helps (`Session::helps_an_agent`). An agent's message, or the next round
+    /// of a review, makes it its agent's again. False from Macs before 2026-10-21.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub yours: bool,
 }
 
 /// A session's id as lists show it: its first seven characters.
@@ -467,12 +473,18 @@ impl Session {
         self.status == Status::Working && self.background.is_some()
     }
 
+    /// A helper whose turns are for what it helps, not for you: every helper, but one you're
+    /// talking to (`Helper::yours`). `src/lanes.ts` `helpsAnAgent` says the same for the windows.
+    pub fn helps_an_agent(&self) -> bool {
+        self.helper.as_ref().is_some_and(|h| !h.yours)
+    }
+
     /// A helper that doesn't need you: out of its worktree's status, the bar, the mark and the
     /// queue, and listed under what it helps. One that needs you (a call to allow, a question, an
-    /// error) waits on you as any session does, so its agent isn't left waiting on it unseen.
-    /// `src/lanes.ts` `helping` says the same for the windows.
+    /// error) waits on you as any session does, so its agent isn't left waiting on it unseen, and
+    /// so does one you're talking to (`helps_an_agent`).
     pub fn helping(&self) -> bool {
-        self.helper.is_some() && !matches!(self.status, Status::Needs | Status::Error)
+        self.helps_an_agent() && !matches!(self.status, Status::Needs | Status::Error)
     }
 
     /// A helper (`helping`) or a headless run (`headless`) that doesn't need you: what started it
@@ -480,7 +492,7 @@ impl Session {
     /// queue. One waiting on a call to allow waits on you as any session does. `src/lanes.ts`
     /// `unattended` says the same for the windows.
     pub fn unattended(&self) -> bool {
-        (self.helper.is_some() || self.headless) && !matches!(self.status, Status::Needs | Status::Error)
+        (self.helps_an_agent() || self.headless) && !matches!(self.status, Status::Needs | Status::Error)
     }
 
     /// A session of which only whose it is is known: in a terminal, idle, not running, with no

@@ -42,13 +42,20 @@ const statusAt = (s: Session) => s.statusSince ?? s.lastActivity;
  *  prompt sent while it works goes on in the same status. Null when its status doesn't say. */
 export const workingSince = (s: Session) => (s.statusSince != null ? Math.max(s.statusSince, s.lastPromptAt) : null);
 
+/** A helper whose turns are for what it helps, not for you: every helper but one you're talking
+ *  to (`Helper.yours`), which is listed and waits on you as a session of yours does. The
+ *  engine's `Session::helps_an_agent` says the same. */
+export function helpsAnAgent(s: Pick<Session, 'helper'>): boolean {
+  return s.helper != null && !s.helper.yours;
+}
+
 /** A helper or a headless run that doesn't need you: what started it waits on it, not you, so
  *  it's out of its worktree's status, the bar, the mark and the queues, and Sessions lists it
  *  under the session it works for (`workingFor`), or counts it there. One that needs you (a call
- *  to allow, a question, an error) waits on you as any session does. The engine's
- *  `Session::unattended` says the same. */
+ *  to allow, a question, an error) waits on you as any session does, and so does a helper you're
+ *  talking to (`helpsAnAgent`). The engine's `Session::unattended` says the same. */
 export function unattended(s: Pick<Session, 'helper' | 'headless' | 'status'>): boolean {
-  return (s.helper != null || !!s.headless) && s.status !== 'needs' && s.status !== 'error';
+  return (helpsAnAgent(s) || !!s.headless) && s.status !== 'needs' && s.status !== 'error';
 }
 
 /** Snoozed and not running: it waits apart until its time, out of Needs you and Your turn, as on

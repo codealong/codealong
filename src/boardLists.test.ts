@@ -60,7 +60,7 @@ import {
   schedulesIn,
 } from './boardLists';
 import { needsOn } from './devices';
-import { bayOf, runsShownKey, sessionHomes } from './lanes';
+import { bayOf, runsShownKey, sessionHomes, unattended } from './lanes';
 import { ALL_PROJECTS } from './quick';
 import { blankSchedule } from './schedules';
 import { todoItem, type TodoItem } from './todos';
@@ -544,6 +544,14 @@ describe('the Sessions view’s lists', () => {
       expect(placeHelpers(plain, false)).toBe(plain);
       // Archived helpers aren't counted.
       expect(helperCounts(sessionItemsOf([lane('/r/a', [boss, { ...done, archived: true }])])).size).toBe(0);
+    });
+
+    it('lists a helper or a review you’re talking to as a session of yours, still counted on its session’s chip', () => {
+      const talking = (s: Session): Session => ({ ...s, helper: { ...s.helper, yours: true } });
+      const items = sessionItemsOf([lane('/r/a', [talking(done), talking(review), busy])]);
+      expect(keysOf(placeHelpers(items, false))).toEqual([done.key, review.key]);
+      expect(unattended(talking(done))).toBe(false);
+      expect(helperCounts(sessionItemsOf([lane('/r/a', [boss, talking(done)])])).get(boss.key)?.count).toBe(1);
     });
   });
 

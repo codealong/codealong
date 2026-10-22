@@ -170,6 +170,14 @@ impl Store {
         (at != key).then_some(at)
     }
 
+    /// Every move to another account of its harness (`moved_to`), as the session it moved from and
+    /// its copy, the oldest first, so one moved on again comes after the move that made it.
+    pub fn moves(&self) -> Vec<(String, String)> {
+        let mut moves: Vec<(i64, &String, &String)> = self.sessions.iter().filter(|(k, e)| e.how == OriginHow::Fork && is_move(&e.from, k)).map(|(k, e)| (e.at, &e.from, k)).collect();
+        moves.sort();
+        moves.into_iter().map(|(_, from, to)| (from.clone(), to.clone())).collect()
+    }
+
     /// Notes where each headless run came from (`ended_runs`), unless something noted it
     /// already: a start that said which session it made knows better. Not `known`: the run's
     /// process said where it came from, not a start.
@@ -545,6 +553,8 @@ mod tests {
         // A copy that's gone (closed before it was sent anything) leaves the session where it was.
         assert_eq!(store.moved_to("claude:claude:a", |k| k != "claude:claude:c").as_deref(), Some("claude:claude2:b"));
         assert_eq!(store.moved_to("claude:claude:a", |k| k != "claude:claude2:b"), None);
+        // Every move, each after the one that made the session it moved from.
+        assert_eq!(store.moves(), vec![("claude:claude:a".to_string(), "claude:claude2:b".to_string()), ("claude:claude2:b".to_string(), "claude:claude:c".to_string())]);
         assert!(is_move("claude:claude:a", "claude:claude2:b") && !is_move("claude:claude:a", "codex:codex:b") && !is_move("claude:claude:a", "claude:claude:b"));
     }
 

@@ -2371,16 +2371,16 @@ Commands:
           work (comments, changes asked for, failing checks, conflicts), unless another
           of the PR's sessions runs (`[sessions] resume_for_pr_news`). Its primary
           session is the one that pushed to its branch most, the one that opened it
-          counting as once at least and winning a tie, unless another was made it here
-          or from the PR's menu in the app (Primary session); the PR's other sessions
-          aren't told. What the signed-in user did, which is what its own agent did
-          through gh, isn't told. Run from a session, that session becomes the one told,
-          unless another running session is the PR's primary (--take). Off for a PR
-          until turned on for it, here or from its card in the app, unless
-          `[pull_requests] nudge_by_default` in config.toml turns it on for every PR of
-          yours; one turned on approved already tells its session that now.
-          `[pull_requests] nudge_about` can keep what it tells to comments and requests
-          for changes ("feedback"), and failing checks and conflicts
+          counting as once at least and winning a tie, never an automatic review of it,
+          unless another was made it here or from the PR's menu in the app (Primary
+          session); the PR's other sessions aren't told. What the signed-in user did,
+          which is what its own agent did through gh, isn't told. Run from a session,
+          that session becomes the one told, unless another running session is the PR's
+          primary (--take). Off for a PR until turned on for it, here or from its card
+          in the app, unless `[pull_requests] nudge_by_default` in config.toml turns it
+          on for every PR of yours; one turned on approved already tells its session
+          that now. `[pull_requests] nudge_about` can keep what it tells to comments and
+          requests for changes ("feedback"), and failing checks and conflicts
           ("feedback-and-checks"), each with a merge too ("feedback-and-merges",
           "feedback-checks-and-merges")
   review  Start an agent's review of a PR now, as Review with… does in the app: a round
@@ -2512,16 +2512,17 @@ conflict with its base, with where the PR stands. One on this Mac that has stopp
 resumed out of sight with what asks for work (comments, changes asked for, failing
 checks, conflicts), unless another of the PR's sessions runs (`[sessions]
 resume_for_pr_news`). Its primary session is the one that pushed to its branch most, the
-one that opened it counting as once at least and winning a tie, unless another was made
-it here or from the PR's menu in the app (Primary session); the PR's other sessions
-aren't told. What the signed-in user did, which is what its own agent did through gh,
-isn't told. Run from a session, that session becomes the one told, unless another
-running session is the PR's primary (--take). Off for a PR until turned on for it, here
-or from its card in the app, unless `[pull_requests] nudge_by_default` in config.toml
-turns it on for every PR of yours; one turned on approved already tells its session that
-now. `[pull_requests] nudge_about` can keep what it tells to comments and requests for
-changes ("feedback"), and failing checks and conflicts ("feedback-and-checks"), each
-with a merge too ("feedback-and-merges", "feedback-checks-and-merges")
+one that opened it counting as once at least and winning a tie, never an automatic
+review of it, unless another was made it here or from the PR's menu in the app (Primary
+session); the PR's other sessions aren't told. What the signed-in user did, which is
+what its own agent did through gh, isn't told. Run from a session, that session becomes
+the one told, unless another running session is the PR's primary (--take). Off for a PR
+until turned on for it, here or from its card in the app, unless `[pull_requests]
+nudge_by_default` in config.toml turns it on for every PR of yours; one turned on
+approved already tells its session that now. `[pull_requests] nudge_about` can keep what
+it tells to comments and requests for changes ("feedback"), and failing checks and
+conflicts ("feedback-and-checks"), each with a merge too ("feedback-and-merges",
+"feedback-checks-and-merges")
 
 Usage: codealong pr nudge [OPTIONS] <PR>
 

@@ -273,7 +273,7 @@ function FromSchedule({ schedule, onShow }: { schedule: { id: string; name: stri
   );
 }
 
-function ReviewOf({ pr, prs, onOpenPr }: { pr: string; prs: Pr[]; onOpenPr?: (pr: Pr) => void }) {
+function ReviewOf({ pr, yours, prs, onOpenPr }: { pr: string; yours: boolean; prs: Pr[]; onOpenPr?: (pr: Pr) => void }) {
   const [slug, number] = pr.split('#');
   // reviews.json keys a PR in lower case, as GitHub's names compare.
   const found = prs.find((p) => p.url.toLowerCase().includes(`github.com/${slug}/pull/${number}`));
@@ -281,7 +281,7 @@ function ReviewOf({ pr, prs, onOpenPr }: { pr: string; prs: Pr[]; onOpenPr?: (pr
     <button
       type="button"
       className="ca-sessinsp-kin is-parent"
-      title={`An automatic review of #${number}: Codealong posts what it writes. Its turns don't wait on you; it shows when it needs you.${found && onOpenPr ? ' Click to open the PR.' : ''}`}
+      title={`An automatic review of #${number}: Codealong posts what it writes. ${yours ? 'You’re talking to it, so its turns are yours until its next round.' : 'Its turns don’t wait on you; it shows when it needs you, or once you write to it.'}${found && onOpenPr ? ' Click to open the PR.' : ''}`}
       disabled={!found || !onOpenPr}
       onClick={() => found && onOpenPr?.(found)}
     >
@@ -366,7 +366,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
     <header className="ca-sessinsp-head" onContextMenu={headerMenu(onMenu && (() => onMenu()))}>
       {back && <PanelBack back={back} />}
       {lineage?.from && <KinRow kin={lineage.from} now={now} parent onShow={onShowSession} onMenu={onSessionMenu} />}
-      {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} prs={prs} onOpenPr={onOpenPr} />}
+      {!lineage?.from && s.helper?.pr && <ReviewOf pr={s.helper.pr} yours={!!s.helper.yours} prs={prs} onOpenPr={onOpenPr} />}
       {!lineage?.from && !s.helper?.pr && schedule && <FromSchedule schedule={schedule} onShow={onShowSchedule} />}
       <div className="ca-sessinsp-top">
         <SessionGlyph s={s} size={14} />

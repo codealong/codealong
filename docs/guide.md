@@ -743,6 +743,11 @@ and in its panel, whose tooltip says why it's the one:
   doesn't take it over, but one that goes on with the work does;
 - else the one that started first.
 
+An automatic review of the PR is never its primary session unless you pick it: it runs in the PR's
+worktree on its branch, but it reads the work rather than doing it. A conversation moved to
+another account goes on in its copy with the PRs it opened and the pushes it made before the move,
+though Claude Code writes the copy only from the conversation's last compaction on.
+
 Pushes are read from Claude Code's records (`gitOperation.push`), which name the branch but not
 the repo, so only sessions in the PR's repo count.
 
@@ -2573,6 +2578,12 @@ says *Helper of* that session over its title, and an automatic review's says *Re
 A helper whose session isn't listed (filtered out, or a review of a PR that waits on your review,
 which has no session of yours) is listed on its own only while it waits on you, with a *Helper* or
 *Review of #N* chip; a search finds every one.
+
+A helper you send a message to from Codealong (on this Mac or your phone), or ask something on the
+side, is yours while you talk to it: it's listed as any session of yours is (under its session, when that's listed), its ended
+turns are Your turn, and it's on the bar and in the queues, still a helper of its session or a
+review of its PR. An agent's message to it, sent with `codealong session send`, or a review's next
+round makes it its agent's again.
 
 A helper that needs you (a call to allow, a question, an error) waits on you as any session does,
 so its agent isn't left waiting on it unseen: its worktree goes to Needs you, it's on the bar and

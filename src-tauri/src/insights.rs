@@ -109,11 +109,12 @@ pub fn ask(s: &Session, now: i64) -> Option<(Kind, String)> {
         let excerpt = s.excerpt.as_deref()?;
         (Kind::Approval, vec![command_in(excerpt).unwrap_or(excerpt), since.as_str()])
     } else if turn_ended(s) {
-        // A helper's last reply is for its agent to read, and a headless run's for what ran it:
+        // A helper's last reply is for its agent to read (unless you're talking to it), and a
+        // headless run's for what ran it:
         // what it asks isn't asked of you, and a script's hundreds of runs would each be a read. A
         // turn its harness ended (the connection lost, a usage limit, cut off) has an error for a
         // reply, which Jev would take for the agent being blocked.
-        if now - s.last_activity > RECENT_MS || s.helper.is_some() || s.headless || s.connection_lost.is_some() || s.cut_off.is_some() || s.limit.is_some() {
+        if now - s.last_activity > RECENT_MS || s.helps_an_agent() || s.headless || s.connection_lost.is_some() || s.cut_off.is_some() || s.limit.is_some() {
             return None;
         }
         // The same reply to another prompt is another moment: finished is asked about the prompt.
@@ -475,7 +476,7 @@ mod tests {
         no_reply.reply_tail = None;
         assert_eq!(ask(&no_reply, NOW), None);
         // A helper's turn is its agent's to read; what it waits on you to allow is still asked.
-        let helper = |status| Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:boss".into()), pr: None, report: false }), ..session(status) };
+        let helper = |status| Session { helper: Some(crate::model::Helper { parent: Some("claude:claude:boss".into()), pr: None, report: false, yours: false }), ..session(status) };
         assert_eq!(ask(&helper(Status::Unread), NOW), None);
         assert_eq!(ask(&helper(Status::Needs), NOW).map(|a| a.0), Some(Kind::Approval));
         // So is a headless run's.

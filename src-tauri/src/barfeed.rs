@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn lists_a_helper_only_while_it_needs_you() {
-        let helper = |key: &str, status: Status| Session { helper: Some(crate::model::Helper { parent: Some("parent".into()), pr: None, report: false }), ..session(key, status, NOW - 10) };
+        let helper = |key: &str, status: Status| Session { helper: Some(crate::model::Helper { parent: Some("parent".into()), pr: None, report: false, yours: false }), ..session(key, status, NOW - 10) };
         let b = board(vec![lane("/a", vec![session("parent", Status::Working, NOW - 20), helper("busy", Status::Working), helper("done", Status::Idle), helper("asks", Status::Needs), helper("failed", Status::Error)], false)], vec![]);
         let f = feed(&b);
         let got: Vec<(String, Group)> = f.items.into_iter().map(|i| (i.key, i.group)).collect();

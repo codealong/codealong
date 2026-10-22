@@ -744,7 +744,20 @@ fn sent_after(engine: &Handle, c: &Call, key: &str, text: &str, said: &str) -> R
         std::thread::sleep(Duration::from_millis(200));
     }
     let sent = send::send_here(engine, key, text, sender_of(c.from), false).map_err(|e| format!("{said} What you wrote wasn't sent: {}", words(e)))?;
+    note_talking(engine, c, key);
     Ok(Value::String(format!("Denied it, then sent what you wrote. {}", sent.message)))
+}
+
+/// Notes who sent the session `key` a message, or asked about it on the side, for a helper's
+/// turns to be yours while you're talking to it (`Helper::yours`): what you sent from a window or
+/// your phone makes it yours, and an agent's message gives it back to its agent. Another
+/// device's claims nothing of yours, as an agent there may have sent it, and changes nothing.
+fn note_talking(engine: &Handle, c: &Call, key: &str) {
+    match c.from {
+        From::Here | From::Phone => engine.talking(key, true),
+        From::Command(_) => engine.talking(key, false),
+        From::Device => {}
+    }
 }
 
 /// Who a message is from, as send.rs tells the session.
@@ -765,6 +778,7 @@ fn send_prompt(engine: &Handle, c: &Call) -> Result<Value, String> {
     let key = c.session()?;
     unarchive_to_send(engine, c, key);
     let sent = send::send_here(engine, key, &p.text, sender_of(c.from), p.now).map_err(words)?;
+    note_talking(engine, c, key);
     if matches!(c.from, From::Device | From::Phone) && sent.opened {
         return Err(format!("It needs someone at this device: {}", sent.message));
     }
@@ -1431,10 +1445,15 @@ fn done_anyway(engine: &Handle, peers: &Peers, device: &str, own: &str, why: &st
 }
 
 /// Asks a throwaway copy of it `text`, on the side (side.rs): the session carries on, unaware.
-/// Returns the side conversation with the question in it; the answer goes to the windows.
+/// Returns the side conversation with the question in it; the answer goes to the windows. A
+/// helper you ask about is one you've taken up, as one you send a message to is (`note_talking`),
+/// so it's listed where its side conversation is.
 fn side_ask(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Side = c.read()?;
-    to_value(crate::side::ask(&engine.board(), &cfg()?, c.session()?, &p.text).map_err(words)?)
+    let key = c.session()?;
+    let side = crate::side::ask(&engine.board(), &cfg()?, key, &p.text).map_err(words)?;
+    note_talking(engine, c, key);
+    to_value(side)
 }
 
 /// Closes its side conversation: a copy that's answering answers what it was asked and then ends,

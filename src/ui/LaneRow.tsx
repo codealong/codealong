@@ -387,8 +387,8 @@ export function HelperChip({ session: s, nested }: { session: Session; nested?: 
   if (!s.helper) return null;
   const pr = s.helper.pr?.split('#')[1];
   const [label, title] = pr
-    ? [`Review of #${pr}`, `An automatic review of #${pr}: its turns are for Codealong to post, not for you, so it's listed on the PR. It shows here when it needs you.`]
-    : ['Helper', 'A helper another session’s agent started: its turns are for that agent, not for you, so it’s listed under that session. It shows here when it needs you.'];
+    ? [`Review of #${pr}`, s.helper.yours ? `An automatic review of #${pr} you’re talking to: its turns are yours until its next round.` : `An automatic review of #${pr}: its turns are for Codealong to post, not for you, so it's listed on the PR. It shows here when it needs you, or once you write to it.`]
+    : ['Helper', s.helper.yours ? 'A helper another session’s agent started, which you’re talking to: its turns are yours until that agent writes to it again.' : 'A helper another session’s agent started: its turns are for that agent, not for you, so it’s listed under that session. It shows here when it needs you, or once you write to it.'];
   return (
     <Chip className="ca-helperchip" title={title}>
       <Icon name="subtask" size={12} />

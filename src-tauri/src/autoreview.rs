@@ -2004,6 +2004,8 @@ fn keep_files(pr: &PrItem, head: &str, md: &str, diff: &str, changes: Option<&st
 #[allow(clippy::too_many_arguments)]
 fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, model: Option<&str>, effort: Option<&str>, text: String) -> Result<(Option<String>, Option<Pending>), String> {
     let Some((lane, s)) = board.session(key) else { return Err("its session is gone".into()) };
+    // A review you were talking to is the PR's again: what this round says is Codealong's to post.
+    engine.talking(key, false);
     if s.live {
         crate::send::tell(engine, key, &text).map_err(|e| format!("its session couldn't be sent it: {e:#}"))?;
         return Ok((Some(key.to_string()), None));

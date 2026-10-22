@@ -1986,6 +1986,10 @@ export interface Helper {
   pr?: string;
   /** Its session is told when its turn ends or it waits on you (`start --helper --report`). */
   report?: boolean;
+  /** You sent it a message after an agent last did, so what it says now is for you: listed, and
+   *  its turns wait on you (lanes.ts `helpsAnAgent`), until an agent's message or a review's
+   *  next round. Missing otherwise, and from older Macs. */
+  yours?: boolean;
 }
 
 /** Where a session came from: a fork of another session (its conversation copied as far as it

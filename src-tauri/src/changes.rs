@@ -562,10 +562,10 @@ fn waits_on_user(s: &Session) -> bool {
 
 /// What happened to `s` since its mark, or with none since `since`. Archived sessions are left
 /// out, and so are a helper's turns, which are its agent's to read: only its waiting on the user
-/// is told.
+/// is told, unless the user is talking to it (`Helper::yours`).
 pub fn session_change(s: &Session, mark: Option<&SessionMark>, since: i64) -> Option<SessionChange> {
     use SessionChange::*;
-    if s.archived || (s.helper.is_some() && !waits(s.status)) {
+    if s.archived || (s.helps_an_agent() && !waits(s.status)) {
         return None;
     }
     let now = match s.status {
@@ -741,10 +741,10 @@ fn todo_row(change: TodoChange, t: &Todo) -> TodoRow {
 }
 
 /// A session of a worktree's own that's at work there now: working or waiting on its user, or
-/// live and active within the hour. Helpers work for another session and headless runs for
-/// what ran them, so neither is counted.
+/// live and active within the hour. Helpers work for another session (unless the user is talking
+/// to one) and headless runs for what ran them, so neither is counted.
 fn working_here(s: &Session, now: i64) -> bool {
-    s.visitor.is_none() && !s.archived && s.helper.is_none() && !s.headless && (matches!(s.status, Status::Working | Status::Needs | Status::Error) || (s.live && now - s.last_activity < ACTIVE_MS))
+    s.visitor.is_none() && !s.archived && !s.helps_an_agent() && !s.headless && (matches!(s.status, Status::Working | Status::Needs | Status::Error) || (s.live && now - s.last_activity < ACTIVE_MS))
 }
 
 /// The message that began the latest turn in a page of a conversation, who sent it when it wasn't

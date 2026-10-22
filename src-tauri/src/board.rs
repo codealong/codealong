@@ -1183,11 +1183,16 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
 /// goes on with the work does. Without pushes that's the one that opened it. A copy of a
 /// conversation (a fork, a move to another account) carries its marks and pushes with their
 /// times, so the one that started first wins a tie. An archived session isn't listed, so the
-/// next takes over.
+/// next takes over. Nor is an automatic review (`Helper::pr`), unless picked: it reads the work
+/// and says what it found, and runs in the PR's worktree on its branch, so with the session
+/// that opened it gone it took over as the one that started first, and was told of what
+/// happened on the PR in place of the work's own session.
 fn pr_primary(lanes: &[Lane], sessions: &[PrSession], key: &str, links: &PrLinks) -> Option<(String, PrimaryBy)> {
     if let Some(k) = links.picked.get(key).filter(|k| sessions.iter().any(|s| &s.key == *k)) {
         return Some((k.clone(), PrimaryBy::Picked));
     }
+    let reviews = |k: &str| home(lanes, k).is_some_and(|(_, s)| s.helper.as_ref().is_some_and(|h| h.pr.is_some()));
+    let sessions: Vec<&PrSession> = sessions.iter().filter(|s| !reviews(&s.key)).collect();
     let started = |k: &str| home(lanes, k).map_or(i64::MAX, |(_, s)| s.started_at.unwrap_or(s.last_activity));
     // When its records first show it.
     let mark = |k: &str| links.made.get(key).into_iter().flatten().find(|(m, _)| m == k).map(|(_, at)| crate::prlinks::mark_order(*at));
@@ -1335,7 +1340,7 @@ pub fn helper_of(parent: Option<(&str, bool)>, on_board: impl Fn(&str) -> bool, 
         None => (None, false),
     };
     let pr = reviews.map(String::from);
-    (parent.is_some() || pr.is_some()).then_some(Helper { parent, pr, report })
+    (parent.is_some() || pr.is_some()).then_some(Helper { parent, pr, report, yours: false })
 }
 
 /// Sessions started in another session's own scratch folder (`Adapter::scratch_owner`: Claude
@@ -1350,7 +1355,7 @@ pub fn scratch_helpers(sessions: &mut [Session], owner_of: impl Fn(&Path) -> Opt
     let keys: HashMap<(Harness, String), String> = sessions.iter().map(|s| ((s.harness, s.id.clone()), s.key.clone())).collect();
     for s in sessions.iter_mut().filter(|s| s.helper.is_none() && s.origin.is_none() && !s.headless && !own(&s.key)) {
         let Some(parent) = owner_of(Path::new(&s.cwd)).and_then(|o| keys.get(&o)).filter(|k| **k != s.key) else { continue };
-        s.helper = Some(Helper { parent: Some(parent.clone()), pr: None, report: false });
+        s.helper = Some(Helper { parent: Some(parent.clone()), pr: None, report: false, yours: false });
         s.origin = Some(SessionOrigin { key: parent.clone(), how: OriginHow::Started });
     }
 }
@@ -1364,8 +1369,9 @@ pub fn helpers_of<'a>(lanes: &'a [Lane], key: &str) -> Vec<&'a Session> {
 /// Applies a helper's rule to it, where quiet is applied (`apply_quiet`): a turn it ends is idle
 /// rather than Your turn, as its agent reads what it wrote, not you. One that needs you (a call
 /// to allow, a question, an error) still does, and your own Mark as unread still brings it back.
+/// One you're talking to (`Helper::yours`) wrote it for you, so its turn is yours.
 pub fn apply_helper(s: &mut Session) {
-    if s.helper.is_some() && s.status == Status::Unread {
+    if s.helps_an_agent() && s.status == Status::Unread {
         s.status = Status::Idle;
     }
 }
@@ -2653,7 +2659,9 @@ mod tests {
     #[test]
     fn a_prs_primary_is_the_one_picked_else_the_one_that_opened_it_else_the_first_started() {
         let s = |key: &str, started: i64| Session { started_at: Some(started), ..crate::fixtures::session(key) };
-        let lanes = vec![crate::fixtures::lane("/w", vec![s("a", 30), s("b", 10), s("c", 20), s("copy", 40)])];
+        // An automatic review of the PR, in its worktree on its branch, started first of all.
+        let review = Session { helper: Some(Helper { pr: Some("o/r#1".into()), ..Default::default() }), ..s("review", 5) };
+        let lanes = vec![crate::fixtures::lane("/w", vec![s("a", 30), s("b", 10), s("c", 20), s("copy", 40), review])];
         let listed = |keys: &[&str]| keys.iter().map(|k| PrSession { key: (*k).into(), lane: "/w".into(), pushes: 0 }).collect::<Vec<_>>();
         let primary = |keys: &[&str], links: &PrLinks| pr_primary(&lanes, &listed(keys), "o/r#1", links).map(|(k, _)| k);
         let mut links = PrLinks::default();
@@ -2670,6 +2678,13 @@ mod tests {
         links.picked.insert("o/r#1".into(), "a".into());
         assert_eq!(primary(&["a", "b", "c"], &links).as_deref(), Some("a"));
         assert_eq!(primary(&["b", "c"], &links).as_deref(), Some("c"));
+        // The review is never it, though it started first, unless it's picked: with nothing else
+        // listed, the PR has none.
+        let links = PrLinks::default();
+        assert_eq!(primary(&["review", "c", "b"], &links).as_deref(), Some("b"));
+        assert_eq!(primary(&["review"], &links), None);
+        let picked = PrLinks { picked: HashMap::from([("o/r#1".to_string(), "review".to_string())]), ..Default::default() };
+        assert_eq!(primary(&["review", "b"], &picked).as_deref(), Some("review"));
     }
 
     /// From a real PR: one session opened a small PR from its worktree, with a quiet
@@ -4406,10 +4421,10 @@ mod tests {
     #[test]
     fn a_helper_helps_a_session_still_on_the_board_or_a_pr() {
         let here = |k: &str| k == "claude:claude:boss";
-        assert_eq!(helper_of(Some(("claude:claude:boss", true)), here, None), Some(Helper { parent: Some("claude:claude:boss".into()), pr: None, report: true }));
+        assert_eq!(helper_of(Some(("claude:claude:boss", true)), here, None), Some(Helper { parent: Some("claude:claude:boss".into()), pr: None, report: true, yours: false }));
         // The session that started it is gone: it's yours again.
         assert_eq!(helper_of(Some(("claude:claude:gone", true)), here, None), None);
-        assert_eq!(helper_of(None, here, Some("o/r#7")), Some(Helper { parent: None, pr: Some("o/r#7".into()), report: false }));
+        assert_eq!(helper_of(None, here, Some("o/r#7")), Some(Helper { parent: None, pr: Some("o/r#7".into()), report: false, yours: false }));
         assert_eq!(helper_of(None, here, None), None);
         // A helper's ended turn is idle; anyone else's, and its other statuses, are as they were.
         let ended = Session { status: Status::Unread, ..Session::new(Harness::Claude, "claude", "rev") };
@@ -4421,6 +4436,12 @@ mod tests {
             apply_helper(&mut h);
             assert_eq!((h.status, h.helping()), (want, !matches!(want, Status::Needs | Status::Error)));
         }
+        // One you're talking to wrote its turn for you: it waits on you as yours do, still the
+        // PR's review.
+        let mut talked = Session { helper: Some(Helper { pr: Some("o/r#7".into()), yours: true, ..Default::default() }), ..ended.clone() };
+        apply_helper(&mut talked);
+        assert_eq!(talked.status, Status::Unread);
+        assert!(!talked.helping() && !talked.unattended() && !talked.helps_an_agent() && talked.helper.is_some());
     }
 
     /// A background job's agent tried effort levels on test chats in tmux, in its own folder, and
@@ -4434,7 +4455,7 @@ mod tests {
             at("54a9a7a0-b633", "/r/codealong"),
             at("test-chat", &format!("{JOB}/tmp/efftest")),
             // Started there with `codealong start --helper`, it keeps what that said.
-            Session { helper: Some(Helper { parent: Some("claude:claude:other".into()), pr: None, report: true }), ..at("asked", JOB) },
+            Session { helper: Some(Helper { parent: Some("claude:claude:other".into()), pr: None, report: true, yours: false }), ..at("asked", JOB) },
             Session { headless: true, ..at("run", JOB) },
             at("mine", JOB),
             at("elsewhere", "/r/codealong"),
@@ -4543,7 +4564,7 @@ mod tests {
 
     #[test]
     fn a_sessions_helpers_are_the_ones_it_started_as_helpers_each_once() {
-        let of = |id: &str, parent: Option<&str>| Session { helper: parent.map(|p| Helper { parent: Some(p.into()), pr: None, report: false }), ..Session::new(Harness::Claude, "claude", id) };
+        let of = |id: &str, parent: Option<&str>| Session { helper: parent.map(|p| Helper { parent: Some(p.into()), pr: None, report: false, yours: false }), ..Session::new(Harness::Claude, "claude", id) };
         let visiting = Session { visitor: Some("worked here".into()), ..of("a", Some("claude:claude:boss")) };
         let archived = Session { archived: true, ..of("old", Some("claude:claude:boss")) };
         let lanes = [

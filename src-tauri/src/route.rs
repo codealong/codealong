@@ -164,7 +164,7 @@ fn lane_card(l: &Lane, now: i64) -> Value {
     if let Some(pr) = &l.pr {
         card.insert("pull request".into(), json!(clip(&format!("#{} {}", pr.number, pr.title))));
     }
-    let mut titles: Vec<&Session> = l.sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && s.helper.is_none() && !s.headless && !s.title.trim().is_empty()).collect();
+    let mut titles: Vec<&Session> = l.sessions.iter().filter(|s| s.visitor.is_none() && !s.archived && !s.helps_an_agent() && !s.headless && !s.title.trim().is_empty()).collect();
     titles.sort_by_key(|s| -s.last_prompt_at);
     let recent: Vec<String> = titles.iter().take(5).map(|s| clip(&s.title)).collect();
     if !recent.is_empty() {
@@ -202,13 +202,14 @@ fn named_repos(text: &str, lanes: &[&Lane]) -> Vec<String> {
 
 /// The sessions and worktrees to offer, in the panel's project. Each session once, from the
 /// lane it runs in; archived ones, long-stopped ones, helpers (whose agent talks to them, not
-/// you) and headless runs (whose script does) stay out.
+/// you, unless you've taken one up: `Helper::yours`) and headless runs (whose script does) stay
+/// out.
 fn candidates<'a>(board: &'a Board, project: &str, now: i64) -> (Vec<(&'a Lane, &'a Session)>, Vec<&'a Lane>) {
     let lanes: Vec<&Lane> = board.lanes.iter().filter(|l| in_project(l, project)).collect();
     let mut sessions: Vec<(&Lane, &Session)> = lanes
         .iter()
         .flat_map(|l| l.sessions.iter().map(move |s| (*l, s)))
-        .filter(|(_, s)| s.visitor.is_none() && !s.archived && s.helper.is_none() && !s.headless && (s.live || now - s.last_prompt_at < STOPPED_WITHIN_MS))
+        .filter(|(_, s)| s.visitor.is_none() && !s.archived && !s.helps_an_agent() && !s.headless && (s.live || now - s.last_prompt_at < STOPPED_WITHIN_MS))
         .collect();
     sessions.sort_by(|a, b| b.1.live.cmp(&a.1.live).then(b.1.last_prompt_at.cmp(&a.1.last_prompt_at)).then(a.1.key.cmp(&b.1.key)));
     sessions.truncate(MAX_SESSIONS);
@@ -643,7 +644,7 @@ mod tests {
         let mut archived = session("c:a", "Archived one", Status::Idle, false, NOW);
         archived.archived = true;
         let mut helper = session("c:h", "Review the diff", Status::Working, true, NOW);
-        helper.helper = Some(crate::model::Helper { parent: Some("c:1".into()), pr: None, report: false });
+        helper.helper = Some(crate::model::Helper { parent: Some("c:1".into()), pr: None, report: false, yours: false });
         let mut run = session("c:p", "cwd-29", Status::Working, true, NOW);
         run.headless = true;
         let mut elsewhere = lane("/tmp/x", ELSEWHERE, "x", vec![session("c:x", "Scratch", Status::Idle, true, NOW)], NOW);

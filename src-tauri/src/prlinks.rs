@@ -194,6 +194,24 @@ pub fn add_push(have: &mut Vec<(String, i64)>, branch: String, at: i64) -> bool 
     true
 }
 
+/// `by_session` (`Marks` or `Pushes`) with what each session that moved to another account
+/// (`moves`, as origins.rs `Store::moves` lists them) had carried to its copy, as `add` adds one,
+/// so the conversation's records go on where it does. Claude Code writes the copy from the
+/// conversation's last compaction on, so what came before is in the original's records alone,
+/// and the original is archived as the copy takes over: a PR it opened before then was left
+/// with no session that opened it, and an automatic review of it took its place.
+pub fn carry_moves(by_session: &HashMap<String, Vec<(String, i64)>>, moves: &[(String, String)], add: fn(&mut Vec<(String, i64)>, String, i64) -> bool) -> HashMap<String, Vec<(String, i64)>> {
+    let mut out = by_session.clone();
+    for (from, to) in moves {
+        let Some(had) = out.get(from).cloned() else { continue };
+        let have = out.entry(to.clone()).or_default();
+        for (what, at) in had {
+            add(have, what, at);
+        }
+    }
+    out
+}
+
 /// PR key → session keys, from what each session's records show and the links made by hand;
 /// the pairs unlinked by hand; and PR key → the sessions whose records show it, each with the
 /// time of its first mark, which says who opened it.
@@ -339,5 +357,24 @@ mod tests {
         assert!(!add_mark(&mut have, "o/r#1".into(), 7));
         assert!(!add_mark(&mut have, "o/r#1".into(), 0));
         assert_eq!(have, vec![("o/r#1".to_string(), 5)]);
+    }
+
+    #[test]
+    fn a_moved_conversations_records_go_on_in_its_copy() {
+        // The original opened #1 and pushed to its branch; its copy starts after that, at the
+        // conversation's last compaction, and has only what came later.
+        let marks: Marks = HashMap::from([("claude:a:s".to_string(), vec![("o/r#1".to_string(), 10)]), ("claude:b:s".to_string(), vec![("o/r#2".to_string(), 50)])]);
+        let pushes: Pushes = HashMap::from([("claude:a:s".to_string(), vec![("feature".to_string(), 12)])]);
+        let moves = [("claude:a:s".to_string(), "claude:b:s".to_string()), ("claude:b:s".to_string(), "claude:a:t".to_string())];
+        let carried = carry_moves(&marks, &moves, add_mark);
+        assert_eq!(carried["claude:b:s"], vec![("o/r#2".to_string(), 50), ("o/r#1".to_string(), 10)]);
+        // Moved on again, it takes them all, and the original keeps its own.
+        assert_eq!(carried["claude:a:t"], carried["claude:b:s"]);
+        assert_eq!(carried["claude:a:s"], marks["claude:a:s"]);
+        let (_, _, made) = resolve(&carried, &LinkStore::default());
+        assert!(made["o/r#1"].contains(&("claude:b:s".to_string(), 10)), "the copy opened it when the original did");
+        // A copy that has the lines already (no compaction before the move) gets nothing twice.
+        let pushed = carry_moves(&HashMap::from([("claude:a:s".to_string(), pushes["claude:a:s"].clone()), ("claude:b:s".to_string(), pushes["claude:a:s"].clone())]), &moves[..1], add_push);
+        assert_eq!(pushed["claude:b:s"], vec![("feature".to_string(), 12)]);
     }
 }

@@ -246,7 +246,7 @@ mod tests {
     }
 
     fn rev(status: Status, prompt: i64, activity: i64) -> Session {
-        let helper = Some(Helper { parent: Some(BOSS.into()), pr: None, report: true });
+        let helper = Some(Helper { parent: Some(BOSS.into()), pr: None, report: true, yours: false });
         Session { status, live: true, title: "Review the diff".into(), helper, last_prompt_at: prompt, last_activity: activity, status_since: Some(activity), excerpt: Some("Bash · `gh pr diff 12`".into()), ..crate::fixtures::session(REV) }
     }
 
