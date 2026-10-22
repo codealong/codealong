@@ -24,8 +24,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/board-dark.webp" />
-    <img src="docs/images/board-light.webp" alt="Codealong's Worktrees view: eleven worktrees on two Macs, sorted into Needs you, Working, Your turn and In review, with the agents in each, and plan usage for every account across the top." width="100%" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/sessions-dark.webp" />
+    <img src="docs/images/sessions-light.webp" alt="Codealong's Sessions view: every agent session on two machines in one list, the three that need you first, then finished turns and running agents. One open on the right wants to run git push, with Deny, Always and Allow. Plan usage for every account runs across the top." width="100%" />
   </picture>
 </p>
 
@@ -118,7 +118,7 @@ Ubuntu):
 git clone https://github.com/codealong/codealong.git
 cd codealong
 npm install
-npm run tauri build -- --bundles deb   # the binary and a .deb, in ../codealong-target/release
+npm run tauri build -- --bundles deb   # the binary in ../codealong-target/release, the .deb in its bundle/deb
 ```
 
 Each session Codealong starts runs in tmux, shown in your terminal emulator: Ghostty, kitty,
@@ -149,9 +149,9 @@ the notch, the Claude and Codex apps, and Antigravity's and Cursor's usage among
    accounts to show, the folders your code lives in, and your terminal and editor. Its last step
    installs the agent tools: the `codealong` command on your PATH, Codealong's plugin in each
    Claude Code account (so you can answer its permission prompts and questions from Codealong),
-   and a skill in every other agent that tells it how to use the board. The app menu's Set up
-   Codealong… opens it again, and Settings (⌘,) changes any of it. Group your repos into projects
-   under Settings › Projects.
+   and a skill in every other agent that tells it how to use the board. On macOS, the app menu's
+   Set up Codealong… opens it again, and Settings (⌘,) changes any of it. Group your repos into
+   projects under Settings › Projects.
 3. **On macOS, say yes when it asks.** The first time Codealong opens or focuses a terminal tab,
    macOS asks whether it may control Ghostty, iTerm2 or Terminal. Allow it, so Codealong can bring
    the right tab forward and type your replies into it.
@@ -165,8 +165,8 @@ the notch, the Claude and Codex apps, and Antigravity's and Cursor's usage among
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/macs-dark.webp" />
-    <img src="docs/images/macs-light.webp" alt="The Sessions view: every session in one list, the ones that need you first, with a session running on another Mac open in the panel on the right, its conversation and a box to reply." width="100%" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/worktrees-dark.webp" />
+    <img src="docs/images/worktrees-light.webp" alt="Sessions grouped by worktree: each worktree with its repo and how far it is from main, the agents working in it beneath, the ones on a Mac Studio marked, and the most urgent first." width="100%" />
   </picture>
 </p>
 
@@ -177,21 +177,24 @@ Five views of your work, each in a window of its own if you like (⇧⌘N):
 | **Sessions** | Every agent session in one list, the ones that need you first, or grouped under each worktree (its branch, its PR, how far it is from main) or each repo. Pin the ones you're watching. |
 | **PRs** | Every pull request in your repos, with its review, checks and the sessions that worked on it. Reviews asked of you come first. Group them by worktree or repo too. |
 | **Todo** | Work you mean to hand an agent, with notes, screenshots, labels and what each todo waits on, grouped by worktree or repo if you like. |
+| **Schedules** | Sessions started, or messages sent, at the times you set or when something happens, with every run and how it went. |
 | **Board** (experimental) | Your work as a board, the whole project's or one you make for a release or a fix: as **Kanban**, todos and sessions as cards in To do, In progress, In review and Done (or columns of your own), what needs you first in each; as **Canvas**, laid out in space, a frame per repo, a column per worktree, cards you arrange. |
 
 Select anything to see it in the panel on the right; right-click anything for its menu. The
-sidebar, a rail of the views until you open it, narrows every view to the machines, time span and
-statuses you pick, and saved views bring a setup back. Plan usage for every account runs across the top.
+sidebar, a rail of the views until you open it, narrows every view to the machines, time span,
+statuses, agents, repos and labels you pick, and saved views bring a setup back. Plan usage for
+every account runs across the top.
 
 Every session and worktree has a status:
 
 | Status | What it means |
 | --- | --- |
-| **Needs you** | The agent asked you something, wants to run something, hit an error, or has been busy and silent for 30 minutes (stuck). |
+| **Needs you** | The agent asked you something, wants to run something or hit an error, or a Claude Code session has said it's busy for 30 minutes with nothing new (stuck). |
 | **Your turn** | It finished a turn you haven't looked at yet. |
 | **Working** | It's mid-turn, or a command it left running is still doing something. |
 | **In review** | The worktree's pull request is open. |
-| **Idle** | Nothing new. |
+| **Merged** | The worktree's pull request was merged or closed. |
+| **Idle** | Nothing new. A session whose agent has quit is *Stopped*, its conversation kept to resume. |
 
 The Codealong mark shows the most urgent of them all at a glance: red for an error, amber when
 you're needed (a review request too), blue for finished work you haven't seen, green while agents
@@ -211,7 +214,7 @@ turns that off.
 </p>
 
 When an agent wants to run a command, Codealong shows the call with **Allow**, **Always** and
-**Deny**. When it asks you a question, you get its choices as buttons and a box for your own
+**Deny**. When it asks you a question, you get its choices to pick from and a box for your own
 answer. You can deny a call and say what to do instead in the same keystroke. The agent's own
 prompt stays up too, and whichever you answer first counts.
 
@@ -237,7 +240,7 @@ sounds, or turn them off, in Settings › Sounds.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/bar-dark.webp" />
-    <img src="docs/images/bar-light.webp" alt="The floating bar: pills for two sessions that need you, finished work, running agents, a PR to review and three todos ready to start." width="640" />
+    <img src="docs/images/bar-light.webp" alt="The floating bar: pills for the three sessions that need you, finished work, running agents, a PR to review and three todos ready to start." width="640" />
   </picture>
 </p>
 
@@ -246,14 +249,14 @@ next agent waiting, **⌘⌫** denies, **⌘E** marks a finished turn seen, **�
 **⌃⌘1** to **⌃⌘4** snooze a session for 15 minutes, an hour, three hours or until tomorrow morning.
 
 Approvals and questions can be answered for Claude Code (in a terminal, as a background job or in
-the Claude app), OpenCode, Antigravity's command line in a terminal that takes keypresses (Allow
-and Deny), and any agent you run inside Codealong. Codex, the Cursor app and the Antigravity app
-show what they're waiting on, and open where they ask.
+the Claude app), OpenCode, Antigravity's command line in a terminal that takes keypresses, and any
+agent you run inside Codealong. Codex, the Cursor app and the Antigravity app show what they're
+waiting on, and open where they ask.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/waiting-dark.webp" />
-    <img src="docs/images/waiting-light.webp" alt="The Waiting on you window: Claude Code asks whether to keep rate-limit counters in Redis or in-process, with the choices as buttons." width="560" />
+    <img src="docs/images/waiting-light.webp" alt="The Waiting on you window: Claude Code asks whether to keep rate-limit counters in Redis or in-process, each choice with what it means, and a box for an answer of your own." width="560" />
   </picture>
 </p>
 
@@ -262,7 +265,7 @@ show what they're waiting on, and open where they ask.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/quick-dark.webp" />
-    <img src="docs/images/quick-light.webp" alt="The quick panel: a typed prompt, with a suggestion to send it to the session already load-testing the limiter, or to start it in a new worktree." width="640" />
+    <img src="docs/images/quick-light.webp" alt="The quick panel: a prompt typed, the todo it matches found, and the agent menu open on Auto, which would start it on claude-work with Opus, above each account's plan usage and models." width="640" />
   </picture>
 </p>
 
@@ -324,6 +327,13 @@ Codealong itself is told to carry on as Codealong comes back from a restart.
 
 ### Pull requests, with their agents
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/prs-dark.webp" />
+    <img src="docs/images/prs-light.webp" alt="The PRs view: a teammate's PR waiting on your review first, then yours with the sessions that worked on them. The one picked shows its description, checks and a box to approve, comment or ask for changes." width="100%" />
+  </picture>
+</p>
+
 Every pull request in your repos is joined to the worktree and sessions behind it, including the
 agent that opened it, pushed to it or commented on it. Colored pills show its review, checks and
 conflicts, and rows that are your move are marked. Select one for its description, reviews,
@@ -354,6 +364,13 @@ checks, comments and diffs.
 
 ### Todos your agents can work
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/todo-dark.webp" />
+    <img src="docs/images/todo-light.webp" alt="The Todo view: todos in progress with the sessions working on them, todos ready to start and ones waiting on others. The one picked shows its description, labels, what waits on it, and its worktree and sessions." width="100%" />
+  </picture>
+</p>
+
 A todo list for work you mean to hand an agent, with notes, screenshots and files, labels, and the
 todos each one waits on. Start a session from a todo (⌘N) and the two stay linked: the todo moves
 to *In progress*, and the first session on it owns it, so a second agent started on the same todo
@@ -362,20 +379,28 @@ the list themselves with the `codealong` command.
 
 ### Schedules
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/schedules-dark.webp" />
+    <img src="docs/images/schedules-light.webp" alt="The Schedules view: a morning CI triage, a check after each deploy, a changelog line when a PR merges and more. The one picked runs when a deploy script prints something new, with its last look and every run." width="100%" />
+  </picture>
+</p>
+
 Work that comes round by itself: a session started, or a message sent to one you keep going, at
 times you write in a few words (`weekdays 9:00`, `every 2h`, `monthly 1 9:00`), when a command it
 runs every few minutes prints something new (a deploy, a failing build, a new message), when a PR
-merges or a todo is ready, or when a script fires it (`codealong schedule fire`). Each run goes on
-the account, routing group or Auto you pick, picked again each time, and what it was for goes to
-the agent as a file to read, not as words of yours. The Schedules view (⇧⌘L) lists them with
-every run and how it went; a run missed while the Mac slept goes once it's back.
+merges or its checks fail or a todo is ready, or when a script fires it (`codealong schedule
+fire`). Each run goes on the account, routing group or Auto you pick, picked again each time, and
+what it was for goes to the agent as a file to read, not as words of yours. The Schedules view
+(⇧⌘L) lists them with every run and how it went; a run missed while the Mac slept goes once it's
+back.
 
 ### Boards and the canvas
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/canvas-dark.webp" />
-    <img src="docs/images/canvas-light.webp" alt="The Canvas view: a frame per repo, a column per worktree, with session, todo and PR cards." width="100%" />
+    <img src="docs/images/canvas-light.webp" alt="A project's board as a canvas: a frame per repo and a column per worktree, with its session, todo and PR cards, and the project's todos that aren't in a worktree yet beside them." width="100%" />
   </picture>
 </p>
 
@@ -450,9 +475,9 @@ session where it lives.**
 | **Claude app** | ✓ | As a message from another session | ✓ (with the plugin) | Opens it with the prompt | Its signed-in account | Shared with Claude Code |
 | **Codex CLI** | ✓ | Types into its tab | In its terminal | ✓ | ✓ | 5-hour, weekly |
 | **Codex app** | ✓ | Starts a new turn | In the app | ✓ | Its signed-in account | 5-hour, weekly |
-| **OpenCode** | ✓ | Its own service | ✓ | ✓ | — | You bring the provider |
+| **OpenCode** | ✓ | Its own service | ✓ | ✓ | ✓ | You bring the provider |
 | **Antigravity** | ✓ | Types into `agy`'s tab; the app opens with the prompt on the clipboard | `agy` in a terminal; the app in the app | `agy` in a terminal; the app in its own window | — | Weekly, per model group (with `agy`) |
-| **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | In Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others |
+| **Cursor** (new) | ✓ | `cursor-agent` in a terminal; app chats open with the prompt on the clipboard | `cursor-agent` in its terminal; app chats in Cursor | `cursor-agent` | — | Monthly, Cursor's models and the others |
 | **In Codealong** (Claude Code, Codex or OpenCode) | ✓ | ✓ | ✓ | ✓ | ✓ | Per account |
 
 Terminals: Ghostty (the exact tab, keypresses, new tabs beside their worktree), iTerm2 and tmux
@@ -483,11 +508,13 @@ In Codealong:
 | ⏎ | Open the selected session, worktree or PR where it lives |
 | ⌘1 – ⌘5 | Open the selected worktree in its terminal, editor, the Claude app, the Codex app or its preview |
 | ⌘O | Open the selected PR on GitHub |
-| ⌘⏎ | Send your reply (or allow the call) and go on to the next agent waiting |
+| ⇧⌘M | Merge the selected session's PR once it's ready, and mark the session done (it asks first) |
+| ⌃⌘↑ / ⌃⌘↓ | Move the selected pin, or todo, up or down |
+| ⌘⏎ | In the reply box: send your reply (or allow the call) and go on to the next agent waiting |
 | ⌘⌫ | Deny the call (with nothing typed in the box) |
 | ⌃⏎ | Send now, into the running turn |
 | ⌘1 – ⌘6 | Send a suggested reply, from the reply box (from anywhere in the notch and the waiting window) |
-| Esc or ⌘. | Stop the turn |
+| ⌘. (or Esc in the reply box) | Stop the turn |
 | ⌘E / ⇧⌘E | Mark seen / mark as done |
 | ⌘] / ⌘[ | Next / previous of what waits on you (in Sessions, the notch and the waiting window) |
 | ⌃⌘1 – ⌃⌘4 | Snooze: 15 minutes, 1 hour, 3 hours, tomorrow morning |
@@ -509,7 +536,12 @@ session where it lives, **⇥** answers a session in the *Waiting on you* window
 a row, and **⌘P**, **⌘T**, **⌘L**, **⌘O**, **⌘D** choose the project, worktree, agent, place and
 machine. On a PR waiting on your review, in the notch or the waiting window, **⌘⏎** approves it,
 **⌥⌘⏎** comments, **⌃⌘R** has an agent review it and **⌃⌘G** opens it on GitHub. Right-click menus
-show every action's keys. On Linux, ⌘ is Ctrl, and ⌥ and ⌃ are Alt.
+show every action's keys.
+
+On Linux, ⌘ is Ctrl, and ⌥ and ⌃ are Alt, but for a few keys that would clash there: ⌥⌘1 – ⌥⌘9
+are Alt and the digit, ⌃⏎ is Ctrl+Shift+Enter, ⌃\` is Ctrl+\`, and ⌃⌘↑ / ⌃⌘↓ are
+Ctrl+Shift+PageUp / PageDown. The menus and buttons show every key as Linux has it. ⇧⌘N and ⇧⌘U
+are the macOS menu bar's, which Linux doesn't have; the usage bar's Usage button opens Usage there.
 
 ## Settings
 
@@ -562,7 +594,7 @@ tmux = "when-locked"           # sessions Codealong starts run in tmux, shown in
 theme = "system"               # follows the system; or "light", "dark"
 zoom = 100                     # the windows and the cards in the notch and peek, in percent, 50 to 200 (⌘= ⌘- ⌘0)
 
-[shortcuts]
+[shortcuts]                          # macOS's defaults; on Linux they're Ctrl+Alt+/ and so on
 quick_panel = "Option+Cmd+/"        # works in every app; "" turns it off (Settings › General)
 chat = "Option+Cmd+'"               # the quick panel set to start a chat of its own, in no project
 waiting = "Option+Cmd+."            # the first session that waits on you: the notch, or the waiting window
@@ -637,10 +669,10 @@ nudge_about = "everything"     # what a nudge tells of: "feedback" only comments
 rerequest_after_fixes = false  # ask a reviewer who asked for changes to look again, as you, once fixes are pushed and nobody said so (Settings › Automation)
 
 [sounds]                       # a short sound when something starts to wait on you (Settings › Sounds)
-needs_you = "Pop"              # a session asks you something, waits on a call to allow, or stops with an error
-your_turn = "Tink"             # a session's turn ended
+needs_you = "Pop"              # a session asks you something, waits on a call to allow, or stops with an error (on Linux, "message-new-instant")
+your_turn = "Tink"             # a session's turn ended (on Linux, "complete")
 review_requested = ""          # a PR asks for your review; "" is no sound
-volume = 60                    # in percent of the system's own; any sound in /System/Library/Sounds or ~/Library/Sounds, or on Linux ~/.local/share/sounds
+volume = 60                    # in percent of the system's own; any sound in /System/Library/Sounds or ~/Library/Sounds, or on Linux the freedesktop sound theme's or ~/.local/share/sounds
 
 [repos."github.com/acme/web".reviews]  # yours for one repo, over the above and its team's file (Settings › Automation, the repo picked)
 account = "claude-work"        # any of [reviews] but start, [reviews.own] (as reviews.own) and [pull_requests]; what's left out is as they say
@@ -653,7 +685,7 @@ check = true                   # look for a new version by itself (Settings › 
 boards = false                 # the Board view, as Kanban and as Canvas, Add to board in the menus, and `codealong board`
 
 [debug]
-perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log (Settings › Advanced)
+perf_log = false               # true logs timings to ~/Library/Logs/Codealong/perf.log, on Linux ~/.local/state/codealong/perf.log (Settings › Advanced)
 
 [prices."some-new-model"]      # API prices for a model Codealong has none for yet, dollars per million tokens (the Usage window)
 input = 3
@@ -831,7 +863,7 @@ npm install
 npm run tauri dev
 ```
 
-You'll need Rust 1.91 or later (`rustup`) and Node 22.13 or later, with Xcode's command line tools
+You'll need Rust 1.91 or later (`rustup`) and Node 22.13 or later (not 23), with Xcode's command line tools
 on macOS, or on Linux the packages [On Linux](#on-linux) names. Builds go to `codealong-target`, a
 folder beside the clone, which every checkout and worktree of it shares. A development build uses
 the same settings and todos as an installed Codealong, and quits it while it runs.

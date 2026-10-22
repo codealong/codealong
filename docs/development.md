@@ -112,8 +112,10 @@ on every push, which would spend the organization's plan's Actions minutes withi
 
 What Linux goes without: the notch, the focus outline round a terminal on another screen
 (flash.rs), app icons in the editor menus, pictures of the windows for Improve Codealong, the
-Dock icon's status, the Claude and Codex apps (macOS's), and Antigravity's and Cursor's sign-ins
-for their usage. The windows' keys are written for macOS, and `src/platform.ts` presses and says
+Dock icon's status, the Claude and Codex apps (macOS's), Antigravity's and Cursor's sign-ins
+for their usage, and the menu bar (Tauri makes none on Linux), so what only it has: New window
+(⇧⌘N), Usage… (⇧⌘U; the usage bar's button opens it too), Set up Codealong… and Close idle
+sessions…. The windows' keys are written for macOS, and `src/platform.ts` presses and says
 them as Linux has them (⌘ is Ctrl, ⌥ and ⌃ are Alt); `PREVIEW_PLATFORM=linux` previews them.
 `.claude/rules/linux.md` has what was found there.
 
@@ -127,7 +129,8 @@ agents work, and light gray when idle, in that priority order. The project switc
 floating bar, browser icon and running Dock icon stay in sync across projects.
 
 The screenshots in the README (`docs/images/`) are the real app's UI drawn against a made-up
-board, by `npm run shots` in the codealong-website repo.
+board, by `npm run shots` in the codealong-website repo; its `studio/readme.mjs` says which shots
+they are and copies them here, light and dark.
 
 ## How the agent skill and plugin are packaged
 
