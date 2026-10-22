@@ -569,6 +569,14 @@ box, or from another device, and still there after Codealong restarts. While the
 sooner, each queued message has Send now beside Queued until this turn ends, as Steer beside one in
 the Codex app: it goes into the turn that's running and out of the queue, and shows as Sent until
 the turn takes it in at its next step; one Codex didn't take stays queued, with why under it.
+Claude Code holds a message sent while its turn runs until the step it's on ends (a long command
+included), and lists it the same way, from Codealong, its own terminal or another device, saying
+Queued until its current step ends. Send now there is Claude Code's own send-now key, the one its
+terminal offers under what it holds (Ctrl+X Ctrl+S), pressed in its Ghostty, iTerm2 or tmux tab or
+through the background service for a background job: Claude Code stops the step it's on, as
+Escape would, cutting a running command short, and goes on with everything it holds. To keep a
+long command running, send the message with the box's own Send now (⌃⏎) instead, which moves the
+command to the background.
 One the session shows no sign of having taken, once it's been quiet a while, says Not in the
 session yet, with Open to check. One that may have gone in without Codealong being able to tell (its
 terminal didn't confirm the typing, say) counts as sent rather than going back in the box, where it

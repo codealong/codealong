@@ -101,6 +101,7 @@ impl Terminal for Tmux {
     }
 
     fn press(&self, at: &str, key: Key) -> Result<()> {
+        let (server, pane) = Server::at(at);
         let name = match key {
             Key::Digit(_) => key.typed(),
             Key::Escape => "Escape",
@@ -108,8 +109,8 @@ impl Terminal for Tmux {
             Key::End => "End",
             Key::Left => "Left",
             Key::Return => "Enter",
+            Key::Keys(keys) => return send_codes(&server, pane, keys),
         };
-        let (server, pane) = Server::at(at);
         server.run(&["send-keys", "-t", pane, name])?;
         Ok(())
     }
@@ -325,14 +326,18 @@ fn type_text(server: &Server, pane: &str, text: &str, submit: Submit) -> Result<
     std::thread::sleep(Duration::from_millis(300));
     match submit {
         Submit::Return => server.run(&["send-keys", "-t", pane, "Enter"])?,
-        // Each character by its code (`-H`), so a control character goes as the key it is.
-        Submit::Keys(keys) => {
-            let codes: Vec<String> = keys.bytes().map(|b| format!("{b:02x}")).collect();
-            let mut args = vec!["send-keys", "-t", pane, "-H"];
-            args.extend(codes.iter().map(String::as_str));
-            server.run(&args)?
-        }
+        Submit::Keys(keys) => return send_codes(server, pane, keys),
     };
+    Ok(())
+}
+
+/// Sends `keys` to a pane each character by its code (`-H`), so a control character goes as the
+/// key it is.
+fn send_codes(server: &Server, pane: &str, keys: &str) -> Result<()> {
+    let codes: Vec<String> = keys.bytes().map(|b| format!("{b:02x}")).collect();
+    let mut args = vec!["send-keys", "-t", pane, "-H"];
+    args.extend(codes.iter().map(String::as_str));
+    server.run(&args)?;
     Ok(())
 }
 

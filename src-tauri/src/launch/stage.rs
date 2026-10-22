@@ -1115,11 +1115,11 @@ mod tests {
         assert!(p.log.is_empty());
     }
 
-    /// Finds the session's terminal and presses each key there, as answering a prompt and
-    /// stopping a turn do.
+    /// Finds the session's terminal and presses each key there, as answering a prompt, stopping
+    /// a turn and sending what Claude Code holds now do.
     fn press_all(pid: u32) -> anyhow::Result<()> {
         let host = terminal_host(pid, Path::new("/r/elsewhere"))?.ok_or_else(|| anyhow!("no terminal"))?;
-        for key in [Key::Digit(1), Key::Escape, Key::CtrlC, Key::End, Key::Return, Key::Digit(4), Key::Left] {
+        for key in [Key::Digit(1), Key::Escape, Key::CtrlC, Key::End, Key::Return, Key::Digit(4), Key::Left, Key::Keys("\x18\x13")] {
             press_key(&host, key)?;
         }
         Ok(())
@@ -1151,11 +1151,12 @@ mod tests {
                 r#"GHOSTTY_KEY ["T1", "enter"]"#,
                 r#"GHOSTTY_ACTION ["T1", "text:4"]"#,
                 r#"GHOSTTY_ACTION ["T1", "text:\\x1b[D"]"#,
+                r#"GHOSTTY_ACTION ["T1", "text:\\x18\\x13"]"#,
             ]
         );
         let p = played(answer, || press_all(IN_ITERM));
         p.got.unwrap();
-        assert_eq!(p.log, [r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "1"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{3}"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}[F"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\r"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "4"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}[D"]"#]);
+        assert_eq!(p.log, [r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "1"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{3}"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}[F"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\r"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "4"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{1b}[D"]"#, r#"ITERM_PRESS+SESSION_ON ["/dev/ttys201", "\u{18}\u{13}"]"#]);
         let p = played(answer, || press_all(IN_TMUX));
         p.got.unwrap();
         assert_eq!(
@@ -1169,6 +1170,7 @@ mod tests {
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "Enter"] (5s)"#,
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "4"] (5s)"#,
                 r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "Left"] (5s)"#,
+                r#"/opt/homebrew/bin/tmux ["send-keys", "-t", "%3", "-H", "18", "13"] (5s)"#,
             ]
         );
 

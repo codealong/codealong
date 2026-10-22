@@ -10,7 +10,7 @@ use super::ClaudeCode;
 use super::asks::REFUSED_SAYING;
 use super::peer::{FROM_CODEALONG, FROM_YOU};
 use super::registry::session_entry;
-use super::transcript::{prompt_words, tool_request, typed_text, you_typed, SEND_FILE};
+use super::transcript::{prompt_words, ran_a_turn, tool_request, typed_text, unmarked_command, you_typed, SEND_FILE};
 use crate::transcript::{clip_input, clip_output, item, kept_whole, text_of, Image, Item};
 use crate::util::{one_line, parse_rfc3339_ms, read_line_at, read_range, scan_lines_back};
 
@@ -39,6 +39,11 @@ pub fn conversation_items(v: &Value, at: i64) -> Vec<Item> {
             // A prompt that was only images, as the Claude app sends one, says nothing else.
             if !images.is_empty() && you_typed(v) && text_of(v.pointer("/message/content").unwrap_or(&Value::Null)).trim().is_empty() {
                 return vec![Item { images, ..item(at, "you", "") }];
+            }
+            // A command of Claude Code's own that took a turn, said on the line before
+            // (`name_commands`).
+            if ran_a_turn(v) {
+                return vec![item(at, "you", "")];
             }
             if flag("isMeta") {
                 return Vec::new();
@@ -381,6 +386,24 @@ pub fn fork_point_before(path: &Path, cursor: u64) -> anyhow::Result<Option<Stri
         }
     });
     Ok(found)
+}
+
+/// Says what the prompts among `items` that a command of Claude Code's own took a turn on were
+/// (`ran_a_turn`): the command as typed, from the line before theirs, where each is put, so a
+/// fork from before it leaves the command out too (`fork_point_before`). One whose line before
+/// isn't its command stays empty, and the page leaves it out (transcript.rs `page`).
+pub(super) fn name_commands(path: &Path, items: &mut [Item]) {
+    for it in items.iter_mut().filter(|it| it.kind == "you" && it.text.is_empty() && it.images.is_empty() && it.cursor > 0) {
+        let mut before = None;
+        scan_lines_back(path, 0, it.cursor, |line| {
+            before = Some(line.to_string());
+            true
+        });
+        let Some(line) = before else { continue };
+        let Some(typed) = serde_json::from_str::<Value>(&line).ok().as_ref().and_then(unmarked_command) else { continue };
+        it.text = typed;
+        it.cursor -= line.len() as u64 + 1;
+    }
 }
 
 /// Marks the prompts among `items` that Claude Code took back. Only a prompt with nothing from
@@ -816,5 +839,27 @@ mod tests {
         // What it wrote to stderr follows what it printed.
         let failed = chained("user", "b3", Some("b1"), "2026-10-07T19:19:01.000Z", serde_json::json!({ "message": { "role": "user", "content": "<bash-stdout>half</bash-stdout><bash-stderr>Command failed: exit 1</bash-stderr>" } }));
         assert_eq!(conversation_items(&serde_json::from_str(&failed).unwrap(), 0)[0].output.as_deref(), Some("half\nCommand failed: exit 1"));
+    }
+
+    #[test]
+    fn a_command_that_took_a_turn_is_yours_where_you_ran_it() {
+        let dir = crate::fixtures::scratch("claude-goal");
+        let path = dir.join("s.jsonl");
+        let before = prompt("a1", None, "Fix the build");
+        let reply = chained("assistant", "d1", Some("c3"), "2026-10-21T10:00:30.000Z", serde_json::json!({ "message": { "role": "assistant", "stop_reason": "end_turn", "content": [{ "type": "text", "text": "Goal noted." }] } }));
+        let [ran, said, meta] = super::super::transcript::tests::GOAL;
+        let text = [before.as_str(), ran, said, meta, reply.as_str()].join("\n") + "\n";
+        std::fs::write(&path, &text).unwrap();
+        let mut page = crate::transcript::file_page(&path, conversation_items, None, 50).unwrap();
+        name_commands(&path, &mut page.items);
+        let shown: Vec<(&str, &str)> = page.items.iter().map(|it| (it.kind, it.text.as_str())).collect();
+        assert_eq!(shown, [("you", "Fix the build"), ("you", "/goal the parser's tests pass"), ("agent", "Goal noted.")]);
+        // At the command's own line, so a fork from before it leaves the command out too.
+        assert_eq!(page.items[1].cursor, text.find(ran).unwrap() as u64);
+        // Read from there on, it's the same.
+        let mut newer = crate::transcript::file_newer(&path, conversation_items, text.find(said).unwrap() as u64).unwrap();
+        name_commands(&path, &mut newer.items);
+        assert_eq!((newer.items[0].text.as_str(), newer.items[0].cursor), ("/goal the parser's tests pass", page.items[1].cursor));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

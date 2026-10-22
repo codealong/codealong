@@ -1,8 +1,8 @@
-// Checks that a message the session's harness holds until its turn ends shows in its conversation
+// Checks that a message the session's harness holds for its turn shows in its conversation
 // as queued for as long as the board says so, not as one that may not have reached it, and as sent
 // once it's out of the queue (ahead.ts `settled`, SessionThread.tsx `Unsaid`): a session runs, a
 // message goes to it, and boards come that show it held (`queuedAt`), then taken. Then the board
-// lists what's held (`queued`, the Codex app's queue): a message sent from here, by the id its send
+// lists what's held (`queued`, the Codex app's queue, Claude Code's): a message sent from here, by the id its send
 // said it was queued under, shows once; one sent into the turn stays sent while another waits
 // after it; one queued elsewhere shows too, after the turn; and they go as the queue empties. While
 // the turn can take what's held sooner (`steerable`), each held message has Send now, which asks
@@ -16,6 +16,8 @@
   localStorage.removeItem('codealong.sessionPanelMax');
   var picked = null;
   var boardNow = null;
+  // What a held message says: Claude Code's turn takes it in once the step it's on ends.
+  var QUEUED = 'Queued until its current step ends';
   // Whether a send is queued, with the id it went under (`Sent.queued`), as Codex's is.
   var queueing = false;
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -102,17 +104,17 @@
       check('a message that went says Sent', saying('Also check the docs').says === 'Sent');
       // Its harness holds it: it says so, whatever the session's quiet says.
       push({ queuedAt: Date.now(), status: 'idle', statusSince: Date.now() - 60e3 });
-      return until(function () { return saying('Also check the docs').says === 'Queued until this turn ends'; }, 5000, 'the message queued');
+      return until(function () { return saying('Also check the docs').says === QUEUED; }, 5000, 'the message queued');
     })
     .then(function () {
       var u = saying('Also check the docs');
-      check('one its harness holds says it’s queued until the turn ends', u.says === 'Queued until this turn ends', u.says);
+      check('one its harness holds says it’s queued until its current step ends', u.says === QUEUED, u.says);
       check('not that it may not have reached the session', !u.el.classList.contains('is-unconfirmed') && !q('.ca-thread-askrow', u.el));
       // Long after the quiet that would mark it, it's still queued.
       return wait(1500);
     })
     .then(function () {
-      check('and stays so while it waits', saying('Also check the docs').says === 'Queued until this turn ends');
+      check('and stays so while it waits', saying('Also check the docs').says === QUEUED);
       // The turn ends and the queue goes in.
       push({ queuedAt: undefined, status: 'working', statusSince: Date.now(), lastPromptAt: Date.now() });
       return until(function () { var u = saying('Also check the docs'); return !u || u.says === 'Sent'; }, 5000, 'the message out of the queue');
@@ -125,7 +127,7 @@
     })
     .then(function () {
       push({ queuedAt: Date.now() });
-      return until(function () { var u = saying('And the changelog'); return u && u.says === 'Queued until this turn ends'; }, 5000, 'the second message queued');
+      return until(function () { var u = saying('And the changelog'); return u && u.says === QUEUED; }, 5000, 'the second message queued');
     })
     .then(function () {
       // Taken; the board lists what the harness holds from here on.
@@ -145,7 +147,7 @@
     .then(function () {
       var shown = sayingAll('Then the tests');
       check('a message the board lists as queued shows once', shown.length === 1, shown.length);
-      check('as queued until the turn ends', shown[0] && shown[0].says === 'Queued until this turn ends', shown[0] && shown[0].says);
+      check('as queued until its current step ends', shown[0] && shown[0].says === QUEUED, shown[0] && shown[0].says);
       // One sent into the turn (Send now) isn't queued, though another is queued after it.
       queueing = false;
       return wait(1500).then(function () { return send('Right away'); });
@@ -160,7 +162,7 @@
       var now = sayingAll('Right away');
       check('one sent into the turn still shows, as sent, once something is queued after it', now.length === 1 && now[0].says === 'Sent', now.map(function (u) { return u.says; }).join(', '));
       var u = saying('Queued in the app');
-      check('one queued elsewhere shows, as queued', u.says === 'Queued until this turn ends', u.says);
+      check('one queued elsewhere shows, as queued', u.says === QUEUED, u.says);
       var said = all('.ca-sessinsp .ca-thread-said');
       var tail = said.slice(-2).map(function (el) { return el.querySelector('.ca-thread-you') && el.querySelector('.ca-thread-you').textContent.trim(); });
       check('both queued at the end of the conversation, in the queue’s order', tail[0] === 'Then the tests' && tail[1] === 'Queued in the app', tail.join(' | '));
@@ -183,7 +185,7 @@
       queueing = false;
       var at = Date.now();
       push({ queuedAt: at, queued: [{ id: 'q:Then the docs', at: at - 1000, text: 'Then the docs' }, { id: 'app-3', at: at, text: 'Queued in the app' }] });
-      return until(function () { var u = saying('Then the docs'); return u && u.says === 'Queued until this turn ends' && !!saying('Queued in the app'); }, 5000, 'two queued');
+      return until(function () { var u = saying('Then the docs'); return u && u.says === QUEUED && !!saying('Queued in the app'); }, 5000, 'two queued');
     })
     .then(function () {
       check('no Send now on what’s held while the turn can’t take it sooner', !sendNow('Then the docs') && !sendNow('Queued in the app'));
@@ -226,7 +228,7 @@
     .then(function () {
       var u = saying('Then the release notes');
       var why = q('.ca-thread-askrow', u.el).textContent;
-      check('one that didn’t go is still held, saying why', u.says === 'Queued until this turn ends' && why.indexOf('its turn had ended') >= 0, u.says + ' / ' + why);
+      check('one that didn’t go is still held, saying why', u.says === QUEUED && why.indexOf('its turn had ended') >= 0, u.says + ' / ' + why);
       steerFails = null;
       var at = Date.now();
       push({ queuedAt: at, queued: [{ id: 'app-4', at: at - 1000, text: 'Then the release notes' }, { id: 'app-5', at: at, text: 'And a line in the changelog' }] });

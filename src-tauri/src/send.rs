@@ -991,14 +991,22 @@ fn attempt(route: &Route, board: &Board, session: &Session, account: &AccountCfg
                 Some(k) if presses => launch::Submit::Keys(k),
                 _ => launch::Submit::Return,
             };
-            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &boxed(&attachments::expand(text, adapter.typed_attachments())), clear, submit, passes) {
-                Ok(launch::Typed::Into(app)) => Ok(Tried::Sent(sent(match (now, submit, keys) {
-                    (true, launch::Submit::Keys(_), _) => format!("Typed into {title} in {app} and sent now: it reads it without waiting for its current step."),
-                    (true, _, None) => format!("Typed into {title} in {app} and sent now: it takes it into the turn it's taking."),
-                    (true, _, Some(_)) => format!("Typed into {title} in {app}, which can't press the keys that send it now, so it takes it after its current step."),
-                    _ if busy => format!("Typed into {title} in {app}; it takes it after its current step."),
-                    _ => format!("Typed into {title} in {app}."),
-                }))),
+            let expanded = attachments::expand(text, adapter.typed_attachments());
+            let typed = boxed(&expanded);
+            let since = crate::util::now_ms();
+            match launch::terminal_type_session(*pid, Path::new(&session.cwd), &typed, clear, submit, passes) {
+                Ok(launch::Typed::Into(app)) => {
+                    let said = sent(match (now, submit, keys) {
+                        (true, launch::Submit::Keys(_), _) => format!("Typed into {title} in {app} and sent now: it reads it without waiting for its current step."),
+                        (true, _, None) => format!("Typed into {title} in {app} and sent now: it takes it into the turn it's taking."),
+                        (true, _, Some(_)) => format!("Typed into {title} in {app}, which can't press the keys that send it now, so it takes it after its current step."),
+                        _ if busy => format!("Typed into {title} in {app}; it takes it after its current step."),
+                        _ => format!("Typed into {title} in {app}."),
+                    });
+                    // Held for the turn, where its harness says what it holds.
+                    let queued = (busy && submit == launch::Submit::Return).then(|| adapter.queued_as(account, session, &typed, since)).flatten();
+                    Ok(Tried::Sent(Sent { queued, ..said }))
+                }
                 Ok(launch::Typed::Nowhere(why)) => Ok(Tried::Passed(Some(why))),
                 Err(_) => Err(MayHaveArrived(format!("Codealong started typing this into {title}, and its terminal didn't confirm it went in: look there before sending it again.")).into()),
             }

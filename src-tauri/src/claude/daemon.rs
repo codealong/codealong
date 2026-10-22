@@ -169,8 +169,13 @@ impl Own for Background {
             daemon_type(&self.socket, &self.key_file, &self.job, &[pasted(&typed).as_bytes(), SEND_NOW.as_bytes()])?;
             return Ok(sent(format!("Sent now to {title} in the background: it reads it without waiting for its current step.")));
         }
+        let since = crate::util::now_ms();
         daemon_say(&self.socket, &self.key_file, &self.job, &typed)?;
-        Ok(sent(if d.busy() { format!("Queued for {title}; the background session takes it after its current step.") } else { format!("Sent to {title} in the background.") }))
+        if !d.busy() {
+            return Ok(sent(format!("Sent to {title} in the background.")));
+        }
+        let queued = crate::harness::adapter(d.session.harness).queued_as(d.account, d.session, &typed, since);
+        Ok(Sent { queued, ..sent(format!("Queued for {title}; the background session takes it after its current step.")) })
     }
 }
 

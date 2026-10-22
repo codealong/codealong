@@ -51,7 +51,7 @@ use crate::procs;
 use crate::transcript::{Item, Page};
 use crate::util::{file_name, mtime_ms, one_line, parallel_map, parse_rfc3339_ms};
 
-use conversation::{idle_since, last_prompt_taken_back, mark_taken_back, open_prompt_before, questions_of};
+use conversation::{idle_since, last_prompt_taken_back, mark_taken_back, name_commands, open_prompt_before, questions_of};
 use daemon::{daemon_press_escape, daemon_socket, daemon_type};
 use held::held_in;
 use mode::permission_mode;
@@ -203,6 +203,7 @@ impl crate::harness::Adapter for ClaudeCode {
         match record(self, ctx, s) {
             Ok(path) => {
                 let mut page = crate::transcript::file_page(&path, conversation_items, before, limit)?;
+                name_commands(&path, &mut page.items);
                 mark_taken_back(&path, &mut page.items, idle_since(&ctx.account.home_path(), s));
                 Ok(page)
             }
@@ -236,6 +237,7 @@ impl crate::harness::Adapter for ClaudeCode {
             Ok(path) => {
                 let from = open_prompt_before(&path, after).unwrap_or(after);
                 let mut page = crate::transcript::file_newer(&path, conversation_items, from)?;
+                name_commands(&path, &mut page.items);
                 mark_taken_back(&path, &mut page.items, idle_since(&ctx.account.home_path(), s));
                 Ok(page)
             }
@@ -584,6 +586,38 @@ impl crate::harness::Adapter for ClaudeCode {
 
     fn sends_now_with(&self) -> Option<&'static str> {
         Some(SEND_NOW)
+    }
+
+    /// By the `enqueue` its transcript gets as the box takes the message while a turn runs.
+    fn queued_as(&self, account: &crate::config::AccountCfg, s: &crate::model::Session, text: &str, since: i64) -> Option<String> {
+        transcript::queued_as(&self.records(account, s).into_iter().next()?, text, since)
+    }
+
+    /// Its send-now key pressed with nothing in the box, as the hint under what it holds in its
+    /// terminal offers: in the terminal it runs in, or a background job's through its account's
+    /// service. That stops the step it's on as Escape does, a running command cut short, and its
+    /// turn goes on with everything it holds (2.1.307, a background job, 2026-10-21), where the
+    /// key after a prompt typed moves the command to the background instead. Something typed into
+    /// a terminal's box and not sent would go too.
+    fn steer_queued(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str) -> anyhow::Result<String> {
+        if !s.queued.iter().any(|m| m.id == id) {
+            anyhow::bail!("Claude Code doesn't hold that message any more: its turn has taken it in.");
+        }
+        if s.attach_command.is_some() {
+            let home = ctx.account.home_path();
+            let registry = session_entry(&home, s).ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
+            let job = registry.job_id.as_deref().ok_or_else(|| anyhow::anyhow!("Claude Code didn't record which job it is."))?;
+            let socket = daemon_socket(&home).ok_or_else(|| anyhow::anyhow!("Its account's background service isn't running."))?;
+            daemon_type(&socket, &home.join("daemon/control.key"), job, &[SEND_NOW.as_bytes()])?;
+        } else {
+            let pid = s.pid.ok_or_else(|| anyhow::anyhow!("It isn't running any more."))?;
+            let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
+                anyhow::bail!("It isn't in a terminal Codealong can press keys in ({}). Send it now from there.", crate::launch::presses_keys_in());
+            };
+            crate::launch::press_key(&host, crate::launch::Key::Keys(SEND_NOW))?;
+        }
+        let held = s.queued.len();
+        Ok(if held > 1 { format!("“{}” takes the {held} messages it held now, stopping the step it was on.", s.title) } else { format!("“{}” takes it now, stopping the step it was on.", s.title) })
     }
 
     /// Presses Escape only while its own record says a turn is running: busy, or waiting on a

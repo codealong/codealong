@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::conversation::{line_peer, sent_from_codealong};
-use crate::model::SessionLimit;
+use crate::model::{QueuedMessage, SessionLimit};
 use crate::util::{code, command_dir, file_name, mtime_ms, note_work, one_line, parse_rfc3339_ms, read_head, read_tail, resolve, scan_lines_back, without_cd, work_before};
 
 /// What the start of a transcript says. It never changes, so the engine reads it once.
@@ -36,6 +36,9 @@ pub struct TailState {
     pub open_tools: Vec<(String, String, i64)>,
     /// When the latest reply, message or turn's end was written (`said`).
     pub said_at: Option<i64>,
+    /// The latest unmarked command line, as typed (`/goal …`), until the line after it says
+    /// whether it took a turn (`ran_a_turn`).
+    pub command: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -121,9 +124,20 @@ pub struct TranscriptInfo {
     /// The worktree Claude Code made for the session and holds, from the latest `worktree-state`
     /// line (`own_worktree`).
     pub own_worktree: Option<String>,
+    /// What Claude Code holds for the turn to take in, whoever sent it, in the order it came
+    /// (`queue_step`). Only a running turn holds anything: a process gone with some left is read
+    /// past (board.rs `claude_session`).
+    pub queue: Vec<QueuedMessage>,
 }
 
 impl TranscriptInfo {
+    /// What it holds of yours (`queue`): words typed or sent, not a background task's
+    /// notification or another session's message, which the conversation shows as theirs once
+    /// the turn takes it in.
+    pub fn held(&self) -> Vec<QueuedMessage> {
+        self.queue.iter().filter(|m| prompt_words(&m.text).is_some()).cloned().collect()
+    }
+
     /// When it last did something: its last line, or the end of its last turn while a compaction
     /// is all that came since (`compacted`).
     pub fn active_at(&self) -> i64 {
@@ -442,6 +456,9 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         if let Some(step) = turn_step(&v) {
             info.unfinished = step;
         }
+        if kind == Some("queue-operation") {
+            queue_step(&mut info.queue, &v);
+        }
         // A subagent's prompt, in transcripts from before their own logs, went in its mode.
         if matches!(kind, Some("permission-mode") | Some("user")) && v.get("isSidechain").and_then(Value::as_bool) != Some(true) {
             if let Some(mode) = str_of(&v, "permissionMode").filter(|m| !m.is_empty()) {
@@ -535,7 +552,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                         }
                     }
                 }
-                if user_prompt(&v).is_some() {
+                if user_prompt(&v).is_some() || ran_a_turn(&v) {
                     open_tools.clear();
                 }
                 // Written as the line's text, or its first text part.
@@ -554,7 +571,8 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     info.last_tool = None;
                     // Its `last-prompt` line often comes only after the reply has begun (in 104 of
                     // 191 prompts here, 2026-10-15), so the prompt itself says what it's on now.
-                    if let Some(p) = typed_text(&v) {
+                    // A command that took a turn is said on the line before (`ran_a_turn`).
+                    if let Some(p) = typed_text(&v).or_else(|| state.command.take().filter(|_| ran_a_turn(&v))) {
                         // A resume's prompt from Codealong, for a PR's news say, starts with the
                         // line that says so.
                         info.last_prompt = Some(one_line(crate::send::past_sender_lines(&p), 140));
@@ -566,6 +584,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                         info.cwd = cwd;
                     }
                 }
+                state.command = unmarked_command(&v);
             }
             // A message you sent while it worked is a new ask too. It's written once the turn
             // takes it in, timed when it came, so lines before it can be timed after it.
@@ -790,11 +809,19 @@ fn user_prompt(v: &Value) -> Option<String> {
 /// a scheduled run marked (`turnOrigin: "scheduled"`), so only a marked line is one. Unmarked
 /// older transcripts' commands stay unshown, as there's nothing to tell the two apart by.
 fn command_run(v: &Value, text: &str) -> Option<String> {
-    if v.pointer("/origin/kind").and_then(Value::as_str) != Some("human") || !text.trim_start().starts_with("<command-") {
+    if v.pointer("/origin/kind").and_then(Value::as_str) != Some("human") {
         return None;
     }
-    if let Some(typed) = v.get("stackedOriginalInput").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()) {
+    if let Some(typed) = v.get("stackedOriginalInput").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).filter(|_| text.trim_start().starts_with("<command-")) {
         return Some(typed.to_string());
+    }
+    command_typed(text)
+}
+
+/// A command line's tags as it was typed, `/name args`, whoever ran it.
+fn command_typed(text: &str) -> Option<String> {
+    if !text.trim_start().starts_with("<command-") {
+        return None;
     }
     let between = |tag: &str| {
         let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));
@@ -806,6 +833,99 @@ fn command_run(v: &Value, text: &str) -> Option<String> {
         Some(args) => format!("{name} {args}"),
         None => name.to_string(),
     })
+}
+
+/// A command line nothing marks (no `origin`, nor a scheduled run's `turnOrigin`), as typed: one
+/// of Claude Code's own, which may or may not take a turn. The line after says (`ran_a_turn`).
+pub(super) fn unmarked_command(v: &Value) -> Option<String> {
+    if v.get("type").and_then(Value::as_str) != Some("user") || v.get("origin").is_some() || v.get("turnOrigin").is_some() {
+        return None;
+    }
+    command_typed(v.pointer("/message/content")?.as_str()?)
+}
+
+/// The turn a command of Claude Code's own took when you ran it (2.1.307's `/goal`, which hands
+/// the agent its condition): the command's line is unmarked, as one that takes no turn is
+/// (`unmarked_command`), and the turn's marks (`turnOrigin`, `turnPosition`, the next prompt
+/// number) go on the line after it, the command's output, which goes to the agent as a `user`
+/// line. A command whose output goes nowhere near the agent writes that as a `system` /
+/// `local_command` line instead (from 2.1.302). The two lines are written together, with one
+/// `promptId` and one time.
+pub(super) fn ran_a_turn(v: &Value) -> bool {
+    let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
+    v.get("type").and_then(Value::as_str) == Some("user")
+        && v.get("origin").is_none()
+        && !flag("isMeta")
+        && !flag("isSidechain")
+        && v.get("turnOrigin").and_then(Value::as_str) == Some("human")
+        && v.pointer("/message/content").and_then(Value::as_str).is_some_and(|t| t.trim_start().starts_with("<local-command-stdout>"))
+}
+
+/// What Claude Code holds for the turn to take in, after one of its `queue-operation` lines: a
+/// prompt sent while a turn ran, a background task's notification, another session's message.
+/// `enqueue` adds one, with its text as `content` (a few have none: nothing to show); `remove`
+/// takes out the one with that `content`, which the running turn took in (`reason:
+/// "absorbed_mid_turn"`); `popAll` takes them all back into the input box (↑ there); and
+/// `dequeue` takes one out with nothing to say which. Claude Code takes the first of the
+/// highest priority (2.1.307's code: `now`, `next`, `later`), which isn't written; prompts and
+/// most notifications are `next`, so it's taken as the first held. Each is known by the time it
+/// came, which is how its send finds it (`queued_as`).
+pub(super) fn queue_step(queue: &mut Vec<QueuedMessage>, v: &Value) {
+    let content = v.get("content").and_then(Value::as_str);
+    match v.get("operation").and_then(Value::as_str) {
+        Some("enqueue") => {
+            let Some(id) = str_of(v, "timestamp") else { return };
+            let at = parse_rfc3339_ms(&id).unwrap_or(0);
+            queue.push(QueuedMessage { id, at, text: content.unwrap_or_default().to_string() });
+        }
+        Some("remove") => {
+            if let Some(i) = content.and_then(|c| queue.iter().position(|m| m.text == c)) {
+                queue.remove(i);
+            }
+        }
+        Some("popAll") => queue.clear(),
+        Some("dequeue") if !queue.is_empty() => {
+            queue.remove(0);
+        }
+        _ => {}
+    }
+}
+
+/// How long a send waits for Claude Code to write that it holds the message (`queued_as`): its
+/// writer drains every 100 ms.
+const HOLD_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// The id Claude Code holds the message `text`, sent at `since` (ms), under (`queue_step`): the
+/// `enqueue` written since with `text` as its `content`, else the first of yours (a long paste
+/// may be held as `[Pasted text #1 …]`). Read again until it's written, for a moment.
+pub fn queued_as(path: &Path, text: &str, since: i64) -> Option<String> {
+    let from = since - 1_000;
+    let until = std::time::Instant::now() + HOLD_WAIT;
+    loop {
+        let Ok(len) = std::fs::metadata(path).map(|m| m.len()) else { return None };
+        // Newest first, back to the send.
+        let mut held: Vec<QueuedMessage> = Vec::new();
+        scan_lines_back(path, 0, len, |line| {
+            let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+            let Some(at) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) else { return false };
+            if at < from {
+                return true;
+            }
+            if v.get("type").and_then(Value::as_str) == Some("queue-operation") && v.get("operation").and_then(Value::as_str) == Some("enqueue") {
+                queue_step(&mut held, &v);
+            }
+            false
+        });
+        held.reverse();
+        let found = held.iter().find(|m| m.text.trim() == text.trim()).or_else(|| held.iter().find(|m| prompt_words(&m.text).is_some()));
+        if let Some(m) = found {
+            return Some(m.id.clone());
+        }
+        if std::time::Instant::now() >= until {
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 /// How Claude Code wraps text pasted into a prompt (2.1.28x): the tag, the text on lines of its
@@ -874,7 +994,7 @@ pub(super) fn you_typed(v: &Value) -> bool {
     }
     match v.pointer("/origin/kind").and_then(Value::as_str) {
         Some(kind) => kind == "human",
-        None => user_prompt(v).is_some(),
+        None => ran_a_turn(v) || user_prompt(v).is_some(),
     }
 }
 
@@ -1103,7 +1223,7 @@ pub(super) const HEAD: &str = r#"{"type":"permission-mode","mode":"default"}
 "#;
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::claude::conversation::claude_input;
     use crate::claude::peer::FROM_YOU;
@@ -1513,6 +1633,86 @@ mod tests {
         assert_eq!((info.first_prompt.as_deref(), info.last_prompt.as_deref()), (Some("/doctor prompt-audit"), Some("/doctor prompt-audit")));
         let items = crate::claude::conversation::conversation_items(&serde_json::from_str(tail.trim()).unwrap(), 0);
         assert_eq!(items.iter().map(|it| (it.kind, it.text.as_str())).collect::<Vec<_>>(), vec![("you", "/doctor prompt-audit")]);
+    }
+
+    /// `/goal <condition>` as 2.1.307 wrote it: its command's line unmarked, then its output's,
+    /// marked as the turn's, then what it tells the agent. The three share a time and a prompt.
+    pub(crate) const GOAL: [&str; 3] = [
+        r#"{"type":"user","promptId":"p7","uuid":"c1","parentUuid":"g1","timestamp":"2026-10-21T10:00:00.000Z","message":{"role":"user","content":"<command-name>/goal</command-name>\n            <command-message>goal</command-message>\n            <command-args>the parser's tests pass</command-args>"}}"#,
+        r#"{"type":"user","promptId":"p7","uuid":"c2","parentUuid":"c1","timestamp":"2026-10-21T10:00:00.000Z","turnOrigin":"human","turnPosition":{"promptIndex":7,"turnIndex":18},"message":{"role":"user","content":"<local-command-stdout>Goal set: the parser's tests pass</local-command-stdout>"}}"#,
+        r#"{"type":"user","isMeta":true,"promptId":"p7","uuid":"c3","parentUuid":"c2","timestamp":"2026-10-21T10:00:00.000Z","message":{"role":"user","content":"A session-scoped Stop hook is now active with condition: \"the parser's tests pass\"."}}"#,
+    ];
+
+    #[test]
+    fn a_command_of_claude_codes_own_that_took_a_turn_is_your_prompt() {
+        let v = |l: &str| serde_json::from_str::<Value>(l).unwrap();
+        let [ran, said, meta] = GOAL;
+        assert_eq!(unmarked_command(&v(ran)).as_deref(), Some("/goal the parser's tests pass"));
+        assert!(!you_typed(&v(ran)) && you_typed(&v(said)) && !you_typed(&v(meta)));
+        // It's what the session's on now, from when you ran it.
+        let before = r#"{"type":"user","timestamp":"2026-10-21T09:00:00.000Z","origin":{"kind":"human"},"message":{"content":"Fix the build"}}"#;
+        let info = parse_lines(HEAD, &([before, ran, said, meta].join("\n") + "\n"));
+        assert_eq!((info.last_prompt.as_deref(), info.last_prompt_at), (Some("/goal the parser's tests pass"), parse_rfc3339_ms("2026-10-21T10:00:00.000Z")));
+        // One that took no turn writes what it did as a `system` line (2.1.302 on), so it isn't.
+        let cost = ran.replace("/goal", "/cost");
+        let local = r#"{"type":"system","subtype":"local_command","timestamp":"2026-10-21T10:00:00.000Z","content":"<local-command-stdout>Total cost: $0.12</local-command-stdout>"}"#;
+        let info = parse_lines(HEAD, &([before, cost.as_str(), local].join("\n") + "\n"));
+        assert_eq!((info.last_prompt.as_deref(), info.last_prompt_at), (Some("Fix the build"), parse_rfc3339_ms("2026-10-21T09:00:00.000Z")));
+        // A scheduled run marks its own line, and isn't yours.
+        assert_eq!(unmarked_command(&v(&ran.replace(r#""promptId":"p7""#, r#""turnOrigin":"scheduled""#))), None);
+    }
+
+    /// A `queue-operation` line as Claude Code writes one.
+    fn queue_line(at: &str, operation: &str, content: Option<&str>) -> String {
+        let mut v = serde_json::json!({ "type": "queue-operation", "operation": operation, "timestamp": at, "sessionId": "s" });
+        if let Some(c) = content {
+            v["content"] = c.into();
+        }
+        v.to_string()
+    }
+
+    #[test]
+    fn what_claude_code_holds_goes_by_its_queue_lines() {
+        let held = |id: &str, text: &str| QueuedMessage { id: id.into(), at: parse_rfc3339_ms(id).unwrap(), text: text.into() };
+        let notice = "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>";
+        let mut lines = vec![
+            queue_line("2026-10-21T10:00:01.000Z", "enqueue", Some("Also check the docs")),
+            queue_line("2026-10-21T10:00:02.000Z", "enqueue", Some(notice)),
+            queue_line("2026-10-21T10:00:03.000Z", "enqueue", Some("And the changelog")),
+            // The running turn took this one in.
+            queue_line("2026-10-21T10:00:04.000Z", "remove", Some("And the changelog")),
+        ];
+        let info = |lines: &[String]| parse_lines(HEAD, &(lines.join("\n") + "\n"));
+        assert_eq!(info(&lines).queue.len(), 2);
+        // Only yours show: the notification is the agent's to read.
+        assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:01.000Z", "Also check the docs")]);
+        // A turn that starts on what's held takes the first.
+        lines.push(queue_line("2026-10-21T10:00:05.000Z", "dequeue", None));
+        assert_eq!((info(&lines).queue.len(), info(&lines).held()), (1, vec![]));
+        // ↑ in the box takes back all there is.
+        lines.push(queue_line("2026-10-21T10:00:06.000Z", "enqueue", Some("One more thing")));
+        assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:06.000Z", "One more thing")]);
+        lines.push(queue_line("2026-10-21T10:00:07.000Z", "popAll", Some("One more thing")));
+        assert!(info(&lines).queue.is_empty());
+    }
+
+    #[test]
+    fn a_send_finds_what_claude_code_held_it_under() {
+        let dir = crate::fixtures::scratch("claude-queued-as");
+        let path = dir.join("s.jsonl");
+        let since = parse_rfc3339_ms("2026-10-21T10:00:00.000Z").unwrap();
+        let lines = [
+            queue_line("2026-10-21T09:58:00.000Z", "enqueue", Some("Fix it")),
+            r#"{"type":"assistant","timestamp":"2026-10-21T09:59:58.500Z","message":{"stop_reason":"tool_use","content":[]}}"#.to_string(),
+            queue_line("2026-10-21T10:00:00.120Z", "enqueue", Some("<task-notification>\n</task-notification>")),
+            queue_line("2026-10-21T10:00:00.200Z", "enqueue", Some("Fix it")),
+        ];
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        // The one written since, with its words, not an earlier one that said the same.
+        assert_eq!(queued_as(&path, "Fix it ", since).as_deref(), Some("2026-10-21T10:00:00.200Z"));
+        // A long paste can be held in other words: the first of yours since then.
+        assert_eq!(queued_as(&path, "a paste of many lines", since).as_deref(), Some("2026-10-21T10:00:00.200Z"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

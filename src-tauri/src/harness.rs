@@ -129,6 +129,14 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// The id a message just typed into the session, or handed it, since `since` (ms) went under
+    /// in what its harness holds until the turn ends (`Session::queued`), for the window to show
+    /// it there (`Sent::queued`). None where the harness lists nothing, or didn't hold it. It may
+    /// wait a moment for the harness to write it.
+    fn queued_as(&self, _account: &AccountCfg, _session: &Session, _text: &str, _since: i64) -> Option<String> {
+        None
+    }
+
     /// Sends a message it holds until the session's turn ends (`id`, one of `Session::queued`)
     /// into the turn it's taking now, and takes it out of what's held: Send now for a message
     /// already sent. Says what happened. Only a harness that lists what it holds has any.

@@ -40,7 +40,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   256 KB tail: `claude/transcript.rs` (`you_typed`, `user_prompt`, `parse_transcript`). A
   slash command that starts a turn is written as its tags alone, marked typed, several run
   together as a line each, and a command of Claude Code's own as tags unmarked, or from 2.1.302
-  (`/color`, in tmux) as a `system` / `local_command` line (`command_run`).
+  (`/color`, in tmux) as a `system` / `local_command` line (`command_run`). One of its own that
+  takes a turn (2.1.307's `/goal <condition>`) is still an unmarked line, its output's `user` line
+  after it carrying the turn's marks: `claude/transcript.rs` (`ran_a_turn`), `claude/conversation.rs`
+  (`name_commands`). Without that, a `/goal` sent from Codealong stayed "Sent" at the end of its
+  thread under the reply to it (2026-10-21).
   `last-prompt` lines repeat the prompt's text but carry no time. In 150 transcripts here
   (2026-10-15) they often came only after the reply had begun, named none of 17 messages sent
   while a session worked, and sometimes went on naming an earlier prompt after a new one (most
@@ -438,9 +442,17 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   command keeps it. After Send now the call's result has
   `toolUseResult.backgroundedToDeliverMessage`, and the prompt goes in a second later as a
   `queued_command` attachment with `origin: {kind: "human"}`. With the box empty it sends the
-  prompts already queued. Ctrl+X Enter (`chat:queueSubmit`) queues one for after the turn.
-  Transcripts also have `queue-operation` lines (`enqueue`, `dequeue`, `remove`, with the prompt
-  as `content`) as the queue changes.
+  prompts already queued, which is what its terminal offers under them ("ctrl+x ctrl+s send
+  now"), and Codealong's Send now on a held message (`claude/mod.rs` `steer_queued`); that stops
+  the step it's on instead, as Escape does: a running command's result is "User rejected tool use"
+  and `[Request interrupted by user for tool use]`, then a `dequeue` and the held prompt as a new
+  turn's `user` line (2.1.307, a background job through `attach`, 2026-10-21), where the key after
+  a typed prompt moved the same command to the background (`remove`, `reason:
+  "absorbed_mid_turn"`). Ctrl+X Enter
+  (`chat:queueSubmit`) queues one for after the turn. What it holds, by its transcript's
+  `queue-operation` lines, and how a send finds the one it made: `claude/transcript.rs`
+  (`queue_step`, `queued_as`). 128 of 9,493 `enqueue`s here had no `content`, and three held a
+  long paste as `[Pasted text #1 …]` (the latest 800 transcripts, 2026-10-21).
 - The socket's `priority` takes `now`, `next` (the default) and `later`, but `now` is no send now
   (2.1.287): in a terminal session a `now` message sent during a command waited for it to end and
   then started a turn of its own, and a headless `-p --input-format stream-json` run, as the

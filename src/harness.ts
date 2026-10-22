@@ -44,6 +44,27 @@ export const FRESH_SIDES: readonly Harness[] = ['claude', 'codex'];
  *  `fork_from`): Claude Code and Codex through the copy Codealong runs, OpenCode in its service. */
 export const EDITS: readonly Harness[] = ['claude', 'codex', 'opencode'];
 
+/** The harnesses whose running turn takes in a message they hold once the step it's on ends,
+ *  where the others hold it until the turn ends (send.rs `Delivery::busy`): Claude Code and
+ *  OpenCode. */
+export const TAKES_BETWEEN_STEPS: readonly Harness[] = ['claude', 'opencode'];
+
+/** What a message the session's harness holds waits for, as the end of a sentence. */
+export function heldUntil(harness: Harness | null): string {
+  return harness && TAKES_BETWEEN_STEPS.includes(harness) ? 'its current step ends' : 'this turn ends';
+}
+
+/** What Send now on a message its harness holds does, where that isn't steering it into the turn
+ *  (harness.rs `steer_queued`): Claude Code's own send-now, which stops the step it's on. */
+const SENDS_HELD_NOW: Partial<Record<Harness, string>> = {
+  claude: 'Send what it holds now: Claude Code stops the step it’s on, a running command too, and goes on with it, as its own send-now does',
+};
+
+/** What Send now on a message the session's harness holds does, for its tooltip. */
+export function sendsHeldNow(harness: Harness | null): string {
+  return (harness && SENDS_HELD_NOW[harness]) || `Send it into the turn it’s taking now, rather than once ${heldUntil(harness)}`;
+}
+
 /** The harnesses whose sessions move to another folder as themselves (harness.rs
  *  `move_folder`): Claude Code, which goes on with a session wherever `--resume` runs. */
 export const MOVES_FOLDERS: readonly Harness[] = ['claude'];

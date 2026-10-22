@@ -1067,6 +1067,9 @@ pub enum Key {
     /// Back to the question before, in Antigravity's questions.
     Left,
     Return,
+    /// Keys of a harness's own typed as they are, as `Submit::Keys` types them after a prompt:
+    /// Claude Code's send-now with nothing in its box (`Adapter::steer_queued`).
+    Keys(&'static str),
 }
 
 const DIGITS: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -1083,6 +1086,7 @@ impl Key {
             Key::End => "\x1b[F",
             Key::Left => "\x1b[D",
             Key::Return => "\r",
+            Key::Keys(keys) => keys,
         }
     }
 }

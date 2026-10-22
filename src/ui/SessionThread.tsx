@@ -55,7 +55,8 @@ import { shortOf } from '../devices';
 import { putBack } from '../drafts';
 import { snippet } from '../todos';
 import { absolute, agoPhrase } from '../format';
-import type { HostedStream, Question, QueuedMessage, Session, Status, TranscriptItem, TranscriptPage } from '../types';
+import { harnessOfKey, heldUntil, sendsHeldNow } from '../harness';
+import type { Harness, HostedStream, Question, QueuedMessage, Session, Status, TranscriptItem, TranscriptPage } from '../types';
 import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
@@ -435,7 +436,8 @@ function YourText({ text }: { text: string }) {
 }
 
 /** What a message its harness holds until the turn ends says it is. */
-const QUEUED = 'Queued until this turn ends';
+/** What a message its harness holds says it waits for. */
+const queuedState = (harness: Harness | null) => `Queued until ${heldUntil(harness)}`;
 
 /** A queued message's key among the prompts. */
 const queuedKey = (m: QueuedMessage) => `queued:${m.id}`;
@@ -461,7 +463,7 @@ function NotYetSaid({ prompt, text, state, action, className, children }: { prom
 function Unsaid({ ahead, onOpen }: { ahead: Ahead; onOpen: () => void }) {
   const c = ahead.change;
   if (c.kind !== 'send') return null;
-  const state = ahead.doneAt == null ? 'Sending…' : ahead.queued ? QUEUED : ahead.unconfirmed ? 'Not in the session yet' : 'Sent';
+  const state = ahead.doneAt == null ? 'Sending…' : ahead.queued ? queuedState(harnessOfKey(c.key)) : ahead.unconfirmed ? 'Not in the session yet' : 'Sent';
   return (
     <NotYetSaid prompt={`ahead:${ahead.id}`} text={c.text} state={state} className={cx(ahead.doneAt == null && 'is-going', ahead.unconfirmed && 'is-unconfirmed')}>
       {ahead.unconfirmed && (
@@ -1016,11 +1018,12 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                   key={queuedKey(m)}
                   prompt={queuedKey(m)}
                   text={m.text}
-                  state={QUEUED}
-                  // While the turn would take it sooner, as Steer beside it in the Codex app does.
+                  state={queuedState(s.harness)}
+                  // While the turn would take it sooner, as Steer beside it in the Codex app does,
+                  // and Claude Code's send-now key under it in its terminal.
                   action={
                     s.steerable && (
-                      <button type="button" className="ca-linkbtn ca-thread-sendnow" title="Send it into the turn it’s taking, rather than once the turn ends" onClick={() => steer(m)}>
+                      <button type="button" className="ca-linkbtn ca-thread-sendnow" title={sendsHeldNow(s.harness)} onClick={() => steer(m)}>
                         <Icon name="bolt" size={12} stroke={2} />
                         <span>Send now</span>
                       </button>

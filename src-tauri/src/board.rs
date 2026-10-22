@@ -361,6 +361,8 @@ pub fn claude_session(
         (Surface::Cli, true) => "focus",
         (Surface::Cli, false) => "resume",
     };
+    // What Claude Code holds for the turn it's taking, which only a turn that's running has.
+    let held = tr.filter(|_| reg.is_some_and(|r| matches!(r.status.as_str(), "busy" | "waiting"))).map(TranscriptInfo::held).unwrap_or_default();
     let known = Session::new(Harness::Claude, &account.name, &id);
     Some(Session {
         open_target: format!("s|{}|{action}", known.key),
@@ -404,6 +406,8 @@ pub fn claude_session(
         own_worktree: tr.and_then(|t| t.own_worktree.clone()).filter(|_| reg.is_some()),
         color: tr.and_then(|t| t.color.as_deref()).and_then(crate::emblems::palette_color).map(String::from),
         headless,
+        queued_at: held.iter().map(|m| m.at).max(),
+        queued: held,
         ..known
     })
 }
@@ -2438,6 +2442,21 @@ mod tests {
         assert_eq!(got, want.map(|(k, r)| (k.to_string(), r, "Spruce".to_string())));
         let items = pr_items(&seeds, &[], &prs, &requested, None, &PrLinks::default());
         assert_eq!(items.iter().find(|p| p.number == 7).map(|p| p.title.as_str()), Some("Let the agent add and caption project photos"));
+    }
+
+    #[test]
+    fn a_claude_session_lists_what_its_running_turn_holds_of_yours() {
+        let held = |id: &str, text: &str| QueuedMessage { id: id.into(), at: NOW - 5_000, text: text.into() };
+        let queue = vec![held("q1", "Also check the docs"), held("q2", "<task-notification>\n</task-notification>")];
+        let t = TranscriptInfo { queue, ..tr() };
+        let s = claude_session(&acct("claude"), Some(&reg("busy", NOW)), Some(&t), 0, NOW, &Quiet::default()).unwrap();
+        assert_eq!((s.queued.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), s.queued_at), (vec!["q1"], Some(NOW - 5_000)));
+        // Held while it waits on you too; once the turn is over, or the process gone, nothing is.
+        assert_eq!(claude_session(&acct("claude"), Some(&reg("waiting", NOW)), Some(&t), 0, NOW, &Quiet::default()).unwrap().queued.len(), 1);
+        for s in [claude_session(&acct("claude"), Some(&reg("idle", NOW)), Some(&t), 0, NOW, &Quiet::default()), claude_session(&acct("claude"), None, Some(&t), 0, NOW, &Quiet::default())] {
+            let s = s.unwrap();
+            assert_eq!((s.queued.len(), s.queued_at), (0, None));
+        }
     }
 
     fn logo_board() -> Board {
