@@ -111,7 +111,8 @@ pub struct Kept {
     pub did: Choice,
     pub via: Via,
     /// Where what you did was among the suggestions, 0 for the first: the same thing to the
-    /// same session or worktree. None when it was none of them.
+    /// same session or worktree, and a start in a new worktree or not as it was suggested. None
+    /// when it was none of them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rank: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -159,7 +160,7 @@ fn note_in(path: &Path, k: Kept) -> Result<()> {
 }
 
 fn kept(n: Note, asked: Option<Asked>, now: i64) -> Kept {
-    let rank = n.suggested.as_ref().and_then(|s| s.iter().position(|c| c.kind == n.did.kind && c.target == n.did.target));
+    let rank = n.suggested.as_ref().and_then(|s| s.iter().position(|c| c.kind == n.did.kind && c.target == n.did.target && c.new_worktree == n.did.new_worktree));
     Kept { at: now, project: n.project, text: crate::util::truncate(&n.text, TEXT_CHARS), suggested: n.suggested, did: n.did, via: n.via, rank, asked }
 }
 
@@ -227,7 +228,12 @@ mod tests {
         assert_eq!(kept(note(Some(suggested.clone()), choice(Kind::Start, "/p/api")), None, 5).rank, Some(2));
         // The right session for the wrong thing is a miss.
         assert_eq!(kept(note(Some(suggested.clone()), choice(Kind::Send, "c:2")), None, 5).rank, None);
-        assert_eq!(kept(note(Some(suggested), choice(Kind::Todo, "/p/api")), None, 5).rank, None);
+        assert_eq!(kept(note(Some(suggested.clone()), choice(Kind::Todo, "/p/api")), None, 5).rank, None);
+        // A start beside the worktree it was suggested in is another start, and the other way.
+        let in_new = Choice { new_worktree: true, ..choice(Kind::Start, "/p/api") };
+        assert_eq!(kept(note(Some(suggested), in_new.clone()), None, 5).rank, None);
+        assert_eq!(kept(note(Some(vec![in_new.clone()]), choice(Kind::Start, "/p/api")), None, 5).rank, None);
+        assert_eq!(kept(note(Some(vec![in_new.clone()]), in_new), None, 5).rank, Some(0));
         assert_eq!(kept(note(None, choice(Kind::Send, "c:1")), None, 5).rank, None);
     }
 

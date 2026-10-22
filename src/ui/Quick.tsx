@@ -838,6 +838,12 @@ export function Quick() {
   const lastRoute = routing && routed && routed.for.slice(0, routed.for.indexOf('\n')) === current ? routed.route : null;
   const jevSuggested = useMemo(() => suggestRows(route, board, !!deviceNow), [board, route, deviceNow]);
   const jevLastSuggested = useMemo(() => suggestRows(lastRoute, board, !!deviceNow), [board, lastRoute, deviceNow]);
+  /** Whether a suggested start makes a new worktree, as `start` makes it: only where its account
+   *  makes worktrees and the worktree isn't for chats. */
+  const startsTree = (sg: Suggestion & { kind: 'start' }) => {
+    const c = sg.agent ? choiceForAgent(sg.agent, sg.newWorktree, sg.needs?.accounts) : null;
+    return (c ? c.makesWorktree : harnessMakesWorktree) && !sg.lane.startsChats && sg.newWorktree;
+  };
   // A start Jev suggests that would start just what the start row does is left out: the start row
   // says how likely Jev thinks it is, and ⏎ goes to it when that start led. What a suggested
   // start starts is what `start` makes of it.
@@ -845,8 +851,7 @@ export function Quick() {
   const isStartRow = (sg: Suggestion) => {
     if (sg.kind !== 'start' || !startRowFacts) return false;
     const c = sg.agent ? choiceForAgent(sg.agent, sg.newWorktree, sg.needs?.accounts) : null;
-    const tree = (c ? c.makesWorktree : harnessMakesWorktree) && !sg.lane.startsChats && sg.newWorktree;
-    return sameStart({ laneId: sg.lane.id, newWorktree: tree, account: c ? c.account : account, model: c ? c.modelNow : modelNow, effort: c ? c.effortNow : effortNow, place: c ? c.placeNow : placeNow }, startRowFacts);
+    return sameStart({ laneId: sg.lane.id, newWorktree: startsTree(sg), account: c ? c.account : account, model: c ? c.modelNow : modelNow, effort: c ? c.effortNow : effortNow, place: c ? c.placeNow : placeNow }, startRowFacts);
   };
   const startRowSuggested = jevSuggested.find((r) => isStartRow(r.s))?.s ?? null;
   const startLeads = !!jevSuggested[0] && isStartRow(jevSuggested[0].s);
@@ -1109,14 +1114,20 @@ export function Quick() {
   const rowMenu = (r: Row) => {
     if (r.kind === 'more' || r.kind === 'sendto' || r.kind === 'skill') return;
     const show = (spec: MenuSpec) => void showContextMenu(spec).catch((e: unknown) => setError(errorText(e)));
+    // What's typed going somewhere from a menu is noted as ⏎ on the row would note it.
+    const noted = (did: RouteChoice, via: RouteNote['via'], run: () => void) => () => {
+      noteDone(did, via);
+      run();
+    };
     if (r.kind === 'suggest') {
       const sg = r.s;
       if (sg.kind === 'send' || sg.kind === 'open') {
-        show([...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }, 'separator' as const] : []), ...sessionMenuSpec(sg.lane, sg.session)]);
+        show([...(sg.kind === 'send' ? [{ label: 'Send this prompt to it', run: noted(routeDone(sg, false), 'suggested', () => send(sg.session)) }, 'separator' as const] : []), ...sessionMenuSpec(sg.lane, sg.session)]);
       } else {
+        const tree = sg.kind === 'start' && startsTree(sg);
         show([
-          { label: `Start a session in ${sg.lane.callsign}`, run: () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree, agent: sg.kind === 'start' ? sg.agent : undefined, only: sg.kind === 'start' ? sg.needs?.accounts : undefined }) },
-          { label: `Save as a todo in ${sg.lane.project}`, run: () => saveTodo(sg.lane) },
+          { label: `Start a session in ${sg.lane.callsign}`, run: noted({ kind: 'start', target: sg.lane.id, newWorktree: tree }, 'suggested', () => start({ lane: sg.lane, newWorktree: sg.kind === 'start' && sg.newWorktree, agent: sg.kind === 'start' ? sg.agent : undefined, only: sg.kind === 'start' ? sg.needs?.accounts : undefined })) },
+          { label: `Save as a todo in ${sg.lane.project}`, run: noted({ kind: 'todo', target: sg.lane.id }, 'suggested', () => saveTodo(sg.lane)) },
         ]);
       }
       return;
@@ -1124,7 +1135,7 @@ export function Quick() {
     if (r.kind === 'session') {
       // In Send to, what ⏎ does leads, as on a suggestion's menu.
       const sg = r.group === 'sendto' ? toSessionSuggestion(r.lane, r.session, r.p ?? 0) : null;
-      show([...(sg?.kind === 'send' ? [{ label: 'Send this prompt to it', run: () => send(sg.session) }, 'separator' as const] : []), ...sessionMenuSpec(r.lane, r.session)]);
+      show([...(sg?.kind === 'send' ? [{ label: 'Send this prompt to it', run: noted(routeDone(sg, false), 'send-to', () => send(sg.session)) }, 'separator' as const] : []), ...sessionMenuSpec(r.lane, r.session)]);
       return;
     }
     if (r.kind === 'pr' || r.kind === 'review') {
@@ -1190,15 +1201,20 @@ export function Quick() {
   const noteDone = (did: RouteChoice, via: RouteNote['via']) => {
     if (!routeFor) return;
     const at = routeFor.indexOf('\n');
-    const note = { project: routeFor.slice(0, at), text: routeFor.slice(at + 1), suggested: route ? jevSuggested.map((r) => routeChoice(r.s)) : null, did, via };
+    const note = { project: routeFor.slice(0, at), text: routeFor.slice(at + 1), suggested: route ? jevSuggested.map((r) => logged(routeChoice(r.s), r.s)) : null, did, via };
     // A note that isn't kept only leaves this one out of the measure; the engine says why as a
     // notice when the file won't take it.
     noteRoute(note).catch(() => {});
   };
 
-  /** What a row did, for the routing log: the new session's row is noted as it starts. */
+  /** A suggestion's start as `start` makes it, in a new worktree or not (`startsTree`), so a
+   *  start from the new session's row compares with it. */
+  const logged = (c: RouteChoice, sg: Suggestion): RouteChoice => (sg.kind === 'start' ? { ...c, newWorktree: startsTree(sg) } : c);
+
+  /** What a row did, for the routing log: the new session's row is noted as it starts. Its
+   *  menu's items that take what's typed are noted as they run (`rowMenu`). */
   const noteRow = (row: Row, alt: boolean) => {
-    if (row.kind === 'suggest') noteDone(routeDone(row.s, alt), 'suggested');
+    if (row.kind === 'suggest') noteDone(logged(routeDone(row.s, alt), row.s), 'suggested');
     else if (row.kind === 'session') noteDone(row.group === 'sendto' ? routeDone(toSessionSuggestion(row.lane, row.session, 0), alt) : { kind: 'open', target: row.session.key }, row.group === 'sendto' ? 'send-to' : 'found');
     else if (row.kind === 'todo' || row.kind === 'pr' || row.kind === 'review') noteDone({ kind: 'other', target: null }, 'found');
   };

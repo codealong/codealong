@@ -1,7 +1,8 @@
 // Checks what the quick panel keeps of a route (Quick.tsx `noteDone`, routelog.rs `Note`): as
 // you act on what you typed, the engine is told the text as it went to Jev, Jev's suggestions as
-// listed, what you did and how you got to it. ⏎ on the first suggestion, ⌘2 on the second, and
-// a start from the new session's row (⌘⏎) are each noted; a search too short to go to Jev isn't.
+// listed, what you did and how you got to it. ⏎ on the first suggestion, ⌘2 on the second, a
+// start from the new session's row (⌘⏎) and Send this prompt to it from a suggestion's menu are
+// each noted; a search too short to go to Jev isn't.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-route-log-check.js
 // The board needs a worktree that isn't hidden and two sessions in such worktrees.
 (function () {
@@ -105,6 +106,20 @@
       check('⌘⏎ notes a start from the new session’s row, in its worktree', did(n) === JSON.stringify(['start', picked.lane, 'start-row']), did(n));
       return wait(300);
     })
+    .then(function () { return ask('Please tidy the backlog before Thursday'); })
+    .then(function () {
+      var row = Array.prototype.filter.call(suggested().querySelectorAll('.ca-quick-row'), function (r) { return /Logged pick 2/.test(r.textContent); })[0];
+      return menuOf(row);
+    })
+    .then(function () {
+      menuItem('Send this prompt to it')();
+      return until(function () { return notes().length === 4; }, 3000, 'the menu’s note');
+    })
+    .then(function () {
+      var n = notes()[3];
+      check('a suggestion’s menu notes what it sends', did(n) === JSON.stringify(['send', picked.sessions[1], 'suggested']) && n.text === 'Please tidy the backlog before Thursday', did(n));
+      return wait(300);
+    })
     .then(function () {
       type(input(), '');
       type(input(), 'Logged');
@@ -115,7 +130,7 @@
       return wait(500);
     })
     .then(function () {
-      check('a search too short to go to Jev isn’t noted', notes().length === 3, JSON.stringify(notes().slice(3)));
+      check('a search too short to go to Jev isn’t noted', notes().length === 4, JSON.stringify(notes().slice(4)));
     })
     .catch(function (e) { check('ran', false, String(e)); })
     .then(done);

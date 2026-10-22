@@ -40,9 +40,7 @@ const MAX_LANES: usize = 120;
 const STOPPED_WITHIN_MS: i64 = 3 * 24 * 3600 * 1000;
 /// How much of a session's title, prompt or doing line goes in.
 const TEXT_CHARS: usize = 240;
-/// Sessions whose conversations share words with the message that are looked for, in every
-/// project, and how many in the panel's go to Jev with their lines.
-const RELATED_LOOKED: usize = 40;
+/// Sessions whose conversations share words with the message that go to Jev with their lines.
 const RELATED: usize = 12;
 
 pub use codealong_peer::api::{Action, AgentPick, NeedPick, Pick, Route};
@@ -224,11 +222,7 @@ fn named_repos(text: &str, lanes: &[&Lane]) -> Vec<String> {
 /// isn't shown. Returned with those sessions' lines.
 fn candidates<'a, 'r>(board: &'a Board, project: &str, related: &'r [crate::search::Related], now: i64) -> (Vec<(&'a Lane, &'a Session)>, Vec<&'a Lane>, Vec<&'r crate::search::Related>) {
     let lanes: Vec<&Lane> = board.lanes.iter().filter(|l| in_project(l, project)).collect();
-    let offered: Vec<(&Lane, &Session)> = lanes
-        .iter()
-        .flat_map(|l| l.sessions.iter().map(move |s| (*l, s)))
-        .filter(|(_, s)| s.visitor.is_none() && !s.archived && !s.helps_an_agent() && !s.headless)
-        .collect();
+    let offered = offered(&lanes);
     let mut sessions: Vec<(&Lane, &Session)> = offered.iter().copied().filter(|(_, s)| s.live || now - s.last_prompt_at < STOPPED_WITHIN_MS).collect();
     sessions.sort_by(|a, b| b.1.live.cmp(&a.1.live).then(b.1.last_prompt_at.cmp(&a.1.last_prompt_at)).then(a.1.key.cmp(&b.1.key)));
     sessions.truncate(MAX_SESSIONS);
@@ -242,6 +236,11 @@ fn candidates<'a, 'r>(board: &'a Board, project: &str, related: &'r [crate::sear
     lanes.sort_by(|a, b| b.last_activity.cmp(&a.last_activity).then(a.id.cmp(&b.id)));
     lanes.truncate(MAX_LANES);
     (sessions, lanes, related)
+}
+
+/// The sessions of `lanes` that could be offered, however long ago they stopped.
+fn offered<'a>(lanes: &[&'a Lane]) -> Vec<(&'a Lane, &'a Session)> {
+    lanes.iter().flat_map(|l| l.sessions.iter().map(move |s| (*l, s))).filter(|(_, s)| s.visitor.is_none() && !s.archived && !s.helps_an_agent() && !s.headless).collect()
 }
 
 /// The accounts a new session can start on: on, and with somewhere to start.
@@ -634,7 +633,9 @@ pub fn suggest(board: &Board, project: &str, text: &str) -> Result<Route> {
 /// Routes what you typed: builds the request, asks Jev, reads the answer.
 pub fn route(board: &Board, cfg: &crate::config::Config, project: &str, text: &str) -> Result<Route> {
     let searched = Instant::now();
-    let related = crate::search::related(text, RELATED_LOOKED);
+    let lanes: Vec<&Lane> = board.lanes.iter().filter(|l| in_project(l, project)).collect();
+    let keys: HashSet<&str> = offered(&lanes).into_iter().map(|(_, s)| s.key.as_str()).collect();
+    let related = crate::search::related(text, RELATED, |key| keys.contains(key));
     if crate::perf::enabled() {
         crate::perf::log(&format!("route: {} sessions share words, in {} ms", related.len(), searched.elapsed().as_millis()));
     }

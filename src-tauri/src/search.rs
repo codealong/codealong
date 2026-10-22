@@ -177,11 +177,11 @@ pub struct Related {
     pub lines: Vec<(bool, String)>,
 }
 
-/// The sessions whose messages share the most telling of `text`'s words (`keywords`), at most
-/// `limit` of them. Unlike `find`, a message needn't have every word: what's typed to route is a
-/// sentence, and few messages have all of its words. Each message is weighed on its own, since a
-/// long conversation has nearly every word somewhere in it.
-pub fn related(text: &str, limit: usize) -> Vec<Related> {
+/// The sessions `wanted` takes whose messages share the most telling of `text`'s words
+/// (`keywords`), at most `limit` of them. Unlike `find`, a message needn't have every word: what's
+/// typed to route is a sentence, and few messages have all of its words. Each message is weighed
+/// on its own, since a long conversation has nearly every word somewhere in it.
+pub fn related(text: &str, limit: usize, wanted: impl Fn(&str) -> bool) -> Vec<Related> {
     let words = keywords(text);
     if words.is_empty() {
         return Vec::new();
@@ -191,7 +191,7 @@ pub fn related(text: &str, limit: usize) -> Vec<Related> {
         return Vec::new();
     }
     ix.read_new();
-    ix.related(&words, limit, now_ms())
+    ix.related(&words, limit, now_ms(), wanted)
 }
 
 /// The most of a text's words `related` searches by, the first ones: a message's are bits of a `u32`
@@ -379,8 +379,9 @@ impl Index {
     /// them; a message by the words it has, less the
     /// longer it is (a long one has more words of every kind), and only with two telling words, or
     /// every one when there are fewer. A session counts its best message and half its next, the
-    /// latest first among equals.
-    fn related(&self, words: &[String], limit: usize, now: i64) -> Vec<Related> {
+    /// latest first among equals. Only sessions `wanted` takes are ranked, so others can't crowd
+    /// them out, but every message counts toward how rare a word is.
+    fn related(&self, words: &[String], limit: usize, now: i64, wanted: impl Fn(&str) -> bool) -> Vec<Related> {
         let Ok(ac) = aho_corasick::AhoCorasick::new(words) else { return Vec::new() };
         let sessions: Vec<(&str, Vec<&Entry>)> = self
             .files
@@ -411,6 +412,7 @@ impl Index {
         let mut found: Vec<(f64, i64, usize, Vec<(f64, &Entry, u32)>)> = sessions
             .iter()
             .enumerate()
+            .filter(|(_, (key, _))| wanted(key))
             .filter_map(|(i, (_, msgs))| {
                 let mut best: Vec<(f64, &Entry, u32)> = msgs
                     .iter()
@@ -708,7 +710,8 @@ mod tests {
             ix.files.insert(PathBuf::from(format!("/f{i}.jsonl")), file(&format!("f{i}"), &[(true, &filler)]));
         }
         let words = keywords("fix the webhook retry backoff for stripe");
-        let found = ix.related(&words, 5, now);
+        let all = |_: &str| true;
+        let found = ix.related(&words, 5, now, all);
         // "fix" is in one message of sixteen, too many to tell which is meant; the rest are in
         // one to three. A message with one of them doesn't do while there are others.
         assert_eq!(found.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["webhook", "stripe"]);
@@ -718,8 +721,12 @@ mod tests {
         assert_eq!(found[0].lines, [(false, "Retrying with backoff in stripe.ts now.".to_string()), (true, "The Stripe webhook retries twice".to_string())]);
         assert_eq!(found[1].shared, ["retry", "stripe"]);
         // ...unless one is all there is to share. The shorter message comes first.
-        assert_eq!(ix.related(&keywords("fix the backoff"), 5, now).iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["pretty", "webhook"]);
-        assert!(ix.related(&keywords("fix it"), 5, now).is_empty(), "nothing telling, nothing found");
+        assert_eq!(ix.related(&keywords("fix the backoff"), 5, now, all).iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["pretty", "webhook"]);
+        assert!(ix.related(&keywords("fix it"), 5, now, all).is_empty(), "nothing telling, nothing found");
+        // Only the sessions wanted are ranked, so one left out takes no place from them, but its
+        // messages still say how rare a word is.
+        assert_eq!(ix.related(&words, 1, now, |k| k != "webhook").iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["stripe"]);
+        assert!(ix.related(&keywords("fix the webhook backoff"), 5, now, |k| k == "pretty").is_empty(), "pretty shares backoff alone while webhook is still a word");
     }
 
     #[test]
@@ -731,7 +738,7 @@ mod tests {
         long.extend(["the overflow is fine".into(), "chips are fine".into(), "the strip is fine".into()]);
         ix.files.insert(PathBuf::from("/long.jsonl"), file("long", long));
         ix.files.insert(PathBuf::from("/short.jsonl"), file("short", vec!["The strip's overflow wraps its chips".into()]));
-        let found = ix.related(&keywords("the overflow on the strip wraps when there are many chips"), 5, now);
+        let found = ix.related(&keywords("the overflow on the strip wraps when there are many chips"), 5, now, |_| true);
         assert_eq!(found.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["short"], "no message of the long one has two of the words");
     }
 
