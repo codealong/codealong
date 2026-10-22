@@ -36,7 +36,7 @@ use crate::util::{mtime_ms, parallel_map, parse_rfc3339_ms, read_first_line};
 
 use conversation::open_calls;
 use ipc::{codex_interrupt_turn, codex_start_turn};
-use rollout::{app_project_roots, archived_rollout_files, chats_dir, parse_meta, parse_rollout, prose_of, read_index, rollout_files, thread_id_of};
+use rollout::{app_project_roots, archived_rollout_files, chats_dir, meta_written, parse_meta, parse_rollout, prose_of, read_index, rollout_files, thread_id_of};
 use side::{last_turn, SideThread};
 use terminals::{codex_cli, held_rollouts, latest_day, pair_terminals, terminals, Terminal};
 
@@ -551,6 +551,11 @@ impl crate::harness::Adapter for Codex {
         if archived && crate::acp::delete_held(&account.name, self.harness(), id)? {
             return Ok(());
         }
+        // Codex refuses to archive a thread it has archived already ("no rollout found for thread
+        // id"), as a second Mark as done would ask: there's nothing left to do.
+        if archived && already_archived(&account.home_path(), id) {
+            return Ok(());
+        }
         appserver::set_archived(&account.home_path(), id, archived)
     }
 
@@ -696,6 +701,11 @@ impl Reader {
         match mtime_ms(p) {
             Some(m) => {
                 let parsed = parse_rollout(p, m, prev);
+                // A new rollout without its session meta yet says nothing of its thread: it's read
+                // again as it's written to, and by the poll, not taken for one that never shows.
+                if is_new && parsed.is_none() && !meta_written(p) {
+                    return;
+                }
                 out.added |= is_new && parsed.is_some();
                 if let (Some(from), Some((th, to))) = (from, parsed.as_ref()) {
                     out.lines.push(NewLines { path: p.to_path_buf(), from, to: *to, key: Session::key_for(Harness::Codex, account, &th.id) });
@@ -727,7 +737,8 @@ impl crate::harness::Reader for Reader {
             let files = rollout_files(&home, look.since, &look.seen.pinned_ids("codex", &a.name));
             for (path, parsed) in parallel_map(files, |(p, m)| {
                 let parsed = parse_rollout(&p, m, None);
-                Some((p, parsed))
+                // One made a moment ago may have no session meta yet: the poll reads it once it has.
+                (parsed.is_some() || meta_written(&p)).then_some((p, parsed))
             }) {
                 self.rollouts.insert(path, (a.name.clone(), parsed));
             }
@@ -890,6 +901,11 @@ fn tuned(ask: &crate::harness::StartAsk) -> String {
         out.push_str(&format!(" -c 'model_reasoning_effort=\"{e}\"'"));
     }
     out
+}
+
+/// Whether a thread's rollout is in `archived_sessions`, where Codex moves it as it archives it.
+fn already_archived(codex_home: &Path, id: &str) -> bool {
+    !archived_rollout_files(codex_home, &HashSet::from([id.to_string()])).is_empty()
 }
 
 fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> anyhow::Result<PathBuf> {
@@ -1091,6 +1107,68 @@ mod tests {
         assert!(!reader.poll_rollouts(accounts, &look).dirty);
         assert!(reader.sessions(&account, &look).is_empty());
         drop(hidden);
+    }
+
+    /// A second Mark as done archives a thread Codex archived with the first, which its app-server
+    /// refuses: nothing is asked of it.
+    #[test]
+    fn archiving_a_thread_codex_has_archived_already_asks_nothing_of_it() {
+        use crate::harness::Adapter as _;
+
+        let home = crate::fixtures::scratch("codex-archived-again");
+        let id = "01a1654e-b202-7d20-8f43-1e676c07126b";
+        std::fs::create_dir_all(home.join("archived_sessions")).unwrap();
+        std::fs::write(home.join(format!("archived_sessions/rollout-2026-10-22T13-30-18-{id}.jsonl")), "{\"type\":\"session_meta\",\"payload\":{\"id\":\"x\",\"cwd\":\"/codealong-test-missing-repo\"}}\n").unwrap();
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        assert!(already_archived(&home, id));
+        assert!(!already_archived(&home, "01a1654e-b202-7d20-8f43-1e676c07126c"));
+        assert!(Codex.archive(&account, id, true).is_ok());
+    }
+
+    /// Codex makes a rollout before it writes the session meta that opens it. A look in between
+    /// leaves it to be read again, where a whole first line that isn't a thread of yours is noted
+    /// and never read again.
+    #[test]
+    fn a_rollout_without_its_session_meta_yet_is_read_once_it_has_it() {
+        use crate::harness::Reader as _;
+
+        let home = crate::fixtures::scratch("codex-early");
+        let dir = home.join("sessions/2026/10/22");
+        std::fs::create_dir_all(&dir).unwrap();
+        let account = AccountCfg { name: "studio".into(), harness: "codex".into(), home: home.to_string_lossy().into_owned(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let accounts = std::slice::from_ref(&account);
+        let seen = crate::state::SeenState::default();
+        let now = parse_rfc3339_ms("2026-10-22T20:31:00.000Z").unwrap();
+        let look = Look { seen: &seen, since: now - 14 * crate::util::DAY_MS, now, ps: Default::default() };
+        let mut reader = Reader::default();
+        reader.index.insert("studio".into(), HashMap::new());
+        let meta = r#"{"type":"session_meta","payload":{"id":"helper","cwd":"/codealong-test-missing-repo","originator":"codealong"}}"#;
+
+        let path = dir.join("rollout-2026-10-22T13-30-18-01a1654e-b202-7d20-8f43-1e676c07126b.jsonl");
+        std::fs::write(&path, "").unwrap();
+        let mut read = Applied::default();
+        reader.read_rollout("studio", &path, &mut read);
+        assert!(!reader.rollouts.contains_key(&path) && !read.dirty, "an empty rollout isn't noted");
+        std::fs::write(&path, &meta[..meta.len() / 2]).unwrap();
+        reader.poll_rollouts(accounts, &look);
+        assert!(!reader.rollouts.contains_key(&path), "nor one halfway through its first line");
+        std::fs::write(&path, format!("{meta}\n")).unwrap();
+        assert!(reader.poll_rollouts(accounts, &look).added, "it's read once its first line is whole");
+        assert_eq!(reader.sessions(&account, &look).iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["helper"]);
+
+        // A startup scan that comes on one as it's made leaves it for the poll too.
+        let early = dir.join("rollout-2026-10-22T13-31-00-01a1654e-b202-7d20-8f43-1e676c07126c.jsonl");
+        std::fs::write(&early, "").unwrap();
+        reader.scan(accounts, &look);
+        assert!(!reader.rollouts.contains_key(&early));
+        std::fs::write(&early, format!("{}\n", meta.replace("\"helper\"", "\"second\""))).unwrap();
+        reader.poll_rollouts(accounts, &look);
+        assert!(reader.sessions(&account, &look).iter().any(|s| s.id == "second"));
+
+        let guardian = dir.join("rollout-2026-10-22T13-32-00-01a1654e-b202-7d20-8f43-1e676c07126d.jsonl");
+        std::fs::write(&guardian, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"guardian\",\"cwd\":\"/codealong-test-missing-repo\",\"source\":{\"subagent\":{\"other\":\"guardian\"}}}}\n").unwrap();
+        reader.poll_rollouts(accounts, &look);
+        assert!(matches!(reader.rollouts.get(&guardian), Some((_, None))), "a guardian review is noted as never shown");
     }
 
     /// What the app holds for a thread until its turn ends is on its session as the queue

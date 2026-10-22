@@ -302,7 +302,21 @@ pub fn thread_id_of(path: &Path) -> Option<String> {
     (stem.len() >= 36).then(|| stem[stem.len() - 36..].to_string())
 }
 
-/// Parses a rollout. Threads you didn't start (guardian reviews, subagents) return `None`.
+/// How much of a rollout's first line, its session meta, is read.
+const META_MAX: u64 = 4 * 1024 * 1024;
+
+/// Whether a rollout's first line is written whole, so a parse that found no thread in it is the
+/// thread's own say (a guardian review, a subagent) and not a look too soon: Codex makes the file
+/// before it writes its session meta, and `thread/start` left one empty for 2ms before its 22KB
+/// first line (0.156.1's app-server on a scratch `CODEX_HOME`, 2026-10-22). A look in between,
+/// as the file appeared, took a helper Codealong started for a thread that never shows
+/// (`Reader::read_rollout`). A first line too long to read whole never will be.
+pub fn meta_written(path: &Path) -> bool {
+    read_first_line(path, META_MAX).is_some_and(|l| l.ends_with('\n') || l.len() as u64 >= META_MAX)
+}
+
+/// Parses a rollout. Threads you didn't start (guardian reviews, subagents) return `None`, and
+/// so does one whose session meta isn't written yet (`meta_written` tells them apart).
 /// With an earlier result and the offset it stopped at, only new lines are read.
 ///
 /// A first parse reads the last 256KB, then reads back further for whatever that missed that
@@ -316,7 +330,7 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
     let (mut info, tail, floor) = match prev.filter(|(_, off)| *off <= len && len - off <= 1024 * 1024) {
         Some((info, off)) => (info, read_tail(path, off).ok()?, None),
         None => {
-            let first = read_first_line(path, 4 * 1024 * 1024)?;
+            let first = read_first_line(path, META_MAX)?;
             let mut info = parse_meta(&first)?;
             if info.id.is_empty() {
                 info.id = thread_id_of(path)?;
