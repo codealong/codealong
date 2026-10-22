@@ -302,8 +302,17 @@ fn without_own_boards(mut file: BoardsFile) -> BoardsFile {
 
 fn has_yours(b: &BoardDoc) -> bool {
     // A canvas brings on what its board holds by itself, and a tidy draws frames round it
-    // (`auto`, canvas/model.ts `FrameItem`); a note or another frame was put there.
-    let drawn = b.canvas.get("items").and_then(Value::as_array).is_some_and(|items| items.iter().any(|it| it.get("kind").and_then(Value::as_str) != Some("ref") && it.get("auto") != Some(&Value::Bool(true))));
+    // (`auto`, canvas/model.ts `FrameItem`); a card moved or kept there (`kept`, `RefItem`), a
+    // note or another frame was put there.
+    let yours = |it: &Value| {
+        let is = |field: &str| it.get(field) == Some(&Value::Bool(true));
+        if it.get("kind").and_then(Value::as_str) == Some("ref") {
+            is("kept")
+        } else {
+            !is("auto")
+        }
+    };
+    let drawn = b.canvas.get("items").and_then(Value::as_array).is_some_and(|items| items.iter().any(yours));
     b.name != b.project || b.rule != Some(Rule::default()) || !b.added.is_empty() || !b.removed.is_empty() || b.columns.is_some() || !b.placed.is_empty() || !b.order.is_empty() || drawn
 }
 
@@ -776,10 +785,12 @@ mod tests {
     #[test]
     fn a_projects_own_board_from_before_stays_only_with_something_of_yours_on_it() {
         let canvas = |kinds: &[&str]| json!({ "items": kinds.iter().map(|k| json!({ "kind": k })).collect::<Vec<_>>() });
-        // What a tidy drew round the cards is the canvas's, not yours.
+        // What a tidy drew round the cards is the canvas's, not yours; a card you moved is yours.
         let tidied = json!({ "items": [{ "kind": "ref" }, { "kind": "frame", "auto": true }] });
+        let moved = json!({ "items": [{ "kind": "ref", "kept": true }, { "kind": "frame", "auto": true }] });
         let yours = vec![
             BoardDoc { canvas: canvas(&["ref", "frame"]), ..own("Atlas") },
+            BoardDoc { canvas: moved, ..own("Birch") },
             BoardDoc { name: "Kestrel, renamed".into(), ..own("Kestrel") },
             BoardDoc { removed: vec!["session:s9".into()], ..own("Harbor") },
             BoardDoc { columns: Some(vec![]), ..own("Juniper") },
@@ -790,10 +801,10 @@ mod tests {
         let ids = |f: &BoardsFile| f.boards.iter().map(|b| b.id.as_str()).collect::<Vec<_>>().join(" ");
         let before = BoardsFile { version: 1, boards, extra: Map::new() };
         let after = without_own_boards(before.clone());
-        assert_eq!(ids(&after), "b-1 p:Atlas p:Kestrel p:Harbor p:Juniper p:Larch");
+        assert_eq!(ids(&after), "b-1 p:Atlas p:Birch p:Kestrel p:Harbor p:Juniper p:Larch");
         // Once the file is of version 2, a board with an id like that is a board like any other.
         let mut file = BoardsFile { version: VERSION, ..before };
-        assert_eq!(without_own_boards(file.clone()).boards.len(), 8);
+        assert_eq!(without_own_boards(file.clone()).boards.len(), 9);
         assert!(run(&mut file, BoardOp::Delete { id: "p:Northwind".into() }).unwrap().0);
         assert_eq!(run(&mut file, BoardOp::Project { id: "p:Atlas".into(), project: "Northwind".into() }).unwrap().1.left.as_deref(), Some("Atlas"));
     }

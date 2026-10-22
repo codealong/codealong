@@ -620,6 +620,12 @@ export function App() {
   const applyBoard = useCallback((op: Parameters<typeof boards.apply>[0]) => boards.apply(op).catch((e: unknown) => setToast(errorText(e))), [boards, setToast]);
   const [canvasFocus, setCanvasFocus] = useState<{ ids: string[]; n: number } | null>(null);
   const canvasKeys = useRef<(e: KeyboardEvent) => boolean>(() => false);
+  // Whether the canvas is drawn. CanvasView gives the window its keys while it is, and they go with
+  // it: a board deleted, or a project with none, leaves no keys behind to act on a canvas that's gone.
+  const canvasShown = view === 'canvas' && !!board && !!shownBoard && !!canvas.doc && !loading;
+  useEffect(() => {
+    if (!canvasShown) canvasKeys.current = () => false;
+  }, [canvasShown]);
   // The one card selected on the canvas: its panel shows on the right, and ⌘N starts in its worktree.
   const [canvasSel, setCanvasSel] = useState<RefItem | null>(null);
   // Picking a status, or pressing Return in the filter, brings what matches into view.
@@ -2282,7 +2288,7 @@ export function App() {
             </div>
           )}
           {(view === 'kanban' || view === 'canvas') && !loading && boards.read && !shownBoard && <BoardEmpty project={current} error={boards.error} onNew={() => setBoardEdit({ board: null })} />}
-          {view === 'canvas' && board && shownBoard && canvas.doc && !loading && (
+          {canvasShown && board && shownBoard && canvas.doc && (
             <CanvasView
               doc={canvas.doc}
               update={canvas.update}
