@@ -106,12 +106,14 @@ async function answer(ask: BoardAsk, latest: { readonly current: BoardAsks }): P
   if (op.kind === 'arrange') {
     // A board whose canvas was never shown starts as it would have: tidied.
     const done = arrange(canvas ?? seed(e, now, on), e, op.frames, op.rest, now, on);
+    // What comes off the canvas comes off the board, which would show it there again. It's asked
+    // in the same moment as the canvas is put, so the window, which makes a change it's asked at
+    // once (useBoards.ts `apply`), never draws the new canvas with the board that still shows it:
+    // it would put the cards back and grow the frames round them.
+    const off = done.off.length > 0 ? o.apply({ op: 'remove', id: doc.id, cards: done.off }) : null;
     // Saved before the command hears it's done, so a failure to save is its answer. The board the
     // window shows goes through its handle, so the window holds what was saved.
-    await (here ? o.canvas.put(done.doc) : saveCanvas(doc.id, done.doc));
-    // What came off the canvas comes off the board, which would show it there again; a window
-    // that put it back meanwhile takes it off once the board has.
-    if (done.off.length > 0) await o.apply({ op: 'remove', id: doc.id, cards: done.off });
+    await Promise.all([here ? o.canvas.put(done.doc) : saveCanvas(doc.id, done.doc), off]);
     return { board: named(doc), frames: done.frames, missing: done.missing, rest: done.rest };
   }
   throw new Error('This Codealong doesn’t know that board request: the command is newer than the app.');

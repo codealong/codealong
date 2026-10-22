@@ -3,8 +3,9 @@
 // board's canvas holds; `arrange` lays out the frames it names, with their notes, says what it
 // made and what the project lacks, and saves the canvas; a reveal brings the canvas up with those
 // frames in view; another project's board is arranged and saved without switching to it; a board
-// there isn't is refused; and a save from another window has this one read the canvas again,
-// where its own doesn't.
+// there isn't is refused; a save from another window has this one read the canvas again, where
+// its own doesn't; and with the rest off, what no frame names comes off the board too, and the
+// window doesn't put it back meanwhile.
 // Each project has a board that takes in everything, boards-everything.json's.
 //   PREVIEW_WAIT=90000 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/canvas-arrange-check.js
 (function () {
@@ -200,7 +201,30 @@
         await wait(300);
         window.__TAURI_INTERNALS__.invoke = stub;
         check('a read the window’s save overtook is read again', !readAgain.error && userNotes() === notesThen + 1 && saved(board).doc.items.some(function (it) { return it.kind === 'frame' && it.title === 'Read again'; }), notesThen + ' then ' + userNotes());
+        window.__emit('reveal', { kind: 'board', board: board, project: project, layout: 'canvas' });
+        await wait(1500);
       }
+
+      // With the rest off, what no frame names comes off the canvas and the board together: the
+      // window, which shows the new canvas while it's still being saved, doesn't put the rest
+      // back (the board would show it still) and grow the frame round it. The arrange's save is
+      // held to see the window meanwhile, once the window's own saves are done.
+      for (var m = -1; m !== calls('canvas_save').length; ) {
+        m = calls('canvas_save').length;
+        await wait(900);
+      }
+      var cardsOn = function () { return saved(board).doc.items.filter(function (it) { return it.kind === 'ref'; }).map(function (it) { return it.key; }).join(', '); };
+      var saving = hold('canvas_save');
+      var justThis = ask(board, { kind: 'arrange', frames: [{ title: 'Just this', cards: [{ ref: 'session', key: session.key }] }], rest: 'off' });
+      await until(saving.waiting, 3000, 'the arranged canvas’s save held');
+      await wait(1000);
+      var removed = last('board_op');
+      check('rest off takes the rest off the board', removed && removed.op.op === 'remove' && removed.op.cards.length > 0, JSON.stringify(removed).slice(0, 160));
+      check('and the window doesn’t put it back on the canvas meanwhile', cardsOn() === session.key, cardsOn());
+      saving.release();
+      var offDone = await justThis;
+      await wait(1000);
+      check('nor once the board has it', !offDone.error && cardsOn() === session.key, cardsOn());
     })
     .then(done)
     .catch(stopped);

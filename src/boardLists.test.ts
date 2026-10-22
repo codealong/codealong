@@ -910,6 +910,11 @@ describe('the Kanban view’s columns', () => {
     // A rule's board shows what it takes in alone.
     const sessionsOnly: BoardDoc = { ...everything, rule: { kinds: ['session'] } };
     expect([...kanbanOf(fx.board({ lanes: [l, other], todos, prs }), [l, other], sessionsOnly, NOW).shows]).toEqual(['session:claude:claude:mine']);
+    // A board with a todo has what its card lists, the session at work on it, a card of its own;
+    // but not one taken off.
+    const todoOnly: BoardDoc = { ...everything, rule: null, added: ['todo:open'] };
+    expect([...kanbanOf(fx.board({ lanes: [l, other], todos, prs }), [l, other], todoOnly, NOW).shows].sort()).toEqual(['session:claude:claude:mine', 'todo:open']);
+    expect([...kanbanOf(fx.board({ lanes: [l, other], todos, prs }), [l, other], { ...todoOnly, removed: ['session:claude:claude:mine'] }, NOW).shows]).toEqual(['todo:open']);
   });
 
   it('shows a project’s board under All projects from that project’s work alone', () => {

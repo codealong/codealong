@@ -799,7 +799,8 @@ export function kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board
 }
 
 /** A board's todos among `todoRows` and its sessions among `sessions`, as `kanbanColumns` says,
- *  with the sessions an open todo's card lists only `withTodos`. */
+ *  but `withTodos`: then the sessions an open todo's card lists, which the board has with the
+ *  todo, are cards of their own too. */
 function boardCards({ todoRows, todos, sessions, prs, doneSince, board, member }: Omit<KanbanInput, 'subjects' | 'now'>, withTodos: boolean): { todoCards: TodoItem[]; sessionCards: SessionItem[] } {
   const added = new Set(board.added);
   const removed = new Set(board.removed);
@@ -808,13 +809,14 @@ function boardCards({ todoRows, todos, sessions, prs, doneSince, board, member }
     return !r.todo.archivedAt && member(card) && (added.has(card) || !(todoStage(r, todos) === 'done' && doneAt(r) < doneSince));
   });
   // What an open todo's card lists, which has no archived session: one of those goes on a card of its own.
-  const onCards = withTodos ? new Set<string>() : new Set(todoCards.filter((c) => todoStage(c, todos) !== 'done').flatMap((c) => c.sessions.map((p) => p.session.key)));
+  const onCards = new Set(todoCards.filter((c) => todoStage(c, todos) !== 'done').flatMap((c) => c.sessions.map((p) => p.session.key)));
   const viaPrs = new Set(prs.filter((p) => member(`pr:${p.key}`)).flatMap((p) => p.sessions.map((s) => s.key)));
   const sessionCards = sessions.filter((r) => {
     const card = `session:${r.session.key}`;
-    // Taken off the board, it stays off, though its worktree or a PR of its is on it.
-    if (removed.has(card) || !(member(card) || member(`worktree:${r.lane.id}`) || viaPrs.has(r.session.key))) return false;
-    if (onCards.has(r.session.key)) return false;
+    // Taken off the board, it stays off, though its worktree, a PR or a todo of its is on it.
+    if (removed.has(card)) return false;
+    const onTodo = onCards.has(r.session.key);
+    if (onTodo ? !withTodos : !(member(card) || member(`worktree:${r.lane.id}`) || viaPrs.has(r.session.key))) return false;
     return added.has(card) || (!unattended(r.session) && (current(r.session) || sessionStage(r, prs) === 'review'));
   });
   return { todoCards, sessionCards };
