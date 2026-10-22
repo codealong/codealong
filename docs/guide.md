@@ -836,10 +836,12 @@ saying so on it, nothing tells the reviewer: GitHub tells them of a comment or a
 not of a push, and their agent reviews again when it's asked. The PR reads Reply needed. Settings ›
 Automation › Ask for a re-review once fixes are pushed (`[pull_requests] rerequest_after_fixes`,
 off until turned on, since it acts as you) has Codealong ask them, as GitHub's Re-request review
-does: once the last push is ten minutes old and none of the PR's sessions is in a turn, so a run
-of fixes is asked about once and a session that's about to say so itself can. Each reviewer is asked
-once for each commit; a request GitHub refuses is tried again a few times, a quarter of an hour
-apart, and said in a notice. Once asked, the PR reads Re-review asked. A repo's team file can
+does: once the PR has been quiet for ten minutes (nothing pushed or said on it) and none of its
+sessions is in a turn, working or waiting on you to allow something, so a run of fixes is asked
+about once and a session that's about to say so itself can. It reads the PR from GitHub again
+first, and asks only if that still holds. Each reviewer it holds for is asked, once for each
+commit; a request GitHub refuses is tried again a few times, a quarter of an hour apart, and said
+in a notice. Once asked, the PR reads Re-review asked. A repo's team file can
 suggest it (see *Settings for one repo, and its team's*), and your table for a repo turns it on or off
 there.
 
@@ -1153,9 +1155,11 @@ again or written to since; and Reviewer replied (amber) when they wrote again af
 of theirs finding it fixed say, which leaves you to ask for the approval. Someone else's PR you
 reviewed or commented on reads Author replied (amber) when its author wrote after you, your
 agent's posted reviews counting as yours, unless your agent approves the commit it's at. The
-tooltip says who and since when. Codealong reads it from each open PR's last twenty comments and
-reviews and its last review requests; a push is taken to be when its latest commit was made, so
-one made long before it was pushed reads as earlier than it was.
+tooltip says who and since when, naming each reviewer it holds for. Codealong reads it from each
+open PR's last twenty comments and reviews and its last review requests, a bot's comments and
+requests for changes left out; a push is taken to be when its latest commit was made, so one made
+long before it was pushed reads as earlier than it was, and where the twenty don't reach back to
+the push it doesn't say Reply needed, as a word since can't be ruled out.
 A PR whose approvals are all of an earlier commit than the one it's at has an amber Stale approval
 after its Approved or Ready to merge, its tooltip saying who approved which commit: a repo that
 doesn't dismiss approvals when commits come goes on counting them, so GitHub would merge commits

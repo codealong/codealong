@@ -178,16 +178,17 @@ function turnPill(pr: PrFacts): PrPill | null {
   const t = pr.turn;
   if (!t || !isOpen(pr.state) || pr.state === 'draft') return null;
   const since = t.since ? ` (${absolute(t.since)})` : '';
-  const stands = 'GitHub keeps their request for changes until they approve.';
+  const who = listed([t.who, ...(t.also ?? [])]);
+  const stands = 'GitHub keeps a request for changes until its reviewer approves.';
   switch (t.kind) {
     case 'replyNeeded':
-      return reviewPillOf('attn', 'Reply needed', `Commits came after ${t.who} asked for changes${since}, and nobody has said so on it. GitHub tells a reviewer of a comment or a review request, not of a push: say what changed, or ask them to review it again.`);
+      return reviewPillOf('attn', 'Reply needed', `Commits came after ${who} asked for changes${since}, and nobody has said so on it. GitHub tells a reviewer of a comment or a review request, not of a push: say what changed, or ask for a review again.`);
     case 'rereviewAsked':
-      return reviewPillOf('plain', 'Re-review asked', `Waiting on ${t.who}, who asked for changes: asked to review it again, or written to since${since}. ${stands}`);
+      return reviewPillOf('plain', 'Re-review asked', `Waiting on ${who}, who asked for changes: asked to review it again, or written to since${since}. ${stands}`);
     case 'reviewerReplied':
-      return reviewPillOf('attn', 'Reviewer replied', `${t.who} asked for changes, then wrote again${since}: your move. ${stands}`);
+      return reviewPillOf('attn', 'Reviewer replied', `${who} asked for changes, then wrote again${since}: your move. ${stands}`);
     case 'authorReplied':
-      return reviewPillOf('attn', 'Author replied', `${t.who} wrote${since} after your last review or comment: your move.`);
+      return reviewPillOf('attn', 'Author replied', `${who} wrote${since} after your last review or comment: your move.`);
   }
 }
 
@@ -297,10 +298,10 @@ export function prPills(pr: PrFacts): PrPill[] {
   if (prReady(pr)) {
     const why = [pr.state === 'approved' ? 'Approved' : null, c.passed > 0 ? `${plural(c.passed, 'check')} passed` : null, 'no conflicts'].filter(Boolean).join(', ');
     const ready: PrPill = { key: 'ready', tone: 'ready', icon: 'merge', text: 'Ready to merge', short: null, title: `${why[0].toUpperCase()}${why.slice(1)}: GitHub can merge it` };
-    // Where the agent stands goes beside it, else, asked for your review again, Re-review: it's
-    // likely your approval of an earlier commit that has it ready, and a review it waits on
-    // isn't to be taken for one done.
-    const first = agentPill(pr) ?? reReviewPill(pr);
+    // Where the agent stands goes beside it, else whose move it is, else, asked for your review
+    // again, Re-review: it's likely your approval of an earlier commit that has it ready, and a
+    // review it waits on isn't to be taken for one done.
+    const first = agentPill(pr) ?? turnPill(pr) ?? reReviewPill(pr);
     return [first, ready, stalePill(pr)].filter((p): p is PrPill => p !== null);
   }
   const base = pr.base ?? 'its base';

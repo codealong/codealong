@@ -6,20 +6,24 @@
 //! nobody (specbook#1293 and #1290, 2026-10-22, where each request made by hand was answered by
 //! the reviewer's agent within minutes).
 //!
-//! It's asked once the last push is `SETTLE_MS` old and none of the PR's sessions is in a turn,
-//! so a run of fixes is asked about once, and a session about to say so itself can; once for each
-//! reviewer and commit, and a request GitHub refuses is tried again a few times, each `RETRY_MS`
-//! after the last. Asked, the PR's timeline has the request, and the PR reads as the reviewer's
-//! move (`RereviewAsked`) from GitHub's next answer on.
+//! It's asked once the PR has been quiet for `SETTLE_MS` (its last update, which a push is, and its
+//! last commit) and none of its sessions is in a turn, so a run of fixes is asked about once, and a
+//! session about to say so itself can; once for each reviewer and commit, and a request GitHub
+//! refuses is tried again a few times, each `RETRY_MS` after the last. The board can be behind
+//! GitHub (a repo no longer read keeps its last answer, a restart reads a cached one), so the PR is
+//! read afresh before anyone is asked, and they're asked only if it still holds (`still_owed`).
+//! Asked, the PR's timeline has the request, and the PR reads as the reviewer's move
+//! (`RereviewAsked`) from GitHub's next answer on.
 
 use std::collections::HashMap;
 
 use crate::config::PullRequestsCfg;
 use crate::engine::Handle;
+use crate::github::PrRaw;
 use crate::model::{Board, PrItem, Status, TurnKind};
 
-/// How long after the last push a reviewer is asked: a session pushing a run of fixes is done by
-/// then, or says so itself.
+/// How long a PR is quiet before its reviewer is asked: a session pushing a run of fixes is done
+/// by then, or says so itself.
 pub const SETTLE_MS: i64 = 10 * 60_000;
 /// How long after a request GitHub refused it's tried again, and how many times it's tried.
 const RETRY_MS: i64 = 15 * 60_000;
@@ -64,8 +68,7 @@ impl Rerequester {
     pub fn due(&mut self, board: &Board, global: &PullRequestsCfg, now: i64) -> Vec<Job> {
         self.tried.retain(|(pr, ..), _| board.prs.iter().any(|p| &p.key == pr));
         let mut jobs = Vec::new();
-        for pr in board.prs.iter().filter(|p| p.mine && p.state.is_open()) {
-            let Some(job) = owed(board, pr, global, now) else { continue };
+        for job in board.prs.iter().filter(|p| p.mine && p.state.is_open()).flat_map(|pr| owed(board, pr, global, now)) {
             let due = match self.tried.get(&job.id()) {
                 None => true,
                 Some(t) => !t.ok && t.tries < TRIES && now - t.at >= RETRY_MS,
@@ -88,34 +91,57 @@ impl Rerequester {
     }
 }
 
-/// The PRs on `board` whose unsaid fixes have settled at `now` (`SETTLE_MS`). Nothing the windows
+/// Since when `pr`'s unsaid fixes have been quiet: its last update (a push is one, and so is
+/// anything said) or its last commit, whichever came later. None unless its fixes went unsaid.
+fn quiet_since(pr: &PrItem) -> Option<i64> {
+    let turn = pr.turn.as_ref().filter(|t| t.kind == TurnKind::ReplyNeeded)?;
+    Some(turn.since?.max(pr.updated_at))
+}
+
+/// The PRs on `board` whose unsaid fixes have been quiet `SETTLE_MS` at `now`. Nothing the windows
 /// get says so, and it comes with time alone, so the board's hash takes it in (engine.rs
 /// `board_hash`), as reconnect.rs `lifted` is: the board that's composed then goes out, and `due`
 /// runs on it.
 pub fn settled(board: &Board, now: i64) -> Vec<&str> {
-    let unsaid = |p: &&PrItem| p.turn.as_ref().is_some_and(|t| t.kind == TurnKind::ReplyNeeded && t.since.is_some_and(|at| now - at >= SETTLE_MS));
-    board.prs.iter().filter(unsaid).map(|p| p.key.as_str()).collect()
+    board.prs.iter().filter(|p| quiet_since(p).is_some_and(|at| now - at >= SETTLE_MS)).map(|p| p.key.as_str()).collect()
 }
 
-/// The reviewer `pr` owes a request to now, if any: it's yours, its fixes went unsaid
-/// (`ReplyNeeded`), its repo has it on, the last push is `SETTLE_MS` old, and none of its
-/// sessions is in a turn.
-fn owed(board: &Board, pr: &PrItem, global: &PullRequestsCfg, now: i64) -> Option<Job> {
-    let turn = pr.turn.as_ref().filter(|t| t.kind == TurnKind::ReplyNeeded)?;
-    let head = pr.head_oid.clone()?;
-    if !board.repo_settings.pull_requests(global, pr).rerequest_after_fixes || turn.since.is_none_or(|at| now - at < SETTLE_MS) {
-        return None;
+/// The reviewers `pr` owes a request to now: it's yours, its fixes went unsaid (`ReplyNeeded`, each
+/// reviewer it holds for), its repo has it on, it's been quiet `SETTLE_MS`, and none of its
+/// sessions is in a turn, working or waiting on you to allow something.
+fn owed(board: &Board, pr: &PrItem, global: &PullRequestsCfg, now: i64) -> Vec<Job> {
+    let (Some(turn), Some(head), Some(quiet)) = (pr.turn.as_ref(), pr.head_oid.as_ref(), quiet_since(pr)) else { return Vec::new() };
+    if now - quiet < SETTLE_MS || !board.repo_settings.pull_requests(global, pr).rerequest_after_fixes {
+        return Vec::new();
     }
-    let working = pr.sessions.iter().any(|s| board.session(&s.key).is_some_and(|(_, s)| s.status == Status::Working));
-    (!working).then(|| Job { pr: pr.key.clone(), repo: pr.repo_slug.clone(), number: pr.number, reviewer: turn.who.clone(), head })
+    let in_turn = |s: &crate::model::Session| s.status == Status::Working || (s.status == Status::Needs && !s.asks);
+    if pr.sessions.iter().any(|s| board.session(&s.key).is_some_and(|(_, s)| in_turn(s))) {
+        return Vec::new();
+    }
+    let job = |reviewer: &String| Job { pr: pr.key.clone(), repo: pr.repo_slug.clone(), number: pr.number, reviewer: reviewer.clone(), head: head.clone() };
+    std::iter::once(&turn.who).chain(&turn.also).map(job).collect()
 }
 
-/// Asks each job's reviewer, through `gh`, telling `rerequester` how each went, and the engine,
-/// which says so in a notice when one didn't.
+/// Whether `job`'s reviewer is still owed a request by its PR as GitHub has it now (`raw`, read
+/// afresh as `login`): still open at the job's commit, its fixes still unsaid to them.
+fn still_owed(raw: &PrRaw, login: Option<&str>, job: &Job) -> bool {
+    let mine = login.is_some() && raw.author.as_deref() == login;
+    let unsaid = crate::board::turn_of(raw, mine, login).filter(|t| t.kind == TurnKind::ReplyNeeded);
+    raw.state.is_open() && raw.head_oid.as_deref() == Some(job.head.as_str()) && unsaid.is_some_and(|t| std::iter::once(&t.who).chain(&t.also).any(|w| w.eq_ignore_ascii_case(&job.reviewer)))
+}
+
+/// Asks each job's reviewer, through `gh`, once its PR read afresh says it still holds, telling
+/// `rerequester` how each went, and the engine, which says so in a notice when one didn't.
 pub fn send_now(engine: &Handle, rerequester: &std::sync::Mutex<Rerequester>, jobs: Vec<Job>) {
+    let mut read: HashMap<String, Result<(PrRaw, Option<String>), String>> = HashMap::new();
     let mut failed = Vec::new();
     for job in jobs {
-        let went = crate::github::request_review(&job.repo, job.number, &job.reviewer);
+        let fresh = read.entry(job.pr.clone()).or_insert_with(|| crate::github::one(&job.repo, job.number).map_err(|e| e.to_string()));
+        let went = match fresh {
+            Ok((raw, login)) if still_owed(raw, login.as_deref(), &job) => crate::github::request_review(&job.repo, job.number, &job.reviewer).map_err(|e| e.to_string()),
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("GitHub couldn't be asked how it stands: {e}")),
+        };
         rerequester.lock().unwrap_or_else(|e| e.into_inner()).went(&job, went.is_ok(), crate::util::now_ms());
         if let Err(e) = went {
             failed.push(format!("{} wasn't asked to review {} again after its fixes: {e}", job.reviewer, job.pr));
@@ -177,7 +203,7 @@ mod tests {
     }
 
     fn unsaid(pushed: i64) -> Option<Turn> {
-        Some(Turn { kind: TurnKind::ReplyNeeded, who: "ken".into(), since: Some(pushed) })
+        Some(Turn { kind: TurnKind::ReplyNeeded, who: "ken".into(), also: Vec::new(), since: Some(pushed) })
     }
 
     fn board(p: PrItem, status: Status) -> Board {
@@ -193,6 +219,10 @@ mod tests {
         // Too soon after the push, or while its session is still in a turn: not yet.
         assert!(r.due(&board(pr(unsaid(NOW - 60_000)), Status::Idle), &ON, NOW).is_empty());
         assert!(r.due(&board(pr(unsaid(pushed)), Status::Working), &ON, NOW).is_empty());
+        // Waiting on you to allow something is still its turn; asking you something isn't.
+        assert!(r.due(&board(pr(unsaid(pushed)), Status::Needs), &ON, NOW).is_empty());
+        // A commit made long before it was pushed: the push moved the PR's update, which is waited on.
+        assert!(r.due(&board(PrItem { updated_at: NOW - 60_000, ..pr(unsaid(pushed)) }, Status::Idle), &ON, NOW).is_empty());
         let b = board(pr(unsaid(pushed)), Status::Idle);
         let jobs = r.due(&b, &ON, NOW);
         assert_eq!(jobs, vec![Job { pr: "o/r#7".into(), repo: "o/r".into(), number: 7, reviewer: "ken".into(), head: "bbb".into() }]);
@@ -223,10 +253,63 @@ mod tests {
         on_here.repo_settings.mine.insert(crate::config::repo_key("o/r"), crate::config::RepoCfg { pull_requests: crate::config::PullRequestsPatch { rerequest_after_fixes: Some(true), ..Default::default() }, ..Default::default() });
         assert_eq!(r.due(&on_here, &off, NOW).len(), 1);
         // Asked already, or someone else's PR: nothing to ask.
-        let asked = Some(Turn { kind: TurnKind::RereviewAsked, who: "ken".into(), since: Some(pushed) });
+        let asked = Some(Turn { kind: TurnKind::RereviewAsked, who: "ken".into(), also: Vec::new(), since: Some(pushed) });
         assert!(Rerequester::default().due(&board(pr(asked), Status::Idle), &ON, NOW).is_empty());
         assert!(Rerequester::default().due(&board(PrItem { mine: false, ..pr(unsaid(pushed)) }, Status::Idle), &ON, NOW).is_empty());
         assert!(Rerequester::default().due(&board(PrItem { state: PrState::Merged, ..pr(unsaid(pushed)) }, Status::Idle), &ON, NOW).is_empty());
+    }
+
+    #[test]
+    fn asks_each_reviewer_the_fixes_went_unsaid_to() {
+        let two = Some(Turn { also: vec!["ana".into()], ..unsaid(NOW - SETTLE_MS).unwrap() });
+        let jobs = Rerequester::default().due(&board(pr(two), Status::Idle), &ON, NOW);
+        assert_eq!(jobs.iter().map(|j| j.reviewer.as_str()).collect::<Vec<_>>(), vec!["ken", "ana"]);
+    }
+
+    #[test]
+    fn asks_only_while_github_still_says_the_fixes_went_unsaid() {
+        let job = Job { pr: "o/r#7".into(), repo: "o/r".into(), number: 7, reviewer: "Ken".into(), head: "bbb".into() };
+        let said = |s: Vec<crate::github::Said>| PrRaw {
+            number: 7,
+            title: String::new(),
+            url: String::new(),
+            state: PrState::Changes,
+            head_ref: "teams".into(),
+            head_owner: None,
+            head_oid: Some("bbb".into()),
+            updated_at: 0,
+            merged_at: None,
+            closed_at: None,
+            checks: Checks::default(),
+            merge: Merge::Unknown,
+            author: Some("me".into()),
+            base_ref: None,
+            created_at: 0,
+            additions: 0,
+            deletions: 0,
+            changed_files: 0,
+            review_requested: false,
+            requested_by: None,
+            requested_at: None,
+            reviewers_asked: Vec::new(),
+            authored_by: None,
+            labels: Vec::new(),
+            last_review: None,
+            stale_approval: None,
+            head_at: Some(110),
+            said: s,
+            said_from: None,
+            changes_asked: vec![crate::github::ChangesAsked { who: "ken".into(), at: 100, commit: Some("aaa".into()) }],
+        };
+        let ken = |at| crate::github::Said { who: "ken".into(), at, asked: None };
+        assert!(still_owed(&said(vec![ken(100)]), Some("me"), &job));
+        // Said since, by anyone of yours, or asked again: nothing to ask.
+        assert!(!still_owed(&said(vec![ken(100), crate::github::Said { who: "me".into(), at: 120, asked: None }]), Some("me"), &job));
+        assert!(!still_owed(&said(vec![ken(100), crate::github::Said { who: "me".into(), at: 120, asked: Some("ken".into()) }]), Some("me"), &job));
+        // Approved, merged, or at another commit than the one it was due on.
+        assert!(!still_owed(&PrRaw { changes_asked: Vec::new(), ..said(vec![ken(100)]) }, Some("me"), &job));
+        assert!(!still_owed(&PrRaw { state: PrState::Merged, ..said(vec![ken(100)]) }, Some("me"), &job));
+        assert!(!still_owed(&PrRaw { head_oid: Some("ccc".into()), ..said(vec![ken(100)]) }, Some("me"), &job));
     }
 
     #[test]

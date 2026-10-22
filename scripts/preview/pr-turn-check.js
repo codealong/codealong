@@ -42,7 +42,7 @@
     .then(function () {
       var want = [
         ['Reply needed', 'is-attn', /^Commits came after ken asked for changes \(.+\), and nobody has said so on it\. GitHub tells a reviewer of a comment or a review request, not of a push/],
-        ['Re-review asked', 'is-plain', /^Waiting on ken, who asked for changes: asked to review it again, or written to since \(.+\)\. GitHub keeps their request for changes until they approve\.$/],
+        ['Re-review asked', 'is-plain', /^Waiting on ken, who asked for changes: asked to review it again, or written to since \(.+\)\. GitHub keeps a request for changes until its reviewer approves\.$/],
         ['Reviewer replied', 'is-attn', /^ken asked for changes, then wrote again \(.+\): your move\./],
         ['Author replied', 'is-attn', /^gwen wrote \(.+\) after your last review or comment: your move\.$/],
         ['Changes requested', 'is-attn', /^A reviewer asked for changes$/],

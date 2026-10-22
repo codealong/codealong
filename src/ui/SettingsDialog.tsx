@@ -1411,7 +1411,7 @@ function RerequestField({ prs, set, scope, disabled }: { prs: Required<PullReque
         </span>
         <small>
           When a reviewer asked for changes on a pull request of yours, commits came after their last word, and nobody has said so on it, Codealong asks them to review it again, as you, as GitHub’s Re-request review does. GitHub tells a reviewer of that, and their agent picks it up; it
-          doesn’t tell them of a push. It waits ten minutes after the last push, and until the pull request’s sessions have finished their turn, so a run of fixes is asked about once.
+          doesn’t tell them of a push. It waits until the pull request has been quiet for ten minutes and its sessions have finished their turn, so a run of fixes is asked about once.
         </small>
       </label>
     </fieldset>

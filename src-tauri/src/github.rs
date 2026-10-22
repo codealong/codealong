@@ -60,6 +60,9 @@ pub struct PrRaw {
     /// What was said on it lately and the reviews asked of whom, oldest first (`said_of`), for
     /// whose move it is. Asked only of open PRs.
     pub said: Vec<Said>,
+    /// What was said is known only from this time on: GitHub has more before the earliest it
+    /// gave. None when it gave all of it.
+    pub said_from: Option<i64>,
     /// The reviewers whose review that counts asks for changes (`changes_asked_of`). Asked only of
     /// open PRs.
     pub changes_asked: Vec<ChangesAsked>,
@@ -132,8 +135,8 @@ const ASKED_FIELDS: &str = r#"
 fragment asked on PullRequest {
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
   timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { __typename ... on User { login } } } } }
-  said: timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20) { nodes { __typename ... on IssueComment { createdAt author { __typename login } } ... on PullRequestReview { submittedAt author { __typename login } } } }
-  latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state submittedAt author { login } commit { oid } } }
+  said: timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20) { pageInfo { hasPreviousPage } nodes { __typename ... on IssueComment { createdAt author { __typename login } } ... on PullRequestReview { submittedAt author { __typename login } } } }
+  latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state submittedAt author { __typename login } commit { oid } } }
 }
 "#;
 
@@ -313,7 +316,7 @@ pub fn parse_one(json: &str) -> Result<(PrRaw, Option<String>)> {
         pr.requested_by = pr.review_requested.then(|| asker_of(n, login)).flatten();
         pr.requested_at = pr.review_requested.then(|| asked_at(n, login)).flatten();
         pr.reviewers_asked = asked_of_whom(n, login);
-        (pr.said, pr.changes_asked) = (said_of(n), changes_asked_of(n));
+        ((pr.said, pr.said_from), pr.changes_asked) = (said_of(n), changes_asked_of(n));
     } else {
         pr.merge = Merge::Unknown;
     }
@@ -341,7 +344,7 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
                 pr.requested_at = pr.review_requested.then(|| asked_at(n, login)).flatten();
                 if pr.state.is_open() {
                     pr.reviewers_asked = asked_of_whom(n, login);
-                    (pr.said, pr.changes_asked) = (said_of(n), changes_asked_of(n));
+                    ((pr.said, pr.said_from), pr.changes_asked) = (said_of(n), changes_asked_of(n));
                 }
                 prs.push(pr);
             }
@@ -365,7 +368,7 @@ pub fn parse_requested(json: &str) -> Result<Requested> {
             pr.requested_by = asker_of(n, login);
             pr.requested_at = asked_at(n, login);
             pr.reviewers_asked = asked_of_whom(n, login);
-            (pr.said, pr.changes_asked) = (said_of(n), changes_asked_of(n));
+            ((pr.said, pr.said_from), pr.changes_asked) = (said_of(n), changes_asked_of(n));
             pr.review_requested.then(|| (slug.to_string(), pr))
         })
         .collect();
@@ -482,6 +485,7 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         stale_approval: (state == PrState::Approved).then(|| stale_approval_of(n)).flatten(),
         head_at: n.pointer("/commits/nodes/0/commit/committedDate").and_then(Value::as_str).and_then(parse_rfc3339_ms),
         said: Vec::new(),
+        said_from: None,
         changes_asked: Vec::new(),
     })
 }
@@ -489,11 +493,16 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
 /// What was said on a PR lately, and the reviews asked for, oldest first: its last comments and
 /// reviews (`said` in `ASKED_FIELDS`), a bot's left out, and its last review requests. A reply on
 /// a thread is a review on GitHub, so it's there; one by someone GitHub no longer knows isn't.
-fn said_of(n: &Value) -> Vec<Said> {
-    let words = n.pointer("/said/nodes").and_then(Value::as_array).into_iter().flatten().filter_map(|w| {
-        let author = w.get("author").filter(|a| a.get("__typename").and_then(Value::as_str) != Some("Bot"))?;
-        let at = w.get("createdAt").or_else(|| w.get("submittedAt")).and_then(Value::as_str).and_then(parse_rfc3339_ms)?;
-        Some(Said { who: author.get("login").and_then(Value::as_str)?.to_string(), at, asked: None })
+/// With it, the time what was said is known from, where GitHub has more before (a bot's comments
+/// count toward the twenty it gives, so its people's words can be further back).
+fn said_of(n: &Value) -> (Vec<Said>, Option<i64>) {
+    let nodes = n.pointer("/said/nodes").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    let when = |w: &Value| w.get("createdAt").or_else(|| w.get("submittedAt")).and_then(Value::as_str).and_then(parse_rfc3339_ms);
+    let more = n.pointer("/said/pageInfo/hasPreviousPage").and_then(Value::as_bool).unwrap_or(false);
+    let from = if more { nodes.iter().filter_map(when).min() } else { None };
+    let words = nodes.iter().filter_map(|w| {
+        let author = w.get("author").filter(|a| !is_bot(a))?;
+        Some(Said { who: author.get("login").and_then(Value::as_str)?.to_string(), at: when(w)?, asked: None })
     });
     let asks = n.pointer("/timelineItems/nodes").and_then(Value::as_array).into_iter().flatten().filter_map(|e| {
         let asked = e.pointer("/requestedReviewer/login").and_then(Value::as_str)?;
@@ -502,15 +511,22 @@ fn said_of(n: &Value) -> Vec<Said> {
     });
     let mut all: Vec<Said> = words.chain(asks).collect();
     all.sort_by_key(|s| s.at);
-    all
+    (all, from)
+}
+
+/// An author that's an app's bot (`github-actions`, `vercel`), which GitHub names without the
+/// `[bot]` that REST and its pages add: never someone to ask for a review, nor whose words count.
+fn is_bot(author: &Value) -> bool {
+    author.get("__typename").and_then(Value::as_str) == Some("Bot")
 }
 
 /// The reviewers whose review that counts asks for changes, from the PR's
-/// `latestOpinionatedReviews`: each reviewer's latest that approved or asked for changes.
+/// `latestOpinionatedReviews`: each reviewer's latest that approved or asked for changes. A bot's
+/// is left out: it can't be asked again.
 fn changes_asked_of(n: &Value) -> Vec<ChangesAsked> {
     let reviews = n.pointer("/latestOpinionatedReviews/nodes").and_then(Value::as_array).into_iter().flatten();
     reviews
-        .filter(|r| r.get("state").and_then(Value::as_str) == Some("CHANGES_REQUESTED"))
+        .filter(|r| r.get("state").and_then(Value::as_str) == Some("CHANGES_REQUESTED") && !r.get("author").is_some_and(is_bot))
         .filter_map(|r| {
             Some(ChangesAsked {
                 who: r.pointer("/author/login").and_then(Value::as_str)?.to_string(),
@@ -1877,7 +1893,7 @@ mod tests {
         };
         assert_eq!(parse_pr(&node("APPROVED")).and_then(|p| p.stale_approval).map(|s| s.commit), Some("a11ce55".into()));
         assert_eq!(parse_pr(&node("REVIEW_REQUIRED")).and_then(|p| p.stale_approval), None);
-        assert!(ASKED_FIELDS.contains("latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state submittedAt author { login } commit { oid } } }"), "{ASKED_FIELDS}");
+        assert!(ASKED_FIELDS.contains("latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state submittedAt author { __typename login } commit { oid } } }"), "{ASKED_FIELDS}");
     }
 
     #[test]
@@ -1888,13 +1904,13 @@ mod tests {
         let node = r#"{"number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":"CHANGES_REQUESTED","headRefName":"b","headRefOid":"b4908ef","author":{"login":"whather"},
             "commits":{"nodes":[{"commit":{"message":"m","committedDate":"2026-10-22T07:04:12Z"}}]},
             "timelineItems":{"nodes":[{"createdAt":"2026-10-22T07:07:43Z","actor":{"login":"whather"},"requestedReviewer":{"__typename":"User","login":"ghempton"}}]},
-            "said":{"nodes":[
+            "said":{"pageInfo":{"hasPreviousPage":false},"nodes":[
                 {"__typename":"IssueComment","createdAt":"2026-10-22T06:59:13Z","author":{"__typename":"User","login":"ghempton"}},
                 {"__typename":"PullRequestReview","submittedAt":"2026-10-22T06:59:15Z","author":{"__typename":"User","login":"ghempton"}},
                 {"__typename":"IssueComment","createdAt":"2026-10-22T07:05:00Z","author":{"__typename":"Bot","login":"vercel"}},
                 {"__typename":"PullRequestReview","submittedAt":"2026-10-22T07:06:00Z","author":null},
                 {"__typename":"IssueComment","createdAt":"2026-10-22T07:11:37Z","author":{"__typename":"User","login":"ghempton"}}]},
-            "latestOpinionatedReviews":{"pageInfo":{"hasNextPage":false},"nodes":[{"state":"CHANGES_REQUESTED","submittedAt":"2026-10-22T06:59:15Z","author":{"login":"ghempton"},"commit":{"oid":"c2a5d6b"}},{"state":"APPROVED","submittedAt":"2026-10-22T05:00:00Z","author":{"login":"ana"},"commit":{"oid":"9edc816"}}]}}"#;
+            "latestOpinionatedReviews":{"pageInfo":{"hasNextPage":false},"nodes":[{"state":"CHANGES_REQUESTED","submittedAt":"2026-10-22T06:59:15Z","author":{"__typename":"User","login":"ghempton"},"commit":{"oid":"c2a5d6b"}},{"state":"APPROVED","submittedAt":"2026-10-22T05:00:00Z","author":{"__typename":"User","login":"ana"},"commit":{"oid":"9edc816"}},{"state":"CHANGES_REQUESTED","submittedAt":"2026-10-22T05:01:00Z","author":{"__typename":"Bot","login":"ci-app"},"commit":{"oid":"9edc816"}}]}}"#;
         let answer = format!(r#"{{"data":{{"viewer":{{"login":"whather"}},"repository":{{"open":{{"nodes":[{node}]}},"done":{{"nodes":[]}}}},"requested":{{"nodes":[]}}}}}}"#);
         let pr = parse(&answer).unwrap().prs.remove(0);
         let at = |s: &str| parse_rfc3339_ms(s).unwrap();
@@ -1909,7 +1925,12 @@ mod tests {
                 ("ghempton", at("2026-10-22T07:11:37Z"), None),
             ]
         );
+        // A bot's request for changes is no one to ask again.
         assert_eq!(pr.changes_asked, vec![ChangesAsked { who: "ghempton".into(), at: at("2026-10-22T06:59:15Z"), commit: Some("c2a5d6b".into()) }]);
+        // GitHub gave all of it; with more before, it's known from the earliest it gave, a bot's too.
+        assert_eq!(pr.said_from, None);
+        let more = parse(&answer.replace(r#""hasPreviousPage":false"#, r#""hasPreviousPage":true"#)).unwrap().prs.remove(0);
+        assert_eq!(more.said_from, Some(at("2026-10-22T06:59:13Z")));
         // Only an open PR's: one that ended says nothing of it.
         let closed = parse(&answer.replace(r#""state":"OPEN""#, r#""state":"CLOSED""#)).unwrap().prs.remove(0);
         assert!(closed.said.is_empty() && closed.changes_asked.is_empty());

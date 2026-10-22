@@ -363,6 +363,9 @@ pub struct Turn {
     pub kind: TurnKind,
     /// The reviewer or the author it's about, by login.
     pub who: String,
+    /// The other reviewers it holds for alike, by login.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<String>,
     /// Since when: the push, the words or the request that made it so, where GitHub says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<i64>,

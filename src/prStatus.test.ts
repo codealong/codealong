@@ -45,9 +45,14 @@ describe('prPills', () => {
     expect(turn('replyNeeded')).toMatchObject({ key: 'review', text: 'Reply needed', tone: 'attn' });
     expect(turn('replyNeeded').title).toMatch(/^Commits came after ken asked for changes \(.+\), and nobody has said so on it\./);
     expect(turn('rereviewAsked')).toMatchObject({ text: 'Re-review asked', tone: 'plain' });
-    expect(turn('rereviewAsked').title).toMatch(/^Waiting on ken, who asked for changes/);
+    expect(turn('rereviewAsked').title).toMatch(/^Waiting on ken, who asked for changes: asked to review it again, or written to since \(.+\)\. GitHub keeps a request for changes until its reviewer approves\.$/);
     expect(turn('reviewerReplied')).toMatchObject({ text: 'Reviewer replied', tone: 'attn' });
     expect(turn('authorReplied', { state: 'open', mine: false })).toMatchObject({ text: 'Author replied', tone: 'attn' });
+    // Every reviewer it holds for is named.
+    const both = prPills(facts({ state: 'changes', mine: true, turn: { kind: 'rereviewAsked', who: 'ken', also: ['ana'] } }))[0];
+    expect(both.title).toMatch(/^Waiting on ken and ana, who asked for changes/);
+    // Beside Ready to merge too, where the agent has nothing to say.
+    expect(prPills(facts({ state: 'approved', merge: 'clean', mine: false, turn: { kind: 'authorReplied', who: 'gwen' } })).map((p) => p.text)).toEqual(['Author replied', 'Ready to merge']);
     // The chip says it too, and no longer Changes requested.
     expect(chipWord(facts({ state: 'changes', mine: true, turn: { kind: 'rereviewAsked', who: 'ken' } }))).toBe('Re-review asked');
     // A draft says so whatever was said; the agent's approval, which is what you sign off on, wins.

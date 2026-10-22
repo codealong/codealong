@@ -1595,6 +1595,8 @@ export interface Turn {
   kind: 'replyNeeded' | 'rereviewAsked' | 'reviewerReplied' | 'authorReplied';
   /** The reviewer or author it's about. */
   who: string;
+  /** The other reviewers it holds for alike. */
+  also?: string[];
   since?: number;
 }
 

@@ -782,6 +782,7 @@ mod tests {
             stale_approval: None,
             head_at: None,
             said: Vec::new(),
+            said_from: None,
             changes_asked: Vec::new(),
         }
     }

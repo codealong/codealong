@@ -621,8 +621,9 @@ pub struct PullRequestsCfg {
     #[serde(default)]
     pub nudge_about: NudgeAbout,
     /// On a PR of yours whose reviewer asked for changes, ask them to review it again once
-    /// commits came after their last word and nobody said so on it (rerequest.rs): GitHub tells a
-    /// reviewer of a request, not of a push. It acts as you, so it's off until you turn it on.
+    /// commits came after their last word, nobody said so on it, and it's been quiet a while
+    /// (rerequest.rs): GitHub tells a reviewer of a request, not of a push. It acts as you, so
+    /// it's off until you turn it on.
     #[serde(default)]
     pub rerequest_after_fixes: bool,
 }
