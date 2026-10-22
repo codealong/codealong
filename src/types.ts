@@ -1385,6 +1385,27 @@ export interface Route {
   inputTokens: number;
 }
 
+/** What a quick panel suggestion does, or what you did with what you typed: to which session
+ *  (its key) or worktree (its lane id). Kept beside Jev's suggestions to measure them
+ *  (routelog.rs). */
+export interface RouteChoice {
+  kind: 'send' | 'open' | 'start' | 'todo' | 'other';
+  target: string | null;
+  newWorktree?: boolean;
+  p?: number;
+}
+
+/** What you did with what you typed, as the quick panel tells the engine (routelog.rs `Note`):
+ *  the text as it went to Jev, its suggestions as the panel listed them (none when you acted
+ *  before Jev answered), and how you got to what you did. */
+export interface RouteNote {
+  project: string;
+  text: string;
+  suggested: RouteChoice[] | null;
+  did: RouteChoice;
+  via: 'suggested' | 'start-row' | 'send-to' | 'found';
+}
+
 /** A service the work needs, reached through an MCP server or connector, with the accounts that
  *  reach it: the one Auto would pick of them first. */
 export interface NeedPick {

@@ -63,3 +63,15 @@ docs.typesafe.ai, 2026-09-25, and its models and images pages with requests trie
   while "review the open pull requests on github" still gave GitHub 0.71, and "what did we decide
   in yesterday's meeting" gave none with a meeting-notes service offered (2026-10-20). A request
   with it was about 33,000 tokens.
+- Lines of sessions' conversations (route.rs `related`, search.rs `related`, 1.14, 2026-10-22):
+  prompts that named what was said in a session rather than its title, over 14 days of one
+  Mac's sessions. Without lines, Jev put four of five on the right session and one ("Send now on
+  a held message killed my running command…") on an unrelated session at 0.40. Matching whole
+  sessions by the words they shared put long conversations first (they have every word
+  somewhere), and lines from an unrelated one, sharing "since" and "last", took "the schedule
+  watch command should say what's new since the last run" from the right session (0.75) to the
+  wrong one at 0.65. Matching single messages, leaving out words in more than 5% of the 40,000
+  messages and squaring how rare each is, put the held message on the right session at 0.91,
+  and the others stayed right (0.98 to 1.00, 0.90 to 0.97, the schedule watch 0.75 to 0.96, 0.94
+  to 0.93). A request was 1,000 to
+  5,000 tokens more (33,000 to 35,000–38,000); the search took 85 to 410 ms in a debug build.

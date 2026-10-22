@@ -82,6 +82,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--skills", takes: "[folder…]", run: skills },
     Mode { flag: "--start-plan", takes: "<folder> <account> <terminal|background|claude-app|codex-app> [prompt] [--model <model>] [--effort <level>] [--worktree]", run: start_plan },
     Mode { flag: "--route", takes: "<text> [--project <name>]", run: route_text },
+    Mode { flag: "--routes", takes: "[days]", run: routes },
     Mode { flag: "--config", takes: "", run: |_, _| Ok(pretty(&config::view())) },
     Mode { flag: "--setup", takes: "", run: |_, _| Ok(pretty(&crate::setup::view().map_err(|e| Stop::Failed(format!("{e:#}")))?)) },
     Mode { flag: "--found", takes: "", run: |_, _| Ok(pretty(&detect::unlisted().map_err(|e| Stop::Failed(format!("{e:#}")))?)) },
@@ -163,6 +164,17 @@ fn jev_usage(_: &Args, rest: &[String]) -> Done {
         None => 30,
     };
     Ok(pretty(&crate::ledger::jev_report(days).map_err(failed)?))
+}
+
+/// `codealong --snapshot --routes [days]`: how often what you did with what you typed in the quick
+/// panel was Jev's first suggestion, over the last `days` (7 by default), with the times it
+/// wasn't (routelog.rs).
+fn routes(_: &Args, rest: &[String]) -> Done {
+    let days: u32 = match rest.first() {
+        Some(d) => d.parse().map_err(|_| Stop::Usage)?,
+        None => 7,
+    };
+    Ok(pretty(&crate::routelog::report(crate::routelog::since_days(days, crate::util::now_ms())).map_err(failed)?))
 }
 
 /// `codealong --snapshot --training-off <account>`: turns training off for the account at its
@@ -551,9 +563,13 @@ fn start_plan(args: &Args, rest: &[String]) -> Done {
 fn route_text(args: &Args, rest: &[String]) -> Done {
     let [text, ..] = rest else { return Err(Stop::Usage) };
     let project = args.option("--project").unwrap_or(route::ALL_PROJECTS);
-    // The accounts' MCP servers, which the app reads in the background, for Jev's `needs`.
+    // The accounts' MCP servers, which the app reads in the background, for Jev's `needs`, and
+    // what was said in the sessions, which it indexes in the background, for what they share
+    // with the text.
     let mut board = engine::snapshot(false, false);
-    board.mcp = crate::mcp::read_all(&config::current().map_err(failed)?.accounts);
+    let cfg = config::current().map_err(failed)?;
+    board.mcp = crate::mcp::read_all(&cfg.accounts);
+    crate::search::build_now(crate::search::Scope { accounts: cfg.accounts.clone(), days: cfg.search.days });
     let params = params::Route { project: project.to_string(), text: text.clone() };
     Ok(pretty(&actions::local(&engine::Handle::over(board), &From::Device, api::ROUTE, "", params).map_err(Stop::Failed)?))
 }

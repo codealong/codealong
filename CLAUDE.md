@@ -92,7 +92,8 @@ with `--usage`, and its endpoint rate-limits: don't loop it.
   (autoreview.rs), without starting it; `--snapshot --pr-draft …`: your draft review of it;
   `--snapshot --pr-since <owner/name> <commit> <commit>`: what changed between two commits, as
   Changes shows it since your last review.
-- `--snapshot --route <text> [--project <name>]`: what Jev suggests in the quick panel.
+- `--snapshot --route <text> [--project <name>]`: what Jev suggests in the quick panel;
+  `--snapshot --routes [days]`: how often what you did there was Jev's first suggestion.
 - `--snapshot --transcript <session key> [--before <cursor>]`: a page of a session's
   conversation; `--snapshot --pending <session key>`: what it waits on you to allow.
 - Real: `--snapshot --answer <key> <id> <allow|deny|always> [answers]`, `--snapshot --send <key>

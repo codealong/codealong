@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, sameStart, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type Suggestion, type SuggestionContext } from './route';
+import { alreadyOnWords, duplicateOf, rankedBy, resolveSuggestedAgent, routeChoice, routeDone, sameStart, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type Suggestion, type SuggestionContext } from './route';
 import { agentOptions, autoPick, startHappens, startTitleWords, startWhereWords } from './start';
 import * as fx from './testing/fixtures';
 import type { Board, Lane, Route, Session } from './types';
@@ -30,6 +30,31 @@ const route = (r: Partial<Route>): Route => ({
 });
 
 const rows = (r: Route) => suggestions(r, b).map((s) => [s.key, Math.round(s.p * 100) / 100]);
+
+describe('the routing log', () => {
+  it('keeps each suggestion as what it does and to which session or worktree', () => {
+    const r = route({
+      action: 'send',
+      actions: [
+        ['send', 0.7],
+        ['start', 0.3],
+      ],
+      sessions: [{ id: 's:fix', p: 0.9 }],
+      lanes: [{ id: '/api', p: 0.8 }],
+    });
+    expect(suggestions(r, b).map(routeChoice)).toEqual([
+      { kind: 'send', target: 's:fix', p: expect.closeTo(0.63) },
+      { kind: 'start', target: '/api', newWorktree: false, p: expect.closeTo(0.24) },
+    ]);
+  });
+
+  it('keeps what doing one did: ⌥ on a send shows the session instead', () => {
+    const send = toSessionSuggestion(b.lanes[0], b.lanes[0].sessions[0], 0.5);
+    expect(routeDone(send, false)).toEqual({ kind: 'send', target: 's:fix' });
+    expect(routeDone(send, true)).toEqual({ kind: 'open', target: 's:fix' });
+    expect(routeDone(toSessionSuggestion(b.lanes[0], b.lanes[0].sessions[1], 0.5), false)).toEqual({ kind: 'open', target: 's:ask' });
+  });
+});
 
 describe('suggestions', () => {
   it('sends to the likeliest session, offers starting new work when that could be meant, then more sessions', () => {

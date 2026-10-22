@@ -37,6 +37,7 @@ import {
   inPreview,
   getConfig,
   keepStartPlace,
+  noteRoute,
   onBoard,
   onDevices,
   onQuickHidden,
@@ -88,11 +89,11 @@ import {
 import { clearNotice, failedNotice, reportNotice } from '../notices';
 import { completed, mentionAt, mentionsIn, namedBy, repoLanes, skillLeftOutWords, skillOffers, skillRows, skillStart, skillWhere, writtenFor, type Mention, type SkillRow } from '../skills';
 import { useSkills } from '../useSkills';
-import { alreadyOnWords, duplicateOf, rankedBy, sameStart, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type StartFacts, type Suggestion } from '../route';
+import { alreadyOnWords, duplicateOf, rankedBy, routeChoice, routeDone, sameStart, suggestedChoice, suggestions, suggestionWords, sureness, todoTitle, toSessionSuggestion, worthRouting, type StartFacts, type Suggestion } from '../route';
 import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
-import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, Session, StartOptions, StartPlace, StartSpec } from '../types';
+import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { chatOption, laneSections } from './pickerOptions';
@@ -1184,6 +1185,24 @@ export function Quick() {
       .catch((e: unknown) => setError(keepPlaceFailed(e)));
   };
 
+  /** Keeps what you did with what you typed beside what Jev suggested for it, to measure how often
+   *  its first suggestion is what you did (routelog.rs). Only for what went to Jev. */
+  const noteDone = (did: RouteChoice, via: RouteNote['via']) => {
+    if (!routeFor) return;
+    const at = routeFor.indexOf('\n');
+    const note = { project: routeFor.slice(0, at), text: routeFor.slice(at + 1), suggested: route ? jevSuggested.map((r) => routeChoice(r.s)) : null, did, via };
+    // A note that isn't kept only leaves this one out of the measure; the engine says why as a
+    // notice when the file won't take it.
+    noteRoute(note).catch(() => {});
+  };
+
+  /** What a row did, for the routing log: the new session's row is noted as it starts. */
+  const noteRow = (row: Row, alt: boolean) => {
+    if (row.kind === 'suggest') noteDone(routeDone(row.s, alt), 'suggested');
+    else if (row.kind === 'session') noteDone(row.group === 'sendto' ? routeDone(toSessionSuggestion(row.lane, row.session, 0), alt) : { kind: 'open', target: row.session.key }, row.group === 'sendto' ? 'send-to' : 'found');
+    else if (row.kind === 'todo' || row.kind === 'pr' || row.kind === 'review') noteDone({ kind: 'other', target: null }, 'found');
+  };
+
   /** Starts a session: in the worktree chosen below, or where a suggestion says. */
   const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string; only?: string[] }) => {
     const where = over?.lane ?? lane;
@@ -1201,6 +1220,7 @@ export function Quick() {
     // Improve Codealong: the pictures of the windows go after what you wrote.
     const prompt = withShots(written);
     const spec: StartSpec = { laneId: where.id, account: targetAccount, place: targetPlace, prompt, model: targetModel, effort: targetEffort, worktree: newTree, todos: forTodos.map((t) => t.id) };
+    if (!over) noteDone({ kind: 'start', target: where.id, newWorktree: newTree }, 'start-row');
     const targetOnModel = sgChoice ? onModelWords(sgChoice.startsOn, sgChoice.effortWord, ownModels(sgChoice.accountInfo, models)) : onModel;
     const label = startingLabel(targetPlace, targetAccount, targetOnModel, where, newTree, deviceInfo?.name ?? null);
     const id = Date.now();
@@ -1342,6 +1362,7 @@ export function Quick() {
 
   const activate = (key: string, alt: boolean) => {
     const row = rows.find((r) => r.key === key);
+    if (row) noteRow(row, alt);
     // Send to has no new session's row to fall back on.
     if (!row) {
       if (!inSendTo) start();

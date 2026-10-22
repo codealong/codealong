@@ -362,6 +362,15 @@ pub fn swap_images(text: &str, mut with: impl FnMut(&str) -> String) -> String {
     })
 }
 
+/// The text without its attachments, each whole `![…](…)` or `[…](…)` taken out: the words
+/// typed alone, for searching by them.
+pub fn without(text: &str) -> String {
+    replace(text, |start, end, _, _| {
+        let (from, to) = markdown_span(text, start, end).unwrap_or((start, end));
+        Some((from, to, String::new()))
+    })
+}
+
 pub fn expand(text: &str, style: Style) -> String {
     expand_in(text, &images_dir(), &files_dir(), style)
 }
@@ -685,6 +694,7 @@ mod tests {
         assert_eq!(out, "Fix <1> like <2>, see [a.log](files/0123456789abcdef/a.log)");
         assert_eq!(seen, ["0123456789abcdef.png", "fedcba9876543210.jpg"]);
         assert_eq!(swap_images("no images here", |_| unreachable!()), "no images here");
+        assert_eq!(without(text), "Fix  like , see ");
     }
 
     #[test]

@@ -7,7 +7,7 @@ import { agoPhrase } from './format';
 import { homeOf, sessionWhy, stuckMidTurn, waitsOnYou } from './lanes';
 import { mainCheckoutOf, newWorkIn } from './reusable';
 import { agentId, autoPick, pickFromGroup, startChoice, startDoes, startTitleWords, startWhereWords, type AgentOption, type AutoPick, type ChosenStart, type ModelOption, type StartPicks } from './start';
-import type { Board, Lane, NeedPick, Route, RoutePick, RoutingGroup, Session, StartAccount, StartPlace, Usage } from './types';
+import type { Board, Lane, NeedPick, Route, RouteChoice, RoutePick, RoutingGroup, Session, StartAccount, StartPlace, Usage } from './types';
 
 /** How likely a suggestion is, as the panel says it. */
 export type Sureness = 'sure' | 'likely' | 'unsure';
@@ -124,6 +124,21 @@ function findSession(board: Board, key: string): { lane: Lane; session: Session 
 export function toSessionSuggestion(lane: Lane, session: Session, p: number, find = false): Suggestion {
   const open = find || waitsOnYou(session);
   return { kind: open ? 'open' : 'send', key: `${open ? 'open' : 'send'}:${session.key}`, lane, session, p };
+}
+
+/** A suggestion as the routing log keeps it (routelog.rs `Choice`): what it does, to which
+ *  session or worktree, and how likely. */
+export function routeChoice(sg: Suggestion): RouteChoice {
+  if (sg.kind === 'send' || sg.kind === 'open') return { kind: sg.kind, target: sg.session.key, p: sg.p };
+  if (sg.kind === 'start') return { kind: 'start', target: sg.lane.id, newWorktree: sg.newWorktree, p: sg.p };
+  return { kind: 'todo', target: sg.lane.id, p: sg.p };
+}
+
+/** What doing a suggestion did, as the routing log keeps it: ⌥ on a send shows the session
+ *  rather than sending to it (Quick.tsx `suggest`). */
+export function routeDone(sg: Suggestion, alt: boolean): RouteChoice {
+  const { p: _, ...did } = routeChoice(sg);
+  return sg.kind === 'send' && alt ? { ...did, kind: 'open' } : did;
 }
 
 /**

@@ -10,6 +10,12 @@
 //! The request goes through jev.rs, which holds the key. Images pasted into what you type go
 //! with it, each where it was in the text (`jev::Images`).
 //!
+//! Jev sees each session as a card: its title, where it is, its status and its latest line. A
+//! message often names what was said in a conversation rather than its title ("the backoff we
+//! found"), so the sessions whose prompts and replies share the most telling of its words
+//! (search.rs `related`) come with the lines that share them, and come though they stopped too
+//! long ago to be offered otherwise.
+//!
 //! When the accounts that can start a session don't all reach the same services through MCP
 //! servers and connectors (mcp.rs: Gmail on one, not on another), Jev is also asked which one the
 //! message needs, so "what does my email say" starts on an account that has Gmail.
@@ -34,6 +40,10 @@ const MAX_LANES: usize = 120;
 const STOPPED_WITHIN_MS: i64 = 3 * 24 * 3600 * 1000;
 /// How much of a session's title, prompt or doing line goes in.
 const TEXT_CHARS: usize = 240;
+/// Sessions whose conversations share words with the message that are looked for, in every
+/// project, and how many in the panel's go to Jev with their lines.
+const RELATED_LOOKED: usize = 40;
+const RELATED: usize = 12;
 
 pub use codealong_peer::api::{Action, AgentPick, NeedPick, Pick, Route};
 
@@ -53,6 +63,8 @@ pub struct Request {
     images: crate::jev::Images,
     /// The `(account, model)` options offered for the `agent` question (`a1`, `a2`, …).
     agents: Vec<(String, Option<String>)>,
+    /// The sessions that went with lines of their conversation sharing the message's words.
+    pub related: Vec<String>,
     /// The services offered for the `needs` question (`c1`, `c2`, …).
     services: Vec<Service>,
 }
@@ -128,7 +140,7 @@ fn lane_name(l: &Lane) -> String {
     }
 }
 
-fn session_card(lane: &Lane, s: &Session, now: i64) -> Value {
+fn session_card(lane: &Lane, s: &Session, related: Option<&crate::search::Related>, now: i64) -> Value {
     let mut card = Map::new();
     card.insert("title".into(), json!(clip(&s.title)));
     card.insert("agent".into(), json!(s.account));
@@ -150,6 +162,10 @@ fn session_card(lane: &Lane, s: &Session, now: i64) -> Value {
         card.insert("started".into(), json!(crate::jev::ago_words(at, now)));
     }
     card.insert("last prompted".into(), json!(crate::jev::ago_words(s.last_prompt_at, now)));
+    if let Some(r) = related.filter(|r| !r.lines.is_empty()) {
+        let lines: Vec<String> = r.lines.iter().map(|(you, line)| format!("{}: {}", if *you { "the user" } else { "the agent" }, clip(&line.replace('`', "")))).collect();
+        card.insert("lines of its conversation that share words with the message".into(), json!(lines));
+    }
     Value::Object(card)
 }
 
@@ -203,20 +219,29 @@ fn named_repos(text: &str, lanes: &[&Lane]) -> Vec<String> {
 /// The sessions and worktrees to offer, in the panel's project. Each session once, from the
 /// lane it runs in; archived ones, long-stopped ones, helpers (whose agent talks to them, not
 /// you, unless you've taken one up: `Helper::yours`) and headless runs (whose script does) stay
-/// out.
-fn candidates<'a>(board: &'a Board, project: &str, now: i64) -> (Vec<(&'a Lane, &'a Session)>, Vec<&'a Lane>) {
+/// out. After them come up to `RELATED` sessions whose conversations share the message's words
+/// (`related`, the likeliest first), however long ago they stopped: Jev can't pick a session it
+/// isn't shown. Returned with those sessions' lines.
+fn candidates<'a, 'r>(board: &'a Board, project: &str, related: &'r [crate::search::Related], now: i64) -> (Vec<(&'a Lane, &'a Session)>, Vec<&'a Lane>, Vec<&'r crate::search::Related>) {
     let lanes: Vec<&Lane> = board.lanes.iter().filter(|l| in_project(l, project)).collect();
-    let mut sessions: Vec<(&Lane, &Session)> = lanes
+    let offered: Vec<(&Lane, &Session)> = lanes
         .iter()
         .flat_map(|l| l.sessions.iter().map(move |s| (*l, s)))
-        .filter(|(_, s)| s.visitor.is_none() && !s.archived && !s.helps_an_agent() && !s.headless && (s.live || now - s.last_prompt_at < STOPPED_WITHIN_MS))
+        .filter(|(_, s)| s.visitor.is_none() && !s.archived && !s.helps_an_agent() && !s.headless)
         .collect();
+    let mut sessions: Vec<(&Lane, &Session)> = offered.iter().copied().filter(|(_, s)| s.live || now - s.last_prompt_at < STOPPED_WITHIN_MS).collect();
     sessions.sort_by(|a, b| b.1.live.cmp(&a.1.live).then(b.1.last_prompt_at.cmp(&a.1.last_prompt_at)).then(a.1.key.cmp(&b.1.key)));
     sessions.truncate(MAX_SESSIONS);
+    let related: Vec<&crate::search::Related> = related.iter().filter(|r| offered.iter().any(|(_, s)| s.key == r.key)).take(RELATED).collect();
+    for r in &related {
+        if !sessions.iter().any(|(_, s)| s.key == r.key) {
+            sessions.extend(offered.iter().find(|(_, s)| s.key == r.key));
+        }
+    }
     let mut lanes = lanes;
     lanes.sort_by(|a, b| b.last_activity.cmp(&a.last_activity).then(a.id.cmp(&b.id)));
     lanes.truncate(MAX_LANES);
-    (sessions, lanes)
+    (sessions, lanes, related)
 }
 
 /// The accounts a new session can start on: on, and with somewhere to start.
@@ -317,23 +342,24 @@ fn service_candidates(board: &Board, cfg: &crate::config::Config, now: i64) -> V
 /// The request for what you typed, in the panel's project.
 #[cfg(test)]
 pub fn request(board: &Board, project: &str, text: &str, model: &str, now: i64) -> Result<Request> {
-    request_with_routing(board, None, project, text, model, now)
+    request_with_routing(board, None, project, text, &[], model, now)
 }
 
-/// `request`, adding an `agent` question when `[routing] prompt` is set in `cfg`.
-pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, project: &str, text: &str, model: &str, now: i64) -> Result<Request> {
+/// `request`, with the sessions whose conversations share its words (`related`), and an `agent`
+/// question when `[routing] prompt` is set in `cfg`.
+pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, project: &str, text: &str, related: &[crate::search::Related], model: &str, now: i64) -> Result<Request> {
     let text = text.trim();
     if text.is_empty() {
         bail!("Nothing to route.");
     }
-    let (sessions, lanes) = candidates(board, project, now);
+    let (sessions, lanes, related) = candidates(board, project, related, now);
     if lanes.is_empty() {
         bail!("No worktrees in this project to route to.");
     }
 
     let mut session_cards = Map::new();
     for (i, (lane, s)) in sessions.iter().enumerate() {
-        session_cards.insert(format!("s{}", i + 1), session_card(lane, s, now));
+        session_cards.insert(format!("s{}", i + 1), session_card(lane, s, related.iter().copied().find(|r| r.key == s.key), now));
     }
     let mut lane_cards = Map::new();
     for (i, l) in lanes.iter().enumerate() {
@@ -435,6 +461,7 @@ pub fn request_with_routing(board: &Board, cfg: Option<&crate::config::Config>, 
         images,
         agents,
         services,
+        related: related.iter().filter(|r| !r.lines.is_empty()).map(|r| r.key.clone()).collect(),
     })
 }
 
@@ -606,11 +633,17 @@ pub fn suggest(board: &Board, project: &str, text: &str) -> Result<Route> {
 
 /// Routes what you typed: builds the request, asks Jev, reads the answer.
 pub fn route(board: &Board, cfg: &crate::config::Config, project: &str, text: &str) -> Result<Route> {
-    let mut req = request_with_routing(board, Some(cfg), project, text, cfg.jev.model.trim(), crate::util::now_ms())?;
+    let searched = Instant::now();
+    let related = crate::search::related(text, RELATED_LOOKED);
+    if crate::perf::enabled() {
+        crate::perf::log(&format!("route: {} sessions share words, in {} ms", related.len(), searched.elapsed().as_millis()));
+    }
+    let mut req = request_with_routing(board, Some(cfg), project, text, &related, cfg.jev.model.trim(), crate::util::now_ms())?;
     let started = Instant::now();
     req.images.attach(&mut req.body);
     let response = crate::jev::ask(crate::jev::Feature::QuickPanel, &req.body)?;
     let route = read(&req, &response, started.elapsed().as_millis() as u64)?;
+    crate::routelog::asked(project, text, crate::routelog::Asked { model: route.model.clone(), ms: route.ms, related: req.related.clone() });
     let habit = route.repos.first().map(|r| crate::starts::habit(&r.id)).unwrap_or_default();
     Ok(with_habit(route, habit))
 }
@@ -683,6 +716,21 @@ mod tests {
         // Only running sessions that aren't waiting on you could already be doing it.
         let dup = req.body["questions"]["duplicate"]["criteria"].as_object().unwrap();
         assert_eq!(dup.keys().collect::<Vec<_>>(), vec!["none", "s1", "s2"]);
+    }
+
+    #[test]
+    fn sessions_whose_conversations_share_the_words_come_with_their_lines() {
+        let b = board();
+        let related = |key: &str, line: &str| crate::search::Related { key: key.into(), shared: vec!["backoff".into()], lines: vec![(true, line.into()), (false, "Added `backoff` to the retries".into())] };
+        let found = [related("c:old", "Retry the webhook with backoff"), related("c:2", "the backoff copy"), related("c:a", "archived"), related("claude:elsewhere", "not on the board")];
+        let req = request_with_routing(&b, None, "Acme", "add jitter to the backoff", &found, "m", NOW).unwrap();
+        // Stopped five days ago, too long to be offered otherwise, it comes after the others;
+        // archived ones and ones not in the project stay out.
+        assert_eq!(req.sessions, vec!["c:1", "c:2", "c:old"]);
+        assert_eq!(req.related, vec!["c:old", "c:2"]);
+        let lines = &req.body["state"]["sessions"]["s3"]["lines of its conversation that share words with the message"];
+        assert_eq!(lines, &json!(["the user: Retry the webhook with backoff", "the agent: Added backoff to the retries"]));
+        assert!(req.body["state"]["sessions"]["s1"].get("lines of its conversation that share words with the message").is_none());
     }
 
     #[test]

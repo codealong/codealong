@@ -160,17 +160,95 @@ pub fn find(words: &[String], limit: usize) -> Found {
     if ix.scope.days == 0 {
         return Found { hits: Vec::new(), building: false, off: true };
     }
-    ix.relist(false);
-    let known: Vec<PathBuf> = ix.listed.iter().map(|(p, _, _)| p.clone()).filter(|p| ix.files.contains_key(p)).collect();
-    for p in known {
-        if let Some(f) = ix.files.get_mut(&p) {
-            catch_up(&p, f);
-        }
-    }
-    ix.catch_up_rows();
+    ix.read_new();
     let hits = ix.search(words, limit, now_ms());
     Found { hits, building: !ix.ready, off: false }
 }
+
+/// A session whose prompts and replies share words with something typed, for Jev to weigh where
+/// it goes (route.rs).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Related {
+    pub key: String,
+    /// The words its best messages share, as `keywords` has them.
+    pub shared: Vec<String>,
+    /// Its messages that share the most, the best first: whether you wrote it, and a line around
+    /// the words.
+    pub lines: Vec<(bool, String)>,
+}
+
+/// The sessions whose messages share the most telling of `text`'s words (`keywords`), at most
+/// `limit` of them. Unlike `find`, a message needn't have every word: what's typed to route is a
+/// sentence, and few messages have all of its words. Each message is weighed on its own, since a
+/// long conversation has nearly every word somewhere in it.
+pub fn related(text: &str, limit: usize) -> Vec<Related> {
+    let words = keywords(text);
+    if words.is_empty() {
+        return Vec::new();
+    }
+    let mut ix = index().lock().unwrap_or_else(|e| e.into_inner());
+    if ix.scope.days == 0 {
+        return Vec::new();
+    }
+    ix.read_new();
+    ix.related(&words, limit, now_ms())
+}
+
+/// The most of a text's words `related` searches by, the first ones: a message's are bits of a `u32`
+/// (`words_in`).
+const KEYWORDS: usize = 16;
+
+/// Words that say nothing of what a message is about. Shorter words are left out anyway.
+const COMMON: &[&str] = &[
+    "about", "after", "again", "all", "also", "and", "any", "are", "aren", "before", "been", "being", "both", "but", "can", "could", "did", "didn", "does", "doesn", "doing", "don", "done", "each", "for", "from", "get", "got", "had", "has", "have", "here", "how", "into", "isn", "it's", "its", "just", "let", "lets", "like", "make", "more", "most", "need", "not", "now", "one", "only", "other", "our", "out", "over", "please", "should", "some", "still", "such", "sure", "than", "that", "the", "their", "them", "then", "there", "these", "they", "thing", "things", "this", "those", "too", "use", "very", "want", "was", "wasn", "way", "were", "what", "when", "where", "which", "who", "why", "will", "with", "won", "would", "yet", "you", "your",
+];
+
+/// The words of `text` that may say what it's about, for `related`: in lower case, of three
+/// letters or more and none of `COMMON`, each cut to what its other forms start with (`stem`),
+/// once, at most `KEYWORDS`. Attachments are left out. Words split as route.rs splits them to
+/// find a repo's name, so `spark-infra` stays one.
+pub fn keywords(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for w in crate::attachments::without(text).split(|c: char| !(c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))) {
+        let w = w.trim_matches(|c| matches!(c, '-' | '_' | '.')).to_lowercase();
+        if w.chars().count() < 3 || COMMON.contains(&w.as_str()) {
+            continue;
+        }
+        let w = stem(&w).to_string();
+        if !out.contains(&w) {
+            out.push(w);
+        }
+        if out.len() == KEYWORDS {
+            break;
+        }
+    }
+    out
+}
+
+/// A word without the ending its other forms don't share, where four letters or more are left:
+/// `wraps` finds "wrapping", `killed` finds "kills", `messages` finds "message".
+fn stem(w: &str) -> &str {
+    ["ing", "es", "ed", "s"].iter().filter_map(|end| w.strip_suffix(end)).find(|s| s.chars().count() >= 4).unwrap_or(w)
+}
+
+/// Which of the words `ac` looks for start a word of `text`, as bits: "retry" is in "retrying",
+/// not in "pretty".
+fn words_in(text: &str, ac: &aho_corasick::AhoCorasick) -> u32 {
+    let mut found = 0;
+    for m in ac.find_overlapping_iter(text) {
+        // A match of one UTF-8 string in another starts on a character.
+        if !text[..m.start()].chars().next_back().is_some_and(char::is_alphanumeric) {
+            found |= 1 << m.pattern().as_usize();
+        }
+    }
+    found
+}
+
+/// The most messages of a session `related` gives, and how many messages a word may be in, as a
+/// share of them, and still tell which is meant: of 40,000 messages here (2026-10-22), "say",
+/// "since" and "last" were each in 7 to 9%, "schedule", "watch" and "hide" in 1 to 4%.
+const RELATED_LINES: usize = 2;
+const TELLING_SHARE: usize = 20;
 
 /// What a window or another device finds for the words it typed: tidied (`tidy`), at most 200
 /// sessions, and timed in the perf log.
@@ -191,9 +269,15 @@ pub fn tidy(words: &[String]) -> Vec<String> {
 
 /// Builds the whole index now and searches it: for the command, when the app isn't running.
 pub fn find_now(scope: Scope, words: &[String], limit: usize) -> Found {
+    build_now(scope);
+    find(words, limit)
+}
+
+/// Builds the whole index now, as the app does in the background: for a check of what's searched
+/// without the app.
+pub fn build_now(scope: Scope) {
     configure(scope);
     warm();
-    find(words, limit)
 }
 
 impl Index {
@@ -230,6 +314,19 @@ impl Index {
         let keep: std::collections::HashSet<&PathBuf> = self.listed.iter().map(|(p, _, _)| p).collect();
         self.files.retain(|p, _| keep.contains(p));
         self.ready = self.listed.iter().all(|(p, _, _)| self.files.contains_key(p));
+    }
+
+    /// Lists the files again when that's due, and reads what's been added to the ones read
+    /// already and to the rows.
+    fn read_new(&mut self) {
+        self.relist(false);
+        let known: Vec<PathBuf> = self.listed.iter().map(|(p, _, _)| p.clone()).filter(|p| self.files.contains_key(p)).collect();
+        for p in known {
+            if let Some(f) = self.files.get_mut(&p) {
+                catch_up(&p, f);
+            }
+        }
+        self.catch_up_rows();
     }
 
     /// Reads what was said since the last read where messages are rows (`Adapter::said`).
@@ -274,6 +371,83 @@ impl Index {
         hits.sort_by(|(a, x), (b, y)| a.total_cmp(b).then(y.at.cmp(&x.at)).then_with(|| x.key.cmp(&y.key)));
         hits.truncate(limit);
         hits.into_iter().map(|(_, h)| h).collect()
+    }
+
+    /// The sessions whose messages share the most telling of `words`, at most `limit`. A word
+    /// counts by how rare it is among all the messages, `ln(messages / messages with it)²`, so a
+    /// rare word outweighs a few common ones, and not at all in more than a `TELLING_SHARE`th of
+    /// them; a message by the words it has, less the
+    /// longer it is (a long one has more words of every kind), and only with two telling words, or
+    /// every one when there are fewer. A session counts its best message and half its next, the
+    /// latest first among equals.
+    fn related(&self, words: &[String], limit: usize, now: i64) -> Vec<Related> {
+        let Ok(ac) = aho_corasick::AhoCorasick::new(words) else { return Vec::new() };
+        let sessions: Vec<(&str, Vec<&Entry>)> = self
+            .files
+            .values()
+            .map(|f| (f.key.as_str(), f.entries.iter().collect()))
+            .chain(self.rows.values().flat_map(|r| r.sessions.iter().map(|(k, msgs)| (k.as_str(), msgs.values().collect()))))
+            .collect();
+        let has: Vec<Vec<u32>> = sessions.iter().map(|(_, msgs)| msgs.iter().map(|e| words_in(&e.lower, &ac)).collect()).collect();
+        let n: usize = has.iter().map(Vec::len).sum();
+        let weight: Vec<f64> = (0..words.len())
+            .map(|w| {
+                let with = has.iter().flatten().filter(|m| *m & (1 << w) != 0).count();
+                if with == 0 || with * TELLING_SHARE > n.max(2 * TELLING_SHARE) {
+                    0.0
+                } else {
+                    (n as f64 / with as f64).ln().max(0.1).powi(2)
+                }
+            })
+            .collect();
+        let telling: u32 = (0..words.len()).filter(|w| weight[*w] > 0.0).fold(0, |m, w| m | 1 << w);
+        if telling == 0 {
+            return Vec::new();
+        }
+        let enough = telling.count_ones().min(2);
+        let mean = sessions.iter().flat_map(|(_, msgs)| msgs.iter().map(|e| e.lower.len())).sum::<usize>() as f64 / n.max(1) as f64;
+        let bits = |m: u32| (0..words.len()).filter(move |w| m & (1 << w) != 0);
+        // Each session's messages with enough telling words, the best first.
+        let mut found: Vec<(f64, i64, usize, Vec<(f64, &Entry, u32)>)> = sessions
+            .iter()
+            .enumerate()
+            .filter_map(|(i, (_, msgs))| {
+                let mut best: Vec<(f64, &Entry, u32)> = msgs
+                    .iter()
+                    .zip(&has[i])
+                    .filter(|(_, m)| (**m & telling).count_ones() >= enough)
+                    .map(|(e, m)| (bits(m & telling).map(|w| weight[w]).sum::<f64>() / (1.0 + e.lower.len() as f64 / mean.max(1.0)).sqrt(), *e, m & telling))
+                    .collect();
+                if best.is_empty() {
+                    return None;
+                }
+                best.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.at.cmp(&a.1.at)));
+                let score = best[0].0 + best.get(1).map_or(0.0, |b| b.0 / 2.0);
+                let latest = msgs.iter().map(|e| e.at).max().unwrap_or(0).min(now);
+                best.truncate(RELATED_LINES * 2);
+                Some((score, latest, i, best))
+            })
+            .collect();
+        found.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.cmp(&a.1)).then_with(|| sessions[a.2].0.cmp(sessions[b.2].0)));
+        found.truncate(limit);
+        found
+            .into_iter()
+            .map(|(_, _, i, best)| {
+                let mut lines: Vec<(bool, String)> = Vec::new();
+                let mut shared = 0;
+                for (_, e, m) in best {
+                    let line = snippet(&e.text, &bits(m).map(|w| words[w].clone()).collect::<Vec<_>>());
+                    if !lines.iter().any(|(_, l)| *l == line) {
+                        lines.push((e.you, line));
+                        shared |= m;
+                    }
+                    if lines.len() == RELATED_LINES {
+                        break;
+                    }
+                }
+                Related { key: sessions[i].0.to_string(), shared: bits(shared).map(|w| words[w].clone()).collect(), lines }
+            })
+            .collect()
     }
 }
 
@@ -510,6 +684,55 @@ mod tests {
         // The session's last message counts, not when its best line was said.
         ix.files.get_mut(Path::new("/old.jsonl")).unwrap().entries.push(Entry::new(now, false, "done".into()));
         assert_eq!(keys(&ix, 1), vec!["old"]);
+    }
+
+    #[test]
+    fn keywords_leave_out_common_and_short_words_and_attachments() {
+        assert_eq!(keywords("Can you fix the flaky retry test in spark-infra? It's the one we saw."), ["fix", "flaky", "retry", "test", "spark-infra", "saw"]);
+        assert_eq!(keywords("Make it like ![image](images/0123456789abcdef.png) Retry, retry."), ["retry"]);
+        assert_eq!(keywords("it wraps the messages it killed, uses notes"), ["wrap", "messag", "kill", "uses", "note"], "endings go where four letters stay");
+        assert!(keywords("do it now").is_empty());
+    }
+
+    #[test]
+    fn related_sessions_have_messages_with_the_telling_words_not_all_of_them() {
+        let now = 1_790_200_000_000;
+        let file = |key: &str, said: &[(bool, &str)]| FileText { key: key.into(), harness: Harness::Claude, offset: 0, entries: said.iter().map(|(you, t)| Entry::new(now - 1_000, *you, t.to_string())).collect() };
+        let mut ix = Index::default();
+        ix.files.insert(PathBuf::from("/webhook.jsonl"), file("webhook", &[(true, "The Stripe webhook retries twice"), (false, "Retrying with backoff in stripe.ts now.")]));
+        ix.files.insert(PathBuf::from("/stripe.jsonl"), file("stripe", &[(true, "Update the stripe plan names, then retry the sync")]));
+        ix.files.insert(PathBuf::from("/pretty.jsonl"), file("pretty", &[(false, "pretty output, backoff aside")]));
+        // Eighty messages in all, five of them with "fix".
+        for i in 0..76 {
+            let filler = if i < 5 { format!("fix the build {i}") } else { format!("release notes {i}") };
+            ix.files.insert(PathBuf::from(format!("/f{i}.jsonl")), file(&format!("f{i}"), &[(true, &filler)]));
+        }
+        let words = keywords("fix the webhook retry backoff for stripe");
+        let found = ix.related(&words, 5, now);
+        // "fix" is in one message of sixteen, too many to tell which is meant; the rest are in
+        // one to three. A message with one of them doesn't do while there are others.
+        assert_eq!(found.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["webhook", "stripe"]);
+        assert_eq!(found[0].shared, ["webhook", "retry", "backoff", "stripe"]);
+        // The message with the most of the rarest words first; retry starts "retrying", not
+        // "retries" or "pretty".
+        assert_eq!(found[0].lines, [(false, "Retrying with backoff in stripe.ts now.".to_string()), (true, "The Stripe webhook retries twice".to_string())]);
+        assert_eq!(found[1].shared, ["retry", "stripe"]);
+        // ...unless one is all there is to share. The shorter message comes first.
+        assert_eq!(ix.related(&keywords("fix the backoff"), 5, now).iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["pretty", "webhook"]);
+        assert!(ix.related(&keywords("fix it"), 5, now).is_empty(), "nothing telling, nothing found");
+    }
+
+    #[test]
+    fn a_long_conversation_with_every_word_apart_loses_to_a_message_with_them_together() {
+        let now = 1_790_200_000_000;
+        let file = |key: &str, said: Vec<String>| FileText { key: key.into(), harness: Harness::Claude, offset: 0, entries: said.into_iter().map(|t| Entry::new(now - 1_000, true, t)).collect() };
+        let mut ix = Index::default();
+        let mut long: Vec<String> = (0..30).map(|i| format!("step {i} of the plan")).collect();
+        long.extend(["the overflow is fine".into(), "chips are fine".into(), "the strip is fine".into()]);
+        ix.files.insert(PathBuf::from("/long.jsonl"), file("long", long));
+        ix.files.insert(PathBuf::from("/short.jsonl"), file("short", vec!["The strip's overflow wraps its chips".into()]));
+        let found = ix.related(&keywords("the overflow on the strip wraps when there are many chips"), 5, now);
+        assert_eq!(found.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), ["short"], "no message of the long one has two of the words");
     }
 
     #[test]

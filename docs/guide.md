@@ -1867,8 +1867,25 @@ service what you typed needs, and when it's sure (70% or more), new work starts 
 reaches it, the one Auto would pick among them, and the row says so: "what does my email say" goes to
 an account connected to Gmail, even when Jev's agent pick or the start menu names one that isn't.
 Work on code, which needs none, starts as it would anyway. The service names and their tools'
-names go to TypeSafe with the rest. The API key stays in
-the login keychain. What you type, repo names and session titles and latest lines go to TypeSafe.
+names go to TypeSafe with the rest.
+
+What you type is also looked for in what was said in your sessions (the same prompts and replies
+that searching by what was said reads, over `[search] days`): the sessions with messages that have
+the rarer of your words, at least two of them, go to Jev with a line or two of those messages,
+even ones that stopped too long ago to be weighed otherwise. A word in more than one message in
+twenty, such as "since" or "last", doesn't count, and a word finds its other forms ("wraps" finds
+"wrapping"). So "the backoff on the webhook retries is too short" finds the session whose agent
+wrote "Retrying the webhook with backoff now", though its title is "Payments cleanup".
+
+What you do with what you typed is kept beside what Jev suggested (`routes.json` next to the
+config, the latest 1,000): the suggestions as listed, what you did (sent it, opened or started a
+session, kept a todo) and whether that was the first suggestion, another or none of them. `codealong
+--snapshot --routes [days]` says how often Jev's first suggestion was what you did, and lists the
+times it wasn't. Only prompts that went to Jev are kept, from this machine's panel.
+
+The API key stays in
+the login keychain. What you type, repo names, session titles and latest lines, and the lines of
+sessions' conversations that share your words go to TypeSafe.
 Images you paste go too, each where it is in the text, so a screenshot can say which app or
 session you mean: up to four, scaled down to what Jev takes (padded out when they're tiny). When
 TypeSafe won't take one, Jev answers from the words alone.

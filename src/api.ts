@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { BoardDoc, BoardOp } from './boards/model';
 import type { TodoOp } from './todos';
@@ -923,6 +923,11 @@ export function onSideWindows(cb: (keys: string[]) => void): () => void {
 export async function routeQuick(project: string, text: string): Promise<Route> {
   if (!inTauri) throw new Error('Routing needs the app.');
   return invoke<Route>('route_quick', { project, text });
+}
+
+/** Keeps what you did with what you typed beside what Jev suggested for it (routelog.rs). */
+export async function noteRoute(note: RouteNote): Promise<void> {
+  if (inTauri) await invoke('note_route', { note });
 }
 
 /** The skills a session in each of `folders` could be asked to run by name, and each of

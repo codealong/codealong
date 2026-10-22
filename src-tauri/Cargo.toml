@@ -28,6 +28,7 @@ doctest = false
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+aho-corasick = "1"
 memchr = "2"
 tauri = { version = "2", features = ["macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
