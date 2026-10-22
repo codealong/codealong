@@ -11,7 +11,9 @@
 //! session about to say so itself can; once for each reviewer and commit, and a request GitHub
 //! refuses is tried again a few times, each `RETRY_MS` after the last. The board can be behind
 //! GitHub (a repo no longer read keeps its last answer, a restart reads a cached one), so the PR is
-//! read afresh before anyone is asked, and they're asked only if it still holds (`still_owed`).
+//! read afresh before anyone is asked, and they're asked only if that still owes them a word and
+//! has been quiet as long (`still_owed`), and the board and settings, looked at again after the
+//! read, still let it go (`allowed`); else it's looked at again `RETRY_MS` later.
 //! Asked, the PR's timeline has the request, and the PR reads as the reviewer's move
 //! (`RereviewAsked`) from GitHub's next answer on.
 
@@ -55,10 +57,22 @@ pub struct Rerequester {
 
 #[derive(Clone, Copy)]
 struct Tried {
-    /// It went, or it's going: the request is out.
-    ok: bool,
-    tries: u32,
+    went: Went,
+    /// How many times GitHub refused it.
+    refused: u32,
     at: i64,
+}
+
+/// How a request went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Went {
+    /// It went, or it's going.
+    Sent,
+    /// GitHub refused it, or couldn't be read first: tried again a few times.
+    Failed,
+    /// Not asked after all: GitHub or the board, looked at again, said not yet or not any more.
+    /// Looked at again later, while it's still owed.
+    Skipped,
 }
 
 impl Rerequester {
@@ -71,11 +85,15 @@ impl Rerequester {
         for job in board.prs.iter().filter(|p| p.mine && p.state.is_open()).flat_map(|pr| owed(board, pr, global, now)) {
             let due = match self.tried.get(&job.id()) {
                 None => true,
-                Some(t) => !t.ok && t.tries < TRIES && now - t.at >= RETRY_MS,
+                Some(t) => match t.went {
+                    Went::Sent => false,
+                    Went::Failed => t.refused < TRIES && now - t.at >= RETRY_MS,
+                    Went::Skipped => now - t.at >= RETRY_MS,
+                },
             };
             if due {
-                let tries = self.tried.get(&job.id()).map_or(0, |t| t.tries) + 1;
-                self.tried.insert(job.id(), Tried { ok: true, tries, at: now });
+                let refused = self.tried.get(&job.id()).map_or(0, |t| t.refused);
+                self.tried.insert(job.id(), Tried { went: Went::Sent, refused, at: now });
                 jobs.push(job);
             }
         }
@@ -83,10 +101,11 @@ impl Rerequester {
     }
 
     /// How a request went: one that didn't is tried again later.
-    pub fn went(&mut self, job: &Job, ok: bool, now: i64) {
+    pub fn went(&mut self, job: &Job, went: Went, now: i64) {
         if let Some(t) = self.tried.get_mut(&job.id()) {
-            t.ok = ok;
+            t.went = went;
             t.at = now;
+            t.refused += u32::from(went == Went::Failed);
         }
     }
 }
@@ -106,43 +125,56 @@ pub fn settled(board: &Board, now: i64) -> Vec<&str> {
     board.prs.iter().filter(|p| quiet_since(p).is_some_and(|at| now - at >= SETTLE_MS)).map(|p| p.key.as_str()).collect()
 }
 
+/// Whether `board` lets a request for `pr` go: its repo has it on, and none of its sessions is in
+/// a turn, working or waiting on you to allow something.
+fn allowed(board: &Board, pr: &PrItem, global: &PullRequestsCfg) -> bool {
+    let in_turn = |s: &crate::model::Session| s.status == Status::Working || (s.status == Status::Needs && !s.asks);
+    board.repo_settings.pull_requests(global, pr).rerequest_after_fixes && !pr.sessions.iter().any(|s| board.session(&s.key).is_some_and(|(_, s)| in_turn(s)))
+}
+
 /// The reviewers `pr` owes a request to now: it's yours, its fixes went unsaid (`ReplyNeeded`, each
-/// reviewer it holds for), its repo has it on, it's been quiet `SETTLE_MS`, and none of its
-/// sessions is in a turn, working or waiting on you to allow something.
+/// reviewer it holds for), it's been quiet `SETTLE_MS`, and `allowed`.
 fn owed(board: &Board, pr: &PrItem, global: &PullRequestsCfg, now: i64) -> Vec<Job> {
     let (Some(turn), Some(head), Some(quiet)) = (pr.turn.as_ref(), pr.head_oid.as_ref(), quiet_since(pr)) else { return Vec::new() };
-    if now - quiet < SETTLE_MS || !board.repo_settings.pull_requests(global, pr).rerequest_after_fixes {
-        return Vec::new();
-    }
-    let in_turn = |s: &crate::model::Session| s.status == Status::Working || (s.status == Status::Needs && !s.asks);
-    if pr.sessions.iter().any(|s| board.session(&s.key).is_some_and(|(_, s)| in_turn(s))) {
+    if now - quiet < SETTLE_MS || !allowed(board, pr, global) {
         return Vec::new();
     }
     let job = |reviewer: &String| Job { pr: pr.key.clone(), repo: pr.repo_slug.clone(), number: pr.number, reviewer: reviewer.clone(), head: head.clone() };
     std::iter::once(&turn.who).chain(&turn.also).map(job).collect()
 }
 
-/// Whether `job`'s reviewer is still owed a request by its PR as GitHub has it now (`raw`, read
-/// afresh as `login`): still open at the job's commit, its fixes still unsaid to them.
-fn still_owed(raw: &PrRaw, login: Option<&str>, job: &Job) -> bool {
+/// Whether `job`'s reviewer is still owed a request at `now` by its PR as GitHub has it (`raw`,
+/// read afresh as `login`): still open at the job's commit, its fixes still unsaid to them, and
+/// quiet `SETTLE_MS` as the board's copy was (`quiet_since`).
+fn still_owed(raw: &PrRaw, login: Option<&str>, job: &Job, now: i64) -> bool {
     let mine = login.is_some() && raw.author.as_deref() == login;
-    let unsaid = crate::board::turn_of(raw, mine, login).filter(|t| t.kind == TurnKind::ReplyNeeded);
-    raw.state.is_open() && raw.head_oid.as_deref() == Some(job.head.as_str()) && unsaid.is_some_and(|t| std::iter::once(&t.who).chain(&t.also).any(|w| w.eq_ignore_ascii_case(&job.reviewer)))
+    let Some(t) = crate::board::turn_of(raw, mine, login).filter(|t| t.kind == TurnKind::ReplyNeeded) else { return false };
+    let quiet = t.since.map(|at| at.max(raw.updated_at)).is_some_and(|at| now - at >= SETTLE_MS);
+    let theirs = std::iter::once(&t.who).chain(&t.also).any(|w| w.eq_ignore_ascii_case(&job.reviewer));
+    raw.state.is_open() && raw.head_oid.as_deref() == Some(job.head.as_str()) && theirs && quiet
 }
 
-/// Asks each job's reviewer, through `gh`, once its PR read afresh says it still holds, telling
-/// `rerequester` how each went, and the engine, which says so in a notice when one didn't.
+/// Asks each job's reviewer, through `gh`, once its PR read afresh says it still holds and the
+/// board and settings as they are then still let it go, telling `rerequester` how each went, and
+/// the engine, which says so in a notice when one didn't.
 pub fn send_now(engine: &Handle, rerequester: &std::sync::Mutex<Rerequester>, jobs: Vec<Job>) {
     let mut read: HashMap<String, Result<(PrRaw, Option<String>), String>> = HashMap::new();
     let mut failed = Vec::new();
     for job in jobs {
         let fresh = read.entry(job.pr.clone()).or_insert_with(|| crate::github::one(&job.repo, job.number).map_err(|e| e.to_string()));
+        let now = crate::util::now_ms();
+        // Reading GitHub, and asking for the jobs before, took a while: a session may have begun a
+        // turn on it, or the setting been turned off, since `due`.
+        let goes = || {
+            let global = crate::config::current().map(|c| c.pull_requests.clone()).unwrap_or_default();
+            engine.read(|b| b.prs.iter().find(|p| p.key == job.pr).is_some_and(|pr| allowed(b, pr, &global)))
+        };
         let went = match fresh {
-            Ok((raw, login)) if still_owed(raw, login.as_deref(), &job) => crate::github::request_review(&job.repo, job.number, &job.reviewer).map_err(|e| e.to_string()),
-            Ok(_) => Ok(()),
+            Ok((raw, login)) if still_owed(raw, login.as_deref(), &job, now) && goes() => crate::github::request_review(&job.repo, job.number, &job.reviewer).map(|()| Went::Sent).map_err(|e| e.to_string()),
+            Ok(_) => Ok(Went::Skipped),
             Err(e) => Err(format!("GitHub couldn't be asked how it stands: {e}")),
         };
-        rerequester.lock().unwrap_or_else(|e| e.into_inner()).went(&job, went.is_ok(), crate::util::now_ms());
+        rerequester.lock().unwrap_or_else(|e| e.into_inner()).went(&job, *went.as_ref().unwrap_or(&Went::Failed), crate::util::now_ms());
         if let Err(e) = went {
             failed.push(format!("{} wasn't asked to review {} again after its fixes: {e}", job.reviewer, job.pr));
         }
@@ -228,7 +260,7 @@ mod tests {
         assert_eq!(jobs, vec![Job { pr: "o/r#7".into(), repo: "o/r".into(), number: 7, reviewer: "ken".into(), head: "bbb".into() }]);
         // Once for the commit, while it goes and after.
         assert!(r.due(&b, &ON, NOW + 1).is_empty());
-        r.went(&jobs[0], true, NOW + 2);
+        r.went(&jobs[0], Went::Sent, NOW + 2);
         assert!(r.due(&b, &ON, NOW + RETRY_MS * 10).is_empty());
         // A later push is asked about again.
         let later = board(PrItem { head_oid: Some("ccc".into()), ..pr(unsaid(pushed)) }, Status::Idle);
@@ -302,14 +334,37 @@ mod tests {
             changes_asked: vec![crate::github::ChangesAsked { who: "ken".into(), at: 100, commit: Some("aaa".into()) }],
         };
         let ken = |at| crate::github::Said { who: "ken".into(), at, asked: None };
-        assert!(still_owed(&said(vec![ken(100)]), Some("me"), &job));
+        // Pushed at 110, nothing on it since.
+        let now = 110 + SETTLE_MS;
+        assert!(still_owed(&said(vec![ken(100)]), Some("me"), &job, now));
+        // Not quiet long enough yet, as GitHub has it now: a push, or anything said, moved it.
+        assert!(!still_owed(&said(vec![ken(100)]), Some("me"), &job, now - 1));
+        assert!(!still_owed(&PrRaw { updated_at: now - 60_000, ..said(vec![ken(100)]) }, Some("me"), &job, now));
         // Said since, by anyone of yours, or asked again: nothing to ask.
-        assert!(!still_owed(&said(vec![ken(100), crate::github::Said { who: "me".into(), at: 120, asked: None }]), Some("me"), &job));
-        assert!(!still_owed(&said(vec![ken(100), crate::github::Said { who: "me".into(), at: 120, asked: Some("ken".into()) }]), Some("me"), &job));
+        assert!(!still_owed(&said(vec![ken(100), crate::github::Said { who: "me".into(), at: 120, asked: None }]), Some("me"), &job, now));
+        assert!(!still_owed(&said(vec![ken(100), crate::github::Said { who: "me".into(), at: 120, asked: Some("ken".into()) }]), Some("me"), &job, now));
         // Approved, merged, or at another commit than the one it was due on.
-        assert!(!still_owed(&PrRaw { changes_asked: Vec::new(), ..said(vec![ken(100)]) }, Some("me"), &job));
-        assert!(!still_owed(&PrRaw { state: PrState::Merged, ..said(vec![ken(100)]) }, Some("me"), &job));
-        assert!(!still_owed(&PrRaw { head_oid: Some("ccc".into()), ..said(vec![ken(100)]) }, Some("me"), &job));
+        assert!(!still_owed(&PrRaw { changes_asked: Vec::new(), ..said(vec![ken(100)]) }, Some("me"), &job, now));
+        assert!(!still_owed(&PrRaw { state: PrState::Merged, ..said(vec![ken(100)]) }, Some("me"), &job, now));
+        assert!(!still_owed(&PrRaw { head_oid: Some("ccc".into()), ..said(vec![ken(100)]) }, Some("me"), &job, now));
+        assert!(!still_owed(&PrRaw { state: PrState::Draft, ..said(vec![ken(100)]) }, Some("me"), &job, now));
+    }
+
+    #[test]
+    fn one_not_asked_after_all_is_looked_at_again_later() {
+        let mut r = Rerequester::default();
+        let b = board(pr(unsaid(NOW - SETTLE_MS)), Status::Idle);
+        let jobs = r.due(&b, &ON, NOW);
+        // GitHub, read afresh, had it a draft for a moment, or the board then had a session in a turn.
+        r.went(&jobs[0], Went::Skipped, NOW);
+        assert!(r.due(&b, &ON, NOW + RETRY_MS - 1).is_empty());
+        // Still owed later, it's handed out again, however many times that happens.
+        for i in 1..=TRIES + 1 {
+            let at = NOW + RETRY_MS * i64::from(i);
+            let again = r.due(&b, &ON, at);
+            assert_eq!(again.len(), 1);
+            r.went(&again[0], Went::Skipped, at);
+        }
     }
 
     #[test]
@@ -320,7 +375,7 @@ mod tests {
         for _ in 0..TRIES {
             let jobs = r.due(&b, &ON, at);
             assert_eq!(jobs.len(), 1);
-            r.went(&jobs[0], false, at);
+            r.went(&jobs[0], Went::Failed, at);
             assert!(r.due(&b, &ON, at + RETRY_MS - 1).is_empty());
             at += RETRY_MS;
         }
