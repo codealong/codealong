@@ -428,8 +428,23 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   `claude/app.rs` (`permission_mode`, `Records::modes`), `claude/transcript.rs`
   (`TranscriptInfo::permission_mode`). `permission-mode` (and `mode`, `normal` here) are
   last-wins metadata re-stamped with the title and the rest; a switch sets the stamp without
-  writing it (2.1.296's code). Of this Mac's 300 latest transcripts on 2026-10-13, 296 ended in
-  `bypassPermissions`.
+  writing it (2.1.296's code, and 2.1.308's: no hook fires on a switch either, and the status
+  line's input has no mode). Of this Mac's 300 latest transcripts on 2026-10-13, 296 ended in
+  `bypassPermissions`; by 2026-10-22 both accounts' `defaultMode` was `auto`.
+- Shift+Tab in a terminal steps the mode on (2.1.308's `y8t`; Auto, Manual, Accept edits, Plan
+  and Auto again in a terminal UI under a pseudo-terminal, 2026-10-22): Manual, Accept edits,
+  Plan, then Bypass where it's offered, then Auto where it's offered, and round; Don't Ask goes
+  to Manual. Bypass is offered to a session started in it (`--dangerously-skip-permissions`,
+  `--permission-mode bypassPermissions`, `defaultMode`) or let to (`--allow-dangerously-skip-permissions`)
+  unless `permissions.disableBypassPermissionsMode` is `disable`; Auto unless `disableAutoMode`
+  (at the top or under `permissions`) is `disable`, `tengu_auto_mode_config.enabled` (kept in the
+  state file's `cachedGrowthBookFeatures`, `enabled` when missing) is `disabled`, or the model
+  doesn't take it (its list wasn't looked into); `opt-in` there wasn't either. Its key parser
+  takes `ESC [ Z` as Shift+Tab whatever keyboard protocol it pushed. A permission prompt takes
+  Shift+Tab as its own (`confirm:cycleMode` in its keybindings; what it does to the call that
+  waits wasn't looked into), and lists and panels above the prompt as their previous item, so
+  cycle.rs presses it only while the session doesn't wait on you. `claude/mode.rs`
+  (`cycled_modes`), cycle.rs.
 - Background jobs through the account's daemon, `/tmp/cc-daemon-<uid>/<first 8 hex of
   sha256(config dir)>/control.sock`: `reply` hands a job a prompt (pasted, then Return), and
   `attach` types into its terminal, an Escape that stops its turn included: `claude/daemon.rs`,

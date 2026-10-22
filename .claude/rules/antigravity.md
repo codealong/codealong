@@ -193,14 +193,27 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
 - The permissions a turn ran with, in its prompt's step (`steps.step_payload`, a
   `gemini_coder.Step`; step type 14 is a prompt): `antigravity.rs` (`turn_mode`, `TOOL_CONFIG`,
   `policy_mode`, `proto_at`). The settings' keys (`/config` writes them, a default removes its
-  key): `agentMode` (`accept-edits`, `plan`), `toolPermission` (`strict`, `always-proceed`,
+  key): `agentMode` (`accept-edits`, `auto`, `plan`), `toolPermission` (`strict`, `always-proceed`,
   `proceed-in-sandbox`; `request-review` when absent), `enableTerminalSandbox`,
-  `allowNonWorkspaceAccess`, `artifactReviewPolicy`, `permissions {allow, deny, ask}`. Shift+Tab
-  cycles default, accept-edits, plan and isn't saved; `--mode`, `--sandbox` and
-  `--dangerously-skip-permissions` are never saved. The command line's log names its process
-  (`Starting language server process with pid N`) and says `toolPermission` as it starts, each
-  override a flag made, and `SetCycleMode called: <mode>` at every switch; nothing writes the
-  agent mode to the conversation (plan puts `/plan ` before the prompt, by its code, unseen).
+  `allowNonWorkspaceAccess`, `artifactReviewPolicy`, `permissions {allow, deny, ask}`.
+  `--mode`, `--sandbox` and `--dangerously-skip-permissions` are never saved. The command line's
+  log names its process (`Starting language server process with pid N`) and says
+  `toolPermission` as it starts (`CLI settings initialized: permissions=…, toolPermission=…`,
+  the permissions printed as Go prints a struct, so any words; every log here said
+  `request-review`), and, the binary says, each override a flag made (none seen).
+- The agent mode (1.4.5, 2026-10-22, from the log and Shift+Tab pressed as `ESC [ Z` into a
+  terminal UI run under a pseudo-terminal): Auto came in 1.4 ("approves file edits and safe
+  commands without asking and still prompts before irreversible actions", its changelog).
+  Shift+Tab steps default, accept-edits, auto, plan and round, mid-turn too ("auto mode:
+  auto-approving file write" followed in the same turn), and isn't saved. The log says
+  `SetCycleMode called: <mode>` as it starts in the settings' `agentMode` (nothing when the
+  settings have none) and at every switch, Shift+Tab or `/config`, the default written as
+  nothing: `antigravity.rs` (`AGENT_MODES`, `Said::agent_mode`, `session_mode`), switched by
+  cycle.rs. The binary also has `SetCycleMode(%q) ignored: agent mode is overridden by remote
+  agent` (unseen). The agent mode goes into a turn's policy: a turn in Auto ran with AUTO (2)
+  where the one before, in the default, ran with OFF (1), so only the log says the default's own
+  permissions (`Said::tool_permission`). Plan puts `/plan ` before the prompt, by its code
+  (unseen).
   The hub app's own settings are `userSettings` in `~/.gemini/config/config.json`, per project
   under `settings` in `projects/<id>.json`; its conversations seen had only the model per turn.
 - The model a turn ran on, its level in its name as `--model` takes it, is in the
@@ -263,8 +276,8 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   arrived whole, as one input (2026-10-14).
 - What taking queued messages back into the editor (↑) writes to the log, and whether Escape
   drops the queue or sends it.
-- A plan-mode turn's record, and the `strict`, `proceed-in-sandbox` and `auto` policies on a real
-  turn: read from its code only.
+- A plan-mode or accept-edits turn's record, and the `strict` and `proceed-in-sandbox` policies on
+  a real turn: read from its code only.
 - What the app writes mid-turn.
 - Where the conversations that Remote Control's daemon starts are written, and how they'd
   show on the board: starting the daemon registers the Mac with Google, so it wasn't run.

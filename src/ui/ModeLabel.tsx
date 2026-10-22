@@ -2,10 +2,12 @@
 // Plan or Bypass, Codex's Approve for me or Full Access, OpenCode's agent, Cursor's auto-run.
 // It's said in the reply box's foot beside its account, lowercase, as Claude Code says its own
 // mode by its box (SessionReply.tsx), and in the header's Details for a session with no box;
-// what the mode means is its tooltip. A session that runs elsewhere has its mode changed there,
-// so Codealong only says it. One Codealong runs is switched here (`ModeMenu`): its agent offers
-// the modes (`Session.modes`), and the chip opens them above the box, as Shift+Tab in the box
-// steps to the next, as it does in Claude Code's terminal.
+// what the mode means is its tooltip. Where the session offers its modes here (`Session.modes`)
+// it's switched here (`ModeMenu`): one Codealong runs through its agent, one in a terminal by
+// Shift+Tab pressed there (cycle.rs). The chip opens them above the box, as Shift+Tab in the box
+// steps to the next, as it does in Claude Code's terminal. Any other has its mode changed where
+// it runs, so Codealong only says it. A mode Codealong expects after a press, which the harness
+// writes only with the next prompt (`SessionMode.expected`), is said in italics.
 
 import type { ModeKind, SessionMode } from '../types';
 import { BoxMenu } from './ModelMenu';
@@ -25,9 +27,15 @@ const MODE_ICON: Record<ModeKind, string> = {
 
 const iconOf = (mode: SessionMode) => MODE_ICON[mode.kind] ?? MODE_ICON.other;
 
+/** What the chip's tooltip says of the mode it's in. */
+function modeSaid(mode: SessionMode) {
+  const expected = mode.expected ? `, as Codealong expects after pressing ⇧⇥ in its terminal: it says which mode it's in only with your next message` : '';
+  return keysIn(`Its mode: ${mode.label}${expected}. ${mode.detail}`);
+}
+
 export function ModeLabel({ mode, small = false }: { mode: SessionMode; small?: boolean }) {
   return (
-    <span className={cx('ca-mode', small && 'is-small')} title={`Its mode: ${mode.label}. ${mode.detail}`}>
+    <span className={cx('ca-mode', small && 'is-small', mode.expected && 'is-expected')} title={modeSaid(mode)}>
       <Icon name={iconOf(mode)} size={small ? 11 : 12} />
       <span className="ca-mode-name">{mode.label}</span>
     </span>
@@ -58,8 +66,8 @@ export function ModeMenu({ mode, modes, disabled, onPick, onDone }: { mode: Sess
       value={mode?.id ?? null}
       icon={mode ? iconOf(mode) : 'shield'}
       iconSize={11}
-      label={mode?.label ?? 'Mode'}
-      title={keysIn(`${mode ? `Its mode: ${mode.label}. ${mode.detail} ` : ''}Switch it${next ? ` (⇧⇥: ${next.label})` : ''}`)}
+      label={mode?.expected ? <span className="ca-mode-expected">{mode.label}</span> : (mode?.label ?? 'Mode')}
+      title={`${mode ? `${modeSaid(mode)} ` : ''}${keysIn(`Switch it${next ? ` (⇧⇥: ${next.label})` : ''}`)}`}
       disabled={disabled}
       placeholder="Mode"
       onPick={(id) => {

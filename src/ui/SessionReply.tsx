@@ -366,12 +366,13 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
       )
       .finally(() => setSwitching(false));
   };
-  // The mode of one Codealong runs switches here, any time (ModeLabel.tsx), on whichever device
-  // runs it. The one picked shows at once, then the one its agent says it's in, which may be
-  // another (Accept edits for Auto, on a model that doesn't take it), until the board has it, so
-  // a second ⇧⇥ steps on from it.
+  // Its mode switches here, any time (ModeLabel.tsx), on whichever device runs it: through the
+  // agent of one Codealong runs, or by ⇧⇥ pressed in its terminal (cycle.rs). The one picked
+  // shows at once, then the one the engine says it's in, which may be another (Accept edits for
+  // Auto, on a model that doesn't take it), until the board has it, so a second ⇧⇥ steps on from
+  // it.
   const modes = s.modes ?? [];
-  const switchesMode = s.live && !!s.hosted && modes.length > 1;
+  const switchesMode = s.live && modes.length > 1;
   const [modePicked, setModePicked] = useState<string | null>(null);
   useEffect(() => setModePicked(null), [s.key, s.mode?.id]);
   const mode = (modePicked ? modes.find((m) => m.id === modePicked) : null) ?? s.mode;
@@ -873,7 +874,7 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
                 return;
               }
             }
-            // ⇧⇥ steps to its next mode, where Codealong runs it.
+            // ⇧⇥ steps to its next mode, where it offers its modes here.
             if (e.key === 'Tab' && held(e, 'Shift') && switchesMode && !aside && !e.nativeEvent.isComposing) {
               e.preventDefault();
               const to = nextMode(modes, mode);

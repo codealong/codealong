@@ -87,8 +87,9 @@ pub const SESSION_MODEL: &str = "session-model";
 /// a request they don't know.
 pub const SESSION_EFFORT: &str = "session-effort";
 /// Switches a session its Mac runs itself (`key`) to another of the modes its agent offers
-/// (`mode`, one of `Session::modes` by its id), for that session alone, answering `ModeSwitched`.
-/// Macs before 2026-10-14 refuse it as a request they don't know.
+/// (`mode`, one of `Session::modes` by its id), for that session alone, answering `ModeSwitched`;
+/// from 2026-10-22, also one in a terminal that Mac presses Shift+Tab in. Macs before 2026-10-14
+/// refuse it as a request they don't know.
 pub const SESSION_MODE: &str = "session-mode";
 /// Done with a session (`key`): it ends as far as its Mac can end it without ending more than it
 /// (its terminal tab closes, its background job stops), and is marked seen and archived,

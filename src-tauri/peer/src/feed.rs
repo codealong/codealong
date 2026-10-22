@@ -78,8 +78,9 @@ pub struct FeedMsg {
 /// that hasn't changed since, the field missing from them until they do. A copy kept with another
 /// stamp is sent again whole instead. 1: `Session::pin`; 2: `Session::mode`; 3: `Session::effort`;
 /// 4: `Session::queued_at`; 5: `Session::modes` and `SessionMode::id`; 6: `SessionLimit::continues`;
-/// 7: `Session::queued`; 8: `Session::flagged`; 9: `Pr::stale_approval`; 10: `Helper::yours`.
-pub const READS: u32 = 10;
+/// 7: `Session::queued`; 8: `Session::flagged`; 9: `Pr::stale_approval`; 10: `Helper::yours`;
+/// 11: `SessionMode::expected`.
+pub const READS: u32 = 11;
 
 /// What this device knows of a linked device's board, kept up to date by its feeds, and kept on disk
 /// so a device that's asleep still shows as it was when last seen.

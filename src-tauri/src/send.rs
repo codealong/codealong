@@ -1028,20 +1028,23 @@ pub fn switch_effort(board: &Board, cfg: &Config, key: &str, effort: &str) -> Re
     switch(board, cfg, key, Switch::Effort(effort.trim()))
 }
 
-/// Switches a session Codealong runs to `mode`, one of the modes its agent offers
-/// (`Session::modes`, by id), for that session alone (acp.rs `switch_mode`). Mid-turn too and
+/// Switches a session to `mode`, one of the modes it offers (`Session::modes`, by id), for that
+/// session alone. One Codealong runs through its agent (acp.rs `switch_mode`), mid-turn too and
 /// while it waits on you, as Shift+Tab does in Claude Code's terminal: what it asks next goes by
-/// the new mode, and what it asks now still waits for your answer. A session that runs elsewhere
-/// has its mode changed there.
+/// the new mode, and what it asks now still waits for your answer. One in a terminal by Shift+Tab
+/// pressed there (cycle.rs). Any other has its mode changed where it runs.
 pub fn switch_mode(board: &Board, cfg: &Config, key: &str, mode: &str) -> Result<ModeSwitched> {
     let (session, account) = crate::harness::find(board, cfg, key)?;
     let title = quoted(&session.title);
-    if !session.hosted {
-        bail!("Codealong doesn't run {title}: change its mode where it runs.");
+    if session.modes.is_empty() {
+        bail!("Codealong can't switch {title}'s mode: change it where it runs.");
     }
     let Some(to) = session.modes.iter().find(|m| m.id == mode.trim()) else {
         bail!("{:?} isn't a mode {title}'s agent offers.", mode.trim());
     };
+    if !session.hosted {
+        return crate::cycle::switch(account, session, to);
+    }
     let now = crate::acp::switch_mode(account, key, &to.id)?;
     let named = |id: &str| session.modes.iter().find(|m| m.id == id).map_or_else(|| id.to_string(), |m| m.label.clone());
     let message = if now == to.id { format!("{title} is in {} mode now.", to.label) } else { format!("{title} is in {} mode: its agent didn't take {}.", named(&now), to.label) };
@@ -1623,17 +1626,21 @@ mod tests {
         assert!(refused(thread, "turbo").contains("isn't an effort level Codealong can switch"));
     }
 
-    /// A mode is switched only for a session Codealong runs, and only to one its agent offers;
-    /// one that runs elsewhere has its mode changed there.
+    /// A mode is switched only for a session that offers modes here (one Codealong runs, or one
+    /// in a terminal it presses keys in), and only to one of them; any other has its mode changed
+    /// where it runs.
     #[test]
-    fn switches_a_mode_only_where_codealong_runs_it() {
+    fn switches_a_mode_only_where_codealong_can() {
         let cfg: Config = serde_json::from_value(json!({ "accounts": [{ "name": "claude", "harness": "claude", "home": "/h" }] })).unwrap();
         let refused = |s: Session, mode: &str| switch_mode(&board_with(s.clone()), &cfg, &s.key, mode).unwrap_err().to_string();
         let terminal = session(Harness::Claude, Surface::Cli, Status::Idle, true, Some(7));
-        assert_eq!(refused(terminal.clone(), "auto"), "Codealong doesn't run “Fix the build”: change its mode where it runs.");
+        assert_eq!(refused(terminal.clone(), "auto"), "Codealong can't switch “Fix the build”'s mode: change it where it runs.");
         let manual = crate::claude::session_mode("default").unwrap().with_id("default");
-        let hosted = Session { hosted: true, modes: vec![manual], ..terminal };
+        let hosted = Session { hosted: true, modes: vec![manual.clone()], ..terminal.clone() };
         assert_eq!(refused(hosted, "auto"), "\"auto\" isn't a mode “Fix the build”'s agent offers.");
+        // In a terminal, Shift+Tab there would go to what it waits on.
+        let waiting = Session { status: Status::Needs, modes: vec![manual], ..terminal };
+        assert_eq!(refused(waiting, "default"), "“Fix the build” is waiting on you, and Shift+Tab in its terminal would go to what it asks: answer it first.");
     }
 
     #[test]

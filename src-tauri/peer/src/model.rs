@@ -327,9 +327,11 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<SessionMode>,
     /// The modes it can be switched to here, each with its `id`, in the order its agent offers
-    /// them: for a session Codealong runs, whose agent takes a switch (acp.rs `overlay`); none
-    /// for one that runs elsewhere, whose mode is changed there. Empty from Macs before
-    /// 2026-10-14.
+    /// them: for a session Codealong runs, whose agent takes a switch (acp.rs `overlay`), and for
+    /// one in a terminal Codealong presses keys in whose harness steps through its modes with
+    /// Shift+Tab there, in that order (cycle.rs); none for any other, whose mode is changed
+    /// where it runs. Empty from Macs before 2026-10-14, and the second kind from Macs before
+    /// 2026-10-22.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modes: Vec<SessionMode>,
     /// How much of its model's context window its conversation fills now, as its latest call
@@ -592,6 +594,12 @@ pub struct SessionMode {
     /// on the mode such a session is in; empty otherwise.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub id: String,
+    /// The mode Codealong expects a session to be in after it pressed Shift+Tab in its terminal,
+    /// by its harness's order of modes, where the harness writes the mode only later (Claude
+    /// Code, with the next prompt): it holds until the session's record says (cycle.rs). False
+    /// from Macs before 2026-10-22.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub expected: bool,
 }
 
 /// How much a mode lets a session do without asking you, from the least.
@@ -617,7 +625,7 @@ pub enum ModeKind {
 
 impl SessionMode {
     pub fn new(kind: ModeKind, label: &str, detail: &str) -> Self {
-        SessionMode { kind, label: label.to_string(), detail: detail.to_string(), id: String::new() }
+        SessionMode { kind, label: label.to_string(), detail: detail.to_string(), id: String::new(), expected: false }
     }
 
     /// The same, as `id` names it for a switch.

@@ -203,6 +203,15 @@ pub trait Adapter: Sync {
         None
     }
 
+    /// What reads the mode a running session's terminal UI is in, by its id among
+    /// `Session::modes`, afresh each time it's called, where the harness writes it as it
+    /// switches (Antigravity's log): a switch with Shift+Tab sees each press through by it
+    /// (cycle.rs). None where nothing says until later (Claude Code writes its mode with the
+    /// next prompt), and a switch goes by the order of its modes instead.
+    fn mode_said(&self, _ctx: &Ctx, _session: &Session) -> Option<Box<dyn FnMut() -> Option<String>>> {
+        None
+    }
+
     /// Types a switch (`model_command` or `effort_command`, and the value: `text`) into a running
     /// session's terminal by `typ`, which answers whether it went in, and sees it through: a
     /// question the harness asks before it takes the switch is answered, and what it keeps of the

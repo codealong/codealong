@@ -594,16 +594,29 @@ from its next prompt; the Claude app's from the app's record); Codex's Read Only
 Approve for me (its reviewer agent answers for you) or Full Access, and Plan, from its latest
 turn; OpenCode's agent (Build, Plan or one of yours); Cursor's Ask or Plan, and in its other modes
 its auto-run setting (Run Everything, Auto-review, Allowlist, Ask Every Time), the chat's own or
-the app's; Antigravity's tool permission from its latest turn (Request review, Strict, Auto, Proceed
-in sandbox, Always proceed, which `--dangerously-skip-permissions` also gives). Antigravity's
-accept-edits and plan modes aren't written where Codealong reads, so they don't show. Codealong only
-says the mode of a session that runs elsewhere: it's changed there. A session Codealong runs itself
-starts in the mode its account's settings give new sessions (Claude Code's `permissions.defaultMode`
-in the account's `settings.json`: without one it's Manual, even where Claude Code's terminal starts
-in Auto), and its mode is a menu of the modes its agent offers (Claude Code's Manual, Accept edits,
-Plan, Auto and Bypass); ⇧⇥ in its box steps to the next, as in Claude Code's terminal. Either
-switches that session alone, mid-turn too and while it waits on you: what it asks from then on goes
-by the new mode, and what it asks now still waits for your answer. The pie says how full the context window is,
+the app's; Antigravity's agent mode (Accept edits, Auto or Plan), which its command line's own log
+says while one has the conversation open, and in the default one its tool permission (Request
+review, Strict, Proceed in sandbox, Always proceed, which `--dangerously-skip-permissions` also
+gives); for a conversation nothing has open, the permissions its latest turn ran with. A session
+Codealong runs itself starts in the mode its account's settings give new sessions (Claude Code's
+`permissions.defaultMode` in the account's `settings.json`: without one it's Manual, even where
+Claude Code's terminal starts in Auto), and its mode is a menu of the modes its agent offers (Claude
+Code's Manual, Accept edits, Plan, Auto and Bypass); ⇧⇥ in its box steps to the next, as in Claude
+Code's terminal. Either switches that session alone, mid-turn too and while it waits on you: what it
+asks from then on goes by the new mode, and what it asks now still waits for your answer.
+
+A Claude Code or Antigravity session running in Ghostty, iTerm2 or tmux has the same menu, of the
+modes its terminal steps through with Shift+Tab, in that order, and ⇧⇥ in its box steps to the
+next: Codealong presses Shift+Tab in its tab, as often as it takes to reach the mode you picked,
+mid-turn too, but not while it waits on you, where Shift+Tab would go to what it asks. Antigravity
+steps through Default (named by its tool permission), Accept edits, Auto and Plan, and its log says
+each switch as it takes it, so the chip says the mode it's in. Claude Code steps through Manual,
+Accept edits and Plan, then Bypass where the session started bypassing permissions (or was let to,
+`--allow-dangerously-skip-permissions`), then Auto unless its settings or Anthropic's flag turn
+Auto off, and writes the mode it's in only with your next message: until then the chip says, in
+italics, the mode Codealong expects by that order, which can be wrong if you switched it in the
+terminal too, or where a model doesn't take Auto. Terminal can't press a key alone, so a session
+there, and any other, has its mode changed where it runs: Codealong only says it. The pie says how full the context window is,
 as its latest call left
 it, counted as its harness counts it for its own meter: Claude Code's input,
 cache reads and cache writes against the model's window (a million tokens for the 1M models),

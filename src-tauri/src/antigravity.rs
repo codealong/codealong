@@ -518,9 +518,10 @@ const TOOL_CONFIG: [u64; 4] = [19, 12, 1, 13];
 /// The permissions a conversation's latest turn ran with, from its prompt's step: the tool
 /// config's `auto_execution_policy` (8 → 3 → 6), and its `default_grants` (42 → 3), whose asks
 /// (3) tell `strict` from `request-review`, the settings' `toolPermission`. `always-proceed`
-/// and `--dangerously-skip-permissions` are both EAGER (3). `accept-edits` and `plan` (the
-/// settings' `agentMode`, `--mode`, Shift+Tab) aren't written there: the command line's log
-/// says them (`SetCycleMode called`), and Codealong doesn't read it.
+/// and `--dangerously-skip-permissions` are both EAGER (3). The agent mode (`accept-edits`,
+/// `auto`, `plan`: the settings' `agentMode`, `--mode`, Shift+Tab) goes into it too (a turn in
+/// Auto ran with AUTO, 2, on 1.4.5), and only the command line's log says which it is
+/// (`Said::agent_mode`) and what the default one asks (`Said::tool_permission`, `session_mode`).
 fn turn_mode(dir: &Path, id: &str) -> Option<SessionMode> {
     let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
     let step: Vec<u8> = db.query_row("SELECT step_payload FROM steps WHERE step_type = ?1 ORDER BY idx DESC LIMIT 1", [STEP_USER_INPUT], |r| r.get(0)).ok()?;
@@ -543,6 +544,44 @@ fn turn_model(dir: &Path, id: &str) -> Option<String> {
     let row: Vec<u8> = db.query_row("SELECT data FROM executor_metadata ORDER BY idx DESC LIMIT 1", [], |r| r.get(0)).ok()?;
     let model = proto_at(&row, &TURN_MODEL).into_iter().next()?;
     std::str::from_utf8(model).ok().map(str::trim).filter(|m| crate::start::valid_model(m)).map(str::to_string)
+}
+
+/// The agent modes Shift+Tab steps a terminal UI through, in its order, by the names its log,
+/// `--mode` and the settings' `agentMode` give them (1.4.5, 2026-10-22: `default` is written
+/// as nothing in the log). It takes a switch mid-turn, and none is saved.
+const AGENT_MODES: [&str; 4] = ["default", "accept-edits", "auto", "plan"];
+
+/// The mode a command line conversation is in: its agent mode, as the terminal UI that has it
+/// open says (`agent`, one of `AGENT_MODES`), or in the default one, what its tool permission
+/// asks (`default`, `permission_mode`). Named as the command line's `/config` and its help name
+/// them.
+pub fn session_mode(default: Option<&SessionMode>, agent: Option<&str>) -> Option<SessionMode> {
+    let (kind, label, detail) = match agent.unwrap_or_default() {
+        "accept-edits" => (ModeKind::Edits, "Accept edits", "Edits files without asking, and asks before it runs commands."),
+        "auto" => (ModeKind::Auto, "Auto", "Edits files and runs the commands it takes for safe without asking, and asks before ones that can't be undone."),
+        "plan" => (ModeKind::Plan, "Plan", "Researches and plans without changing anything."),
+        _ => return default.cloned(),
+    };
+    Some(SessionMode::new(kind, label, detail))
+}
+
+/// The modes Shift+Tab steps a terminal UI through, each with its id (`AGENT_MODES`): the
+/// default one named by what its tool permission asks (`default`).
+pub fn cycled_modes(default: Option<&SessionMode>) -> Vec<SessionMode> {
+    let named = || default.cloned().unwrap_or_else(|| SessionMode::new(ModeKind::Asks, "Default", "Asks as its tool permission setting says."));
+    AGENT_MODES.iter().filter_map(|id| if *id == "default" { Some(named()) } else { session_mode(default, Some(id)) }.map(|m| m.with_id(id))).collect()
+}
+
+/// The settings' `toolPermission` as a mode (`request-review` where it's not set), named as
+/// `policy_mode` names the policy a turn runs with under it.
+pub fn permission_mode(name: &str) -> Option<SessionMode> {
+    match name {
+        "request-review" => policy_mode(1, false),
+        "strict" => policy_mode(1, true),
+        "always-proceed" => policy_mode(3, false),
+        "proceed-in-sandbox" => policy_mode(4, false),
+        _ => None,
+    }
 }
 
 /// A turn's `auto_execution_policy` as a mode: OFF (1), AUTO (2), EAGER (3) or
@@ -1078,6 +1117,16 @@ const LOG_STOPPED: &str = "Cancelling in-progress response for conversation ";
 const LOG_TYPED: &str = "HandleUserInput called with text: ";
 /// The queue is dropped (`Pending inputs cancelled (N regular + M shell dropped)`).
 const LOG_DROPPED: &str = "Pending inputs cancelled (";
+/// Its agent mode is set (`AGENT_MODES`), the default written as nothing: as it starts, to the
+/// settings' `agentMode`, and at each Shift+Tab and `/config` change after (1.4.5, 2026-10-22).
+const LOG_MODE: &str = "SetCycleMode called:";
+/// The switch just logged wasn't taken (`SetCycleMode("plan") ignored: agent mode is overridden
+/// by remote agent`, from the binary's strings; unseen).
+const LOG_MODE_IGNORED: &str = "SetCycleMode(";
+/// Its settings as it starts, the tool permission last (`CLI settings initialized:
+/// permissions=&{…}, toolPermission=request-review`, every log on this Mac to 1.4.5).
+const LOG_SETTINGS: &str = "CLI settings initialized: ";
+const LOG_PERMISSION: &str = ", toolPermission=";
 /// The queue sent at a turn's end didn't go, and is held again.
 const LOG_RESTORED: &str = "Auto-flush SendUserMessage failed, restoring ";
 
@@ -1096,6 +1145,14 @@ pub struct Said {
     pub queued: Vec<i64>,
     /// What it held when it last sent the queue, should the send fail.
     flushed: Vec<i64>,
+    /// Its agent mode (`AGENT_MODES`), from its latest switch; the default from a log with
+    /// none. None where no log was read.
+    pub agent_mode: Option<String>,
+    /// The one before that, should the switch not be taken.
+    mode_before: Option<String>,
+    /// The tool permission it started with (`permission_mode`), which decides what it asks in
+    /// the default agent mode.
+    pub tool_permission: Option<String>,
 }
 
 impl Said {
@@ -1117,6 +1174,16 @@ impl Said {
             }
         } else if text.starts_with(LOG_STOPPED) {
             self.stopped = Some(at);
+        } else if let Some(settings) = text.strip_prefix(LOG_SETTINGS) {
+            // Last, after the permissions, which can hold any words.
+            self.tool_permission = settings.rsplit_once(LOG_PERMISSION).map(|(_, p)| p.trim().to_string());
+        } else if let Some(mode) = text.strip_prefix(LOG_MODE) {
+            let mode = if mode.trim().is_empty() { "default" } else { mode.trim() };
+            self.mode_before = self.agent_mode.replace(mode.to_string());
+        } else if text.starts_with(LOG_MODE_IGNORED) && text.contains(") ignored") {
+            if let Some(before) = self.mode_before.take() {
+                self.agent_mode = Some(before);
+            }
         } else if text.starts_with(LOG_DROPPED) {
             self.queued.clear();
         } else if text.starts_with(LOG_RESTORED) {
@@ -1179,7 +1246,9 @@ struct LogRead {
 
 impl LogRead {
     fn new(path: PathBuf) -> Option<LogRead> {
-        Some(LogRead { begun: log_begun(&path)?, path, read_to: 0, said: Said::default() })
+        // In the default mode until a line says another.
+        let said = Said { agent_mode: Some(AGENT_MODES[0].to_string()), ..Said::default() };
+        Some(LogRead { begun: log_begun(&path)?, path, read_to: 0, said })
     }
 
     /// Reads what was written since the last read, whole lines only. True when what it says
@@ -2110,6 +2179,17 @@ impl crate::harness::Adapter for Antigravity {
         matches!(place, Place::Terminal | Place::Background)
     }
 
+    /// Its terminal UI's own log, which writes each switch of its agent mode as it takes it
+    /// (`Said::agent_mode`), read on from where it was each time.
+    fn mode_said(&self, _ctx: &Ctx, s: &Session) -> Option<Box<dyn FnMut() -> Option<String>>> {
+        let pid = s.pid?;
+        let mut log = own_log(&open_logs(&procs::open_files(pid)?), pid).and_then(LogRead::new)?;
+        Some(Box::new(move || {
+            log.read_on();
+            log.said.agent_mode.clone()
+        }))
+    }
+
     /// What its step waits on you to allow, or the questions it asks. The command line's terminal
     /// UI is answered here with keys (`answer`, `answer_questions`); the app takes nothing from
     /// outside.
@@ -2666,6 +2746,56 @@ mod tests {
         said.on_line("2026/10/14 17:45:47 http: TLS handshake error from 127.0.0.1:57439", (2026, 10));
         said.on_line("CLI ready for user input", (2026, 10));
         assert_eq!(said, before);
+    }
+
+    /// Its agent mode, as it starts in the settings' and as Shift+Tab steps it on (1.4.5,
+    /// 2026-10-22: auto, then plan, then the default written as nothing).
+    #[test]
+    fn reads_the_agent_mode_a_terminal_ui_is_in() {
+        let mut said = Said::default();
+        let read = |said: &mut Said, line: String| said.on_line(&line, (2026, 10));
+        assert_eq!(said.agent_mode, None, "no log read");
+        read(&mut said, glog("15:34:33.612650", "CLI settings initialized: permissions=&{Allow:[command(echo , toolPermission=strict)] Deny:[] Ask:[]}, toolPermission=request-review"));
+        assert_eq!(said.tool_permission.as_deref(), Some("request-review"));
+        read(&mut said, glog("15:34:34.242793", "SetCycleMode called: auto"));
+        assert_eq!(said.agent_mode.as_deref(), Some("auto"));
+        read(&mut said, glog("15:34:41.405240", "SetCycleMode called: plan"));
+        read(&mut said, glog("15:34:43.413633", "SetCycleMode called: "));
+        assert_eq!(said.agent_mode.as_deref(), Some("default"));
+        // One a remote agent overrides isn't taken.
+        read(&mut said, glog("15:35:00.000000", "SetCycleMode called: accept-edits"));
+        read(&mut said, glog("15:35:00.000100", "SetCycleMode(\"accept-edits\") ignored: agent mode is overridden by remote agent"));
+        assert_eq!(said.agent_mode.as_deref(), Some("default"));
+        // A log with none in it ran in the default mode.
+        let dir = crate::fixtures::scratch("agy-mode-log");
+        let path = dir.join("cli-20261022_144818.log");
+        std::fs::write(&path, glog("14:48:18.892617", "Starting language server process with pid 99002") + "\n").unwrap();
+        let mut log = LogRead::new(path.clone()).unwrap();
+        assert!(!log.read_on());
+        assert_eq!(log.said.agent_mode.as_deref(), Some("default"));
+        std::fs::write(&path, [glog("14:48:18.892617", "Starting language server process with pid 99002"), glog("14:54:36.337627", "SetCycleMode called: accept-edits"), String::new()].join("\n")).unwrap();
+        assert!(log.read_on());
+        assert_eq!(log.said.agent_mode.as_deref(), Some("accept-edits"));
+    }
+
+    /// The agent mode goes over the permissions its latest turn ran with, which name the default
+    /// one: what had a session in Auto say Request review.
+    #[test]
+    fn says_its_agent_mode_over_its_tool_permission() {
+        let review = permission_mode("request-review");
+        let label = |agent: Option<&str>| session_mode(review.as_ref(), agent).map(|m| (m.kind, m.label));
+        assert_eq!(label(Some("auto")), Some((ModeKind::Auto, "Auto".to_string())));
+        assert_eq!(label(Some("accept-edits")), Some((ModeKind::Edits, "Accept edits".to_string())));
+        assert_eq!(label(Some("plan")), Some((ModeKind::Plan, "Plan".to_string())));
+        assert_eq!(label(Some("default")), Some((ModeKind::Asks, "Request review".to_string())));
+        assert_eq!(label(None), label(Some("default")));
+        assert_eq!(session_mode(None, Some("default")), None);
+        let modes = cycled_modes(review.as_ref());
+        assert_eq!(modes.iter().map(|m| (m.id.as_str(), m.label.as_str())).collect::<Vec<_>>(), [("default", "Request review"), ("accept-edits", "Accept edits"), ("auto", "Auto"), ("plan", "Plan")]);
+        assert_eq!(cycled_modes(None)[0].label, "Default", "a log that doesn't say");
+        assert_eq!(permission_mode("strict").map(|m| m.label).as_deref(), Some("Strict"));
+        assert_eq!(permission_mode("always-proceed").map(|m| m.kind), Some(ModeKind::Skips));
+        assert_eq!(permission_mode("someday"), None);
     }
 
     #[test]

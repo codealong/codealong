@@ -649,6 +649,23 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         (true, Some(_)) => "focus",
         (true, None) => "resume",
     };
+    // The agent mode its terminal UI says it's in, where one has it open, or in the default one
+    // what the tool permission that UI started with asks; and the modes Shift+Tab steps that UI
+    // through, which Codealong can press there (cycle.rs). Otherwise the permissions its latest
+    // turn ran with, which the agent mode it ran in went into.
+    let agent = process.and(c.said.agent_mode.as_deref());
+    let default = match agent {
+        Some(_) => c.said.tool_permission.as_deref().and_then(crate::antigravity::permission_mode),
+        None => c.mode.clone(),
+    };
+    let modes = match (terminal, agent) {
+        (Some(_), Some(_)) => crate::antigravity::cycled_modes(default.as_ref()),
+        _ => Vec::new(),
+    };
+    let mode = crate::antigravity::session_mode(default.as_ref(), agent).map(|m| match agent {
+        Some(id) if !modes.is_empty() => m.with_id(id),
+        _ => m,
+    });
     let known = Session::new(Harness::Antigravity, &account.name, &c.id);
     Session {
         open_target: format!("s|{}|{action}", known.key),
@@ -668,7 +685,8 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         last_activity: active,
         excerpt,
         resume_command: c.cli.then(|| format!("{} --conversation {}", crate::antigravity::cli_command(account), c.id)),
-        mode: c.mode.clone(),
+        mode,
+        modes,
         // Its level is part of the model's name, as `--model` takes it.
         model: c.model.clone(),
         queued_at: process.and_then(|_| c.said.queued.last().copied()),

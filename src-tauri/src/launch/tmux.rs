@@ -108,6 +108,7 @@ impl Terminal for Tmux {
             Key::CtrlC => "C-c",
             Key::End => "End",
             Key::Left => "Left",
+            Key::BackTab => "BTab",
             Key::Return => "Enter",
             Key::Keys(keys) => return send_codes(&server, pane, keys),
         };

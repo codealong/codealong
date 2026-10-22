@@ -1357,6 +1357,12 @@ impl crate::harness::Reader for Reader {
                 // The app keeps the mode you pick for a session it runs (`permission_mode`).
                 if reg.is_some_and(|r| r.host_session.is_some()) {
                     s.mode = app_modes.get(id).and_then(|m| session_mode(m)).or(s.mode);
+                } else if let Some(recorded) = info.and_then(|t| t.permission_mode.as_deref()).map(mode::mode_id).filter(|_| s.live && s.surface == crate::model::Surface::Cli && reg.is_some_and(|r| r.kind.as_deref() != Some("bg"))) {
+                    // The modes Shift+Tab steps its terminal through, which Codealong presses
+                    // there where it can (cycle.rs), counting from the mode its record says.
+                    let command = s.pid.and_then(|pid| look.ps.all().iter().find(|p| p.pid == pid)).map(|p| p.command.as_str());
+                    s.modes = mode::cycled_modes(&a.home_path(), Some(recorded), command);
+                    s.mode = s.mode.map(|m| m.with_id(recorded));
                 }
                 s.continues = from.map(|f| f.id);
                 // A job's record says what it's a fork of; the roster says for a

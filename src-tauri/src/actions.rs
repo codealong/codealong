@@ -966,8 +966,9 @@ fn switch_effort(engine: &Handle, c: &Call) -> Result<Value, String> {
     to_value(send::switch_effort(&engine.board(), &cfg()?, c.session()?, &p.effort).map_err(words)?)
 }
 
-/// Switches a session Codealong runs to another of the modes its agent offers, for it alone
-/// (`send::switch_mode`). Says what happened, and the mode it's in now.
+/// Switches a session to another of the modes it offers, for it alone (`send::switch_mode`): one
+/// Codealong runs through its agent, one in a terminal by Shift+Tab pressed there. Says what
+/// happened, and the mode it's in now.
 fn switch_mode(engine: &Handle, c: &Call) -> Result<Value, String> {
     let p: params::Mode = c.read()?;
     to_value(send::switch_mode(&engine.board(), &cfg()?, c.session()?, &p.mode).map_err(words)?)

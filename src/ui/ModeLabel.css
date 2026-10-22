@@ -5,7 +5,10 @@
 .ca-mode.is-small .ca-mode-name { text-transform: lowercase; }
 .ca-mode .ca-icon { flex: none; color: var(--ink-3); }
 .ca-mode-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The mode of a session Codealong runs, as a chip that switches it (`ModeMenu`): said as the
+/* A mode Codealong expects after pressing Shift+Tab, which its harness hasn't written yet. */
+.ca-mode.is-expected .ca-mode-name,
+.ca-mode-expected { font-style: italic; }
+/* The mode of a session that can be switched here, as a chip that switches it (`ModeMenu`): said as the
    label beside it is, lowercase and quiet, until it's hovered. Its menu opens above the box at its
    left edge, under the chip, the way the model's opens at its right by Send. */
 /* Pulled left by the chip's own padding, so its icon lines up with the text above as the label's

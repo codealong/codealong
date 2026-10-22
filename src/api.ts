@@ -987,9 +987,9 @@ export async function switchSessionEffort(key: string, effort: string): Promise<
   return invoke<string>('switch_session_effort', { key, effort });
 }
 
-/** Switches a session Codealong runs to `mode`, one of the modes its agent offers
- *  (`Session.modes`, by id), for that session alone (send.rs `switch_mode`). Says what happened,
- *  and the mode it's in now. */
+/** Switches a session to `mode`, one of the modes it offers (`Session.modes`, by id), for that
+ *  session alone (send.rs `switch_mode`): through the agent of one Codealong runs, or by Shift+Tab
+ *  pressed in its terminal (cycle.rs). Says what happened, and the mode it's in now. */
 export async function switchSessionMode(key: string, mode: string): Promise<ModeSwitched> {
   if (!inTauri) return { message: 'Switched.', mode };
   return invoke<ModeSwitched>('switch_session_mode', { key, mode });

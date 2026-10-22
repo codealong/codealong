@@ -71,6 +71,7 @@ const MODES: &[Mode] = &[
     Mode { flag: "--fork", takes: "<session key> [prompt] [--from <cursor>]", run: fork },
     Mode { flag: "--switch-model", takes: "<session key> <model>", run: switch_model },
     Mode { flag: "--switch-effort", takes: "<session key> <level>", run: switch_effort },
+    Mode { flag: "--switch-mode", takes: "<session key> <mode id>", run: switch_mode },
     Mode { flag: "--resume", takes: "<session key> <terminal|background|claude-app|codex-app|codealong> [prompt] [--model <model>] [--effort <level>]", run: resume },
     Mode { flag: "--move", takes: "<session key> <account | worktree folder>", run: move_session },
     Mode { flag: "--side", takes: "<session key> <question> [a follow-up…]", run: side_ask },
@@ -281,6 +282,10 @@ fn tokens(args: &Args, rest: &[String]) -> Done {
 /// <level>]`: goes on with a session that isn't running there, as its box and Resume in do.
 /// `codealong --snapshot --switch-model <session key> <model>`: switches a running session's
 /// model, or a Codex app thread's for its next turn, as its box does.
+/// `codealong --snapshot --switch-mode <session key> <mode id>`: switches a session to one of the
+/// modes it offers (`Session::modes`), as its mode chip does: one in a terminal by Shift+Tab
+/// pressed there (cycle.rs). What Codealong expects of a Claude Code session's mode after it
+/// lasts only as long as the check, which ends there.
 /// `codealong --snapshot --move <session key> <account | worktree folder>`: moves it to another
 /// account of its harness, or to a worktree (a lane's folder: Codealong's chats for a chat of its
 /// own), as Move to in its menu does.
@@ -450,6 +455,12 @@ fn switch_model(_: &Args, rest: &[String]) -> Done {
 fn switch_effort(_: &Args, rest: &[String]) -> Done {
     let [key, effort, ..] = rest else { return Err(Stop::Usage) };
     said(act(api::SESSION_EFFORT, key, params::Effort { effort: effort.clone(), ..Default::default() })?)
+}
+
+fn switch_mode(_: &Args, rest: &[String]) -> Done {
+    let [key, mode, ..] = rest else { return Err(Stop::Usage) };
+    let switched: send::ModeSwitched = serde_json::from_value(act(api::SESSION_MODE, key, params::Mode { mode: mode.clone(), ..Default::default() })?).map_err(|e| Stop::Failed(e.to_string()))?;
+    Ok(format!("{} (now {})", switched.message, switched.mode))
 }
 
 fn resume(args: &Args, rest: &[String]) -> Done {

@@ -1100,6 +1100,9 @@ pub enum Key {
     End,
     /// Back to the question before, in Antigravity's questions.
     Left,
+    /// Shift+Tab, which steps Claude Code's and Antigravity's terminal UIs to their next mode
+    /// (cycle.rs).
+    BackTab,
     Return,
     /// Keys of a harness's own typed as they are, as `Submit::Keys` types them after a prompt:
     /// Claude Code's send-now with nothing in its box (`Adapter::steer_queued`).
@@ -1119,6 +1122,7 @@ impl Key {
             Key::CtrlC => "\x03",
             Key::End => "\x1b[F",
             Key::Left => "\x1b[D",
+            Key::BackTab => "\x1b[Z",
             Key::Return => "\r",
             Key::Keys(keys) => keys,
         }

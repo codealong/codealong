@@ -20,6 +20,7 @@ mod cleanup;
 mod cli;
 mod antigravity;
 mod cursor;
+mod cycle;
 mod codex;
 mod opencode;
 mod origins;

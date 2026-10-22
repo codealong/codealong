@@ -195,8 +195,9 @@ export interface Session {
    *  without asking you. Missing where the harness doesn't say, and from older Macs. */
   mode?: SessionMode;
   /** The modes it can be switched to here, each with its `id`, in its agent's order: for a
-   *  session Codealong runs (acp.rs `overlay`). Missing for one that runs elsewhere, whose mode
-   *  is changed there, and from older Macs. */
+   *  session Codealong runs (acp.rs `overlay`), and for one in a terminal Codealong presses keys
+   *  in whose harness steps through its modes with Shift+Tab there, in that order (cycle.rs).
+   *  Missing for any other, whose mode is changed where it runs, and from older Macs. */
   modes?: SessionMode[];
   /** How full its model's context window is, as its latest call sent it (peer model.rs
    *  `ContextUse`). Missing where the harness doesn't say, before its first reply, and from
@@ -504,6 +505,10 @@ export interface SessionMode {
   /** Its harness's id for it (`acceptEdits`), which a switch names: on the modes a session can
    *  be switched to (`Session.modes`) and the one such a session is in. */
   id?: string;
+  /** The mode Codealong expects it to be in after pressing Shift+Tab in its terminal, where its
+   *  harness writes the mode only with the next prompt (Claude Code): it holds until its record
+   *  says (cycle.rs). */
+  expected?: boolean;
 }
 
 /** How full a session's context window is: the tokens its latest call sent, counted as its
