@@ -998,6 +998,7 @@ mod tests {
             auto_review: None,
             last_review: None,
             stale_approval: None,
+            turn: None,
         }
     }
 

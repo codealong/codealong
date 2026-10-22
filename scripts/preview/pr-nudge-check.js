@@ -9,7 +9,8 @@
 // says becomes of the news (`prStopped`): resumed for what asks for work, not beside another of the
 // PR's sessions that runs, or nothing; a second click turns it off. A merged PR's card
 // has no switch. Then the setting, off by default, saves `[pull_requests]` as config.toml has it;
-// what a nudge tells of, a merge apart under Everything and its own box under the others; and
+// what a nudge tells of, a merge apart under Everything and its own box under the others;
+// asking for a re-review once fixes are pushed, off by default, saves `[pull_requests]` too; and
 // resuming a stopped primary, on by default, saves `[sessions]`.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/pr-nudge-check.js
 (function () {
@@ -221,6 +222,16 @@
       await until(function () { return calls('save_config').length > mergeSaves; }, 3000, 'picking checks too saved nothing');
       prsCfg = calls('save_config')[calls('save_config').length - 1][1].config.pull_requests;
       check('checks picked then, the merge goes along', prsCfg.nudge_about === 'feedback-checks-and-merges' && mergesInput().checked, JSON.stringify(prsCfg));
+      // Asking a reviewer to look again once the fixes are pushed: off until turned on, as it acts as you.
+      var rerequest = /Ask for a re-review once fixes are pushed/;
+      await until(function () { return !!box(rerequest); }, 3000, 'no setting for asking for a re-review once fixes are pushed');
+      var rerequestInput = box(rerequest).querySelector('input');
+      check('Settings › Automation has asking for a re-review after fixes, off by default', !rerequestInput.checked, String(rerequestInput.checked));
+      var rerequestSaves = calls('save_config').length;
+      rerequestInput.click();
+      await until(function () { return calls('save_config').length > rerequestSaves; }, 3000, 'turning it on saved nothing');
+      prsCfg = calls('save_config')[calls('save_config').length - 1][1].config.pull_requests;
+      check('turned on, it saves [pull_requests] rerequest_after_fixes beside the nudge', prsCfg.rerequest_after_fixes === true && prsCfg.nudge_by_default === true && prsCfg.nudge_about === 'feedback-checks-and-merges', JSON.stringify(prsCfg));
       // Resuming a primary that stopped: on unless turned off, saved under [sessions].
       var resume = /Resume a stopped session for its pull request’s news/;
       await until(function () { return !!box(resume); }, 3000, 'no setting for resuming a stopped session for its pull request’s news');

@@ -690,6 +690,7 @@ function AutomationPane({ cfg, disabled, onSave, onReload, defaultPrompt, usage,
       {repo && <TeamSettings repo={repo} file={file} disabled={disabled} onTaken={onReload} />}
       <ReviewsField reviews={reviews} set={setReviews} setOwn={setOwn} scope={scope} team={team} disabled={disabled} defaultPrompt={defaultPrompt} all={all} lanes={lanes} usage={usage} now={now} groups={routingGroups} autoGroup={autoGroup} />
       <NudgeField prs={prs} set={setPrs} scope={scope} disabled={disabled} />
+      <RerequestField prs={prs} set={setPrs} scope={scope} disabled={disabled} />
       {repo ? (
         <p className="ca-settings-lede">Usage limits and lost connections go the same in every repo: pick Everywhere to change them.</p>
       ) : (
@@ -1391,6 +1392,26 @@ function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsC
           {everything
             ? 'Everything that happens on it has its merge already.'
             : 'When it’s merged, by you or anyone else, the session is told so, and that nothing more is wanted on it, so it can wrap its work up. Not when it’s closed without being merged, and a session that has stopped isn’t resumed for it.'}
+        </small>
+      </label>
+    </fieldset>
+  );
+}
+
+/** `[pull_requests] rerequest_after_fixes`: a reviewer who asked for changes on a PR of yours is
+ *  asked to review it again once commits came after their last word and nothing was said of them
+ *  (rerequest.rs). */
+function RerequestField({ prs, set, scope, disabled }: { prs: Required<PullRequestsCfg>; set: (next: Partial<PullRequestsCfg>) => void; scope?: Scope; disabled: boolean }) {
+  return (
+    <fieldset className="ca-settings-fields" disabled={disabled}>
+      <label className="ca-field ca-settings-check">
+        <CheckBox checked={prs.rerequest_after_fixes} onChange={(on) => set({ rerequest_after_fixes: on })} />
+        <span>
+          Ask for a re-review once fixes are pushed<SourceTag field="prs.rerequest_after_fixes" scope={scope} />
+        </span>
+        <small>
+          When a reviewer asked for changes on a pull request of yours, commits came after their last word, and nobody has said so on it, Codealong asks them to review it again, as you, as GitHub’s Re-request review does. GitHub tells a reviewer of that, and their agent picks it up; it
+          doesn’t tell them of a push. It waits ten minutes after the last push, and until the pull request’s sessions have finished their turn, so a run of fixes is asked about once.
         </small>
       </label>
     </fieldset>

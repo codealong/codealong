@@ -771,6 +771,9 @@ export interface ExperimentalCfg {
 export interface PullRequestsCfg {
   nudge_by_default: boolean;
   nudge_about?: NudgeAbout;
+  /** Ask a reviewer who asked for changes to review again once commits came and nothing was said
+   *  (rerequest.rs). Missing from older engines. */
+  rerequest_after_fixes?: boolean;
 }
 
 /** Your settings for one repo's pull requests (config.rs `RepoCfg`): each value set goes for that
@@ -1579,6 +1582,20 @@ export interface PrItem {
   lastReview?: LastReview;
   /** It's approved only by approvals of an earlier commit (`Pr.staleApproval`). */
   staleApproval?: StaleApproval;
+  /** Whose move it is, where its review state doesn't say (board.rs `turn_of`). */
+  turn?: Turn;
+}
+
+/** Whose move an open PR is, where GitHub's review state doesn't say: a request for changes
+ *  stands until its reviewer approves or dismisses it, whatever comes after (model.rs `Turn`).
+ *  `replyNeeded`: a PR of yours with commits after the reviewer's last word and nothing said of
+ *  them; `rereviewAsked`: asked again or written to since, their move; `reviewerReplied`: they
+ *  wrote again since; `authorReplied`: someone else's PR, whose author wrote after you. */
+export interface Turn {
+  kind: 'replyNeeded' | 'rereviewAsked' | 'reviewerReplied' | 'authorReplied';
+  /** The reviewer or author it's about. */
+  who: string;
+  since?: number;
 }
 
 /** The review you last submitted on a PR, as GitHub has it (model.rs `LastReview`): a draft isn't

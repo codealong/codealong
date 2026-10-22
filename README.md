@@ -538,6 +538,7 @@ send = true                      # suggested
 [pull_requests]
 nudge_about = "feedback-and-checks"  # for everyone
 nudge_by_default = true          # suggested
+rerequest_after_fixes = true     # suggested
 ```
 
 Accounts, models, a person's own prompt and what's submitted as them stay each person's: a file
@@ -633,6 +634,7 @@ drafts = false                 # review your draft PRs too; others' drafts are n
 [pull_requests]
 nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Automation)
 nudge_about = "everything"     # what a nudge tells of: "feedback" only comments and changes asked for; "feedback-and-checks" adds failing checks and conflicts; "feedback-and-merges" and "feedback-checks-and-merges" add a merge to those
+rerequest_after_fixes = false  # ask a reviewer who asked for changes to look again, as you, once fixes are pushed and nobody said so (Settings › Automation)
 
 [sounds]                       # a short sound when something starts to wait on you (Settings › Sounds)
 needs_you = "Pop"              # a session asks you something, waits on a call to allow, or stops with an error

@@ -1175,7 +1175,53 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
         auto_review: None,
         last_review: p.last_review.clone(),
         stale_approval: p.stale_approval.clone(),
+        turn: turn_of(p, mine, login),
     }
+}
+
+/// Whose move an open PR is, where its review state doesn't say (`Turn`), from what was said on
+/// it lately (`PrRaw::said`). A PR of yours that a reviewer asked changes of is their move while
+/// they're asked again or you wrote since their last word; yours where commits came after it and
+/// nobody said so (`ReplyNeeded`), or where they wrote again after asking (`ReviewerReplied`);
+/// and with nothing since, the request for changes says it. Of several such reviewers, the one
+/// whose move is yours goes first. Someone else's PR you wrote on or reviewed is yours where its
+/// author wrote since you did (`AuthorReplied`). A push is taken to be when its head commit was
+/// made, the nearest GitHub says: one made long before it's pushed reads as earlier than it was.
+pub fn turn_of(p: &PrRaw, mine: bool, login: Option<&str>) -> Option<Turn> {
+    if !p.state.is_open() || p.state == PrState::Draft {
+        return None;
+    }
+    let same = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
+    let wrote = |who: &str| p.said.iter().filter(|s| s.asked.is_none() && same(&s.who, who)).map(|s| s.at).max();
+    let author = p.author.as_deref()?;
+    let turn = |kind, who: &str, since| Some(Turn { kind, who: who.to_string(), since });
+    if !mine {
+        let (yours, theirs) = (wrote(login?)?, wrote(author)?);
+        return if theirs > yours { turn(TurnKind::AuthorReplied, author, Some(theirs)) } else { None };
+    }
+    let of = |c: &crate::github::ChangesAsked| -> Option<Turn> {
+        let asked = p.said.iter().filter(|s| s.asked.as_deref().is_some_and(|r| same(r, &c.who))).map(|s| s.at).max();
+        if p.reviewers_asked.iter().any(|r| same(r, &c.who)) {
+            return turn(TurnKind::RereviewAsked, &c.who, asked);
+        }
+        let theirs = wrote(&c.who).map_or(c.at, |t| t.max(c.at));
+        let yours = wrote(author).max(asked);
+        // Commits came since their review, where GitHub says which commit that was of.
+        let pushed = c.commit.is_some() && p.head_oid.is_some() && p.head_oid != c.commit;
+        match p.head_at {
+            Some(at) if pushed && at > theirs && yours.is_none_or(|y| at > y) => turn(TurnKind::ReplyNeeded, &c.who, Some(at)),
+            _ if yours.is_some_and(|y| y > theirs) => turn(TurnKind::RereviewAsked, &c.who, yours),
+            _ if theirs > c.at => turn(TurnKind::ReviewerReplied, &c.who, Some(theirs)),
+            _ => None,
+        }
+    };
+    let urgency = |t: &Option<Turn>| match t.as_ref().map(|t| t.kind) {
+        Some(TurnKind::ReplyNeeded) => 0,
+        Some(TurnKind::ReviewerReplied) => 1,
+        None => 2,
+        Some(_) => 3,
+    };
+    p.changes_asked.iter().filter(|c| !same(&c.who, author)).map(of).min_by_key(urgency).flatten()
 }
 
 /// The PR's primary session, of the ones listed on it, and why: the one picked by hand; else the
@@ -2403,7 +2449,97 @@ mod tests {
             labels: Vec::new(),
             last_review: None,
             stale_approval: None,
+            head_at: None,
+            said: Vec::new(),
+            changes_asked: Vec::new(),
         }
+    }
+
+    fn wrote(who: &str, at: i64) -> crate::github::Said {
+        crate::github::Said { who: who.into(), at, asked: None }
+    }
+
+    fn asked(who: &str, reviewer: &str, at: i64) -> crate::github::Said {
+        crate::github::Said { who: who.into(), at, asked: Some(reviewer.into()) }
+    }
+
+    /// A PR of gwen's that ken asked changes of at 100, at commit `aaa`: his findings at 99, the
+    /// request at 100.
+    fn changes_asked() -> PrRaw {
+        PrRaw {
+            head_oid: Some("aaa".into()),
+            head_at: Some(90),
+            said: vec![wrote("ken", 99), wrote("ken", 100)],
+            changes_asked: vec![crate::github::ChangesAsked { who: "ken".into(), at: 100, commit: Some("aaa".into()) }],
+            ..pr(PrState::Changes, 0)
+        }
+    }
+
+    fn kind(p: &PrRaw, mine: bool) -> Option<(TurnKind, String, Option<i64>)> {
+        turn_of(p, mine, Some(if mine { "gwen" } else { "me" })).map(|t| (t.kind, t.who, t.since))
+    }
+
+    #[test]
+    fn a_push_after_a_request_for_changes_that_nobody_said_is_yours_to_say() {
+        use TurnKind::*;
+        let p = changes_asked();
+        // Nothing since the request: it says itself.
+        assert_eq!(kind(&p, true), None);
+        // The fixes pushed and nothing said: specbook#1293 between 07:04 and 07:07.
+        let pushed = PrRaw { head_oid: Some("bbb".into()), head_at: Some(110), ..p.clone() };
+        assert_eq!(kind(&pushed, true), Some((ReplyNeeded, "ken".into(), Some(110))));
+        // Said before the push, not after it: still yours.
+        let before = PrRaw { said: [p.said.clone(), vec![wrote("gwen", 105)]].concat(), ..pushed.clone() };
+        assert_eq!(kind(&before, true), Some((ReplyNeeded, "ken".into(), Some(110))));
+        // Asked again after it, or written to: his move.
+        let again = PrRaw { said: [pushed.said.clone(), vec![asked("gwen", "ken", 112)]].concat(), ..pushed.clone() };
+        assert_eq!(kind(&again, true), Some((RereviewAsked, "ken".into(), Some(112))));
+        let told = PrRaw { said: [pushed.said.clone(), vec![wrote("gwen", 115)]].concat(), ..pushed.clone() };
+        assert_eq!(kind(&told, true), Some((RereviewAsked, "ken".into(), Some(115))));
+        // Still asked, however it stands: his Codealong has it waiting on him.
+        let waiting = PrRaw { reviewers_asked: vec!["Ken".into()], ..pushed.clone() };
+        assert_eq!(kind(&waiting, true), Some((RereviewAsked, "ken".into(), None)));
+        // He wrote again after that ("all fixed"), so it's yours: ask for the approval.
+        let replied = PrRaw { said: [told.said.clone(), vec![wrote("ken", 120)]].concat(), ..told.clone() };
+        assert_eq!(kind(&replied, true), Some((ReviewerReplied, "ken".into(), Some(120))));
+        // A review whose commit GitHub doesn't say can't be told a push came after.
+        let unknown = PrRaw { changes_asked: vec![crate::github::ChangesAsked { commit: None, ..p.changes_asked[0].clone() }], ..pushed.clone() };
+        assert_eq!(kind(&unknown, true), None);
+        // A draft, or a PR that ended, is nobody's move.
+        assert_eq!(kind(&PrRaw { state: PrState::Draft, ..pushed.clone() }, true), None);
+        assert_eq!(kind(&PrRaw { state: PrState::Merged, ..pushed.clone() }, true), None);
+    }
+
+    #[test]
+    fn of_several_reviewers_the_one_whose_move_is_yours_says_it() {
+        use TurnKind::*;
+        let two = |ana_said: Vec<crate::github::Said>| PrRaw {
+            head_oid: Some("bbb".into()),
+            head_at: Some(110),
+            said: [vec![wrote("ken", 100), asked("gwen", "ken", 112)], ana_said].concat(),
+            changes_asked: vec![
+                crate::github::ChangesAsked { who: "ken".into(), at: 100, commit: Some("aaa".into()) },
+                crate::github::ChangesAsked { who: "ana".into(), at: 111, commit: Some("bbb".into()) },
+            ],
+            ..pr(PrState::Changes, 0)
+        };
+        // Ken is asked again; ana asked for changes of the commit it's at, and nothing since.
+        assert_eq!(kind(&two(vec![]), true), None);
+        // Ana wrote again after that: yours.
+        assert_eq!(kind(&two(vec![wrote("ana", 130)]), true), Some((ReviewerReplied, "ana".into(), Some(130))));
+        // You wrote since, which both of them hear: their re-reviews are what's left.
+        assert_eq!(kind(&two(vec![wrote("gwen", 125)]), true), Some((RereviewAsked, "ken".into(), Some(125))));
+    }
+
+    #[test]
+    fn someone_elses_pr_is_yours_once_its_author_writes_after_you() {
+        let p = |said| PrRaw { said, author: Some("gwen".into()), ..pr(PrState::Open, 0) };
+        assert_eq!(kind(&p(vec![wrote("me", 100), wrote("gwen", 110)]), false), Some((TurnKind::AuthorReplied, "gwen".into(), Some(110))));
+        assert_eq!(kind(&p(vec![wrote("gwen", 110), wrote("me", 120)]), false), None);
+        // You haven't written on it: nothing of yours to answer.
+        assert_eq!(kind(&p(vec![wrote("gwen", 110)]), false), None);
+        // Asking you again isn't words to answer: Re-review says it.
+        assert_eq!(kind(&p(vec![wrote("me", 100), asked("gwen", "me", 110)]), false), None);
     }
 
     #[test]

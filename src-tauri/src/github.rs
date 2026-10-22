@@ -54,6 +54,34 @@ pub struct PrRaw {
     /// Approved only by approvals of an earlier commit (`stale_approval_of`). Asked only of open
     /// PRs.
     pub stale_approval: Option<StaleApproval>,
+    /// When its head commit was made, near enough when it was pushed: GitHub no longer says when
+    /// a commit was pushed. For whose move it is (`board::turn_of`).
+    pub head_at: Option<i64>,
+    /// What was said on it lately and the reviews asked of whom, oldest first (`said_of`), for
+    /// whose move it is. Asked only of open PRs.
+    pub said: Vec<Said>,
+    /// The reviewers whose review that counts asks for changes (`changes_asked_of`). Asked only of
+    /// open PRs.
+    pub changes_asked: Vec<ChangesAsked>,
+}
+
+/// Something said on a PR, or a review asked for, as its timeline has it: a comment, a review or
+/// a reply on a thread (a review of its own on GitHub) by `who`, or `who` asking `asked` for a
+/// review. A bot's words are left out.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Said {
+    pub who: String,
+    pub at: i64,
+    /// The reviewer asked, for a review request.
+    pub asked: Option<String>,
+}
+
+/// A reviewer's review that asks for changes and still counts: who, when, and of which commit.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChangesAsked {
+    pub who: String,
+    pub at: i64,
+    pub commit: Option<String>,
 }
 
 /// One repo's PRs, and who `gh` is signed in as.
@@ -98,11 +126,13 @@ query($requested: String!) {
 /// for connections, not fields. The standing reviews are a point for a hundred PRs, as any
 /// connection is, however many each brings (a repo's `QUERY` went from 6 to 7 at 20 a PR and at 100
 /// alike, 2026-10-20), so they're asked for a hundred, as many as GitHub gives a page: one from each
-/// reviewer, which is all of them but on a PR with more.
+/// reviewer, which is all of them but on a PR with more. Its last comments and reviews (`said`),
+/// with the review requests, say who spoke last (`said_of`).
 const ASKED_FIELDS: &str = r#"
 fragment asked on PullRequest {
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
   timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { __typename ... on User { login } } } } }
+  said: timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20) { nodes { __typename ... on IssueComment { createdAt author { __typename login } } ... on PullRequestReview { submittedAt author { __typename login } } } }
   latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state submittedAt author { login } commit { oid } } }
 }
 "#;
@@ -120,7 +150,7 @@ fragment pr on PullRequest {
   headRepositoryOwner { login }
   labels(first: 100, orderBy: {field: NAME, direction: ASC}) { nodes { name color description } }
   viewerLatestReview { state submittedAt commit { oid } }
-  commits(last: 1) { nodes { commit { message statusCheckRollup { contexts(first: 100) { nodes {
+  commits(last: 1) { nodes { commit { message committedDate statusCheckRollup { contexts(first: 100) { nodes {
     __typename
     ... on CheckRun { name status conclusion }
     ... on StatusContext { context state }
@@ -283,6 +313,7 @@ pub fn parse_one(json: &str) -> Result<(PrRaw, Option<String>)> {
         pr.requested_by = pr.review_requested.then(|| asker_of(n, login)).flatten();
         pr.requested_at = pr.review_requested.then(|| asked_at(n, login)).flatten();
         pr.reviewers_asked = asked_of_whom(n, login);
+        (pr.said, pr.changes_asked) = (said_of(n), changes_asked_of(n));
     } else {
         pr.merge = Merge::Unknown;
     }
@@ -310,6 +341,7 @@ pub fn parse(json: &str) -> Result<RepoPrs> {
                 pr.requested_at = pr.review_requested.then(|| asked_at(n, login)).flatten();
                 if pr.state.is_open() {
                     pr.reviewers_asked = asked_of_whom(n, login);
+                    (pr.said, pr.changes_asked) = (said_of(n), changes_asked_of(n));
                 }
                 prs.push(pr);
             }
@@ -333,6 +365,7 @@ pub fn parse_requested(json: &str) -> Result<Requested> {
             pr.requested_by = asker_of(n, login);
             pr.requested_at = asked_at(n, login);
             pr.reviewers_asked = asked_of_whom(n, login);
+            (pr.said, pr.changes_asked) = (said_of(n), changes_asked_of(n));
             pr.review_requested.then(|| (slug.to_string(), pr))
         })
         .collect();
@@ -447,7 +480,45 @@ fn parse_pr(n: &Value) -> Option<PrRaw> {
         labels: labels_of(n),
         last_review: last_review_of(n),
         stale_approval: (state == PrState::Approved).then(|| stale_approval_of(n)).flatten(),
+        head_at: n.pointer("/commits/nodes/0/commit/committedDate").and_then(Value::as_str).and_then(parse_rfc3339_ms),
+        said: Vec::new(),
+        changes_asked: Vec::new(),
     })
+}
+
+/// What was said on a PR lately, and the reviews asked for, oldest first: its last comments and
+/// reviews (`said` in `ASKED_FIELDS`), a bot's left out, and its last review requests. A reply on
+/// a thread is a review on GitHub, so it's there; one by someone GitHub no longer knows isn't.
+fn said_of(n: &Value) -> Vec<Said> {
+    let words = n.pointer("/said/nodes").and_then(Value::as_array).into_iter().flatten().filter_map(|w| {
+        let author = w.get("author").filter(|a| a.get("__typename").and_then(Value::as_str) != Some("Bot"))?;
+        let at = w.get("createdAt").or_else(|| w.get("submittedAt")).and_then(Value::as_str).and_then(parse_rfc3339_ms)?;
+        Some(Said { who: author.get("login").and_then(Value::as_str)?.to_string(), at, asked: None })
+    });
+    let asks = n.pointer("/timelineItems/nodes").and_then(Value::as_array).into_iter().flatten().filter_map(|e| {
+        let asked = e.pointer("/requestedReviewer/login").and_then(Value::as_str)?;
+        let at = e.get("createdAt").and_then(Value::as_str).and_then(parse_rfc3339_ms)?;
+        Some(Said { who: e.pointer("/actor/login").and_then(Value::as_str).unwrap_or_default().to_string(), at, asked: Some(asked.to_string()) })
+    });
+    let mut all: Vec<Said> = words.chain(asks).collect();
+    all.sort_by_key(|s| s.at);
+    all
+}
+
+/// The reviewers whose review that counts asks for changes, from the PR's
+/// `latestOpinionatedReviews`: each reviewer's latest that approved or asked for changes.
+fn changes_asked_of(n: &Value) -> Vec<ChangesAsked> {
+    let reviews = n.pointer("/latestOpinionatedReviews/nodes").and_then(Value::as_array).into_iter().flatten();
+    reviews
+        .filter(|r| r.get("state").and_then(Value::as_str) == Some("CHANGES_REQUESTED"))
+        .filter_map(|r| {
+            Some(ChangesAsked {
+                who: r.pointer("/author/login").and_then(Value::as_str)?.to_string(),
+                at: r.get("submittedAt").and_then(Value::as_str).and_then(parse_rfc3339_ms)?,
+                commit: r.pointer("/commit/oid").and_then(Value::as_str).map(String::from),
+            })
+        })
+        .collect()
 }
 
 /// The approvals an approved PR has, where none is of the commit it's at: the repo doesn't dismiss
@@ -1551,6 +1622,16 @@ pub fn comment(slug: &str, number: u64, body: &str) -> Result<String> {
     Ok(out.trim().to_string())
 }
 
+/// Asks `reviewer` to review PR `number` again, as you, as GitHub's Re-request review does: REST
+/// `POST pulls/<n>/requested_reviewers`, which costs no GraphQL points and lists them among the
+/// PR's review requests again, so their review search finds it.
+pub fn request_review(slug: &str, number: u64, reviewer: &str) -> Result<()> {
+    let input = serde_json::json!({ "reviewers": [reviewer] }).to_string();
+    procs::run_stdin("gh", &["api", "--method", "POST", &format!("repos/{slug}/pulls/{number}/requested_reviewers"), "--input", "-", "--silent"], &input, Duration::from_secs(30))
+        .map(|_| ())
+        .map_err(|e| anyhow!("Couldn't ask {reviewer} to review #{number} again: {e}"))
+}
+
 /// A PR as Markdown, for a conversation about it to read (`for_reading`). `whole`: its diff is
 /// all there, not only the files GitHub showed a diff for.
 pub fn reading_md(pr: &crate::model::PrItem, d: &PrDetail, whole: bool) -> String {
@@ -1797,6 +1878,42 @@ mod tests {
         assert_eq!(parse_pr(&node("APPROVED")).and_then(|p| p.stale_approval).map(|s| s.commit), Some("a11ce55".into()));
         assert_eq!(parse_pr(&node("REVIEW_REQUIRED")).and_then(|p| p.stale_approval), None);
         assert!(ASKED_FIELDS.contains("latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state submittedAt author { login } commit { oid } } }"), "{ASKED_FIELDS}");
+    }
+
+    #[test]
+    fn reads_who_said_what_when_on_an_open_pr() {
+        // As GitHub answered for a PR whose reviewer asked for changes, was asked again after the
+        // fixes and found them fixed (specbook#1293, 2026-10-22), with a bot's comment and a review
+        // by someone GitHub no longer knows.
+        let node = r#"{"number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,"reviewDecision":"CHANGES_REQUESTED","headRefName":"b","headRefOid":"b4908ef","author":{"login":"whather"},
+            "commits":{"nodes":[{"commit":{"message":"m","committedDate":"2026-10-22T07:04:12Z"}}]},
+            "timelineItems":{"nodes":[{"createdAt":"2026-10-22T07:07:43Z","actor":{"login":"whather"},"requestedReviewer":{"__typename":"User","login":"ghempton"}}]},
+            "said":{"nodes":[
+                {"__typename":"IssueComment","createdAt":"2026-10-22T06:59:13Z","author":{"__typename":"User","login":"ghempton"}},
+                {"__typename":"PullRequestReview","submittedAt":"2026-10-22T06:59:15Z","author":{"__typename":"User","login":"ghempton"}},
+                {"__typename":"IssueComment","createdAt":"2026-10-22T07:05:00Z","author":{"__typename":"Bot","login":"vercel"}},
+                {"__typename":"PullRequestReview","submittedAt":"2026-10-22T07:06:00Z","author":null},
+                {"__typename":"IssueComment","createdAt":"2026-10-22T07:11:37Z","author":{"__typename":"User","login":"ghempton"}}]},
+            "latestOpinionatedReviews":{"pageInfo":{"hasNextPage":false},"nodes":[{"state":"CHANGES_REQUESTED","submittedAt":"2026-10-22T06:59:15Z","author":{"login":"ghempton"},"commit":{"oid":"c2a5d6b"}},{"state":"APPROVED","submittedAt":"2026-10-22T05:00:00Z","author":{"login":"ana"},"commit":{"oid":"9edc816"}}]}}"#;
+        let answer = format!(r#"{{"data":{{"viewer":{{"login":"whather"}},"repository":{{"open":{{"nodes":[{node}]}},"done":{{"nodes":[]}}}},"requested":{{"nodes":[]}}}}}}"#);
+        let pr = parse(&answer).unwrap().prs.remove(0);
+        let at = |s: &str| parse_rfc3339_ms(s).unwrap();
+        assert_eq!(pr.head_at, Some(at("2026-10-22T07:04:12Z")));
+        let said: Vec<(&str, i64, Option<&str>)> = pr.said.iter().map(|s| (s.who.as_str(), s.at, s.asked.as_deref())).collect();
+        assert_eq!(
+            said,
+            vec![
+                ("ghempton", at("2026-10-22T06:59:13Z"), None),
+                ("ghempton", at("2026-10-22T06:59:15Z"), None),
+                ("whather", at("2026-10-22T07:07:43Z"), Some("ghempton")),
+                ("ghempton", at("2026-10-22T07:11:37Z"), None),
+            ]
+        );
+        assert_eq!(pr.changes_asked, vec![ChangesAsked { who: "ghempton".into(), at: at("2026-10-22T06:59:15Z"), commit: Some("c2a5d6b".into()) }]);
+        // Only an open PR's: one that ended says nothing of it.
+        let closed = parse(&answer.replace(r#""state":"OPEN""#, r#""state":"CLOSED""#)).unwrap().prs.remove(0);
+        assert!(closed.said.is_empty() && closed.changes_asked.is_empty());
+        assert!(ASKED_FIELDS.contains("said: timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20)"), "{ASKED_FIELDS}");
     }
 
     #[test]

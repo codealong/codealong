@@ -2,8 +2,8 @@
 // its checks, and one for anything else that keeps GitHub from merging it. When nothing does,
 // they fold into a single "Ready to merge". The PRs view also flags the rows that are your move.
 
-import { count } from './format';
-import type { AutoReview, Checks, LastReview, Merge, NudgeAbout, PrComment, PrItem, PrState, PrStopped, StaleApproval } from './types';
+import { absolute, count } from './format';
+import type { AutoReview, Checks, LastReview, Merge, NudgeAbout, PrComment, PrItem, PrState, PrStopped, StaleApproval, Turn } from './types';
 
 /** A pill's color: green for approved and passing, amber for what needs you, red for failing. */
 export type PrTone = 'ready' | 'pass' | 'attn' | 'alert' | 'plain' | 'quiet' | 'merged';
@@ -39,6 +39,8 @@ export interface PrFacts {
   mine?: boolean;
   /** Approved only by approvals of an earlier commit (`staleWords`). */
   staleApproval?: StaleApproval;
+  /** Whose move it is, where its review state doesn't say (`turnPill`). */
+  turn?: Turn;
 }
 
 /** Your last review of a PR against the commit it's at (`PrItem.lastReview`): `current` when it's
@@ -168,10 +170,33 @@ function agentPill(pr: PrFacts): PrPill | null {
   return null;
 }
 
+/** Whose move it is where the review state doesn't say (`PrItem.turn`, board.rs `turn_of`), in
+ *  place of what it would say: GitHub keeps a request for changes until its reviewer approves or
+ *  dismisses it, so on a PR of yours whose fixes are in, Changes requested read as yours to do long
+ *  after it was theirs (specbook#1293, 2026-10-22). Amber is your move, grey theirs. */
+function turnPill(pr: PrFacts): PrPill | null {
+  const t = pr.turn;
+  if (!t || !isOpen(pr.state) || pr.state === 'draft') return null;
+  const since = t.since ? ` (${absolute(t.since)})` : '';
+  const stands = 'GitHub keeps their request for changes until they approve.';
+  switch (t.kind) {
+    case 'replyNeeded':
+      return reviewPillOf('attn', 'Reply needed', `Commits came after ${t.who} asked for changes${since}, and nobody has said so on it. GitHub tells a reviewer of a comment or a review request, not of a push: say what changed, or ask them to review it again.`);
+    case 'rereviewAsked':
+      return reviewPillOf('plain', 'Re-review asked', `Waiting on ${t.who}, who asked for changes: asked to review it again, or written to since${since}. ${stands}`);
+    case 'reviewerReplied':
+      return reviewPillOf('attn', 'Reviewer replied', `${t.who} asked for changes, then wrote again${since}: your move. ${stands}`);
+    case 'authorReplied':
+      return reviewPillOf('attn', 'Author replied', `${t.who} wrote${since} after your last review or comment: your move.`);
+  }
+}
+
 function reviewPill(pr: PrFacts): PrPill {
   const pill = reviewPillOf;
   const agent = pr.state === 'draft' ? null : agentPill(pr);
   if (agent) return agent;
+  const turn = turnPill(pr);
+  if (turn) return turn;
   // Asked for again after you gave yours, which says more than who it waits on or that it's
   // approved, your approval perhaps.
   const again = reReviewPill(pr);
@@ -308,7 +333,10 @@ export function prFlag(pr: PrItem): 'ready' | 'attn' | 'alert' | null {
   if (!pr.mine) return null;
   if (prReady(pr)) return 'ready';
   if (pr.checks.failed > 0) return 'alert';
-  if (pr.state === 'changes' || pr.merge === 'conflicts' || pr.merge === 'behind') return 'attn';
+  // Changes asked for are yours to make, unless their reviewer is asked to look again since,
+  // which GitHub's request for changes doesn't say (`turnPill`).
+  const changes = pr.state === 'changes' && pr.turn?.kind !== 'rereviewAsked';
+  if (changes || pr.merge === 'conflicts' || pr.merge === 'behind') return 'attn';
   return null;
 }
 

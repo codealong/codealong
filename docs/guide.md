@@ -829,6 +829,20 @@ primary session. The PR's card says which of these it is under its switch. Setti
 Resume a stopped session for its pull request's news (`[sessions] resume_for_pr_news`, on unless
 turned off) turns it off.
 
+#### Asking for a re-review after fixes
+
+When a reviewer asked for changes on a PR of yours, and its sessions pushed the fixes without
+saying so on it, nothing tells the reviewer: GitHub tells them of a comment or a review request,
+not of a push, and their agent reviews again when it's asked. The PR reads Reply needed. Settings ›
+Automation › Ask for a re-review once fixes are pushed (`[pull_requests] rerequest_after_fixes`,
+off until turned on, since it acts as you) has Codealong ask them, as GitHub's Re-request review
+does: once the last push is ten minutes old and none of the PR's sessions is in a turn, so a run
+of fixes is asked about once and a session that's about to say so itself can. Each reviewer is asked
+once for each commit; a request GitHub refuses is tried again a few times, a quarter of an hour
+apart, and said in a notice. Once asked, the PR reads Re-review asked. A repo's team file can
+suggest it (see *Settings for one repo, and its team's*), and your table for a repo turns it on or off
+there.
+
 **Flagged sessions.** Claude's recorded provider refusals and Codex's recorded content-policy
 errors or typed refusals give a session a **Flagged** chip. Ordinary replies, quoted warnings,
 commands denied by an approval reviewer and tool output do not count. The flag stays across
@@ -1067,7 +1081,7 @@ their own PRs, the reviewer told it's the team's; `[reviews] never_submit`, the 
 (`"approve"`, `"request-changes"`, `"comment"`) never submitted as anyone's review, whatever their
 `submit` says; and `[pull_requests] nudge_about`. What spends a person's usage or posts as them
 the team only suggests: `[reviews] auto` and `post`, `[reviews.own] auto` and `send`, and
-`[pull_requests] nudge_by_default`. Settings, with the repo picked, lists the suggestions you don't
+`[pull_requests] nudge_by_default` and `rerequest_after_fixes`. Settings, with the repo picked, lists the suggestions you don't
 have yet with Use them, which writes them into your table for the repo; and the first PR of the
 repo whose Reviews tab has nothing to show says them there once, with Use them and a cross that
 dismisses them for good (until the team comes to suggest something else). Accounts, models, a
@@ -1130,13 +1144,25 @@ Approved. On a PR that waits on your review, where Codealong's agent stands come
 GitHub's Approved or Changes requested and before Ready to merge: Agent reviewing while it's on
 it, Agent approves when its review approves the commit the PR is at (yours to sign off), or Agent
 re-reviewing while it reviews the commits pushed after one it approved (not yet in your queue).
+Where GitHub's state no longer says whose move it is, the review pill says that instead: a request
+for changes stands on GitHub until its reviewer approves or dismisses it, whatever comes after. On
+a PR of yours a reviewer asked changes of, it reads Reply needed (amber) once commits came after
+their last word and nobody has said so on it, since GitHub tells a reviewer of a comment or a review
+request but not of a push; Re-review asked (grey, their move) once they're asked to review it
+again or written to since; and Reviewer replied (amber) when they wrote again after that, an agent
+of theirs finding it fixed say, which leaves you to ask for the approval. Someone else's PR you
+reviewed or commented on reads Author replied (amber) when its author wrote after you, your
+agent's posted reviews counting as yours, unless your agent approves the commit it's at. The
+tooltip says who and since when. Codealong reads it from each open PR's last twenty comments and
+reviews and its last review requests; a push is taken to be when its latest commit was made, so
+one made long before it was pushed reads as earlier than it was.
 A PR whose approvals are all of an earlier commit than the one it's at has an amber Stale approval
 after its Approved or Ready to merge, its tooltip saying who approved which commit: a repo that
 doesn't dismiss approvals when commits come goes on counting them, so GitHub would merge commits
 no reviewer approved. The merge box says so under Ready to merge. One approval of the commit it's
 at is enough to clear it, yours given here at once.
 Rows that are your move are marked at the left edge, as a session that needs you is: amber for a review asked of you or
-something to fix, red for failing checks, green for your PRs that are ready to merge. On one line a
+something to fix (not changes asked for whose reviewer is asked to look again: Re-review asked), red for failing checks, green for your PRs that are ready to merge. On one line a
 PR's row is its number and title, its labels as they fit, then its repo's chip, its pills and its
 size at the line's end (on a narrow list the size gives way, then the pills say less); on two lines
 its labels follow its title, and under it are its repo's chip, its pills, its branch and author,

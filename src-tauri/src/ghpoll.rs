@@ -780,6 +780,9 @@ mod tests {
             labels: Vec::new(),
             last_review: None,
             stale_approval: None,
+            head_at: None,
+            said: Vec::new(),
+            changes_asked: Vec::new(),
         }
     }
 

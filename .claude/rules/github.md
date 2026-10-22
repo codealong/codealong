@@ -133,3 +133,13 @@ Harness facts (from GitHub's answers on this Mac, 2026-10-01). A bare file name 
   has (a private repo's PR approved at one commit, then rebased and pushed twice: `mergeStateStatus`
   `CLEAN`, 2026-10-20). It's a connection: a repo's `QUERY` went from 6 points to 7, at 20 a PR
   and at 100 alike.
+- Who spoke last on an open PR, for whose move it is (`board.rs` `turn_of`): `said:
+  timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20)` in `ASKED_FIELDS`
+  (`said_of`), beside the review requests' timeline and `latestOpinionatedReviews`, and the head
+  commit's `committedDate` in `PR_FIELDS`. A reply on a thread is a `PullRequestReview` of its
+  own; a bot's author has `__typename: Bot`; a commit's `pushedDate` is null (GitHub retired it), so
+  a push is dated by its commit. A repo's `QUERY` went from 7 points to 8 with it
+  (2026-10-22). Asking a reviewer again, as Re-request review does, is REST `POST
+  repos/<owner>/<name>/pulls/<n>/requested_reviewers` with `{"reviewers": [login]}` on stdin
+  (`request_review`, `rerequest.rs`), no GraphQL points; checked only against a PR number that
+  doesn't exist (`gh: Not Found (HTTP 404)`, exit 1), since a real one notifies the reviewer.

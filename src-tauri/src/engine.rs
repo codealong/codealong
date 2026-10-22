@@ -141,6 +141,9 @@ pub enum Msg {
     /// Sessions told to carry on after a lost connection (reconnect.rs), and which weren't and
     /// why if any.
     Continued(Option<String>),
+    /// Reviewers asked to look again at a PR of yours after its fixes (rerequest.rs), and which
+    /// weren't and why if any.
+    Rerequested(Option<String>),
     /// Sessions started in tmux while the screen was locked shown in your terminal once it
     /// wasn't (launch.rs `show_unlocked`): which weren't and why if any, and whether the screen
     /// was locked again before they all were.
@@ -418,6 +421,12 @@ impl Handle {
     /// (reconnect.rs): a failure is a notice until a later one works.
     pub fn continued(&self, result: std::result::Result<(), String>) {
         let _ = self.tx.send(Msg::Continued(result.err()));
+    }
+
+    /// How asking reviewers to look again at PRs of yours after their fixes went (rerequest.rs):
+    /// a failure is a notice until a later one works.
+    pub fn rerequested(&self, result: std::result::Result<(), String>) {
+        let _ = self.tx.send(Msg::Rerequested(result.err()));
     }
 
     /// How telling sessions what their helpers did went (helpers.rs): a failure is a notice
@@ -1185,6 +1194,8 @@ struct Engine {
     /// Why a session wasn't told what a command you ran for it printed.
     run_report_warning: Option<String>,
     continue_warning: Option<String>,
+    /// Why a reviewer wasn't asked to look again at a PR of yours after its fixes.
+    rerequest_warning: Option<String>,
     /// Why a session started while the screen was locked didn't open in your terminal once it
     /// wasn't.
     show_warning: Option<String>,
@@ -1330,6 +1341,7 @@ impl Engine {
             running_elsewhere: Default::default(),
             run_report_warning: None,
             continue_warning: None,
+            rerequest_warning: None,
             show_warning: None,
             report_warning: None,
             store_warnings: Vec::new(),
@@ -2183,6 +2195,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.continue_warning = why;
                     self.dirty = true;
                 }
+                Ok(Msg::Rerequested(why)) => {
+                    self.rerequest_warning = why;
+                    self.dirty = true;
+                }
                 Ok(Msg::ShownUnlocked(why, deferred)) => {
                     self.tab_looks.on_looked(deferred);
                     self.show_warning = why;
@@ -2727,6 +2743,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             said("nudges", "A session wasn't told its PR was approved", self.nudge_warning.as_ref()),
             said("terminal-runs", "A session wasn't told what a command printed", self.run_report_warning.as_ref()),
             said("reconnect", "A session wasn't told to carry on", self.continue_warning.as_ref()),
+            said("rerequests", "A reviewer wasn't asked to look again", self.rerequest_warning.as_ref()),
             said("unlocked", "A session didn't open in your terminal", self.show_warning.as_ref()),
             said("helpers", "A session wasn't told what its helper did", self.report_warning.as_ref()),
             said("reviews", "A pull request wasn't reviewed", review.map(|s| &s.text)).map(|n| Notice { review_again: review.and_then(|s| s.again.clone()), ..n }),

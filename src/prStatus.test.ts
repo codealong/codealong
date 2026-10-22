@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { agentApproves, approvedBefore, asksFor, chipWord, commentPreview, commentText, commentsToAsk, heldForAgent, mayApprove, nudgeKind, nudgeMerges, nudgeWords, prFlag, prPills, prReady, primaryWords, reviewedBefore, reviewMark, reviewersWords, staleWords, withMerges, yourReview, yourVerdictStands, type PrFacts } from './prStatus';
 import * as fx from './testing/fixtures';
-import type { LastReview, PrComment, PrItem } from './types';
+import type { LastReview, PrComment, PrItem, Turn } from './types';
 
 const checks = fx.checks;
 const facts = (f: Partial<PrFacts> = {}): PrFacts => ({ state: 'open', checks: checks({ passed: 12 }), merge: 'blocked', base: 'main', ...f });
@@ -37,6 +37,23 @@ describe('prPills', () => {
     // A draft, or a review that's in, says so whoever is asked.
     expect(prPills(facts({ state: 'draft', reviewersAsked: ['ana'] }))[0].text).toBe('Draft');
     expect(prPills(facts({ state: 'changes', reviewersAsked: ['ana'] }))[0].text).toBe('Changes requested');
+  });
+
+  it('says whose move it is where a request for changes no longer does, amber for yours', () => {
+    const at = Date.UTC(2026, 9, 22, 7, 27);
+    const turn = (kind: Turn['kind'], f: Partial<PrFacts> = {}) => prPills(facts({ state: 'changes', mine: true, turn: { kind, who: 'ken', since: at }, ...f }))[0];
+    expect(turn('replyNeeded')).toMatchObject({ key: 'review', text: 'Reply needed', tone: 'attn' });
+    expect(turn('replyNeeded').title).toMatch(/^Commits came after ken asked for changes \(.+\), and nobody has said so on it\./);
+    expect(turn('rereviewAsked')).toMatchObject({ text: 'Re-review asked', tone: 'plain' });
+    expect(turn('rereviewAsked').title).toMatch(/^Waiting on ken, who asked for changes/);
+    expect(turn('reviewerReplied')).toMatchObject({ text: 'Reviewer replied', tone: 'attn' });
+    expect(turn('authorReplied', { state: 'open', mine: false })).toMatchObject({ text: 'Author replied', tone: 'attn' });
+    // The chip says it too, and no longer Changes requested.
+    expect(chipWord(facts({ state: 'changes', mine: true, turn: { kind: 'rereviewAsked', who: 'ken' } }))).toBe('Re-review asked');
+    // A draft says so whatever was said; the agent's approval, which is what you sign off on, wins.
+    expect(turn('replyNeeded', { state: 'draft' }).text).toBe('Draft');
+    const approves = { stage: 'posted' as const, head: '309811a', at: 1, rounds: 1, approves: '309811a' };
+    expect(turn('authorReplied', { state: 'open', mine: false, reviewRequested: true, headOid: '309811a', autoReview: approves }).text).toBe('Agent approves');
   });
 
   it('says Re-review where your review is asked for again after you gave one, ready to merge or not', () => {
@@ -88,6 +105,8 @@ describe('prFlag', () => {
     expect(prFlag(item({ state: 'approved', merge: 'clean' }))).toBe('ready');
     expect(prFlag(item({ checks: checks({ failed: 1 }) }))).toBe('alert');
     expect(prFlag(item({ state: 'changes' }))).toBe('attn');
+    expect(prFlag(item({ state: 'changes', turn: { kind: 'replyNeeded', who: 'ken' } }))).toBe('attn');
+    expect(prFlag(item({ state: 'changes', turn: { kind: 'reviewerReplied', who: 'ken' } }))).toBe('attn');
     expect(prFlag(item({ state: 'approved', merge: 'conflicts' }))).toBe('attn');
     expect(prFlag(item({ state: 'approved', merge: 'behind' }))).toBe('attn');
   });
@@ -95,6 +114,8 @@ describe('prFlag', () => {
   it("leaves waiting PRs, other people's and finished ones alone", () => {
     expect(prFlag(item())).toBeNull();
     expect(prFlag(item({ state: 'approved', merge: 'unknown' }))).toBeNull();
+    // Changes asked for whose reviewer is asked to look again: theirs, whatever GitHub still says.
+    expect(prFlag(item({ state: 'changes', turn: { kind: 'rereviewAsked', who: 'ken' } }))).toBeNull();
     expect(prFlag(item({ mine: false, state: 'approved', merge: 'clean' }))).toBeNull();
     expect(prFlag(item({ mine: false, checks: checks({ failed: 3 }) }))).toBeNull();
     expect(prFlag(item({ state: 'merged', merge: 'unknown', reviewRequested: true }))).toBeNull();

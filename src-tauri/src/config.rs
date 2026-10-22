@@ -620,6 +620,11 @@ pub struct PullRequestsCfg {
     /// What a PR whose nudge is on tells its session about.
     #[serde(default)]
     pub nudge_about: NudgeAbout,
+    /// On a PR of yours whose reviewer asked for changes, ask them to review it again once
+    /// commits came after their last word and nobody said so on it (rerequest.rs): GitHub tells a
+    /// reviewer of a request, not of a push. It acts as you, so it's off until you turn it on.
+    #[serde(default)]
+    pub rerequest_after_fixes: bool,
 }
 
 /// What a nudge tells a PR's session about (nudges.rs `NudgeAbout::keep`). `everything`: reviews,
@@ -703,6 +708,7 @@ impl RepoCfg {
         put(&mut mine.own.drafts, &o.drafts);
         put(&mut out.pull_requests.nudge_by_default, &over.pull_requests.nudge_by_default);
         put(&mut out.pull_requests.nudge_about, &over.pull_requests.nudge_about);
+        put(&mut out.pull_requests.rerequest_after_fixes, &over.pull_requests.rerequest_after_fixes);
         out
     }
 }
@@ -776,6 +782,8 @@ pub struct PullRequestsPatch {
     pub nudge_by_default: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nudge_about: Option<NudgeAbout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerequest_after_fixes: Option<bool>,
 }
 
 impl PullRequestsPatch {
@@ -837,6 +845,7 @@ pub fn pull_requests_for(global: &PullRequestsCfg, team: Option<&crate::teamfile
     if let Some(m) = mine.map(|m| &m.pull_requests) {
         p.nudge_by_default = m.nudge_by_default.unwrap_or(p.nudge_by_default);
         p.nudge_about = m.nudge_about.unwrap_or(p.nudge_about);
+        p.rerequest_after_fixes = m.rerequest_after_fixes.unwrap_or(p.rerequest_after_fixes);
     }
     p
 }
@@ -853,7 +862,11 @@ pub fn suggestions_left(suggests: &RepoCfg, reviews: &ReviewsCfg, prs: &PullRequ
             own: OwnReviewsPatch { auto: differs(&r.own.auto, reviews.own.auto), send: differs(&r.own.send, reviews.own.send), ..OwnReviewsPatch::default() },
             ..ReviewsPatch::default()
         },
-        pull_requests: PullRequestsPatch { nudge_by_default: differs(&suggests.pull_requests.nudge_by_default, prs.nudge_by_default), nudge_about: None },
+        pull_requests: PullRequestsPatch {
+            nudge_by_default: differs(&suggests.pull_requests.nudge_by_default, prs.nudge_by_default),
+            nudge_about: None,
+            rerequest_after_fixes: differs(&suggests.pull_requests.rerequest_after_fixes, prs.rerequest_after_fixes),
+        },
     }
 }
 
@@ -1656,7 +1669,7 @@ const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then,
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), \"round-robin\",\n# or \"fallback\" (the members in order, each until it's within `buffer` of its usage_cap).\n# buffer: the percent below each account's usage_cap left for the sessions already running on it (default 5).\n";
 const SESSIONS_COMMENT: &str = "# block_flagged_sessions: keep provider-flagged sessions out of automatic messages, resumes and\n# account moves. On by default; manual replies and resumes remain available.\n# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict) and its primary session isn't running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n";
-const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n";
+const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n# rerequest_after_fixes: on a PR of yours whose reviewer asked for changes, once commits came after their last\n# word and nobody said so on it, ask them to review it again, as you. GitHub tells a reviewer of that, not of a push.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account, model and effort: what it runs on; \"\" for the account Auto would start, on its
 # own model and effort. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
@@ -2182,6 +2195,7 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
         }
         set_value(&mut doc["pull_requests"]["nudge_by_default"], Value::from(cfg.pull_requests.nudge_by_default));
         set_value(&mut doc["pull_requests"]["nudge_about"], Value::from(cfg.pull_requests.nudge_about.as_str()));
+        set_value(&mut doc["pull_requests"]["rerequest_after_fixes"], Value::from(cfg.pull_requests.rerequest_after_fixes));
     }
 
     // A new file has it (`render`); an older one gets it once a sound changes.
@@ -2402,7 +2416,11 @@ fn set_repos(doc: &mut toml_edit::DocumentMut, repos: &BTreeMap<String, RepoCfg>
             ("send", own.send.map(Value::from)),
             ("drafts", own.drafts.map(Value::from)),
         ];
-        let prs = [("nudge_by_default", r.pull_requests.nudge_by_default.map(Value::from)), ("nudge_about", r.pull_requests.nudge_about.map(|v| Value::from(v.as_str())))];
+        let prs = [
+            ("nudge_by_default", r.pull_requests.nudge_by_default.map(Value::from)),
+            ("nudge_about", r.pull_requests.nudge_about.map(|v| Value::from(v.as_str()))),
+            ("rerequest_after_fixes", r.pull_requests.rerequest_after_fixes.map(Value::from)),
+        ];
         // `reviews` holds `own`, so it's made for an `own` value alone; with no value of its own
         // it has no header of its own either.
         let own_any = own_values.iter().any(|(_, v)| v.is_some());
@@ -2613,6 +2631,7 @@ pub fn render(cfg: &Config) -> String {
         s.push_str("[pull_requests]\n");
         s.push_str(&format!("nudge_by_default = {}\n", cfg.pull_requests.nudge_by_default));
         s.push_str(&format!("nudge_about = {}\n", q(cfg.pull_requests.nudge_about.as_str())));
+        s.push_str(&format!("rerequest_after_fixes = {}\n", cfg.pull_requests.rerequest_after_fixes));
     }
     s.push('\n');
     s.push_str(&sounds_comment());
@@ -2743,7 +2762,7 @@ mod tests {
             },
             sessions: SessionsCfg { block_flagged_sessions: false, continue_after_network_error: false, continue_after_restart: false, resume_for_sessions_it_started: false, resume_for_any_session: false, resume_for_pr_news: false, live_replies: true },
             reviews: ReviewsCfg { auto: true, account: "claude".into(), model: "opus".into(), effort: String::new(), other_harness: true, prompt: "Start two subagents.\nThen combine their findings.".into(), start: ReviewStart::Codealong, post: ReviewPost::None, submit: ReviewSubmit::Approve, auto_approve: false, reviewers: Vec::new(), own: OwnReviewsCfg::default(), team_instructions: String::new(), never_submit: Vec::new() },
-            pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks },
+            pull_requests: PullRequestsCfg { nudge_by_default: true, nudge_about: NudgeAbout::FeedbackAndChecks, rerequest_after_fixes: false },
             repos: BTreeMap::from([("github.com/sprucehq/web".to_string(), RepoCfg { reviews: ReviewsPatch { auto: Some(true), account: Some("codex".into()), post: Some(ReviewPost::Draft), own: OwnReviewsPatch { send: Some(false), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() }, pull_requests: PullRequestsPatch { nudge_about: Some(NudgeAbout::Feedback), ..PullRequestsPatch::default() } })]),
             sounds: SoundsCfg { needs_you: "Tink".into(), your_turn: String::new(), review_requested: "Purr".into(), volume: 35 },
             experimental: ExperimentalCfg { boards: true },
@@ -3153,7 +3172,7 @@ mod tests {
         // What a nudge tells of is everything until the file says otherwise, with or without
         // nudging by default.
         assert_eq!(toml::from_str::<Config>("").unwrap().pull_requests.nudge_about, NudgeAbout::Everything);
-        let feedback = Config { pull_requests: PullRequestsCfg { nudge_by_default: false, nudge_about: NudgeAbout::Feedback }, ..full() };
+        let feedback = Config { pull_requests: PullRequestsCfg { nudge_by_default: false, nudge_about: NudgeAbout::Feedback, ..Default::default() }, ..full() };
         let out = with_config(&old, &feedback).unwrap();
         assert!(out.contains("[pull_requests]\nnudge_by_default = false\nnudge_about = \"feedback\"\n"), "{out}");
         assert_eq!(parse(&out).unwrap(), feedback);
@@ -3406,7 +3425,7 @@ mod tests {
             nudge_about: Some(NudgeAbout::Feedback),
             suggests: RepoCfg {
                 reviews: ReviewsPatch { auto: Some(true), post: Some(ReviewPost::Comment), own: OwnReviewsPatch { auto: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
-                pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None },
+                pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None, ..Default::default() },
             },
         }
     }
@@ -3429,7 +3448,7 @@ mod tests {
 
         let mine = RepoCfg {
             reviews: ReviewsPatch { auto: Some(true), account: Some(" codex ".into()), post: Some(ReviewPost::None), own: OwnReviewsPatch { send: Some(false), drafts: Some(true), ..OwnReviewsPatch::default() }, ..ReviewsPatch::default() },
-            pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: Some(NudgeAbout::Everything) },
+            pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: Some(NudgeAbout::Everything), ..Default::default() },
         };
         let r = reviews_for(&global, Some(&team()), Some(&mine));
         assert_eq!((r.auto, r.account.as_str(), r.post, r.own.send, r.own.drafts), (true, "codex", ReviewPost::None, false, true));
@@ -3519,7 +3538,7 @@ mod tests {
         let out = with_suggestions(&text, "sprucehq/web", &first).unwrap();
         assert_eq!(parse(&out).unwrap().repos[&repo_key("sprucehq/web")], first);
         // Another later keeps what's there and adds to it.
-        let more = RepoCfg { pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None }, ..RepoCfg::default() };
+        let more = RepoCfg { pull_requests: PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None, ..Default::default() }, ..RepoCfg::default() };
         let out = with_suggestions(&out, "sprucehq/web", &more).unwrap();
         assert_eq!(parse(&out).unwrap().repos[&repo_key("sprucehq/web")], first.with(&more));
         assert!(out.starts_with(&text[..text.find(&debug_comment()).unwrap()]), "the rest stays as written");

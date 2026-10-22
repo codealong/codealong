@@ -84,6 +84,7 @@ mod procs;
 mod quick;
 mod reconnect;
 mod repos;
+mod rerequest;
 mod reusable;
 mod send;
 mod route;
@@ -2062,6 +2063,7 @@ pub fn run() {
             let (nudger, nudges_with) = (std::sync::Arc::new(std::sync::Mutex::new(nudges::Nudger::default())), engine_slot.clone());
             let ends_with = engine_slot.clone();
             let (continuer, continues_with) = (std::sync::Arc::new(std::sync::Mutex::new(reconnect::Continuer::default())), engine_slot.clone());
+            let (rerequester, rerequests_with) = (std::sync::Arc::new(std::sync::Mutex::new(rerequest::Rerequester::default())), engine_slot.clone());
             let (reporter, reports_with) = (std::sync::Arc::new(std::sync::Mutex::new(helpers::Reporter::default())), engine_slot.clone());
             let (reviewer, reviews_with) = (std::sync::Arc::new(std::sync::Mutex::new(autoreview::Reviewer::load())), engine_slot.clone());
             app.manage(Reviews(reviewer.clone()));
@@ -2137,6 +2139,15 @@ pub fn run() {
                     if !due.is_empty() {
                         let (engine, continuer) = (engine.clone(), continuer.clone());
                         std::thread::spawn(move || reconnect::send_now(&engine, &continuer, due));
+                    }
+                }
+                // And reviewers of PRs of yours whose fixes went unsaid, asked to look again where
+                // config.toml says to (rerequest.rs): one thread for the batch, as GitHub is asked.
+                if let (Some(engine), Ok(cfg)) = (rerequests_with.get(), config::current()) {
+                    let due = rerequester.lock().map(|mut r| r.due(board, &cfg.pull_requests, board.generated_at)).unwrap_or_default();
+                    if !due.is_empty() {
+                        let (engine, rerequester) = (engine.clone(), rerequester.clone());
+                        std::thread::spawn(move || rerequest::send_now(&engine, &rerequester, due));
                     }
                 }
                 // And sessions whose helpers report to them (helpers.rs): a turn that ended, a wait

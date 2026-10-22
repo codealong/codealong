@@ -9,7 +9,7 @@ import type { Lane, NudgeAbout, OwnReviewsCfg, PullRequestsCfg, RepoCfg, ReviewP
 
 export const OWN_REVIEWS_OFF: Required<OwnReviewsCfg> = { auto: false, account: '', model: '', effort: '', prompt: '', send: true, drafts: false, other_harness: true };
 export const REVIEWS_OFF: Required<ReviewsCfg> = { auto: false, account: '', model: '', effort: '', prompt: '', start: 'no-terminal', post: 'draft', submit: 'never', other_harness: true, own: OWN_REVIEWS_OFF };
-export const PULL_REQUESTS_OFF: Required<PullRequestsCfg> = { nudge_by_default: false, nudge_about: 'everything' };
+export const PULL_REQUESTS_OFF: Required<PullRequestsCfg> = { nudge_by_default: false, nudge_about: 'everything', rerequest_after_fixes: false };
 
 /** `[reviews]` with every value filled in, its own table too. */
 export type Reviews = Required<ReviewsCfg> & { own: Required<OwnReviewsCfg> };
@@ -72,7 +72,11 @@ export function repoReviews(board: { reviews?: ReviewsCfg; repos?: Record<string
 export function pullRequestsFor(global: PullRequestsCfg | undefined, team: TeamCfg | null | undefined, mine: RepoCfg | undefined): Required<PullRequestsCfg> {
   const g = { ...PULL_REQUESTS_OFF, ...global };
   const m = mine?.pull_requests ?? {};
-  return { nudge_by_default: m.nudge_by_default ?? g.nudge_by_default, nudge_about: m.nudge_about ?? team?.nudgeAbout ?? g.nudge_about };
+  return {
+    nudge_by_default: m.nudge_by_default ?? g.nudge_by_default,
+    nudge_about: m.nudge_about ?? team?.nudgeAbout ?? g.nudge_about,
+    rerequest_after_fixes: m.rerequest_after_fixes ?? g.rerequest_after_fixes,
+  };
 }
 
 /** The team file read from a repo's `branch`, or its default branch's, which Settings shows. */
@@ -87,7 +91,7 @@ export function nudgeAboutFor(board: { nudgeAbout?: NudgeAbout; repos?: Record<s
 }
 
 /** A setting Settings shows for a repo, by where it is in `[reviews]` and `[pull_requests]`. */
-export type Field = 'reviews.auto' | 'reviews.reviewer' | 'reviews.other_harness' | 'reviews.prompt' | 'reviews.post' | 'reviews.submit' | 'own.auto' | 'own.reviewer' | 'own.other_harness' | 'own.prompt' | 'own.send' | 'own.drafts' | 'prs.nudge_by_default' | 'prs.nudge_about';
+export type Field = 'reviews.auto' | 'reviews.reviewer' | 'reviews.other_harness' | 'reviews.prompt' | 'reviews.post' | 'reviews.submit' | 'own.auto' | 'own.reviewer' | 'own.other_harness' | 'own.prompt' | 'own.send' | 'own.drafts' | 'prs.nudge_by_default' | 'prs.nudge_about' | 'prs.rerequest_after_fixes';
 
 /** Where a value for a repo comes from: your table for it, its team's file, or `[reviews]` and
  *  `[pull_requests]` as they go everywhere. */
@@ -113,6 +117,7 @@ export function sourceOf(field: Field, mine: RepoCfg | undefined, team: TeamCfg 
     'own.drafts': [o.drafts],
     'prs.nudge_by_default': [p.nudge_by_default],
     'prs.nudge_about': [p.nudge_about],
+    'prs.rerequest_after_fixes': [p.rerequest_after_fixes],
   };
   if (set[field].some(given)) return 'repo';
   if (field === 'prs.nudge_about' && given(team?.nudgeAbout)) return 'team';
@@ -206,6 +211,7 @@ export function offerWords(offers: RepoCfg | undefined): string[] {
   if (given(o.auto)) out.push(o.auto ? 'an agent on another model reviews the pull requests your sessions open' : 'no agent reviews the pull requests your sessions open');
   if (given(o.send)) out.push(o.send ? 'each of those reviews handed to the session that opened the pull request' : 'those reviews kept for you to send');
   if (given(p.nudge_by_default)) out.push(p.nudge_by_default ? 'the session that opened a pull request told what happens on it' : 'no session told what happens on its pull request unless you turn it on');
+  if (given(p.rerequest_after_fixes)) out.push(p.rerequest_after_fixes ? 'a reviewer who asked for changes asked to look again once fixes are pushed' : 'no reviewer asked to look again for you');
   return out;
 }
 

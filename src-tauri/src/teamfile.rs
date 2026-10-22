@@ -3,10 +3,10 @@
 //! to what a reviewer is told (`instructions`, or `instructions_file`, a Markdown file beside
 //! it), the verdicts never submitted as anyone's review (`never_submit`), and what a nudge tells
 //! about (`nudge_about`). What spends a person's usage or posts as them (reviews turned on, where
-//! they go, nudges by default) the team only suggests: each person takes it, which writes it into
-//! their own config.toml (`config::take_suggestions`), or doesn't. Accounts, models, a person's
-//! own prompt and what's submitted as them are theirs alone, and a file that sets one of them is
-//! an error and goes unused, as one that doesn't parse does. A key this Codealong doesn't know
+//! they go, nudges by default, asking for a re-review after fixes) the team only suggests: each
+//! person takes it, which writes it into their own config.toml (`config::take_suggestions`), or
+//! doesn't. Accounts, models, a person's own prompt and what's submitted as them are theirs alone,
+//! and a file that sets one of them is an error and goes unused, as one that doesn't parse does. A key this Codealong doesn't know
 //! (one from a newer Codealong) is passed over and said, so teammates on other builds still read
 //! the rest.
 //!
@@ -127,6 +127,7 @@ fn pull_requests(t: &toml::Table, cfg: &mut TeamCfg, skipped: &mut Vec<String>) 
         match key.as_str() {
             "nudge_by_default" => s.nudge_by_default = Some(typed(value, &name)?),
             "nudge_about" => cfg.nudge_about = Some(typed(value, &name)?),
+            "rerequest_after_fixes" => s.rerequest_after_fixes = Some(typed(value, &name)?),
             _ => skipped.push(format!("pull_requests.{key}")),
         }
     }
@@ -555,7 +556,7 @@ impl RepoSettings {
     /// What a nudge on `pr` tells about: `global` (`[pull_requests] nudge_about`), else as its
     /// repo's team or your table for it says.
     pub fn nudge_about(&self, global: NudgeAbout, pr: &PrItem) -> NudgeAbout {
-        self.pull_requests(&PullRequestsCfg { nudge_by_default: false, nudge_about: global }, pr).nudge_about
+        self.pull_requests(&PullRequestsCfg { nudge_about: global, ..PullRequestsCfg::default() }, pr).nudge_about
     }
 
     /// Whether any reviews are on: everywhere, or in a repo your table turns them on for.
@@ -605,6 +606,7 @@ instructions_file = "own-review.md"
 [pull_requests]
 nudge_by_default = true
 nudge_about = "feedback-and-checks"
+rerequest_after_fixes = true
 "#;
         let file = |path: &str| Ok((path == ".codealong/own-review.md").then(|| "Mind the tests.\n".to_string()));
         let (cfg, skipped) = parse(text, &file).unwrap();
@@ -616,7 +618,7 @@ nudge_about = "feedback-and-checks"
         let s = &cfg.suggests;
         assert_eq!((s.reviews.auto, s.reviews.post), (Some(true), Some(ReviewPost::Comment)));
         assert_eq!((s.reviews.own.auto, s.reviews.own.send), (Some(true), Some(false)));
-        assert_eq!(s.pull_requests, PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None });
+        assert_eq!(s.pull_requests, PullRequestsPatch { nudge_by_default: Some(true), nudge_about: None, rerequest_after_fixes: Some(true) });
         // None of a person's own settings: those aren't the team's to suggest.
         assert_eq!((&s.reviews.account, &s.reviews.model, &s.reviews.prompt, s.reviews.submit), (&None, &None, &None, None));
         assert_eq!(parse("", &none).unwrap(), (TeamCfg::default(), Vec::new()));
@@ -793,6 +795,7 @@ nudge_about = "feedback-and-checks"
             auto_review: None,
             last_review: None,
             stale_approval: None,
+            turn: None,
         }
     }
 
