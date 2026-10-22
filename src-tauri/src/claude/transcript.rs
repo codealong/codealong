@@ -570,16 +570,14 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     info.limit = None;
                     info.connection_lost = None;
                     info.last_tool = None;
-                    // A turn that starts on a prompt of yours takes in every one of yours held
-                    // before it, whichever the `dequeue`s are put down to: a notification Claude
-                    // Code never took off can sit first (`queue_step`).
+                    // A command that took a turn is said on the line before (`ran_a_turn`).
+                    let typed = typed_text(&v).or_else(|| state.command.take().filter(|_| ran_a_turn(&v)));
                     if let Some(ts) = ts {
-                        info.queue.retain(|m| m.at > ts || prompt_words(&m.text).is_none());
+                        turn_took(&mut info.queue, ts, typed.as_deref());
                     }
                     // Its `last-prompt` line often comes only after the reply has begun (in 104 of
                     // 191 prompts here, 2026-10-15), so the prompt itself says what it's on now.
-                    // A command that took a turn is said on the line before (`ran_a_turn`).
-                    if let Some(p) = typed_text(&v).or_else(|| state.command.take().filter(|_| ran_a_turn(&v))) {
+                    if let Some(p) = typed {
                         // A resume's prompt from Codealong, for a PR's news say, starts with the
                         // line that says so.
                         info.last_prompt = Some(one_line(crate::send::past_sender_lines(&p), 140));
@@ -876,10 +874,10 @@ pub(super) fn ran_a_turn(v: &Value) -> bool {
 /// `dequeue` takes one out with nothing to say which. Claude Code takes the first of the
 /// highest priority (2.1.307's code: `now`, `next`, `later`), which isn't written; prompts and
 /// most notifications are `next`, so it's taken as the first held, and a turn that starts on a
-/// prompt of yours settles what's left of yours (`apply_tail`): replayed over 800 transcripts here
-/// (2026-10-21), that left a message of yours looking held at 12 of 7,509 turns' ends, all
-/// automated prompts in plain words (a loop's), where taking the first alone left 157. Each is
-/// known by the time it came, which is how its send finds it (`queued_as`).
+/// prompt of yours settles what's left of yours (`turn_took`): replayed over 800 transcripts here
+/// (2026-10-21), that left a message of yours looking held at 12 of 7,516 turns' ends, ten of them
+/// automated prompts in plain words (a loop's) and two commands, where taking the first alone left
+/// 157. Each is known by the time it came, which is how its send finds it (`queued_as`).
 pub(super) fn queue_step(queue: &mut Vec<QueuedMessage>, v: &Value) {
     let content = v.get("content").and_then(Value::as_str);
     match v.get("operation").and_then(Value::as_str) {
@@ -918,15 +916,23 @@ fn queued_as_within(path: &Path, text: &str, since: i64, wait: std::time::Durati
     let until = std::time::Instant::now() + wait;
     loop {
         let Ok(len) = std::fs::metadata(path).map(|m| m.len()) else { return None };
-        // Newest first, back to the send.
+        // Newest first, back to the queue's last line from before the send. Only its own lines
+        // are in time order: an attachment is stamped when what it carries came, which can be
+        // seconds before the lines ahead of it.
         let mut held: Vec<QueuedMessage> = Vec::new();
-        scan_lines_back(path, 0, len, |line| {
+        scan_lines_back(path, len.saturating_sub(QUEUE_SCAN), len, |line| {
+            if !line.contains("\"queue-operation\"") {
+                return false;
+            }
             let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+            if v.get("type").and_then(Value::as_str) != Some("queue-operation") {
+                return false;
+            }
             let Some(at) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) else { return false };
             if at < since {
                 return true;
             }
-            if v.get("type").and_then(Value::as_str) == Some("queue-operation") && v.get("operation").and_then(Value::as_str) == Some("enqueue") {
+            if v.get("operation").and_then(Value::as_str) == Some("enqueue") {
                 queue_step(&mut held, &v);
             }
             false
@@ -942,37 +948,49 @@ fn queued_as_within(path: &Path, text: &str, since: i64, wait: std::time::Durati
     }
 }
 
-/// How far before its tail a first read looks for what Claude Code holds (`queue_before`).
-const QUEUE_SCAN: u64 = 4 * 1024 * 1024;
+/// How far back the queue's lines are looked for: by a send, for the one it made (`queued_as`),
+/// and by a first read, before its tail (`queue_before`).
+const QUEUE_SCAN: u64 = 1024 * 1024;
 
-/// What Claude Code held as the tail read from `end` starts (`queue_step`), from its
-/// `queue-operation` lines since the turn running then began (its prompt's line has
-/// `turnPosition`) or the last one ended (`turn_duration`, which only the terminal writes), for
-/// a turn's start takes in what's held of yours: a message can be held while more than the tail
-/// holds is written (a long step's output, a subagent's). A first read looks back for them once,
-/// as far as `QUEUE_SCAN`; later reads carry them forward.
+/// What Claude Code held as the tail read from `end` starts (`queue_step`): a message can be held
+/// while more than the tail holds is written (a long step's output, a subagent's), and a held
+/// command for as long as the turn another command took (`turn_took`). A first read replays the
+/// queue's lines and the turns' prompts from `QUEUE_SCAN` before its tail, once; later reads carry
+/// what's held forward. A prompt's line is known for a turn's by its `turnPosition` (2.1.30x).
 fn queue_before(path: &Path, end: u64) -> Vec<QueuedMessage> {
-    let mut ops: Vec<Value> = Vec::new();
+    let mut lines: Vec<Value> = Vec::new();
     scan_lines_back(path, end.saturating_sub(QUEUE_SCAN), end, |line| {
-        if !line.contains("\"queue-operation\"") && !line.contains("\"turn_duration\"") && !line.contains("\"turnPosition\"") {
-            return false;
+        if line.contains("\"queue-operation\"") || line.contains("\"turnPosition\"") {
+            lines.extend(serde_json::from_str::<Value>(line).ok());
         }
-        let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
-        match v.get("type").and_then(Value::as_str) {
-            Some("system") => v.get("subtype").and_then(Value::as_str) == Some("turn_duration"),
-            Some("user") => v.get("turnPosition").is_some(),
-            Some("queue-operation") => {
-                ops.push(v);
-                false
-            }
-            _ => false,
-        }
+        false
     });
     let mut queue = Vec::new();
-    for v in ops.iter().rev() {
-        queue_step(&mut queue, v);
+    for v in lines.iter().rev() {
+        match v.get("type").and_then(Value::as_str) {
+            Some("queue-operation") => queue_step(&mut queue, v),
+            Some("user") if you_typed(v) => {
+                if let Some(at) = str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
+                    turn_took(&mut queue, at, typed_text(v).as_deref());
+                }
+            }
+            _ => {}
+        }
     }
     queue
+}
+
+/// What a turn that started at `at` on a prompt of yours, typed as `typed`, took in of what Claude
+/// Code held (`queue_step`): every message of yours in words held before it, which it puts in
+/// together, whichever the `dequeue`s are put down to (a notification it never took off can sit
+/// first), and the command it runs, where it's one: held commands (`/`, and `!` for the shell) go
+/// one at a time, each a turn of its own, so the others stay held (2.1.307's code).
+fn turn_took(queue: &mut Vec<QueuedMessage>, at: i64, typed: Option<&str>) {
+    let typed = typed.map(str::trim);
+    if let Some(i) = queue.iter().position(|m| m.at <= at && Some(m.text.trim()) == typed) {
+        queue.remove(i);
+    }
+    queue.retain(|m| m.at > at || prompt_words(&m.text).is_none() || m.text.trim_start().starts_with(['/', '!']));
 }
 
 /// How Claude Code wraps text pasted into a prompt (2.1.28x): the tag, the text on lines of its
@@ -1749,6 +1767,12 @@ pub(super) mod tests {
         assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:09.000Z", "Now the release notes")]);
         lines.push(r#"{"type":"user","timestamp":"2026-10-21T10:00:10.010Z","origin":{"kind":"human"},"message":{"content":"Now the release notes"}}"#.to_string());
         assert_eq!(info(&lines).held(), vec![]);
+        // Held commands go one at a time: the turn the first takes leaves the second held.
+        lines.push(queue_line("2026-10-21T10:00:11.000Z", "enqueue", Some("/review the parser")));
+        lines.push(queue_line("2026-10-21T10:00:12.000Z", "enqueue", Some("/review the docs")));
+        lines.push(queue_line("2026-10-21T10:00:13.000Z", "dequeue", None));
+        lines.push(r#"{"type":"user","timestamp":"2026-10-21T10:00:13.010Z","origin":{"kind":"human"},"message":{"content":"<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>the parser</command-args>"}}"#.to_string());
+        assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:12.000Z", "/review the docs")]);
     }
 
     #[test]
@@ -1761,6 +1785,8 @@ pub(super) mod tests {
             r#"{"type":"assistant","timestamp":"2026-10-21T09:59:58.500Z","message":{"stop_reason":"tool_use","content":[]}}"#.to_string(),
             queue_line("2026-10-21T10:00:00.120Z", "enqueue", Some("<task-notification>\n</task-notification>")),
             queue_line("2026-10-21T10:00:00.200Z", "enqueue", Some("Fix it")),
+            // Stamped when what it carries came, before the lines ahead of it.
+            r#"{"type":"attachment","timestamp":"2026-10-21T09:59:50.000Z","attachment":{"type":"queued_command","prompt":"Earlier"}}"#.to_string(),
         ];
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
         let quick = std::time::Duration::from_millis(50);
