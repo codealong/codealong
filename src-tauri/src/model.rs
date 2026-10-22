@@ -353,6 +353,10 @@ pub struct PrItem {
     /// Whose move it is, where that says more than its review state (`board::turn_of`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn: Option<Turn>,
+    /// What this machine's automatic reviews of it come to (autoreview.rs `shared_review`), as its
+    /// feed tells your other machines (peerfeed.rs), which weigh it as this one does.
+    #[serde(skip)]
+    pub shared_review: codealong_peer::pr::SharedReview,
 }
 
 /// Whose move an open PR is, where its review state doesn't say: GitHub keeps a request for
@@ -497,6 +501,10 @@ pub struct AutoReview {
     pub submitted: Option<crate::github::Verdict>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submitted_at: Option<i64>,
+    /// The machine whose review this is, when it's another of yours: your machines review a PR
+    /// on one of them (autoreview.rs `reviewer_of`), and the others show its round.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
 }
 
 /// Where the reviewer's part in a round stands (autoreview.rs).

@@ -94,6 +94,7 @@ mod runcode;
 mod schedules;
 mod search;
 mod setup;
+mod shared;
 mod side;
 mod skills;
 mod sounds;
@@ -2059,6 +2060,7 @@ pub fn run() {
                             // The engine goes by what they run too (nudges.rs `running_elsewhere`).
                             if let Some(engine) = runs.get() {
                                 engine.peer_lanes(&view.lanes);
+                                engine.peer_machines(view.machines.clone());
                             }
                             let _ = emits.emit("devices", view);
                         }),

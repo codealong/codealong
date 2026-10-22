@@ -618,6 +618,7 @@ name = ""                      # this machine's name on your other devices; "" i
 tailscale = true               # find them on your tailnet
 iroh = true                    # reach linked devices anywhere
 remote_control = false         # let linked devices act on sessions here
+automations = "first"          # what your machines share (a review of a PR that asks for yours) runs on one; "backup" runs it only when no first choice can
 
 [limits]
 when_hit = "suggest"           # a session stopped at its usage limit offers a move; "move" moves it (Settings › Automation)

@@ -81,6 +81,67 @@ pub struct PrCard {
     /// from Macs before 2026-10-16.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_review: Option<AutoReview>,
+    /// What the sending machine's automatic reviews of it come to, for your other machines.
+    /// Missing from machines before 2026-10-22, which share no reviews.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_review: Option<SharedReview>,
+}
+
+/// What a machine's automatic reviews of a PR come to, for your other machines: which of them
+/// reviews it (the engine's autoreview.rs `reviewer_of`, which weighs a machine's own the same
+/// way), and whether it waits on you again (`brought_back`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SharedReview {
+    /// It reviews the PR by itself when that's its to do: its reviews are on for it, and it has a
+    /// checkout of its repo.
+    pub would: bool,
+    /// Its latest round of the commit the PR is at, as it has the PR.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub round: Option<Claim>,
+    /// When its latest review of the PR that got done ended: the machine whose ended last keeps
+    /// the PR.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_done: Option<i64>,
+    /// The latest review it submitted for you by itself (`[reviews] submit`), which brings the PR
+    /// back to wait on you once commits come after it; none when the latest was submitted from the
+    /// PR's box, which was yours.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub submitted: Option<Submitted>,
+}
+
+/// A machine's round of a commit, as your machines weigh it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Claim {
+    pub head: String,
+    pub state: ClaimState,
+    /// When it began, or ended once it has.
+    pub at: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClaimState {
+    /// Its review got done: posted, drafted, kept, or passed on.
+    Done,
+    UnderWay,
+    /// It didn't get done, and its machine doesn't try the commit again by itself.
+    Failed,
+    /// It ended for another machine's round of the commit, and holds nothing.
+    GaveWay,
+    /// One a later version names.
+    #[serde(other)]
+    Other,
+}
+
+/// A review Codealong submitted for you by itself: of which commit, as what, and when.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Submitted {
+    pub head: String,
+    pub verdict: Verdict,
+    pub at: i64,
 }
 
 /// The latest round of Codealong's automatic review of a PR (the engine's autoreview.rs), as the
@@ -97,6 +158,10 @@ pub struct AutoReview {
     /// What its review was submitted as yours as (`[reviews] submit`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submitted: Option<Verdict>,
+    /// When the round began, or ended once it has: the latest round of a PR among your machines
+    /// says which of them goes on reviewing it. 0 from machines before 2026-10-22.
+    #[serde(default)]
+    pub at: i64,
 }
 
 /// Where a round of the automatic review stands.

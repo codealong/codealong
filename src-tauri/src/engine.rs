@@ -135,6 +135,8 @@ pub enum Msg {
     Nudged(Option<String>),
     /// The PRs another of your devices runs a session on (nudges.rs `running_elsewhere`).
     RunningElsewhere(std::collections::BTreeSet<String>),
+    /// Your other machines that share automations, as their feeds said (shared.rs).
+    Machines(crate::shared::Machines),
     /// A session told what a command you ran for it printed (terminal.rs `report_ended`), and why
     /// it wasn't if it wasn't.
     RunReported(Option<String>),
@@ -409,6 +411,12 @@ impl Handle {
     /// `stopped_primaries`).
     pub fn peer_lanes(&self, lanes: &[Lane]) {
         let _ = self.tx.send(Msg::RunningElsewhere(crate::nudges::running_elsewhere(lanes)));
+    }
+
+    /// Your machines that share automations, as their feeds say (peers.rs `machines`): which of
+    /// them reviews each PR that asks for yours (autoreview.rs `reviewer_of`).
+    pub fn peer_machines(&self, machines: crate::shared::Machines) {
+        let _ = self.tx.send(Msg::Machines(machines));
     }
 
     /// How telling a session what a command you ran for it printed went (terminal.rs
@@ -1191,6 +1199,8 @@ struct Engine {
     nudge_warning: Option<String>,
     /// The PRs another of your devices runs a session on (`Handle::peer_lanes`).
     running_elsewhere: std::collections::BTreeSet<String>,
+    /// Your machines that share automations (`Handle::peer_machines`).
+    machines: crate::shared::Machines,
     /// Why a session wasn't told what a command you ran for it printed.
     run_report_warning: Option<String>,
     continue_warning: Option<String>,
@@ -1339,6 +1349,7 @@ impl Engine {
             limit_move_warning: None,
             nudge_warning: None,
             running_elsewhere: Default::default(),
+            machines: Default::default(),
             run_report_warning: None,
             continue_warning: None,
             rerequest_warning: None,
@@ -2187,6 +2198,11 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.dirty = true;
                 }
                 Ok(Msg::RunningElsewhere(_)) => {}
+                Ok(Msg::Machines(m)) if m != self.machines => {
+                    self.machines = m;
+                    self.dirty = true;
+                }
+                Ok(Msg::Machines(_)) => {}
                 Ok(Msg::RunReported(why)) => {
                     self.run_report_warning = why;
                     self.dirty = true;
@@ -3546,6 +3562,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             reusable: &self.reusable,
             review_snoozes: &self.seen.review_snoozes,
             auto_reviews: (&self.reviews, &self.cfg.reviews, &repo_settings),
+            machines: &self.machines,
             session_settings: &self.cfg.sessions,
         });
         // Starts in a terminal that never made their session: the board has nothing else of them.
@@ -3934,7 +3951,7 @@ fn file_marks(path: &Path) -> (Vec<(String, i64)>, Vec<(String, i64)>, Vec<crate
 /// A hash of everything the UI shows except the timestamp, so identical boards aren't resent.
 /// The board is hashed as it's written out, with its timestamp set aside meanwhile: it's some
 /// 450 KB, and neither a copy of it nor its text is made for this.
-fn board_hash(board: &mut Board) -> u64 {
+pub(crate) fn board_hash(board: &mut Board) -> u64 {
     use std::hash::Hasher;
     struct Hashed(std::collections::hash_map::DefaultHasher);
     impl std::io::Write for Hashed {
@@ -3951,11 +3968,13 @@ fn board_hash(board: &mut Board) -> u64 {
     // Neither what's read of the repos' team files, which limits have lifted long enough to be
     // carried on, nor which PRs' unsaid fixes have settled long enough to ask their reviewer about
     // is sent, but what acts on the board waits on them; the last two come with time alone, which
-    // the heartbeat's board then goes out for.
+    // the heartbeat's board then goes out for. Nor what this machine's reviews of each PR come to,
+    // which goes to your other machines in its feed (peerfeed.rs).
     let lifted = crate::reconnect::lifted(board, board.generated_at);
     let settled: Vec<String> = crate::rerequest::settled(board, board.generated_at).into_iter().map(String::from).collect();
+    let shared: Vec<&codealong_peer::pr::SharedReview> = board.prs.iter().map(|p| &p.shared_review).collect();
     let at = std::mem::take(&mut board.generated_at);
-    let written = serde_json::to_writer(&mut out, board).and_then(|()| serde_json::to_writer(&mut out, &(board.repo_settings.readiness(), lifted, settled)));
+    let written = serde_json::to_writer(&mut out, &*board).and_then(|()| serde_json::to_writer(&mut out, &(board.repo_settings.readiness(), lifted, settled, shared)));
     board.generated_at = at;
     // A board that can't be written out hashes as nothing at all, as it did.
     match (written, out.into_inner()) {

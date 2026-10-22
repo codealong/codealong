@@ -221,7 +221,7 @@ describe('review comments', () => {
     // As autoreview.rs `signed` ends one.
     const signed = (commit: string, how: string) => `\n\n<sub>An agent's review (Codex, gpt-6-astra) of ${commit.slice(0, 7)}, ${how} by Codealong.</sub>\n<!-- codealong-review o/r#7 ${commit} -->`;
     const [one, two, three, four] = ['6a00420be3', 'd07730f309', 'c2a5d6b9f7', 'b4908ef58e'];
-    // specbook#1293, newest first: two passes asked for changes (the review posted as a comment,
+    // A PR seen on 2026-10-22, newest first: two passes asked for changes (the review posted as a comment,
     // then a request for changes linking to it), each followed by one at the next commit that
     // found them fixed, posted as a comment only.
     const thread = [

@@ -96,6 +96,9 @@ use crate::engine::Handle;
 use crate::github::{LineComment, PendingReview, Verdict};
 use crate::model::{AutoReview, Board, Harness, Lane, LastReviewState, PartState, PrItem, PrState, ReviewPart, ReviewStage, Session, Status, TurnKind};
 use crate::prlinks::pr_key;
+use crate::shared::{self, Machine, Machines};
+use codealong_peer::feed::Rank;
+use codealong_peer::pr::{Claim, ClaimState, SharedReview};
 use crate::start::{Place, ResumeIn, StartSpec};
 use crate::transcript::Item;
 use crate::util::{now_ms, DAY_MS};
@@ -134,6 +137,19 @@ const COMMENT_MAX: usize = 60_000;
 /// How long a PR that waits on your review is held out of what waits on you for a review that
 /// isn't done (`apply`): one that takes longer, or never starts, hands it to you.
 const HOLD_MS: i64 = 2 * 60 * 60_000;
+/// Why this machine's round of a commit ended without its review: another machine of yours has
+/// the commit's (`reviewer_of`), done first or begun first, so only one review of it goes to GitHub
+/// and only that one is submitted for you.
+const ELSEWHERE: &str = "Another machine of yours reviewed this commit first, so this one's review of it isn't posted.";
+
+/// The round ended for another machine's of its commit (`ELSEWHERE`): it holds nothing here.
+fn gave_way(r: &Round) -> bool {
+    r.stage == ReviewStage::Failed && r.note.as_deref() == Some(ELSEWHERE)
+}
+/// How long after your review of a PR was asked for a machine ahead of this one in line that
+/// doesn't list the PR yet is waited for, to review it (`reviewer_of`): each machine reads GitHub
+/// at its own times, and one may not have read it yet.
+const LISTS_WITHIN_MS: i64 = 5 * 60_000;
 /// How much later than Codealong's clock GitHub may date a review Codealong submitted, which
 /// GitHub dates before Codealong hears it went (`back_with_you`): the clocks' difference, with
 /// little room for a review of yours given just after.
@@ -533,8 +549,9 @@ pub enum Job {
     /// at `effort`.
     CarryOn { pr: PrItem, head: String, part: usize, session: String, model: Option<String>, effort: Option<String> },
     /// Post the round's review, written by `agent`. `round`: when the round began, which tells its
-    /// review from another of the same commit in your draft (`draft_mark`).
-    Post { pr: PrItem, head: String, review: String, agent: String, round: i64 },
+    /// review from another of the same commit in your draft (`draft_mark`). `by_hand`: the round
+    /// was asked for with Review with…, which posts beside a review of the commit already there.
+    Post { pr: PrItem, head: String, review: String, agent: String, round: i64, by_hand: bool },
     /// Hand a PR of yours' review of commit `head`, written by `agent`, to `session`, the one
     /// that opened it.
     Send { pr: PrItem, head: String, session: String, review: String, agent: String },
@@ -670,6 +687,112 @@ fn wanted(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
         cfg.own.auto && wants_own(cfg, lanes, pr)
     } else {
         cfg.auto && wants(pr)
+    }
+}
+
+/// This machine has a checkout of a PR's repo, where a review of it starts (side.rs `pr_lane`).
+fn has_checkout(lanes: &[Lane], pr: &PrItem) -> bool {
+    lanes.iter().any(|l| l.device.is_none() && [&l.repo_slug, &l.repo_slug_now].iter().any(|s| s.as_deref().is_some_and(|s| s.eq_ignore_ascii_case(&pr.repo_slug))))
+}
+
+/// Which of your machines reviews a PR that asks for your review, where they share automations
+/// (shared.rs): this one (None), or another, with its latest round of the PR when it has one.
+/// `mine` is what this machine's reviews of it come to (`shared_review`), weighed just as another
+/// machine's are from its card, so every machine works out the same one; a PR of yours is
+/// reviewed where the session that opened it is, so always here. In this order:
+///
+/// 1. The PR's commit goes to a machine with a round of it: one that got done, wherever it is,
+///    else the first begun of those under way on machines around that would still review it, a
+///    machine's key settling a tie. So a machine that went away partway is passed over, and one
+///    that comes back to find another took the commit up drops its own (`due`), and takes it up
+///    again should that one go away in turn. A round that didn't get done claims nothing: another
+///    machine may try it, while this one doesn't try again by itself.
+/// 2. The PR stays with the machine whose review of it got done last, while that machine is around
+///    and would review it, and hasn't tried its commit: its session knows the PR, and reviews the
+///    commits since as such.
+/// 3. Else the first in line (`shared::place`) of the machines around that would review it and
+///    haven't tried its commit. A machine around that comes before this one and doesn't list the
+///    PR yet is waited for, a while from when your review was asked for: each machine reads GitHub
+///    at its own times.
+pub fn reviewer_of<'a>(pr: &PrItem, mine: &SharedReview, machines: &'a Machines, now: i64) -> Option<(&'a Machine, Option<&'a codealong_peer::pr::AutoReview>)> {
+    let me = machines.me.as_ref()?;
+    if pr.mine {
+        return None;
+    }
+    let head = pr.head_oid.as_deref()?;
+    // Each machine as the rules weigh it, this one too: by what it says of its reviews of the PR.
+    struct Seat<'a, 's> {
+        machine: Option<&'a Machine>,
+        key: &'a str,
+        rank: Rank,
+        around: bool,
+        said: &'s SharedReview,
+    }
+    let mut seats = vec![Seat { machine: None, key: me.key.as_str(), rank: me.rank, around: true, said: mine }];
+    for m in &machines.others {
+        if let Some(said) = m.pr(&pr.key).and_then(|c| c.shared_review.as_ref()) {
+            seats.push(Seat { machine: Some(m), key: m.key.as_str(), rank: m.rank, around: m.around(now), said });
+        }
+    }
+    let at_head = |s: &SharedReview| s.round.as_ref().filter(|c| c.head == head).map(|c| (c.state, c.at));
+    let shown = |m: &'a Machine| (m, m.pr(&pr.key).and_then(|c| c.auto_review.as_ref()));
+    // 1. A round of the commit: one done before one under way, then the first begun, then by key.
+    let first = seats
+        .iter()
+        .filter_map(|x| match at_head(x.said)? {
+            (ClaimState::Done, at) => Some(((false, at, x.key), x.machine)),
+            (ClaimState::UnderWay, at) if x.around && x.said.would => Some(((true, at, x.key), x.machine)),
+            _ => None,
+        })
+        .min_by(|a, b| a.0.cmp(&b.0));
+    if let Some((_, m)) = first {
+        return m.map(shown);
+    }
+    // One here that didn't get done keeps the commit here, as it would with no other machine; one
+    // that gave way to another machine's doesn't.
+    if at_head(mine).is_some_and(|(state, _)| state == ClaimState::Failed) {
+        return None;
+    }
+    // 2. The machine whose review got done last, of those around that would review it now and
+    // haven't tried its commit, which they wouldn't again by themselves.
+    let tried = |s: &SharedReview| at_head(s).is_some_and(|(state, _)| state == ClaimState::Failed);
+    let last = seats.iter().filter(|x| x.around && x.said.would && !tried(x.said)).filter_map(|x| Some(((x.said.last_done?, std::cmp::Reverse(x.key)), x.machine))).max_by(|a, b| a.0.cmp(&b.0));
+    if let Some((_, m)) = last {
+        return m.map(shown);
+    }
+    // 3. The first in line that would review it and hasn't tried its commit, waiting a while for
+    // one ahead that doesn't list the PR yet.
+    let asked = pr.requested_at.unwrap_or(pr.updated_at);
+    let mut line: Vec<((Rank, &str), Option<&'a Machine>)> = seats.iter().filter(|x| x.around && x.said.would && !tried(x.said)).map(|x| ((x.rank, x.key), x.machine)).collect();
+    let mine_place = shared::place(me.rank, &me.key);
+    line.extend(machines.others.iter().filter(|m| m.around(now) && m.pr(&pr.key).is_none() && shared::place(m.rank, &m.key) < mine_place && now - asked < LISTS_WITHIN_MS).map(|m| ((m.rank, m.key.as_str()), Some(m))));
+    line.sort_by(|a, b| a.0.cmp(&b.0));
+    line.into_iter().next()?.1.map(shown)
+}
+
+/// What this machine's reviews of a PR come to, for which of your machines reviews it
+/// (`reviewer_of`): worked out the same way here from its own reviews and there from its card
+/// (peerfeed.rs). `head` is the commit the PR is at, `would` whether this machine reviews it by
+/// itself.
+fn shared_review(t: Option<&Tracked>, head: &str, would: bool) -> SharedReview {
+    let rounds = t.map(|t| t.rounds.as_slice()).unwrap_or_default();
+    SharedReview {
+        would,
+        round: rounds.iter().rev().find(|r| r.head == head).map(|r| Claim { head: r.head.clone(), state: claim_state(r.stage, gave_way(r)), at: r.ended_at.unwrap_or(r.at) }),
+        last_done: rounds.iter().rev().find(|r| claim_state(r.stage, false) == ClaimState::Done).map(|r| r.ended_at.unwrap_or(r.at)),
+        submitted: t.and_then(submitted_for_you),
+    }
+}
+
+/// How a round counts for which machine reviews its commit (`reviewer_of`).
+fn claim_state(stage: ReviewStage, gave_way: bool) -> ClaimState {
+    match stage {
+        ReviewStage::Posted | ReviewStage::Drafted | ReviewStage::Kept | ReviewStage::Skipped => ClaimState::Done,
+        ReviewStage::Reviewing => ClaimState::UnderWay,
+        ReviewStage::Failed if gave_way => ClaimState::GaveWay,
+        ReviewStage::Failed => ClaimState::Failed,
+        // Only ever shown, never kept.
+        ReviewStage::Queued => ClaimState::Other,
     }
 }
 
@@ -879,7 +1002,7 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
         return if changed { Next::Changed } else { Next::Wait };
     }
     if let Some(p) = r.parts.iter().find(|p| p.state == PartState::Done) {
-        return Next::Job(Job::Post { pr: pr.clone(), head: r.head.clone(), review: p.review.clone().unwrap_or_default(), agent: p.label(), round: r.at });
+        return Next::Job(Job::Post { pr: pr.clone(), head: r.head.clone(), review: p.review.clone().unwrap_or_default(), agent: p.label(), round: r.at, by_hand: r.by_hand });
     }
     let skip = r.parts.iter().find(|p| p.state == PartState::Skipped).and_then(|p| p.note.clone());
     let why = r.parts.iter().filter_map(|p| p.note.as_deref()).collect::<Vec<_>>().join(" ");
@@ -984,7 +1107,15 @@ impl Reviewer {
             let cfg = cfg.as_ref();
             let want = wanted(cfg, &board.lanes, pr);
             let on = on(cfg);
+            // Another machine of yours has its review (`reviewer_of`).
+            let elsewhere = pr.auto_review.as_ref().is_some_and(|a| a.machine.is_some());
             if let Some(r) = self.store.prs.get_mut(&key).and_then(|t| t.rounds.last_mut()).filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) {
+                // That machine's round of this commit came first: this one's gives way.
+                if elsewhere && !r.by_hand && r.head == head {
+                    end(r, ReviewStage::Failed, Some(ELSEWHERE.into()), now);
+                    changed = true;
+                    continue;
+                }
                 match next(r, board, pr, &head, want, now) {
                     Next::Job(job) => {
                         self.busy.insert(key);
@@ -1002,7 +1133,7 @@ impl Reviewer {
             }
             // What its repo's team sets for it (words for its reviewer, verdicts never submitted)
             // isn't read yet: its review and what's submitted for you wait for it.
-            if settings.pending(pr) {
+            if settings.pending(pr) || elsewhere {
                 continue;
             }
             if let Some((r, verdict)) = self.store.prs.get(&key).and_then(|t| t.rounds.last()).and_then(|r| Some((r, submit_due(cfg, pr, r, &head)?))) {
@@ -1018,7 +1149,7 @@ impl Reviewer {
             if review_seat(board, pr, seat_for(cfg, t, &board.lanes, pr), false).is_none() {
                 continue;
             }
-            if t.is_some_and(|t| t.rounds.iter().any(|r| r.head == head)) {
+            if t.is_some_and(|t| t.rounds.iter().any(|r| r.head == head && !gave_way(r))) {
                 continue;
             }
             let again = t.is_some_and(|t| !t.rounds.is_empty());
@@ -1379,23 +1510,31 @@ fn asked_to_review(board: &Board, store: &Store, global: &ReviewsCfg, review: &S
 }
 
 /// Has the PRs that wait on your review again, though GitHub asks nobody, say so: commits came
-/// after the review Codealong submitted for you (`back_with_you`), or its author wrote after you
-/// did, you or your agent's review having written on it first (`TurnKind::AuthorReplied`, board.rs
-/// `turn_of`), which waits on you since then. An answer to you left where only its badge said so
-/// was lost among the PRs nobody asked you of (2026-10-22). Before the snoozes and `apply`, which go
-/// by whether a PR waits on you, so it's reviewed as any PR that does, once for each commit: an
-/// author's words alone start nothing the agent hasn't done. Only in the repos whose PRs are read
-/// (`board::polled_slugs`): another's are kept as last read, and GitHub's search has the last word
-/// on them (`board::pr_items`).
-pub fn asked_again(prs: &mut [PrItem], store: &Store, polled: &BTreeSet<String>) {
+/// after the review Codealong submitted for you, here or on another machine of yours
+/// (`back_with_you`, `back_there`), or its author wrote after you did, you or your agent's review
+/// having written on it first (`TurnKind::AuthorReplied`, board.rs `turn_of`), which waits on you
+/// since then. An answer to you left where only its badge said so was lost among the PRs nobody
+/// asked you of (2026-10-22). Before the snoozes and `apply`, which go by whether a PR waits on
+/// you, so it's reviewed as any PR that does, once for each commit: an author's words alone start
+/// nothing the agent hasn't done. Only in the repos whose PRs are read (`board::polled_slugs`):
+/// another's are kept as last read, and GitHub's search has the last word on them
+/// (`board::pr_items`).
+pub fn asked_again(prs: &mut [PrItem], store: &Store, polled: &BTreeSet<String>, machines: &Machines) {
     for pr in prs.iter_mut().filter(|p| polled.contains(&p.repo_slug) && !p.review_requested) {
         if let Some(turn) = pr.turn.as_ref().filter(|t| t.kind == TurnKind::AuthorReplied) {
             pr.requested_at = turn.since;
             pr.review_requested = true;
-        } else if store.prs.get(&pr_key(&pr.key)).is_some_and(|t| back_with_you(pr, t)) {
+        } else if store.prs.get(&pr_key(&pr.key)).is_some_and(|t| back_with_you(pr, t)) || back_there(pr, machines) {
             pr.review_requested = true;
         }
     }
+}
+
+/// Whether a review another machine of yours submitted for you brings a PR back to wait on you
+/// here too (`brought_back`), as it does there: so it waits on you on every machine, and if that
+/// machine is away, its review of the commits since is taken up here (`reviewer_of`).
+fn back_there(pr: &PrItem, machines: &Machines) -> bool {
+    machines.others.iter().filter_map(|m| m.pr(&pr.key)?.shared_review.as_ref()?.submitted.as_ref()).any(|s| brought_back(pr, s))
 }
 
 /// Whether a PR that doesn't ask for your review waits on it again: Codealong submitted its
@@ -1403,27 +1542,42 @@ pub fn asked_again(prs: &mut [PrItem], store: &Store, polled: &BTreeSet<String>)
 /// changes, that's still the review GitHub has of yours, and commits have come after the commit
 /// it was of, the author's answer to it. GitHub ends a request to you at any review you submit,
 /// and an author who pushes the fixes and asks for your approval in a comment rather than asking
-/// GitHub again left specbook#1278 waiting on nobody (2026-10-20). The commit is the round's: a
-/// draft begun on an earlier one keeps that one on GitHub. Only this Mac, which submitted it,
-/// knows; who asked, and since when, is left unsaid. A submission kept before saying whether it
-/// was by hand is taken for `[reviews] submit`'s when it came as soon as that submits. Where it
-/// guesses wrong (one from the box that soon, a review of yours within `SUBMITTED_SLACK_MS` of
-/// Codealong's), the PR asks you to look at the author's new commits, as an author asking again
-/// would; the other way, it would leave their answer waiting on nobody.
+/// GitHub again left a PR waiting on nobody (2026-10-20). The commit is the round's: a
+/// draft begun on an earlier one keeps that one on GitHub. Only the machine that submitted it
+/// knows, and tells your other machines (`back_there`); who asked, and since when, is left unsaid.
+/// A submission kept before saying whether it was by hand is taken for `[reviews] submit`'s when it
+/// came as soon as that submits. Where it guesses wrong (one from the box that soon, a review of
+/// yours within `SUBMITTED_SLACK_MS` of Codealong's), the PR asks you to look at the author's new
+/// commits, as an author asking again would; the other way, it would leave their answer waiting on
+/// nobody.
 fn back_with_you(pr: &PrItem, t: &Tracked) -> bool {
+    submitted_for_you(t).is_some_and(|s| brought_back(pr, &s))
+}
+
+/// The latest review this machine submitted for you by itself (`[reviews] submit`), unless the
+/// latest was from the PR's box: what brings the PR back to wait on you (`back_with_you`), here
+/// and, through its feed, on your other machines (`back_there`).
+fn submitted_for_you(t: &Tracked) -> Option<codealong_peer::pr::Submitted> {
+    let (r, s) = t.rounds.iter().rev().find_map(|r| Some((r, r.submitted.as_ref().filter(|s| s.failed.is_none())?)))?;
+    let by_hand = s.by_hand.unwrap_or_else(|| r.ended_at.is_none_or(|posted| s.at - posted > SUBMITS_WITHIN_MS));
+    (!by_hand).then(|| codealong_peer::pr::Submitted { head: r.head.clone(), verdict: s.verdict.into(), at: s.at })
+}
+
+/// Whether review `s`, submitted for you as a comment or a request for changes, brings a PR that
+/// asks nobody back to wait on you: it's still the review GitHub has of yours, and commits came
+/// after its commit.
+fn brought_back(pr: &PrItem, s: &codealong_peer::pr::Submitted) -> bool {
     if pr.review_requested || pr.mine || !pr.state.is_open() || pr.state == PrState::Draft {
         return false;
     }
     let Some(head) = pr.head_oid.as_deref() else { return false };
-    let Some((r, s)) = t.rounds.iter().rev().find_map(|r| Some((r, r.submitted.as_ref().filter(|s| s.failed.is_none())?))) else { return false };
-    let state = match s.verdict {
+    let state = match Verdict::from(s.verdict) {
         Verdict::Comment => LastReviewState::Commented,
         Verdict::RequestChanges => LastReviewState::Changes,
         Verdict::Approve => return false,
     };
     let still = pr.last_review.as_ref().is_some_and(|l| l.state == state && l.at.is_some_and(|at| at <= s.at + SUBMITTED_SLACK_MS));
-    let by_hand = s.by_hand.unwrap_or_else(|| r.ended_at.is_none_or(|posted| s.at - posted > SUBMITS_WITHIN_MS));
-    !by_hand && still && r.head != head
+    still && s.head != head
 }
 
 /// Each PR's automatic review, for its card, from reviews.json (`Store`): its latest round, else
@@ -1436,7 +1590,7 @@ fn back_with_you(pr: &PrItem, t: &Tracked) -> bool {
 /// its author pushed again is held for the new commits' review like any other, its approval
 /// (`approved`) kept for its card to say. A PR of yours is never held: it says where its review
 /// went back to, or why it hasn't, and whether the session that opened it can be sent it now.
-pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &crate::config::SessionsCfg, settings: &crate::teamfile::RepoSettings, lanes: &[Lane], now: i64) {
+pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &crate::config::SessionsCfg, settings: &crate::teamfile::RepoSettings, lanes: &[Lane], machines: &Machines, now: i64) {
     for pr in prs {
         let cfg = settings.reviews(global, pr);
         let cfg = cfg.as_ref();
@@ -1447,6 +1601,12 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &
         let head = pr.head_oid.clone().unwrap_or_default();
         let since = pr.requested_at.unwrap_or(0).max(pr.updated_at);
         let own = pr.mine;
+        pr.shared_review = shared_review(t, &head, wanted && !own && has_checkout(lanes, pr));
+        // Another machine of yours reviews it: its round shows here, and none starts here (`due`).
+        if let Some((m, r)) = wants(pr).then(|| reviewer_of(pr, &pr.shared_review, machines, now)).flatten() {
+            pr.auto_review = Some(elsewhere(&head, m, r, since, now));
+            continue;
+        }
         let approves = t.filter(|_| wants(pr)).and_then(approved);
         let paused = blocked && (wants_review || (own && cfg.own.send));
         let holds = wanted
@@ -1478,10 +1638,56 @@ pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &
                 sent: r.sent.as_ref().filter(|s| s.failed.is_none()).map(|s| s.session.clone()),
                 sent_at: r.sent.as_ref().filter(|s| s.failed.is_none()).map(|s| s.at),
                 sendable: (own && r.stage == ReviewStage::Kept).then(|| origin(lanes, pr)).flatten().filter(|(_, s)| can_take(s)).map(|(_, s)| s.key.clone()),
+                machine: None,
             }),
-            None if wants_review => Some(AutoReview { stage: if blocked { ReviewStage::Skipped } else { ReviewStage::Queued }, head, parts: Vec::new(), at: since, comment: None, note: blocked.then(|| FLAGGED_REVIEW.into()), rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None }),
+            None if wants_review => Some(AutoReview { stage: if blocked { ReviewStage::Skipped } else { ReviewStage::Queued }, head, parts: Vec::new(), at: since, comment: None, note: blocked.then(|| FLAGGED_REVIEW.into()), rounds: 0, behind: false, holds, own, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None, machine: None }),
             None => None,
         };
+    }
+}
+
+/// Another machine's round of a PR that waits on your review, as this machine's card shows it
+/// (`reviewer_of`): the one under way or done there, else the one to come there. It holds the PR
+/// out of what waits on you as a round here would, until its review of the PR's commit `head` is
+/// done.
+fn elsewhere(head: &str, m: &Machine, r: Option<&codealong_peer::pr::AutoReview>, since: i64, now: i64) -> AutoReview {
+    use codealong_peer::pr::ReviewStage as S;
+    let stage = r.map_or(ReviewStage::Queued, |r| match r.stage {
+        S::Queued | S::Other => ReviewStage::Queued,
+        S::Reviewing => ReviewStage::Reviewing,
+        S::Posted => ReviewStage::Posted,
+        S::Drafted => ReviewStage::Drafted,
+        S::Kept => ReviewStage::Kept,
+        S::Skipped => ReviewStage::Skipped,
+        S::Failed => ReviewStage::Failed,
+    });
+    let of = r.map_or(head, |r| r.head.as_str());
+    let at = r.map_or(since, |r| if r.at > 0 { r.at } else { since });
+    let holds = match stage {
+        _ if of != head => now - since < HOLD_MS,
+        ReviewStage::Queued => now - since < HOLD_MS,
+        ReviewStage::Reviewing => now - at < HOLD_MS,
+        _ => false,
+    };
+    AutoReview {
+        stage,
+        head: of.to_string(),
+        parts: Vec::new(),
+        at,
+        comment: None,
+        note: None,
+        rounds: 1,
+        behind: of != head,
+        holds,
+        own: false,
+        sent: None,
+        sent_at: None,
+        sendable: None,
+        suggests: r.and_then(|r| r.suggests).map(Into::into),
+        approves: None,
+        submitted: r.and_then(|r| r.submitted).map(Into::into),
+        submitted_at: None,
+        machine: Some(m.name.clone()),
     }
 }
 
@@ -1890,7 +2096,27 @@ fn draft_link(pr: &PrItem) -> String {
 /// as they are now. A draft that has this round's review already (its mark, `draft_mark`) is left
 /// as it is: a post tried again after adding part of it doesn't add it twice. Another round's
 /// review of the same commit, asked for by hand, goes in after it.
-fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, agent: &str, round: i64) -> Went {
+/// A review of a commit your draft review has already.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Drafted {
+    /// This round's, put there before a restart.
+    This,
+    /// Another machine's, written while this one wrote its own (`reviewer_of`): this one's isn't
+    /// added, and only that one is submitted for you.
+    Another,
+}
+
+/// Which review of commit `head` your draft review, with text `body`, has already, for round
+/// `round`. A round asked for by hand goes beside another's.
+fn in_draft(body: &str, pr_key_: &str, head: &str, round: i64, by_hand: bool) -> Option<Drafted> {
+    if body.contains(&draft_mark(pr_key_, head, round)) {
+        Some(Drafted::This)
+    } else {
+        (!by_hand && body.contains(&marker(pr_key_, head))).then_some(Drafted::Another)
+    }
+}
+
+fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, agent: &str, round: i64, by_hand: bool) -> Went {
     let diff = match crate::github::pr_diff(&pr.repo_slug, pr.number) {
         Ok(d) => d,
         Err(e) => return Went::PostFailed(format!("its diff couldn't be read: {e:#}")),
@@ -1899,8 +2125,10 @@ fn draft(pr: &PrItem, head: &str, summary: &str, comments: Vec<LineComment>, age
         Ok(p) => p,
         Err(e) => return Went::PostFailed(format!("{e:#}")),
     };
-    if pending.as_ref().is_some_and(|p| p.body.contains(&draft_mark(&pr.key, head, round))) {
-        return Went::Drafted(draft_link(pr));
+    match pending.as_ref().and_then(|p| in_draft(&p.body, &pr.key, head, round, by_hand)) {
+        Some(Drafted::This) => return Went::Drafted(draft_link(pr)),
+        Some(Drafted::Another) => return Went::Failed(ELSEWHERE.into()),
+        None => {}
     }
     let plan = draft_plan(summary, comments, &commentable(&diff), pending.as_ref(), pr, head, agent, round);
     let done = match &plan.add_to {
@@ -2176,7 +2404,7 @@ fn carry_on(engine: &Handle, pr: &PrItem, session: &str, model: Option<&str>, ef
 
 /// Posts a round's review where config.toml says, unless the PR ended or moved on before it was
 /// done.
-fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, round: i64) -> Went {
+fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, round: i64, by_hand: bool) -> Went {
     let board = engine.board();
     let cfg = match crate::config::current() {
         Ok(c) => c,
@@ -2190,6 +2418,10 @@ fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, rou
     if pr.head_oid.as_deref().is_some_and(|h| h != head) {
         return Went::Failed(format!("{not}: new commits came in before it was done."));
     }
+    // Another machine of yours came to have the commit's review since this job was due.
+    if !by_hand && pr.auto_review.as_ref().is_some_and(|a| a.machine.is_some()) {
+        return Went::Failed(ELSEWHERE.into());
+    }
     // A review of a PR of yours stays here, and goes back to its session from there
     // (`Job::Send`), never to GitHub.
     if pr.mine {
@@ -2198,14 +2430,26 @@ fn post(engine: &Handle, pr: &PrItem, head: &str, review: &str, agent: &str, rou
     let (summary, comments) = parse_reply(review);
     match board.repo_settings.reviews(&cfg.reviews, pr).post {
         ReviewPost::None => Went::Kept(None),
-        ReviewPost::Draft => draft(pr, head, &summary, comments, agent, round),
-        ReviewPost::Comment => match crate::github::comment(&pr.repo_slug, pr.number, &comment_body(&summary, &comments, pr, head, agent)) {
-            Ok(link) => {
-                engine.pr_changed();
-                Went::Posted(link)
-            }
-            Err(e) => Went::PostFailed(format!("{e:#}")),
+        ReviewPost::Draft => draft(pr, head, &summary, comments, agent, round, by_hand),
+        // Another machine of yours may have posted its review of the commit while this one wrote
+        // its own (`reviewer_of`): only one goes on the PR, and only that one is submitted for you.
+        ReviewPost::Comment if !by_hand => match crate::github::detail(&pr.repo_slug, pr.number) {
+            Ok(d) if d.comments.iter().any(|c| c.mine && c.body.contains(&marker(&pr.key, head))) => Went::Failed(ELSEWHERE.into()),
+            Ok(_) => post_comment(engine, pr, head, &summary, &comments, agent),
+            Err(e) => Went::PostFailed(format!("couldn't look for a review of it already there: {e:#}")),
         },
+        ReviewPost::Comment => post_comment(engine, pr, head, &summary, &comments, agent),
+    }
+}
+
+/// Posts a review as a comment on the PR.
+fn post_comment(engine: &Handle, pr: &PrItem, head: &str, summary: &str, comments: &[LineComment], agent: &str) -> Went {
+    match crate::github::comment(&pr.repo_slug, pr.number, &comment_body(summary, comments, pr, head, agent)) {
+        Ok(link) => {
+            engine.pr_changed();
+            Went::Posted(link)
+        }
+        Err(e) => Went::PostFailed(format!("{e:#}")),
     }
 }
 
@@ -2311,7 +2555,8 @@ fn codealongs_only(whole: &str) -> bool {
 fn submit(engine: &Handle, pr: &PrItem, head: &str, verdict: Verdict, text: Option<&str>) -> Went {
     let board = engine.board();
     let Some(pr) = board.prs.iter().find(|p| p.key == pr.key) else { return Went::Later };
-    if !wants(pr) || pr.head_oid.as_deref() != Some(head) {
+    // Nor once another machine of yours has its review: only the one whose review shows submits.
+    if !wants(pr) || pr.head_oid.as_deref() != Some(head) || pr.auto_review.as_ref().is_some_and(|a| a.machine.is_some()) {
         return Went::Later;
     }
     let draft = match crate::github::your_review(&pr.repo_slug, pr.number) {
@@ -2578,7 +2823,7 @@ pub fn run(engine: &Handle, reviewer: &Mutex<Reviewer>, job: Job) {
         Job::Review { pr, head, since, seat, by_hand } => review(engine, pr, head, since.as_deref(), seat, *by_hand),
         Job::Read { session, at, .. } => read(engine, session, *at),
         Job::CarryOn { pr, session, model, effort, .. } => carry_on(engine, pr, session, model.as_deref(), effort.as_deref()),
-        Job::Post { pr, head, review, agent, round } => post(engine, pr, head, review, agent, *round),
+        Job::Post { pr, head, review, agent, round, by_hand } => post(engine, pr, head, review, agent, *round, *by_hand),
         Job::Send { .. } => send(engine, &job, false),
         Job::Submit { pr, head, verdict, text, .. } => submit(engine, pr, head, *verdict, text.as_deref()),
     }))
@@ -2639,6 +2884,7 @@ mod tests {
             last_review: None,
             stale_approval: None,
             turn: None,
+            shared_review: Default::default(),
         }
     }
 
@@ -2711,13 +2957,13 @@ mod tests {
     fn blocked_reviews_are_explained_without_queueing_or_holding_the_pr() {
         let mut b = board(vec![mine(7, HEAD)], vec![Session { flagged: true, ..fixtures::session(MAKER) }]);
         let mut prs = b.prs.clone();
-        apply(&mut prs, &Store::default(), &own(), &b.sessions, &Default::default(), &b.lanes, NOW);
+        apply(&mut prs, &Store::default(), &own(), &b.sessions, &Default::default(), &b.lanes, &Default::default(), NOW);
         let a = prs[0].auto_review.as_ref().unwrap();
         assert_eq!(a.stage, ReviewStage::Skipped);
         assert!(!a.holds && !a.behind);
         assert_eq!(a.note.as_deref(), Some(FLAGGED_REVIEW));
         b.sessions.block_flagged_sessions = false;
-        apply(&mut prs, &Store::default(), &own(), &b.sessions, &Default::default(), &b.lanes, NOW);
+        apply(&mut prs, &Store::default(), &own(), &b.sessions, &Default::default(), &b.lanes, &Default::default(), NOW);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().stage, ReviewStage::Queued);
 
         let mut r = Reviewer::default();
@@ -2730,16 +2976,16 @@ mod tests {
         r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
         b.prs[0].head_oid = Some(NEXT.into());
         let mut prs = b.prs.clone();
-        apply(&mut prs, &r.store, &on(), &b.sessions, &Default::default(), &b.lanes, NOW + 64_000);
+        apply(&mut prs, &r.store, &on(), &b.sessions, &Default::default(), &b.lanes, &Default::default(), NOW + 64_000);
         let a = prs[0].auto_review.as_ref().unwrap();
         assert!(!a.holds && !a.behind, "a paused next round must not hide the PR from its user");
         assert_eq!(a.note.as_deref(), Some(FLAGGED_REVIEW));
         r.store.prs.values_mut().next().unwrap().rounds.last_mut().unwrap().note = Some("It found nothing to raise.".into());
-        apply(&mut prs, &r.store, &on(), &b.sessions, &Default::default(), &b.lanes, NOW + 64_000);
+        apply(&mut prs, &r.store, &on(), &b.sessions, &Default::default(), &b.lanes, &Default::default(), NOW + 64_000);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some(format!("It found nothing to raise. {FLAGGED_REVIEW}").as_str()));
         let mut off = on();
         off.auto = false;
-        apply(&mut prs, &r.store, &off, &b.sessions, &Default::default(), &b.lanes, NOW + 64_000);
+        apply(&mut prs, &r.store, &off, &b.sessions, &Default::default(), &b.lanes, &Default::default(), NOW + 64_000);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It found nothing to raise."));
     }
 
@@ -2835,7 +3081,7 @@ mod tests {
         // That commit is done.
         assert!(r.due(&done, &on(), NOW + 10 * QUIET_MS).is_empty());
         let mut prs = vec![pr(7, HEAD)];
-        apply(&mut prs, &r.store, &on(), &Default::default(), &Default::default(), &[], NOW);
+        apply(&mut prs, &r.store, &on(), &Default::default(), &Default::default(), &[], &Default::default(), NOW);
         let a = prs[0].auto_review.clone().unwrap();
         assert_eq!((a.stage, a.head.as_str(), a.comment.as_deref(), a.rounds, a.behind), (ReviewStage::Drafted, HEAD, Some("https://github.com/o/r/pull/7/files"), 1, false));
         assert_eq!(a.parts, [ReviewPart { who: AUTO.into(), session: Some(S.into()), state: PartState::Done, note: None }]);
@@ -2884,7 +3130,7 @@ mod tests {
         r.told(&jobs[0], Went::Sent(MAKER.into()), NOW + 67_000).unwrap();
         assert!(r.due(&done(Status::Idle), &own(), NOW + 68_000).is_empty(), "once");
         let mut prs = vec![mine(7, HEAD)];
-        apply(&mut prs, &r.store, &own(), &Default::default(), &Default::default(), &done(Status::Idle).lanes, NOW + 68_000);
+        apply(&mut prs, &r.store, &own(), &Default::default(), &Default::default(), &done(Status::Idle).lanes, &Default::default(), NOW + 68_000);
         let a = prs[0].auto_review.clone().unwrap();
         assert_eq!((a.stage, a.own, a.holds, a.sent.as_deref(), a.sent_at, a.note.as_deref(), a.sendable.as_deref()), (ReviewStage::Kept, true, false, Some(MAKER), Some(NOW + 67_000), None, Some(MAKER)));
     }
@@ -2949,14 +3195,14 @@ mod tests {
         let mut r = reviewed(&own(), "LGTM: the tests cover it.");
         assert!(r.due(&b, &own(), NOW + 64_000).is_empty());
         let mut prs = vec![mine(7, HEAD)];
-        apply(&mut prs, &r.store, &own(), &Default::default(), &Default::default(), &b.lanes, NOW);
+        apply(&mut prs, &r.store, &own(), &Default::default(), &Default::default(), &b.lanes, &Default::default(), NOW);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It found nothing to raise, so it isn't sent."));
         let mut quiet = own();
         quiet.own.send = false;
         let mut r = reviewed(&quiet, "Two problems.");
         assert!(r.due(&b, &quiet, NOW + 64_000).is_empty());
         let mut prs = vec![mine(7, HEAD)];
-        apply(&mut prs, &r.store, &quiet, &Default::default(), &Default::default(), &b.lanes, NOW);
+        apply(&mut prs, &r.store, &quiet, &Default::default(), &Default::default(), &b.lanes, &Default::default(), NOW);
         let a = prs[0].auto_review.clone().unwrap();
         // Sent from the Review tab instead, while its session can take it.
         assert_eq!((a.note.as_deref(), a.sendable.as_deref()), (Some("Handing reviews back is off: send it from here."), Some(MAKER)));
@@ -2970,7 +3216,7 @@ mod tests {
         }
         assert!(r.due(&b, &own(), NOW + 100 * RETRY_MS).is_empty());
         let mut prs = vec![mine(7, HEAD)];
-        apply(&mut prs, &r.store, &own(), &Default::default(), &Default::default(), &b.lanes, NOW);
+        apply(&mut prs, &r.store, &own(), &Default::default(), &Default::default(), &b.lanes, &Default::default(), NOW);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It couldn't be handed to the session that opened the PR: the terminal is gone"));
     }
 
@@ -3064,7 +3310,7 @@ mod tests {
         let polled = BTreeSet::from(["o/r".to_string()]);
         let again = |prs: &[PrItem], store: &Store| {
             let mut prs = prs.to_vec();
-            asked_again(&mut prs, store, &polled);
+            asked_again(&mut prs, store, &polled, &Machines::default());
             prs.iter().map(|p| p.review_requested).collect::<Vec<_>>()
         };
         let submitted = yours(LastReviewState::Commented, NOW + 64_900);
@@ -3102,7 +3348,7 @@ mod tests {
         assert_eq!(again(&[after(NEXT, submitted.clone())], &old), [false]);
         // A repo whose PRs aren't read keeps its PRs as last read, which GitHub's search settles.
         let mut elsewhere = vec![after(NEXT, submitted)];
-        asked_again(&mut elsewhere, &r.store, &BTreeSet::new());
+        asked_again(&mut elsewhere, &r.store, &BTreeSet::new(), &Machines::default());
         assert!(!elsewhere[0].review_requested);
     }
 
@@ -3113,15 +3359,15 @@ mod tests {
         let unasked = |turn| PrItem { review_requested: false, requested_at: None, turn, ..pr(7, HEAD) };
         let polled = BTreeSet::from(["o/r".to_string()]);
         let mut prs = vec![unasked(replied(NOW)), unasked(None)];
-        asked_again(&mut prs, &Store::default(), &polled);
+        asked_again(&mut prs, &Store::default(), &polled, &Machines::default());
         assert_eq!(prs.iter().map(|p| (p.review_requested, p.requested_at)).collect::<Vec<_>>(), [(true, Some(NOW)), (false, None)]);
         // Asked already, GitHub's request and its time stand.
         let mut asked = vec![PrItem { review_requested: true, requested_at: Some(NOW - 5), ..unasked(replied(NOW)) }];
-        asked_again(&mut asked, &Store::default(), &polled);
+        asked_again(&mut asked, &Store::default(), &polled, &Machines::default());
         assert_eq!(asked[0].requested_at, Some(NOW - 5));
         // A repo whose PRs aren't read is as last read.
         let mut elsewhere = vec![unasked(replied(NOW))];
-        asked_again(&mut elsewhere, &Store::default(), &BTreeSet::new());
+        asked_again(&mut elsewhere, &Store::default(), &BTreeSet::new(), &Machines::default());
         assert!(!elsewhere[0].review_requested);
         // Back with you, its commit is reviewed as any PR that waits on you is, once.
         let cfg = on();
@@ -3147,7 +3393,7 @@ mod tests {
         let mut r = reviewed(&approving, "Fine.\n\nVerdict: approve", drafted());
         // Held out of what waits on you until it's approved.
         let mut prs = vec![PrItem { requested_at: Some(NOW), ..pr(7, HEAD) }];
-        apply(&mut prs, &r.store, &approving, &Default::default(), &Default::default(), &[], NOW + 63_500);
+        apply(&mut prs, &r.store, &approving, &Default::default(), &Default::default(), &[], &Default::default(), NOW + 63_500);
         let a = prs[0].auto_review.clone().unwrap();
         assert_eq!((a.suggests, a.holds, a.submitted), (Some(Verdict::Approve), true, None));
         let jobs = r.due(&done, &approving, NOW + 64_000);
@@ -3155,7 +3401,7 @@ mod tests {
         r.told(&jobs[0], Went::Submitted, NOW + 65_000).unwrap();
         assert!(r.due(&done, &approving, NOW + 66_000).is_empty(), "once");
         let mut prs = vec![PrItem { requested_at: Some(NOW), ..pr(7, HEAD) }];
-        apply(&mut prs, &r.store, &approving, &Default::default(), &Default::default(), &[], NOW + 66_000);
+        apply(&mut prs, &r.store, &approving, &Default::default(), &Default::default(), &[], &Default::default(), NOW + 66_000);
         let a = prs[0].auto_review.clone().unwrap();
         assert_eq!((a.submitted, a.submitted_at, a.holds), (Some(Verdict::Approve), Some(NOW + 65_000), false));
         // Never, or an agent that wouldn't approve it while only approvals are: suggested, not done.
@@ -3164,7 +3410,7 @@ mod tests {
         let mut r = reviewed(&approving, "Two problems.\n\nVerdict: request changes", drafted());
         assert!(r.due(&done, &approving, NOW + 64_000).is_empty());
         let mut prs = vec![pr(7, HEAD)];
-        apply(&mut prs, &r.store, &approving, &Default::default(), &Default::default(), &[], NOW + 64_000);
+        apply(&mut prs, &r.store, &approving, &Default::default(), &Default::default(), &[], &Default::default(), NOW + 64_000);
         assert_eq!(prs[0].auto_review.as_ref().unwrap().suggests, Some(Verdict::RequestChanges));
         // A request for changes goes as one, or as a comment; the draft holds what it says.
         for (submit, verb, approves) in [
@@ -3184,7 +3430,7 @@ mod tests {
             } else {
                 assert!(jobs.is_empty(), "{submit:?}");
                 let mut prs = vec![PrItem { requested_at: Some(NOW), ..pr(7, HEAD) }];
-                apply(&mut prs, &r.store, &cfg(submit), &Default::default(), &Default::default(), &[], NOW + 64_000);
+                apply(&mut prs, &r.store, &cfg(submit), &Default::default(), &Default::default(), &[], &Default::default(), NOW + 64_000);
                 let a = prs[0].auto_review.clone().unwrap();
                 assert_eq!((a.suggests, a.holds, a.submitted), (Some(Verdict::Approve), false, None), "{submit:?}");
             }
@@ -3219,7 +3465,7 @@ mod tests {
             r.told(&job, Went::NotSubmitted("your draft review on it has words of yours, so it's yours to submit.".into()), NOW + 65_000).unwrap();
             assert!(r.due(&done, &cfg(submit), NOW + 66_000).is_empty());
             let mut prs = vec![pr(7, HEAD)];
-            apply(&mut prs, &r.store, &cfg(submit), &Default::default(), &Default::default(), &[], NOW + 66_000);
+            apply(&mut prs, &r.store, &cfg(submit), &Default::default(), &Default::default(), &[], &Default::default(), NOW + 66_000);
             let a = prs[0].auto_review.clone().unwrap();
             assert_eq!((a.submitted, a.note), (None, Some(format!("{says}: your draft review on it has words of yours, so it's yours to submit."))));
         }
@@ -3250,7 +3496,7 @@ mod tests {
         assert_eq!(kinds(&r.due(&done, &off, NOW + 64_000)), ["approve 7 1111111 saying \"\""]);
         // Its card has it, as an automatic one's.
         let mut prs = vec![pr(7, HEAD)];
-        apply(&mut prs, &r.store, &off, &Default::default(), &Default::default(), &[], NOW + 64_000);
+        apply(&mut prs, &r.store, &off, &Default::default(), &Default::default(), &[], &Default::default(), NOW + 64_000);
         assert_eq!(prs[0].auto_review.as_ref().map(|a| (a.stage, a.suggests)), Some((ReviewStage::Drafted, Some(Verdict::Approve))));
         // A round reviews turned off left under way stays as it is.
         let mut r = Reviewer::default();
@@ -3300,7 +3546,7 @@ mod tests {
         r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
         assert!(r.due(&b, &off, NOW + 64_000).is_empty());
         let mut prs = vec![mine(7, HEAD)];
-        apply(&mut prs, &r.store, &off, &Default::default(), &Default::default(), &b.lanes, NOW + 64_000);
+        apply(&mut prs, &r.store, &off, &Default::default(), &Default::default(), &b.lanes, &Default::default(), NOW + 64_000);
         assert_eq!(prs[0].auto_review.as_ref().and_then(|a| a.note.as_deref()), Some("Handing reviews back is off: send it from here."));
     }
 
@@ -3383,7 +3629,7 @@ mod tests {
         let fresh = |head: &str| PrItem { requested_at: Some(NOW - 60_000), updated_at: NOW - 60_000, ..pr(7, head) };
         let shown = |store: &Store, p: PrItem, on: bool, at: i64| {
             let mut prs = vec![p];
-            apply(&mut prs, store, &ReviewsCfg { auto: on, ..ReviewsCfg::default() }, &Default::default(), &Default::default(), &[], at);
+            apply(&mut prs, store, &ReviewsCfg { auto: on, ..ReviewsCfg::default() }, &Default::default(), &Default::default(), &[], &Default::default(), at);
             prs.remove(0)
         };
         let mut r = Reviewer::default();
@@ -3425,7 +3671,7 @@ mod tests {
         let fresh = |head: &str| PrItem { requested_at: Some(NOW - 60_000), updated_at: NOW - 60_000, ..pr(7, head) };
         let shown = |store: &Store, p: PrItem, cfg: &ReviewsCfg, at: i64| {
             let mut prs = vec![p];
-            apply(&mut prs, store, cfg, &Default::default(), &Default::default(), &[], at);
+            apply(&mut prs, store, cfg, &Default::default(), &Default::default(), &[], &Default::default(), at);
             prs.remove(0)
         };
         let round = |head: &str, stage: ReviewStage, review: Option<&str>, at: i64| {
@@ -3487,7 +3733,7 @@ mod tests {
         let moved = board(vec![pr(7, NEXT)], vec![session(Status::Idle, NOW + 1)]);
         assert!(r.due(&moved, &on(), NOW + 10).is_empty(), "first seen");
         let mut prs = vec![pr(7, NEXT)];
-        apply(&mut prs, &r.store, &on(), &Default::default(), &Default::default(), &[], NOW);
+        apply(&mut prs, &r.store, &on(), &Default::default(), &Default::default(), &[], &Default::default(), NOW);
         assert!(prs[0].auto_review.as_ref().unwrap().behind);
         assert!(r.due(&moved, &on(), NOW + QUIET_MS).is_empty(), "still settling");
         assert_eq!(kinds(&r.due(&moved, &on(), NOW + 10 + QUIET_MS)), [format!("review 7 2222222 since Some(\"1111111\") by auto in {S}")]);
@@ -4179,5 +4425,354 @@ mod tests {
         // terminal behind your windows, which is where it went on before.
         assert_eq!(first_of(ReviewStart::NoTerminal, false, &[T, Bg, CodexApp, Ca]), Some(Ca));
         assert_eq!(first_of(ReviewStart::NoTerminal, false, &[T, Bg]), None);
+    }
+
+    // ---- Your machines share reviews ----
+
+    const STUDIO: &str = "aa11";
+    const LAPTOP: &str = "bb22";
+
+    /// This machine, `LAPTOP`, standing at `rank`, and the other machines it knows.
+    fn machines(rank: Rank, others: Vec<Machine>) -> Machines {
+        Machines { me: Some(shared::Me { key: LAPTOP.into(), rank }), others }
+    }
+
+    /// `reviewer_of` for this machine with reviews `t`, weighed as `apply` weighs them.
+    fn reviewer<'a>(p: &PrItem, t: Option<&Tracked>, would: bool, m: &'a Machines, now: i64) -> Option<(&'a Machine, Option<&'a codealong_peer::pr::AutoReview>)> {
+        reviewer_of(p, &shared_review(t, p.head_oid.as_deref().unwrap_or_default(), would), m, now)
+    }
+
+    /// Another machine, connected, listing each PR with whether it would review it and its latest
+    /// round, which is also what it says of its reviews (`shared_review`).
+    fn studio(rank: Rank, cards: Vec<(PrItem, bool, Option<AutoReview>)>) -> Machine {
+        let said = |would: bool, r: Option<&AutoReview>| SharedReview {
+            would,
+            round: r.map(|r| Claim { head: r.head.clone(), state: claim_state(r.stage, false), at: r.at }),
+            last_done: r.filter(|r| claim_state(r.stage, false) == ClaimState::Done).map(|r| r.at),
+            submitted: None,
+        };
+        let prs = cards.into_iter().map(|(p, would, r)| PrItem { shared_review: said(would, r.as_ref()), auto_review: r, ..p }).collect();
+        let prs = crate::peerfeed::pr_cards(&Board { generated_at: NOW, prs, ..Board::default() });
+        Machine { key: STUDIO.into(), name: "Studio".into(), rank, online: true, last_seen: Some(NOW), prs }
+    }
+
+    /// A machine's round of commit `head` at `stage`, from `at`.
+    fn round(stage: &str, head: &str, at: i64) -> Option<AutoReview> {
+        Some(serde_json::from_value(serde_json::json!({ "stage": stage, "head": head, "at": at, "rounds": 1 })).expect("a round"))
+    }
+
+    /// Whose a review is, by the machine's name and the commit of its round there.
+    fn named(r: Option<(&Machine, Option<&codealong_peer::pr::AutoReview>)>) -> Option<(String, Option<String>)> {
+        r.map(|(m, r)| (m.name.clone(), r.map(|r| r.head.clone())))
+    }
+
+    #[test]
+    fn the_first_in_line_of_your_machines_that_would_review_a_pr_reviews_it() {
+        let p = pr(7, HEAD);
+        let of = |me: Rank, them: Machine, would: bool| named(reviewer(&p, None, would, &machines(me, vec![them]), NOW));
+        let theirs = Some(("Studio".to_string(), None));
+        // A first choice comes before a backup, whichever this is.
+        assert_eq!(of(Rank::Backup, studio(Rank::First, vec![(p.clone(), true, None)]), true), theirs);
+        assert_eq!(of(Rank::First, studio(Rank::Backup, vec![(p.clone(), true, None)]), true), None);
+        // Two first choices go by their keys, the same on both.
+        assert_eq!(of(Rank::First, studio(Rank::First, vec![(p.clone(), true, None)]), true), theirs);
+        // One that wouldn't review it (its reviews are off, it has no checkout) isn't in line.
+        assert_eq!(of(Rank::Backup, studio(Rank::First, vec![(p.clone(), false, None)]), true), None);
+        // This one wouldn't: the PR shows as the other's to review.
+        assert_eq!(of(Rank::First, studio(Rank::Backup, vec![(p.clone(), true, None)]), false), theirs);
+        // Away for a while: passed over; gone a moment, it's still the first.
+        let away = |seen: i64| Machine { online: false, last_seen: Some(seen), ..studio(Rank::First, vec![(p.clone(), true, None)]) };
+        assert_eq!(of(Rank::Backup, away(NOW - shared::AWAY_AFTER_MS), true), None);
+        assert_eq!(of(Rank::Backup, away(NOW - 60_000), true), theirs);
+        // One ahead that doesn't list the PR yet is waited for a while from when your review was
+        // asked for; one behind isn't.
+        let asked = |at: i64| PrItem { requested_at: Some(at), ..pr(7, HEAD) };
+        let blind = studio(Rank::First, vec![]);
+        assert_eq!(named(reviewer(&asked(NOW - 60_000), None, true, &machines(Rank::Backup, vec![blind.clone()]), NOW)), theirs);
+        assert_eq!(named(reviewer(&asked(NOW - LISTS_WITHIN_MS), None, true, &machines(Rank::Backup, vec![blind.clone()]), NOW)), None);
+        assert_eq!(named(reviewer(&asked(NOW - 60_000), None, true, &machines(Rank::First, vec![Machine { rank: Rank::Backup, ..blind }]), NOW)), None);
+        // With devices off, and for a PR of yours, it's this machine's.
+        let them = studio(Rank::First, vec![(p.clone(), true, None)]);
+        assert_eq!(named(reviewer(&p, None, true, &Machines { me: None, others: vec![them.clone()] }, NOW)), None);
+        assert_eq!(named(reviewer(&PrItem { mine: true, ..p.clone() }, None, true, &machines(Rank::Backup, vec![them]), NOW)), None);
+    }
+
+    #[test]
+    fn a_machine_that_had_a_round_of_a_pr_keeps_it() {
+        let p = pr(7, HEAD);
+        let mine_of = |head: &str, at: i64| Tracked { rounds: vec![Round::new(head, ReviewStage::Drafted, at)], ..Tracked::default() };
+        // A round of the PR's commit here: it's this machine's, whoever comes first.
+        let first = studio(Rank::First, vec![(p.clone(), true, None)]);
+        assert_eq!(named(reviewer(&p, Some(&mine_of(HEAD, NOW - 5)), true, &machines(Rank::Backup, vec![first]), NOW)), None);
+        // One done there, even away: the other's, and none starts here.
+        let done = Machine { online: false, last_seen: Some(NOW - 10 * shared::AWAY_AFTER_MS), ..studio(Rank::Backup, vec![(p.clone(), true, round("drafted", HEAD, NOW - 9))]) };
+        assert_eq!(named(reviewer(&p, None, true, &machines(Rank::First, vec![done]), NOW)), Some(("Studio".into(), Some(HEAD.into()))));
+        // One under way there: the other's while it's around; one that went away partway is taken up here.
+        let under_way = |online: bool| Machine { online, last_seen: Some(NOW - shared::AWAY_AFTER_MS), ..studio(Rank::Backup, vec![(p.clone(), true, round("reviewing", HEAD, NOW - 9))]) };
+        assert_eq!(named(reviewer(&p, None, true, &machines(Rank::First, vec![under_way(true)]), NOW)), Some(("Studio".into(), Some(HEAD.into()))));
+        assert_eq!(named(reviewer(&p, None, true, &machines(Rank::First, vec![under_way(false)]), NOW)), None);
+        // An earlier commit's: the PR stays with the machine that reviewed it last, a backup too.
+        let before = |at: i64| studio(Rank::Backup, vec![(p.clone(), true, round("posted", NEXT, at))]);
+        assert_eq!(named(reviewer(&p, None, true, &machines(Rank::First, vec![before(NOW - 9)]), NOW)), Some(("Studio".into(), Some(NEXT.into()))));
+        assert_eq!(named(reviewer(&p, Some(&mine_of(NEXT, NOW - 5)), true, &machines(Rank::First, vec![before(NOW - 9)]), NOW)), None);
+        assert_eq!(named(reviewer(&p, Some(&mine_of(NEXT, NOW - 10)), true, &machines(Rank::First, vec![before(NOW - 9)]), NOW)), Some(("Studio".into(), Some(NEXT.into()))));
+        // Not while it's away, nor once it wouldn't review it.
+        let gone = Machine { online: false, last_seen: None, ..before(NOW - 9) };
+        assert_eq!(named(reviewer(&p, None, true, &machines(Rank::First, vec![gone]), NOW)), None);
+        let off = studio(Rank::Backup, vec![(p.clone(), false, round("posted", NEXT, NOW - 9))]);
+        assert_eq!(named(reviewer(&p, None, true, &machines(Rank::First, vec![off]), NOW)), None);
+    }
+
+    #[test]
+    fn a_review_another_machine_has_shows_here_and_none_starts() {
+        let lanes = || vec![Lane { repo_slug: Some("o/r".into()), ..fixtures::lane("/r", vec![]) }];
+        let fresh = PrItem { requested_at: Some(NOW - 60_000), updated_at: NOW - 60_000, ..pr(7, HEAD) };
+        let shown = |them: Vec<Machine>, at: i64| {
+            let mut prs = vec![fresh.clone()];
+            apply(&mut prs, &Store::default(), &on(), &Default::default(), &Default::default(), &lanes(), &machines(Rank::Backup, them), at);
+            prs.remove(0)
+        };
+        // To come there: held, as one to come here would be, and nothing starts here.
+        let p = shown(vec![studio(Rank::First, vec![(fresh.clone(), true, None)])], NOW);
+        let a = p.auto_review.clone().unwrap();
+        assert_eq!((a.stage, a.head.as_str(), a.machine.as_deref(), a.holds), (ReviewStage::Queued, HEAD, Some("Studio"), true));
+        assert!(p.shared_review.would && !p.waits_on_review());
+        let b = Board { prs: vec![p], lanes: lanes(), github_login: Some("gwen".into()), ..Board::default() };
+        assert!(Reviewer::default().due(&b, &on(), NOW).is_empty());
+        // Under way there: held. Its review done: it waits on you here too, as the agent there suggests.
+        let p = shown(vec![studio(Rank::First, vec![(fresh.clone(), true, round("reviewing", HEAD, NOW))])], NOW + 60_000);
+        assert_eq!(p.auto_review.as_ref().map(|a| (a.stage, a.holds)), Some((ReviewStage::Reviewing, true)));
+        let mut drafted = round("drafted", HEAD, NOW + 70_000).unwrap();
+        drafted.suggests = Some(Verdict::RequestChanges);
+        let p = shown(vec![studio(Rank::First, vec![(fresh.clone(), true, Some(drafted))])], NOW + 80_000);
+        let a = p.auto_review.clone().unwrap();
+        assert_eq!((a.stage, a.suggests, a.machine.as_deref(), a.holds), (ReviewStage::Drafted, Some(Verdict::RequestChanges), Some("Studio"), false));
+        assert!(p.waits_on_review());
+        // Alone, it reviews the PR itself, as before.
+        let p = shown(vec![], NOW);
+        assert_eq!(p.auto_review.as_ref().map(|a| (a.stage, a.machine.clone())), Some((ReviewStage::Queued, None)));
+        let b = Board { prs: vec![p], lanes: lanes(), github_login: Some("gwen".into()), ..Board::default() };
+        assert_eq!(kinds(&Reviewer::default().due(&b, &on(), NOW)), ["review 7 1111111 since None by auto"]);
+    }
+
+    #[test]
+    fn of_two_rounds_of_one_commit_the_one_done_or_begun_first_stands_and_the_other_gives_way() {
+        let p = pr(7, HEAD);
+        let under_way = |at: i64| Tracked { rounds: vec![Round { parts: vec![started(AUTO, S, at)], ..Round::new(HEAD, ReviewStage::Reviewing, at) }], ..Tracked::default() };
+        let them = |stage: &str, at: i64| studio(Rank::Backup, vec![(p.clone(), true, round(stage, HEAD, at))]);
+        let of = |mine: &Tracked, them: Machine| named(reviewer(&p, Some(mine), true, &machines(Rank::First, vec![them]), NOW));
+        // This machine went away partway, the other took the commit up, and this one came back:
+        // both are under way, and the first begun stands on both machines.
+        assert_eq!(of(&under_way(NOW - 600_000), them("reviewing", NOW - 300_000)), None);
+        let theirs_first = Machines { me: Some(shared::Me { key: STUDIO.into(), rank: Rank::Backup }), others: vec![Machine { key: LAPTOP.into(), name: "Laptop".into(), ..studio(Rank::First, vec![(p.clone(), true, round("reviewing", HEAD, NOW - 600_000))]) }] };
+        assert_eq!(named(reviewer(&p, Some(&under_way(NOW - 300_000)), true, &theirs_first, NOW)), Some(("Laptop".into(), Some(HEAD.into()))));
+        assert_eq!(of(&under_way(NOW - 300_000), them("reviewing", NOW - 600_000)), Some(("Studio".into(), Some(HEAD.into()))));
+        // One done there stands over one under way here, begun first or not.
+        assert_eq!(of(&under_way(NOW - 600_000), them("drafted", NOW - 60_000)), Some(("Studio".into(), Some(HEAD.into()))));
+        // One under way on a machine that no longer would review it (its reviews were turned off)
+        // claims nothing, nor does one that didn't get done, even of a machine that's away.
+        let off = studio(Rank::First, vec![(p.clone(), false, round("reviewing", HEAD, NOW - 600_000))]);
+        assert_eq!(named(reviewer(&p, None, true, &machines(Rank::Backup, vec![off]), NOW)), None);
+        let failed = Machine { online: false, last_seen: None, ..studio(Rank::First, vec![(p.clone(), true, round("failed", HEAD, NOW - 600_000))]) };
+        assert_eq!(named(reviewer(&p, None, true, &machines(Rank::Backup, vec![failed]), NOW)), None);
+        // Nor does one here that didn't get done, though it keeps the commit here, as it would alone.
+        let mine_failed = Tracked { rounds: vec![Round::new(HEAD, ReviewStage::Failed, NOW - 600_000)], ..Tracked::default() };
+        assert_eq!(of(&mine_failed, them("reviewing", NOW - 300_000)), Some(("Studio".into(), Some(HEAD.into()))));
+        assert_eq!(named(reviewer(&p, Some(&mine_failed), true, &machines(Rank::Backup, vec![studio(Rank::First, vec![(p.clone(), true, None)])]), NOW)), None);
+        // A round that didn't get done doesn't make a machine the one that reviewed the PR last.
+        let before = Tracked { rounds: vec![Round::new(NEXT, ReviewStage::Drafted, NOW - 900_000), Round::new(NEXT, ReviewStage::Failed, NOW - 60_000)], ..Tracked::default() };
+        let theirs = studio(Rank::Backup, vec![(p.clone(), true, round("posted", NEXT, NOW - 300_000))]);
+        assert_eq!(named(reviewer(&p, Some(&before), true, &machines(Rank::First, vec![theirs]), NOW)), Some(("Studio".into(), Some(NEXT.into()))));
+    }
+
+    #[test]
+    fn a_round_here_gives_way_to_another_machines_and_only_the_machine_whose_review_shows_submits() {
+        let lanes = || vec![Lane { repo_slug: Some("o/r".into()), ..fixtures::lane("/r", vec![session(Status::Working, NOW)]) }];
+        let fresh = PrItem { requested_at: Some(NOW - 900_000), updated_at: NOW - 900_000, ..pr(7, HEAD) };
+        let cfg = ReviewsCfg { submit: ReviewSubmit::Comment, ..on() };
+        let shown = |r: &Reviewer, them: Vec<Machine>| {
+            let mut prs = vec![fresh.clone()];
+            apply(&mut prs, &r.store, &cfg, &Default::default(), &Default::default(), &lanes(), &machines(Rank::First, them), NOW);
+            Board { prs, lanes: lanes(), github_login: Some("gwen".into()), ..Board::default() }
+        };
+        // Under way here, begun after the other machine's: it ends, its review never read or posted.
+        let mut r = Reviewer::default();
+        let job = r.due(&shown(&r, vec![]), &cfg, NOW - 300_000).pop().unwrap();
+        r.told(&job, Went::Started(vec![started(AUTO, S, NOW - 300_000)]), NOW - 300_000).unwrap();
+        let first = studio(Rank::Backup, vec![(fresh.clone(), true, round("reviewing", HEAD, NOW - 600_000))]);
+        let b = shown(&r, vec![first.clone()]);
+        assert_eq!(b.prs[0].auto_review.as_ref().and_then(|a| a.machine.as_deref()), Some("Studio"));
+        assert!(r.due(&b, &cfg, NOW).is_empty());
+        let last = r.store.prs["o/r#7"].rounds.last().unwrap();
+        assert_eq!((last.stage, last.note.as_deref()), (ReviewStage::Failed, Some(ELSEWHERE)));
+        // Its card shows the other machine's, which nothing here starts again.
+        assert_eq!(shown(&r, vec![first]).prs[0].auto_review.as_ref().map(|a| (a.stage, a.machine.clone())), Some((ReviewStage::Reviewing, Some("Studio".into()))));
+        // Done here and there, the one done first shows: this one's verdict isn't submitted.
+        let mut done = Reviewer::default();
+        let mut t = Tracked { rounds: vec![Round::new(HEAD, ReviewStage::Drafted, NOW - 60_000)], ..Tracked::default() };
+        t.rounds[0].parts = vec![Part { state: PartState::Done, review: Some("Two problems.\n\nVerdict: request changes".into()), ..started(AUTO, S, NOW - 300_000) }];
+        done.store.prs.insert("o/r#7".into(), t);
+        let b = shown(&done, vec![studio(Rank::Backup, vec![(fresh.clone(), true, round("drafted", HEAD, NOW - 120_000))])]);
+        assert!(done.due(&b, &cfg, NOW).is_empty(), "{:?}", kinds(&done.due(&b, &cfg, NOW)));
+        // Alone, it's submitted as config.toml says.
+        assert_eq!(kinds(&done.due(&shown(&done, vec![]), &cfg, NOW + 1)), ["comment on 7 1111111"]);
+    }
+
+    #[test]
+    fn a_pr_another_machine_brought_back_to_wait_on_you_waits_here_too() {
+        use codealong_peer::pr::{Submitted, Verdict as V};
+        let polled = BTreeSet::from(["o/r".to_string()]);
+        // The other machine submitted its agent's review of HEAD for you as a comment, and the
+        // author pushed NEXT since: GitHub asks nobody.
+        let yours = |at: i64| Some(crate::model::LastReview { state: LastReviewState::Commented, commit: Some(HEAD.into()), at: Some(at) });
+        let after = |last_review: Option<crate::model::LastReview>| PrItem { review_requested: false, requested_at: None, last_review, ..pr(7, NEXT) };
+        let sent = Submitted { head: HEAD.into(), verdict: V::Comment, at: NOW - 600_000 };
+        let them = |submitted: Option<Submitted>, online: bool, r: Option<AutoReview>| {
+            let mut m = Machine { online, last_seen: online.then_some(NOW), ..studio(Rank::First, vec![(after(None), true, r)]) };
+            m.prs[0].shared_review.as_mut().unwrap().submitted = submitted;
+            m
+        };
+        let again = |p: PrItem, m: Machine| {
+            let mut prs = vec![p];
+            asked_again(&mut prs, &Store::default(), &polled, &machines(Rank::Backup, vec![m]));
+            prs.remove(0)
+        };
+        // It waits on you here too: the other machine around, or asleep since, its latest round
+        // the one submitted or its review of the new commits begun before it went.
+        assert!(again(after(yours(NOW - 600_000)), them(Some(sent.clone()), true, None)).review_requested);
+        let begun = round("reviewing", NEXT, NOW - 60_000);
+        let p = again(after(yours(NOW - 600_000)), them(Some(sent.clone()), false, begun.clone()));
+        assert!(p.review_requested);
+        // That machine away, the review of the new commits is this one's to take up.
+        let mut prs = vec![p];
+        apply(&mut prs, &Store::default(), &on(), &Default::default(), &Default::default(), &[], &machines(Rank::Backup, vec![them(Some(sent.clone()), false, begun)]), NOW);
+        assert_eq!(prs[0].auto_review.as_ref().map(|a| (a.stage, a.machine.clone())), Some((ReviewStage::Queued, None)));
+        // Not once you've reviewed it since, nor for an approval, nor when the latest went from the
+        // PR's box (none is sent), nor in a repo whose PRs aren't read.
+        assert!(!again(after(yours(NOW - 600_000 + SUBMITTED_SLACK_MS + 1)), them(Some(sent.clone()), true, None)).review_requested);
+        assert!(!again(after(yours(NOW - 600_000)), them(Some(Submitted { verdict: V::Approve, ..sent.clone() }), true, None)).review_requested);
+        assert!(!again(after(yours(NOW - 600_000)), them(None, true, None)).review_requested);
+        let mut elsewhere = vec![after(yours(NOW - 600_000))];
+        asked_again(&mut elsewhere, &Store::default(), &BTreeSet::new(), &machines(Rank::Backup, vec![them(Some(sent), true, None)]));
+        assert!(!elsewhere[0].review_requested);
+        // What this machine sends of its own: the latest it submitted for you, not one by hand.
+        let at = |by_hand: bool| {
+            let mut r = Round::new(HEAD, ReviewStage::Drafted, NOW - 700_000);
+            r.submitted = Some(Submission { at: NOW - 600_000, verdict: Verdict::Comment, failed: None, by_hand: Some(by_hand) });
+            let store = Store { prs: BTreeMap::from([("o/r#7".to_string(), Tracked { rounds: vec![r], ..Tracked::default() })]) };
+            let mut prs = vec![after(None)];
+            apply(&mut prs, &store, &on(), &Default::default(), &Default::default(), &[], &Default::default(), NOW);
+            prs.remove(0).shared_review.submitted
+        };
+        assert_eq!(at(false), Some(Submitted { head: HEAD.into(), verdict: V::Comment, at: NOW - 600_000 }));
+        assert_eq!(at(true), None);
+    }
+
+    #[test]
+    fn done_rounds_go_by_when_they_ended_a_failed_machine_isnt_in_line_and_one_that_gave_way_takes_it_up_again() {
+        let p = pr(7, HEAD);
+        // Both done: this one began first and ended last, so the other's, done first, stands on both
+        // machines, each comparing when they ended, as the cards say.
+        let ended = |at: i64, end: i64| Tracked { rounds: vec![Round { ended_at: Some(end), ..Round::new(HEAD, ReviewStage::Drafted, at) }], ..Tracked::default() };
+        let them = studio(Rank::Backup, vec![(p.clone(), true, round("drafted", HEAD, NOW - 200))]);
+        assert_eq!(named(reviewer(&p, Some(&ended(NOW - 400, NOW - 100)), true, &machines(Rank::First, vec![them]), NOW)), Some(("Studio".into(), Some(HEAD.into()))));
+        let laptop = Machine { key: LAPTOP.into(), name: "Laptop".into(), ..studio(Rank::First, vec![(p.clone(), true, round("drafted", HEAD, NOW - 100))]) };
+        let from_studio = Machines { me: Some(shared::Me { key: STUDIO.into(), rank: Rank::Backup }), others: vec![laptop] };
+        assert_eq!(named(reviewer(&p, Some(&ended(NOW - 300, NOW - 200)), true, &from_studio, NOW)), None);
+        // A first choice whose round of the commit didn't get done (its account couldn't start)
+        // isn't in line for it: the backup reviews it.
+        let tried = studio(Rank::First, vec![(p.clone(), true, round("failed", HEAD, NOW - 60_000))]);
+        assert_eq!(named(reviewer(&p, None, true, &machines(Rank::Backup, vec![tried]), NOW)), None);
+        // A round that gave way to another machine's holds nothing: when that machine goes away
+        // before it's done, the commit is reviewed here again.
+        let lanes = || vec![Lane { repo_slug: Some("o/r".into()), ..fixtures::lane("/r", vec![]) }];
+        let gave = Tracked { rounds: vec![Round { note: Some(ELSEWHERE.into()), ..Round::new(HEAD, ReviewStage::Failed, NOW - 300_000) }], ..Tracked::default() };
+        let away = Machine { online: false, last_seen: Some(NOW - 2 * shared::AWAY_AFTER_MS), ..studio(Rank::First, vec![(p.clone(), true, round("reviewing", HEAD, NOW - 600_000))]) };
+        assert_eq!(named(reviewer(&p, Some(&gave), true, &machines(Rank::Backup, vec![away.clone()]), NOW)), None);
+        let mut r = Reviewer::default();
+        r.store.prs.insert("o/r#7".into(), gave);
+        let mut prs = vec![p];
+        apply(&mut prs, &r.store, &on(), &Default::default(), &Default::default(), &lanes(), &machines(Rank::Backup, vec![away]), NOW);
+        let b = Board { prs, lanes: lanes(), github_login: Some("gwen".into()), ..Board::default() };
+        // Once the branch has held still, as for any PR that had a round before.
+        assert!(r.due(&b, &on(), NOW).is_empty());
+        assert_eq!(kinds(&r.due(&b, &on(), NOW + QUIET_MS)), ["review 7 1111111 since None by auto"]);
+    }
+
+    /// A machine as the others see it: `p` on its board with reviews `store`, cut into a card as its
+    /// feed cuts it.
+    fn seen(key: &str, name: &str, rank: Rank, store: &Store, p: &PrItem) -> Machine {
+        let mut prs = vec![p.clone()];
+        apply(&mut prs, store, &on(), &Default::default(), &Default::default(), &checkout(), &Machines::default(), NOW);
+        Machine { key: key.into(), name: name.into(), rank, online: true, last_seen: Some(NOW), prs: crate::peerfeed::pr_cards(&Board { generated_at: NOW, prs, ..Board::default() }) }
+    }
+
+    fn checkout() -> Vec<Lane> {
+        vec![Lane { repo_slug: Some("o/r".into()), ..fixtures::lane("/r", vec![]) }]
+    }
+
+    /// Which machine reviews `p` as machine `key`, standing at `rank` with reviews `store`, works it
+    /// out among `others`: that machine's name, or none for itself.
+    fn whose(key: &str, rank: Rank, store: &Store, others: Vec<Machine>, p: &PrItem) -> Option<String> {
+        let mut prs = vec![p.clone()];
+        apply(&mut prs, store, &on(), &Default::default(), &Default::default(), &checkout(), &Machines { me: Some(shared::Me { key: key.into(), rank }), others }, NOW);
+        prs[0].auto_review.as_ref().and_then(|a| a.machine.clone())
+    }
+
+    fn reviews(rounds: Vec<Round>) -> Store {
+        Store { prs: BTreeMap::from([("o/r#7".to_string(), Tracked { rounds, ..Tracked::default() })]) }
+    }
+
+    #[test]
+    fn every_machine_weighs_its_own_reviews_as_the_others_see_them() {
+        const AFTER: &str = "3333333cccc";
+        let p = pr(7, AFTER);
+        // Each reviewed HEAD before; the laptop's review of NEXT didn't get done. The laptop's
+        // review of HEAD ended last, so the PR stays with it, on both machines.
+        let laptop = reviews(vec![Round::new(HEAD, ReviewStage::Drafted, NOW - 900_000), Round::new(NEXT, ReviewStage::Failed, NOW - 60_000)]);
+        let studio = reviews(vec![Round::new(HEAD, ReviewStage::Drafted, NOW - 950_000)]);
+        assert_eq!(whose(LAPTOP, Rank::Backup, &laptop, vec![seen(STUDIO, "Studio", Rank::First, &studio, &p)], &p), None);
+        assert_eq!(whose(STUDIO, Rank::First, &studio, vec![seen(LAPTOP, "Laptop", Rank::Backup, &laptop, &p)], &p), Some("Laptop".into()));
+
+        // Three machines: the studio gave its round of HEAD way to the laptop's, which went away
+        // before it was done. The studio comes before the den, so it reviews HEAD again, and the
+        // den, seeing that it gave way rather than failed, leaves it to the studio.
+        const DEN: &str = "cc33";
+        let p = pr(7, HEAD);
+        let mut laptop = Round::new(HEAD, ReviewStage::Reviewing, NOW - 600_000);
+        laptop.parts = vec![started(AUTO, S, NOW - 600_000)];
+        let away = Machine { online: false, last_seen: Some(NOW - 2 * shared::AWAY_AFTER_MS), ..seen(LAPTOP, "Laptop", Rank::First, &reviews(vec![laptop]), &p) };
+        let studio = reviews(vec![Round { note: Some(ELSEWHERE.into()), ..Round::new(HEAD, ReviewStage::Failed, NOW - 300_000) }]);
+        let den = Store::default();
+        assert_eq!(whose(STUDIO, Rank::First, &studio, vec![away.clone(), seen(DEN, "Den", Rank::Backup, &den, &p)], &p), None);
+        assert_eq!(whose(DEN, Rank::Backup, &den, vec![away, seen(STUDIO, "Studio", Rank::First, &studio, &p)], &p), Some("Studio".into()));
+
+        // The laptop reviewed the PR last, then its review of the PR's commit didn't get done: it
+        // won't try that commit again, so the studio reviews it rather than wait on the laptop.
+        let p = pr(7, NEXT);
+        let laptop = reviews(vec![Round::new(HEAD, ReviewStage::Drafted, NOW - 900_000), Round::new(NEXT, ReviewStage::Failed, NOW - 60_000)]);
+        assert_eq!(whose(STUDIO, Rank::Backup, &Store::default(), vec![seen(LAPTOP, "Laptop", Rank::First, &laptop, &p)], &p), None);
+        assert_eq!(whose(LAPTOP, Rank::First, &laptop, vec![seen(STUDIO, "Studio", Rank::Backup, &Store::default(), &p)], &p), None, "its own, which it shows, and doesn't start again");
+    }
+
+    /// What a machine's reviews of a PR come to isn't in its windows, but has to reach your other
+    /// machines: a board where only that changed is a change to publish (engine.rs `board_hash`).
+    #[test]
+    fn a_change_in_what_a_machines_reviews_come_to_is_a_change_to_publish() {
+        let board = |state: ClaimState| {
+            let said = SharedReview { would: true, round: Some(Claim { head: HEAD.into(), state, at: NOW }), ..SharedReview::default() };
+            Board { prs: vec![PrItem { shared_review: said, ..pr(7, HEAD) }], ..Board::default() }
+        };
+        let (mut under_way, mut gave_way) = (board(ClaimState::UnderWay), board(ClaimState::GaveWay));
+        assert_ne!(crate::engine::board_hash(&mut under_way), crate::engine::board_hash(&mut gave_way));
+    }
+
+    #[test]
+    fn a_review_already_in_your_draft_isnt_drafted_again() {
+        let body = format!("Two problems.\n\n{}", draft_mark("o/r#7", HEAD, NOW));
+        assert_eq!(in_draft(&body, "o/r#7", HEAD, NOW, false), Some(Drafted::This), "this round's, before a restart");
+        assert_eq!(in_draft(&body, "o/r#7", HEAD, NOW + 5, false), Some(Drafted::Another), "another machine's, of the same commit");
+        assert_eq!(in_draft(&body, "o/r#7", HEAD, NOW + 5, true), None, "one asked for by hand goes beside it");
+        assert_eq!(in_draft(&body, "o/r#7", NEXT, NOW + 5, false), None, "another commit's");
     }
 }

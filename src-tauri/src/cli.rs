@@ -3950,17 +3950,21 @@ fn review_line(r: &crate::model::AutoReview, head: Option<&str>) -> String {
     use crate::github::Verdict;
     use crate::model::ReviewStage;
     let at = r.head.get(..7).unwrap_or(&r.head);
+    // Another machine of yours reviews it (autoreview.rs `reviewer_of`): said as review.ts says it.
+    let on = r.machine.as_deref().map(|m| format!(" on {m}")).unwrap_or_default();
+    let agent = r.machine.as_deref().map_or_else(|| "Agent".to_string(), |m| format!("Agent on {m}"));
     let says = match (r.submitted, r.stage) {
-        (Some(Verdict::Approve), _) => format!("Agent approved {at} for you"),
-        (Some(Verdict::RequestChanges), _) => format!("Agent requested changes on {at} for you"),
-        (Some(Verdict::Comment), _) => format!("Agent commented on {at} for you"),
-        (None, ReviewStage::Queued) => format!("Agent review of {at} to come"),
-        (None, ReviewStage::Reviewing) => format!("Agent reviewing {at}"),
-        (None, ReviewStage::Posted) => format!("Agent reviewed {at} and commented"),
-        (None, ReviewStage::Drafted) => format!("Agent drafted a review of {at}"),
-        (None, ReviewStage::Kept) => format!("Agent reviewed {at}"),
-        (None, ReviewStage::Skipped) => format!("Agent passed on {at}"),
-        (None, ReviewStage::Failed) if r.parts.iter().any(|p| p.session.is_some()) => format!("Agent's review of {at} didn't finish"),
+        (Some(Verdict::Approve), _) => format!("{agent} approved {at} for you"),
+        (Some(Verdict::RequestChanges), _) => format!("{agent} requested changes on {at} for you"),
+        (Some(Verdict::Comment), _) => format!("{agent} commented on {at} for you"),
+        (None, ReviewStage::Queued) => format!("Agent review of {at} to come{on}"),
+        (None, ReviewStage::Reviewing) => format!("Agent reviewing {at}{on}"),
+        (None, ReviewStage::Posted) => format!("Agent reviewed {at}{on} and commented"),
+        (None, ReviewStage::Drafted) => format!("Agent drafted a review of {at}{on}"),
+        (None, ReviewStage::Kept) => format!("Agent reviewed {at}{on}"),
+        (None, ReviewStage::Skipped) => format!("{agent} passed on {at}"),
+        (None, ReviewStage::Failed) if r.parts.iter().any(|p| p.session.is_some()) => format!("Agent's review of {at}{on} didn't finish"),
+        (None, ReviewStage::Failed) if r.machine.is_some() => format!("Agent's review of {at}{on} didn't get done"),
         (None, ReviewStage::Failed) => format!("Agent's review of {at} didn't start"),
     };
     let who: String = r.parts.iter().map(|x| x.session.as_ref().map_or_else(|| format!(", {}", x.who), |s| format!(", {} in {s}", x.who))).collect();
@@ -7350,7 +7354,7 @@ mod tests {
     fn says_where_a_prs_agent_review_stands_as_its_card_does() {
         use crate::model::{AutoReview, PartState, ReviewPart, ReviewStage};
         let part = ReviewPart { who: "reviewers".into(), session: Some("cursor:cursor:c1".into()), state: PartState::Done, note: None };
-        let r = AutoReview { stage: ReviewStage::Drafted, head: "1c1706be2657c978".into(), parts: vec![part], at: 0, comment: None, note: None, rounds: 1, behind: false, holds: false, own: false, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None };
+        let r = AutoReview { stage: ReviewStage::Drafted, head: "1c1706be2657c978".into(), parts: vec![part], at: 0, comment: None, note: None, rounds: 1, behind: false, holds: false, own: false, sent: None, sent_at: None, sendable: None, suggests: None, approves: None, submitted: None, submitted_at: None, machine: None };
         let at = Some("1c1706be2657c978");
         assert_eq!(review_line(&r, at), "Agent drafted a review of 1c1706b, reviewers in cursor:cursor:c1");
         // A draft submitted for you keeps its stage, and says what it went as.
@@ -7364,8 +7368,13 @@ mod tests {
         let reviewing = AutoReview { stage: ReviewStage::Reviewing, head: "2d2806cf".into(), approves: Some("1c1706be2657c978".into()), ..r.clone() };
         assert_eq!(review_line(&reviewing, Some("2d2806cf")), "Agent reviewing 2d2806c, reviewers in cursor:cursor:c1 (it approved 1c1706b before)");
         // One whose session never began didn't start, and says why.
-        let failed = AutoReview { stage: ReviewStage::Failed, parts: vec![ReviewPart { session: None, state: PartState::Failed, ..r.parts[0].clone() }], note: Some("Its session never showed up.".into()), ..r };
+        let failed = AutoReview { stage: ReviewStage::Failed, parts: vec![ReviewPart { session: None, state: PartState::Failed, ..r.parts[0].clone() }], note: Some("Its session never showed up.".into()), ..r.clone() };
         assert_eq!(review_line(&failed, at), "Agent's review of 1c1706b didn't start, reviewers: Its session never showed up.");
+        // Another machine's review says which machine's it is.
+        let theirs = AutoReview { stage: ReviewStage::Reviewing, parts: Vec::new(), machine: Some("Studio".into()), ..r.clone() };
+        assert_eq!(review_line(&theirs, at), "Agent reviewing 1c1706b on Studio");
+        assert_eq!(review_line(&AutoReview { stage: ReviewStage::Skipped, ..theirs.clone() }, at), "Agent on Studio passed on 1c1706b");
+        assert_eq!(review_line(&AutoReview { stage: ReviewStage::Failed, ..theirs }, at), "Agent's review of 1c1706b on Studio didn't get done");
     }
 
     #[test]

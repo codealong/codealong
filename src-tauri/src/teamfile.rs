@@ -796,6 +796,7 @@ rerequest_after_fixes = true
             last_review: None,
             stale_approval: None,
             turn: None,
+            shared_review: Default::default(),
         }
     }
 

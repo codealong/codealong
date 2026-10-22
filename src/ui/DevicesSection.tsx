@@ -1,17 +1,24 @@
 // Settings › Devices: Codealong on your other devices (src-tauri/src/peers.rs). Turning it on,
 // how this device finds the others, the devices it's linked with and their colors, linking more,
-// and remote control. The
-// switches are `[devices]` in config.toml; linking goes through the engine, which keeps the list.
+// remote control, and where this machine stands for the automations your machines share
+// (shared.rs). The switches are `[devices]` in config.toml; linking goes through the engine,
+// which keeps the list.
 
 import { useEffect, useState } from 'react';
 import { below, showContextMenu } from '../contextMenu';
 import { answerLink, deviceLinkCode, getDevices, linkCodeQr, linkDevice, linkWithCode, onDevices, setDeviceColor, unlinkDevice } from '../api';
 import { agoPhrase } from '../format';
 import { COLOR_WORD } from '../todos';
-import type { Config, DevicesCfg, DevicesView, DeviceView, LabelColor } from '../types';
+import type { Config, DevicesCfg, DevicesView, DeviceView, LabelColor, Rank } from '../types';
 import { DEVICES_OFF, LABEL_COLORS } from '../types';
-import { Button, CheckBox } from './primitives';
+import { Button, CheckBox, Seg } from './primitives';
 import { errorText } from '../report';
+
+/** Where a machine stands for the automations your machines share, in words. */
+const RANKS: { id: Rank; label: string; says: string }[] = [
+  { id: 'first', label: 'First choice', says: 'This machine runs them whenever it can.' },
+  { id: 'backup', label: 'Backup', says: 'This machine runs them only while no first choice can: one that’s asleep, closed or off.' },
+];
 
 interface DevicesPaneProps {
   cfg: Config;
@@ -102,6 +109,14 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
                 Reading and searching don't need this.
               </small>
             </label>
+            <div className="ca-field">
+              <span>For automations my machines share</span>
+              <Seg className="ca-settings-theme" label="For automations my machines share" options={RANKS} value={d.automations} onPick={(id) => id !== d.automations && set({ automations: id })} />
+              <small>
+                One of your machines runs each of these rather than all of them. For now that&apos;s reviewing a pull request that asks for your review, among the machines where automatic reviews are on.{' '}
+                {RANKS.find((r) => r.id === d.automations)?.says} Machines with the same setting go in an order they all agree on.
+              </small>
+            </div>
           </>
         )}
       </fieldset>
@@ -238,8 +253,15 @@ function DeviceCard({ dev, now, busy, onColor, onUnlink }: { dev: DeviceView; no
         </button>
         <span className="ca-ucard-name ca-device-name">{dev.name}</span>
         <span className="ca-ucard-plan">{where}</span>
-        <span className={['ca-tag', dev.remoteControl ? 'is-attn' : ''].join(' ')} title="Whether this device can send prompts and answer approvals there">
-          {dev.remoteControl ? 'Takes remote control' : 'Read only'}
+        <span className="ca-acct-tags">
+          {dev.automations && (
+            <span className="ca-tag" title="Where it stands for the automations your machines share">
+              {RANKS.find((r) => r.id === dev.automations)?.label}
+            </span>
+          )}
+          <span className={['ca-tag', dev.remoteControl ? 'is-attn' : ''].join(' ')} title="Whether this device can send prompts and answer approvals there">
+            {dev.remoteControl ? 'Takes remote control' : 'Read only'}
+          </span>
         </span>
       </div>
       {!dev.linkedBack && <p className="ca-acct-note">{dev.name} doesn't have this device linked any more. Unlink it here, then link again.</p>}

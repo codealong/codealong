@@ -455,7 +455,7 @@ function agentsReview(c: PrComment): { posted: boolean; commit: string } | null 
  * is posted: a review of new commits starts with which of the earlier findings are fixed
  * (autoreview.rs `again_prompt`), so the latest is the agent's whole word. A clean pass is often
  * only a comment, the approval being its person's to give, and the earlier passes' requests kept
- * counting as open after it found them fixed (specbook#1293, 2026-10-22). Everything else stands
+ * counting as open after it found them fixed (a PR seen on 2026-10-22). Everything else stands
  * until it's resolved: what someone wrote later can't be told for a new pass.
  */
 export function asksFor(comments: PrComment[], asks: Record<string, number>): Set<string> {

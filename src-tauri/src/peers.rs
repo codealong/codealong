@@ -164,6 +164,10 @@ pub struct DevicesView {
     pub asks: Vec<AskView>,
     /// Every linked device's worktrees, each lane id and session key with `@<short>:` in front.
     pub lanes: Vec<Lane>,
+    /// This machine and your others that share automations, for the engine (shared.rs): not
+    /// the windows'.
+    #[serde(skip)]
+    pub machines: crate::shared::Machines,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -205,6 +209,8 @@ pub struct DeviceView {
     pub usage: Vec<Usage>,
     /// `mac`, `phone` or `tablet` (`peerproto::MAC`…).
     pub kind: String,
+    /// Where it stands for the automations your machines share; none from one that shares none.
+    pub automations: Option<codealong_peer::feed::Rank>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -852,7 +858,7 @@ impl Inner {
     }
 
     fn device_info(&self, st: &State, board: &Board) -> DeviceInfo {
-        DeviceInfo { name: self.my_name(st), app: APP.into(), remote_control: st.cfg.remote_control, loading: board.loading }
+        DeviceInfo { name: self.my_name(st), app: APP.into(), remote_control: st.cfg.remote_control, loading: board.loading, shares: Some(st.cfg.automations) }
     }
 
     fn view(&self, st: &State) -> DevicesView {
@@ -895,6 +901,7 @@ impl Inner {
                     loading: cached.is_some_and(|c| c.replica.device.loading),
                     usage: cached.map(|c| c.replica.usage.clone()).unwrap_or_default(),
                     kind: l.kind.clone().unwrap_or_else(|| peerproto::MAC.into()),
+                    automations: cached.and_then(|c| c.replica.device.shares),
                 }
             };
         let devices = st.linked.iter().filter(|l| !l.watches()).map(view_of).collect();
@@ -935,7 +942,31 @@ impl Inner {
         } else {
             Vec::new()
         };
-        DevicesView { enabled: st.cfg.enabled, me, devices, phones, found, asks, lanes }
+        DevicesView { enabled: st.cfg.enabled, me, devices, phones, found, asks, lanes, machines: self.machines(st) }
+    }
+
+    /// This machine and your others that share automations, as their feeds last said, a machine
+    /// that's away with what it said before it went (`device-feeds.json`).
+    fn machines(&self, st: &State) -> crate::shared::Machines {
+        use crate::shared::{Machine, Machines, Me};
+        let Some(me) = self.me.get().filter(|_| st.cfg.enabled) else { return Machines::default() };
+        let others = st
+            .linked
+            .iter()
+            .filter(|l| !l.watches())
+            .filter_map(|l| {
+                let c = st.replicas.get(&l.key)?;
+                Some(Machine {
+                    key: l.key.clone(),
+                    name: self.name_of(st, &l.key),
+                    rank: c.replica.device.shares?,
+                    online: st.conns.contains_key(&l.key),
+                    last_seen: Some(c.last_seen).filter(|t| *t > 0),
+                    prs: c.replica.prs.clone(),
+                })
+            })
+            .collect();
+        Machines { me: Some(Me { key: me.hex.clone(), rank: st.cfg.automations }), others }
     }
 }
 
@@ -1946,6 +1977,31 @@ mod tests {
         until("b to forget a", || b.peers.view().devices.is_empty());
         assert!(a.peers.view().lanes.is_empty());
         assert!(a.peers.ask(&b_short, "search", json!({}), Duration::from_secs(1)).is_err());
+        for m in [&a, &b] {
+            let _ = std::fs::remove_dir_all(&m.dir);
+        }
+    }
+
+    #[test]
+    fn linked_machines_say_where_they_stand_for_the_automations_they_share() {
+        use codealong_peer::feed::Rank;
+        let a = device("Book", vec![]);
+        let b = device("Mini", vec![]);
+        let backup = DevicesCfg { automations: Rank::Backup, ..b.peers.0.lock().cfg.clone() };
+        b.board.lock().unwrap().devices = backup.clone();
+        b.peers.configure(&backup);
+        join(&a, &b);
+        link(&a, &b);
+        // Each knows itself, and the other as its feed says, for the engine (shared.rs).
+        until("a to hear where b stands", || a.peers.view().machines.others.iter().any(|m| m.key == key_of(&b) && m.rank == Rank::Backup && m.online));
+        let mine = a.peers.view().machines.me.unwrap();
+        assert_eq!((mine.key, mine.rank), (key_of(&a), Rank::First));
+        assert_eq!(a.peers.view().devices[0].automations, Some(Rank::Backup), "Settings shows it");
+        until("b to hear where a stands", || b.peers.view().machines.others.iter().any(|m| m.name == "Book" && m.rank == Rank::First));
+        // Off, a machine shares nothing.
+        let off = DevicesCfg { enabled: false, ..a.peers.0.lock().cfg.clone() };
+        a.peers.configure(&off);
+        assert_eq!(a.peers.view().machines, crate::shared::Machines::default());
         for m in [&a, &b] {
             let _ = std::fs::remove_dir_all(&m.dir);
         }

@@ -5,7 +5,8 @@
     "tailscale": true,
     "iroh": true,
     "remote_control": false,
-    "port": 47471
+    "port": 47471,
+    "automations": "first"
   },
   "lanesFromBoard": {
     "9f8e7d6c5b": 3,
@@ -39,7 +40,8 @@
         "loading": false,
         "usage": [],
         "color": "teal",
-        "kind": "mac"
+        "kind": "mac",
+        "automations": "first"
       },
       {
         "key": "4a3b2c1d0e5f6a7b8c9d0e1f2a3b4c5d4a3b2c1d0e5f6a7b8c9d0e1f2a3b4c5d",
@@ -55,7 +57,8 @@
         "loading": false,
         "usage": [],
         "color": "purple",
-        "kind": "mac"
+        "kind": "mac",
+        "automations": "backup"
       }
     ],
     "found": [

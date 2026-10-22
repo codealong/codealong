@@ -218,18 +218,22 @@ export function askOn(accounts: StartAccount[], usage: Usage[], now: number, cho
  *  hasn't, as the engine has it. */
 export function autoReviewWords(r: AutoReview, onGitHub?: { draft: boolean; submitted: string | null }, sentTo?: string | null): { icon: string; says: string; note: string | null } {
   const at = r.head.slice(0, 7);
+  // Another machine of yours reviews it (autoreview.rs `reviewer_of`), and says only how its
+  // round stands, not how its session went.
+  const on = r.machine ? ` on ${r.machine}` : '';
+  const agent = r.machine ? `Agent on ${r.machine}` : 'Agent';
   const [icon, says] = {
-    queued: ['hourglass', `Agent review of ${at} to come`],
-    reviewing: ['eye', `Agent reviewing ${at}`],
-    posted: ['message-circle', `Agent reviewed ${at} and commented`],
-    drafted: ['note', `Agent drafted a review of ${at}`],
-    kept: ['check', `Agent reviewed ${at}`],
-    skipped: ['circle-dashed', `Agent passed on ${at}`],
+    queued: ['hourglass', `Agent review of ${at} to come${on}`],
+    reviewing: ['eye', `Agent reviewing ${at}${on}`],
+    posted: ['message-circle', `Agent reviewed ${at}${on} and commented`],
+    drafted: ['note', `Agent drafted a review of ${at}${on}`],
+    kept: ['check', `Agent reviewed ${at}${on}`],
+    skipped: ['circle-dashed', `${agent} passed on ${at}`],
     // One whose session never began (GitHub couldn't be read, no account could start it) didn't
     // start, rather than stop partway.
-    failed: ['alert', `Agent’s review of ${at} ${r.parts?.some((p) => p.session) ? 'didn’t finish' : 'didn’t start'}`],
+    failed: ['alert', `Agent’s review of ${at}${on} ${r.machine ? 'didn’t get done' : r.parts?.some((p) => p.session) ? 'didn’t finish' : 'didn’t start'}`],
   }[r.stage];
-  const kept = r.stage === 'kept' && !r.own ? 'Its review is in its session: posting is off.' : null;
+  const kept = r.stage === 'kept' && !r.own ? (r.machine ? `Its review is in its session on ${r.machine}: posting is off there.` : 'Its review is in its session: posting is off.') : null;
   const back = r.own && r.sent ? `It went back to ${sentTo ? `“${sentTo}”` : 'the session that opened the PR'}.` : null;
   const gone = r.stage === 'drafted' && onGitHub && !onGitHub.draft ? (onGitHub.submitted ? `You submitted it, ${submittedWord(onGitHub.submitted)}.` : 'It isn’t a draft on GitHub any more: it was submitted or thrown away.') : null;
   // A draft that shows below says so itself, and one submitted for you isn't a draft any more.
@@ -240,16 +244,16 @@ export function autoReviewWords(r: AutoReview, onGitHub?: { draft: boolean; subm
   const before = r.approves && (r.behind || r.approves !== r.head) ? r.approves.slice(0, 7) : null;
   const held = r.holds ? (before ? `It approved ${before} before: the PR waits on your sign-off once the agent approves the commits since.` : 'It waits on your review once the agent’s is done.') : before && `It approved ${before} before.`;
   const note = [why, next, held].filter((x): x is string => !!x).join(' ');
-  if (r.submitted) return { ...submittedWords(r.submitted, at), note: note || null };
+  if (r.submitted) return { ...submittedWords(r.submitted, at, agent), note: note || null };
   return { icon: r.own && r.sent && r.stage === 'kept' ? 'send' : icon, says, note: note || null };
 }
 
 /** What an agent's review of commit `at` was submitted as yours as (`[reviews] submit`). */
-function submittedWords(v: Verdict, at: string): { icon: string; says: string } {
+function submittedWords(v: Verdict, at: string, agent = 'Agent'): { icon: string; says: string } {
   return {
-    approve: { icon: 'check', says: `Agent approved ${at} for you` },
-    'request-changes': { icon: 'alert', says: `Agent requested changes on ${at} for you` },
-    comment: { icon: 'message-circle', says: `Agent commented on ${at} for you` },
+    approve: { icon: 'check', says: `${agent} approved ${at} for you` },
+    'request-changes': { icon: 'alert', says: `${agent} requested changes on ${at} for you` },
+    comment: { icon: 'message-circle', says: `${agent} commented on ${at} for you` },
   }[v];
 }
 

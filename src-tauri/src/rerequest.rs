@@ -231,6 +231,7 @@ mod tests {
             last_review: None,
             stale_approval: None,
             turn,
+            shared_review: Default::default(),
         }
     }
 

@@ -943,9 +943,15 @@ export interface DevicesCfg {
   /** Let linked devices send prompts, answer approvals and start sessions here. */
   remote_control: boolean;
   port: number;
+  /** Where this machine stands for the automations your machines share (shared.rs). */
+  automations: Rank;
 }
 
-export const DEVICES_OFF: DevicesCfg = { enabled: false, name: '', tailscale: true, iroh: true, remote_control: false, port: 47471 };
+/** Where a machine stands for the automations your machines share, so one of them runs each: a
+ *  backup runs one only when no first choice that can is around. */
+export type Rank = 'first' | 'backup';
+
+export const DEVICES_OFF: DevicesCfg = { enabled: false, name: '', tailscale: true, iroh: true, remote_control: false, port: 47471, automations: 'first' };
 
 export type DeviceVia = 'tailscale' | 'iroh' | 'test';
 
@@ -1004,6 +1010,8 @@ export interface DeviceView {
   loading: boolean;
   usage: Usage[];
   kind: 'mac' | 'phone' | 'tablet';
+  /** Where it stands for the automations your machines share; none from one that shares none. */
+  automations?: Rank | null;
 }
 
 export interface FoundDevice {
@@ -1749,6 +1757,9 @@ export interface AutoReview {
   /** What its review was submitted as yours as (`[reviews] submit`), and when. */
   submitted?: Verdict | null;
   submittedAt?: number | null;
+  /** The machine whose review this is, when it's another of yours: one of your machines reviews
+   *  a PR (autoreview.rs `reviewer_of`), and the others show its round. */
+  machine?: string | null;
 }
 
 /** A session that worked on a PR. */

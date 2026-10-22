@@ -47,7 +47,7 @@ describe('reviewersOf', () => {
   });
 
   it('puts an answer above what it answers, whoever wrote it, once nothing is open', () => {
-    // specbook#1293: the reviewer asked for changes, then wrote that all was fixed; the author
+    // A PR seen on 2026-10-22: the reviewer asked for changes, then wrote that all was fixed; the author
     // asked for the approval after that.
     const got = reviewersOf(
       {

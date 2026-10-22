@@ -81,10 +81,14 @@ export function openingTab(pr: Pick<PrItem, 'reviewRequested' | 'state' | 'autoR
  *  GitHub (`hasDraft`, your draft review as read): one submitted or thrown away there has nothing
  *  to submit, and the box goes back to its own verdicts. Not where your own approval or request
  *  for changes of that commit has said what you'd do (prStatus.ts `yourVerdictStands`), where its
- *  suggestion no longer shows either. Null otherwise. */
+ *  suggestion no longer shows either, nor where another machine of yours wrote it (`machine`),
+ *  which keeps its round. Null otherwise. */
 export function agentsVerdict(pr: Pick<PrItem, 'state' | 'mine' | 'reviewRequested' | 'headOid' | 'autoReview' | 'lastReview'>, hasDraft: boolean): Verdict | null {
   const a = pr.autoReview;
   if (!a?.suggests || a.suggests === 'approve' || a.submitted || a.own || pr.mine || !pr.reviewRequested || yourVerdictStands(pr)) return null;
+  // Another machine of yours wrote it, and keeps its round: the box's own verdicts submit your
+  // draft review there as here.
+  if (a.machine) return null;
   if (pr.state === 'merged' || pr.state === 'closed' || !pr.headOid || a.head !== pr.headOid) return null;
   if (a.stage === 'drafted') return hasDraft ? a.suggests : null;
   return a.stage === 'posted' || a.stage === 'kept' ? a.suggests : null;

@@ -961,6 +961,30 @@ a +N for the rest. Once you've submitted the agent's draft, it says so and how. 
 it, and `codealong --snapshot --pr-draft <owner/name> <number>` your draft as the Reviews tab reads
 it.
 
+When your machines are linked (see *Your other devices*) and several have automatic reviews on, one
+of them reviews each PR rather than all of them, each working out the same one from what the others
+say: the first choice (Settings › Devices, For automations my machines share; `[devices]
+automations`) that's around, has a checkout of the PR's repo and would review it, else a backup;
+machines that stand the same go in an order every one of them agrees on. A machine is around while
+it's connected and for five minutes after it was last heard from, so a moment's drop hands nothing
+on; one asleep, closed or off for longer is passed over, and a review it was writing is taken up by
+the next. A commit goes to the machine with a review of it that got done, else the one whose review
+of it began first, so a machine that comes back to find another took its commit up drops its own
+(and takes it up again should that one go away before it's done). So while your machines can reach
+each other, one review of a commit goes on GitHub and is submitted for you; one already there, in
+your draft or as a comment, isn't posted again. Two that can't reach each other, each finishing a
+review of the same commit within moments, can both post. A machine that turns its reviews off, or
+whose review didn't get done, holds nothing: another may review the commit. A PR stays with the machine whose
+review of it got done last, which reviews its new commits as its own. A first choice that hasn't
+read the PR from GitHub yet is waited for, five minutes at most from when your review was asked for.
+The others show the review as that machine's (Agent reviewing 1a2b3c4 on Mac mini) and hold the PR
+out of what waits on you as they would for their own, and a PR that machine brought back to wait on
+you, after submitting its agent's review for you, waits on you on all of them. Try again on one of
+them reviews it on that one. The box's own verdicts submit your draft review from any machine, but
+the agent's one-press verdict is on the machine that wrote it. Machines on builds from before
+2026-10-22 review on their own, as before, and a review of a PR of yours is always the machine's
+whose session opened it.
+
 #### Reviews of your own pull requests
 
 With `[reviews.own] auto = true` (Settings › Automation, Review the pull requests your sessions
@@ -2947,6 +2971,11 @@ hides it); once it quits, or the Mac sleeps, it shows as it was when last seen. 
 Settings › General, has it running again after a restart without your opening it. Each
 session goes out with its place among its Mac's pins, so the iPhone app lists a Mac's pinned
 sessions first, in that Mac's order, and pins or unpins one there, remote control or not.
+
+One of your machines runs what they share rather than all of them: for now, reviewing a pull
+request that asks for your review (see *Automatic reviews*). Settings › Devices says where this
+machine stands for those, a first choice, or a backup that runs them only while no first choice
+can (asleep, closed or off), and each linked machine's card says where it stands.
 
 ## For agents
 

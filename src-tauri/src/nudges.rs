@@ -753,6 +753,7 @@ mod tests {
             last_review: None,
             stale_approval: None,
             turn: None,
+            shared_review: Default::default(),
         }
     }
 

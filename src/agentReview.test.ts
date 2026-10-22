@@ -70,6 +70,8 @@ describe('agentsVerdict', () => {
     expect(agentsVerdict(pr({ stage: 'reviewing' }), false)).toBeNull();
     expect(agentsVerdict(pr({ suggests: null }), false)).toBeNull();
     expect(agentsVerdict(pr({ own: true }), false)).toBeNull();
+    // Another machine of yours wrote it and keeps its round: the box's own verdicts submit your draft.
+    expect(agentsVerdict(pr({ machine: 'Studio' }), false)).toBeNull();
     expect(agentsVerdict(pr({}, { mine: true }), false)).toBeNull();
     expect(agentsVerdict(pr({}, { state: 'merged' }), false)).toBeNull();
     expect(agentsVerdict(pr({}, { headOid: undefined }), false)).toBeNull();

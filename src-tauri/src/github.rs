@@ -1697,6 +1697,27 @@ pub enum Verdict {
     RequestChanges,
 }
 
+/// A verdict as other devices are told it (codealong-peer's `pr::Verdict`), and back.
+impl From<Verdict> for codealong_peer::pr::Verdict {
+    fn from(v: Verdict) -> Self {
+        match v {
+            Verdict::Approve => codealong_peer::pr::Verdict::Approve,
+            Verdict::Comment => codealong_peer::pr::Verdict::Comment,
+            Verdict::RequestChanges => codealong_peer::pr::Verdict::RequestChanges,
+        }
+    }
+}
+
+impl From<codealong_peer::pr::Verdict> for Verdict {
+    fn from(v: codealong_peer::pr::Verdict) -> Self {
+        match v {
+            codealong_peer::pr::Verdict::Approve => Verdict::Approve,
+            codealong_peer::pr::Verdict::Comment => Verdict::Comment,
+            codealong_peer::pr::Verdict::RequestChanges => Verdict::RequestChanges,
+        }
+    }
+}
+
 impl Verdict {
     /// `gh pr review`'s flag for it.
     fn flag(self) -> &'static str {

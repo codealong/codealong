@@ -42,6 +42,18 @@ describe('autoReviewWords', () => {
     expect(autoReviewWords(r('kept', { submitted: 'approve' })).note).toBe('Its review is in its session: posting is off.');
     expect(suggestWords('request-changes')).toBe('Suggests changes');
   });
+  it('says which of your machines a review is on, when it’s another', () => {
+    const on = (stage: AutoReview['stage'], more: Partial<AutoReview> = {}) => autoReviewWords(r(stage, { machine: 'Studio', ...more }));
+    expect(on('queued').says).toBe('Agent review of 309811a to come on Studio');
+    expect(on('reviewing')).toEqual({ icon: 'eye', says: 'Agent reviewing 309811a on Studio', note: null });
+    expect(on('posted').says).toBe('Agent reviewed 309811a on Studio and commented');
+    expect(on('drafted').says).toBe('Agent drafted a review of 309811a on Studio');
+    expect(on('skipped').says).toBe('Agent on Studio passed on 309811a');
+    // Its parts aren't told: whether it started isn't known here.
+    expect(on('failed').says).toBe('Agent’s review of 309811a on Studio didn’t get done');
+    expect(on('kept').note).toBe('Its review is in its session on Studio: posting is off there.');
+    expect(on('drafted', { submitted: 'approve' }).says).toBe('Agent on Studio approved 309811a for you');
+  });
   it('offers to try a review that didn’t get done again: posting what was written, else reviewing', () => {
     const pr = (autoReview: AutoReview | undefined, more: Partial<PrItem> = {}) => ({ autoReview, headOid: '309811aaaabbbb', state: 'open' as PrItem['state'], ...more });
     const wrote = [{ who: 'auto', session: 'k', state: 'done' as const }];

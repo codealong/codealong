@@ -96,21 +96,18 @@ pub fn pr_cards(board: &Board) -> Vec<PrCard> {
             closed_at: p.closed_at,
             sessions: p.sessions.iter().map(|s| s.key.clone()).collect(),
             labels: p.labels.clone(),
-            auto_review: p.auto_review.as_ref().map(auto_review_card),
+            // Only this machine's own review: another's shows here as that one's (autoreview.rs
+            // `reviewer_of`), and each machine goes by what the others did themselves.
+            auto_review: p.auto_review.as_ref().filter(|r| r.machine.is_none()).map(auto_review_card),
+            shared_review: Some(p.shared_review.clone()),
         })
         .collect()
 }
 
 /// A PR's automatic review as another device is told of it.
 fn auto_review_card(r: &crate::model::AutoReview) -> codealong_peer::pr::AutoReview {
-    use crate::github::Verdict as V;
     use crate::model::ReviewStage as S;
-    use codealong_peer::pr::{ReviewStage, Verdict};
-    let verdict = |v: V| match v {
-        V::Approve => Verdict::Approve,
-        V::Comment => Verdict::Comment,
-        V::RequestChanges => Verdict::RequestChanges,
-    };
+    use codealong_peer::pr::ReviewStage;
     let stage = match r.stage {
         S::Queued => ReviewStage::Queued,
         S::Reviewing => ReviewStage::Reviewing,
@@ -120,7 +117,7 @@ fn auto_review_card(r: &crate::model::AutoReview) -> codealong_peer::pr::AutoRev
         S::Skipped => ReviewStage::Skipped,
         S::Failed => ReviewStage::Failed,
     };
-    codealong_peer::pr::AutoReview { stage, head: r.head.clone(), suggests: r.suggests.map(verdict), submitted: r.submitted.map(verdict) }
+    codealong_peer::pr::AutoReview { stage, head: r.head.clone(), suggests: r.suggests.map(Into::into), submitted: r.submitted.map(Into::into), at: r.at }
 }
 
 /// Whether every device's build reads the harness: the ones there were before a device's hello
@@ -334,7 +331,7 @@ mod tests {
     }
 
     fn info(name: &str) -> DeviceInfo {
-        DeviceInfo { name: name.into(), app: "0.1.0".into(), remote_control: false, loading: false }
+        DeviceInfo { name: name.into(), app: "0.1.0".into(), remote_control: false, loading: false, shares: None }
     }
 
     #[test]
@@ -407,7 +404,7 @@ mod tests {
         p.auto_review = Some(serde_json::from_value(serde_json::json!({ "stage": "drafted", "head": "abc1234def", "at": 5, "rounds": 2, "holds": true, "suggests": "request-changes" })).expect("a review"));
         let snap = snapshot(&Board { generated_at: 10, prs: vec![p.clone()], ..board(vec![]) }, info("Mini"));
         let sent = snap.prs[0].auto_review.clone();
-        assert_eq!(sent, Some(AutoReview { stage: ReviewStage::Drafted, head: "abc1234def".into(), suggests: Some(Verdict::RequestChanges), submitted: None }));
+        assert_eq!(sent, Some(AutoReview { stage: ReviewStage::Drafted, head: "abc1234def".into(), suggests: Some(Verdict::RequestChanges), submitted: None, at: 5 }));
         // The card's is the engine's own, cut down: the same shape reads the same.
         let engines: AutoReview = serde_json::from_value(serde_json::to_value(&p.auto_review).unwrap()).unwrap();
         assert_eq!(Some(engines), sent);
@@ -417,6 +414,13 @@ mod tests {
         // None before its first round.
         let none = snapshot(&Board { generated_at: 10, prs: vec![pr(2, crate::model::PrState::Open, true, None)], ..board(vec![]) }, info("Mini"));
         assert!(none.prs[0].auto_review.is_none());
+        // Nor while it shows another machine's: each machine shows only what it did itself, and
+        // says what its reviews come to, which the others go by (autoreview.rs `reviewer_of`).
+        let mut theirs = p.clone();
+        theirs.auto_review.as_mut().unwrap().machine = Some("Studio".into());
+        theirs.shared_review.would = true;
+        let snap = snapshot(&Board { generated_at: 10, prs: vec![theirs], ..board(vec![]) }, info("Mini"));
+        assert!(snap.prs[0].auto_review.is_none() && snap.prs[0].shared_review.as_ref().is_some_and(|s| s.would));
     }
 
     #[test]

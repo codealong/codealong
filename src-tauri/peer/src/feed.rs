@@ -26,6 +26,22 @@ pub struct DeviceInfo {
     /// Its first scan hasn't finished.
     #[serde(default)]
     pub loading: bool,
+    /// Where it stands among your machines for the automations they share, so that one of them
+    /// runs each (a review of a PR that asks for yours): none from a phone, which runs nothing,
+    /// and from machines before 2026-10-22, which share none and run their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shares: Option<Rank>,
+}
+
+/// Where a machine stands for the automations your machines share: a backup runs one only when
+/// no first choice that can is around. Machines that stand the same go by their device keys, so
+/// each of them works out the same one.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Rank {
+    #[default]
+    First,
+    Backup,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -243,6 +259,7 @@ mod tests {
             sessions: Vec::new(),
             labels: Vec::new(),
             auto_review: None,
+            shared_review: None,
         };
         let mut replica = Replica::default();
         replica.apply(FeedMsg { rev: 1, full: true, prs: Some(vec![card(1), card(2)]), ..Default::default() });
