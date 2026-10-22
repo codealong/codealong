@@ -345,9 +345,17 @@ pub fn run_as(engine: &Handle, peers: &Peers, from: &From, name: &str, on: On, p
             Some(instead) => instead(engine, peers, device, own, &why).map_err(|_| why),
             None => Err(why),
         }),
+        // Until its first scan after a start ends, the board lists no sessions or worktrees, and
+        // what the command names would be taken for one Codealong doesn't know. It waits for the
+        // scan on this answer, and asks again (cli.rs `act_within`).
+        (None, key) if matches!(from, From::Command(_)) && !key.is_empty() && engine.read(|b| b.loading) => Err(STILL_READING.to_string()),
         (None, key) => (req.here)(engine, &Call { key, params: &params, from }),
     }
 }
+
+/// What the command is told when it asks about a session or worktree before the app has read
+/// them after a start.
+pub const STILL_READING: &str = "Codealong is still reading its sessions after a start: try again in a moment.";
 
 /// Does `name` for sessions on any device, from a window here: one request a device, with the
 /// `keys` each knows its sessions by in `params`. Another device's goes in the background, since
@@ -1918,6 +1926,25 @@ mod tests {
         let back = (search.back)(found, "a1b2c3d4e5").unwrap();
         assert_eq!(back["hits"][0]["key"], "@a1b2c3d4e5:claude:claude:s1");
         assert_eq!(search.wait, Some(Duration::from_secs(4)));
+    }
+
+    /// An app just started lists no sessions until its first scan ends. The command is told that,
+    /// not that the session isn't listed, which an agent would take for a wrong key and drop; it
+    /// waits for the scan and asks again (cli.rs `act_within`). A window, which shows nothing to
+    /// ask about until then, is answered as before.
+    #[test]
+    fn the_command_hears_the_app_is_still_reading_rather_than_of_no_session() {
+        use crate::model::Board;
+        let (peers, _dir) = no_devices();
+        let command = From::Command(Some("claude:claude:me".into()));
+        let ask = |board: &Board, from: &From, name: &str| run_as(&Handle::over(board.clone()), &peers, from, name, On::Key("claude:claude:kestrel"), json!({ "text": "hi" })).unwrap_err();
+        let loading = Board { loading: true, ..Board::default() };
+        for name in [api::SESSION_TAG, api::SESSION_SUGGEST, api::SESSION_PENDING, api::SESSION_SEND] {
+            assert_eq!(ask(&loading, &command, name), STILL_READING, "{name}");
+            assert_ne!(ask(&Board::default(), &command, name), STILL_READING, "{name}");
+        }
+        assert_eq!(ask(&Board::default(), &command, api::SESSION_TAG), "Codealong doesn't list that session.");
+        assert_eq!(ask(&loading, &From::Here, api::SESSION_TAG), "Codealong doesn't list that session.");
     }
 
     #[test]

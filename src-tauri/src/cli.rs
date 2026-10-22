@@ -1472,6 +1472,11 @@ pub fn main(args: &[String]) -> i32 {
     }
 }
 
+/// How long a lookup waits for the app's first scan after a start (`Client::loaded_board`), which
+/// took 3 to 7 s at a load of 100 to 300 on 2026-10-22's relaunches, and how often it asks.
+const LOADING_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+const LOADING_EVERY: std::time::Duration = std::time::Duration::from_millis(500);
+
 /// Where answers come from: the app over its socket, or the files.
 struct Client {
     app: Option<server::Status>,
@@ -1531,6 +1536,38 @@ impl Client {
             self.from_app = from_app;
         }
         Ok(self.board.as_ref().unwrap())
+    }
+
+    /// The board, for looking up a session or worktree by what the command was given: until the
+    /// app's first scan after a start ends (`loading`), its board has none, and anything named
+    /// would be taken for something Codealong doesn't know. That's waited for, at most
+    /// LOADING_WAIT; a board still loading after that is returned as it is, for the lookup to say
+    /// so (`no_session`).
+    fn loaded_board(&mut self) -> Result<&Board> {
+        if self.board()?.loading && self.from_app {
+            self.wait_loaded(LOADING_WAIT);
+        }
+        self.board()
+    }
+
+    /// Waits, at most `within`, for the app's first scan after a start to end, asking its status
+    /// rather than its board, which is a megabyte or more; the board is read again after. An app
+    /// that stops answering meanwhile is restarting again, and the files answer until it's back
+    /// (`board`).
+    fn wait_loaded(&mut self, within: std::time::Duration) {
+        let until = std::time::Instant::now() + within;
+        while std::time::Instant::now() < until {
+            std::thread::sleep(LOADING_EVERY);
+            match server::ask_within(&Request::Status, std::time::Duration::from_secs(5)).map(|r| r.map(serde_json::from_value::<server::Status>)) {
+                Some(Ok(Ok(status))) if status.loading => {}
+                Some(Ok(Ok(status))) => {
+                    self.app = Some(status);
+                    break;
+                }
+                _ => break,
+            }
+        }
+        self.board = None;
     }
 
     /// The board's worktrees, for whether a todo's PR is in review, when the app answers: a
@@ -1655,7 +1692,15 @@ impl Client {
         self.note();
         let params = serde_json::to_value(params)?;
         if self.app.is_some() {
-            match server::ask_within(&Request::Run { name: name.to_string(), key: key.to_string(), params: params.clone(), from: from.clone() }, wait) {
+            let run = Request::Run { name: name.to_string(), key: key.to_string(), params: params.clone(), from: from.clone() };
+            let mut answer = server::ask_within(&run, wait);
+            // An app that restarted after the board was read answers before its first scan has
+            // ended, having done nothing: once it has, it's asked again.
+            if matches!(&answer, Some(Err(e)) if e == actions::STILL_READING) {
+                self.wait_loaded(LOADING_WAIT.min(wait));
+                answer = server::ask_within(&run, wait);
+            }
+            match answer {
                 Some(Ok(v)) => return Ok(v),
                 // An app from before `run` says it doesn't know the request.
                 Some(Err(e)) if !e.starts_with(server::UNKNOWN_REQUEST) => bail!("{e}"),
@@ -4776,17 +4821,30 @@ fn status_text(r: &TodoRow) -> String {
 
 fn resolve_worktree(c: &mut Client, w: &str) -> Result<String> {
     let path = if w == "." { std::env::current_dir()? } else { expand(w) };
-    start::lane_at(c.board()?, &path).map(|l| l.id.clone()).ok_or_else(|| anyhow!("{} isn't a worktree the board knows. `codealong worktrees` lists them.", tilde(&path)))
+    let board = c.loaded_board()?;
+    match start::lane_at(board, &path) {
+        Some(l) => Ok(l.id.clone()),
+        None if board.loading => bail!("Codealong is still reading its worktrees after a start, so whether {} is one can't be said yet: try again in a moment.", tilde(&path)),
+        None => bail!("{} isn't a worktree the board knows. `codealong worktrees` lists them.", tilde(&path)),
+    }
 }
 
 fn resolve_session(c: &mut Client, k: &str) -> Result<String> {
     if k == "me" {
-        return find_me(c)?.0.ok_or_else(|| anyhow!("This shell isn't running inside a session the board knows, so `me` names nothing. Give a session key."));
+        let loading = c.loaded_board()?.loading;
+        return find_me(c)?.0.ok_or_else(|| match loading {
+            true => anyhow!("Codealong is still reading its sessions after a start, so which one runs this command can't be said yet: try again in a moment."),
+            false => anyhow!("This shell isn't running inside a session the board knows, so `me` names nothing. Give a session key."),
+        });
     }
     if k.trim().is_empty() {
         bail!("Give a session key.");
     }
-    let board = c.board()?;
+    session_named(c.loaded_board()?, k)
+}
+
+/// The key of the session `k` names on `board`: its key or id, or the start of only one's.
+fn session_named(board: &Board, k: &str) -> Result<String> {
     let all = all_sessions(board);
     if let Some((s, _)) = all.iter().find(|(s, _)| s.key == k || s.id == k) {
         return Ok(s.key.clone());
@@ -4794,8 +4852,18 @@ fn resolve_session(c: &mut Client, k: &str) -> Result<String> {
     let hits: Vec<&Session> = all.iter().map(|(s, _)| *s).filter(|s| s.id.starts_with(k) || s.key.starts_with(k) || s.short_id == k).collect();
     match hits.len() {
         1 => Ok(hits[0].key.clone()),
-        0 => bail!("There's no session {k}. `codealong sessions` lists them."),
+        0 => Err(no_session(board, k)),
         n => bail!("{n} sessions start with {k}; give more of the id."),
+    }
+}
+
+/// Why `board` has no session `k`: there's none, or the board is the app's before its first scan
+/// after a start has ended, which lists none yet. An agent told the key is wrong drops the
+/// session, where it should try again.
+fn no_session(board: &Board, k: &str) -> anyhow::Error {
+    match board.loading {
+        true => anyhow!("Codealong is still reading its sessions after a start, so whether there's a session {k} can't be said yet: try again in a moment."),
+        false => anyhow!("There's no session {k}. `codealong sessions` lists them."),
     }
 }
 
@@ -5146,8 +5214,9 @@ fn schedule_from(c: &mut Client, a: ScheduleAddArgs) -> Result<crate::schedules:
             None => bail!("No session runs this command, so there's no `me` to send to. Give a session's key."),
         },
         Some(key) => {
-            if !all_sessions(c.board()?).iter().any(|(s, _)| s.key == key) {
-                bail!("There's no session {key}. `codealong sessions` lists them.");
+            let board = c.loaded_board()?;
+            if !all_sessions(board).iter().any(|(s, _)| s.key == key) {
+                return Err(no_session(board, key));
             }
             (To::Session, key.to_string())
         }
@@ -7412,6 +7481,32 @@ mod tests {
         let text = table_text(&["A", "BB"], vec![vec!["x".into(), "y".into()], vec!["long".into(), "z".into()]]);
         assert_eq!(text, "A     BB\nx     y\nlong  z\n");
         assert!(table_text(&["A"], vec![]).contains("(none)"));
+    }
+
+    /// Right after a relaunch the app's board lists nothing until its first scan ends, and an
+    /// orchestrator told "There's no session" for one `codealong changes` had just listed dropped
+    /// it (2026-10-16 to 10-22). A board still loading says so; a whole one says there's none.
+    #[test]
+    fn a_lookup_tells_the_app_still_reading_from_no_such_session() {
+        let listed = Board { lanes: vec![lane("/work/atlas", vec![crate::fixtures::session("claude:claude:abc123")])], ..Board::default() };
+        let client = |board: Board| Client { app: None, verbose: false, cfg: None, board: Some(board), from_app: false, said: false, me: Some((None, None)) };
+        let mut c = client(listed.clone());
+        assert_eq!(resolve_session(&mut c, "claude:claude:abc").unwrap(), "claude:claude:abc123");
+        assert_eq!(resolve_session(&mut c, "claude:claude:nope").unwrap_err().to_string(), "There's no session claude:claude:nope. `codealong sessions` lists them.");
+        assert!(resolve_session(&mut c, "me").unwrap_err().to_string().contains("`me` names nothing"));
+        assert!(resolve_worktree(&mut c, "/work/kestrel").unwrap_err().to_string().contains("isn't a worktree the board knows"));
+        let mut c = client(Board { loading: true, ..Board::default() });
+        for (said, by) in [
+            (resolve_session(&mut c, "claude:claude:abc123"), "whether there's a session claude:claude:abc123 can't be said yet"),
+            (resolve_session(&mut c, "me"), "which one runs this command can't be said yet"),
+            (resolve_worktree(&mut c, "/work/atlas"), "whether /work/atlas is one can't be said yet"),
+        ] {
+            let said = said.unwrap_err().to_string();
+            assert!(said.starts_with("Codealong is still reading its ") && said.contains(by) && said.ends_with("try again in a moment."), "{said}");
+        }
+        // Found is found, loading or not.
+        let mut c = client(Board { loading: true, ..listed });
+        assert_eq!(resolve_session(&mut c, "claude:claude:abc123").unwrap(), "claude:claude:abc123");
     }
 
     #[test]

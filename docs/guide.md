@@ -3011,7 +3011,10 @@ board add|remove|show|move|arrange|new` put work on your boards and lay them out
 `codealong config
 show|check` prints the settings and checks an edited config.toml. With the app running, answers come
 from it over a socket and todo changes go through its engine; with it closed, the command reads the
-files (sessions then show without git or PRs). Output is JSON when piped, tables in a terminal.
+files (sessions then show without git or PRs). For the few seconds after the app starts, while it's
+still reading its sessions and worktrees, a command that names one waits for it (half a minute at
+most) and, if it's still reading then, says so and to try again: "There's no session" means the key
+names none once the list is whole. Output is JSON when piped, tables in a terminal.
 Settings › Agents installs the command (a symlink on PATH), the Codealong plugin in every Claude
 Code account (the skill, the command for its Bash tool, and the hooks that let you answer its
 permission prompts and questions from Codealong), and the skill in every other account's skills
