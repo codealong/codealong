@@ -73,6 +73,13 @@ describe('headingsOf', () => {
     expect(heads([step('agent', { at: 0 }), step('agent', { at: 20 * MIN })])).toEqual(['AGENT', 'agent']);
   });
 
+  it('dates a message its record gave no time by the last one said before it, else not at all', () => {
+    // Cursor's command line transcript: only prompts say when.
+    const items = [step('agent'), step('you', { at: 5 * MIN }), step('agent'), call('a'), step('note'), step('agent')];
+    const { headed } = headingsOf(items);
+    expect(items.filter((it) => it.kind !== 'tool' && it.kind !== 'note').map((it) => headed.get(`${it.cursor}:${it.n}`))).toEqual([0, 5 * MIN, 5 * MIN, 5 * MIN]);
+  });
+
   it('says who spoke last, for a message streaming in', () => {
     expect(headingsOf([step('you', { at: MIN }), step('agent', { at: 2 * MIN }), call('a', undefined)]).last).toEqual({ kind: 'agent', at: 2 * MIN });
     expect(headingsOf([]).last).toEqual({ kind: null, at: 0 });

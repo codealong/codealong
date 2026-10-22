@@ -1037,12 +1037,13 @@ fn prompt_time(s: &str) -> Option<i64> {
 enum Line {
     You { text: String, at: Option<i64> },
     Agent { text: String, calls: Vec<Call> },
-    TurnEnded { error: bool },
+    /// `error` says why, when the turn ended on one.
+    TurnEnded { error: Option<String> },
 }
 
 fn line(v: &Value) -> Option<Line> {
     if v.get("type").and_then(Value::as_str) == Some("turn_ended") {
-        return Some(Line::TurnEnded { error: v.get("status").and_then(Value::as_str) == Some("error") });
+        return Some(Line::TurnEnded { error: (v.get("status").and_then(Value::as_str) == Some("error")).then(|| turn_error(v)) });
     }
     let parts = v.pointer("/message/content").and_then(Value::as_array)?;
     let text: Vec<&str> = parts.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("text")).filter_map(|p| p.get("text").and_then(Value::as_str)).collect();
@@ -1080,6 +1081,15 @@ fn line(v: &Value) -> Option<Line> {
     }
 }
 
+/// Why a turn stopped, in the words of its `turn_ended` line's `error`: "[resource_exhausted]
+/// Error" when Cursor's servers turned a request away (2026-10-22), while the plan had room.
+fn turn_error(v: &Value) -> String {
+    match v.get("error").and_then(Value::as_str).map(str::trim).filter(|e| !e.is_empty()) {
+        Some(why) => format!("The turn stopped with an error: {why}"),
+        None => "The turn stopped with an error".to_string(),
+    }
+}
+
 /// A transcript line's items (transcript.rs). The lines carry no times of their own, only your
 /// prompts say when.
 fn transcript_items(v: &Value, at: i64) -> Vec<Item> {
@@ -1096,7 +1106,7 @@ fn transcript_items(v: &Value, at: i64) -> Vec<Item> {
             }
             out
         }
-        Some(Line::TurnEnded { error: true }) => vec![item(at, "note", "The turn stopped with an error")],
+        Some(Line::TurnEnded { error: Some(why) }) => vec![item(at, "note", why)],
         _ => Vec::new(),
     }
 }
@@ -1106,13 +1116,13 @@ fn transcript_tail(path: &Path, own: Option<&str>) -> Tail {
     let Ok(end) = crate::util::read_last(path, TAIL_BYTES) else { return Tail::default() };
     let mut bubbles = Vec::new();
     let mut ended = true;
-    let mut errored = false;
+    let mut errored = None;
     for v in end.text().lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
         match line(&v) {
             Some(Line::You { text, at }) => {
                 bubbles.push(Bubble { you: true, at: at.unwrap_or(0), text, call: None, error: None });
                 ended = false;
-                errored = false;
+                errored = None;
             }
             Some(Line::Agent { text, calls }) => {
                 if !text.is_empty() {
@@ -1129,7 +1139,7 @@ fn transcript_tail(path: &Path, own: Option<&str>) -> Tail {
     }
     let mut tail = tail_of(&bubbles, own);
     tail.turn_open = !ended;
-    tail.error = errored.then(|| "The turn stopped with an error".to_string());
+    tail.error = errored;
     if tail.first_prompt.is_none() {
         tail.first_prompt = crate::util::read_head(path, TAIL_BYTES as usize).and_then(|head| {
             head.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).find_map(|v| match line(&v) {
@@ -2319,6 +2329,28 @@ mod tests {
         assert!(page.items[2].shell);
         assert_eq!(Cursor.prose(lines[0].to_string().as_bytes()).map(|(_, you, t)| (you, t)), Some((true, "Fix the build".to_string())));
         assert_eq!(Cursor.prose(lines[2].to_string().as_bytes()), None);
+    }
+
+    #[test]
+    fn says_why_a_turn_stopped_in_cursors_words() {
+        let dir = crate::fixtures::scratch("cursor-turn-error");
+        let path = dir.join("c.jsonl");
+        let prompt = json!({ "role": "user", "message": { "content": [{ "type": "text", "text": "<user_query>\nReview the PR\n</user_query>" }] } });
+        let reply = json!({ "role": "assistant", "message": { "content": [{ "type": "text", "text": "Reading the diff." }] } });
+        let write = |lines: &[Value]| std::fs::write(&path, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
+        write(&[prompt.clone(), reply.clone(), json!({ "type": "turn_ended", "status": "error", "error": "[resource_exhausted] Error" })]);
+        let said = "The turn stopped with an error: [resource_exhausted] Error";
+        assert_eq!(transcript_tail(&path, None).error.as_deref(), Some(said));
+        let page = crate::transcript::file_page(&path, transcript_items, None, 50).unwrap();
+        assert_eq!(page.items.last().map(|i| (i.kind, i.text.as_str())), Some(("note", said)));
+        // One that says nothing more is still an error; a prompt after it is a new turn.
+        write(&[prompt.clone(), reply.clone(), json!({ "type": "turn_ended", "status": "error" })]);
+        assert_eq!(transcript_tail(&path, None).error.as_deref(), Some("The turn stopped with an error"));
+        write(&[prompt.clone(), json!({ "type": "turn_ended", "status": "error", "error": "x" }), prompt.clone()]);
+        assert_eq!(transcript_tail(&path, None).error, None);
+        // An aborted turn isn't one.
+        write(&[prompt, reply, json!({ "type": "turn_ended", "status": "aborted", "error": "x" })]);
+        assert_eq!(transcript_tail(&path, None).error, None);
     }
 
     #[test]

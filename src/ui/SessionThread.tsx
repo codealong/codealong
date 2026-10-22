@@ -155,17 +155,20 @@ export function editablePrompts(items: TranscriptItem[], fromStart: boolean): Se
   return out;
 }
 
-/** The messages that show who said them and when, and who spoke last, for one streaming in after
- *  them. A note between two messages (a message held for you to allow, the conversation
- *  compacted) starts afresh, and a prompt the session took back always heads itself, to say so,
- *  as another session's message does, to say whose: the next may be another's. The agent's tool
- *  calls are its own, so they don't. */
-export function headingsOf(items: TranscriptItem[]): { headed: Set<string>; last: Speaker } {
-  const headed = new Set<string>();
+/** The messages that show who said them and when, each with the time its heading says, and who
+ *  spoke last, for one streaming in after them. A note between two messages (a message held for
+ *  you to allow, the conversation compacted) starts afresh, and a prompt the session took back
+ *  always heads itself, to say so, as another session's message does, to say whose: the next may
+ *  be another's. The agent's tool calls are its own, so they don't. A message its record gave no
+ *  time (the replies in Cursor's command line transcript, whose prompts alone say when) says the
+ *  last time said before it, when its turn began, and none when nothing above it on the page
+ *  said one. */
+export function headingsOf(items: TranscriptItem[]): { headed: Map<string, number>; last: Speaker } {
+  const headed = new Map<string, number>();
   const last: Speaker = { kind: null, at: 0 };
   for (const it of items) {
     if (it.kind === 'you' || it.kind === 'agent' || it.kind === 'codealong' || it.kind === 'peer') {
-      if (heads(last, it.kind, it.at) || it.withdrawn || it.kind === 'peer') headed.add(keyOf(it));
+      if (heads(last, it.kind, it.at) || it.withdrawn || it.kind === 'peer') headed.set(keyOf(it), it.at > 0 ? it.at : last.at);
       last.kind = it.kind;
     } else if (it.kind === 'note') last.kind = null;
     if (it.at > 0) last.at = it.at;
@@ -301,13 +304,13 @@ function ToolRun({ calls, stateOf, onOpen }: { calls: { item: TranscriptItem; re
   );
 }
 
-/** Something said: yours or the agent's, under who said it and when where it `heads` a run of
- *  them. A command you ran in the session's shell with `!` shows as the command, which can run
+/** Something said: yours or the agent's, under who said it and when (`head`, the time its heading
+ *  says, 0 when none was) where it `heads` a run of them. A command you ran in the session's shell with `!` shows as the command, which can run
  *  again, and what it printed (`result`). A right-click gives `onMenu` Copy for what you'd
  *  selected and Copy message for the message as it was written, markdown and all, which marks
  *  the message for a moment once it's copied, and for a prompt of yours that can be gone back to,
  *  Edit from here… (`onEdit`). A command has its own Copy. */
-function Said({ item, result, now, label, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; now: number; label: ReactNode; head: boolean; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
+function Said({ item, result, now, label, head, onPutBack, onMenu, onEdit }: { item: TranscriptItem; result?: TranscriptItem; now: number; label: ReactNode; head?: number; onPutBack?: () => void; onMenu?: (items: MenuSpec) => void; onEdit?: () => void }) {
   const ran = item.kind === 'you' && item.input != null;
   // Copying it went wrong: said under it for a moment, where it was asked for.
   const [unCopied, setUnCopied] = useState(false);
@@ -335,12 +338,14 @@ function Said({ item, result, now, label, head, onPutBack, onMenu, onEdit }: { i
   };
   return (
     <div className={cx('ca-thread-said', `is-${item.kind}`, item.withdrawn && 'is-withdrawn')} data-prompt={item.kind === 'you' ? keyOf(item) : undefined} onContextMenu={menu}>
-      {head && (
+      {head !== undefined && (
         <div className="ca-thread-meta">
           <span>{label}</span>
-          <span className="ca-meta" title={absolute(item.at)}>
-            {item.withdrawn ? `Taken back · ${agoPhrase(item.at, now)}` : agoPhrase(item.at, now)}
-          </span>
+          {(head > 0 || item.withdrawn) && (
+            <span className="ca-meta" title={head > 0 ? absolute(head) : undefined}>
+              {[item.withdrawn && 'Taken back', head > 0 && agoPhrase(head, now)].filter(Boolean).join(' · ')}
+            </span>
+          )}
         </div>
       )}
       {ran ? (
@@ -972,7 +977,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                 // What Codealong or another session sent says so, apart from yours and the agent's.
                 const label = it.kind === 'you' ? 'You' : it.kind === 'codealong' ? 'Codealong' : it.kind === 'peer' ? peerLabel(it) : s.account;
                 const edit = onEdit && editable.has(keyOf(it)) ? () => onEdit(it) : undefined;
-                return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={label} head={headings.headed.has(keyOf(it))} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
+                return <Said key={keyOf(it)} item={it} result={r.result} now={now} label={label} head={headings.headed.get(keyOf(it))} onPutBack={again} onMenu={onMenu} onEdit={edit} />;
               })}
               {showing.map((a) => (
                 <Unsaid key={a.id} ahead={a} onOpen={onOpen} />
@@ -983,7 +988,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
                   now={now}
                   label={s.status === 'working' ? `${s.account} · writing` : s.account}
                   // Yours on their way are above it.
-                  head={showing.length > 0 || heads(headings.last, 'agent', now)}
+                  head={showing.length > 0 || heads(headings.last, 'agent', now) ? now : undefined}
                   onMenu={onMenu}
                 />
               )}

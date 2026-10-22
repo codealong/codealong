@@ -67,6 +67,11 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   (`Shell`, `Read`, `StrReplace`…). The app writes it at checkpoints. The slug is the folder's
   path with each run of other characters one `-`, so the folder is found by walking the disk
   (`slug`, `unslug`).
+- A turn that ended on an error has its reason on the `turn_ended` line, `error`: `cursor.rs`
+  (`turn_error`). Seen here: "[resource_exhausted] Error", Cursor's servers turning a review's
+  request away while its plan was at 7% (2026-10-22), and "Agent turn stopped after repeated
+  resume attempts made no progress". Sending `continue` rewrote the transcript without that
+  line: the reason is in the records only until the turn after it.
 - A command line chat is `chats/<md5 of its folder>/<id>/store.db` (`blobs`, sha256-addressed
   protobufs, and `meta`, one row `"0"` whose value is hex for JSON: `name`, `createdAt`,
   `lastUsedModel`, `mode`…, no folder): `cursor.rs` (`read_cli_chats`, `parse_meta`). Beside it
