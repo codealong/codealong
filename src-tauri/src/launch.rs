@@ -932,7 +932,10 @@ pub fn close_terminals(tabs: &[Closing]) -> Vec<Result<()>> {
 
 /// Closing where each tab has a TTY (iTerm2, Terminal): the tabs the app lists that hold these
 /// processes, each tab's processes hung up, then the tabs whose processes exited closed in one
-/// script.
+/// script. A tab whose last process is hung up (a program run in place of a shell) is left to its
+/// terminal, whose settings say whether it closes a tab whose process ended (Terminal keeps one
+/// that didn't exit cleanly): with nothing running there the script can't find it by what runs in
+/// it, and its TTY is free for a new tab to take, which the script would close in its place.
 fn close_tty_terminals(tabs: &[&Closing], app: &str, ttys: fn() -> Result<Vec<String>>, in_front: fn() -> Result<String>, close: fn(&[&str]) -> Result<()>) -> Result<Vec<Result<()>>> {
     let listed = ttys()?;
     let front = in_front().unwrap_or_default();
@@ -950,10 +953,12 @@ fn close_tty_terminals(tabs: &[&Closing], app: &str, ttys: fn() -> Result<Vec<St
             }
         }
     }
+    let last: Vec<bool> = ending.iter().map(|(i, _)| tabs[*i].hang_up.contains(&tabs[*i].pid) && shell_of(tabs[*i].pid) == Some(tabs[*i].pid)).collect();
     let stayed = hang_up_tabs(&ending.iter().map(|(i, _)| tabs[*i]).collect::<Vec<_>>());
     let mut closing = Vec::new();
-    for ((i, tty), stayed) in ending.iter().zip(stayed) {
+    for (((i, tty), stayed), last) in ending.iter().zip(stayed).zip(last) {
         match stayed {
+            None if last => out[*i] = Err(anyhow!("Its program ended; whether {app} closes the tab now is its own setting.")),
             None => closing.push(tty.as_str()),
             Some(pid) => out[*i] = Err(anyhow!("Its process (pid {pid}) didn't exit, so the tab stays.")),
         }

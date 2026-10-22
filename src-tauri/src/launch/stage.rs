@@ -1290,6 +1290,13 @@ mod tests {
             ["ITERM_TTYS []", "ITERM_IN_FRONT []", "hang up [200010, 200020]", r#"ITERM_CLOSE+SESSION_ON ["/dev/ttys202"]"#, "TERMINAL_TTYS []", "TERMINAL_IN_FRONT []", "hang up [300010]"]
         );
 
+        // A tab whose last process is hung up (a program in place of its shell) is left to its
+        // terminal, and no script goes looking for it by a TTY a new tab may have taken.
+        let shell = 300_003;
+        let p = play(setup(), answer, move || close_terminals(&[Closing { pid: shell, cwd: dir, hang_up: vec![shell] }]));
+        assert_eq!(said(&p.got), ["Its program ended; whether Terminal closes the tab now is its own setting."]);
+        assert_eq!(p.log, ["TERMINAL_TTYS []", "TERMINAL_IN_FRONT []", "hang up [300003]"]);
+
         // The app refusing the close, or not listing its tabs at all.
         let refuses = |s: &Sent| match s.what.as_str() {
             "ITERM_TTYS" => Ok("/dev/ttys201\n".to_string()),

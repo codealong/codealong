@@ -2932,8 +2932,11 @@ a tab whose sessions Close idle sessions would close and that runs nothing else.
 anything else, in front or behind (a dev server, an editor stopped with ⌃Z, a tmux client), starts
 unticked and says closing ends it, and so does one whose session needs you or asks you something.
 Tick or untick any of them. Closing hangs up what the tab's shell runs, leaving it at its prompt,
-and has the terminal close the tab; a session's conversation stays and resumes like any other. The
-tab you're in stays open, and a tab used since the list was made isn't closed.
+and has the terminal close the tab; a session's conversation stays and resumes like any other. A
+program run in place of a shell (`exec vim`, a profile that starts one) is hung up itself, and in
+iTerm2 or Terminal whether its tab then closes is their own setting (Terminal keeps one whose
+program didn't exit cleanly). The tab you're in stays open, and a tab used since the list was made
+isn't closed.
 
 ### Clean up worktrees
 
