@@ -166,6 +166,9 @@ pub struct PrLinks {
     pub nudge_by_default: bool,
     /// The same for particular repos, by slug, where your `[repos."github.com/…"]` table says.
     pub nudge_by_default_in: HashMap<String, bool>,
+    /// The comments Codealong posted your agent's reviews as from this Mac, by link (reviews.json):
+    /// they say you were on a PR, but don't answer its author for you (`turn_of`).
+    pub agent_posts: HashSet<String>,
 }
 
 fn plain(s: &str) -> String {
@@ -1175,7 +1178,7 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
         auto_review: None,
         last_review: p.last_review.clone(),
         stale_approval: p.stale_approval.clone(),
-        turn: turn_of(p, mine, login),
+        turn: turn_of(p, mine, login, &links.agent_posts),
     }
 }
 
@@ -1185,12 +1188,16 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
 /// nobody said so (`ReplyNeeded`), or where they wrote again after asking (`ReviewerReplied`);
 /// and with nothing since, the request for changes says it. Of several such reviewers, the move
 /// that's yours goes first, naming each it holds for. Someone else's PR you wrote on or reviewed
-/// is yours where its author wrote since you did (`AuthorReplied`), unless your latest review
-/// approves the commit it's at: what they say then is theirs to act on. A push is taken to be when its
+/// is yours where its author wrote after you were on it (anything of yours, your agent's posted
+/// reviews too) and nothing of yours answered them since: a review you submitted, or words of your
+/// own, not your agent's post, which leaves the sign-off to you as a request on GitHub would; and
+/// not once your latest review approves the commit it's at, when what they say is theirs to act
+/// on. A review just submitted here counts at once (`last_review`, ghpoll.rs `on_approved`), before
+/// GitHub is read again. `agent_posts` are your agent's posts (`PrLinks::agent_posts`). A push is taken to be when its
 /// head commit was made, the nearest GitHub says: one made long before it's pushed reads as earlier
 /// than it was. Nobody said so only where what was said reaches back to the push
 /// (`PrRaw::said_from`): a run of a bot's comments can hide an older word of yours.
-pub fn turn_of(p: &PrRaw, mine: bool, login: Option<&str>) -> Option<Turn> {
+pub fn turn_of(p: &PrRaw, mine: bool, login: Option<&str>, agent_posts: &HashSet<String>) -> Option<Turn> {
     if !p.state.is_open() || p.state == PrState::Draft {
         return None;
     }
@@ -1199,9 +1206,13 @@ pub fn turn_of(p: &PrRaw, mine: bool, login: Option<&str>) -> Option<Turn> {
     let author = p.author.as_deref()?;
     let turn = |kind, who: &str, since| Some(Turn { kind, who: who.to_string(), also: Vec::new(), since });
     if !mine {
-        let (yours, theirs) = (wrote(login?)?, wrote(author)?);
+        let (me, theirs) = (login?, wrote(author)?);
+        let mine_said = || p.said.iter().filter(|s| s.asked.is_none() && same(&s.who, me));
+        let on_it = mine_said().any(|s| s.at < theirs);
+        let agents = |s: &&crate::github::Said| s.url.as_ref().is_some_and(|u| agent_posts.contains(u));
+        let answered = mine_said().filter(|s| !agents(s)).map(|s| s.at).max().max(p.last_review.as_ref().and_then(|l| l.at));
         let approved = p.last_review.as_ref().is_some_and(|l| l.state == LastReviewState::Approved && l.commit.is_some() && l.commit == p.head_oid);
-        return if theirs > yours && !approved { turn(TurnKind::AuthorReplied, author, Some(theirs)) } else { None };
+        return if on_it && answered.is_none_or(|a| theirs > a) && !approved { turn(TurnKind::AuthorReplied, author, Some(theirs)) } else { None };
     }
     let of = |c: &crate::github::ChangesAsked| -> Option<Turn> {
         let asked = p.said.iter().filter(|s| s.asked.as_deref().is_some_and(|r| same(r, &c.who))).map(|s| s.at).max();
@@ -2464,11 +2475,11 @@ mod tests {
     }
 
     fn wrote(who: &str, at: i64) -> crate::github::Said {
-        crate::github::Said { who: who.into(), at, asked: None }
+        crate::github::Said { who: who.into(), at, asked: None, url: None }
     }
 
     fn asked(who: &str, reviewer: &str, at: i64) -> crate::github::Said {
-        crate::github::Said { who: who.into(), at, asked: Some(reviewer.into()) }
+        crate::github::Said { who: who.into(), at, asked: Some(reviewer.into()), url: None }
     }
 
     /// A PR of gwen's that ken asked changes of at 100, at commit `aaa`: his findings at 99, the
@@ -2484,7 +2495,7 @@ mod tests {
     }
 
     fn kind(p: &PrRaw, mine: bool) -> Option<(TurnKind, String, Option<i64>)> {
-        turn_of(p, mine, Some(if mine { "gwen" } else { "me" })).map(|t| (t.kind, t.who, t.since))
+        turn_of(p, mine, Some(if mine { "gwen" } else { "me" }), &HashSet::from(["agents-post".to_string()])).map(|t| (t.kind, t.who, t.since))
     }
 
     #[test]
@@ -2537,7 +2548,7 @@ mod tests {
         assert_eq!(kind(&two(vec![wrote("ana", 130)]), true), Some((ReviewerReplied, "ana".into(), Some(130))));
         // You wrote since, which both of them hear: their re-reviews are what's left, both named.
         assert_eq!(kind(&two(vec![wrote("gwen", 125)]), true), Some((RereviewAsked, "ken".into(), Some(125))));
-        assert_eq!(turn_of(&two(vec![wrote("gwen", 125)]), true, Some("gwen")).map(|t| t.also), Some(vec!["ana".to_string()]));
+        assert_eq!(turn_of(&two(vec![wrote("gwen", 125)]), true, Some("gwen"), &HashSet::new()).map(|t| t.also), Some(vec!["ana".to_string()]));
         // Both owed a word on the fixes: each is named, so each can be asked.
         let both = PrRaw {
             head_oid: Some("ccc".into()),
@@ -2549,7 +2560,7 @@ mod tests {
             ],
             ..pr(PrState::Changes, 0)
         };
-        let t = turn_of(&both, true, Some("gwen")).unwrap();
+        let t = turn_of(&both, true, Some("gwen"), &HashSet::new()).unwrap();
         assert_eq!((t.kind, t.who.as_str(), t.also), (ReplyNeeded, "ken", vec!["ana".to_string()]));
     }
 
@@ -2580,6 +2591,16 @@ mod tests {
         let thanked = |commit: &str| PrRaw { last_review: approved(commit), ..p(vec![wrote("me", 100), wrote("gwen", 110)]) };
         assert_eq!(kind(&thanked("0ef4ed2"), false), None);
         assert_eq!(kind(&thanked("a11ce55"), false).map(|t| t.0), Some(TurnKind::AuthorReplied));
+        // Your agent's review, posted as you after their reply, leaves it yours to sign off; it does
+        // say you were on it, before their reply.
+        let post = |at| crate::github::Said { url: Some("agents-post".into()), ..wrote("me", at) };
+        assert_eq!(kind(&p(vec![wrote("me", 100), wrote("gwen", 110), post(120)]), false).map(|t| t.0), Some(TurnKind::AuthorReplied));
+        assert_eq!(kind(&p(vec![post(100), wrote("gwen", 110)]), false).map(|t| t.0), Some(TurnKind::AuthorReplied));
+        // A review you submitted after it answers them, as soon as it's submitted here, before
+        // GitHub's next answer has it among what was said.
+        let submitted = |state| PrRaw { last_review: Some(LastReview { state, commit: Some("a11ce55".into()), at: Some(120) }), ..p(vec![wrote("me", 100), wrote("gwen", 110)]) };
+        assert_eq!(kind(&submitted(LastReviewState::Commented), false), None);
+        assert_eq!(kind(&submitted(LastReviewState::Changes), false), None);
     }
 
     #[test]

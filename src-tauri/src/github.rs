@@ -77,6 +77,9 @@ pub struct Said {
     pub at: i64,
     /// The reviewer asked, for a review request.
     pub asked: Option<String>,
+    /// A comment's link, which tells one Codealong posted an agent's review as
+    /// (`board::PrLinks::agent_posts`).
+    pub url: Option<String>,
 }
 
 /// A reviewer's review that asks for changes and still counts: who, when, and of which commit.
@@ -135,7 +138,7 @@ const ASKED_FIELDS: &str = r#"
 fragment asked on PullRequest {
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
   timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { __typename ... on User { login } } } } }
-  said: timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20) { pageInfo { hasPreviousPage } nodes { __typename ... on IssueComment { createdAt author { __typename login } } ... on PullRequestReview { submittedAt author { __typename login } } } }
+  said: timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20) { pageInfo { hasPreviousPage } nodes { __typename ... on IssueComment { createdAt url author { __typename login } } ... on PullRequestReview { submittedAt author { __typename login } } } }
   latestOpinionatedReviews(first: 100, writersOnly: true) { pageInfo { hasNextPage } nodes { state submittedAt author { __typename login } commit { oid } } }
 }
 "#;
@@ -502,12 +505,13 @@ fn said_of(n: &Value) -> (Vec<Said>, Option<i64>) {
     let from = if more { nodes.iter().filter_map(when).min() } else { None };
     let words = nodes.iter().filter_map(|w| {
         let author = w.get("author").filter(|a| !is_bot(a))?;
-        Some(Said { who: author.get("login").and_then(Value::as_str)?.to_string(), at: when(w)?, asked: None })
+        let url = w.get("url").and_then(Value::as_str).map(String::from);
+        Some(Said { who: author.get("login").and_then(Value::as_str)?.to_string(), at: when(w)?, asked: None, url })
     });
     let asks = n.pointer("/timelineItems/nodes").and_then(Value::as_array).into_iter().flatten().filter_map(|e| {
         let asked = e.pointer("/requestedReviewer/login").and_then(Value::as_str)?;
         let at = e.get("createdAt").and_then(Value::as_str).and_then(parse_rfc3339_ms)?;
-        Some(Said { who: e.pointer("/actor/login").and_then(Value::as_str).unwrap_or_default().to_string(), at, asked: Some(asked.to_string()) })
+        Some(Said { who: e.pointer("/actor/login").and_then(Value::as_str).unwrap_or_default().to_string(), at, asked: Some(asked.to_string()), url: None })
     });
     let mut all: Vec<Said> = words.chain(asks).collect();
     all.sort_by_key(|s| s.at);
@@ -1935,6 +1939,7 @@ mod tests {
         let closed = parse(&answer.replace(r#""state":"OPEN""#, r#""state":"CLOSED""#)).unwrap().prs.remove(0);
         assert!(closed.said.is_empty() && closed.changes_asked.is_empty());
         assert!(ASKED_FIELDS.contains("said: timelineItems(itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW], last: 20)"), "{ASKED_FIELDS}");
+        assert!(ASKED_FIELDS.contains("... on IssueComment { createdAt url author"), "{ASKED_FIELDS}");
     }
 
     #[test]

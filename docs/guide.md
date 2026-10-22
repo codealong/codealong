@@ -1157,11 +1157,14 @@ their last word and nobody has said so on it, since GitHub tells a reviewer of a
 request but not of a push; Re-review asked (grey, their move) once they're asked to review it
 again or written to since; and Reviewer replied (amber) when they wrote again after that, an agent
 of theirs finding it fixed say, which leaves you to ask for the approval. Someone else's PR you
-reviewed or commented on reads Author replied (amber) when its author wrote after you, your
-agent's posted reviews counting as yours, unless your agent approves the commit it's at, and
-waits on your review again (Review requested, Needs you, the floating bar) though GitHub asks
-nobody; not once your own latest review approves the commit it's at, when what they say is
-theirs to act on, and only in a repo whose PRs are read. The
+reviewed or commented on reads Author replied (amber) when its author wrote after you were on it
+(your agent's posted reviews count) and nothing of yours answered them since, unless your agent
+approves the commit it's at, and waits on your review again (Review requested, Needs you, the
+floating bar) though GitHub asks nobody. A review you submit answers them, at once, and so do
+words of your own; your agent's review posted as you after their reply doesn't, so a PR it
+approves still waits on your sign-off, as one GitHub asks you of does. Not once your own latest
+review approves the commit it's at, when what they say is theirs to act on, and only in a repo
+whose PRs are read. The
 tooltip says who and since when, naming each reviewer it holds for. Codealong reads it from each
 open PR's last twenty comments and reviews and its last review requests, a bot's comments and
 requests for changes left out; a push is taken to be when its latest commit was made, so one made

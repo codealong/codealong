@@ -3203,6 +3203,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
             not_nudged: self.pr_store.nudges_off.iter().cloned().collect(),
             nudge_by_default: self.cfg.pull_requests.nudge_by_default,
             nudge_by_default_in: self.team_files.settings(&self.cfg.repos).nudges_by_default(),
+            agent_posts: self.reviews.prs.values().flat_map(|t| t.rounds.iter().filter_map(|r| r.comment.clone())).collect(),
         }
     }
 

@@ -148,7 +148,7 @@ fn owed(board: &Board, pr: &PrItem, global: &PullRequestsCfg, now: i64) -> Vec<J
 /// quiet `SETTLE_MS` as the board's copy was (`quiet_since`).
 fn still_owed(raw: &PrRaw, login: Option<&str>, job: &Job, now: i64) -> bool {
     let mine = login.is_some() && raw.author.as_deref() == login;
-    let Some(t) = crate::board::turn_of(raw, mine, login).filter(|t| t.kind == TurnKind::ReplyNeeded) else { return false };
+    let Some(t) = crate::board::turn_of(raw, mine, login, &Default::default()).filter(|t| t.kind == TurnKind::ReplyNeeded) else { return false };
     let quiet = t.since.map(|at| at.max(raw.updated_at)).is_some_and(|at| now - at >= SETTLE_MS);
     let theirs = std::iter::once(&t.who).chain(&t.also).any(|w| w.eq_ignore_ascii_case(&job.reviewer));
     raw.state.is_open() && raw.head_oid.as_deref() == Some(job.head.as_str()) && theirs && quiet
@@ -333,7 +333,7 @@ mod tests {
             said_from: None,
             changes_asked: vec![crate::github::ChangesAsked { who: "ken".into(), at: 100, commit: Some("aaa".into()) }],
         };
-        let ken = |at| crate::github::Said { who: "ken".into(), at, asked: None };
+        let ken = |at| crate::github::Said { who: "ken".into(), at, asked: None, url: None };
         // Pushed at 110, nothing on it since.
         let now = 110 + SETTLE_MS;
         assert!(still_owed(&said(vec![ken(100)]), Some("me"), &job, now));
@@ -341,8 +341,8 @@ mod tests {
         assert!(!still_owed(&said(vec![ken(100)]), Some("me"), &job, now - 1));
         assert!(!still_owed(&PrRaw { updated_at: now - 60_000, ..said(vec![ken(100)]) }, Some("me"), &job, now));
         // Said since, by anyone of yours, or asked again: nothing to ask.
-        assert!(!still_owed(&said(vec![ken(100), crate::github::Said { who: "me".into(), at: 120, asked: None }]), Some("me"), &job, now));
-        assert!(!still_owed(&said(vec![ken(100), crate::github::Said { who: "me".into(), at: 120, asked: Some("ken".into()) }]), Some("me"), &job, now));
+        assert!(!still_owed(&said(vec![ken(100), crate::github::Said { who: "me".into(), at: 120, asked: None, url: None }]), Some("me"), &job, now));
+        assert!(!still_owed(&said(vec![ken(100), crate::github::Said { who: "me".into(), at: 120, asked: Some("ken".into()), url: None }]), Some("me"), &job, now));
         // Approved, merged, or at another commit than the one it was due on.
         assert!(!still_owed(&PrRaw { changes_asked: Vec::new(), ..said(vec![ken(100)]) }, Some("me"), &job, now));
         assert!(!still_owed(&PrRaw { state: PrState::Merged, ..said(vec![ken(100)]) }, Some("me"), &job, now));
