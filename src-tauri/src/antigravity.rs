@@ -1507,10 +1507,8 @@ impl Reader {
         }
         let keep = look.seen.pinned_ids("antigravity", &a.name);
         let before: HashMap<String, Conversation> = self.conversations.remove(&a.name).unwrap_or_default().into_iter().map(|c| (c.id.clone(), c)).collect();
-        let mut rows: Vec<Conversation> = dirs.iter().flat_map(|f| read_conversations(f, look.since, &keep)).collect();
-        // The same conversation once, should two folders' tables both claim it.
-        let mut listed = HashSet::new();
-        rows.retain(|c| listed.insert(c.id.clone()));
+        let mut rows = once_each(dirs.iter().flat_map(|f| read_conversations(f, look.since, &keep)).collect(), |c| keeps_record(&c.dir, &c.id));
+        let listed: HashSet<String> = rows.iter().map(|c| c.id.clone()).collect();
         rows.extend(self.processes.iter().filter(|p| p.conversation.as_ref().is_some_and(|id| !listed.contains(id))).filter_map(|p| started(&dirs, p, look.now)));
         rows.sort_by(|x, y| y.last_modified.cmp(&x.last_modified));
         let mut added = false;
@@ -1681,11 +1679,41 @@ impl crate::harness::Reader for Reader {
     }
 }
 
+/// Whether `dir` keeps conversation `id`'s record: its steps or its brain folder.
+fn keeps_record(dir: &Path, id: &str) -> bool {
+    dir.join("conversations").join(format!("{id}.db")).is_file() || dir.join("brain").join(id).is_dir()
+}
+
+/// The same conversation once, should two folders' tables both claim it: the copy read from the
+/// folder that keeps its record (`keeps`), else the first. The hub app's table claims command line
+/// conversations as its own once the app is restarted (2.25.0 on 2026-10-22: `app_data_dir` its
+/// own, `source` the command line's), while `agy` goes on writing them in its folder; read as the
+/// app's, one running in a terminal opened the app, which doesn't show it, with the app's word on
+/// whether a turn was under way.
+fn once_each(rows: Vec<Conversation>, keeps: impl Fn(&Conversation) -> bool) -> Vec<Conversation> {
+    let mut out: Vec<Conversation> = Vec::with_capacity(rows.len());
+    let mut at: HashMap<String, usize> = HashMap::new();
+    for c in rows {
+        match at.get(&c.id) {
+            Some(&i) => {
+                if !keeps(&out[i]) && keeps(&c) {
+                    out[i] = c;
+                }
+            }
+            None => {
+                at.insert(c.id.clone(), out.len());
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
 /// The folder a conversation on the board is kept in: the command line's for one it runs, else
 /// the first of the account's that has its record.
 fn folder_of(account: &AccountCfg, s: &Session) -> PathBuf {
     let dirs = folders(&account.home_path());
-    let has = |f: &&Folder| f.path.join("conversations").join(format!("{}.db", s.id)).is_file() || f.path.join("brain").join(&s.id).is_dir();
+    let has = |f: &&Folder| keeps_record(&f.path, &s.id);
     let by_surface = dirs.iter().find(|f| f.cli == (s.surface == Surface::Cli));
     dirs.iter().find(has).or(by_surface).or(dirs.first()).map(|f| f.path.clone()).unwrap_or_else(|| account.home_path())
 }
@@ -2160,6 +2188,18 @@ impl crate::harness::Adapter for Antigravity {
 
 #[cfg(test)]
 mod tests {
+    /// Both folders' tables claiming one conversation: the copy from the folder with its record
+    /// wins, wherever it was read, and with neither keeping it the first stays.
+    #[test]
+    fn a_conversation_two_tables_claim_is_the_one_whose_folder_keeps_it() {
+        use std::path::PathBuf;
+        let row = |id: &str, dir: &str, cli: bool| super::Conversation { id: id.into(), dir: PathBuf::from(dir), cli, ..Default::default() };
+        let rows = vec![row("c1", "/app", false), row("c2", "/app", false), row("c1", "/cli", true), row("c2", "/cli", true), row("c3", "/cli", true)];
+        let kept = super::once_each(rows, |c| c.id == "c1" && c.dir == PathBuf::from("/cli"));
+        let got: Vec<(&str, bool)> = kept.iter().map(|c| (c.id.as_str(), c.cli)).collect();
+        assert_eq!(got, [("c1", true), ("c2", false), ("c3", true)]);
+    }
+
     use super::*;
 
     const SCHEMA: &str = "CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', preview TEXT NOT NULL DEFAULT '', \
