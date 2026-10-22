@@ -252,6 +252,7 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             // run past it (up to 450 KB of them here).
             let (said_at, compacted) = said_before(path, tail.start);
             info.compacted = said_at.filter(|_| compacted);
+            info.queue = queue_before(path, tail.start);
             (head, info, TailState { said_at, ..TailState::default() }, tail)
         }
     };
@@ -905,11 +906,16 @@ pub(super) fn queue_step(queue: &mut Vec<QueuedMessage>, v: &Value) {
 const HOLD_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
 
 /// The id Claude Code holds the message `text`, sent at `since` (ms), under (`queue_step`): the
-/// `enqueue` written since with `text` as its `content`, else the first of yours (a long paste
-/// may be held as `[Pasted text #1 …]`). Read again until it's written, for a moment.
+/// `enqueue` written since with `text` as its `content`, read again until it's written, for a
+/// moment; else, once that's over, the first of yours since (a long paste may be held as
+/// `[Pasted text #1 …]`). Claude Code stamps it on this Mac's clock, after the paste. Sends to a
+/// session go one at a time, so what came since is this one's, or typed in its terminal meanwhile.
 pub fn queued_as(path: &Path, text: &str, since: i64) -> Option<String> {
-    let from = since - 1_000;
-    let until = std::time::Instant::now() + HOLD_WAIT;
+    queued_as_within(path, text, since, HOLD_WAIT)
+}
+
+fn queued_as_within(path: &Path, text: &str, since: i64, wait: std::time::Duration) -> Option<String> {
+    let until = std::time::Instant::now() + wait;
     loop {
         let Ok(len) = std::fs::metadata(path).map(|m| m.len()) else { return None };
         // Newest first, back to the send.
@@ -917,7 +923,7 @@ pub fn queued_as(path: &Path, text: &str, since: i64) -> Option<String> {
         scan_lines_back(path, 0, len, |line| {
             let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
             let Some(at) = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms) else { return false };
-            if at < from {
+            if at < since {
                 return true;
             }
             if v.get("type").and_then(Value::as_str) == Some("queue-operation") && v.get("operation").and_then(Value::as_str) == Some("enqueue") {
@@ -926,15 +932,47 @@ pub fn queued_as(path: &Path, text: &str, since: i64) -> Option<String> {
             false
         });
         held.reverse();
-        let found = held.iter().find(|m| m.text.trim() == text.trim()).or_else(|| held.iter().find(|m| prompt_words(&m.text).is_some()));
-        if let Some(m) = found {
+        if let Some(m) = held.iter().find(|m| m.text.trim() == text.trim()) {
             return Some(m.id.clone());
         }
         if std::time::Instant::now() >= until {
-            return None;
+            return held.iter().find(|m| prompt_words(&m.text).is_some()).map(|m| m.id.clone());
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
+}
+
+/// How far before its tail a first read looks for what Claude Code holds (`queue_before`).
+const QUEUE_SCAN: u64 = 4 * 1024 * 1024;
+
+/// What Claude Code held as the tail read from `end` starts (`queue_step`), from its
+/// `queue-operation` lines since the turn running then began (its prompt's line has
+/// `turnPosition`) or the last one ended (`turn_duration`, which only the terminal writes), for
+/// a turn's start takes in what's held of yours: a message can be held while more than the tail
+/// holds is written (a long step's output, a subagent's). A first read looks back for them once,
+/// as far as `QUEUE_SCAN`; later reads carry them forward.
+fn queue_before(path: &Path, end: u64) -> Vec<QueuedMessage> {
+    let mut ops: Vec<Value> = Vec::new();
+    scan_lines_back(path, end.saturating_sub(QUEUE_SCAN), end, |line| {
+        if !line.contains("\"queue-operation\"") && !line.contains("\"turn_duration\"") && !line.contains("\"turnPosition\"") {
+            return false;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+        match v.get("type").and_then(Value::as_str) {
+            Some("system") => v.get("subtype").and_then(Value::as_str) == Some("turn_duration"),
+            Some("user") => v.get("turnPosition").is_some(),
+            Some("queue-operation") => {
+                ops.push(v);
+                false
+            }
+            _ => false,
+        }
+    });
+    let mut queue = Vec::new();
+    for v in ops.iter().rev() {
+        queue_step(&mut queue, v);
+    }
+    queue
 }
 
 /// How Claude Code wraps text pasted into a prompt (2.1.28x): the tag, the text on lines of its
@@ -1725,10 +1763,38 @@ pub(super) mod tests {
             queue_line("2026-10-21T10:00:00.200Z", "enqueue", Some("Fix it")),
         ];
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        let quick = std::time::Duration::from_millis(50);
         // The one written since, with its words, not an earlier one that said the same.
-        assert_eq!(queued_as(&path, "Fix it ", since).as_deref(), Some("2026-10-21T10:00:00.200Z"));
-        // A long paste can be held in other words: the first of yours since then.
-        assert_eq!(queued_as(&path, "a paste of many lines", since).as_deref(), Some("2026-10-21T10:00:00.200Z"));
+        assert_eq!(queued_as_within(&path, "Fix it ", since, quick).as_deref(), Some("2026-10-21T10:00:00.200Z"));
+        // A long paste can be held in other words: the first of yours since then, once the wait
+        // for its own words is over.
+        assert_eq!(queued_as_within(&path, "a paste of many lines", since, quick).as_deref(), Some("2026-10-21T10:00:00.200Z"));
+        // The send after it, its own not written yet, doesn't take that one's.
+        let next = parse_rfc3339_ms("2026-10-21T10:00:00.900Z").unwrap();
+        assert_eq!(queued_as_within(&path, "And the docs", next, quick), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_first_read_finds_what_was_held_before_its_tail() {
+        let dir = crate::fixtures::scratch("claude-held-before");
+        let path = dir.join("s.jsonl");
+        let ended = r#"{"type":"system","subtype":"turn_duration","timestamp":"2026-10-21T09:59:00.000Z","durationMs":1000}"#;
+        let started = r#"{"type":"user","timestamp":"2026-10-21T10:00:00.000Z","origin":{"kind":"human"},"turnOrigin":"human","turnPosition":{"promptIndex":2,"turnIndex":2},"message":{"content":"Fix the build"}}"#;
+        // Held before the last turn ended, or before this one started, so not held now,
+        // whatever the dequeues say.
+        let lines = [
+            queue_line("2026-10-21T09:58:00.000Z", "enqueue", Some("From before")),
+            ended.to_string(),
+            queue_line("2026-10-21T09:59:30.000Z", "enqueue", Some("Fix the build")),
+            started.to_string(),
+            queue_line("2026-10-21T10:00:01.000Z", "enqueue", Some("Also check the docs")),
+        ];
+        // A step's output the size of the tail, written while it's held.
+        let padding = serde_json::json!({ "type": "progress", "timestamp": "2026-10-21T10:00:02.000Z", "data": "x".repeat(300_000) });
+        std::fs::write(&path, format!("{HEAD}{}\n{padding}\n", lines.join("\n"))).unwrap();
+        let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
+        assert_eq!(info.held().iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["Also check the docs"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
