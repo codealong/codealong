@@ -521,8 +521,8 @@ const TOOL_CONFIG: [u64; 4] = [19, 12, 1, 13];
 /// and `--dangerously-skip-permissions` are both EAGER (3). The agent mode (`accept-edits`,
 /// `auto`, `plan`: the settings' `agentMode`, `--mode`, Shift+Tab) goes into it too (a turn in
 /// Auto ran with AUTO, 2, on 1.4.5), and only the command line's log says which it is
-/// (`Said::agent_mode`) and, unless its latest turn went in the default one, what the default one
-/// asks (`Said::tool_permission`, `session_mode`).
+/// (`Said::agent_mode`) and what the default one asks: as the latest turn it went in ran with
+/// (`Said::default_turn`), else as the process started (`Said::tool_permission`, `session_mode`).
 fn turn_mode(dir: &Path, id: &str) -> Option<SessionMode> {
     let db = crate::harness::open_database(&dir.join("conversations").join(format!("{id}.db")))?;
     let step: Vec<u8> = db.query_row("SELECT step_payload FROM steps WHERE step_type = ?1 ORDER BY idx DESC LIMIT 1", [STEP_USER_INPUT], |r| r.get(0)).ok()?;
@@ -1156,6 +1156,10 @@ pub struct Said {
     pub tool_permission: Option<String>,
     /// The agent mode it was in as it sent its latest prompt (`prompted`).
     prompted_in: Option<String>,
+    /// The permissions the latest turn it sent in the default agent mode ran with, which its
+    /// reader notes (`Reader::reread`): what its tool permission asks, a `/config` change since
+    /// it started included, through turns in other modes after.
+    pub default_turn: Option<SessionMode>,
 }
 
 impl Said {
@@ -1623,6 +1627,15 @@ impl Reader {
                     // The note a failed turn ends with never reaches the transcript.
                     c.failed = turn_failed(&c.dir, &c.id, c.last_modified);
                     c.model = turn_model(&c.dir, &c.id);
+                }
+            }
+            // A turn that went in the default agent mode ran with what the tool permission asks
+            // now, which the process keeps for when it's back in the default after a turn in
+            // another mode.
+            if c.said.prompted_in_default(&c.id) && c.mode.is_some() {
+                c.said.default_turn = c.mode.clone();
+                if let Some(log) = process.and_then(|p| self.logs.get_mut(&p.pid)) {
+                    log.said.default_turn = c.mode.clone();
                 }
             }
             if c.running() || held {
@@ -2840,9 +2853,13 @@ mod tests {
         // Back in the default mode: what the tool permission asks, as the UI started with it.
         let back = c(said(&[started, "SetCycleMode called: auto", "Forwarding user message to conversation c1 (items=1, media=0)", "SetCycleMode called: "]));
         assert_eq!(shown(&back, Some(&ui)).0, Some(("Request review".into(), "default".into())));
-        // A turn in the default mode says what it asks now, `/config` changes included.
+        // A turn in the default mode says what it asks now, `/config` changes included, and goes
+        // on saying it after a turn in another mode, as its reader notes it.
         let strict = Conversation { mode: policy_mode(1, true), ..c(said(&[started, "Forwarding user message to conversation c1 (items=1, media=0)"])) };
         assert_eq!(shown(&strict, Some(&ui)).0, Some(("Strict".into(), "default".into())));
+        let mut later = said(&[started, "Forwarding user message to conversation c1 (items=1, media=0)", "SetCycleMode called: auto", "Forwarding user message to conversation c1 (items=1, media=0)", "SetCycleMode called: "]);
+        later.default_turn = policy_mode(1, true);
+        assert_eq!(shown(&c(later), Some(&ui)), (Some(("Strict".into(), "default".into())), vec!["Strict".to_string(), "Accept edits".into(), "Auto".into(), "Plan".into()]));
         // No terminal UI has it: the latest turn's, and nothing to switch.
         assert_eq!(shown(&auto, None), (Some(("Auto".into(), String::new())), Vec::<String>::new()));
         // A print run has it: its mode, but no terminal to press keys in.

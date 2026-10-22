@@ -40,6 +40,15 @@ struct Expected {
     at: i64,
 }
 
+/// Held through a switch, from reading the mode it counts from to noting the one it pressed to:
+/// two windows or devices asking at once would otherwise both count from the same mode, and
+/// their presses add up past it. One switch at a time, whatever the session: each takes a second
+/// or two.
+fn one_switch() -> MutexGuard<'static, ()> {
+    static SWITCHING: Mutex<()> = Mutex::new(());
+    SWITCHING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn expected() -> MutexGuard<'static, Option<HashMap<String, Expected>>> {
     static EXPECTED: Mutex<Option<HashMap<String, Expected>>> = Mutex::new(None);
     EXPECTED.lock().unwrap_or_else(|e| e.into_inner())
@@ -97,6 +106,7 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
     };
     let named = |id: &str| s.modes.iter().find(|m| m.id == id).map_or_else(|| id.to_string(), |m| m.label.clone());
     let press = || launch::press_key(&host, Key::BackTab);
+    let _one = one_switch();
     // Its harness says each switch: pressed until it's there, or round once.
     if let Some(mut said) = crate::harness::adapter(s.harness).mode_said(&Ctx { account }, s) {
         let mut now = said().ok_or_else(|| anyhow!("Codealong can't tell which mode {title} is in now: switch it in its terminal."))?;

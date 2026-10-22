@@ -650,14 +650,14 @@ pub fn antigravity_session(account: &AccountCfg, c: &Conversation, process: Opti
         (true, None) => "resume",
     };
     // The agent mode its terminal UI says it's in, where one has it open, or in the default one
-    // what the tool permission asks: as its latest turn ran with it, where that turn went in the
-    // default mode, else as that UI started with it. And the modes Shift+Tab steps that UI
-    // through, which Codealong can press there (cycle.rs). Otherwise the permissions its latest
-    // turn ran with, which the agent mode it ran in went into.
+    // what the tool permission asks: as the latest turn that went in that mode ran with it, else
+    // as that UI started with it. And the modes Shift+Tab steps that UI through, which Codealong
+    // can press there (cycle.rs). Otherwise the permissions its latest turn ran with, which the
+    // agent mode it ran in went into.
     let agent = process.and(c.said.agent_mode.as_deref());
     let default = match agent {
         Some(_) if c.said.prompted_in_default(&c.id) && c.mode.is_some() => c.mode.clone(),
-        Some(_) => c.said.tool_permission.as_deref().and_then(crate::antigravity::permission_mode),
+        Some(_) => c.said.default_turn.clone().or_else(|| c.said.tool_permission.as_deref().and_then(crate::antigravity::permission_mode)),
         None => c.mode.clone(),
     };
     let modes = match (terminal, agent) {
