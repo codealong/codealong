@@ -90,8 +90,23 @@ function TitleField({ value, onSave }: { value: string; onSave: (title: string) 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
+    // Its height is its border's too (border-box), a pixel above and below what scrollHeight says.
+    const fit = () => {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight + 2}px`;
+    };
+    fit();
+    // The same words take more lines when the field narrows: the chevron coming in beside it as
+    // the first worktree or session is linked, or a narrower panel. Its own height changing as it
+    // fits is no reason to fit it again.
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [draft]);
   return (
     <textarea
