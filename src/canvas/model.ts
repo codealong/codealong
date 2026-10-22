@@ -258,7 +258,7 @@ export interface OnBoard {
   removed: ReadonlySet<string>;
 }
 
-/** Everything, as a project's own board holds it until something is taken off. */
+/** Everything, as a board that takes in everything holds it until something is taken off. */
 export const WHOLE: OnBoard = { has: () => true, added: new Map(), removed: new Set() };
 
 /** What the canvas can show, from the board, for one project (or all of them). */

@@ -1407,15 +1407,18 @@ either way.
 
 A board is a named set of work in a project: a release, a fix, an investigation. The Board view
 shows one, as Kanban (its todos and sessions in columns) or as Canvas (its work laid out in
-space); the toggle at the top switches between them, and ⇧⌘K and ⇧⌘B go straight to each. Every
-project has a board of its own, named after it, that holds everything in the project, so the
-Board view starts as the Kanban and Canvas of the whole project. In the sidebar, Board is the
-project's own board, with the boards you make under it, and New board under them while a board
-shows; a board's right-click (or the menu on its name at the top) makes a new one, changes what it
-takes in, renames it, moves it to another project or to All projects (Move to project ›, as a
-todo's menu moves a todo; `codealong board project` too), puts its Kanban back on the stages, or
-deletes it, which leaves what was on it as it was. A project's own board stays in its project.
-Boards and todos are in a project the same way: each is in one, or in none, made under All
+space); the toggle at the top switches between them, and ⇧⌘K and ⇧⌘B go straight to each. A
+project has the boards made in it and no others: until you make one, the Board view says what a
+board is and has New board… to make one (Everything in the dialog makes one that holds the whole
+project, as the Kanban and Canvas did before there were boards). In the sidebar the project's
+boards go under Board, which shows the one you showed last, with New board under them while a
+board shows; a board's right-click (or the menu on its name at the top) makes a new one, changes
+what it takes in, renames it, moves it to another project or to All projects (Move to project ›, as
+a todo's menu moves a todo; `codealong board project` too), puts its Kanban back on the stages, or
+deletes it, which leaves what was on it as it was. Until 2026-10-22 every project had a board of
+its own, named after it, that held everything in it and couldn't be deleted; one of those with
+something of yours on it (cards added or taken off, columns, notes on its canvas or frames a tidy
+didn't draw, a new name or rule) stayed as a board like any other, and the rest went. Boards and todos are in a project the same way: each is in one, or in none, made under All
 projects, and lives there alone. Under All projects the sidebar lists every project's boards
 after its own, each with its project beside it, and a board shows its own project's work there as
 it does in its project: its Kanban, its canvas, and a todo made on it, which goes in its project.
@@ -1456,7 +1459,7 @@ line where Waiting begins); a session is Done once it's archived (marked done, s
 while the PR it worked on is open and not a draft, Done once that PR merged or its turn ended
 saying its work landed, unless it's working or waits on you, and In progress otherwise. A card moves only when its work does (started, a PR opened, merged, done) or
 you move it, never with each turn: whose move it is shows in its stripe, amber when it needs you,
-and in its place. To do keeps your order (drag, or ⌃⌘↑ ⌃⌘↓ on a project's own board); In progress
+and in its place. To do keeps your order (drag, or ⌃⌘↑ ⌃⌘↓); In progress
 and In review list what needs you first, the longest wait first, then your turns, then what's
 working, then the rest, the one you last sent a prompt first; Done, the latest first, is folded to
 a rail with its count until you open it. Done's todos go back as far as the age filter does (two
@@ -1492,9 +1495,9 @@ they still move on to In progress, In review and Done as the work does.
 A card dropped on a column does what lands it there: a stage column does what the stages do, a
 label column gives a todo its label (and one it leaves takes its label away), and a column of your
 own puts it there, sending work under way or done back to To do first where a stage column holds
-it. A column orders its cards as you put them (drag one to its place), by whose move it is, or the
-latest first. On a project's own board To do keeps the Todo view's order; another board keeps its
-own.
+it. A column orders its cards as you put them (drag one to its place, or ⌃⌘↑ ⌃⌘↓ on a card
+selected), by whose move it is, or the latest first. A board keeps its own order, apart from the
+Todo view's.
 
 #### Canvas
 
@@ -1563,8 +1566,9 @@ drag does (`--dry-run` says what that would do; starting a todo is the quick pan
 turned down there); `arrange` lays its canvas out; `open` brings the main window forward on it. A
 board goes by its id or its name, in the project of the folder it's run in or `--project`, or a name
 only one project has. Changes work with the app closed; `show`, `move`, `arrange` and `open` need it
-running, as its main window works boards out. `codealong canvas show` and `arrange` still work, on
-a project's own board.
+running, as its main window works boards out. `show`, `arrange` and `open` named no board are
+about the one the project has, and say so when it has none or several. `codealong canvas show` and
+`arrange` still work, on that one board.
 
 ### Sidebar
 

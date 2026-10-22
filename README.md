@@ -178,7 +178,7 @@ Five views of your work, each in a window of its own if you like (⇧⌘N):
 | **PRs** | Every pull request in your repos, with its review, checks and the sessions that worked on it. Reviews asked of you come first. Group them by worktree or repo too. |
 | **Todo** | Work you mean to hand an agent, with notes, screenshots, labels and what each todo waits on, grouped by worktree or repo if you like. |
 | **Schedules** | Sessions started, or messages sent, at the times you set or when something happens, with every run and how it went. |
-| **Board** (experimental) | Your work as a board, the whole project's or one you make for a release or a fix: as **Kanban**, todos and sessions as cards in To do, In progress, In review and Done (or columns of your own), what needs you first in each; as **Canvas**, laid out in space, a frame per repo, a column per worktree, cards you arrange. |
+| **Board** (experimental) | Your work on boards you make, for the whole project or for a release or a fix: as **Kanban**, todos and sessions as cards in To do, In progress, In review and Done (or columns of your own), what needs you first in each; as **Canvas**, laid out in space, a frame per repo, a column per worktree, cards you arrange. |
 
 Select anything to see it in the panel on the right; right-click anything for its menu. The
 sidebar, a rail of the views until you open it, narrows every view to the machines, time span,
@@ -407,8 +407,8 @@ back.
 Your project laid out in space, to remember work by where it is. *Tidy* lays it out in a frame per
 repo and a column per worktree, and new work comes in by itself beside what it belongs to. Add
 notes and frames, pan and zoom as in Figma, and zoomed out, every card becomes a block in its
-status color. The canvas and the Kanban are two ways of showing a board: the whole project's, or
-one you make for a release, a fix or an investigation, holding what its rule takes in (a label, a
+status color. The canvas and the Kanban are two ways of showing a board you make, for the whole
+project or for a release, a fix or an investigation, holding what its rule takes in (a label, a
 stage, a repo, what needs you) and what you add from any row's menu. A board's Kanban can have
 columns of your own, and agents can put their work on a board with `codealong board add`. Boards
 are an experiment, off until you turn them on in Settings › Experimental.

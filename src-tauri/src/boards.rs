@@ -1,9 +1,8 @@
 //! Boards: named sets of work in a project, each shown as Kanban or as Canvas (src/boards/). A
 //! board holds what its rule takes in and what you added by hand, less what you took off; its
 //! Kanban columns, where you put cards by hand and in what order; and its canvas, where each card
-//! sits among your notes and frames. Every project has a board of its own, named after it, whose
-//! rule takes in everything in the project: the Kanban and the Canvas as they were before there
-//! were boards. It's written to the file the first time it changes.
+//! sits among your notes and frames. A project has only the boards made in it: none until you
+//! make one (`without_own_boards` says what became of the board each project had of its own).
 //!
 //! Kept in `boards.json` next to the config. The engine owns the file and makes every change
 //! through `apply`, so the app and the `codealong` command never write over each other. What the
@@ -36,12 +35,9 @@ fn canvases_path() -> PathBuf {
 }
 
 const MAX_NAME: usize = 100;
-const PROJECT_PREFIX: &str = "p:";
 
-/// The id of a project's own board.
-pub fn project_board_id(project: &str) -> String {
-    format!("{PROJECT_PREFIX}{project}")
-}
+/// The file's version: 2 since projects stopped having boards of their own (`without_own_boards`).
+const VERSION: u32 = 2;
 
 /// What a card shows.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, clap::ValueEnum)]
@@ -194,13 +190,14 @@ pub struct BoardDoc {
 }
 
 impl BoardDoc {
-    /// A project's own board, as it is until it first changes: everything in the project.
-    pub fn of_project(project: &str) -> BoardDoc {
+    /// A new board in `project`, holding only what's added by hand, with no id yet: `apply` gives
+    /// it one as it makes it.
+    pub fn new(name: &str, project: &str) -> BoardDoc {
         BoardDoc {
-            id: project_board_id(project),
-            name: project.to_string(),
+            id: String::new(),
+            name: name.to_string(),
             project: project.to_string(),
-            rule: Some(Rule::default()),
+            rule: None,
             added: vec![],
             removed: vec![],
             added_at: BTreeMap::new(),
@@ -211,10 +208,6 @@ impl BoardDoc {
             created_at: 0,
             extra: Map::new(),
         }
-    }
-
-    pub fn is_projects(&self) -> bool {
-        self.id == project_board_id(&self.project)
     }
 
     /// Without its canvas, which only the canvas reads.
@@ -234,8 +227,7 @@ pub struct BoardsFile {
     pub extra: Map<String, Value>,
 }
 
-/// A change to a board. Each names its board by id; a project's own board is made as it first
-/// changes.
+/// A change to a board. Each but `Create` names its board by id.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum BoardOp {
@@ -288,21 +280,44 @@ pub struct Applied {
 /// The file as it is, or for none yet, the canvases kept before there were boards.
 fn read() -> Result<BoardsFile> {
     if let Some(file) = store::read::<BoardsFile>(&path(), "boards")? {
-        return Ok(file);
+        return Ok(without_own_boards(file));
     }
     // A canvas file that doesn't read gives no boards, and is left as it is.
-    Ok(from_canvases(&store::text(&canvases_path()).ok().flatten().unwrap_or_default()))
+    Ok(without_own_boards(from_canvases(&store::text(&canvases_path()).ok().flatten().unwrap_or_default())))
 }
 
-/// Each project's canvas from canvas.json, as its own board's canvas. What was taken off a canvas
-/// is taken off its board.
+/// Until 2026-10-22 every project had a board of its own, `p:<project>`, that held everything in
+/// it and couldn't be deleted, and a file of version 1 kept one once it first changed. One of
+/// those with something of yours on it (cards added or taken off, its own columns, cards put in a
+/// column or an order, another name or rule, notes on its canvas or frames a tidy didn't draw)
+/// stays, as a board like any other, its id and all; the rest, which held nothing but what the
+/// project had, go. Version 2 is written with the next change, and from then on an id like that
+/// is only an id.
+fn without_own_boards(mut file: BoardsFile) -> BoardsFile {
+    if file.version < VERSION {
+        file.boards.retain(|b| b.id != format!("p:{}", b.project) || has_yours(b));
+    }
+    file
+}
+
+fn has_yours(b: &BoardDoc) -> bool {
+    // A canvas brings on what its board holds by itself, and a tidy draws frames round it
+    // (`auto`, canvas/model.ts `FrameItem`); a note or another frame was put there.
+    let drawn = b.canvas.get("items").and_then(Value::as_array).is_some_and(|items| items.iter().any(|it| it.get("kind").and_then(Value::as_str) != Some("ref") && it.get("auto") != Some(&Value::Bool(true))));
+    b.name != b.project || b.rule != Some(Rule::default()) || !b.added.is_empty() || !b.removed.is_empty() || b.columns.is_some() || !b.placed.is_empty() || !b.order.is_empty() || drawn
+}
+
+/// Each project's canvas from canvas.json, as the canvas of a board of the project's own, which
+/// `without_own_boards` keeps only when its canvas has notes or frames of yours or had cards
+/// taken off.
+/// What was taken off a canvas is taken off its board.
 fn from_canvases(text: &str) -> BoardsFile {
     let mut file = BoardsFile { version: 1, ..Default::default() };
     let Ok(Value::Object(root)) = serde_json::from_str::<Value>(text) else { return file };
     let Some(Value::Object(canvases)) = root.get("canvases") else { return file };
     for (project, doc) in canvases {
         let mut doc = doc.clone();
-        let mut board = BoardDoc::of_project(project);
+        let mut board = BoardDoc { id: format!("p:{project}"), rule: Some(Rule::default()), ..BoardDoc::new(project, project) };
         if let Some(Value::Array(hidden)) = doc.as_object_mut().and_then(|d| d.remove("hidden")) {
             board.removed = hidden.iter().filter_map(Value::as_str).filter(|id| parse_card(id).is_some()).map(str::to_string).collect();
         }
@@ -318,28 +333,25 @@ fn change<R>(f: impl FnOnce(&mut BoardsFile) -> Result<(bool, R)>) -> Result<R> 
     let mut file = read()?;
     let (changed, out) = f(&mut file)?;
     if changed {
-        file.version = 1;
+        file.version = VERSION;
         store::save(&path(), &file)?;
     }
     Ok(out)
 }
 
-/// A project's boards, its own first and then the rest as they were made, without their canvases.
-/// All projects lists every project's after its own, as it lists every project's sessions: a
-/// board shows its own project's work wherever it's shown (src/boardLists.ts `useBoardLists`).
+/// A project's boards as they were made, without their canvases. All projects lists every
+/// project's after its own, as it lists every project's sessions: a board shows its own project's
+/// work wherever it's shown (src/boardLists.ts `useBoardLists`).
 pub fn list(project: &str) -> Result<Vec<BoardDoc>> {
     Ok(listed(&read()?, project))
 }
 
 fn listed(file: &BoardsFile, project: &str) -> Vec<BoardDoc> {
-    let own = project_board_id(project);
-    let mut out = vec![file.boards.iter().find(|b| b.id == own).cloned().unwrap_or_else(|| BoardDoc::of_project(project)).listed()];
     let every = project == crate::route::ALL_PROJECTS;
-    let mut rest: Vec<&BoardDoc> = file.boards.iter().filter(|b| b.id != own && (b.project == project || (every && !b.is_projects()))).collect();
+    let mut out: Vec<&BoardDoc> = file.boards.iter().filter(|b| every || b.project == project).collect();
     // Under All projects, its own boards first, then each project's in turn.
-    rest.sort_by(|a, b| (a.project != project).cmp(&(b.project != project)).then_with(|| a.project.cmp(&b.project)).then(a.created_at.cmp(&b.created_at)));
-    out.extend(rest.into_iter().map(|b| b.clone().listed()));
-    out
+    out.sort_by(|a, b| (a.project != project).cmp(&(b.project != project)).then_with(|| a.project.cmp(&b.project)).then(a.created_at.cmp(&b.created_at)));
+    out.into_iter().map(|b| b.clone().listed()).collect()
 }
 
 /// Every board the file has, without their canvases: for naming one from the command.
@@ -388,13 +400,11 @@ fn base36(mut n: u64) -> String {
     String::from_utf8(out).unwrap_or_default()
 }
 
-/// The board `id`, made first when it's a project's own board that isn't in the file yet.
 fn board_mut<'a>(file: &'a mut BoardsFile, id: &str) -> Result<&'a mut BoardDoc> {
-    if !file.boards.iter().any(|b| b.id == id) {
-        let Some(project) = id.strip_prefix(PROJECT_PREFIX).filter(|p| !p.is_empty()) else { bail!("There's no board {id}.") };
-        file.boards.push(BoardDoc::of_project(project));
+    match file.boards.iter_mut().find(|b| b.id == id) {
+        Some(b) => Ok(b),
+        None => bail!("There's no board {id}."),
     }
-    Ok(file.boards.iter_mut().find(|b| b.id == id).expect("just made"))
 }
 
 fn clean_name(name: &str) -> Result<String> {
@@ -408,8 +418,7 @@ fn clean_name(name: &str) -> Result<String> {
 /// Turns down a name another board in the project has, whatever its case: boards are named by it.
 fn name_free(file: &BoardsFile, project: &str, name: &str, but: &str) -> Result<()> {
     let taken = |b: &BoardDoc| b.project == project && b.id != but && b.name.to_lowercase() == name.to_lowercase();
-    // A project's own board is there whether or not the file has it yet.
-    if file.boards.iter().any(taken) || (but != project_board_id(project) && project.to_lowercase() == name.to_lowercase() && !file.boards.iter().any(|b| b.id == project_board_id(project))) {
+    if file.boards.iter().any(taken) {
         bail!("{project} already has a board called {name}.");
     }
     Ok(())
@@ -460,7 +469,7 @@ fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -
                 check_columns(columns)?;
             }
             name_free(file, &board.project, &board.name, "")?;
-            if board.id.is_empty() || board.id.starts_with(PROJECT_PREFIX) || file.boards.iter().any(|b| b.id == board.id) {
+            if board.id.is_empty() || file.boards.iter().any(|b| b.id == board.id) {
                 board.id = new_id(now);
             }
             board.added = cards(&board.added)?;
@@ -474,15 +483,7 @@ fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -
             return Ok((true, out));
         }
         BoardOp::Delete { id } => {
-            let Some(at) = file.boards.iter().position(|b| b.id == id) else {
-                if id.starts_with(PROJECT_PREFIX) {
-                    bail!("A project's own board can't be deleted.");
-                }
-                bail!("There's no board {id}.");
-            };
-            if file.boards[at].is_projects() {
-                bail!("A project's own board can't be deleted.");
-            }
+            let Some(at) = file.boards.iter().position(|b| b.id == id) else { bail!("There's no board {id}.") };
             let gone = file.boards.remove(at);
             return Ok((true, Applied { board: None, id, project: gone.project, left: None }));
         }
@@ -499,10 +500,6 @@ fn apply_to(file: &mut BoardsFile, op: BoardOp, now: i64, new_id: impl Fn(i64) -
             let project = project.trim().to_string();
             if project.is_empty() {
                 bail!("A board needs a project.");
-            }
-            // A project's own board is named for its project, whose everything it holds.
-            if id.starts_with(PROJECT_PREFIX) {
-                bail!("A project's own board stays in its project.");
             }
             let b = board_mut(file, &id)?;
             let (name, from) = (b.name.clone(), b.project.clone());
@@ -720,11 +717,16 @@ mod tests {
     use serde_json::json;
 
     fn file_with(boards: Vec<BoardDoc>) -> BoardsFile {
-        BoardsFile { version: 1, boards, extra: Map::new() }
+        BoardsFile { version: VERSION, boards, extra: Map::new() }
     }
 
     fn named(id: &str, name: &str, project: &str) -> BoardDoc {
-        BoardDoc { id: id.into(), name: name.into(), project: project.into(), rule: None, created_at: 5, ..BoardDoc::of_project(project) }
+        BoardDoc { id: id.into(), created_at: 5, ..BoardDoc::new(name, project) }
+    }
+
+    /// A project's own board as a file of version 1 kept it.
+    fn own(project: &str) -> BoardDoc {
+        BoardDoc { id: format!("p:{project}"), rule: Some(Rule::default()), ..BoardDoc::new(project, project) }
     }
 
     fn run(file: &mut BoardsFile, op: BoardOp) -> Result<(bool, Applied)> {
@@ -742,35 +744,58 @@ mod tests {
     }
 
     #[test]
-    fn a_project_has_its_own_board_first_whether_or_not_the_file_has_it() {
+    fn a_project_has_only_the_boards_made_in_it() {
         let file = file_with(vec![named("b-2", "Later", "Atlas"), named("b-1", "Release", "Northwind")]);
-        let boards = listed(&file, "Northwind");
-        assert_eq!(boards.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["p:Northwind", "b-1"]);
-        assert_eq!(boards[0].rule, Some(Rule::default()));
-        assert!(boards[0].is_projects());
-    }
-
-    #[test]
-    fn all_projects_lists_every_projects_boards_after_its_own_but_their_own_boards() {
-        let all = crate::route::ALL_PROJECTS;
-        let mut atlas = BoardDoc::of_project("Atlas");
-        atlas.name = "Atlas, renamed".into();
-        let file = file_with(vec![named("b-3", "Later", "Northwind"), atlas, named("b-2", "Ideas", all), BoardDoc { created_at: 1, ..named("b-1", "Release", "Northwind") }, named("b-4", "Site", "Atlas")]);
         let ids = |p: &str| listed(&file, p).into_iter().map(|b| b.id).collect::<Vec<_>>();
-        assert_eq!(ids(all), [format!("p:{all}"), "b-2".into(), "b-4".into(), "b-1".into(), "b-3".into()]);
-        assert_eq!(ids("Northwind"), ["p:Northwind", "b-1", "b-3"]);
+        assert_eq!(ids("Northwind"), ["b-1"]);
+        assert!(ids("Kestrel").is_empty());
+        assert!(listed(&BoardsFile::default(), crate::route::ALL_PROJECTS).is_empty());
     }
 
     #[test]
-    fn a_projects_board_is_written_as_it_first_changes_and_cant_be_deleted() {
-        let mut file = BoardsFile::default();
-        let (changed, out) = run(&mut file, BoardOp::Add { id: "p:Northwind".into(), cards: vec!["todo:t-1".into()] }).unwrap();
-        assert!(changed);
-        assert_eq!(out.project, "Northwind");
-        assert_eq!(file.boards[0].added, ["todo:t-1"]);
-        assert!(run(&mut file, BoardOp::Delete { id: "p:Northwind".into() }).is_err());
+    fn all_projects_lists_every_projects_boards_after_its_own() {
+        let all = crate::route::ALL_PROJECTS;
+        let file = file_with(vec![named("b-3", "Later", "Northwind"), named("b-2", "Ideas", all), BoardDoc { created_at: 1, ..named("b-1", "Release", "Northwind") }, named("b-4", "Site", "Atlas")]);
+        let ids = |p: &str| listed(&file, p).into_iter().map(|b| b.id).collect::<Vec<_>>();
+        assert_eq!(ids(all), ["b-2", "b-4", "b-1", "b-3"]);
+        assert_eq!(ids("Northwind"), ["b-1", "b-3"]);
+    }
+
+    #[test]
+    fn a_change_to_a_board_that_isnt_there_is_turned_down() {
+        let mut file = file_with(vec![named("b-1", "Release", "Northwind")]);
+        // A project's own board isn't made by a change to it any more.
+        assert!(run(&mut file, BoardOp::Add { id: "p:Northwind".into(), cards: vec!["todo:t-1".into()] }).unwrap_err().to_string().contains("There's no board p:Northwind"));
         assert!(run(&mut file, BoardOp::Delete { id: "p:Atlas".into() }).is_err());
         assert!(run(&mut file, BoardOp::Add { id: "b-gone".into(), cards: vec![] }).is_err());
+        assert_eq!(file.boards.len(), 1);
+        let (changed, out) = run(&mut file, BoardOp::Delete { id: "b-1".into() }).unwrap();
+        assert!(changed && out.board.is_none() && file.boards.is_empty());
+    }
+
+    #[test]
+    fn a_projects_own_board_from_before_stays_only_with_something_of_yours_on_it() {
+        let canvas = |kinds: &[&str]| json!({ "items": kinds.iter().map(|k| json!({ "kind": k })).collect::<Vec<_>>() });
+        // What a tidy drew round the cards is the canvas's, not yours.
+        let tidied = json!({ "items": [{ "kind": "ref" }, { "kind": "frame", "auto": true }] });
+        let yours = vec![
+            BoardDoc { canvas: canvas(&["ref", "frame"]), ..own("Atlas") },
+            BoardDoc { name: "Kestrel, renamed".into(), ..own("Kestrel") },
+            BoardDoc { removed: vec!["session:s9".into()], ..own("Harbor") },
+            BoardDoc { columns: Some(vec![]), ..own("Juniper") },
+            BoardDoc { rule: Some(Rule { stages: vec![Stage::Review], ..Default::default() }), ..own("Larch") },
+        ];
+        let mut boards = vec![BoardDoc { canvas: tidied, ..own("Northwind") }, own(crate::route::ALL_PROJECTS), named("b-1", "Release", "Northwind")];
+        boards.extend(yours);
+        let ids = |f: &BoardsFile| f.boards.iter().map(|b| b.id.as_str()).collect::<Vec<_>>().join(" ");
+        let before = BoardsFile { version: 1, boards, extra: Map::new() };
+        let after = without_own_boards(before.clone());
+        assert_eq!(ids(&after), "b-1 p:Atlas p:Kestrel p:Harbor p:Juniper p:Larch");
+        // Once the file is of version 2, a board with an id like that is a board like any other.
+        let mut file = BoardsFile { version: VERSION, ..before };
+        assert_eq!(without_own_boards(file.clone()).boards.len(), 8);
+        assert!(run(&mut file, BoardOp::Delete { id: "p:Northwind".into() }).unwrap().0);
+        assert_eq!(run(&mut file, BoardOp::Project { id: "p:Atlas".into(), project: "Northwind".into() }).unwrap().1.left.as_deref(), Some("Atlas"));
     }
 
     #[test]
@@ -808,10 +833,8 @@ mod tests {
         assert_eq!(out.board.unwrap().name, "Bugs to fix");
         assert_eq!(file.boards[1].created_at, 100);
         assert!(run(&mut file, new("", "release", "Northwind")).is_err());
-        // The project's own board has its name, written yet or not.
-        assert!(run(&mut file, new("", "northwind", "Northwind")).is_err());
-        assert!(run(&mut file, new("p:Atlas", "Release", "Atlas")).is_ok());
-        assert_eq!(file.boards[2].id, "b-new");
+        // A board may be named for its project.
+        assert!(run(&mut file, new("", "northwind", "Northwind")).is_ok());
         assert!(run(&mut file, new("", " ", "Atlas")).is_err());
         assert!(run(&mut file, BoardOp::Rename { id: "b-1".into(), name: "Bugs to fix".into() }).is_err());
         assert!(run(&mut file, BoardOp::Rename { id: "b-1".into(), name: "release".into() }).unwrap().0);
@@ -828,12 +851,8 @@ mod tests {
         // Already there, it doesn't move.
         let (changed, out) = run(&mut file, to("b-3", "Northwind")).unwrap();
         assert!(!changed && out.left.is_none());
-        // Where a board has its name, or the project is called that, it can't go.
+        // Where a board has its name it can't go, nor nowhere.
         assert!(run(&mut file, to("b-1", "Atlas")).unwrap_err().to_string().contains("Atlas already has a board called Release"));
-        assert!(run(&mut file, BoardOp::Rename { id: "b-3".into(), name: "Atlas".into() }).is_ok());
-        assert!(run(&mut file, to("b-3", "Atlas")).is_err());
-        // A project's own board stays, and so does one moved nowhere.
-        assert!(run(&mut file, to("p:Northwind", "Atlas")).is_err());
         assert!(run(&mut file, to("b-1", " ")).is_err());
         let (_, out) = run(&mut file, to("b-1", crate::route::ALL_PROJECTS)).unwrap();
         assert_eq!(out.board.unwrap().added, ["todo:t-1"]);
@@ -856,18 +875,22 @@ mod tests {
     }
 
     #[test]
-    fn the_canvases_kept_before_boards_become_each_projects_boards_canvas() {
+    fn the_canvases_kept_before_boards_become_boards_where_they_have_something_of_yours() {
         let text = json!({ "version": 1, "canvases": {
             "Northwind": { "items": [{ "kind": "ref", "ref": "todo", "key": "t-1", "x": 0, "y": 0 }], "hidden": ["session:s9", "nonsense"], "camera": null },
-            "Atlas": { "items": [] }
+            "Atlas": { "items": [{ "kind": "ref", "ref": "todo", "key": "t-2", "x": 0, "y": 0 }] },
+            "Kestrel": { "items": [{ "kind": "note", "text": "Ship it" }] }
         } })
         .to_string();
-        let file = from_canvases(&text);
+        let file = without_own_boards(from_canvases(&text));
+        let mut ids: Vec<&str> = file.boards.iter().map(|b| b.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, ["p:Kestrel", "p:Northwind"]);
         let north = file.boards.iter().find(|b| b.id == "p:Northwind").unwrap();
+        assert_eq!((north.name.as_str(), north.project.as_str()), ("Northwind", "Northwind"));
         assert_eq!(north.removed, ["session:s9"]);
         assert_eq!(north.canvas, json!({ "items": [{ "kind": "ref", "ref": "todo", "key": "t-1", "x": 0, "y": 0 }], "camera": null }));
         assert_eq!(north.rule, Some(Rule::default()));
-        assert!(file.boards.iter().any(|b| b.id == "p:Atlas"));
         assert_eq!(from_canvases("{ nope").boards.len(), 0);
         assert_eq!(from_canvases("").boards.len(), 0);
     }

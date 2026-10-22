@@ -3,9 +3,9 @@
 // arrows going up a column and across, R marking a todo ready for review, and dragging: a todo
 // to In review marks it so, a session to Done marks it done, and a session dropped on a todo's
 // card joins it.
-//   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh kanban '' scripts/preview/kanban-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_TODOS=scripts/preview/todos-sample.json PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh kanban '' scripts/preview/kanban-check.js
 // It needs a session card on the board, one running or waiting on you on no todo; the sample
-// todos give it its todos.
+// todos give it its todos, and the board that takes in everything shows them.
 (function () {
   var pointer = function (target, type, x, y) {
     target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: 'mouse' }));

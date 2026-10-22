@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Label } from '../types';
-import { applyOp, boardChoices, boardName, boardsFor, boardsIn, followsMove, cleanRule, columnsOf, newColumnId, presetColumns, projectBoard, ruleWords, STAGE_COLUMNS, stageOfColumn, takesAll, type BoardDoc } from './model';
+import { applyOp, boardChoices, boardName, boardsFor, boardsIn, followsMove, cleanRule, columnsOf, newColumnId, presetColumns, ruleWords, STAGE_COLUMNS, stageOfColumn, takesAll, type BoardDoc } from './model';
 
 const NOW = 1_790_000_000_000;
 const named = (id: string, name: string, over: Partial<BoardDoc> = {}): BoardDoc => ({ id, name, project: 'Acme', rule: null, added: [], removed: [], createdAt: 5, ...over });
@@ -10,24 +10,24 @@ const labels: Label[] = [
 ];
 
 describe('a project’s boards', () => {
-  it('lists the project’s own first, whether or not it was ever written, then the rest as they were made', () => {
+  it('lists only the boards made in the project, as they were made: none until one is', () => {
     const list = boardsIn([named('b-2', 'Later', { createdAt: 9 }), named('b-1', 'Release'), named('b-3', 'Elsewhere', { project: 'Atlas' })], 'Acme');
-    expect(list.map((b) => b.id)).toEqual(['p:Acme', 'b-1', 'b-2']);
-    expect(list[0]).toEqual(projectBoard('Acme'));
-    expect(takesAll(list[0].rule)).toBe(true);
+    expect(list.map((b) => b.id)).toEqual(['b-1', 'b-2']);
+    expect(boardsIn(list, 'Kestrel')).toEqual([]);
+    expect(boardsIn([], 'All projects')).toEqual([]);
   });
 
-  it('lists every project’s boards under All projects, after its own, but each project’s own board', () => {
+  it('lists every project’s boards under All projects, after its own', () => {
     const all = 'All projects';
-    const boards = [named('b-3', 'Later'), { ...projectBoard('Atlas'), name: 'Atlas, renamed' }, named('b-2', 'Ideas', { project: all }), named('b-1', 'Release', { createdAt: 1 }), named('b-4', 'Site', { project: 'Atlas' })];
-    expect(boardsIn(boards, all).map((b) => b.id)).toEqual([`p:${all}`, 'b-2', 'b-1', 'b-3', 'b-4']);
-    expect(boardsIn(boards, 'Acme').map((b) => b.id)).toEqual(['p:Acme', 'b-1', 'b-3']);
+    const boards = [named('b-3', 'Later'), named('b-5', 'Atlas', { project: 'Atlas', createdAt: 0 }), named('b-2', 'Ideas', { project: all }), named('b-1', 'Release', { createdAt: 1 }), named('b-4', 'Site', { project: 'Atlas' })];
+    expect(boardsIn(boards, all).map((b) => b.id)).toEqual(['b-2', 'b-1', 'b-3', 'b-5', 'b-4']);
+    expect(boardsIn(boards, 'Acme').map((b) => b.id)).toEqual(['b-1', 'b-3']);
   });
 
   it('offers a thing the boards that would show it, and names another project’s board with its project', () => {
-    const boards = [projectBoard('All projects'), named('b-2', 'Ideas', { project: 'All projects' }), named('b-1', 'Release'), named('b-4', 'Site', { project: 'Atlas' })];
-    expect(boardsFor(boards, 'Atlas').map((b) => b.id)).toEqual(['p:All projects', 'b-2', 'b-4']);
-    expect(boardsFor(boards, '').map((b) => b.id)).toEqual(['p:All projects', 'b-2']);
+    const boards = [named('b-0', 'Everything', { project: 'All projects', rule: {} }), named('b-2', 'Ideas', { project: 'All projects' }), named('b-1', 'Release'), named('b-4', 'Site', { project: 'Atlas' })];
+    expect(boardsFor(boards, 'Atlas').map((b) => b.id)).toEqual(['b-0', 'b-2', 'b-4']);
+    expect(boardsFor(boards, '').map((b) => b.id)).toEqual(['b-0', 'b-2']);
     expect(boardsFor(boards, null)).toBe(boards);
     expect(boardName(boards[3], 'All projects')).toBe('Site · Atlas');
     expect(boardName(boards[3], 'Atlas')).toBe('Site');
@@ -58,7 +58,7 @@ describe('a project’s boards', () => {
   });
 
   it('has the four stage columns until it has its own', () => {
-    expect(columnsOf(projectBoard('Acme'))).toBe(STAGE_COLUMNS);
+    expect(columnsOf(named('b-1', 'Release'))).toBe(STAGE_COLUMNS);
     expect(STAGE_COLUMNS.map(stageOfColumn)).toEqual(['todo', 'progress', 'review', 'done']);
     expect(stageOfColumn({ id: 'x', name: 'X', rule: { stages: ['review'], labels: ['l-1'] }, sort: 'hand' })).toBeNull();
     expect(stageOfColumn({ id: 'x', name: 'X', sort: 'hand' })).toBeNull();
@@ -66,21 +66,23 @@ describe('a project’s boards', () => {
 });
 
 describe('applyOp', () => {
-  it('makes a change as the engine makes it: a project’s own board joins the list as it first changes', () => {
-    const one = applyOp([], { op: 'add', id: 'p:Acme', cards: ['todo:t-1'] }, NOW);
-    expect(one).toEqual([{ ...projectBoard('Acme'), added: ['todo:t-1'], addedAt: { 'todo:t-1': NOW } }]);
-    expect(applyOp(one, { op: 'delete', id: 'p:Acme' }, NOW)).toEqual(one);
+  it('makes a change as the engine makes it, and none to a board that isn’t there', () => {
+    const one = applyOp([named('b-1', 'Release')], { op: 'add', id: 'b-1', cards: ['todo:t-1'] }, NOW);
+    expect(one).toEqual([{ ...named('b-1', 'Release'), added: ['todo:t-1'], addedAt: { 'todo:t-1': NOW } }]);
+    // A project's own board isn't made by a change to it any more.
+    expect(applyOp(one, { op: 'add', id: 'p:Acme', cards: ['todo:t-2'] }, NOW)).toBe(one);
     expect(applyOp(one, { op: 'add', id: 'b-gone', cards: ['todo:t-2'] }, NOW)).toBe(one);
+    // Its last board deleted, the project has none.
+    expect(boardsIn(applyOp(one, { op: 'delete', id: 'b-1' }, NOW), 'Acme')).toEqual([]);
   });
 
-  it('moves a board to another project with what it has, but not a project’s own', () => {
-    const boards = [named('b-1', 'Release', { added: ['todo:t-1'] }), projectBoard('Acme')];
+  it('moves a board to another project with what it has', () => {
+    const boards = [named('b-1', 'Release', { added: ['todo:t-1'] }), named('b-2', 'Later')];
     const moved = applyOp(boards, { op: 'project', id: 'b-1', project: 'Atlas' }, NOW);
     expect(moved[0]).toEqual({ ...boards[0], project: 'Atlas' });
     // It leaves the project's list for the other's.
-    expect(boardsIn(moved, 'Acme').map((b) => b.id)).toEqual(['p:Acme']);
-    expect(boardsIn(moved, 'Atlas').map((b) => b.id)).toEqual(['p:Atlas', 'b-1']);
-    expect(applyOp(boards, { op: 'project', id: 'p:Acme', project: 'Atlas' }, NOW)).toBe(boards);
+    expect(boardsIn(moved, 'Acme').map((b) => b.id)).toEqual(['b-2']);
+    expect(boardsIn(moved, 'Atlas').map((b) => b.id)).toEqual(['b-1']);
   });
 
   it('follows a board it moved only from the board itself, and only if the window is still there', () => {

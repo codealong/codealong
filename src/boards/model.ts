@@ -1,10 +1,10 @@
 // Boards: named sets of work in a project, each shown as Kanban or as Canvas. A board holds what
 // its rule takes in (rules.ts) and what you added by hand, less what you took off; its Kanban
-// columns, where you put cards by hand and in what order; and its canvas (canvas/model.ts). Every
-// project has a board of its own, named after it, whose rule takes in everything in the project:
-// the Kanban and Canvas as they were before there were boards. The engine keeps them in
-// boards.json (boards.rs) and makes every change; a change is made here too as it's asked
-// (`applyOp`, which does what boards.rs `apply_to` does), so the window shows it at once.
+// columns, where you put cards by hand and in what order; and its canvas (canvas/model.ts). A
+// project has only the boards made in it: none until one's made, when the Board view says what a
+// board is and offers to make one. The engine keeps them in boards.json (boards.rs) and makes
+// every change; a change is made here too as it's asked (`applyOp`, which does what boards.rs
+// `apply_to` does), so the window shows it at once.
 
 import type { OnBoard, RefKind } from '../canvas/model';
 import { ALL_PROJECTS } from '../quick';
@@ -93,21 +93,6 @@ export type BoardOp =
   | { op: 'place'; id: string; card: string; column: string | null }
   | { op: 'order'; id: string; order: string[] };
 
-const PROJECT_PREFIX = 'p:';
-
-export function projectBoardId(project: string): string {
-  return `${PROJECT_PREFIX}${project}`;
-}
-
-/** A project's own board, as it is until it first changes: everything in the project. */
-export function projectBoard(project: string): BoardDoc {
-  return { id: projectBoardId(project), name: project, project, rule: {}, added: [], removed: [] };
-}
-
-export function isProjects(b: BoardDoc): boolean {
-  return b.id === projectBoardId(b.project);
-}
-
 /** The stage columns: they follow the work, and a card dropped on one moves its work on (kanban.ts). */
 export const STAGE_COLUMNS: BoardColumn[] = [
   { id: 'todo', name: 'To do', rule: { stages: ['todo'] }, sort: 'hand' },
@@ -192,8 +177,7 @@ const without = (list: string[] | undefined, gone: string[]) => (list ?? []).fil
 
 /**
  * The boards with `op` made, as boards.rs `apply_to` makes it, or the same list when it can't be
- * made here (the engine then says why). A project's own board comes into the list as it first
- * changes.
+ * made here (the engine then says why).
  */
 export function applyOp(boards: BoardDoc[], op: BoardOp, now: number): BoardDoc[] {
   if (op.op === 'create') {
@@ -201,19 +185,16 @@ export function applyOp(boards: BoardDoc[], op: BoardOp, now: number): BoardDoc[
     const addedAt = { ...Object.fromEntries(op.board.added.map((c) => [c, now])), ...op.board.addedAt };
     return [...boards, { ...op.board, name: cleanName(op.board.name), addedAt, createdAt: now }];
   }
-  if (op.op === 'delete') return boards.filter((b) => b.id !== op.id || isProjects(b));
+  if (op.op === 'delete') return boards.filter((b) => b.id !== op.id);
   const at = boards.findIndex((b) => b.id === op.id);
-  const project = op.id.startsWith(PROJECT_PREFIX) ? op.id.slice(PROJECT_PREFIX.length) : null;
-  const b = at >= 0 ? boards[at] : project ? projectBoard(project) : null;
-  if (!b) return boards;
+  if (at < 0) return boards;
+  const b = boards[at];
   let next: BoardDoc;
   switch (op.op) {
     case 'rename':
       next = { ...b, name: cleanName(op.name) || b.name };
       break;
     case 'project':
-      // A project's own board stays in its project.
-      if (isProjects(b)) return boards;
       next = { ...b, project: op.project.trim() || b.project };
       break;
     case 'add': {
@@ -245,7 +226,7 @@ export function applyOp(boards: BoardDoc[], op: BoardOp, now: number): BoardDoc[
       next = { ...b, order: [...new Set(op.order)] };
       break;
   }
-  return at >= 0 ? boards.map((x, i) => (i === at ? next : x)) : [...boards, next];
+  return boards.map((x, i) => (i === at ? next : x));
 }
 
 /** What a board holds, as its canvas takes it (canvas/model.ts `OnBoard`). */
@@ -301,13 +282,11 @@ export function boardChoices(boards: BoardDoc[], cards: { card: string; project:
   });
 }
 
-/** A project's boards as they're listed: its own first, then the rest as they were made. All
- *  projects lists every project's after its own, but each project's own board, as the engine
- *  sends them (boards.rs `listed`): a board shows its own project's work wherever it's shown. */
+/** A project's boards as they're listed, as they were made. All projects lists every project's
+ *  after its own, as the engine sends them (boards.rs `listed`): a board shows its own project's
+ *  work wherever it's shown. */
 export function boardsIn(boards: BoardDoc[], project: string): BoardDoc[] {
-  const own = boards.find((b) => b.id === projectBoardId(project)) ?? projectBoard(project);
   const every = project === ALL_PROJECTS;
-  const rest = boards.filter((b) => b.id !== own.id && (b.project === project || (every && !isProjects(b))));
   const order = (a: BoardDoc, b: BoardDoc) => Number(a.project !== project) - Number(b.project !== project) || (a.project < b.project ? -1 : a.project > b.project ? 1 : 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0);
-  return [own, ...rest.sort(order)];
+  return boards.filter((b) => every || b.project === project).sort(order);
 }

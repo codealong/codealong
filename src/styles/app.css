@@ -44,6 +44,7 @@
 @import '../ui/LaneRow.css';
 @import '../ui/InsightBits.css';
 @import '../ui/ListBar.css';
+@import '../ui/BoardEmpty.css';
 @import '../ui/SessionsView.css';
 @import '../ui/PickPanel.css';
 @import '../ui/useRowDrag.css';

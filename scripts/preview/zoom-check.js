@@ -4,7 +4,7 @@
 // button lands under it on a zoomed page (api.ts `popupMenu`); and the canvas keeps the keys for
 // its own zoom. The board here says 125%; the stub's answers to a step are fake-tauri.js's.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/zoom-check.js
-//   PREVIEW_WAIT=60000 scripts/preview.sh canvas '' scripts/preview/zoom-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/zoom-check.js
 (function () {
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {

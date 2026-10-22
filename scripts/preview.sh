@@ -63,7 +63,9 @@
 #
 # PREVIEW_CANVAS=<file> opens the Canvas view on the document in it (one board's, as
 # boards.json keeps it under a board's canvas) in place of a fresh tidy. PREVIEW_BOARDS=<file>
-# lists the boards in it (scripts/preview/boards-sample.json has some) beside each project's own.
+# lists the boards in it (scripts/preview/boards-sample.json has some, boards-everything.json one
+# in each project that takes in everything); without one there are none, as on a new machine,
+# and the Board view says how to make one.
 # Boards are on whatever config.toml's `[experimental] boards` says; PREVIEW_BOARDS_OFF=1 renders
 # them off, as a new config.toml has them.
 # PREVIEW_USAGE=<file> shows the plan usage in it (scripts/preview/usage-sample.json has some) in

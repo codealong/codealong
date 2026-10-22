@@ -5,14 +5,16 @@
 // frames in view; another project's board is arranged and saved without switching to it; a board
 // there isn't is refused; and a save from another window has this one read the canvas again,
 // where its own doesn't.
-//   PREVIEW_WAIT=90000 scripts/preview.sh canvas '' scripts/preview/canvas-arrange-check.js
+// Each project has a board that takes in everything, boards-everything.json's.
+//   PREVIEW_WAIT=90000 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh canvas '' scripts/preview/canvas-arrange-check.js
 (function () {
   var asked = 100;
-  // A project's own board, by the project.
-  var own = function (project) { return 'p:' + project; };
+  // A project's board that takes in everything, by the project.
+  var EVERY = 'b-all-';
+  var own = function (project) { return EVERY + project; };
   var ask = function (board, op) {
     var id = ++asked;
-    window.__emit('board-ask', { id: id, board: board, project: board.indexOf('p:') === 0 ? board.slice(2) : '', ask: op });
+    window.__emit('board-ask', { id: id, board: board, project: board.indexOf(EVERY) === 0 ? board.slice(EVERY.length) : '', ask: op });
     return until(function () { return calls('board_answer').filter(function (c) { return c[1].id === id; })[0]; }, 5000, 'the answer to request ' + id).then(function (c) { return c[1]; });
   };
   var saved = function (board) {
@@ -39,7 +41,7 @@
   until(function () { return saved(); }, 15000, 'the canvas, tidied and saved')
     .then(async function (first) {
       var board = first.board;
-      var project = board.slice(2);
+      var project = board.slice(EVERY.length);
       var session = first.doc.items.filter(function (it) { return it.kind === 'ref' && it.ref === 'session'; })[0];
       if (!session) return stopped('no session on the ' + project + ' canvas');
 

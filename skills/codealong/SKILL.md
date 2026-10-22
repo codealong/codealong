@@ -292,16 +292,17 @@ schedule that asks an agent every few minutes whether anything changed.
 
 A board is a named set of work in a project (a release, a fix, an investigation), shown in the
 app as Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in
-frames). Every project has a board of its own, named after it, that holds everything in the
-project. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how
-recent, words in titles) and what's added by hand, less what's taken off.
+frames). A project has only the boards made in it, none until your user makes one. A board
+holds what its rule takes in (labels, stages, statuses, repos, accounts, how recent, words in
+titles) and what's added by hand, less what's taken off.
 
 Boards are an experiment, off until your user turns them on in Settings › Experimental. While
 they're off every `codealong board` command says so and does nothing: leave boards alone, and if
 your user asked for one, tell them where to turn them on.
 
 - `codealong board list` lists the project's boards; `board show <board>` prints its Kanban
-  columns and their cards, or with `--as canvas` its canvas's frames.
+  columns and their cards, or with `--as canvas` its canvas's frames. Named no board, `show`,
+  `arrange` and `open` take the project's one board, and say so when it has none or several.
 - When you work on something your user keeps a board for, put yourself on it:
   `codealong board add <board> --session me`, and the todo you're on with `--todo`. Take off
   what doesn't belong with `board remove`; adding something back undoes that.

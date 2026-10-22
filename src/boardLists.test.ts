@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { projectBoard, type BoardColumn, type BoardDoc } from './boards/model';
+import type { BoardColumn, BoardDoc } from './boards/model';
 import { memberTest, subjectsOf } from './boards/rules';
 import {
   ageListingChain,
@@ -774,8 +774,10 @@ describe('Sessions grouped', () => {
 });
 
 describe('the Kanban view’s columns', () => {
-  /** A board's columns, by id, with the keys of their cards: a project's own board by default. */
-  const cols = (todoRows: TodoItem[], todos: Todo[], sessions: SessionItem[], prs: PrItem[], doneSince: number, board: BoardDoc = projectBoard('Acme')) => {
+  /** A board that takes in everything in Acme. */
+  const everything: BoardDoc = { id: 'b-all', name: 'Everything', project: 'Acme', rule: {}, added: [], removed: [] };
+  /** A board's columns, by id, with the keys of their cards: one that takes in everything by default. */
+  const cols = (todoRows: TodoItem[], todos: Todo[], sessions: SessionItem[], prs: PrItem[], doneSince: number, board: BoardDoc = everything) => {
     const subjects = subjectsOf({ todoItems: todoRows, todos, sessionItems: sessions, lanes: [], prs });
     const member = memberTest(board, subjects, NOW);
     return Object.fromEntries(kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board, subjects, member, now: NOW }).map((c) => [c.id, c.cards.map((r) => r.key)]));
@@ -854,8 +856,8 @@ describe('the Kanban view’s columns', () => {
     // A worktree on the board brings its sessions worth a card, but not one taken off.
     expect(cols(rows, todos, sessionItemsOf([l]), [], 0, hand)).toEqual({ todo: ['todo:other'], progress: ['/r/app::claude:claude:in', '/r/app::claude:claude:out'], review: [], done: [] });
     expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...hand, removed: ['session:claude:claude:out'] }).progress).toEqual(['/r/app::claude:claude:in']);
-    // Nor on a project's own board, which holds every worktree.
-    expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...projectBoard('Acme'), removed: ['session:claude:claude:in'] }).progress).toEqual(['/r/app::claude:claude:out']);
+    // Nor on a board that takes in everything, which holds every worktree.
+    expect(cols(rows, todos, sessionItemsOf([l]), [], 0, { ...everything, removed: ['session:claude:claude:in'] }).progress).toEqual(['/r/app::claude:claude:out']);
   });
 
   it('shows each card put on a board by hand, as `board show` sees it: an archived session in Done, a helper, a todo done long ago', () => {
@@ -874,8 +876,8 @@ describe('the Kanban view’s columns', () => {
       done: ['/r/app::claude:claude:marked', 'todo:old'],
     });
     expect(archived.map((r) => r.session.key)).toEqual(['claude:claude:marked']);
-    // Nor does a project's own board show an archived session or a helper it doesn't have by hand.
-    const own = kanbanOf(fx.board({ lanes: [l], todos }), [l], projectBoard('Acme'), NOW);
+    // Nor does a board that takes in everything show an archived session or a helper it doesn't have by hand.
+    const own = kanbanOf(fx.board({ lanes: [l], todos }), [l], everything, NOW);
     expect(own.columns.flatMap((c) => c.cards.map((r) => r.key))).toEqual(['/r/app::claude:claude:lead']);
   });
 
@@ -883,7 +885,7 @@ describe('the Kanban view’s columns', () => {
     const marked = session('claude:claude:marked', { archived: true, status: 'stopped' });
     const l = lane('/r/app', [marked]);
     const todos = [fx.todo({ id: 'open', project: 'Acme', status: 'in-progress', sessions: [marked.key] })];
-    const doc: BoardDoc = { ...projectBoard('Acme'), added: ['session:claude:claude:marked'] };
+    const doc: BoardDoc = { ...everything, added: ['session:claude:claude:marked'] };
     const { columns } = kanbanOf(fx.board({ lanes: [l], todos }), [l], doc, NOW);
     expect(Object.fromEntries(columns.map((c) => [c.id, c.cards.map((r) => r.key)]))).toEqual({ todo: [], progress: ['todo:open'], review: [], done: ['/r/app::claude:claude:marked'] });
   });

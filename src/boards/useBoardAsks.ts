@@ -16,12 +16,12 @@ import { arrange, emptyDoc, entitiesOf, outline, refId, type ArrangeFrame, type 
 import type { CanvasHandle } from '../canvas/useCanvas';
 import { readCanvas, saveCanvas, seed } from '../canvas/useCanvas';
 import { withDevices, type DeviceFilter } from '../devices';
-import { boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanDrop, orderedIds, todoPatchOf, type KanbanMove } from '../kanban';
+import { boardOrderWith, columnWith, kanbanCardId, kanbanDrop, orderedIds, todoPatchOf, type KanbanMove } from '../kanban';
 import { useLatest } from '../latest';
 import { ALL_PROJECTS, inProject } from '../quick';
 import { errorText } from '../report';
 import type { Board, Lane } from '../types';
-import { holdsOf, isProjects, projectBoard, readBoard, type BoardDoc, type BoardOp } from './model';
+import { holdsOf, readBoard, type BoardDoc, type BoardOp } from './model';
 
 /** What `codealong board …` asks for, as boards.rs `Ask` sends it. */
 type Ask = { kind: 'show'; layout: 'kanban' | 'canvas' } | { kind: 'arrange'; frames: ArrangeFrame[]; rest: ArrangeRest } | { kind: 'move'; card: string; to: string; before?: string; dryRun?: boolean };
@@ -30,8 +30,8 @@ export interface BoardAsks {
   /** Other devices' worktrees, and the devices the window shows, which the board adds them to. */
   deviceLanes: Lane[];
   deviceFilter: DeviceFilter;
-  /** The board this window shows, and its canvas. */
-  shown: BoardDoc;
+  /** The board this window shows, if any, and its canvas. */
+  shown: BoardDoc | null;
   canvas: CanvasHandle;
   /** A change to a board, as the window makes one (useBoards.ts `apply`), which rejects with what
    *  the engine said. */
@@ -61,8 +61,6 @@ async function boardAsked(ask: BoardAsk): Promise<BoardDoc> {
   const project = ask.project;
   const found = (await boardsList(project)).map(readBoard).find((b) => b.id === ask.board);
   if (found) return found;
-  const own = projectBoard(project);
-  if (own.id === ask.board) return own;
   throw new Error(`There's no board ${ask.board} in ${project}.`);
 }
 
@@ -103,7 +101,7 @@ async function answer(ask: BoardAsk, latest: { readonly current: BoardAsks }): P
   // meanwhile is in what's arranged, and the board is still the one the window shows if it's put
   // there.
   const o = latest.current;
-  const here = doc.id === o.shown.id;
+  const here = doc.id === o.shown?.id;
   const canvas = here && o.canvas.loaded ? o.canvas.doc : file;
   if (op.kind === 'show') return { board: named(doc), exists: !!canvas, ...outline(canvas ?? emptyDoc(), e) };
   if (op.kind === 'arrange') {
@@ -144,10 +142,10 @@ async function move(op: Extract<Ask, { kind: 'move' }>, doc: BoardDoc, board: Bo
   const want = op.to.trim().toLowerCase();
   const to = columns.find((c) => c.id !== NO_COLUMN && (c.id.toLowerCase() === want || c.label.toLowerCase() === want));
   if (!to) throw new Error(`${doc.name} has no column ${op.to}. Its columns are ${columns.filter((c) => c.id !== NO_COLUMN).map((c) => c.label).join(', ')}.`);
-  // A place in the column is yours to give only where the column keeps your order, and among
-  // the cards that keep one (kanban.ts `orderedIds`).
-  const places = orderedIds(to.cards, isProjects(doc));
-  const keepsPlace = to.column?.sort === 'hand' && (!isProjects(doc) || card.kind === 'todo');
+  // A place in the column is yours to give only where the column keeps your order (kanban.ts
+  // `orderedIds`).
+  const places = orderedIds(to.cards);
+  const keepsPlace = to.column?.sort === 'hand';
   const before = op.before ? places.indexOf(op.before) : -1;
   if (op.before && (!keepsPlace || before < 0)) throw new Error(`${op.before} isn't in ${to.label}, or ${to.label} keeps no order of yours for it.`);
   // Within its column a card needs a place to go to; into another it goes after the rest there.
@@ -160,13 +158,13 @@ async function move(op: Extract<Ask, { kind: 'move' }>, doc: BoardDoc, board: Bo
   const title = (card.kind === 'todo' ? card.todo.title : card.session.title) || 'Untitled';
   const said = `${drop.word ?? `Move to ${to.label}`}: “${title}”.`;
   if (op.dryRun) return { said: `Would ${said.charAt(0).toLowerCase()}${said.slice(1)}`, column: to.label, done: false };
-  await doMoves(card, drop.moves, to, doc, board, acts.apply);
+  await doMoves(card, drop.moves, to, doc, acts.apply);
   return { said, column: to.label, done: true };
 }
 
 /** Does a drop's moves for the command, as applyKanbanDrop does them for a drag, without a toast:
  *  each through the engine, waited on, so the command hears what it turned down. */
-async function doMoves(card: KanbanCard, moves: KanbanMove[], to: KanbanColumn, doc: BoardDoc, board: Board, apply: BoardAsks['apply']): Promise<void> {
+async function doMoves(card: KanbanCard, moves: KanbanMove[], to: KanbanColumn, doc: BoardDoc, apply: BoardAsks['apply']): Promise<void> {
   const id = kanbanCardId(card);
   if (card.kind === 'todo') {
     const patch = todoPatchOf(card.todo, moves);
@@ -175,11 +173,8 @@ async function doMoves(card: KanbanCard, moves: KanbanMove[], to: KanbanColumn, 
   for (const m of moves) {
     if (m.kind === 'place') await apply({ op: 'place', id: doc.id, card: id, column: m.column });
     if (m.kind === 'order') {
-      const seq = columnWith(orderedIds(to.cards, isProjects(doc)), id, m.index);
-      // A project's own board keeps the Todo view's order.
-      if (isProjects(doc)) {
-        if (card.kind === 'todo') await todoOp({ op: 'order', ids: inSlots(board.todos.map((t) => t.id), seq.flatMap((c) => (c.startsWith('todo:') ? [c.slice(5)] : []))) });
-      } else await apply({ op: 'order', id: doc.id, order: boardOrderWith(doc.order ?? [], seq) });
+      const seq = columnWith(orderedIds(to.cards), id, m.index);
+      await apply({ op: 'order', id: doc.id, order: boardOrderWith(doc.order ?? [], seq) });
     }
   }
 }

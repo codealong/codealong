@@ -56,16 +56,17 @@ import { SchedulePanel } from './ui/SchedulePanel';
 import { SchedulesView } from './ui/SchedulesView';
 import { blankSchedule, newScheduleFolder, scheduleOf, scheduleProject } from './schedules';
 import { KanbanView } from './ui/KanbanView';
-import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kanbanStep, orderedIds, type KanbanActs } from './kanban';
+import { applyKanbanDrop, boardOrderWith, columnWith, kanbanCardId, kanbanStep, orderedIds, type KanbanActs } from './kanban';
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type OnBoard, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
-import { boardChoices, boardName, columnsOf, followsMove, type BoardPlace, holdsOf, isProjects, newBoardId, newColumnId, ONE_WORD, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
+import { boardChoices, boardName, columnsOf, followsMove, type BoardPlace, holdsOf, newBoardId, newColumnId, ONE_WORD, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
 import { columnOf, memberTest, repoOf } from './boards/rules';
 import { useBoardAsks } from './boards/useBoardAsks';
 import { useBoards } from './boards/useBoards';
 import { BoardBar, type BoardLayout } from './ui/BoardBar';
 import { BoardDialog, ColumnDialog, type BoardDraft } from './ui/BoardDialog';
+import { BoardEmpty } from './ui/BoardEmpty';
 import { ThemeSwitch, useTheme } from './ui/ThemeSwitch';
 import { Reading } from './ui/Tip';
 import { UsageBar } from './ui/UsageBar';
@@ -85,7 +86,7 @@ import { asText, flag, oneOf, readStored, strings, useStored } from './stored';
 import { useBoard } from './useBoard';
 import { useTextSearch } from './useTextSearch';
 import { useLatest } from './latest';
-import { useMainKeys, VIEW_CHORDS } from './mainKeys';
+import { reorderKey, useMainKeys, VIEW_CHORDS } from './mainKeys';
 import { useListPicks } from './useListPicks';
 import type { SelectHow } from './picks';
 import { useTodoView } from './useTodoView';
@@ -484,15 +485,15 @@ export function App() {
   // The columns of a board's Kanban that start folded (Done) and that you opened, by board and
   // column: each is a rail until it's opened.
   const [openedColumns, setOpenedColumns] = useState<ReadonlySet<string>>(() => new Set());
-  // The board the Board view shows, of the project's boards (boards/useBoards.ts). The project is
-  // worked out as the lists work it out, which need the board.
+  // The board the Board view shows, of the project's boards (boards/useBoards.ts), none while the
+  // project has none. The project is worked out as the lists work it out, which need the board.
   const boardsProject = currentProject(project, projectsOf(board?.projects ?? [], deviceLanes), loading);
   const boards = useBoards(boardsProject);
   const shownBoard = boards.board;
-  const columnOpen = useCallback((c: { id: string; column: BoardColumn | null }) => !c.column?.folded || openedColumns.has(`${shownBoard.id}:${c.id}`), [openedColumns, shownBoard.id]);
+  const columnOpen = useCallback((c: { id: string; column: BoardColumn | null }) => !c.column?.folded || openedColumns.has(`${shownBoard?.id}:${c.id}`), [openedColumns, shownBoard?.id]);
   const toggleColumn = (c: { id: string }) =>
     setOpenedColumns((o) => {
-      const key = `${shownBoard.id}:${c.id}`;
+      const key = `${shownBoard?.id}:${c.id}`;
       const next = new Set(o);
       if (!next.delete(key)) next.add(key);
       return next;
@@ -606,14 +607,15 @@ export function App() {
 
   // The board's canvas: its document, kept up to date with what the board holds once it's been
   // shown. It's of the board's project's work, which under All projects isn't the window's. While
-  // boards are off it's left as it is, nothing saved, and catches up once they're on again.
-  const boardProject = shownBoard.project;
+  // boards are off it's left as it is, nothing saved, and catches up once they're on again; with
+  // no board, there's none.
+  const boardProject = shownBoard?.project ?? current;
   const canvasEntities = useMemo(
     () => entitiesOf(board, boardLanes, todoStore.todos, (p) => boardProject === ALL_PROJECTS || p === boardProject, boardArchived),
     [board, boardLanes, todoStore.todos, boardProject, boardArchived],
   );
-  const holds = useMemo<OnBoard>(() => holdsOf(shownBoard, member), [member, shownBoard]);
-  const canvas = useCanvas(shownBoard.id, view === 'canvas', !loading && boardsOn, canvasEntities, now, lanePins.set, holds);
+  const holds = useMemo<OnBoard>(() => (shownBoard ? holdsOf(shownBoard, member) : { has: member, added: new Map(), removed: new Set() }), [member, shownBoard]);
+  const canvas = useCanvas(shownBoard?.id ?? null, view === 'canvas', !loading && boardsOn, canvasEntities, now, lanePins.set, holds);
   /** A change to a board, here at once; what the engine turns down is said in a toast. */
   const applyBoard = useCallback((op: Parameters<typeof boards.apply>[0]) => boards.apply(op).catch((e: unknown) => setToast(errorText(e))), [boards, setToast]);
   const [canvasFocus, setCanvasFocus] = useState<{ ids: string[]; n: number } | null>(null);
@@ -639,7 +641,7 @@ export function App() {
     const has = { lanes: rawLanes, todos: todoStore.todos, prs: board?.prs ?? [] };
     const cards = keys.map((key) => ({ card: refId(ref, key), project: projectOfCard(ref, key, has) }));
     const many = (n: number) => (keys.length > 1 ? ` ${count(n, ONE_WORD[ref])}` : '');
-    const holds = (b: BoardDoc) => (b.id === shownBoard.id ? member : memberTest(b, allSubjects, now));
+    const holds = (b: BoardDoc) => (b.id === shownBoard?.id ? member : memberTest(b, allSubjects, now));
     const put = (b: BoardDoc, yes: boolean, list: string[]) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: list });
     const choices = boardChoices(boards.boards, cards, holds).map(({ board: b, cards: list, fresh, on }) => ({
       label: list.length < cards.length ? `${boardName(b, current)} (${list.length} of ${cards.length})` : boardName(b, current),
@@ -647,7 +649,7 @@ export function App() {
       run: () => put(b, !on, on ? list : fresh),
     }));
     const held = view === 'kanban' ? cards.map((c) => c.card).filter(member) : [];
-    const remove: MenuSpec = held.length > 0 ? [{ label: `Remove${many(held.length)} from board`, run: () => put(shownBoard, false, held) }] : [];
+    const remove: MenuSpec = shownBoard && held.length > 0 ? [{ label: `Remove${many(held.length)} from board`, run: () => put(shownBoard, false, held) }] : [];
     return [
       {
         label: `Add${many(cards.length)} to board`,
@@ -679,7 +681,7 @@ export function App() {
   };
   /** Moves a board to another project. The window follows the board it shows there, unless it
    *  shows All projects, which lists it still (`followsMove`). */
-  const boardPlace = useLatest<BoardPlace>({ project: current, showing: view === 'kanban' || view === 'canvas', board: shownBoard.id });
+  const boardPlace = useLatest<BoardPlace>({ project: current, showing: view === 'kanban' || view === 'canvas', board: shownBoard?.id ?? '' });
   const moveBoard = (b: BoardDoc, project: string) => {
     const asked = boardPlace.current;
     void boards.apply({ op: 'project', id: b.id, project }).then(
@@ -691,19 +693,19 @@ export function App() {
       (e: unknown) => setToast(errorText(e)),
     );
   };
-  /** A board's menu: the project's boards to show, a new one, its settings, moving it to another
-   *  project as a todo moves (every project but Elsewhere, and All projects), deleting it. */
-  const boardMenu = (b: BoardDoc = shownBoard) =>
+  /** A board's menu, or with none the Board view's: the project's boards to show, a new one, and
+   *  the board's settings, moving it to another project as a todo moves (every project but
+   *  Elsewhere, and All projects), deleting it. */
+  const boardMenu = (b: BoardDoc | null = shownBoard) =>
     void showContextMenu([
-      ...boards.boards.map((x) => ({ label: boardName(x, current), checked: x.id === shownBoard.id && (view === 'kanban' || view === 'canvas'), run: () => showBoard(x.id) })),
-      'separator',
+      ...boards.boards.map((x) => ({ label: boardName(x, current), checked: x.id === shownBoard?.id && (view === 'kanban' || view === 'canvas'), run: () => showBoard(x.id) })),
+      ...(boards.boards.length > 0 ? ['separator' as const] : []),
       { label: 'New board…', run: () => setBoardEdit({ board: null }) },
-      { label: `Settings of ${b.name}…`, run: () => setBoardEdit({ board: b }) },
-      ...(isProjects(b) ? [] : [{ label: 'Move to project', items: [...todoProjects(projects), ALL_PROJECTS].map((p) => ({ label: p, checked: b.project === p, run: () => moveBoard(b, p) })) }]),
-      ...(b.columns ? [{ label: 'Kanban columns back to the stages', run: () => void applyBoard({ op: 'columns', id: b.id, columns: null }) }] : []),
-      ...(isProjects(b)
-        ? []
-        : [
+      ...(b
+        ? [
+            { label: `Settings of ${b.name}…`, run: () => setBoardEdit({ board: b }) },
+            { label: 'Move to project', items: [...todoProjects(projects), ALL_PROJECTS].map((p) => ({ label: p, checked: b.project === p, run: () => moveBoard(b, p) })) },
+            ...(b.columns ? [{ label: 'Kanban columns back to the stages', run: () => void applyBoard({ op: 'columns', id: b.id, columns: null }) }] : []),
             'separator' as const,
             {
               label: `Delete ${b.name}`,
@@ -712,10 +714,12 @@ export function App() {
                 setToast(`Deleted the board ${b.name}. What was on it stays as it was.`);
               },
             },
-          ]),
+          ]
+        : []),
     ]).catch((e: unknown) => setToast(String(e)));
   // A column's menu (KanbanView.tsx): its settings, folding it, moving it, taking it away.
   const columnMenu = (c: { id: string; column: BoardColumn | null }) => {
+    if (!shownBoard) return;
     const cols = columnsOf(shownBoard);
     const at = cols.findIndex((x) => x.id === c.id);
     if (at < 0 || !c.column) return;
@@ -734,6 +738,7 @@ export function App() {
     ]).catch((e: unknown) => setToast(String(e)));
   };
   const saveColumn = (fields: Omit<BoardColumn, 'id'>) => {
+    if (!shownBoard) return;
     const cols = columnsOf(shownBoard);
     const editing = columnEdit?.column;
     const next = editing ? cols.map((x) => (x.id === editing.id ? { ...fields, id: x.id } : x)) : [...cols, { ...fields, id: newColumnId(cols) }];
@@ -812,17 +817,11 @@ export function App() {
     [saidOf, query, revealFind],
   );
   // The runs of todos listed in your order, which ⌃⌘↑ ⌃⌘↓ move one within: the Todo view's open
-  // sections while it's sorted by status, the Kanban view's To do.
+  // sections while it's sorted by status. The Kanban view moves a card in its column itself
+  // (`kanbanKeys`).
   const todoRuns = useMemo(
-    () =>
-      view === 'kanban'
-        ? isProjects(shownBoard)
-          ? kanbanCols.filter((c) => c.column?.sort === 'hand').map((c) => c.cards.filter((x): x is TodoItem => x.kind === 'todo'))
-          : []
-        : todoGroup !== 'none'
-          ? []
-          : todoSecs.filter((s) => s.id !== 'done' && s.id !== 'archived' && statusSection(s.id)).map((s) => s.rows),
-    [view, kanbanCols, todoSecs, shownBoard, todoGroup],
+    () => (view === 'kanban' || todoGroup !== 'none' ? [] : todoSecs.filter((s) => s.id !== 'done' && s.id !== 'archived' && statusSection(s.id)).map((s) => s.rows)),
+    [view, todoSecs, todoGroup],
   );
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
   const {
@@ -886,7 +885,7 @@ export function App() {
   // a new todo lands in. On a board that doesn't take everything, a new todo is put on it.
   const composerColumn = useMemo(() => {
     const fresh = { card: 'todo:', ref: 'todo' as const, title: '', activity: now, stage: 'todo' as const, statuses: [], labels: (facets.labels ?? []).slice(0, 1), repos: [], accounts: [] };
-    return columnOf(fresh, columnsOf(shownBoard), undefined, now);
+    return shownBoard ? columnOf(fresh, columnsOf(shownBoard), undefined, now) : null;
   }, [shownBoard, facets.labels, now]);
   // A todo made on a board's Kanban is in the board's project, which under All projects may not be the window's.
   const todoProject = view === 'kanban' ? boardProject : current;
@@ -899,13 +898,24 @@ export function App() {
       onClearContext={() => setComposer((c) => ({ ...c, context: null }))}
       onCreate={(title) => {
         const id = createTodo(title, composer.context, todoProject);
-        if (view === 'kanban' && !takesAll(shownBoard.rule)) void applyBoard({ op: 'add', id: shownBoard.id, cards: [`todo:${id}`] });
+        if (view === 'kanban' && shownBoard && !takesAll(shownBoard.rule)) void applyBoard({ op: 'add', id: shownBoard.id, cards: [`todo:${id}`] });
       }}
       where={current !== ALL_PROJECTS ? null : todoProject !== ALL_PROJECTS ? todoProject : composer.context?.worktree ? (laneById.get(composer.context.worktree)?.project ?? null) : 'no project'}
     />
   );
-  // The Kanban view's arrows: up and down a column, left and right across them (kanban.ts).
+  // The Kanban view's arrows: up and down a column, left and right across them (kanban.ts); and
+  // ⌃⌘↑ ⌃⌘↓, which move the card selected up or down a column that keeps your order, as a drag does.
   const kanbanKeys = useLatest((e: KeyboardEvent): boolean => {
+    const reorder = view === 'kanban' ? reorderKey(e) : 0;
+    if (reorder) {
+      const col = kanbanCols.find((c) => c.cards.some((x) => x.key === selected?.key));
+      const at = col?.cards.findIndex((x) => x.key === selected?.key) ?? -1;
+      if (!col || at < 0 || col.column?.sort !== 'hand' || pickedKeys.size > 0) return false;
+      e.preventDefault();
+      // Insertion points: one up is the card's own index less one; one down is two past it.
+      kanbanActs.order(col.cards[at], col.id, reorder < 0 ? at - 1 : at + 2);
+      return true;
+    }
     const dir = ({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const)[e.key as 'ArrowUp'];
     if (view !== 'kanban' || !dir || !bare(e)) return false;
     e.preventDefault();
@@ -1525,13 +1535,14 @@ export function App() {
     run: todoStore.run,
     start: startForTodo,
     markDone: markSessionDone,
-    // A project's own board keeps the Todo view's order; another board keeps its own.
     order: (card, column, index) => {
-      const seq = columnWith(orderedIds(kanbanCols.find((c) => c.id === column)?.cards ?? [], isProjects(shownBoard)), kanbanCardId(card), index);
-      if (!isProjects(shownBoard)) void applyBoard({ op: 'order', id: shownBoard.id, order: boardOrderWith(shownBoard.order ?? [], seq) });
-      else if (card.kind === 'todo') todoStore.run({ op: 'order', ids: inSlots(todoStore.todos.map((t) => t.id), seq.flatMap((c) => (c.startsWith('todo:') ? [c.slice(5)] : []))) });
+      if (!shownBoard) return;
+      const seq = columnWith(orderedIds(kanbanCols.find((c) => c.id === column)?.cards ?? []), kanbanCardId(card), index);
+      void applyBoard({ op: 'order', id: shownBoard.id, order: boardOrderWith(shownBoard.order ?? [], seq) });
     },
-    place: (card, column) => void applyBoard({ op: 'place', id: shownBoard.id, card: kanbanCardId(card), column }),
+    place: (card, column) => {
+      if (shownBoard) void applyBoard({ op: 'place', id: shownBoard.id, card: kanbanCardId(card), column });
+    },
     said: (message, undo) => setTodoUndo({ message, undo }),
   };
   // What `codealong board …` asks of the main window: a board's Kanban and canvas, moving a card,
@@ -1598,7 +1609,7 @@ export function App() {
    *  shows. With no panel to show it from, or in another project than the one shown (`moved`),
    *  selected in Sessions, its heading or not (`chosenLane`). */
   const focusLane = (lane: Lane, row?: { key: string; select: () => void }, moved = false) => {
-    if (!moved && view === 'canvas' && canvasEntities.lanes.has(lane.id)) {
+    if (!moved && view === 'canvas' && shownBoard && canvasEntities.lanes.has(lane.id)) {
       showOnCanvas('worktree', lane.id);
       return;
     }
@@ -1901,9 +1912,12 @@ export function App() {
       at,
     ).catch((e: unknown) => setToast(String(e)));
 
+  // The Board view with no board to show: nothing can be selected, so it has no panel.
+  const boardless = (view === 'kanban' || view === 'canvas') && !shownBoard;
   // Which panel is on the right, for its width: the view's own, or on the canvas the selected card's.
-  const panelKind =
-    view === 'schedules'
+  const panelKind = boardless
+    ? null
+    : view === 'schedules'
       ? 'schedule'
       : view === 'canvas'
       ? (canvasPick?.kind ?? null)
@@ -1948,9 +1962,7 @@ export function App() {
             : v.id === 'schedules'
               ? activeSchedules
             : board
-              ? isProjects(shownBoard)
-                ? boardCount
-                : ''
+              ? ''
               : githubPrs === 'coming' && openPrCount === 0
                 ? ''
                 : openPrCount,
@@ -1958,19 +1970,17 @@ export function App() {
       badgeTitle: v.id === 'prs' ? `${requestedCount} want your review` : undefined,
     };
   });
-  // The boards made in the project go under the Board view, which is its own board (under All
-  // projects, every project's, each saying its project). The one it shows has the view's keys
-  // beside it, which go back to it, and its count while it shows.
-  const sideBoards: SideBoard[] = boards.boards
-    .filter((b) => !isProjects(b))
-    .map((b) => ({
-      id: b.id,
-      name: b.name,
-      project: b.project !== current ? b.project : undefined,
-      title: `${b.project !== current ? `In ${b.project}: ` : ''}${ruleWords(b.rule, todoStore.labels)}`,
-      count: boardShowing && b.id === shownBoard.id ? boardCount : undefined,
-      kbd: b.id === shownBoard.id ? menus.chordKeys(VIEW_CHORDS[layoutShown]) : undefined,
-    }));
+  // The project's boards go under the Board view (under All projects, every project's, each
+  // saying its project). The one it shows has the view's keys beside it, which go back to it, and
+  // its count while it shows.
+  const sideBoards: SideBoard[] = boards.boards.map((b) => ({
+    id: b.id,
+    name: b.name,
+    project: b.project !== current ? b.project : undefined,
+    title: `${b.project !== current ? `In ${b.project}: ` : ''}${ruleWords(b.rule, todoStore.labels)}`,
+    count: boardShowing && b.id === shownBoard?.id ? boardCount : undefined,
+    kbd: b.id === shownBoard?.id ? menus.chordKeys(VIEW_CHORDS[layoutShown]) : undefined,
+  }));
   const sideStatuses: SideStatus[] = [
     { id: 'needs', label: 'Needs you', glyph: 'needs', count: counts.needs, tone: 'attn' },
     { id: 'unread', label: 'Your turn', glyph: 'unread', count: counts.unread },
@@ -2144,7 +2154,7 @@ export function App() {
         }
       />
       <div
-        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'schedule' && 'is-schedule', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel', reading && 'is-loading')}
+        className={cx('ca-win-body', sideCollapsed && 'is-railed', panelKind === 'pr' && 'is-prs', panelKind === 'todo' && 'is-todo', panelKind === 'schedule' && 'is-schedule', panelKind === 'session' && 'is-session', maxed && 'is-panel-max', view === 'canvas' && 'is-canvas', view === 'canvas' && canvasPick && 'has-panel', boardless && 'is-boardless', reading && 'is-loading')}
         style={{ '--sidebar-w': widthVar(sidebarWidth), '--panel-w': widthVar(panelKind ? panelWidth[panelKind] : null) } as CSSProperties}
       >
         <Sidebar
@@ -2155,9 +2165,9 @@ export function App() {
           view={view === 'kanban' || view === 'canvas' ? 'board' : view}
           onView={(id) => setView(id === 'board' ? lastLayout : (id as View))}
           boards={sideBoards}
-          board={isProjects(shownBoard) ? null : shownBoard.id}
-          onBoard={(id) => showBoard(id ?? boards.boards[0].id)}
-          onBoardMenu={(id) => boardMenu(id === null ? boards.boards[0] : boards.boards.find((b) => b.id === id))}
+          board={shownBoard?.id ?? null}
+          onBoard={(id) => (id ? showBoard(id) : setView(lastLayout))}
+          onBoardMenu={(id) => boardMenu(id === null ? null : (boards.boards.find((b) => b.id === id) ?? null))}
           onNewBoard={() => setBoardEdit({ board: null })}
           devices={devices}
           deviceFilter={deviceFilter}
@@ -2199,9 +2209,9 @@ export function App() {
         {/* ⌘F from the board opens its find (findKeys.ts), but not while a panel takes the whole window. */}
         <main ref={boardRef} className={cx('ca-board', view === 'canvas' && 'is-canvas', view === 'kanban' && 'is-kanban')} aria-label={VIEWS.find((v) => v.id === view)?.label} data-find={maxed ? undefined : 'window'}>
           {/* One strip in every view, so the find keeps the keyboard as the view changes under it. */}
-          {!loading && (view === 'sessions' || view === 'prs' || view === 'todo' || view === 'kanban' || view === 'canvas' || findShown) && (
+          {!loading && (view === 'sessions' || view === 'prs' || view === 'todo' || ((view === 'kanban' || view === 'canvas') && shownBoard) || findShown) && (
             <ListBar>
-              {(view === 'kanban' || view === 'canvas') && (
+              {(view === 'kanban' || view === 'canvas') && shownBoard && (
                 <BoardBar board={shownBoard} project={shownBoard.project !== current ? shownBoard.project : null} layout={boardLayout} labels={todoStore.labels} onLayout={setView} onMenu={() => boardMenu()} onEdit={() => setBoardEdit({ board: shownBoard })} />
               )}
               {view === 'sessions' && <SessionsBar sort={sessionSort} onSort={setSessionSort} group={sessionGroup} onGroup={setSessionGroup} lines={sessionLines} onLines={setSessionLines} />}
@@ -2271,7 +2281,8 @@ export function App() {
                     : 'No sessions in the last 14 days.'}
             </div>
           )}
-          {view === 'canvas' && board && canvas.doc && !loading && (
+          {(view === 'kanban' || view === 'canvas') && !loading && boards.read && !shownBoard && <BoardEmpty project={current} error={boards.error} onNew={() => setBoardEdit({ board: null })} />}
+          {view === 'canvas' && board && shownBoard && canvas.doc && !loading && (
             <CanvasView
               doc={canvas.doc}
               update={canvas.update}
@@ -2313,7 +2324,7 @@ export function App() {
               onNew={newSchedule}
             />
           )}
-          {view !== 'canvas' && view !== 'schedules' && !loading && (
+          {view !== 'canvas' && view !== 'schedules' && !(view === 'kanban' && !shownBoard) && !loading && (
           <div
             role="listbox"
             aria-label={view === 'sessions' ? 'Sessions' : view === 'prs' ? 'Pull requests' : view === 'todo' ? 'Todos' : 'Todos and sessions'}
@@ -2324,7 +2335,7 @@ export function App() {
             className="ca-board-list"
             data-drag-list
           >
-            {view === 'kanban' && board && (
+            {view === 'kanban' && board && shownBoard && (
               <KanbanView
                 columns={kanbanCols}
                 todos={todoStore.todos}
@@ -2359,7 +2370,6 @@ export function App() {
                 onDrop={(c, drop) => applyKanbanDrop(c, drop, kanbanActs, shownBoard.placed?.[kanbanCardId(c)] ?? null)}
                 dropContext={{ columns: columnsOf(shownBoard), placed: shownBoard.placed, subjects, todos: todoStore.todos, now }}
                 canReorder
-                orderable={(c) => !isProjects(shownBoard) || c.kind === 'todo'}
                 composerColumn={composerColumn}
                 hints={board.jev?.todos ? board.todoHints : undefined}
                 composer={todoComposer}
@@ -2504,7 +2514,7 @@ export function App() {
         </main>
         {/* Until the board is read, or the PRs view's PRs, the panel has nothing to show either: the board takes its room. */}
         {panelKind && !reading && <Resizer panel="after" cssVar="--panel-w" onResize={setPanelWidth[panelKind]} />}
-        {!reading && (
+        {!reading && !boardless && (
           <MainPanel
             view={view}
             selected={selected}

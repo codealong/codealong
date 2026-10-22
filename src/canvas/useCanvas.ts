@@ -60,10 +60,11 @@ export function seed(e: Entities, now: number, pinned: Set<string>, on: OnBoard)
   return tidy(emptyDoc(), e, now, pinned, DEFAULT_TIDY, on);
 }
 
-/** `read` is false until the engine's first scan has finished: the board has only other devices'
+/** `board` is none while the project has no board, when there's no canvas to read or save.
+ *  `read` is false until the engine's first scan has finished: the board has only other devices'
  *  worktrees then, and a first tidy of those would leave out this Mac's. `on` is what the board
  *  holds (model.ts `OnBoard`). */
-export function useCanvas(board: string, shown: boolean, read: boolean, e: Entities, now: number, pinned: Set<string>, on: OnBoard): CanvasHandle {
+export function useCanvas(board: string | null, shown: boolean, read: boolean, e: Entities, now: number, pinned: Set<string>, on: OnBoard): CanvasHandle {
   const [held, setHeld] = useState<Held | null>(null);
   const loaded = held?.board === board;
   const ctx = useRef({ e, now, pinned, on });
@@ -108,6 +109,7 @@ export function useCanvas(board: string, shown: boolean, read: boolean, e: Entit
   useEffect(() => {
     let live = true;
     flush();
+    if (board === null) return;
     // What was put while it was read (an arrange, before the window first drew this board) is
     // newer than what it read.
     const at = changes.current;
@@ -126,7 +128,7 @@ export function useCanvas(board: string, shown: boolean, read: boolean, e: Entit
   useEffect(
     () =>
       onCanvasSaved((saved) => {
-        if (saved.from === windowLabel() || saved.board !== board || pending.current?.board === board) return;
+        if (board === null || saved.from === windowLabel() || saved.board !== board || pending.current?.board === board) return;
         const at = changes.current;
         canvasLoad(board)
           // Asked again as it lands: a change made here meanwhile is newer, saved or to be saved.
@@ -139,7 +141,7 @@ export function useCanvas(board: string, shown: boolean, read: boolean, e: Entit
 
   // Brought up to date with what the board holds as it changes, once the canvas exists.
   useEffect(() => {
-    if (!held || held.board !== board || !read) return;
+    if (!held || board === null || held.board !== board || !read) return;
     if (!held.doc) {
       if (!shown || e.lanes.size === 0) return;
       const doc = seed(e, now, pinned, on);
@@ -157,7 +159,7 @@ export function useCanvas(board: string, shown: boolean, read: boolean, e: Entit
   const update = useCallback(
     (fn: (doc: CanvasDoc) => CanvasDoc) => {
       setHeld((h) => {
-        if (!h || h.board !== board) return h;
+        if (!h || board === null || h.board !== board) return h;
         const { e: ents, now: at, pinned: pins, on: holds } = ctx.current;
         const before = h.doc ?? seed(ents, at, pins, holds);
         const doc = fn(before);
@@ -171,6 +173,7 @@ export function useCanvas(board: string, shown: boolean, read: boolean, e: Entit
 
   const put = useCallback(
     async (doc: CanvasDoc) => {
+      if (board === null) throw new Error('There’s no board to put a canvas on.');
       changes.current += 1;
       // This board's change still to save is superseded; another's, the window having moved on
       // since this was asked, is saved as it would have been.

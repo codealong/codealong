@@ -196,7 +196,8 @@
 .ca-win--app .ca-win-body.is-railed {
   grid-template-columns: 52px 0 minmax(auto, 1fr) 0 minmax(auto, var(--panel-w));
 }
-.ca-win--app .ca-win-body.is-railed.is-canvas:not(.has-panel) {
+.ca-win--app .ca-win-body.is-railed.is-canvas:not(.has-panel),
+.ca-win--app .ca-win-body.is-railed.is-boardless {
   grid-template-columns: 52px 0 minmax(0, 1fr);
 }
 
@@ -226,8 +227,10 @@
   --panel-w: min(460px, 40vw);
 }
 
-/* The canvas takes the panel's place too until a card is selected; then that card's panel shows. */
-.ca-win--app .ca-win-body.is-canvas:not(.has-panel) {
+/* The canvas takes the panel's place too until a card is selected; then that card's panel shows.
+   So does the Board view with no board, where there's nothing to select (App.tsx `boardless`). */
+.ca-win--app .ca-win-body.is-canvas:not(.has-panel),
+.ca-win--app .ca-win-body.is-boardless {
   grid-template-columns:
     max(var(--side-min), min(var(--sidebar-w), 100% - var(--board-min)))
     0 minmax(0, 1fr);

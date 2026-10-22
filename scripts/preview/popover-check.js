@@ -2,7 +2,7 @@
 // card, stays while the pointer crosses to it and rests on it, lists where a session came from and
 // what came of it, a click on one of those selects its card, and a right-click gives that
 // session's menu with Pin to desktop. Run it on a canvas holding a session with an origin:
-//   PREVIEW_CANVAS=<doc> PREVIEW_WAIT=60000 scripts/preview.sh canvas <project> scripts/preview/popover-check.js
+//   PREVIEW_CANVAS=<doc> PREVIEW_BOARDS=scripts/preview/boards-everything.json PREVIEW_WAIT=60000 scripts/preview.sh canvas <project> scripts/preview/popover-check.js
 (function () {
   var move = function (el, x, y) { el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y })); };
   var pop = function () { return document.querySelector('.ca-cv-popover'); };

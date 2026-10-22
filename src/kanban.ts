@@ -183,11 +183,9 @@ export function kanbanStep(columns: KanbanColumn[], key: string | null, dir: 'up
   return next ? next.cards[Math.min(ri, next.cards.length - 1)].key : key;
 }
 
-/** The cards of a column that keep a place you give them, by id: on a project's own board only
- *  todos, which keep the Todo view's order; on another, every card. An insertion point a drop or
- *  the command gives counts these. */
-export function orderedIds(cards: readonly KanbanCard[], projects: boolean): string[] {
-  return cards.filter((c) => !projects || c.kind === 'todo').map(kanbanCardId);
+/** The cards of a column, by id, which an insertion point a drop or the command gives counts. */
+export function orderedIds(cards: readonly KanbanCard[]): string[] {
+  return cards.map(kanbanCardId);
 }
 
 /** A column's cards, by id, with `card` put at insertion point `index` among them as they're shown
@@ -197,15 +195,6 @@ export function columnWith(column: readonly string[], card: string, index: numbe
   const rest = column.filter((c) => c !== card);
   rest.splice(Math.max(0, Math.min(rest.length, from >= 0 && index > from ? index - 1 : index)), 0, card);
   return rest;
-}
-
-/** `all` with the ids `seq` holds put in its places in `seq`'s order, and the rest where they
- *  were: a column's new order, put back into the order of everything. */
-export function inSlots(all: readonly string[], seq: readonly string[]): string[] {
-  const present = seq.filter((k) => all.includes(k));
-  const slots = new Set(present);
-  let i = 0;
-  return all.map((k) => (slots.has(k) ? present[i++] : k));
 }
 
 /** A board's own order with a column's put first, the order the rest keep among themselves. */

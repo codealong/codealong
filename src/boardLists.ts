@@ -11,7 +11,7 @@ import { needsOn, withDevices, workingOn } from './devices';
 import { AGENT_BAY, bySession, byStatusTime, filterByAge, homeOf, type HelperGlance, inboxCounts, keptCopy, prNeedsWork, runsShownKey, sessionHomes, sideTitle, snoozedApart, unattended, workingFor, worktreeName, type BoardRow, type Filter, type LaneCopies, type Placed } from './lanes';
 import type { Pins } from './pins';
 import type { RefKind } from './canvas/model';
-import { columnsOf, isProjects, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
+import { columnsOf, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
 import { columnOf, memberTest, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
 import { isOpen, itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
@@ -519,6 +519,8 @@ export function placeHelpers(rows: SessionItem[], searching: boolean, shown: Rea
   return candidates.filter((r) => listed.has(r.session.key));
 }
 const NONE: ReadonlySet<string> = new Set();
+/** What's on the board while there's none. */
+const onNoBoard = (): boolean => false;
 
 /** A session and the ones Sessions lists it under, nearest first (lanes.ts `workingFor`): a run's
  *  session, a helper's, and so on up, as far as `all` has them and as deep as Sessions nests. */
@@ -804,8 +806,7 @@ export function kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board
     const col = subject ? columnOf(subject, columns, board.placed, now) : null;
     (col != null ? (into.get(col) ?? loose) : loose).push(c);
   }
-  // A project's own board keeps the Todo view's order; another board keeps its own.
-  const order = isProjects(board) ? [] : (board.order ?? []);
+  const order = board.order ?? [];
   const sorted = (c: BoardColumn, cards: KanbanCard[]) => (c.sort === 'hand' ? byHand(cards, order, todos) : c.sort === 'move' ? byMove(cards) : byLatest(cards));
   const out: KanbanColumn[] = columns.map((c) => ({ id: c.id, label: c.name, column: c, stage: stageOfColumn(c), cards: sorted(c, into.get(c.id) ?? []) }));
   if (loose.length > 0) out.push({ id: NO_COLUMN, label: 'No column', column: null, stage: null, cards: byMove(loose) });
@@ -895,8 +896,8 @@ export interface ListsInput {
   facets: Facets;
   showDoneTodos: boolean;
   showArchivedTodos: boolean;
-  /** The board the Board view shows (boards/model.ts). */
-  shownBoard: BoardDoc;
+  /** The board the Board view shows (boards/model.ts), none while the project has none. */
+  shownBoard: BoardDoc | null;
   /** Whether a column of its Kanban is open: a folded one is a rail until it's opened. */
   columnOpen: (c: KanbanColumn) => boolean;
 }
@@ -1048,31 +1049,32 @@ export function useBoardLists(input: ListsInput) {
 
   // The board the Board view shows: what its rules ask of everything in its project, the archived
   // sessions it has by hand among it, and what's on it (boards/rules.ts). Under All projects a
-  // project's board is of that project's work alone (`boardPart`).
+  // project's board is of that project's work alone (`boardPart`). With no board, nothing's on one.
+  const boardProject = shownBoard?.project ?? current;
   const part = useMemo(
-    () => boardPart(shownBoard.project, current, { lanes: projectLanes, sessions: sessionItems, todoItems, todoRows, prs: projectPrs }, lanes),
-    [shownBoard.project, current, projectLanes, sessionItems, todoItems, todoRows, projectPrs, lanes],
+    () => boardPart(boardProject, current, { lanes: projectLanes, sessions: sessionItems, todoItems, todoRows, prs: projectPrs }, lanes),
+    [boardProject, current, projectLanes, sessionItems, todoItems, todoRows, projectPrs, lanes],
   );
-  const boardArchived = useMemo(() => archivedOn(rawLanes, shownBoard), [rawLanes, shownBoard]);
+  const boardArchived = useMemo(() => (shownBoard ? archivedOn(rawLanes, shownBoard) : []), [rawLanes, shownBoard]);
   const boardSessions = useMemo(() => (boardArchived.length > 0 ? [...part.sessions, ...boardArchived] : part.sessions), [part.sessions, boardArchived]);
   const subjects = useMemo(() => subjectsOf({ todoItems: part.todoItems, todos, sessionItems: boardSessions, lanes: part.lanes, prs: part.prs }), [part.todoItems, todos, boardSessions, part.lanes, part.prs]);
-  const member = useMemo(() => memberTest(shownBoard, subjects, now), [shownBoard, subjects, now]);
+  const member = useMemo(() => (shownBoard ? memberTest(shownBoard, subjects, now) : onNoBoard), [shownBoard, subjects, now]);
   // What the rules ask of everything the window shows, for whether another board holds a thing
   // (Add to board ›): under All projects the shown board's are of its own project alone, and
   // have what All projects hides (Elsewhere's worktrees that don't need you), so they go in too.
   const allSubjects = useMemo(
-    () => (shownBoard.project === current ? subjects : new Map([...subjectsOf({ todoItems, todos, sessionItems, lanes: projectLanes, prs: projectPrs }), ...subjects])),
-    [shownBoard.project, current, subjects, todoItems, todos, sessionItems, projectLanes, projectPrs],
+    () => (boardProject === current ? subjects : new Map([...subjectsOf({ todoItems, todos, sessionItems, lanes: projectLanes, prs: projectPrs }), ...subjects])),
+    [boardProject, current, subjects, todoItems, todos, sessionItems, projectLanes, projectPrs],
   );
   // Its Kanban: the board's todos listed, and its sessions listed that no open todo's card shows,
   // in its columns, those it has by hand whatever their age. Sessions have no labels, so a label
   // shows only todos.
   const labelled = !!facets.labels?.length;
-  const handSessions = useMemo(() => addedSessions(shownBoard), [shownBoard]);
-  const cardSessions = useMemo(() => (labelled ? [] : shownSessionsOf(boardSessions, cutoff, handSessions, query, filter, said)), [labelled, boardSessions, cutoff, handSessions, query, filter, said]);
+  const handSessions = useMemo(() => (shownBoard ? addedSessions(shownBoard) : new Set<string>()), [shownBoard]);
+  const cardSessions = useMemo(() => (labelled || !shownBoard ? [] : shownSessionsOf(boardSessions, cutoff, handSessions, query, filter, said)), [labelled, shownBoard, boardSessions, cutoff, handSessions, query, filter, said]);
   const doneSince = cutoff || now - DONE_SPAN;
   const kanbanCols = useMemo(
-    () => kanbanColumns({ todoRows: part.todoRows, todos, sessions: cardSessions, prs: board?.prs ?? [], doneSince, board: shownBoard, subjects, member, now }),
+    () => (shownBoard ? kanbanColumns({ todoRows: part.todoRows, todos, sessions: cardSessions, prs: board?.prs ?? [], doneSince, board: shownBoard, subjects, member, now }) : []),
     [part.todoRows, todos, cardSessions, board?.prs, doneSince, shownBoard, subjects, member, now],
   );
   const kanbanVisible = useMemo<ListRow[]>(() => kanbanCols.flatMap((c) => (columnOpen(c) ? c.cards : [])), [kanbanCols, columnOpen]);

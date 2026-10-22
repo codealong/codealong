@@ -146,12 +146,12 @@ enum Cmd {
     Changes(ChangesArgs),
     /// Processes left over from old sessions, and this Mac's load, memory and swap, for keeping a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an agent's own process and what it runs; not one working or waiting on you, unless it's archived), older copies of a background job's attach client (`claude attach <job>` in a second tab), a harness's background processes left with no parent, and dev servers and watchers in a linked worktree no session has been active in for --after (never a repo's main checkout). With --kill it ends those, each with its child processes: it checks again that each process runs the same command first, stops a background job through its harness as Close does and asks the rest to end (SIGTERM), kills what's left after a while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it cleared, and logs each to --log. A session whose process ended keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer or is still reading after a start: without its board, every session would look old.
     Hygiene(HygieneArgs),
-    /// Boards, the app's Kanban and Canvas: named sets of work in a project, each shown as Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in frames). Every project has a board of its own, named after it, that holds everything in the project; make more for a release, a fix, an investigation. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how recent, words) and what's added by hand, less what's taken off, so add the session you're in to your user's board for the work you're on (`board add <board> --session me`). Name a board by its id or its name: a name in the project of the folder you're in or --project, or one only one project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work with or without the app; `show`, `move`, `arrange` and `open` need it running, since its main window works boards out. Boards are an experiment, off until your user turns them on in Settings › Experimental (`[experimental] boards = true` in config.toml); until then every board command says so and does nothing.
+    /// Boards, the app's Kanban and Canvas: named sets of work in a project, each shown as Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in frames). A project has the boards made in it and no others: none until one's made, for a release, a fix, an investigation, or with --everything one that holds everything in the project. A board holds what its rule takes in (labels, stages, statuses, repos, accounts, how recent, words) and what's added by hand, less what's taken off, so add the session you're in to your user's board for the work you're on (`board add <board> --session me`). Name a board by its id or its name: a name in the project of the folder you're in or --project, or one only one project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work with or without the app; `show`, `move`, `arrange` and `open` need it running, since its main window works boards out. Boards are an experiment, off until your user turns them on in Settings › Experimental (`[experimental] boards = true` in config.toml); until then every board command says so and does nothing.
     Board {
         #[command(subcommand)]
         cmd: BoardCmd,
     },
-    /// `board show --as canvas` and `board arrange` on a project's own board, by the names they had before boards.
+    /// `board show --as canvas` and `board arrange` on the one board a project has, by the names they had before boards.
     #[command(hide = true)]
     Canvas {
         #[command(subcommand)]
@@ -849,11 +849,11 @@ enum ReuseCmd {
 
 #[derive(Subcommand, Debug)]
 enum BoardCmd {
-    /// A project's boards: its own first, then the rest as they were made, each with its id, its name, what its rule takes in, and how many cards were added and taken off by hand. With --project all, every project's boards after its own (but each project's own board), as the app lists them under All projects.
+    /// A project's boards as they were made, each with its id, its name, what its rule takes in, and how many cards were added and taken off by hand. With --project all, every project's boards after its own, as the app lists them under All projects.
     List(BoardAt),
     /// Make a board. Given no rule options it holds only what's added (`board add`); with them, what they take in too (as `board rule` says), and with --everything, everything in the project. Its Kanban starts with the four stage columns (To do, In progress, In review, Done), or with --columns labels one column per label its rule names (every label, for a rule that names none) and Other, or with --columns blank one column, Inbox, to make your own beside. Prints its id.
     New(BoardNewArgs),
-    /// What a board holds, as its user sees it: its Kanban columns, each with its cards in their order (a todo with the sessions on it, or a session on no todo the board shows), or with --as canvas its canvas's frames in reading order, each with who made it (`by`: `you` drew it, a `tidy` made it, or `arrange` did), the cards in it (`gone` once the board no longer has one) and its notes. Without a board, the project's own.
+    /// What a board holds, as its user sees it: its Kanban columns, each with its cards in their order (a todo with the sessions on it, or a session on no todo the board shows), or with --as canvas its canvas's frames in reading order, each with who made it (`by`: `you` drew it, a `tidy` made it, or `arrange` did), the cards in it (`gone` once the board no longer has one) and its notes. Without a board, the one the project has.
     Show(BoardShowArgs),
     /// Put cards on a board by hand. They stay on it whatever its rule says, until they're taken off, and come back if they were taken off. The board shows each, however old: an archived session in Done, a helper, a todo done long ago. One outside the board's project is put on it but doesn't show there, and it says which and why (`notShown` in its JSON).
     Add(BoardCardsArgs),
@@ -871,7 +871,7 @@ enum BoardCmd {
     Arrange(BoardArrangeArgs),
     /// Bring Codealong's main window forward on a board, as Kanban, or with --as canvas as Canvas.
     Open(BoardShowArgs),
-    /// Rename a board. A project's own board can be renamed too.
+    /// Rename a board.
     Rename {
         board: String,
         #[arg(allow_hyphen_values = true)]
@@ -879,7 +879,7 @@ enum BoardCmd {
         #[command(flatten)]
         at: BoardAt,
     },
-    /// Move a board to another project, or with `all` to All projects. It shows that project's work from then on, and keeps what it has by hand: it says which of those cards won't show there (`notShown` in its JSON). A project's own board stays in its project.
+    /// Move a board to another project, or with `all` to All projects. It shows that project's work from then on, and keeps what it has by hand: it says which of those cards won't show there (`notShown` in its JSON).
     Project {
         board: String,
         /// The project to move it to, as the app names it, or `all`.
@@ -888,7 +888,7 @@ enum BoardCmd {
         #[command(flatten)]
         at: BoardAt,
     },
-    /// Delete a board, and its canvas. What was on it stays as it is everywhere else. A project's own board can't be deleted.
+    /// Delete a board, and its canvas. What was on it stays as it is everywhere else.
     Delete {
         board: String,
         #[command(flatten)]
@@ -898,7 +898,7 @@ enum BoardCmd {
 
 #[derive(Args, Debug, Default, Clone)]
 struct BoardAt {
-    /// The project, as the app names it, or `all` for the board of every project. Without it, the project of the worktree the current folder is in.
+    /// The project, as the app names it, or `all` for All projects. Without it, the project of the worktree the current folder is in.
     #[arg(long)]
     project: Option<String>,
 }
@@ -928,7 +928,7 @@ enum ColumnsPreset {
 
 #[derive(Args, Debug)]
 struct BoardShowArgs {
-    /// The board: its id or its name. Without it, the project's own board.
+    /// The board: its id or its name. Without it, the one board the project has.
     board: Option<String>,
     #[command(flatten)]
     at: BoardAt,
@@ -1037,7 +1037,7 @@ struct BoardMoveArgs {
 
 #[derive(Args, Debug)]
 struct BoardArrangeArgs {
-    /// The board: its id or its name. Without it, the project's own board.
+    /// The board: its id or its name. Without it, the one board the project has.
     #[arg(long)]
     board: Option<String>,
     #[command(flatten)]
@@ -1835,8 +1835,8 @@ fn say_done(json: bool, b: &BoardDoc, line: String) -> Result<()> {
     Ok(())
 }
 
-/// The project a board command is about: --project as the app names it (`all` for the board of
-/// every project), else the project of the worktree the current folder is in.
+/// The project a board command is about: --project as the app names it (`all` for All projects),
+/// else the project of the worktree the current folder is in.
 fn board_project(c: &mut Client, at: &BoardAt) -> Result<Option<String>> {
     let Some(asked) = at.project.as_deref().map(str::trim) else {
         return Ok(std::env::current_dir().ok().and_then(|d| lane_for_path(c.board().ok()?, &d).map(|l| l.project.clone())).filter(|p| !p.is_empty()));
@@ -1852,45 +1852,47 @@ fn board_project(c: &mut Client, at: &BoardAt) -> Result<Option<String>> {
 }
 
 /// The board a command names: by its id, by its name in the project it's about, or by a name only
-/// one project has. None names the project's own board.
+/// one project has. None names the one board the project has.
 fn find_board(c: &mut Client, name: Option<&str>, at: &BoardAt) -> Result<BoardDoc> {
     let project = board_project(c, at)?;
     let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else {
-        let p = project.ok_or_else(|| anyhow!("Name a board, or give --project for the project's own board: this folder isn't in a worktree of a project."))?;
-        return Ok(boards::list(&p)?.remove(0));
+        let p = project.ok_or_else(|| anyhow!("Name a board, or give --project: this folder isn't in a worktree of a project."))?;
+        return only_board(&p, boards::list(&p)?);
     };
     let stored = boards::all()?;
     if let Some(b) = stored.iter().find(|b| b.id == name) {
         return Ok(b.clone());
     }
-    let projects: Vec<String> = c.board()?.projects.iter().map(|p| p.name.clone()).chain(std::iter::once(crate::route::ALL_PROJECTS.to_string())).collect();
-    if let Some(p) = projects.iter().find(|p| boards::project_board_id(p) == name) {
-        return Ok(BoardDoc::of_project(p));
-    }
     let listed = match &project {
         Some(p) => boards::list(p)?,
         None => vec![],
     };
-    board_named(name, project.as_deref(), listed, stored, &projects)
+    board_named(name, project.as_deref(), listed, stored)
+}
+
+/// The board of a project that has just one (`listed`, its boards as `boards::list` gives them),
+/// for a command that names none.
+fn only_board(project: &str, mut listed: Vec<BoardDoc>) -> Result<BoardDoc> {
+    // All projects lists every project's boards too, but only its own are its.
+    listed.retain(|b| b.project == project);
+    match listed.len() {
+        1 => Ok(listed.remove(0)),
+        0 => bail!("{project} has no boards. Make one with `codealong board new <name>`, with --everything for one that holds everything in it, once your user asks for one."),
+        n => bail!("{project} has {n} boards: name one ({}).", listed.iter().map(|b| b.name.as_str()).collect::<Vec<_>>().join(", ")),
+    }
 }
 
 /// The board a name names: the project's own of that name (`listed`, its boards as `boards::list`
-/// gives them), else the one board of that name in any project, or a project's own board by the
-/// project's name; two of them are turned down, as All projects lists every project's.
-fn board_named(name: &str, project: Option<&str>, listed: Vec<BoardDoc>, stored: Vec<BoardDoc>, projects: &[String]) -> Result<BoardDoc> {
+/// gives them), else the one board of that name in any project; two of them are turned down, as
+/// All projects lists every project's.
+fn board_named(name: &str, project: Option<&str>, listed: Vec<BoardDoc>, stored: Vec<BoardDoc>) -> Result<BoardDoc> {
     let named = |b: &BoardDoc| b.name.eq_ignore_ascii_case(name);
     if let Some(p) = project {
         if let Some(b) = listed.into_iter().find(|b| b.project == p && named(b)) {
             return Ok(b);
         }
     }
-    // A project's own board that the file doesn't have yet goes by the project's name.
     let mut hits: Vec<BoardDoc> = stored.into_iter().filter(named).collect();
-    for p in projects {
-        if p.eq_ignore_ascii_case(name) && !hits.iter().any(|b| b.id == boards::project_board_id(p)) {
-            hits.push(BoardDoc::of_project(p));
-        }
-    }
     match hits.len() {
         1 => Ok(hits.remove(0)),
         0 => bail!("There's no board {name}{}. `codealong board list` lists a project's boards.", project.map(|p| format!(" in {p}")).unwrap_or_default()),
@@ -2123,6 +2125,10 @@ fn board_list(c: &mut Client, at: &BoardAt, json: bool) -> Result<()> {
     if json {
         return print_json(&list);
     }
+    if list.is_empty() {
+        println!("{project} has no boards yet. `codealong board new <name>` makes one.");
+        return Ok(());
+    }
     let labels = store_of(c.board()?).labels;
     // All projects lists every project's boards, so each says its project.
     let every = project == crate::route::ALL_PROJECTS;
@@ -2160,7 +2166,7 @@ fn board_new(c: &mut Client, a: BoardNewArgs, json: bool) -> Result<()> {
             Some(cols)
         }
     };
-    let board = BoardDoc { id: String::new(), name: a.name, rule, columns, ..BoardDoc::of_project(&project) };
+    let board = BoardDoc { rule, columns, ..BoardDoc::new(&a.name, &project) };
     let out = apply_board(c, BoardOp::Create { board })?;
     let made = out.board.ok_or_else(|| anyhow!("The board wasn't made."))?;
     if json {
@@ -7065,12 +7071,11 @@ mod tests {
     #[test]
     fn a_board_name_two_projects_share_is_turned_down_under_all_projects() {
         let all = crate::route::ALL_PROJECTS;
-        let board = |id: &str, name: &str, project: &str| BoardDoc { id: id.into(), name: name.into(), rule: None, ..BoardDoc::of_project(project) };
+        let board = |id: &str, name: &str, project: &str| BoardDoc { id: id.into(), ..BoardDoc::new(name, project) };
         let stored = vec![board("b-1", "Release", "Atlas"), board("b-2", "Release", "Kestrel"), board("b-3", "Ideas", all), board("b-4", "Site", "Atlas")];
-        let projects: Vec<String> = ["Atlas", "Kestrel", all].map(String::from).to_vec();
         // As boards::list gives them: under All projects, every project's.
         let listed = |p: &str| stored.iter().filter(|b| b.project == p || p == all).cloned().collect::<Vec<_>>();
-        let named = |name: &str, p: Option<&str>| board_named(name, p, p.map(listed).unwrap_or_default(), stored.clone(), &projects).map(|b| b.id);
+        let named = |name: &str, p: Option<&str>| board_named(name, p, p.map(listed).unwrap_or_default(), stored.clone()).map(|b| b.id);
         assert_eq!(named("release", Some("Kestrel")).unwrap(), "b-2");
         let err = named("Release", Some(all)).unwrap_err().to_string();
         assert!(err.starts_with("2 projects have a board called Release"), "{err}");
@@ -7078,7 +7083,14 @@ mod tests {
         assert_eq!(named("Site", Some(all)).unwrap(), "b-4");
         assert_eq!(named("Site", Some("Kestrel")).unwrap(), "b-4");
         assert_eq!(named("Ideas", Some(all)).unwrap(), "b-3");
-        assert_eq!(named("Kestrel", None).unwrap(), "p:Kestrel");
+        // A project's name names no board of its own.
+        assert!(named("Kestrel", None).unwrap_err().to_string().starts_with("There's no board Kestrel"));
+        // Named none, a command is about the one board its project has.
+        let only = |p: &str| only_board(p, listed(p)).map(|b| b.id);
+        assert_eq!(only("Kestrel").unwrap(), "b-2");
+        assert_eq!(only(all).unwrap(), "b-3");
+        assert!(only("Atlas").unwrap_err().to_string().starts_with("Atlas has 2 boards: name one (Release, Site)"));
+        assert!(only("Northwind").unwrap_err().to_string().starts_with("Northwind has no boards."));
     }
 
     #[test]
@@ -7087,7 +7099,7 @@ mod tests {
         let lanes = vec![at("/r/app", "Northwind", false, "app"), at("/r/chats", board::ELSEWHERE, false, "chat"), at("/r/notes", board::ELSEWHERE, true, "note"), at("/r/site", "Atlas", false, "site")];
         let todos = vec![Todo { project: "Northwind".into(), ..todo("t-here", TodoStatus::Done, &[], &[]) }, Todo { project: "Atlas".into(), ..todo("t-there", TodoStatus::Todo, &[], &[]) }, todo("t-none", TodoStatus::Todo, &[], &[])];
         let b = Board { lanes, todos, ..Board::default() };
-        let release = BoardDoc { name: "Release".into(), ..BoardDoc::of_project("Northwind") };
+        let release = BoardDoc::new("Release", "Northwind");
         let why = |doc: &BoardDoc, card: &str| unshown(&b, doc, card).map(|u| u.why);
         // What's in the project shows, archived, a helper or done; what the board doesn't know, it can't say.
         for card in ["session:app", "worktree:/r/app", "todo:t-here", "session:unknown"] {
@@ -7097,12 +7109,12 @@ mod tests {
         assert_eq!(why(&release, "todo:t-there").as_deref(), Some("is in Atlas, and Release shows what's in Northwind"));
         assert_eq!(why(&release, "session:chat").as_deref(), Some("is outside your projects, and Release shows what's in Northwind"));
         assert_eq!(why(&release, "todo:t-none").as_deref(), Some("is in no project, and Release shows what's in Northwind"));
-        // The board of every project leaves out only what's outside your projects and needs nothing of you.
-        let every = BoardDoc::of_project(crate::route::ALL_PROJECTS);
+        // A board of All projects leaves out only what's outside your projects and needs nothing of you.
+        let every = BoardDoc::new("Everything", crate::route::ALL_PROJECTS);
         for card in ["session:site", "session:chat", "todo:t-there", "todo:t-none"] {
             assert_eq!(why(&every, card), None, "{card}");
         }
-        assert_eq!(why(&every, "session:note").as_deref(), Some("is outside your projects, which All projects shows only while it needs you"));
+        assert_eq!(why(&every, "session:note").as_deref(), Some("is outside your projects, which Everything shows only while it needs you"));
         let said = unshown_text(&[unshown(&b, &release, "session:site").unwrap()]);
         assert_eq!(said, "One won't show there:\n  Title site (session:site) is in Atlas, and Release shows what's in Northwind.\n");
         assert_eq!(unshown_text(&[]), "");
@@ -7381,7 +7393,7 @@ mod tests {
     #[test]
     fn a_canvas_reads_frame_by_frame() {
         let out: CanvasOutline = serde_json::from_value(json!({
-            "board": { "id": "p:Acme", "name": "Acme", "project": "Acme" }, "exists": true,
+            "board": { "id": "b-1", "name": "Acme", "project": "Acme" }, "exists": true,
             "frames": [{ "id": "arrange:1:0", "title": "Billing", "color": "teal", "by": "arrange", "frame": null }, { "id": "auto:repo:app", "title": "app", "color": "blue", "by": "tidy", "frame": null }],
             "cards": [
                 { "ref": "session", "key": "claude:claude:abc", "title": "Fix invoices", "frame": "arrange:1:0", "gone": false },
@@ -7401,7 +7413,7 @@ mod tests {
     #[test]
     fn an_arrangement_says_what_went_where() {
         let a = CanvasArranged {
-            board: BoardName { id: "p:Acme".into(), name: "Acme".into(), project: "Acme".into() },
+            board: BoardName { id: "b-1".into(), name: "Acme".into(), project: "Acme".into() },
             frames: vec![ArrangedFrame { id: "arrange:1:0".into(), title: "Billing".into(), cards: 3 }, ArrangedFrame { id: "arrange:1:1".into(), title: "Site".into(), cards: 1 }],
             missing: vec![boards::Card { kind: boards::Kind::Session, key: "claude:claude:gone".into() }],
             rest: 1,

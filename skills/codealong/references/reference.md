@@ -148,19 +148,20 @@ Commands:
              board, every session would look old
   board      Boards, the app's Kanban and Canvas: named sets of work in a project, each
              shown as Kanban (todos and sessions in columns) or as Canvas (the work laid
-             out in space, in frames). Every project has a board of its own, named after
-             it, that holds everything in the project; make more for a release, a fix,
-             an investigation. A board holds what its rule takes in (labels, stages,
-             statuses, repos, accounts, how recent, words) and what's added by hand,
-             less what's taken off, so add the session you're in to your user's board
-             for the work you're on (`board add <board> --session me`). Name a board by
-             its id or its name: a name in the project of the folder you're in or
-             --project, or one only one project has. `list`, `new`, `add`, `remove`,
-             `rule`, `set`, `rename` and `delete` work with or without the app; `show`,
-             `move`, `arrange` and `open` need it running, since its main window works
-             boards out. Boards are an experiment, off until your user turns them on in
-             Settings › Experimental (`[experimental] boards = true` in config.toml);
-             until then every board command says so and does nothing
+             out in space, in frames). A project has the boards made in it and no
+             others: none until one's made, for a release, a fix, an investigation, or
+             with --everything one that holds everything in the project. A board holds
+             what its rule takes in (labels, stages, statuses, repos, accounts, how
+             recent, words) and what's added by hand, less what's taken off, so add the
+             session you're in to your user's board for the work you're on (`board add
+             <board> --session me`). Name a board by its id or its name: a name in the
+             project of the folder you're in or --project, or one only one project has.
+             `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work
+             with or without the app; `show`, `move`, `arrange` and `open` need it
+             running, since its main window works boards out. Boards are an experiment,
+             off until your user turns them on in Settings › Experimental
+             (`[experimental] boards = true` in config.toml); until then every board
+             command says so and does nothing
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3689,25 +3690,26 @@ Options:
 ```
 Boards, the app's Kanban and Canvas: named sets of work in a project, each shown as
 Kanban (todos and sessions in columns) or as Canvas (the work laid out in space, in
-frames). Every project has a board of its own, named after it, that holds everything in
-the project; make more for a release, a fix, an investigation. A board holds what its
-rule takes in (labels, stages, statuses, repos, accounts, how recent, words) and what's
-added by hand, less what's taken off, so add the session you're in to your user's board
-for the work you're on (`board add <board> --session me`). Name a board by its id or its
-name: a name in the project of the folder you're in or --project, or one only one
-project has. `list`, `new`, `add`, `remove`, `rule`, `set`, `rename` and `delete` work
-with or without the app; `show`, `move`, `arrange` and `open` need it running, since its
-main window works boards out. Boards are an experiment, off until your user turns them
-on in Settings › Experimental (`[experimental] boards = true` in config.toml); until
-then every board command says so and does nothing
+frames). A project has the boards made in it and no others: none until one's made, for a
+release, a fix, an investigation, or with --everything one that holds everything in the
+project. A board holds what its rule takes in (labels, stages, statuses, repos,
+accounts, how recent, words) and what's added by hand, less what's taken off, so add the
+session you're in to your user's board for the work you're on (`board add <board>
+--session me`). Name a board by its id or its name: a name in the project of the folder
+you're in or --project, or one only one project has. `list`, `new`, `add`, `remove`,
+`rule`, `set`, `rename` and `delete` work with or without the app; `show`, `move`,
+`arrange` and `open` need it running, since its main window works boards out. Boards are
+an experiment, off until your user turns them on in Settings › Experimental
+(`[experimental] boards = true` in config.toml); until then every board command says so
+and does nothing
 
 Usage: codealong board [OPTIONS] <COMMAND>
 
 Commands:
-  list     A project's boards: its own first, then the rest as they were made, each with
-           its id, its name, what its rule takes in, and how many cards were added and
-           taken off by hand. With --project all, every project's boards after its own
-           (but each project's own board), as the app lists them under All projects
+  list     A project's boards as they were made, each with its id, its name, what its
+           rule takes in, and how many cards were added and taken off by hand. With
+           --project all, every project's boards after its own, as the app lists them
+           under All projects
   new      Make a board. Given no rule options it holds only what's added (`board add`);
            with them, what they take in too (as `board rule` says), and with
            --everything, everything in the project. Its Kanban starts with the four
@@ -3720,7 +3722,7 @@ Commands:
            the board shows), or with --as canvas its canvas's frames in reading order,
            each with who made it (`by`: `you` drew it, a `tidy` made it, or `arrange`
            did), the cards in it (`gone` once the board no longer has one) and its
-           notes. Without a board, the project's own
+           notes. Without a board, the one the project has
   add      Put cards on a board by hand. They stay on it whatever its rule says, until
            they're taken off, and come back if they were taken off. The board shows
            each, however old: an archived session in Done, a helper, a todo done long
@@ -3764,13 +3766,11 @@ Commands:
            `--rest off`. A card you name that isn't on the board is put on it
   open     Bring Codealong's main window forward on a board, as Kanban, or with --as
            canvas as Canvas
-  rename   Rename a board. A project's own board can be renamed too
+  rename   Rename a board
   project  Move a board to another project, or with `all` to All projects. It shows that
            project's work from then on, and keeps what it has by hand: it says which of
-           those cards won't show there (`notShown` in its JSON). A project's own board
-           stays in its project
-  delete   Delete a board, and its canvas. What was on it stays as it is everywhere
-           else. A project's own board can't be deleted
+           those cards won't show there (`notShown` in its JSON)
+  delete   Delete a board, and its canvas. What was on it stays as it is everywhere else
   help     Print this message or the help of the given subcommand(s)
 
 Options:
@@ -3790,10 +3790,9 @@ Options:
 ## codealong board list
 
 ```
-A project's boards: its own first, then the rest as they were made, each with its id,
-its name, what its rule takes in, and how many cards were added and taken off by hand.
-With --project all, every project's boards after its own (but each project's own board),
-as the app lists them under All projects
+A project's boards as they were made, each with its id, its name, what its rule takes
+in, and how many cards were added and taken off by hand. With --project all, every
+project's boards after its own, as the app lists them under All projects
 
 Usage: codealong board list [OPTIONS]
 
@@ -3802,8 +3801,8 @@ Options:
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
       --table
           Tables, even when piped
@@ -3836,8 +3835,8 @@ Options:
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
       --everything
           Everything in the project
@@ -3902,21 +3901,21 @@ What a board holds, as its user sees it: its Kanban columns, each with its cards
 their order (a todo with the sessions on it, or a session on no todo the board shows),
 or with --as canvas its canvas's frames in reading order, each with who made it (`by`:
 `you` drew it, a `tidy` made it, or `arrange` did), the cards in it (`gone` once the
-board no longer has one) and its notes. Without a board, the project's own
+board no longer has one) and its notes. Without a board, the one the project has
 
 Usage: codealong board show [OPTIONS] [BOARD]
 
 Arguments:
   [BOARD]
-          The board: its id or its name. Without it, the project's own board
+          The board: its id or its name. Without it, the one board the project has
 
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
       --as <LAYOUT>
           As Kanban or as Canvas
@@ -3972,8 +3971,8 @@ Options:
           A PR's URL or owner/name#number, or #number in this folder's repo
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
   -h, --help
           Print help
@@ -4013,8 +4012,8 @@ Options:
           A PR's URL or owner/name#number, or #number in this folder's repo
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
   -h, --help
           Print help
@@ -4084,8 +4083,8 @@ Options:
           Nothing but what's added by hand
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
   -h, --help
           Print help
@@ -4120,8 +4119,8 @@ Options:
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
       --table
           Tables, even when piped
@@ -4182,8 +4181,8 @@ Options:
           Say what it would do, and don't
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
   -h, --help
           Print help
@@ -4220,14 +4219,14 @@ Arguments:
 
 Options:
       --board <BOARD>
-          The board: its id or its name. Without it, the project's own board
+          The board: its id or its name. Without it, the one board the project has
 
       --json
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
       --table
           Tables, even when piped
@@ -4263,15 +4262,15 @@ Usage: codealong board open [OPTIONS] [BOARD]
 
 Arguments:
   [BOARD]
-          The board: its id or its name. Without it, the project's own board
+          The board: its id or its name. Without it, the one board the project has
 
 Options:
       --json
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
       --as <LAYOUT>
           As Kanban or as Canvas
@@ -4292,7 +4291,7 @@ Options:
 ## codealong board rename
 
 ```
-Rename a board. A project's own board can be renamed too
+Rename a board
 
 Usage: codealong board rename [OPTIONS] <BOARD> <NAME>
 
@@ -4308,8 +4307,8 @@ Options:
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
       --table
           Tables, even when piped
@@ -4326,7 +4325,7 @@ Options:
 ```
 Move a board to another project, or with `all` to All projects. It shows that project's
 work from then on, and keeps what it has by hand: it says which of those cards won't
-show there (`notShown` in its JSON). A project's own board stays in its project
+show there (`notShown` in its JSON)
 
 Usage: codealong board project [OPTIONS] <BOARD> <TO>
 
@@ -4342,8 +4341,8 @@ Options:
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
       --table
           Tables, even when piped
@@ -4358,8 +4357,7 @@ Options:
 ## codealong board delete
 
 ```
-Delete a board, and its canvas. What was on it stays as it is everywhere else. A
-project's own board can't be deleted
+Delete a board, and its canvas. What was on it stays as it is everywhere else
 
 Usage: codealong board delete [OPTIONS] <BOARD>
 
@@ -4372,8 +4370,8 @@ Options:
           JSON output. The default when stdout isn't a terminal
 
       --project <PROJECT>
-          The project, as the app names it, or `all` for the board of every project.
-          Without it, the project of the worktree the current folder is in
+          The project, as the app names it, or `all` for All projects. Without it, the
+          project of the worktree the current folder is in
 
       --table
           Tables, even when piped

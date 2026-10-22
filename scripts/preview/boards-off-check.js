@@ -5,8 +5,8 @@
 // isn't brought up to date and saved out of sight. On: the sidebar lists Board, the menu has Add to
 // board, the canvas is kept up to date while another view shows, and ⇧⌘K shows the Kanban. Either
 // way Settings › Experimental's Boards box saves the other way to config.toml.
-//   PREVIEW_BOARDS_OFF=1 scripts/preview.sh kanban '' scripts/preview/boards-off-check.js
-//   scripts/preview.sh sessions '' scripts/preview/boards-off-check.js
+//   PREVIEW_BOARDS_OFF=1 PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh kanban '' scripts/preview/boards-off-check.js
+//   PREVIEW_BOARDS=scripts/preview/boards-everything.json scripts/preview.sh sessions '' scripts/preview/boards-off-check.js
 (function () {
   var off = !!window.__PREVIEW_BOARDS_OFF__;
   localStorage.setItem('codealong.boardsOn', '1');

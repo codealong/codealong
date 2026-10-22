@@ -1745,7 +1745,7 @@ export function onQuickShortcut(cb: (status: ShortcutStatus) => void): () => voi
   };
 }
 
-/** A project's boards, its own first, without their canvases (boards.rs `list`). */
+/** A project's boards as they were made, without their canvases (boards.rs `list`). */
 export async function boardsList(project: string): Promise<BoardDoc[]> {
   if (!inTauri) return [];
   return (await invoke<BoardDoc[] | null>('boards_list', { project })) ?? [];

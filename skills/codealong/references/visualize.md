@@ -27,12 +27,14 @@ an experiment, off until your user turns them on in Settings › Experimental. W
 
 ## Steps
 
-1. **The project and the board.** By default it's the project of the worktree you run in, and
-   its own board, which holds everything in it. Otherwise use the project your user names, or
-   `--project all` for everything, and the board they name (`codealong board list` lists a
-   project's boards). Run `codealong board show --as canvas` (with `--project`, and the board's
-   name, if you need them) to see what's on its canvas now: its frames, who made each (`by`),
-   and the cards and notes in them.
+1. **The project and the board.** By default it's the project of the worktree you run in.
+   Otherwise use the project your user names, or `--project all` for everything. Use the board
+   they name, else the project's one board (`codealong board list` lists a project's boards).
+   With several and none named, ask which. With none, make one that holds everything in the
+   project, `codealong board new Overview --everything` (with `--project` if you need it), and
+   tell your user you did: laying out their sessions is what they asked for. Run
+   `codealong board show <board> --as canvas` (with `--project` if you need it) to see what's on
+   its canvas now: its frames, who made each (`by`), and the cards and notes in them.
 2. **What's in progress.** Run `codealong sessions --since 24h --project <name>`, or a
    longer `--since` if your user asks. That gives the sessions, each with its status,
    worktree, branch, PR and title. Running ones (`working`, `needs`, `unread`) always go
@@ -63,8 +65,7 @@ an experiment, off until your user turns them on in Settings › Experimental. W
 
    No keys or ids. A frame can be a note alone, such as a summary at the top.
 6. **Arrange.** Write the plan to a file in your scratch folder (not the repo), and run
-   `codealong board arrange <plan.json> --show` (with `--board <name>` for a board of the
-   project's other than its own):
+   `codealong board arrange <plan.json> --board <name> --show`:
 
    ```json
    {"frames": [

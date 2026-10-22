@@ -149,21 +149,27 @@ function withEmblems(board) {
 function optionalJson(file) {
   return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
 }
-// Boards: boards-fixture.json's (PREVIEW_BOARDS) beside each project's own, a board whose project
-// is `$project` in every project, changed as the engine changes them (boards.rs `apply_to`).
-// `window.__boards` holds them once read.
+// Boards: boards-fixture.json's (PREVIEW_BOARDS), none without one, changed as the engine changes
+// them (boards.rs `apply_to`). A board whose project is `$project` is in every project, under one
+// id; one whose id has `$project` in it too is a board of each project's own (and All projects'),
+// that one in its id (boards-everything.json). `window.__boards` holds them once read.
 function boardsRead() {
   if (window.__boards) return Promise.resolve(window.__boards);
-  return optionalJson('./boards-fixture.json').then(function (list) {
-    return (window.__boards = window.__boards || (list || []));
+  return Promise.all([optionalJson('./boards-fixture.json'), fetch('./board.json').then(function (r) { return r.json(); })]).then(function (got) {
+    var projects = got[1].projects.map(function (p) { return p.name; }).concat(['All projects']);
+    var list = (got[0] || []).flatMap(function (b) {
+      if (b.id.indexOf('$project') < 0) return [b];
+      return projects.map(function (p) { return Object.assign({}, b, { id: b.id.replace('$project', p), project: p }); });
+    });
+    return (window.__boards = window.__boards || list);
   });
 }
-// All projects lists every project's boards but their own (boards.rs `listed`).
+// All projects lists every project's boards (boards.rs `listed`).
 function boardsFor(project) {
   return boardsRead().then(function (all) {
     var every = project === 'All projects';
     return all
-      .filter(function (b) { return b.project === project || b.project === '$project' || (every && b.id.indexOf('p:') !== 0); })
+      .filter(function (b) { return b.project === project || b.project === '$project' || every; })
       .map(function (b) { return Object.assign({}, b, { project: b.project === '$project' ? project : b.project }); });
   });
 }
@@ -173,11 +179,11 @@ function boardOp(op) {
     if (op.op === 'create') all.push(Object.assign({}, op.board, { createdAt: Date.now() }));
     if (op.op === 'delete') window.__boards = all = all.filter(function (b) { return b.id !== id; });
     var b = all.filter(function (x) { return x.id === id; })[0];
-    if (!b && op.op !== 'delete' && id.indexOf('p:') === 0) all.push((b = { id: id, name: id.slice(2), project: id.slice(2), rule: {}, added: [], removed: [] }));
+    if (!b && op.op !== 'delete') return Promise.reject("There's no board " + id + '.');
     if (b) {
       var gone = function (list) { return (list || []).filter(function (c) { return op.cards.indexOf(c) < 0; }); };
       if (op.op === 'rename') b.name = op.name;
-      if (op.op === 'project' && b.id.indexOf('p:') !== 0) b.project = op.project;
+      if (op.op === 'project') b.project = op.project;
       if (op.op === 'rule') b.rule = op.rule;
       if (op.op === 'columns') b.columns = op.columns;
       if (op.op === 'order') b.order = op.order;

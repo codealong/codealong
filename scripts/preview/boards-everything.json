@@ -1,0 +1,11 @@
+[
+  {
+    "id": "b-all-$project",
+    "name": "Everything",
+    "project": "$project",
+    "rule": {},
+    "added": [],
+    "removed": [],
+    "createdAt": 0
+  }
+]

@@ -81,9 +81,6 @@ interface KanbanViewProps {
   dropContext: DropContext;
   /** Dragging reorders a column in your order; not while a search or a filter hides some of it. */
   canReorder: boolean;
-  /** Whether a card can be put in its place in a column in your order: on a project's own
-   *  board, only todos, which keep the Todo view's order. */
-  orderable: (card: KanbanCard) => boolean;
   /** Todos Jev says look done, by id. */
   hints?: Record<string, TodoHint>;
   /** The box that adds a todo, at the top of the column a new todo goes in. */
@@ -116,7 +113,7 @@ export function KanbanView(props: KanbanViewProps) {
       if (!from || !col || !to) return null;
       const face = at?.closest<HTMLElement>('[data-id]')?.dataset.id;
       const onto = face ? (byFace.get(face)?.card ?? null) : null;
-      const ordered = to.column?.sort === 'hand' && canReorder && props.orderable(from.card);
+      const ordered = to.column?.sort === 'hand' && canReorder;
       const spans = ordered ? [...col.querySelectorAll('[data-pin-index]')].map((el) => el.getBoundingClientRect()) : null;
       return kanbanDrop(from.card, from.column, to, onto && onto.key !== key ? onto : null, spans ? insertionAt(y, spans) : null, dropContext);
     },
@@ -167,7 +164,7 @@ function ColumnGlyph({ stage }: { stage: Stage | null }) {
 }
 
 function Column({ column, props, drag, target, onFold, todos }: { column: KanbanColumn; props: KanbanViewProps; drag: ReturnType<typeof useRowDrag<KanbanDrop>>; target: KanbanDrop | null; onFold?: () => void; todos: Todo[] }) {
-  const { now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onShowPr, onOpenPr, canReorder, orderable, hints, composer, composerColumn } = props;
+  const { now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onShowPr, onOpenPr, canReorder, hints, composer, composerColumn } = props;
   const ordered = column.column?.sort === 'hand' && canReorder && column.cards.length > 0;
   const sections = column.cards.map((c) => (c.kind === 'todo' ? itemSection(c, todos) : null));
   // A column in your order lists the rest, then what waits: a line says where Waiting begins.
@@ -218,7 +215,7 @@ function Column({ column, props, drag, target, onFold, todos }: { column: Kanban
             onMenu={() => onContextMenu(c)}
             onShowPr={(pr) => onShowPr(pr, c)}
             onOpenPr={onOpenPr}
-            drag={drag.rowProps(c.key, ordered && orderable(c) ? i : null, column.cards.length)}
+            drag={drag.rowProps(c.key, ordered ? i : null, column.cards.length)}
           />
         ))}
       </div>

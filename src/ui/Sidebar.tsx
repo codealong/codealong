@@ -46,7 +46,7 @@ export interface SideStatus {
   title?: string;
 }
 
-/** A board you made, under the Board view, which is the project's own board (boards/model.ts). */
+/** A board of the project's, under the Board view (boards/model.ts). */
 export interface SideBoard {
   id: string;
   name: string;
@@ -67,13 +67,13 @@ interface SidebarProps {
   views: SideView[];
   view: string;
   onView: (id: string) => void;
-  /** The boards made in the project, listed under the Board view (the project's own board), and
-   *  the one it shows: null for its own. */
+  /** The project's boards, listed under the Board view, and the one it shows: null while the
+   *  project has none, when the view says how to make one. */
   boards: SideBoard[];
   board: string | null;
-  /** Shows a board: one made in the project, or null for its own. */
+  /** Shows a board, or null for the Board view as it was last shown. */
   onBoard: (id: string | null) => void;
-  /** A board's menu: null for the project's own. */
+  /** A board's menu, or null for the Board view's. */
   onBoardMenu: (id: string | null) => void;
   onNewBoard: () => void;
   /** Linked devices; the device filter shows only with at least one. */
@@ -137,7 +137,7 @@ function Open(p: SidebarProps) {
           v.id !== 'board' ? (
             <NavItem key={v.id} icon={v.icon} label={v.label} count={v.count === '' || p.loading ? undefined : (v.count as number)} badge={v.badge} badgeTitle={v.badgeTitle} kbd={v.kbd} active={p.view === v.id} title={keysIn('⌃Tab goes to the next view')} onClick={() => p.onView(v.id)} />
           ) : (
-            // The Board view is the project's own board; the boards made in it go under it.
+            // The project's boards go under the Board view, which is one of them, or none while there are none.
             <Fragment key={v.id}>
               {/* The Board view's keys go to the board it shows: they're said beside that one. */}
               <NavItem
