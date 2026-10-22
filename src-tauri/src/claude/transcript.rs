@@ -569,6 +569,12 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     info.limit = None;
                     info.connection_lost = None;
                     info.last_tool = None;
+                    // A turn that starts on a prompt of yours takes in every one of yours held
+                    // before it, whichever the `dequeue`s are put down to: a notification Claude
+                    // Code never took off can sit first (`queue_step`).
+                    if let Some(ts) = ts {
+                        info.queue.retain(|m| m.at > ts || prompt_words(&m.text).is_none());
+                    }
                     // Its `last-prompt` line often comes only after the reply has begun (in 104 of
                     // 191 prompts here, 2026-10-15), so the prompt itself says what it's on now.
                     // A command that took a turn is said on the line before (`ran_a_turn`).
@@ -868,8 +874,11 @@ pub(super) fn ran_a_turn(v: &Value) -> bool {
 /// "absorbed_mid_turn"`); `popAll` takes them all back into the input box (↑ there); and
 /// `dequeue` takes one out with nothing to say which. Claude Code takes the first of the
 /// highest priority (2.1.307's code: `now`, `next`, `later`), which isn't written; prompts and
-/// most notifications are `next`, so it's taken as the first held. Each is known by the time it
-/// came, which is how its send finds it (`queued_as`).
+/// most notifications are `next`, so it's taken as the first held, and a turn that starts on a
+/// prompt of yours settles what's left of yours (`apply_tail`): replayed over 800 transcripts here
+/// (2026-10-21), that left a message of yours looking held at 12 of 7,509 turns' ends, all
+/// automated prompts in plain words (a loop's), where taking the first alone left 157. Each is
+/// known by the time it came, which is how its send finds it (`queued_as`).
 pub(super) fn queue_step(queue: &mut Vec<QueuedMessage>, v: &Value) {
     let content = v.get("content").and_then(Value::as_str);
     match v.get("operation").and_then(Value::as_str) {
@@ -1694,6 +1703,14 @@ pub(super) mod tests {
         assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:06.000Z", "One more thing")]);
         lines.push(queue_line("2026-10-21T10:00:07.000Z", "popAll", Some("One more thing")));
         assert!(info(&lines).queue.is_empty());
+        // A notification Claude Code never took off sits first, so a `dequeue` is put down to it;
+        // the turn that starts on your prompt says yours went in.
+        lines.push(queue_line("2026-10-21T10:00:08.000Z", "enqueue", Some(notice)));
+        lines.push(queue_line("2026-10-21T10:00:09.000Z", "enqueue", Some("Now the release notes")));
+        lines.push(queue_line("2026-10-21T10:00:10.000Z", "dequeue", None));
+        assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:09.000Z", "Now the release notes")]);
+        lines.push(r#"{"type":"user","timestamp":"2026-10-21T10:00:10.010Z","origin":{"kind":"human"},"message":{"content":"Now the release notes"}}"#.to_string());
+        assert_eq!(info(&lines).held(), vec![]);
     }
 
     #[test]
