@@ -1075,6 +1075,9 @@ export function useBoardLists(input: ListsInput) {
 
   // The Todo view: the project's todos, with the worktrees and sessions they're linked to.
   const homes = useMemo<Map<string, Placed>>(() => sessionHomes(lanes), [lanes]);
+  // Archived ones too, for what's listed under a schedule (`scheduleSessions`): an archived run's
+  // session still has the ones it started under it, and every one is a click away.
+  const allHomes = useMemo<Map<string, Placed>>(() => sessionHomes(rawLanes), [rawLanes]);
   const labelById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
   const projectTodos = useMemo(() => todos.filter((t) => current === ALL_PROJECTS || t.project === current), [todos, current]);
   const todoItems = useMemo(() => projectTodos.map((t) => todoItem(t, laneById, homes, labelById)), [projectTodos, laneById, homes, labelById]);
@@ -1189,6 +1192,7 @@ export function useBoardLists(input: ListsInput) {
     requestedCount,
     githubPrs,
     homes,
+    allHomes,
     labelById,
     facetOptions,
     projectTodos,

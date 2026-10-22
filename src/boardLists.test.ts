@@ -1232,5 +1232,9 @@ describe('the Schedules view’s list', () => {
     // A schedule that keeps one session going lists it once.
     expect(scheduleSessions({ runs: [run('claude:claude:today', 2), run('claude:claude:today', 1)] }, homes, false).rows.map((p) => p.session.key)).toEqual(['claude:claude:today', 'claude:claude:fix-a', 'claude:claude:fix-b']);
     expect(scheduleSessions({ runs: [] }, homes, true)).toEqual({ rows: [], more: 0 });
+    // A run's session archived, done with: the one it started that still works is listed all the same.
+    const archivedHead = sessionHomes([fx.lane({ id: '/w/app', sessions: [session('claude:claude:old', { archived: true, status: 'idle' }), started('claude:claude:busy', 'claude:claude:old', { status: 'working' })] })]);
+    const later = { runs: [run('claude:claude:today', 2), run('claude:claude:old', 1)] };
+    expect(scheduleSessions(later, archivedHead, false).rows.map((p) => p.session.key)).toEqual(['claude:claude:busy']);
   });
 });

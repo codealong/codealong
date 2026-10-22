@@ -535,6 +535,7 @@ export function App() {
     requestedCount,
     githubPrs,
     homes,
+    allHomes,
     labelById,
     facetOptions,
     projectTodos,
@@ -1221,10 +1222,20 @@ export function App() {
       el.setSelectionRange(el.value.length, el.value.length);
     });
 
+  // The Schedules view's schedules (the project's, as the find narrows them), the one selected (the
+  // first, until one is picked), and the session selected under it while it's still listed there.
+  const projectSchedules = useMemo(() => schedulesIn(board?.schedules ?? [], board?.lanes ?? [], current, ''), [board?.schedules, board?.lanes, current]);
+  const shownSchedules = useMemo(() => schedulesIn(projectSchedules, board?.lanes ?? [], ALL_PROJECTS, query), [projectSchedules, board?.lanes, query]);
+  const selectedSchedule: ScheduleItem | null = shownSchedules.find((x) => x.id === scheduleId) ?? shownSchedules[0] ?? null;
+  const scheduleSessionShown = selectedSchedule && scheduleSession ? (scheduleSessions(selectedSchedule, allHomes, true).rows.find((p) => p.session.key === scheduleSession) ?? null) : null;
+
   // Back and forward through the sessions you looked at (history.ts): the one whose conversation
-  // the panel shows, in Sessions, in a PR's or todo's panel, or as the canvas's selected card.
+  // the panel shows, in Sessions, under a schedule, in a PR's or todo's panel, or as the canvas's
+  // selected card.
   const shownSession =
-    view === 'sessions' || (view === 'kanban' && !drill)
+    view === 'schedules'
+      ? (scheduleSessionShown?.session.key ?? null)
+      : view === 'sessions' || (view === 'kanban' && !drill)
       ? selected?.kind === 'agent'
         ? selected.session.key
         : null
@@ -1236,11 +1247,11 @@ export function App() {
   // Where ⌃` opens a terminal (mainKeys.ts): in the folder of that session, or of the session whose
   // line is selected on the board, else of the worktree a new session would start in.
   const terminalAt = useMemo(() => {
-    const home = shownSession ? homes.get(shownSession) : selected?.kind === 'agent' ? selected : undefined;
+    const home = shownSession ? (homes.get(shownSession) ?? allHomes.get(shownSession)) : selected?.kind === 'agent' ? selected : undefined;
     if (home) return { lane: home.lane, session: home.session };
     const lane = startLaneId ? laneById.get(startLaneId) : undefined;
     return lane ? { lane, session: null } : null;
-  }, [shownSession, homes, selected, startLaneId, laneById]);
+  }, [shownSession, homes, allHomes, selected, startLaneId, laneById]);
   // One that's gone, archived, older than the sidebar's age filter shows or in a worktree no
   // project lists is passed over: the list wouldn't have it.
   const sessionHistory = useSessionHistory(shownSession, (key) => {
@@ -1670,7 +1681,8 @@ export function App() {
     previewFor,
     renaming,
     panelMax,
-    selected,
+    // Under a schedule, the session selected there: Return opens it, and its menu's keys act on it.
+    selected: view === 'schedules' ? (scheduleSessionShown ? sessionItemOf(scheduleSessionShown) : null) : selected,
     visible,
     pickedRows,
     // The Todo view's keys act on its picks themselves (useTodoView.ts): ⌘A and Esc are the lists' own.
@@ -1904,11 +1916,6 @@ export function App() {
 
   // The Schedules view: the project's schedules, as the find narrows them, the one selected (the
   // first, until one is picked), and what's done to them from its rows, panel and menus.
-  const projectSchedules = useMemo(() => schedulesIn(board?.schedules ?? [], board?.lanes ?? [], current, ''), [board?.schedules, board?.lanes, current]);
-  const shownSchedules = useMemo(() => schedulesIn(projectSchedules, board?.lanes ?? [], ALL_PROJECTS, query), [projectSchedules, board?.lanes, query]);
-  const selectedSchedule: ScheduleItem | null = shownSchedules.find((x) => x.id === scheduleId) ?? shownSchedules[0] ?? null;
-  // The session selected under it, while it's still listed there.
-  const scheduleSessionShown = selectedSchedule && scheduleSession && homes.has(scheduleSession) ? scheduleSessions(selectedSchedule, homes, true).rows.find((p) => p.session.key === scheduleSession) ?? null : null;
   const sessionTitle = (key: string) => homes.get(key)?.session.title ?? null;
   const scheduleDone = (what: Promise<unknown>) => void what.catch((e: unknown) => setToast(errorText(e)));
   const runSchedule = (x: ScheduleItem) => scheduleDone(scheduleOp({ op: 'run', id: x.id }).then(() => setToast(`“${x.name}” runs in a few seconds.`)));
@@ -1947,7 +1954,7 @@ export function App() {
   const panelWidth = { pr: prPanelWidth, todo: todoPanelWidth, session: sessionPanelWidth, schedule: schedulePanelWidth, lane: inspectorWidth };
   const setPanelWidth = { pr: setPrPanelWidth, todo: setTodoPanelWidth, session: setSessionPanelWidth, schedule: setSchedulePanelWidth, lane: setInspectorWidth };
   // The panel takes the whole window: one session's in Sessions, one PR's in PRs (⇧⌘F).
-  const maxed = (panelKind === 'session' && view !== 'kanban' && panelMax && picks.sessions.rows.length === 0) || (view === 'prs' && selected?.kind === 'pr' && prPanelMax && picks.prs.rows.length === 0);
+  const maxed = (panelKind === 'session' && view !== 'kanban' && view !== 'schedules' && panelMax && picks.sessions.rows.length === 0) || (view === 'prs' && selected?.kind === 'pr' && prPanelMax && picks.prs.rows.length === 0);
   // The worktree the preview URL sheet is for, as the latest board has it.
   const previewLane = previewFor ? board?.lanes.find((l) => l.id === previewFor) : undefined;
   // The session the rename sheet is for, in its own worktree.
@@ -2335,7 +2342,7 @@ export function App() {
               selectedId={selectedSchedule?.id ?? null}
               selectedSession={scheduleSessionShown?.session.key ?? null}
               sessionTitle={sessionTitle}
-              sessionsOf={(x) => scheduleSessions(x, homes, schedulesAll.has(x.id))}
+              sessionsOf={(x) => scheduleSessions(x, allHomes, schedulesAll.has(x.id))}
               allShown={schedulesAll}
               onToggleAll={(id) =>
                 setSchedulesAll((all) => {

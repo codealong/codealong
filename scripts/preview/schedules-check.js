@@ -38,7 +38,12 @@
       check('under a schedule, its latest run’s session and the two it started', listed.length === 3, listed.map(function (el) { return el.textContent; }).join(' | '));
       var fold = foldUnder('Morning triage');
       check('an earlier run’s, done with, a click away', !!fold && /List 1 more session/.test(fold.textContent), fold ? fold.textContent : 'none');
-      fold.querySelector('button').click();
+      // Return on the button is the button's: it neither changes the schedule nor opens a session.
+      var button = fold.querySelector('button');
+      button.focus();
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      check('Return on it is its own, not the selected schedule’s', !q('.ca-scheddlg'), 'the dialog opened');
+      button.click();
       return until(function () { return sessionsUnder('Morning triage').length === 4; }, 3000, 'every session listed');
     })
     .then(function () {

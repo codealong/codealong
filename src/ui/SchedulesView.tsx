@@ -54,19 +54,19 @@ export function SchedulesView({ items, problem, now, selectedId, selectedSession
   const isSelected = (x: Entry) => (x.p ? x.item.id === selectedId && x.p.session.key === selectedSession : x.item.id === selectedId && !selectedSession);
   const select = (x: Entry) => (x.p ? onSelectSession(x.item, x.p) : onSelect(x.item.id));
   const selectedEntry = entries.find(isSelected);
-  // ↑ ↓ through the schedules and the sessions under them; Return changes a schedule, and opens a
-  // session where it lives.
+  // ↑ ↓ through the schedules and the sessions under them; Return changes a schedule. A session's
+  // Return, and its menu's keys, are the window's (mainKeys.ts), as in any list, and a button (List
+  // N more) takes its own.
   const keys = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.target instanceof HTMLButtonElement) return;
     const i = entries.findIndex(isSelected);
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const next = entries[Math.min(entries.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)))];
       if (next) select(next);
-    } else if (e.key === 'Enter' && i >= 0) {
+    } else if (e.key === 'Enter' && i >= 0 && !entries[i].p) {
       e.preventDefault();
-      const x = entries[i];
-      if (x.p) onOpenSession(x.p);
-      else onEdit(x.item);
+      onEdit(entries[i].item);
     }
   };
   return (
