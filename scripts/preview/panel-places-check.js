@@ -151,10 +151,13 @@
     if (rowChips.length > 0) check('a todo’s row names its sessions by their titles', named(rowChips), sayChips(rowChips));
     else note('no todo row here has a session');
     press(q('.ca-todorow'));
-    return until(function () { return q('.ca-todoinsp .ca-places') || q('.ca-todoinsp .ca-empty'); }, 5000, 'the todo panel’s worktrees and sessions')
+    return until(function () { return q('.ca-todoinsp-places'); }, 5000, 'the todo panel’s worktrees and sessions')
       .then(function () {
         var places = q('.ca-todoinsp .ca-places');
         if (!places) return stopped('the sample’s first todo has no worktree or session on this board');
+        check('they are in its header, as a PR’s are', !!places.closest('.ca-todoinsp-head'));
+        var link = q('.ca-todoinsp-places > .ca-labelchip--add');
+        check('with Link after them', !!link && link.previousElementSibling === places && link.textContent === 'Link', link ? link.textContent : 'no Link');
         var chips = all('.ca-chip', places);
         check('the todo’s worktree is a chip, then its sessions', chips.length >= 2 && chips[0].classList.contains('ca-wtchip'), chips.map(function (c) { return c.textContent; }).join(' | '));
         var primary = chips.filter(function (c) { return !!q('.ca-places-primary', c); });
@@ -166,6 +169,8 @@
         return until(function () { return q('.ca-todoinsp .ca-tree'); }, 3000, 'the todo’s tree').then(function () {
           var rows = all('.ca-todoinsp .ca-psess').length;
           check('its chevron makes them a tree', rows === sessions && !q('.ca-todoinsp .ca-places'), rows + ' rows, ' + sessions + ' chips');
+          var tree = q('.ca-todoinsp .ca-tree');
+          check('under its actions, out of the header', !tree.closest('.ca-todoinsp-head') && !!(q('.ca-todoinsp-actions').compareDocumentPosition(tree) & Node.DOCUMENT_POSITION_FOLLOWING));
           check('the primary one tagged there', all('.ca-todoinsp .ca-psess-primary').length === 1);
           check('as its first row', q('.ca-todoinsp .ca-psess').contains(q('.ca-todoinsp .ca-psess-primary')));
         });

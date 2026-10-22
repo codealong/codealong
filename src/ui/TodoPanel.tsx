@@ -1,7 +1,8 @@
-// A todo in the right panel: its title, status and labels, when it's due, what it waits on (other
-// todos, and what it's marked as waiting for), the description with its screenshots, and the
-// worktrees and sessions it's linked to, as chips or with their details as a tree, as a PR's panel
-// shows them (PanelSession.tsx `PanelPlaces`).
+// A todo in the right panel: a header as a PR's and a session's have (its title, where it stands,
+// and the worktrees and sessions it's linked to, as chips, or with their details as a tree under
+// its actions, as a PR's panel shows them: PanelSession.tsx `PanelPlaces`), then its labels, when
+// it's due, what it waits on (other todos, and what it's marked as waiting for), and the
+// description with its screenshots.
 // Everything saves as you go. Start session opens the new-session sheet with the todo as the
 // prompt, and the session it starts is linked to the todo.
 // With `[jev] todos` on, Jev's suggestions for its project, labels and what it waits on show as
@@ -20,7 +21,7 @@ import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../typ
 import { DescriptionEditor } from './DescriptionEditor';
 import { DetailsButton, PanelPlaces, TODO_PRIMARY, useDetailsOpen } from './PanelSession';
 import { PickList, PickPanel, PickRow } from './PickPanel';
-import { Button, Chip, cx, headerMenu, Icon, Kbd, Seg } from './primitives';
+import { Button, Chip, cx, headerMenu, Icon, Seg } from './primitives';
 import { AddChip, LabelChip, LabelDot, TodoGlyph } from './TodoBits';
 import { useDismiss } from './useDismiss';
 import { keysIn } from '../platform';
@@ -473,26 +474,70 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
   // Its worktrees and sessions as chips, or with their details as a tree, as you left them.
   const [placesOpen, togglePlaces] = useDetailsOpen(PLACES_KEY);
 
+  // The tree goes under the actions, as a PR's does; the chips stay in the header.
+  const tree = placesOpen && item.places.length > 0;
+  const placesProps = {
+    places: item.places.map((p) => ({ lane: p.lane, sessions: p.sessions, note: placeNote(p.lane) })),
+    label: 'Worktrees and sessions',
+    now,
+    onShowLane,
+    onLaneMenu: (lane: Lane) => onLaneMenu(lane, !!item.places.find((p) => p.lane.id === lane.id)?.linked),
+    onShowSession,
+    onOpenSession,
+    onSessionMenu,
+    primary: item.primary && { key: item.primary.session.key, means: TODO_PRIMARY },
+  };
+
   return (
     <aside className="ca-insp ca-todoinsp" aria-label="Todo details">
-      <header onContextMenu={headerMenu(onMenu)}>
-        <div className="ca-insp-title">
+      <header className="ca-todoinsp-head" onContextMenu={headerMenu(onMenu)}>
+        <div className="ca-todoinsp-top">
           <TodoGlyph status={todo.status} waiting={section === 'waiting'} review={section === 'review'} size={14} />
-          <span className="ca-tag">{SECTION_WORD[section]}</span>
-          {todo.project && <span className="ca-tag">{todo.project}</span>}
+          <TitleField value={todo.title} onSave={(title) => update({ title })} />
+          <div className="ca-todoinsp-tools">
+            {item.places.length > 0 && <DetailsButton open={placesOpen} says="each session’s title and what it’s doing" onToggle={togglePlaces} />}
+            <Button variant="ghost" size="sm" icon="dots" aria-label="More" aria-haspopup="menu" title="Move, copy, archive or delete" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
+          </div>
+        </div>
+        <div className="ca-todoinsp-meta">
+          <span>{SECTION_WORD[section]}</span>
+          {todo.project && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{todo.project}</span>
+            </>
+          )}
+          <span aria-hidden="true">·</span>
+          <span title={absolute(todo.createdAt)}>added {ago(todo.createdAt, now)} ago</span>
+          {(todo.doneAt || todo.updatedAt > todo.createdAt) && <span aria-hidden="true">·</span>}
+          {todo.doneAt ? <span title={absolute(todo.doneAt)}>done {ago(todo.doneAt, now)} ago</span> : todo.updatedAt > todo.createdAt ? <span title={absolute(todo.updatedAt)}>changed {ago(todo.updatedAt, now)} ago</span> : null}
           {offer?.project && (
             <button type="button" className="ca-tag ca-suggestchip" title="Suggested by Jev. Click to move it there." onClick={() => update({ project: offer.project ?? undefined })}>
               <Icon name="sparkles" size={11} />
               {todo.project ? `Move to ${offer.project}?` : `In ${offer.project}?`}
             </button>
           )}
-          <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Move, copy, archive or delete" className="ca-todoinsp-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
         </div>
-        <TitleField value={todo.title} onSave={(title) => update({ title })} />
-        <div className="ca-todoinsp-meta">
-          <span title={absolute(todo.createdAt)}>Added {ago(todo.createdAt, now)} ago</span>
-          {todo.doneAt ? <span title={absolute(todo.doneAt)}>done {ago(todo.doneAt, now)} ago</span> : todo.updatedAt > todo.createdAt ? <span title={absolute(todo.updatedAt)}>changed {ago(todo.updatedAt, now)} ago</span> : null}
-        </div>
+        {!tree && (
+          <div className="ca-todoinsp-places">
+            {item.places.length > 0 && <PanelPlaces {...placesProps} open={false} />}
+            <AddChip
+              icon="link"
+              label={item.places.length > 0 ? 'Link' : 'Link a worktree or session'}
+              title={item.places.length > 0 ? 'Link another worktree or session' : keysIn('Link a worktree or session you already have. A session started from this todo (⌘N) is linked by itself.')}
+              open={false}
+              onToggle={(e) => onLinkMenu(below(e.currentTarget))}
+            />
+          </div>
+        )}
+        {waiting.map(({ p, lane }) => (
+          <p key={`${p.lane}@${p.at}`} className="ca-todoinsp-waiting">
+            <Icon name="clock" size={12} />
+            <span>
+              Waiting for the new {p.harness === 'codex' ? 'Codex thread' : p.harness === 'opencode' ? 'OpenCode session' : 'Claude session'} in {lane?.callsign ?? 'its worktree'} to show up. Started {ago(p.at, now)} ago.
+            </span>
+          </p>
+        ))}
       </header>
       <div className="ca-insp-actions ca-todoinsp-actions">
         {item.primary ? (
@@ -527,6 +572,19 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
             Not yet
           </Button>
         </div>
+      )}
+
+      {tree && (
+        <section className="ca-insp-sec">
+          <h4 className="ca-label ca-todoinsp-linkhead">
+            <span>Worktrees and sessions</span>
+            <button type="button" className="ca-linkbtn" title="Link another worktree or session" onClick={(e) => onLinkMenu(below(e.currentTarget))}>
+              <Icon name="link" size={12} />
+              Link
+            </button>
+          </h4>
+          <PanelPlaces {...placesProps} open />
+        </section>
       )}
 
       <section className="ca-insp-sec">
@@ -627,44 +685,6 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
       <section className="ca-insp-sec">
         <h4 className="ca-label">Description</h4>
         <DescriptionEditor key={todo.id} value={todo.description} onSave={(description) => update({ description })} onError={onError} />
-      </section>
-
-      <section className="ca-insp-sec">
-        <h4 className="ca-label ca-todoinsp-linkhead">
-          <span>Worktrees and sessions</span>
-          {item.places.length > 0 && <DetailsButton open={placesOpen} says="each session’s title and what it’s doing" onToggle={togglePlaces} className="ca-todoinsp-details" />}
-          <button type="button" className="ca-linkbtn" onClick={(e) => onLinkMenu(below(e.currentTarget))}>
-            <Icon name="link" size={12} />
-            Link
-          </button>
-        </h4>
-        {item.places.length > 0 && (
-          <PanelPlaces
-            places={item.places.map((p) => ({ lane: p.lane, sessions: p.sessions, note: placeNote(p.lane) }))}
-            open={placesOpen}
-            label="Worktrees and sessions"
-            now={now}
-            onShowLane={onShowLane}
-            onLaneMenu={(lane) => onLaneMenu(lane, !!item.places.find((p) => p.lane.id === lane.id)?.linked)}
-            onShowSession={onShowSession}
-            onOpenSession={onOpenSession}
-            onSessionMenu={onSessionMenu}
-            primary={item.primary && { key: item.primary.session.key, means: TODO_PRIMARY }}
-          />
-        )}
-        {waiting.map(({ p, lane }) => (
-          <p key={`${p.lane}@${p.at}`} className="ca-todoinsp-waiting">
-            <Icon name="clock" size={12} />
-            <span>
-              Waiting for the new {p.harness === 'codex' ? 'Codex thread' : p.harness === 'opencode' ? 'OpenCode session' : 'Claude session'} in {lane?.callsign ?? 'its worktree'} to show up. Started {ago(p.at, now)} ago.
-            </span>
-          </p>
-        ))}
-        {item.places.length === 0 && waiting.length === 0 && (
-          <p className="ca-empty">
-            Nothing yet. Start a session from this todo and it’s linked here, or link a worktree or session you already have. <Kbd keys={['⌘', 'N']} /> starts one.
-          </p>
-        )}
       </section>
     </aside>
   );

@@ -73,7 +73,7 @@
     .then(function () { return until(function () { return q('.ca-todorow-title'); }, 5000, 'a todo'); })
     .then(function (row) {
       press(row);
-      return same('todo', row, function () { return q('.ca-todoinsp header .ca-tag'); });
+      return same('todo', row, function () { return q('.ca-todoinsp-meta'); });
     })
     .then(function () {
       var want = labels();

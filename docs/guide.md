@@ -1292,9 +1292,11 @@ follow at the line's end as they fit, its PR always; on two lines they're under 
 
 Link worktrees and sessions you already have from the todo, or from a session's or worktree's
 right-click menu (Add to todo). A session or worktree on a todo shows the todo's chip; double-click
-it (click it in a panel) to go to the todo. The todo's panel lists its worktrees and sessions as a
-PR's does: as chips, or, with the chevron beside Link, as a tree with each session's title and what
-it's doing, which stays so for the next todo.
+it (click it in a panel) to go to the todo. The todo's panel has a header as a PR's and a
+session's do: its box and title with the chevron and ⋯ beside them, a line of where it stands, its
+project and when it was added and changed, and its worktrees and sessions as chips, with Link after
+them. The chevron makes them a tree under its actions, with each session's title and what it's
+doing, which stays so for the next todo.
 
 #### The primary session
 

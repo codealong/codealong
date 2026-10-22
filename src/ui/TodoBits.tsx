@@ -3,6 +3,7 @@
 // round status glyph; a waiting todo's box is dashed, and one in review is filled, its work done
 // and not yet checked off.
 
+import type { MouseEvent } from 'react';
 import { dueWords } from '../due';
 import type { Label, Todo, TodoStatus } from '../types';
 import { STATUS_WORD } from '../todos';
@@ -42,9 +43,9 @@ export function LabelChip({ label, onClick, title, inRow = false, remove, sugges
   );
 }
 
-/** The dashed chip that adds one (a label, a due date, what a todo waits on): it opens the
- *  picker under it, and closes it again. */
-export function AddChip({ icon, label, title, open, onToggle }: { icon: string; label: string; title?: string; open: boolean; onToggle: () => void }) {
+/** The dashed chip that adds one (a label, a due date, what a todo waits on, a link): it opens the
+ *  picker or menu under it, and closes a picker again. */
+export function AddChip({ icon, label, title, open, onToggle }: { icon: string; label: string; title?: string; open: boolean; onToggle: (e: MouseEvent<HTMLButtonElement>) => void }) {
   return (
     <button type="button" className="ca-labelchip ca-labelchip--add" aria-expanded={open} title={title} onClick={onToggle}>
       <Icon name={icon} size={12} />

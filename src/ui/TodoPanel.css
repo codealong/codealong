@@ -1,20 +1,35 @@
 /* The todo panel (TodoPanel.tsx): title, labels and their picker, due date, waits, what it's
    linked to, and the picker for several todos at once. */
 
-.ca-todoinsp header {
+/* The header, as a PR's (PrInspector.css) and a session's have it: the box and the title you type
+   in with the tools beside it, a line of where it stands, then its worktrees and sessions. */
+.ca-todoinsp-head {
   display: grid;
   gap: 6px;
 }
-.ca-todoinsp .ca-insp-title .ca-tag {
-  margin-left: 0;
+.ca-todoinsp-top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
 }
-.ca-todoinsp-more {
-  margin-left: auto;
+.ca-todoinsp-top > .ca-todoglyph {
+  flex: none;
+  margin-top: 3px;
 }
+.ca-todoinsp-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin: -2px 0 -2px auto;
+}
+/* Its text lines up with a PR's title, the field's padding and border hanging out around it. */
 .ca-todoinsp-title {
   display: block;
-  width: calc(100% + 12px);
-  margin: 0 -6px;
+  flex: 1 1 0;
+  min-width: 0;
+  margin: -4px 0 -4px -7px;
   padding: 3px 6px;
   box-sizing: border-box;
   border: 1px solid transparent;
@@ -39,9 +54,25 @@
 .ca-todoinsp-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px 10px;
+  align-items: center;
+  gap: 2px 5px;
+  min-width: 0;
   font: var(--type-meta);
   color: var(--ink-3);
+}
+.ca-todoinsp-meta > .ca-tag {
+  margin-left: 0;
+}
+/* Its worktrees and sessions (PanelSession.css `.ca-places`), with Link after them on their line. */
+.ca-todoinsp-places {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+.ca-todoinsp-places > .ca-places {
+  display: contents;
 }
 .ca-insp-actions.ca-todoinsp-actions {
   flex-wrap: wrap;
@@ -109,11 +140,6 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-}
-/* Its details button sits beside Link, at the heading's end, and takes no more height than the
-   heading's line. */
-.ca-todoinsp-linkhead .ca-todoinsp-details {
-  margin: -4px 0 -4px auto;
 }
 .ca-todoinsp-linkhead .ca-linkbtn {
   display: inline-flex;
@@ -253,7 +279,7 @@
 .ca-todoinsp-waiting {
   display: flex;
   gap: 6px;
-  margin: 6px 0 0;
+  margin: 0;
   font: var(--type-meta);
   color: var(--ink-3);
 }

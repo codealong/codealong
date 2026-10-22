@@ -30,8 +30,8 @@
       return until(function () { return q('.ca-todoinsp'); }, 6000, 'its panel');
     })
     .then(function () {
-      var tags = all('.ca-todoinsp .ca-insp-title .ca-tag').map(function (t) { return t.textContent; });
-      check('its panel says it is archived', tags.indexOf('Archived') >= 0, tags.join(' | '));
+      var said = all('.ca-todoinsp-meta > span').map(function (t) { return t.textContent; });
+      check('its panel says it is archived', said.indexOf('Archived') >= 0, said.join(' | '));
       return menuOf(row(shelved, fold()));
     })
     .then(function (labels) {
