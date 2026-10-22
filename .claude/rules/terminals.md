@@ -73,6 +73,11 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   IOSurface call), and `input text` into it says "Terminal surface model is not available". So
   starts go to tmux then (below). By 1.3.1's source, `input text` and `send key` into a terminal
   made before the lock reach its pty without the display; not checked live.
+- A terminal a script closed (`close terminal`) stays in `every terminal`, its window in
+  `windows`, ordered out with nothing drawn, and `exists terminal id` says true; `close` on it
+  again fails with "Terminal is not in a window". One Ghostty closed itself, its shell having
+  exited, leaves the lists (1.3.1, 2026-10-22). So whether a tab closed is told by its shell
+  having ended: `stale.rs` (`ghostty_closes_a_stale_tab`).
 - Where a new tab goes and its name (`window-new-tab-position`, `move_tab`, `set_tab_title`):
   `launch/ghostty.rs` (`GHOSTTY_NEW`), the name from `board::tab_label`. Not said there: `new
   tab in window id <w>` answers the tab, whose `id` and `index` can be read and which `tab id
@@ -223,7 +228,7 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
   --test-threads=1` does the same in iTerm2 and Terminal, and types, presses keys, focuses and
   closes there, on windows of its own; don't type on the Mac while it runs. `cargo test
   ghostty_closes_a_stale_tab -- --ignored` opens two Ghostty windows and closes the one behind
-  as Close stale terminals does (stale.rs), hanging up its shell with a `sleep` in front.
+  as Close stale terminals does (stale.rs), hanging up the `sleep` in front of its shell.
 
 ## Unchecked
 

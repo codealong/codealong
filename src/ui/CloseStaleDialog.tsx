@@ -5,7 +5,7 @@
 // closing would end. It closes only when you press the button, and the engine looks at each tab
 // again first (stale.rs). Its rows are Close idle sessions' (CloseIdleDialog.css).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { closeStaleTerminals, staleTerminals } from '../api';
 import type { StaleOutcome, StalePlan } from '../types';
 import { WAITS } from './CloseIdleDialog';
@@ -40,17 +40,25 @@ export function CloseStaleDialog({ onClose, onDone }: Props) {
   const [closing, setClosing] = useState(false);
   const [failed, setFailed] = useState<StaleOutcome[] | null>(null);
 
-  const load = useCallback((ms: number) => {
+  // Each wait asks again, and only the latest answer counts: an earlier one coming in after it
+  // would put back its tabs and the ticks you'd taken off.
+  useEffect(() => {
+    let latest = true;
     setPlan(null);
     setError(null);
-    staleTerminals(ms)
+    staleTerminals(after)
       .then((p) => {
+        if (!latest) return;
         setPlan(p);
         setPicked(new Set(p.tabs.filter((t) => t.ticked).map((t) => t.key)));
       })
-      .catch((e: unknown) => setError(String(e)));
-  }, []);
-  useEffect(() => load(after), [after, load]);
+      .catch((e: unknown) => {
+        if (latest) setError(String(e));
+      });
+    return () => {
+      latest = false;
+    };
+  }, [after]);
 
   const chosen = useMemo(() => (plan?.tabs ?? []).filter((t) => picked.has(t.key)), [plan, picked]);
   const toggle = (key: string) =>

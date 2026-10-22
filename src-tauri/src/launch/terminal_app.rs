@@ -6,7 +6,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::{close_tty_terminals, focus_on_tty, fresh_line, launcher, pasted, sh_quote, type_on_tty, typed_line, wait_for_shell, HostKind, Placement, Submit, Terminal, TerminalHost, Typed};
+use super::{close_tty_terminals, Closing, focus_on_tty, fresh_line, launcher, pasted, sh_quote, type_on_tty, typed_line, wait_for_shell, HostKind, Placement, Submit, Terminal, TerminalHost, Typed};
 
 const APP: &str = "Terminal";
 
@@ -68,8 +68,8 @@ impl Terminal for AppleTerminal {
         true
     }
 
-    fn close_sessions(&self, sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
-        close_tty_terminals(sessions, APP, ttys, in_front, close)
+    fn close_tabs(&self, tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
+        close_tty_terminals(tabs, APP, ttys, in_front, close)
     }
 }
 

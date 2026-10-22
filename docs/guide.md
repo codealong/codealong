@@ -2927,12 +2927,13 @@ an agent at rest doesn't. A tab that sat that long opened at least that long ago
 reopens its tabs as it starts (Ghostty restoring its windows) starts their shells anew, so they
 count from then. tmux's own panes, and terminals Codealong doesn't script, aren't listed.
 
-The ones whose closing loses nothing start ticked: a shell at its prompt, and a tab whose sessions
-Close idle sessions would close. A tab with something else in its foreground (a dev server, an
-editor, a tmux client) starts unticked and says closing ends it, and so does one whose session needs
-you or asks you something. Tick or untick any of them. Closing hangs up the tab's shell, which
-ends what runs in it, and closes the tab; a session's conversation stays and resumes like any other.
-The tab you're in stays open, and a tab used since the list was made isn't closed.
+The ones whose closing loses nothing start ticked: a shell at its prompt with nothing running, and
+a tab whose sessions Close idle sessions would close and that runs nothing else. A tab that runs
+anything else, in front or behind (a dev server, an editor stopped with ⌃Z, a tmux client), starts
+unticked and says closing ends it, and so does one whose session needs you or asks you something.
+Tick or untick any of them. Closing hangs up what the tab's shell runs, leaving it at its prompt,
+and has the terminal close the tab; a session's conversation stays and resumes like any other. The
+tab you're in stays open, and a tab used since the list was made isn't closed.
 
 ### Clean up worktrees
 

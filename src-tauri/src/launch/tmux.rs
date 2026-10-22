@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
 
-use super::{fresh_line, launcher, tty_of, typed_line, wait_for_shell, HostKind, Key, Submit, Terminal, TerminalHost, Typed, CLEAR_WAIT};
+use super::{fresh_line, Closing, launcher, tty_of, typed_line, wait_for_shell, HostKind, Key, Submit, Terminal, TerminalHost, Typed, CLEAR_WAIT};
 use crate::procs;
 use crate::util::sh_quote;
 
@@ -122,10 +122,10 @@ impl Terminal for Tmux {
         true
     }
 
-    fn close_sessions(&self, sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
-        Ok(sessions
+    fn close_tabs(&self, tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
+        Ok(tabs
             .iter()
-            .map(|(pid, _)| match pane_of(*pid) {
+            .map(|tab| match pane_of(tab.pid) {
                 Some(pane) => pane.server.run(&["kill-pane", "-t", &pane.id]).map(|_| ()),
                 None => Err(anyhow!("Couldn't find its tmux pane.")),
             })

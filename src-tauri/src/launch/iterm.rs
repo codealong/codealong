@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::{app_installed, close_tty_terminals, focus_on_tty, fresh_line, launcher, pasted, placement, sh_quote, tty_of, type_on_tty, typed_line, wait_for_shell, HostKind, Key, Placement, Submit, Tab, Terminal, TerminalHost, Typed};
+use super::{app_installed, close_tty_terminals, Closing, focus_on_tty, fresh_line, launcher, pasted, placement, sh_quote, tty_of, type_on_tty, typed_line, wait_for_shell, HostKind, Key, Placement, Submit, Tab, Terminal, TerminalHost, Typed};
 
 const APP: &str = "iTerm2";
 
@@ -78,8 +78,8 @@ impl Terminal for ITerm2 {
         true
     }
 
-    fn close_sessions(&self, sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
-        close_tty_terminals(sessions, APP, ttys, in_front, close)
+    fn close_tabs(&self, tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
+        close_tty_terminals(tabs, APP, ttys, in_front, close)
     }
 }
 

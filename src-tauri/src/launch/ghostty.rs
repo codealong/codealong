@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 
-use super::{app_installed, hang_up, not_allowed_why, pick_by_title, placement, tty_of, write_osc7, HostKind, Key, NotAllowed, Placement, Submit, Tab, Terminal, TerminalHost, Typed, FOCUS_TURNS, MARK_PREFIX};
+use super::{app_installed, hang_up, hang_up_tabs, shell_of, Closing, not_allowed_why, pick_by_title, placement, tty_of, write_osc7, HostKind, Key, NotAllowed, Placement, Submit, Tab, Terminal, TerminalHost, Typed, FOCUS_TURNS, MARK_PREFIX};
 use crate::procs;
 
 const APP: &str = "Ghostty";
@@ -129,8 +129,8 @@ impl Terminal for Ghostty {
         true
     }
 
-    fn close_sessions(&self, sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
-        close_sessions(sessions)
+    fn close_tabs(&self, tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
+        close_tabs(tabs)
     }
 }
 
@@ -568,20 +568,24 @@ pub(super) fn terminal_of(pid: u32, cwd: &Path, within: Option<Duration>) -> Res
     Ok((!id.is_empty()).then_some(id))
 }
 
-/// Ends sessions' processes and closes their terminals: each TTY marked, the marks looked for in
-/// one list of every terminal, then each process hung up and the terminals whose process exited
-/// closed in one script.
-fn close_sessions(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
+/// Hangs up what runs in tabs and closes them: each TTY marked, the marks looked for in one list
+/// of every terminal, then each tab's processes hung up, and then the shells of the tabs whose
+/// processes exited. Ghostty closes a terminal whose process ended by itself; its script's
+/// `close terminal` orders the window out but keeps the terminal, its shell running unseen (1.3.1,
+/// 2026-10-22), so the script only closes what Ghostty kept open after its process ended
+/// (`wait-after-command`).
+fn close_tabs(tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
     // Marks take over TTYs' folder reports, as focusing's do, so the two never run at once.
     let _turn = FOCUS_TURNS.lock.lock().unwrap_or_else(|e| e.into_inner());
     let before = terminals()?;
     let stamp = crate::util::now_ms();
     let mut out: Vec<Result<()>> = Vec::new();
-    // (index, tty, mark) for each process that has a terminal.
+    // (index, tty, mark) for each process that has a terminal, and its tab's shell.
     let mut marked = Vec::new();
-    for (i, (pid, _)) in sessions.iter().enumerate() {
-        let mark = format!("{MARK_PREFIX}{pid}-{stamp}");
-        match tty_of(*pid) {
+    let shells: Vec<Option<u32>> = tabs.iter().map(|t| shell_of(t.pid)).collect();
+    for (i, tab) in tabs.iter().enumerate() {
+        let mark = format!("{MARK_PREFIX}{}-{stamp}", tab.pid);
+        match tty_of(tab.pid) {
             Some(tty) if write_osc7(&tty, &mark).is_ok() => {
                 marked.push((i, tty, mark));
                 out.push(Ok(()));
@@ -614,7 +618,7 @@ fn close_sessions(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
             .and_then(|id| before.iter().find(|t| &t.id == id))
             .map(|t| t.cwd.clone())
             .filter(|c| !c.is_empty() && !c.starts_with(MARK_PREFIX))
-            .unwrap_or_else(|| sessions[*i].1.to_string_lossy().into_owned());
+            .unwrap_or_else(|| tabs[*i].cwd.to_string_lossy().into_owned());
         let _ = write_osc7(tty, &real);
     }
     let front = osascript(GHOSTTY_IN_FRONT, &[]).map(|s| s.trim().to_string()).unwrap_or_default();
@@ -627,17 +631,24 @@ fn close_sessions(sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
             Some(id) => ending.push((*i, id.clone())),
         }
     }
-    let exited = hang_up(&ending.iter().map(|(i, _)| sessions[*i].0).collect::<Vec<_>>());
+    let stayed = hang_up_tabs(&ending.iter().map(|(i, _)| tabs[*i]).collect::<Vec<_>>());
     let mut closing = Vec::new();
-    for ((i, id), gone) in ending.iter().zip(exited) {
-        if gone {
-            closing.push(id.as_str());
-        } else {
-            out[*i] = Err(anyhow!("Its process (pid {}) didn't exit, so the tab stays.", sessions[*i].0));
+    let mut ended_shells = Vec::new();
+    for ((i, id), stayed) in ending.iter().zip(stayed) {
+        match stayed {
+            None => {
+                closing.push(id.as_str());
+                ended_shells.extend(shells[*i].filter(|s| !tabs[*i].hang_up.contains(s)));
+            }
+            Some(pid) => out[*i] = Err(anyhow!("Its process (pid {pid}) didn't exit, so the tab stays.")),
         }
     }
+    if !ended_shells.is_empty() {
+        hang_up(&ended_shells);
+    }
     if !closing.is_empty() {
-        // A moment for the shells to draw their prompts, which tells Ghostty it's safe to close.
+        // A moment for Ghostty to close the terminals whose shells ended, or for a shell to draw
+        // its prompt, which tells Ghostty it's safe to close.
         std::thread::sleep(Duration::from_millis(500));
         if let Err(e) = osascript(GHOSTTY_CLOSE, &closing) {
             for (i, id) in &ending {

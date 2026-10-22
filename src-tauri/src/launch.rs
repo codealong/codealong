@@ -138,10 +138,9 @@ pub trait Terminal: Sync {
         false
     }
 
-    /// Ends sessions' processes and closes the tabs they ran in, all at once
-    /// (`close_session_terminals`). One result per `(pid, folder)`, in order; an error when it
-    /// couldn't be asked at all.
-    fn close_sessions(&self, _sessions: &[(u32, &Path)]) -> Result<Vec<Result<()>>> {
+    /// Hangs up what runs in tabs and closes them, all at once (`close_terminals`). One result
+    /// per tab, in order; an error when it couldn't be asked at all.
+    fn close_tabs(&self, _tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
         bail!("Codealong can't close {} tabs.", self.name())
     }
 }
@@ -893,21 +892,36 @@ fn not_allowed_why(app: &str) -> String {
     format!("Codealong isn't allowed to control {app} (System Settings → Privacy & Security → Automation)")
 }
 
-/// Ends sessions' processes and closes the terminal tabs they ran in (idle.rs), all at once for
-/// each app: with dozens of tabs on a busy Mac, one tab at a time took minutes. The processes get
-/// a hangup (as they would from the tab closing), and the tabs whose process exited close in one
-/// script: the apps ask before closing a tab with a program still running, and don't once only
-/// the shell is left at its prompt. One result per `(pid, folder)`, in order.
+/// A terminal tab to close: a process on it, which finds the tab, the folder its terminal shows,
+/// and the processes to hang up first. Close idle sessions hangs up the session's own process;
+/// Close stale terminals what the tab's shell runs, or nothing when it's at its prompt.
+pub struct Closing<'a> {
+    pub pid: u32,
+    pub cwd: &'a Path,
+    pub hang_up: Vec<u32>,
+}
+
+/// Ends sessions' processes and closes the terminal tabs they ran in (idle.rs): `close_terminals`,
+/// each session's process hung up. One result per `(pid, folder)`, in order.
 pub fn close_session_terminals(sessions: &[(u32, &Path)]) -> Vec<Result<()>> {
-    let mut out: Vec<Option<Result<()>>> = sessions.iter().map(|_| None).collect();
-    let kinds: Vec<Option<HostKind>> = sessions.iter().map(|(pid, _)| terminal_kind(*pid).map(|t| t.kind())).collect();
+    close_terminals(&sessions.iter().map(|&(pid, cwd)| Closing { pid, cwd, hang_up: vec![pid] }).collect::<Vec<_>>())
+}
+
+/// Hangs up what runs in tabs and closes them, all at once for each app: with dozens of tabs on a
+/// busy Mac, one tab at a time took minutes. The processes get a hangup (as they would from the
+/// tab closing), and the tabs whose processes all exited close in one script: the apps ask before
+/// closing a tab with a program still running, and don't once only the shell is left at its
+/// prompt. One result per tab, in order.
+pub fn close_terminals(tabs: &[Closing]) -> Vec<Result<()>> {
+    let mut out: Vec<Option<Result<()>>> = tabs.iter().map(|_| None).collect();
+    let kinds: Vec<Option<HostKind>> = tabs.iter().map(|t| terminal_kind(t.pid).map(|t| t.kind())).collect();
     for terminal in terminals().iter().filter(|t| t.closes_tabs()) {
-        let at: Vec<usize> = (0..sessions.len()).filter(|&i| kinds[i] == Some(terminal.kind())).collect();
+        let at: Vec<usize> = (0..tabs.len()).filter(|&i| kinds[i] == Some(terminal.kind())).collect();
         if at.is_empty() {
             continue;
         }
-        let group: Vec<(u32, &Path)> = at.iter().map(|&i| sessions[i]).collect();
-        let results = terminal.close_sessions(&group);
+        let group: Vec<&Closing> = at.iter().map(|&i| &tabs[i]).collect();
+        let results = terminal.close_tabs(&group);
         let results = results.unwrap_or_else(|e| group.iter().map(|_| Err(anyhow!("{e}"))).collect());
         for (i, r) in at.into_iter().zip(results) {
             out[i] = Some(r);
@@ -917,21 +931,16 @@ pub fn close_session_terminals(sessions: &[(u32, &Path)]) -> Vec<Result<()>> {
 }
 
 /// Closing where each tab has a TTY (iTerm2, Terminal): the tabs the app lists that hold these
-/// processes, each process hung up, then the tabs whose process exited closed in one script.
-fn close_tty_terminals(
-    sessions: &[(u32, &Path)],
-    app: &str,
-    ttys: fn() -> Result<Vec<String>>,
-    in_front: fn() -> Result<String>,
-    close: fn(&[&str]) -> Result<()>,
-) -> Result<Vec<Result<()>>> {
+/// processes, each tab's processes hung up, then the tabs whose processes exited closed in one
+/// script.
+fn close_tty_terminals(tabs: &[&Closing], app: &str, ttys: fn() -> Result<Vec<String>>, in_front: fn() -> Result<String>, close: fn(&[&str]) -> Result<()>) -> Result<Vec<Result<()>>> {
     let listed = ttys()?;
     let front = in_front().unwrap_or_default();
     let mut out: Vec<Result<()>> = Vec::new();
     // (index, tty) of the ones to end.
     let mut ending = Vec::new();
-    for (i, (pid, _)) in sessions.iter().enumerate() {
-        match tty_of(*pid).map(|t| t.to_string_lossy().into_owned()) {
+    for (i, tab) in tabs.iter().enumerate() {
+        match tty_of(tab.pid).map(|t| t.to_string_lossy().into_owned()) {
             None => out.push(Err(anyhow!("It has no terminal tab."))),
             Some(tty) if !listed.contains(&tty) => out.push(Err(anyhow!("Couldn't find its {app} tab."))),
             Some(tty) if tty == front => out.push(Err(anyhow!("It's the tab you're in."))),
@@ -941,13 +950,12 @@ fn close_tty_terminals(
             }
         }
     }
-    let exited = hang_up(&ending.iter().map(|(i, _)| sessions[*i].0).collect::<Vec<_>>());
+    let stayed = hang_up_tabs(&ending.iter().map(|(i, _)| tabs[*i]).collect::<Vec<_>>());
     let mut closing = Vec::new();
-    for ((i, tty), gone) in ending.iter().zip(exited) {
-        if gone {
-            closing.push(tty.as_str());
-        } else {
-            out[*i] = Err(anyhow!("Its process (pid {}) didn't exit, so the tab stays.", sessions[*i].0));
+    for ((i, tty), stayed) in ending.iter().zip(stayed) {
+        match stayed {
+            None => closing.push(tty.as_str()),
+            Some(pid) => out[*i] = Err(anyhow!("Its process (pid {pid}) didn't exit, so the tab stays.")),
         }
     }
     if !closing.is_empty() {
@@ -964,8 +972,21 @@ fn close_tty_terminals(
     Ok(out)
 }
 
+/// Hangs up every tab's processes at once, and says for each tab the first of them that didn't
+/// exit, if one didn't.
+fn hang_up_tabs(tabs: &[&Closing]) -> Vec<Option<u32>> {
+    let mut exited = hang_up(&tabs.iter().flat_map(|t| t.hang_up.iter().copied()).collect::<Vec<_>>()).into_iter();
+    tabs.iter()
+        .map(|t| {
+            let gone: Vec<bool> = exited.by_ref().take(t.hang_up.len()).collect();
+            t.hang_up.iter().zip(gone).find(|(_, gone)| !gone).map(|(pid, _)| *pid)
+        })
+        .collect()
+}
+
 /// Hangs up each process, as its tab closing would, and waits up to ten seconds for them to
-/// exit. Whether each one did, in order.
+/// exit. Whether each one did, in order. Each is continued too, as the kernel does a stopped job
+/// it hangs up: a job stopped with ^Z takes the hangup only once it runs.
 fn hang_up(pids: &[u32]) -> Vec<bool> {
     #[cfg(test)]
     if let Some(exited) = stage::hang_up(pids) {
@@ -974,6 +995,7 @@ fn hang_up(pids: &[u32]) -> Vec<bool> {
     let alive = |pid: u32| unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
     for pid in pids {
         unsafe { libc::kill(*pid as libc::pid_t, libc::SIGHUP) };
+        unsafe { libc::kill(*pid as libc::pid_t, libc::SIGCONT) };
     }
     let started = std::time::Instant::now();
     while pids.iter().any(|p| alive(*p)) && started.elapsed() < Duration::from_secs(10) {
@@ -1103,6 +1125,22 @@ fn tty_of(pid: u32) -> Option<std::path::PathBuf> {
         return staged;
     }
     procs::tty(pid)
+}
+
+/// The shell of the tab a process runs in: the topmost of it and its parents on its terminal,
+/// below a `login` (Ghostty and Terminal start one above the shell, and it runs with your real
+/// user id, so it may be signalled, but it isn't the shell). None for a process with no terminal.
+fn shell_of(pid: u32) -> Option<u32> {
+    let tty = tty_of(pid)?;
+    let mut at = pid;
+    for _ in 0..16 {
+        let (parent, _) = parent_and_name(at)?;
+        match parent_and_name(parent) {
+            Some((_, name)) if name != "login" && tty_of(parent).as_ref() == Some(&tty) => at = parent,
+            _ => break,
+        }
+    }
+    Some(at)
 }
 
 /// Reports `dir` as the terminal's folder. Never blocks: a full or stuck terminal just misses it.
