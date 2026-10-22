@@ -403,36 +403,40 @@ export function commentsToAsk(comments: PrComment[]): PrComment[] {
   return comments.filter((c) => !c.mine && !c.resolved);
 }
 
-/** Codealong's hidden mark on an agent's review it posted or submitted, at a line's start, naming
- *  the PR and the commit the review was of (autoreview.rs `marker`, `draft_mark`). */
-const REVIEW_MARK = /^[ \t]*<!-- codealong-review \S+ ([0-9a-f]{7,40}) -->/gm;
+/** How an agent's review Codealong posted or submitted ends (autoreview.rs `signed`): the line
+ *  saying so, then the hidden mark naming the PR and the commit it was of (`marker`). */
+const SIGNED = /\n\n<sub>An agent's review \([^\n]*\) of \w+, (posted|submitted) by Codealong\.<\/sub>\n<!-- codealong-review \S+ ([0-9a-f]{7,40}) -->\s*$/;
 
-/** The commits a comment says it's an agent's review of, by Codealong's marks: none for anything
- *  else, and more than one for a draft that took in two rounds. */
-function reviewedCommits(body: string): string[] {
-  return [...body.matchAll(REVIEW_MARK)].map((m) => m[1]);
+/** An agent's review as Codealong wrote it, with nothing of its person's in it: one posted as a
+ *  comment of its own, or a review submitted with one line of text (the link to a posted one;
+ *  words from the PR's box go before it as a paragraph of their own). Whether it was posted, and
+ *  the commit it was of; none for anything else, a draft among them, which its person submits
+ *  when they like and may have written in. */
+function agentsReview(c: PrComment): { posted: boolean; commit: string } | null {
+  const m = c.path ? null : SIGNED.exec(c.body);
+  if (!m || (m[1] === 'submitted' && c.body.slice(0, m.index).trim().includes('\n'))) return null;
+  return { posted: m[1] === 'posted', commit: m[2] };
 }
 
 /**
- * The comments that ask for a change, by what Jev said, and still stand. Of the agent's reviews
- * Codealong posted or submitted from one account, only those of the commit its latest is of
- * stand: a review of a new commit starts with which of the earlier findings are fixed
+ * The comments that ask for a change, by what Jev said, and still stand. An agent's review
+ * Codealong posted or submitted for someone stands until their agent's review of another commit
+ * is posted: a review of new commits starts with which of the earlier findings are fixed
  * (autoreview.rs `again_prompt`), so the latest is the agent's whole word. A clean pass is often
  * only a comment, the approval being its person's to give, and the earlier passes' requests kept
  * counting as open after it found them fixed (specbook#1293, 2026-10-22). Everything else stands
  * until it's resolved: what someone wrote later can't be told for a new pass.
  */
 export function asksFor(comments: PrComment[], asks: Record<string, number>): Set<string> {
-  const latest = new Map<string, { at: number; commits: string[] }>();
+  const latest = new Map<string, { at: number; commit: string }>();
   for (const c of comments) {
-    const commits = reviewedCommits(c.body);
-    const at = c.at ?? 0;
-    if (commits.length > 0 && at >= (latest.get(c.author)?.at ?? 0)) latest.set(c.author, { at, commits });
+    const review = agentsReview(c);
+    if (review?.posted && c.at != null && c.at >= (latest.get(c.author)?.at ?? 0)) latest.set(c.author, { at: c.at, commit: review.commit });
   }
   const stands = (c: PrComment) => {
-    const commits = reviewedCommits(c.body);
-    const last = latest.get(c.author)?.commits ?? [];
-    return commits.length === 0 || commits.some((x) => last.includes(x));
+    const review = agentsReview(c);
+    const last = latest.get(c.author);
+    return !review || !last || review.commit === last.commit || c.at == null || c.at >= last.at;
   };
   return new Set(commentsToAsk(comments).filter((c) => (asks[c.id] ?? 0) >= ASKS_AT && stands(c)).map((c) => c.id));
 }

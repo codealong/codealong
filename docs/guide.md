@@ -1171,10 +1171,11 @@ approval or request for changes, else a comment), Asked again when their review 
 since, and under it everything they wrote, the newest first: their reviews' text, the threads they
 began on the code, and their comments on the conversation. What's still open comes first, marked
 down its left edge: a thread nobody resolved, and, with `[jev] pull_requests`, a comment asking for
-a change or an answer. An agent's review that Codealong posted or submitted for someone stops
-counting once their agent has reviewed a later commit: a review of new commits starts with which
-of the earlier findings are fixed, so the latest is the agent's whole word, even when it's only a
-comment and the approval is left to its person. A thread says its file and line (`line 12 before` for one on the file as it was, a line the PR
+a change or an answer. An agent's review that Codealong posted or submitted for someone, with
+nothing of theirs in it (not a draft they submitted), stops counting once their agent's review of
+another commit is posted: a review of new commits starts with which of the earlier findings are
+fixed, so the latest is the agent's whole word, even when it's only a comment and the approval is
+left to its person. A thread says its file and line (`line 12 before` for one on the file as it was, a line the PR
 removes say, numbered so), has the lines around it from the PR's diff while it's open, and says
 how many replies follow; a resolved one is folded to a line. A click on any comment's head opens it
 on GitHub, where its replies are. Three show for each person, besides what's open, until Show more,

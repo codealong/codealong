@@ -189,30 +189,40 @@ describe('review comments', () => {
     expect([...asksFor(all, { a: 0.9, b: 0.4, mine: 0.99, done: 0.99 })]).toEqual(['a']);
   });
 
-  it('keeps only the asks of the commit an agent’s latest review is of', () => {
+  it('keeps an agent’s review asking for changes until its review of another commit is posted', () => {
+    // As autoreview.rs `signed` ends one.
+    const signed = (commit: string, how: string) => `\n\n<sub>An agent's review (Codex, gpt-6-astra) of ${commit.slice(0, 7)}, ${how} by Codealong.</sub>\n<!-- codealong-review o/r#7 ${commit} -->`;
+    const [one, two, three, four] = ['6a00420be3', 'd07730f309', 'c2a5d6b9f7', 'b4908ef58e'];
     // specbook#1293, newest first: two passes asked for changes (the review posted as a comment,
     // then a request for changes linking to it), each followed by one at the next commit that
     // found them fixed, posted as a comment only.
-    const pass = (commit: string) => `\n\n<sub>An agent's review (Codex) of ${commit.slice(0, 7)}, posted by Codealong.</sub>\n<!-- codealong-review o/r#7 ${commit} -->`;
-    const [one, two, three, four] = ['6a00420be3', 'd07730f309', 'c2a5d6b9f7', 'b4908ef58e'];
     const thread = [
-      c('fixed-4', { body: `All earlier findings are fixed.${pass(four)}`, at: 70 }),
-      c('asks-3', { body: `The agent's review asks for changes: #3${pass(three)}`, at: 61, review: 'CHANGES_REQUESTED' }),
-      c('finding-3', { body: `One more issue.${pass(three)}`, at: 60 }),
-      c('fixed-2', { body: `Both earlier findings are fixed.${pass(two)}`, at: 40 }),
-      c('asks-1', { body: `The agent's review asks for changes: #1${pass(one)}`, at: 21, review: 'CHANGES_REQUESTED' }),
-      c('finding-1', { body: `Both findings remain.${pass(one)}`, at: 20 }),
+      c('fixed-4', { body: `All earlier findings are fixed.${signed(four, 'posted')}`, at: 70 }),
+      c('asks-3', { body: `The agent's review asks for changes: #3${signed(three, 'submitted')}`, at: 61, review: 'CHANGES_REQUESTED' }),
+      c('finding-3', { body: `One more issue.\n\nIn **a.ts**.${signed(three, 'posted')}`, at: 60 }),
+      c('fixed-2', { body: `Both earlier findings are fixed.${signed(two, 'posted')}`, at: 40 }),
+      c('asks-1', { body: `The agent's review asks for changes: #1${signed(one, 'submitted')}`, at: 21, review: 'CHANGES_REQUESTED' }),
+      c('finding-1', { body: `Both findings remain.${signed(one, 'posted')}`, at: 20 }),
       // Someone's own words, and another account's agent, stand whatever comes after.
       c('by-hand', { body: 'Please rename it.', at: 10 }),
-      c('bo-finding', { author: 'bo', body: `A finding.${pass(one)}`, at: 15 }),
+      c('bo-finding', { author: 'bo', body: `A finding.${signed(one, 'posted')}`, at: 15 }),
     ];
     const jev = { 'fixed-4': 0.02, 'asks-3': 0.88, 'finding-3': 0.98, 'fixed-2': 0.02, 'asks-1': 0.86, 'finding-1': 0.99, 'by-hand': 0.9, 'bo-finding': 0.9 };
     expect([...asksFor(thread, jev)]).toEqual(['by-hand', 'bo-finding']);
-    // Before the last pass, the one before it stands, its review and the request linking to it.
+    // Before the last pass, the one before it stands, the review and the request linking to it.
     expect([...asksFor(thread.slice(1), jev)]).toEqual(['asks-3', 'finding-3', 'by-hand', 'bo-finding']);
-    // A draft that took in two rounds is of both their commits.
-    const draft = c('draft', { body: `Round one.${pass(three)}\n\n---\n\nRound two.${pass(four)}`, at: 50, review: 'CHANGES_REQUESTED' });
-    expect([...asksFor([thread[0], draft], { ...jev, draft: 0.9 })]).toEqual(['draft']);
+
+    // What its person may have written in stands: a request submitted from the PR's box with
+    // words of theirs before the agent's, and a draft, rewritten or not.
+    const boxed = c('boxed', { body: `Rename it too.\n\nThe agent's review asks for changes: #1${signed(one, 'submitted')}`, at: 22, review: 'CHANGES_REQUESTED' });
+    const drafted = c('drafted', { body: `Fix it.${signed(one, 'drafted')}`, at: 23, review: 'CHANGES_REQUESTED' });
+    expect([...asksFor([thread[0], boxed, drafted], { ...jev, boxed: 0.9, drafted: 0.9 })]).toEqual(['boxed', 'drafted']);
+    // A draft of an earlier commit submitted after a later review was posted doesn't take that
+    // review's place as the latest; nor does a review of another commit after the latest posted
+    // one give way to it.
+    const late = c('late', { body: `Fine.${signed(one, 'drafted')}`, at: 80, review: 'COMMENTED' });
+    const after = c('after', { body: `The agent's review asks for changes: #5${signed(one, 'submitted')}`, at: 75, review: 'CHANGES_REQUESTED' });
+    expect([...asksFor([late, after, ...thread.slice(1, 3)], { ...jev, late: 0.02, after: 0.9 })]).toEqual(['after', 'asks-3', 'finding-3']);
   });
 
   it('shows a comment as plain text on one line', () => {
