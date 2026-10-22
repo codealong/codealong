@@ -2,9 +2,9 @@
 // window has none of its own, so the strip along the top of the card is one. It drags the window,
 // its first line starts clear of the window's buttons (macOS 26 puts them 9 to 69 points in) and
 // is centered on them (16 down), at actual size and at a zoom, which the window's buttons don't
-// take; and narrow, what it says and its buttons stay beside the window's buttons, its buttons
-// wrapping where they must rather than run past its end, their first line level with the
-// window's. With a PR shown its card's strip is one too (the second run). The window's buttons
+// take; and narrow, what it says and its buttons stay beside the window's buttons, on their one
+// line level with the window's, what it hasn't room for in its ⋯ menu rather than run past its
+// end. With a PR shown its card's strip is one too (the second run). The window's buttons
 // themselves are native, so not here.
 //   PREVIEW_WAIT=60000 scripts/preview.sh waiting '' scripts/preview/waiting-titlebar-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_INIT=scripts/preview/waiting-review-init.js scripts/preview.sh waiting '' scripts/preview/waiting-titlebar-check.js

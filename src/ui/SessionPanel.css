@@ -95,12 +95,13 @@
   min-width: 40px;
   --oneline-room: calc(100cqw + 12px);
 }
-/* Where the strip is too short for them (the waiting window at its narrowest, a PR's five), they
-   wrap rather than run past its end, the last line to the right. */
+/* One line, at the strip's end. Where the strip is too short for them all (a session's panel, the
+   waiting window at its narrowest), the ones it hasn't room for are in its ⋯ menu instead, from
+   the last, as SessionPanel.tsx `fitFor` measures it. */
 .ca-hotkeys {
+  position: relative;
   display: flex;
   flex: 0 1 auto;
-  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
   gap: 1px;
@@ -156,16 +157,24 @@
   position: absolute;
   visibility: hidden;
 }
-/* Short of room, the buttons draw closer, as the notch's always are, so the strip keeps to one
-   line at the widths a session's panel usually has. */
+/* An action in ⋯, and ⋯ while nothing is: laid out all the same, unseen and out of the line, so
+   they're measured whether they show or not. At the line's end, reaching back over it, where
+   nothing can scroll to them. */
+.ca-hotkey.is-folded {
+  position: absolute;
+  right: 0;
+  visibility: hidden;
+}
+/* Short of room, the buttons draw closer, as the notch's always are, so they all fit at the widths
+   a session's panel usually has, before any go into ⋯. */
 @container queuestrip (max-width: 600px) {
   .ca-hotkey {
     gap: 3px;
     padding: 0 3px;
   }
 }
-/* Closer still where the strip is about as narrow as one line gets, so it stays one line, with
-   room left at its start to say something. */
+/* Closer still where the strip is narrower, so fewer go into ⋯, with room left at its start to say
+   something. */
 @container queuestrip (max-width: 520px) {
   .ca-hotkey {
     gap: 2px;
@@ -183,8 +192,8 @@
   background: var(--line);
 }
 /* Linux says its keys in words (Ctrl+Alt+W, platform.ts), which take half again the room macOS's
-   signs do, so there they draw tighter, and the strip keeps to one line at the width a session's
-   panel has in the main window. */
+   signs do, so there they draw tighter, and as many fit at the width a session's panel has in the
+   main window. */
 .is-linux .ca-hotkey kbd {
   padding: 0 2px;
   letter-spacing: -0.02em;
@@ -194,10 +203,7 @@
     padding: 0 1px;
   }
 }
-/* In the notch the buttons are one line at any width the session has. */
-.ca-notch-card .ca-hotkeys {
-  flex-wrap: nowrap;
-}
+/* The notch's buttons draw closer at any width. */
 .ca-notch-card .ca-hotkey {
   gap: 3px;
   padding: 0 3px;
@@ -207,9 +213,8 @@
    centered on them. The window's buttons don't zoom with the card, so these lengths are divided
    by its zoom (zoom.ts `cardZoom`), which multiplies them back: the note starts 80 points in,
    after the strip's padding and gap (20px), and 11px is half a hotkey's height, which the spacer
-   has so the line does too. Where the buttons wrap (the window at its narrowest), their first
-   line is the one level with the window's buttons, and the note with it, 4px down for the 22px
-   line its 14px are centered on. What the note shows under the pointer starts where it does, so
+   has so the line does too, and the note level with them, 4px down for the 22px line its 14px are
+   centered on. What the note shows under the pointer starts where it does, so
    it has that much less of the strip's width. */
 .ca-reply-queue.is-titlebar {
   align-items: flex-start;

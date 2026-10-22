@@ -728,7 +728,8 @@ background job where the session is one; the conversation stays, to go on with l
 and Next (⌘]). One that doesn't apply to the session shown is dimmed in its place. Ahead of them,
 for a PR's primary session once the PR is ready to merge, is Merge and done (⇧⌘M), whose words and
 key show where the strip has room for them and its icon always, so the rest stay where they
-were. Clicking a
+were. The buttons keep to one line: where the strip hasn't room for them all, the last of them
+are in a ⋯ menu at their end instead, each with its key, which works as ever. Clicking a
 session puts the cursor in its box; ⌥↑ ⌥↓ from there move along with the cursor in the next one's
 box, the arrows on the list leave the keys with the list, and Escape in the box gives them back.
 

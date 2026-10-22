@@ -24,6 +24,7 @@
 /* The strip a session's panel has over its box, here at the panel's start, wrapping where it's
    narrow. */
 .ca-pick .ca-hotkeys.ca-pick-keys {
+  flex-wrap: wrap;
   justify-content: flex-start;
   margin: 0 -5px;
 }

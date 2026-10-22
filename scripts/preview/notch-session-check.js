@@ -152,7 +152,7 @@
     })
     .then(function () {
       check('⌥↓ steps along the bar, to the ones running too', true);
-      var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
+      var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey:not(.is-more)'), function (b) { return b.textContent; });
       check('the strip has the common actions with their keys', labels.join('|') === 'Seen⌘E|Done⇧⌘E|Snooze⌃⌘1–4|' + labels[3] + '|Archive⌃⌘A|Back⌃-|Next⌘]|esc' && /⌃⌘W$/.test(labels[3]), labels.join('|'));
       // Nothing to mark seen on one that runs: ⌘E goes on as ⌘] does.
       key({ key: 'e', metaKey: true });

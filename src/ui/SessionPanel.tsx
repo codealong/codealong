@@ -15,7 +15,9 @@
 // Sessions, the notch, the waiting window) a strip above the header has what's commonly done to
 // a session as buttons that say their keys: mark seen, mark done, snooze, close its terminal,
 // archive, back and next (`Hotkeys`), with Merge and done… ahead of them for a PR's primary
-// session once the PR is ready to merge. At its left it says how the last one went, on one line; what
+// session once the PR is ready to merge. They keep to one line: the ones it hasn't room for, from
+// the last, are in a ⋯ menu at their end instead (`fitFor`), with their keys, which work as ever.
+// At its left it says how the last one went, on one line; what
 // the box has to say is said in the box's own foot, beside where you write (SessionReply.tsx
 // `BoxSays`). The keys it says are read from where they're kept: a session's own from
 // menus.ts `CHORDS` and snooze.ts `SNOOZE_CHORDS`, the ones for getting about from queue.ts
@@ -25,7 +27,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { runCommand } from '../api';
-import { below, showContextMenu, type MenuGroup, type MenuSpec } from '../contextMenu';
+import { below, showContextMenu, type MenuAction, type MenuGroup, type MenuSpec } from '../contextMenu';
 import { shortOf } from '../devices';
 import { seenable } from '../lanes';
 import { CHORDS, chordSigns, doneTitle, type SessionActions } from '../menus';
@@ -133,11 +135,11 @@ export function queueSigns(action: QueueAction): string[] {
 
 /** A button on the strip that says its key. One that doesn't apply to the session shown stays in
  *  its place, dimmed, so the strip holds still from one session to the next. One there only at
- *  times says as much of itself as the strip has `room` for (`roomFor`), its icon always, so its
- *  coming never wraps a strip that fits without it. */
-export function Hotkey({ label, icon, keys, title, run, room }: { label?: string; icon?: string; keys?: string; title: string; run: ((el: HTMLElement) => void) | undefined; room?: Room }) {
+ *  times says as much of itself as the strip has `room` for (`fitFor`), its icon always, so its
+ *  coming never moves a strip that fits without it. */
+export function Hotkey({ label, icon, keys, title, run, room, className }: { label?: string; icon?: string; keys?: string; title: string; run: ((el: HTMLElement) => void) | undefined; room?: Room; className?: string }) {
   return (
-    <button type="button" className={cx('ca-hotkey', room && 'is-roomy', room && room !== 'all' && 'is-wordless', room === 'icon' && 'is-keyless')} title={title} aria-label={label && !room ? undefined : title} disabled={!run} onClick={(e) => run?.(e.currentTarget)}>
+    <button type="button" className={cx('ca-hotkey', room && 'is-roomy', room && room !== 'all' && 'is-wordless', room === 'icon' && 'is-keyless', className)} title={title} aria-label={label && !room ? undefined : title} disabled={!run} onClick={(e) => run?.(e.currentTarget)}>
       {icon && <Icon name={icon} size={12} />}
       {label && <span>{label}</span>}
       {keys && <kbd>{keysSaid(keys)}</kbd>}
@@ -145,62 +147,128 @@ export function Hotkey({ label, icon, keys, title, run, room }: { label?: string
   );
 }
 
+/** One of what's commonly done on the strip: a `Hotkey` where the strip has room for it, and an
+ *  item of its ⋯ menu where it hasn't (`fitFor`), which shows the same key beside it. */
+export interface StripAction {
+  label: string;
+  /** Its chord, as menus.ts keeps it: the button says it, and the ⋯ menu shows it. */
+  chord?: string;
+  /** What the button says in its place, for several chords: Snooze's ⌃⌘1–4. */
+  keys?: string;
+  icon?: string;
+  title: string;
+  /** None where it doesn't apply to what's shown. */
+  run?: () => void;
+  /** The menu it drops instead (Snooze's times), which is a submenu of ⋯. */
+  menu?: MenuSpec;
+  /** It's there only at times (Merge and done…), and gives up its words and key before any of the
+   *  rest go into ⋯, so its coming moves nothing else (`Room`). */
+  roomy?: boolean;
+}
+
+/** An action that's in the strip's ⋯ menu, as it is there. */
+function itemOf(action: StripAction): MenuAction | MenuGroup {
+  if (action.menu) return { label: action.label, items: action.menu };
+  const run = action.run;
+  return { label: action.label, run: () => run?.(), enabled: !!run, ...(action.chord ? { accelerator: action.chord } : {}) };
+}
+
+/** Drops a menu from the button clicked. One that didn't pop up leaves nothing half done, and the
+ *  keys for what's in it still work. */
+function drop(menu: MenuSpec): (el: HTMLElement) => void {
+  return (el) => void showContextMenu(menu, below(el)).catch(() => {});
+}
+
 /** How much of a button that's there only at times the strip has room for: its words and key, its
  *  key alone, or its icon alone. */
 export type Room = 'all' | 'key' | 'icon';
 
-/** As much of the strip's button that's there only at times (`Hotkey` `room`) as fits on one line
- *  beside the rest, with the room kept at the strip's start for what it says. Measured, not read
- *  off the strip's width: what's beside it differs from window to window (the notch's and the
- *  waiting window's Back and ×, a panel's Next alone) and Linux says its keys in words. Its words
- *  and key are measured whether they show or not (SessionPanel.css), so what it finds doesn't
- *  depend on what it found before. */
-function roomFor(strip: HTMLElement): Room {
+/** How the strip's actions fit on its one line beside what it says: how much the one there only at
+ *  times shows, and how many of them, from the last, are in its ⋯ menu instead. */
+interface Fit {
+  room: Room;
+  over: number;
+}
+const FITS: Fit = { room: 'all', over: 0 };
+
+/** A computed length in pixels, or none. */
+const px = (value: string) => parseFloat(value) || 0;
+
+/** As much of the strip's actions as fits on one line beside the rest (back, next, ×), with the room
+ *  kept at the strip's start for what it says: the one there only at times gives up its words, then
+ *  its key, and then the actions go into ⋯ from the last, as few as will do, it saying as much
+ *  again as the room they leave has for. Measured, not read off the strip's width:
+ *  what's beside them differs from window to window (the notch's and the waiting window's Back and
+ *  ×, a panel's Next alone) and Linux says its keys in words. Whatever doesn't show is laid out all
+ *  the same, out of the line and unseen (SessionPanel.css), ⋯ too, so what it finds doesn't depend
+ *  on what it found before. */
+function fitFor(strip: HTMLElement): Fit {
   const keys = strip.querySelector<HTMLElement>('.ca-hotkeys');
-  const button = keys?.querySelector<HTMLElement>('.ca-hotkey.is-roomy');
-  if (!keys || !button) return 'all';
+  if (!keys) return FITS;
   // Rects are drawn at a card's zoom, lengths in the element's own CSS pixels (zoom.ts).
   const scale = scaleOf(strip);
-  const px = (value: string) => parseFloat(value) || 0;
   const wide = (el: Element) => el.getBoundingClientRect().width / scale;
+  const outer = (el: Element) => {
+    const style = getComputedStyle(el);
+    return wide(el) + px(style.marginLeft) + px(style.marginRight);
+  };
   // From where what it says starts (after the title bar's room for the window's buttons, say),
-  // less the least kept for that, to the end of the strip's own box: the buttons' may run past
-  // it where they never wrap (the notch's).
+  // less the least kept for that, to the end of the strip's own box.
   const own = getComputedStyle(strip);
   const note = strip.querySelector('.ca-reply-queue-note');
   const end = strip.getBoundingClientRect().right - (px(own.paddingRight) + px(own.borderRightWidth)) * scale;
   const start = note ? note.getBoundingClientRect().left : strip.getBoundingClientRect().left + (px(own.paddingLeft) + px(own.borderLeftWidth)) * scale;
   const room = (end - start) / scale - (note ? px(getComputedStyle(note).minWidth) + px(own.columnGap) : 0);
   const items = [...keys.children];
-  const taken = items.reduce((sum, el) => {
-    const style = getComputedStyle(el);
-    return sum + wide(el) + px(style.marginLeft) + px(style.marginRight);
-  }, px(getComputedStyle(keys).columnGap) * (items.length - 1));
+  const more = keys.querySelector(':scope > .is-more');
+  const folding = items.filter((el) => el.classList.contains('is-foldable'));
+  const staying = items.filter((el) => el !== more && !folding.includes(el));
+  // The one there only at times, by how much of it shows: its words and key measured whether
+  // they show or not.
+  const roomy = keys.querySelector(':scope > .is-roomy');
+  const sizes = roomy && sizesOf(roomy, outer(roomy), wide);
+  const width = (el: Element, at: Room) => (el === roomy && sizes ? sizes[at] : outer(el));
+  const line = (at: Room, over: number) => {
+    const shown = [...staying, ...folding.slice(0, folding.length - over), ...(over && more ? [more] : [])];
+    return shown.reduce((sum, el) => sum + width(el, at), px(getComputedStyle(keys).columnGap) * (shown.length - 1));
+  };
+  for (let over = 0; over <= folding.length; over += 1) {
+    const at = (['all', 'key', 'icon'] as const).find((r) => line(r, over) <= room);
+    if (at) return { room: at, over };
+  }
+  return { room: 'icon', over: folding.length };
+}
+
+/** A button there only at times, as wide as each `Room` has it. */
+function sizesOf(button: Element, whole: number, wide: (el: Element) => number): Record<Room, number> {
   const gap = px(getComputedStyle(button).columnGap);
   const part = (el: Element | null) => (el ? { width: wide(el) + gap, shown: getComputedStyle(el).position !== 'absolute' } : { width: 0, shown: false });
   const words = part(button.querySelector(':scope > span'));
   const key = part(button.querySelector(':scope > kbd'));
-  const bare = taken - (words.shown ? words.width : 0) - (key.shown ? key.width : 0);
-  if (bare + words.width + key.width <= room) return 'all';
-  return bare + key.width <= room ? 'key' : 'icon';
+  const bare = whole - (words.shown ? words.width : 0) - (key.shown ? key.width : 0);
+  return { all: bare + words.width + key.width, key: bare + key.width, icon: bare };
 }
 
-/** `roomFor` the strip, again as it or its buttons change size. */
-function useRoom(strip: RefObject<HTMLDivElement | null>, on: boolean): Room {
-  const [room, setRoom] = useState<Room>('all');
+/** `fitFor` the strip, again as it or any of its buttons change size: one in ⋯ too, whose words
+ *  change from one session to the next (Close, End job), and again when `shape` (the actions it
+ *  has) does. */
+function useFit(strip: RefObject<HTMLDivElement | null>, on: boolean, shape: string): Fit {
+  const [fit, setFit] = useState<Fit>(FITS);
   useLayoutEffect(() => {
     const el = strip.current;
     if (!on || !el) return;
-    const measure = () => setRoom(roomFor(el));
-    // Once now, before the strip is drawn, then as the window or the buttons beside it change.
+    const measure = () => {
+      const next = fitFor(el);
+      setFit((was) => (was.room === next.room && was.over === next.over ? was : next));
+    };
+    // Once now, before the strip is drawn, then as the window or the buttons change.
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
-    const keys = el.querySelector('.ca-hotkeys');
-    if (keys) observer.observe(keys);
+    el.querySelectorAll('.ca-hotkeys, .ca-hotkey').forEach((button) => observer.observe(button));
     return () => observer.disconnect();
-  }, [strip, on]);
-  return room;
+  }, [strip, on, shape]);
+  return fit;
 }
 
 interface QueueStripProps {
@@ -211,9 +279,9 @@ interface QueueStripProps {
   session?: Session;
   actions?: SessionActions;
   onSeen?: () => void;
-  /** What's commonly done to the thing shown, as `Hotkey` buttons, where it isn't a session (a
-   *  PR waiting on your review, PrCard.tsx): in place of the session's five. */
-  buttons?: ReactNode;
+  /** What's commonly done to the thing shown, where it isn't a session (a PR waiting on your
+   *  review, PrCard.tsx): in place of the session's five. */
+  buttons?: StripAction[];
 }
 
 /** Above a session answered in turn: how the one before went, and the way on to the next (⌘]).
@@ -224,7 +292,30 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
   const next = queue?.next;
   const [nextKey, nextToo] = queueSigns('next');
   const stripRef = useRef<HTMLDivElement>(null);
-  const room = useRoom(stripRef, !!hotkeys && !own && !!actions?.mergeDone);
+  const seen = session && seenable(session) ? (onSeen ?? actions?.seen?.run) : undefined;
+  const snooze = actions?.snooze;
+  const close = actions?.close;
+  const done = actions?.done;
+  const archive = actions?.archive;
+  const mergeDone = actions?.mergeDone;
+  const sign = (name: keyof typeof CHORDS) => chordSigns(CHORDS[name] ?? '');
+  const strip: StripAction[] = own ?? [
+    // Only where there's a PR to merge, and first, where its coming and going moves nothing
+    // else: the strip keeps to the right.
+    ...(mergeDone ? [{ label: 'Merge and done', icon: 'merge', chord: CHORDS.mergeDone, roomy: true, title: `${mergeDone.label.replace('…', '')} (${sign('mergeDone')}): it merges once you confirm, and then this session is marked done`, run: () => mergeDone.run() }] : []),
+    {
+      label: 'Seen',
+      chord: CHORDS.seen,
+      title: !seen ? (next && queue?.waiting === false ? `Nothing to mark as seen here: ${sign('seen')} goes on to the next` : 'Nothing to mark as seen here') : next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you',
+      run: seen && (() => seen()),
+    },
+    { label: 'Done', chord: CHORDS.done, title: done && session ? doneTitle(session) : 'It’s archived already', run: done && (() => done.run()) },
+    { label: 'Snooze', keys: snoozeRange(), title: snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed', menu: snooze?.items },
+    // Short, as Done beside it is, so more of the strip shows before any goes into ⋯.
+    { label: close?.label === 'End background job' ? 'End job' : 'Close', chord: CHORDS.close, title: close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close', run: close && (() => close.run()) },
+    { label: archive?.label === 'Unarchive' ? 'Unarchive' : 'Archive', chord: CHORDS.archive, title: archive?.label ?? 'Archive', run: archive && (() => archive.run()) },
+  ];
+  const fit = useFit(stripRef, !!hotkeys, strip.map((action) => action.label).join('|'));
   if (!hotkeys) {
     if (!notice && !next) return null;
     return (
@@ -238,40 +329,15 @@ export function QueueStrip({ queue, notice, hotkeys, session, actions, onSeen, b
       </div>
     );
   }
-  const seen = session && seenable(session) ? (onSeen ?? actions?.seen?.run) : undefined;
-  const snooze = actions?.snooze;
-  const close = actions?.close;
-  const done = actions?.done;
-  const archive = actions?.archive;
-  const mergeDone = actions?.mergeDone;
-  const sign = (name: keyof typeof CHORDS) => chordSigns(CHORDS[name] ?? '');
+  const shown = strip.length - fit.over;
+  const over = strip.slice(shown);
   const gap = <span className="ca-hotkeys-gap" aria-hidden="true" />;
   const buttons: ReactNode = (
     <div className="ca-hotkeys" role="toolbar" aria-label={own ? 'What’s commonly done to this PR' : 'What’s commonly done to this session'}>
-      {own ?? (
-        <>
-          {/* Only where there's a PR to merge, and first, where its coming and going moves
-              nothing else: the strip keeps to the right. */}
-          {mergeDone && <Hotkey label="Merge and done" icon="merge" keys={sign('mergeDone')} room={room} title={`${mergeDone.label.replace('…', '')} (${sign('mergeDone')}): it merges once you confirm, and then this session is marked done`} run={() => mergeDone.run()} />}
-          <Hotkey
-            label="Seen"
-            keys={sign('seen')}
-            title={!seen ? (next && queue?.waiting === false ? `Nothing to mark as seen here: ${sign('seen')} goes on to the next` : 'Nothing to mark as seen here') : next && queue?.waiting !== false ? 'Mark as seen and go on to the next' : 'Mark as seen: it goes idle and leaves what waits on you'}
-            run={seen && (() => seen())}
-          />
-          <Hotkey
-            label="Done"
-            keys={sign('done')}
-            title={done && session ? doneTitle(session) : 'It’s archived already'}
-            run={done && (() => done.run())}
-          />
-          {/* A menu that didn't pop up leaves nothing half done, and the snooze keys beside it still work. */}
-          <Hotkey label="Snooze" keys={snoozeRange()} title={snooze ? `Snooze: it waits apart until its time comes. ${snoozeKeys(snooze)}` : 'It can’t be snoozed'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
-          {/* Short, as Done beside it is: the notch's strip keeps to one line at its narrowest. */}
-          <Hotkey label={close?.label === 'End background job' ? 'End job' : 'Close'} keys={sign('close')} title={close ? `${close.label}: the conversation stays, to go on with later` : 'It has no terminal of its own to close'} run={close && (() => close.run())} />
-          <Hotkey label={archive?.label === 'Unarchive' ? 'Unarchive' : 'Archive'} keys={sign('archive')} title={archive?.label ?? 'Archive'} run={archive && (() => archive.run())} />
-        </>
-      )}
+      {strip.map((action, i) => (
+        <Hotkey key={action.label} label={action.label} icon={action.icon} keys={action.keys ?? (action.chord && chordSigns(action.chord))} title={action.title} run={action.menu ? drop(action.menu) : action.run} room={action.roomy ? fit.room : undefined} className={cx('is-foldable', i >= shown && 'is-folded')} />
+      ))}
+      <Hotkey icon="dots" title={over.length ? `More: ${over.map((action) => action.label).join(', ')}` : 'More'} run={over.length ? drop(over.map(itemOf)) : undefined} className={cx('is-more', !over.length && 'is-folded')} />
       {gap}
       {hotkeys.onBack !== undefined && <Hotkey label="Back" keys={queueSigns('historyBack')[0]} title={`Back to the session you looked at before; ${queueSigns('historyForward')[0]} goes forward again`} run={hotkeys.onBack ?? undefined} />}
       <Hotkey label="Next" keys={nextKey} title={next ? `Next that waits on you: ${next.title}. ${nextToo} goes on too, and ${queueSigns('back')[0]} back` : 'Nothing else waits on you'} run={next && queue ? () => queue.onNext() : undefined} />

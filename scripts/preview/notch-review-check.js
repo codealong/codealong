@@ -96,7 +96,7 @@
       check('the cursor is in its box', document.activeElement && document.activeElement.tagName === 'TEXTAREA' && !!document.activeElement.closest('.ca-prreview-box'));
       check('the reviews pill is marked', reviewsPill().classList.contains('is-peeked'));
       check('the strip counts nothing of what’s left', !q('.ca-reply-queue .ca-chip'), (q('.ca-reply-queue') || {}).textContent);
-      var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey'), function (b) { return b.textContent; });
+      var labels = Array.prototype.map.call(document.querySelectorAll('.ca-notch-session .ca-hotkeys .ca-hotkey:not(.is-more)'), function (b) { return b.textContent; });
       check('the strip has the PR’s actions with their keys', labels.join('|') === 'Approve⌘⏎|Comment⌥⌘⏎|Snooze⌃⌘1–4|Review with⌃⌘R|GitHub⌃⌘G|Back⌃-|Next⌘]|esc', labels.join('|'));
       check('the card has the details', !!document.querySelector('.ca-notch-session .ca-prreview-body .ca-insp-sec'));
       key({ key: ']', code: 'BracketRight', metaKey: true });

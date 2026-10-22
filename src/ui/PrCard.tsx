@@ -30,9 +30,9 @@
 // A window says only what differs: how it reports, how it opens things and shows them in
 // Codealong, what it does once the PR has left, and what it adds (a queue).
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef } from 'react';
 import { openUrl } from '../api';
-import { below, showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
+import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { middleTruncate } from '../format';
 import { useLatest } from '../latest';
 import * as menus from '../menus';
@@ -47,7 +47,7 @@ import { PrBoxView, usePrBox } from './PrBox';
 import { PrDetails, usePrTab } from './PrInspector';
 import type { PrRowItem } from './PrsView';
 import { cx, type PanelBackTo } from './primitives';
-import { Hotkey, QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue } from './SessionPanel';
+import { QueueStrip, snoozeKeys, snoozeRange, type Hotkeys, type Notice, type Queue, type StripAction } from './SessionPanel';
 
 /** What a window does for a PR's actions, less what the card knows for every window. */
 export interface PrWindowCan {
@@ -185,15 +185,13 @@ export function PrCard({ item, now, lanes, usage, reviews, can, outgoing = false
   const notReviewable = pr.mine ? 'GitHub doesn’t let you approve your own PR' : 'It’s closed';
   const snooze = actions.snooze;
   const then = after ? `, and go ${after}` : '';
-  const buttons: ReactNode = (
-    <>
-      <Hotkey label="Approve" keys={sign('approve')} title={actions.approve ? `Approve it, with what’s written on Review as the review’s text${then}` : notReviewable} run={actions.approve && (() => actions.approve?.run())} />
-      <Hotkey label="Comment" keys={sign('comment')} title={actions.comment ? `Comment on it with what’s written on Review${then}` : 'It’s closed'} run={actions.comment && (() => actions.comment?.run())} />
-      <Hotkey label="Snooze" keys={snoozeRange()} title={snooze ? `Snooze the review: it waits apart until its time comes. ${snoozeKeys(snooze)}` : pr.reviewRequested ? 'The review can’t be snoozed' : 'Your review isn’t asked for: there’s nothing to snooze'} run={snooze && ((el) => void showContextMenu(snooze.items, below(el)).catch(() => {}))} />
-      <Hotkey label="Review with" keys={sign('review')} title={actions.review ? `Start Codealong’s review of it on an account${actions.review.items[0] && actions.review.items[0] !== 'separator' && !('items' in actions.review.items[0]) ? `; the key starts it: ${actions.review.items[0].label}` : ''}` : 'No account can start a review here'} run={actions.review && ((el) => void showContextMenu(actions.review?.items ?? [], below(el)).catch(() => {}))} />
-      <Hotkey label="GitHub" keys={sign('github')} title="Open it on GitHub" run={() => actions.github.run()} />
-    </>
-  );
+  const buttons: StripAction[] = [
+    { label: 'Approve', chord: menus.PR_CHORDS.approve, title: actions.approve ? `Approve it, with what’s written on Review as the review’s text${then}` : notReviewable, run: actions.approve && (() => actions.approve?.run()) },
+    { label: 'Comment', chord: menus.PR_CHORDS.comment, title: actions.comment ? `Comment on it with what’s written on Review${then}` : 'It’s closed', run: actions.comment && (() => actions.comment?.run()) },
+    { label: 'Snooze', keys: snoozeRange(), title: snooze ? `Snooze the review: it waits apart until its time comes. ${snoozeKeys(snooze)}` : pr.reviewRequested ? 'The review can’t be snoozed' : 'Your review isn’t asked for: there’s nothing to snooze', menu: snooze?.items },
+    { label: 'Review with', chord: menus.PR_CHORDS.review, title: actions.review ? `Start Codealong’s review of it on an account${actions.review.items[0] && actions.review.items[0] !== 'separator' && !('items' in actions.review.items[0]) ? `; the key starts it: ${actions.review.items[0].label}` : ''}` : 'No account can start a review here', menu: actions.review?.items },
+    { label: 'GitHub', chord: menus.PR_CHORDS.github, title: 'Open it on GitHub', run: () => actions.github.run() },
+  ];
 
   return (
     <div

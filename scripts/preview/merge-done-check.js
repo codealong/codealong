@@ -14,8 +14,8 @@
 // (SessionCard.tsx), the main window's Sessions App.tsx. In Sessions ⇧⌘M works from the session's
 // box too, as ⇧⌘E does. Its keys are the platform's (PREVIEW_PLATFORM=linux: Ctrl+Shift+M).
 // On the strip it says its words, then its key, wherever they fit, from a strip 420 to 1100px
-// wide, the buttons on one line and inside it; in the notch, whose buttons never wrap, only that
-// is checked.
+// wide, the buttons on one line and inside it, the rest going into ⋯ only once it says no more
+// than its icon (strip-fold-check.js has ⋯); in the notch only that is checked.
 //   PREVIEW_WAIT=60000 scripts/preview.sh peek '' scripts/preview/merge-done-check.js
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/merge-done-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_SIZE=1512,720 scripts/preview.sh notch '' scripts/preview/merge-done-check.js
@@ -137,8 +137,8 @@
 
   // Its words, then its key, show wherever the strip has room for them beside the rest and the
   // least it keeps for what it says, and only there: at each width the buttons keep to one line
-  // and inside the strip, and what's left out wouldn't have fit. Too narrow for the rest alone
-  // (the notch's never wrap), they may wrap or run over with it saying no more than its icon.
+  // and inside the strip, and what's left out wouldn't have fit. Too narrow for the rest alone,
+  // the last of them go into ⋯ (strip-fold-check.js), and it says what fits beside what's left.
   var sweep = async function (button) {
     var stripEl = button.closest('.ca-reply-queue.has-keys');
     var noteEl = q('.ca-reply-queue-note', stripEl);
@@ -181,7 +181,7 @@
     await wait(120);
   };
 
-  // In the notch, whose buttons never wrap, only the strip is checked: the rest is the same
+  // In the notch only the strip is checked: the rest is the same
   // card's as the peek's. Its one pill is the session's, so the notch is as narrow as it gets.
   if (notched) {
     (async function () {
