@@ -1,7 +1,8 @@
 // Checks a PR's Reviews tab (PrInspector.tsx, PrReviewers.tsx, prReviews.ts): its tabs are
 // Description, Changes and Reviews, Description holding the author's words alone; Reviews has
-// your review under its own heading, then everyone on the PR once, whoever asked for changes
-// first, each with their verdict and what they wrote, what's still open first. A thread on the
+// your review under its own heading, then everyone on the PR once, whoever has something open
+// first, then whoever wrote or reviewed last, each with their verdict and what they wrote, what's
+// still open first. A thread on the
 // code says its file and line with the lines around it from the diff (a removed line's, numbered
 // as the file was, for one on the old side), and how many replies follow; a resolved one is
 // folded to a line; a click on a comment's head opens it on GitHub. A bot's long report shows cut
@@ -100,7 +101,7 @@
       var yours = q('.ca-prinsp [aria-label="Your review"]');
       check('your review comes first, under its own heading', !!yours && !hidden(yours) && q('.ca-label', yours).textContent === 'Your review' && /No draft review of yours/.test(yours.textContent), yours && yours.textContent.slice(0, 80));
       var order = all('.ca-prrev').map(function (p) { return q('.ca-prrev-who', p).textContent; });
-      check('everyone once, whoever asked for changes first and whoever only wrote last', order.join(' ') === 'ana you ken gwen vercel kai', order.join(' '));
+      check('everyone once, whoever has something open first, then whoever wrote or reviewed last', order.join(' ') === 'ana vercel kai you ken gwen', order.join(' '));
       var heading = q('.ca-prrevs .ca-label').textContent;
       check('the list says what’s still open', heading === 'Reviews and comments · 3 open', heading);
 

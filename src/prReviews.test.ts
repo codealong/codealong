@@ -29,20 +29,39 @@ describe('reviewersOf', () => {
     ],
   };
 
-  it('lists each person once, whoever asked for changes first and whoever only wrote last', () => {
+  it('lists each person once, whoever has something open first, then whoever did anything last', () => {
     const got = reviewersOf(detail, 'author1', new Set());
     expect(got.map((r) => `${r.who}:${r.state ?? (r.requested ? 'asked' : '-')}`)).toEqual([
+      // A thread still open each, the latest first.
       'ana:CHANGES_REQUESTED',
-      // Two who commented: the one with a thread still open first.
       'bo:COMMENTED',
-      'me:COMMENTED',
-      'ken:APPROVED',
-      'gwen:asked',
-      'platform:asked',
-      // Only wrote, the latest first: a bot, the author.
+      // What they last wrote or gave, the latest first: a bot, the author, an approval, you.
       'vercel:-',
       'author1:-',
+      'ken:APPROVED',
+      'me:COMMENTED',
+      // Asked and done nothing yet.
+      'gwen:asked',
+      'platform:asked',
     ]);
+  });
+
+  it('puts an answer above what it answers, whoever wrote it, once nothing is open', () => {
+    // specbook#1293: the reviewer asked for changes, then wrote that all was fixed; the author
+    // asked for the approval after that.
+    const got = reviewersOf(
+      {
+        reviews: [review('gordon', 'CHANGES_REQUESTED', 20)],
+        requested: ['gordon'],
+        comments: [comment('ask-approval', 'me', 40), comment('fixed', 'gordon', 30), comment('asks', 'gordon', 20, { review: 'CHANGES_REQUESTED' }), comment('finding', 'gordon', 19)],
+      },
+      'me',
+      new Set(),
+    );
+    expect(got.map((r) => r.who)).toEqual(['me', 'gordon']);
+    expect(got[1].said.map((c) => c.id)).toEqual(['fixed', 'asks', 'finding']);
+    // While the request still stands, the reviewer it's from comes first.
+    expect(reviewersOf({ reviews: [review('gordon', 'CHANGES_REQUESTED', 20)], requested: [], comments: [comment('ask-approval', 'me', 40), comment('asks', 'gordon', 20)] }, 'me', new Set(['asks'])).map((r) => r.who)).toEqual(['gordon', 'me']);
   });
 
   it('puts a verdict with its words, what’s still open first', () => {

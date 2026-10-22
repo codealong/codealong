@@ -1,8 +1,8 @@
 // What everyone said of a PR, by who said it, as its Reviews tab lists it under your own review
-// (ui/PrReviewers.tsx): each person once, with where their review stands (their last approval or
-// request for changes, else a comment), whether it's still asked of them, and everything they
-// wrote on it, the conversation's comments, their reviews' text and the threads they began on
-// the code alike. A verdict and its words are one entry, where GitHub's data has them apart
+// (ui/PrReviewers.tsx): each person once, whoever spoke last first, with where their review stands
+// (their last approval or request for changes, else a comment), whether it's still asked of them,
+// and everything they wrote on it, the conversation's comments, their reviews' text and the
+// threads they began on the code alike. A verdict and its words are one entry, where GitHub's data has them apart
 // (github.rs `parse_detail`: `reviews` holds each author's standing state, `comments` the words).
 
 import type { PrComment, PrDetail } from './types';
@@ -31,13 +31,14 @@ export interface Reviewer {
 export const REVIEW_WORD: Record<string, string> = { APPROVED: 'Approved', CHANGES_REQUESTED: 'Requested changes', COMMENTED: 'Commented', DISMISSED: 'Dismissed' };
 
 /** A comment still to be dealt with: a thread on the code nobody resolved, or one Jev says asks
- *  for a change (prStatus.ts `asksFor`). */
+ *  for a change that still stands (prStatus.ts `asksFor`). */
 export function isOpen(c: PrComment, asks: Set<string>): boolean {
   return asks.has(c.id) || (!!c.path && !c.resolved);
 }
 
-/** Who comes first: whoever asked for changes, then whoever commented, approved or was dismissed,
- *  then whoever is asked and hasn't reviewed, then whoever only wrote (the author, bots). */
+/** Who comes first where nothing they did tells: whoever asked for changes, then whoever
+ *  commented, approved or was dismissed, then whoever is asked and hasn't reviewed, then whoever
+ *  only wrote (the author, bots). */
 function rank(r: Reviewer): number {
   if (r.state) return ['CHANGES_REQUESTED', 'COMMENTED', 'APPROVED', 'DISMISSED'].indexOf(r.state) + 1 || 4;
   return r.requested ? 5 : 6;
@@ -49,8 +50,10 @@ function lastAt(r: Reviewer): number {
 }
 
 /**
- * Everyone on a PR, each once: by `rank`, then the one with more still open, then the latest.
- * `author` is the PR's author's login, `asks` the comments Jev says ask for a change.
+ * Everyone on a PR, each once: whoever has something still open first, then whoever did anything
+ * last, as each one's comments go, so an answer reads as coming after what it answers whoever
+ * wrote it; then by `rank`. `author` is the PR's author's login, `asks` the comments Jev says ask
+ * for a change.
  */
 export function reviewersOf(detail: Pick<PrDetail, 'reviews' | 'requested' | 'comments'>, author: string | null, asks: Set<string>): Reviewer[] {
   const by = new Map<string, Reviewer>();
@@ -78,7 +81,7 @@ export function reviewersOf(detail: Pick<PrDetail, 'reviews' | 'requested' | 'co
     r.said = [...r.said.filter((c) => isOpen(c, asks)), ...r.said.filter((c) => !isOpen(c, asks))];
     r.open = r.said.filter((c) => isOpen(c, asks)).length;
   }
-  return all.sort((a, b) => rank(a) - rank(b) || b.open - a.open || lastAt(b) - lastAt(a) || a.who.localeCompare(b.who));
+  return all.sort((a, b) => Number(b.open > 0) - Number(a.open > 0) || lastAt(b) - lastAt(a) || rank(a) - rank(b) || a.who.localeCompare(b.who));
 }
 
 /** What's still open from others than you: what the Reviews tab counts when you've no draft. */

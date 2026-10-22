@@ -1164,14 +1164,17 @@ typed, `-word` leaving some out, then lists the files whose changes mention the 
 marked in the paths and diffs; ↑ ↓ and ⏎ open one, Escape clears it, ⌘F in the PR's panel or card
 comes back to it); and Reviews, your review first (see *Your review*), then everyone's.
 
-Everyone on the PR is listed once under Reviews and comments: whoever asked for changes first, then
-whoever commented, approved or was dismissed, then whoever is asked to review and hasn't, then
-whoever only wrote (its author, bots). Each says where their review stands (their last approval or
-request for changes, else a comment), Asked again when their review was asked for since, and under
-it everything they wrote: their reviews' text, the threads they began on the code, and their
-comments on the conversation. What's still open comes first, marked down its left edge: a thread
-nobody resolved, and, with `[jev] pull_requests`, a comment asking for a change or an answer. A
-thread says its file and line (`line 12 before` for one on the file as it was, a line the PR
+Everyone on the PR is listed once under Reviews and comments: whoever has something still open
+first, then whoever wrote or reviewed last, so an answer shows above what it answers whoever wrote
+it, then whoever is asked to review and hasn't yet. Each says where their review stands (their last
+approval or request for changes, else a comment), Asked again when their review was asked for
+since, and under it everything they wrote, the newest first: their reviews' text, the threads they
+began on the code, and their comments on the conversation. What's still open comes first, marked
+down its left edge: a thread nobody resolved, and, with `[jev] pull_requests`, a comment asking for
+a change or an answer. An agent's review that Codealong posted or submitted for someone stops
+counting once their agent has reviewed a later commit: a review of new commits starts with which
+of the earlier findings are fixed, so the latest is the agent's whole word, even when it's only a
+comment and the approval is left to its person. A thread says its file and line (`line 12 before` for one on the file as it was, a line the PR
 removes say, numbered so), has the lines around it from the PR's diff while it's open, and says
 how many replies follow; a resolved one is folded to a line. A click on any comment's head opens it
 on GitHub, where its replies are. Three show for each person, besides what's open, until Show more,

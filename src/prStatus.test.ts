@@ -189,6 +189,32 @@ describe('review comments', () => {
     expect([...asksFor(all, { a: 0.9, b: 0.4, mine: 0.99, done: 0.99 })]).toEqual(['a']);
   });
 
+  it('keeps only the asks of the commit an agent’s latest review is of', () => {
+    // specbook#1293, newest first: two passes asked for changes (the review posted as a comment,
+    // then a request for changes linking to it), each followed by one at the next commit that
+    // found them fixed, posted as a comment only.
+    const pass = (commit: string) => `\n\n<sub>An agent's review (Codex) of ${commit.slice(0, 7)}, posted by Codealong.</sub>\n<!-- codealong-review o/r#7 ${commit} -->`;
+    const [one, two, three, four] = ['6a00420be3', 'd07730f309', 'c2a5d6b9f7', 'b4908ef58e'];
+    const thread = [
+      c('fixed-4', { body: `All earlier findings are fixed.${pass(four)}`, at: 70 }),
+      c('asks-3', { body: `The agent's review asks for changes: #3${pass(three)}`, at: 61, review: 'CHANGES_REQUESTED' }),
+      c('finding-3', { body: `One more issue.${pass(three)}`, at: 60 }),
+      c('fixed-2', { body: `Both earlier findings are fixed.${pass(two)}`, at: 40 }),
+      c('asks-1', { body: `The agent's review asks for changes: #1${pass(one)}`, at: 21, review: 'CHANGES_REQUESTED' }),
+      c('finding-1', { body: `Both findings remain.${pass(one)}`, at: 20 }),
+      // Someone's own words, and another account's agent, stand whatever comes after.
+      c('by-hand', { body: 'Please rename it.', at: 10 }),
+      c('bo-finding', { author: 'bo', body: `A finding.${pass(one)}`, at: 15 }),
+    ];
+    const jev = { 'fixed-4': 0.02, 'asks-3': 0.88, 'finding-3': 0.98, 'fixed-2': 0.02, 'asks-1': 0.86, 'finding-1': 0.99, 'by-hand': 0.9, 'bo-finding': 0.9 };
+    expect([...asksFor(thread, jev)]).toEqual(['by-hand', 'bo-finding']);
+    // Before the last pass, the one before it stands, its review and the request linking to it.
+    expect([...asksFor(thread.slice(1), jev)]).toEqual(['asks-3', 'finding-3', 'by-hand', 'bo-finding']);
+    // A draft that took in two rounds is of both their commits.
+    const draft = c('draft', { body: `Round one.${pass(three)}\n\n---\n\nRound two.${pass(four)}`, at: 50, review: 'CHANGES_REQUESTED' });
+    expect([...asksFor([thread[0], draft], { ...jev, draft: 0.9 })]).toEqual(['draft']);
+  });
+
   it('shows a comment as plain text on one line', () => {
     expect(commentPreview('**Please** add a [test](http://x)\n\n```ts\ncode\n```')).toBe('Please add a test [code]');
     expect(commentPreview('a'.repeat(300), 10)).toBe('aaaaaaaaa…');

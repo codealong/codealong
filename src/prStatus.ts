@@ -403,9 +403,38 @@ export function commentsToAsk(comments: PrComment[]): PrComment[] {
   return comments.filter((c) => !c.mine && !c.resolved);
 }
 
-/** The comments that ask for a change, by what Jev said. */
+/** Codealong's hidden mark on an agent's review it posted or submitted, at a line's start, naming
+ *  the PR and the commit the review was of (autoreview.rs `marker`, `draft_mark`). */
+const REVIEW_MARK = /^[ \t]*<!-- codealong-review \S+ ([0-9a-f]{7,40}) -->/gm;
+
+/** The commits a comment says it's an agent's review of, by Codealong's marks: none for anything
+ *  else, and more than one for a draft that took in two rounds. */
+function reviewedCommits(body: string): string[] {
+  return [...body.matchAll(REVIEW_MARK)].map((m) => m[1]);
+}
+
+/**
+ * The comments that ask for a change, by what Jev said, and still stand. Of the agent's reviews
+ * Codealong posted or submitted from one account, only those of the commit its latest is of
+ * stand: a review of a new commit starts with which of the earlier findings are fixed
+ * (autoreview.rs `again_prompt`), so the latest is the agent's whole word. A clean pass is often
+ * only a comment, the approval being its person's to give, and the earlier passes' requests kept
+ * counting as open after it found them fixed (specbook#1293, 2026-10-22). Everything else stands
+ * until it's resolved: what someone wrote later can't be told for a new pass.
+ */
 export function asksFor(comments: PrComment[], asks: Record<string, number>): Set<string> {
-  return new Set(commentsToAsk(comments).filter((c) => (asks[c.id] ?? 0) >= ASKS_AT).map((c) => c.id));
+  const latest = new Map<string, { at: number; commits: string[] }>();
+  for (const c of comments) {
+    const commits = reviewedCommits(c.body);
+    const at = c.at ?? 0;
+    if (commits.length > 0 && at >= (latest.get(c.author)?.at ?? 0)) latest.set(c.author, { at, commits });
+  }
+  const stands = (c: PrComment) => {
+    const commits = reviewedCommits(c.body);
+    const last = latest.get(c.author)?.commits ?? [];
+    return commits.length === 0 || commits.some((x) => last.includes(x));
+  };
+  return new Set(commentsToAsk(comments).filter((c) => (asks[c.id] ?? 0) >= ASKS_AT && stands(c)).map((c) => c.id));
 }
 
 /** The HTML tags people and bots write into GitHub comments, which GitHub draws and the Markdown
