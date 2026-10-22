@@ -960,15 +960,26 @@ export function App() {
   const pressRow = (key: string, how: SelectHow) => {
     if (how === 'one' && drill?.from === key) setDrill(null);
   };
+  // The Schedules view's schedules (the project's, as the find narrows them), the one selected (the
+  // first, until one is picked), and the session selected under it while it's still listed there.
+  const projectSchedules = useMemo(() => schedulesIn(board?.schedules ?? [], board?.lanes ?? [], current, ''), [board?.schedules, board?.lanes, current]);
+  const shownSchedules = useMemo(() => schedulesIn(projectSchedules, board?.lanes ?? [], ALL_PROJECTS, query), [projectSchedules, board?.lanes, query]);
+  const selectedSchedule: ScheduleItem | null = shownSchedules.find((x) => x.id === scheduleId) ?? shownSchedules[0] ?? null;
+  const scheduleSessionShown = selectedSchedule && scheduleSession ? (scheduleSessions(selectedSchedule, allHomes, true).rows.find((p) => p.session.key === scheduleSession) ?? null) : null;
+  // In the Schedules view, that session is what the window's keys act on, as a row selected in a
+  // list is elsewhere (mainKeys.ts): its worktree's shortcuts and a new session's place go by it.
+  const scheduleRow = view === 'schedules' && scheduleSessionShown ? sessionItemOf(scheduleSessionShown) : null;
+
   // Where a new session starts: the selected worktree, session or PR's worktree; for a PR with
   // no worktree on this Mac, its repo's main checkout.
   const startLaneId = useMemo(() => {
     if (view === 'canvas') return canvasLane;
+    if (view === 'schedules') return scheduleRow?.lane.id ?? null;
     if (!selected) return null;
     if (selected.lane) return selected.lane.id;
     if (selected.kind !== 'pr') return null;
     return lanes.find((l) => !l.device && l.repoSlug === selected.pr.repoSlug && l.origin === 'main')?.id ?? null;
-  }, [selected, lanes, view, canvasLane]);
+  }, [selected, lanes, view, canvasLane, scheduleRow?.lane.id]);
 
   useEffect(() => {
     const base = WINDOW_PROJECT ? `Codealong · ${current}` : 'Codealong';
@@ -1221,13 +1232,6 @@ export function App() {
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     });
-
-  // The Schedules view's schedules (the project's, as the find narrows them), the one selected (the
-  // first, until one is picked), and the session selected under it while it's still listed there.
-  const projectSchedules = useMemo(() => schedulesIn(board?.schedules ?? [], board?.lanes ?? [], current, ''), [board?.schedules, board?.lanes, current]);
-  const shownSchedules = useMemo(() => schedulesIn(projectSchedules, board?.lanes ?? [], ALL_PROJECTS, query), [projectSchedules, board?.lanes, query]);
-  const selectedSchedule: ScheduleItem | null = shownSchedules.find((x) => x.id === scheduleId) ?? shownSchedules[0] ?? null;
-  const scheduleSessionShown = selectedSchedule && scheduleSession ? (scheduleSessions(selectedSchedule, allHomes, true).rows.find((p) => p.session.key === scheduleSession) ?? null) : null;
 
   // Back and forward through the sessions you looked at (history.ts): the one whose conversation
   // the panel shows, in Sessions, under a schedule, in a PR's or todo's panel, or as the canvas's
@@ -1681,13 +1685,14 @@ export function App() {
     previewFor,
     renaming,
     panelMax,
-    // Under a schedule, the session selected there: Return opens it, and its menu's keys act on it.
-    selected: view === 'schedules' ? (scheduleSessionShown ? sessionItemOf(scheduleSessionShown) : null) : selected,
+    // Under a schedule, the session selected there (`scheduleRow`): Return opens it, and its menu's
+    // and its worktree's keys act on it.
+    selected: view === 'schedules' ? scheduleRow : selected,
     visible,
     pickedRows,
     // The Todo view's keys act on its picks themselves (useTodoView.ts): ⌘A and Esc are the lists' own.
     listPicks: picks.keys ?? (view === 'todo' || view === 'kanban' ? { count: pickedRows.length, step: () => {}, all: pickAllTodos, clear: clearTodoPick, actions: () => null } : null),
-    selectedLane,
+    selectedLane: view === 'schedules' ? (scheduleRow?.lane ?? null) : selectedLane,
     startLaneId,
     terminalAt,
     projects,

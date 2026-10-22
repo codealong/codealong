@@ -30,26 +30,33 @@
   };
   var sessionsUnder = function (name) { return under(name).filter(function (el) { return el.classList.contains('is-nested') && !el.classList.contains('is-fold'); }); };
   var foldUnder = function (name) { return under(name).filter(function (el) { return el.classList.contains('is-fold'); })[0]; };
+  var shownCount = 0;
+  var moreCount = 0;
 
   say('schedules check: waiting for the schedules');
   until(function () { return rows().length >= 5; }, 20000, 'the sample schedules')
     .then(function () {
+      // The board is this Mac's: its sessions may have started others of their own, so the counts
+      // go by what the fold says.
       var listed = sessionsUnder('Morning triage');
-      check('under a schedule, its latest run’s session and the two it started', listed.length === 3, listed.map(function (el) { return el.textContent; }).join(' | '));
+      shownCount = listed.length;
+      check('under a schedule, its latest run’s session and the two it started at least', listed.length >= 3, listed.map(function (el) { return el.textContent; }).join(' | '));
       var fold = foldUnder('Morning triage');
-      check('an earlier run’s, done with, a click away', !!fold && /List 1 more session/.test(fold.textContent), fold ? fold.textContent : 'none');
+      var more = fold && /List (\d+) more sessions?/.exec(fold.textContent);
+      moreCount = more ? Number(more[1]) : 0;
+      check('an earlier run’s, done with, a click away', moreCount >= 1, fold ? fold.textContent : 'none');
       // Return on the button is the button's: it neither changes the schedule nor opens a session.
       var button = fold.querySelector('button');
       button.focus();
       button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
       check('Return on it is its own, not the selected schedule’s', !q('.ca-scheddlg'), 'the dialog opened');
       button.click();
-      return until(function () { return sessionsUnder('Morning triage').length === 4; }, 3000, 'every session listed');
+      return until(function () { return sessionsUnder('Morning triage').length === shownCount + moreCount; }, 3000, 'every session listed');
     })
     .then(function () {
       check('and back to the latest and those at work', /List only the latest run/.test(foldUnder('Morning triage').textContent), foldUnder('Morning triage').textContent);
       foldUnder('Morning triage').querySelector('button').click();
-      return until(function () { return sessionsUnder('Morning triage').length === 3; }, 3000, 'the fold');
+      return until(function () { return sessionsUnder('Morning triage').length === shownCount; }, 3000, 'the fold');
     })
     .then(function () {
       press(sessionsUnder('Morning triage')[1]);
@@ -59,6 +66,12 @@
       var back = q('.ca-panelback');
       check('a session picked there shows its own panel, the way back naming the schedule', back.textContent.indexOf('Morning triage') >= 0 && !q('.ca-schedinsp'), back.textContent);
       check('it’s the one selected, not its schedule', sessionsUnder('Morning triage')[1].classList.contains('is-selected') && !named('Morning triage').classList.contains('is-selected'), named('Morning triage').className);
+      // The window's keys go by it, as by a session selected in a list: ⌘N starts in its worktree.
+      var n = sent('show_quick').length;
+      q('.ca-schedlist').focus();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', code: 'KeyN', metaKey: true, bubbles: true, cancelable: true }));
+      var asked = sent('show_quick').slice(n)[0];
+      check('⌘N starts a session in its worktree', !!asked && !!asked.context && !!asked.context.laneId, JSON.stringify(asked));
       back.click();
       return until(function () { return !!q('.ca-schedinsp'); }, 3000, 'the schedule’s panel again');
     })
