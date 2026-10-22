@@ -168,9 +168,15 @@ export interface StripAction {
 
 /** An action that's in the strip's ⋯ menu, as it is there. */
 function itemOf(action: StripAction): MenuAction | MenuGroup {
-  if (action.menu) return { label: action.label, items: action.menu };
+  const chord = action.chord;
+  if (action.menu) {
+    // A menu's chord runs its first choice (menus.ts `prChorded`: Review with's ⌃⌘R), so that's
+    // where the submenu shows it.
+    const first = chord ? action.menu.find((it): it is MenuAction => it !== 'separator' && !('items' in it)) : undefined;
+    return { label: action.label, items: first && !first.accelerator ? action.menu.map((it) => (it === first ? { ...first, accelerator: chord } : it)) : action.menu };
+  }
   const run = action.run;
-  return { label: action.label, run: () => run?.(), enabled: !!run, ...(action.chord ? { accelerator: action.chord } : {}) };
+  return { label: action.label, run: () => run?.(), enabled: !!run, ...(chord ? { accelerator: chord } : {}) };
 }
 
 /** Drops a menu from the button clicked. One that didn't pop up leaves nothing half done, and the

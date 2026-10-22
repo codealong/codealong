@@ -1,16 +1,17 @@
 // Checks the strip over a session's panel (SessionPanel.tsx `QueueStrip`, `fitFor`) from wide to
 // narrow: its buttons keep to one line and inside it, and the actions it hasn't room for are in
 // its ⋯ menu instead, the last first, ⋯ there only then, and none of them there that would have
-// fit. ⋯ drops a menu of just those, each with its key, Snooze with its times, and picking one
-// does what its button does. What it says keeps room for a word and its ellipsis throughout.
+// fit. ⋯ drops a menu of just those, each with its key, a submenu's on its first choice, which
+// the key runs (Review with's ⌃⌘R), and picking one does what its button does. What it says keeps
+// room for a word and its ellipsis throughout. The third run has a PR's card in the waiting
+// window (PrCard.tsx), whose strip is its own five.
 //   PREVIEW_WAIT=60000 scripts/preview.sh sessions '' scripts/preview/strip-fold-check.js
 //   PREVIEW_WAIT=60000 PREVIEW_PLATFORM=linux scripts/preview.sh sessions '' scripts/preview/strip-fold-check.js
+//   PREVIEW_WAIT=60000 PREVIEW_INIT=scripts/preview/waiting-review-init.js scripts/preview.sh waiting '' scripts/preview/strip-fold-check.js
 (function () {
-  localStorage.setItem('codealong.project', 'All projects');
-  localStorage.setItem('codealong.view', 'sessions');
   localStorage.removeItem('codealong.sessionPanelMax');
 
-  var strip = function () { return q('.ca-sessinsp .ca-reply-queue.has-keys'); };
+  var strip = function () { return q('.ca-sessinsp .ca-reply-queue.has-keys, .ca-waiting .ca-reply-queue.has-keys'); };
   var shows = function (el) { return el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'; };
   var label = function (b) { return (q(':scope > span', b) || {}).textContent || ''; };
   var wide = function (el) { return el.getBoundingClientRect().width; };
@@ -44,7 +45,7 @@
   };
 
   say('strip fold check: waiting for a session’s panel');
-  until(function () { return strip() && q('.ca-hotkey.is-more', strip()); }, 20000, 'no strip with ⋯ over a session’s panel')
+  until(function () { return strip() && q('.ca-hotkey.is-more', strip()); }, 20000, 'no strip with ⋯ over a session or a PR')
     .then(function () { return wait(300); })
     .then(async function () {
       var s = strip();
@@ -75,12 +76,16 @@
       var items = lastMenu();
       var tops = items.map(function (it) { return it.text; });
       check('⋯ drops a menu of what’s in it, in their order', tops.join('|') === folded.map(label).join('|'), tops.join('|') + ' for ' + folded.map(label).join('|'));
-      var chords = (window.__CODEALONG_CHORDS__ || {}).session || {};
-      var keyed = { Seen: chords.seen, Done: chords.done, Close: chords.close, 'End job': chords.close, Archive: chords.archive, Unarchive: chords.archive };
-      var unkeyed = items.filter(function (it) { return keyed[it.text] && !it.accelerator; });
+      // Every action on the strip has a key: a submenu's is on its first choice, which it runs.
+      var unkeyed = items.filter(function (it) {
+        var first = it.items ? it.items.filter(function (x) { return x.text && !x.items; })[0] : it;
+        return !first || !first.accelerator;
+      });
       check('each with its key', unkeyed.length === 0, unkeyed.map(function (it) { return it.text; }).join(', '));
       var snooze = items.filter(function (it) { return it.text === 'Snooze'; })[0];
-      if (snooze) check('Snooze with its times', !!snooze.items && snooze.items.length >= 4, JSON.stringify(snooze.items && snooze.items.map(function (it) { return it.text; })));
+      if (snooze && snooze.items) check('Snooze with its times', snooze.items.length >= 4, JSON.stringify(snooze.items.map(function (it) { return it.text; })));
+      var reviewWith = items.filter(function (it) { return it.text === 'Review with'; })[0];
+      if (reviewWith) check('Review with with its choices', !!reviewWith.items && reviewWith.items.length > 0, JSON.stringify(reviewWith));
       var archive = items.filter(function (it) { return /^(Un)?archive$/i.test(it.text); })[0];
       if (archive && archive.enabled !== false) {
         var asked = calls('archive_session').length;
