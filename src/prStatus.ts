@@ -246,13 +246,15 @@ export interface ReviewMark {
  *  while it only awaits review, for a draft, whose icon says so, or once it's merged or closed. A
  *  worktree's PR (`Pr`) has only its state and its approvals to go by; the board's (`PrItem`)
  *  says what's asked of you. */
-export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'headOid' | 'lastReview' | 'mine' | 'staleApproval'>>): ReviewMark | null {
+export function reviewMark(pr: Pick<PrItem, 'state'> & Partial<Pick<PrItem, 'reviewRequested' | 'requestedBy' | 'snoozedUntil' | 'autoReview' | 'headOid' | 'lastReview' | 'mine' | 'staleApproval' | 'turn'>>): ReviewMark | null {
   if (!isOpen(pr.state) || pr.state === 'draft') return null;
   if (heldForAgent(pr)) {
     const before = approvedBefore(pr);
     return { key: 'agent', tone: 'pending', icon: 'hourglass', title: before ? `${rereviewWords(before)}: it waits on your sign-off once the agent approves them` : 'Codealong’s agent is reviewing it: it waits on your review once that’s done' };
   }
   if (pr.reviewRequested && !pr.snoozedUntil) {
+    // Back with you because its author wrote after you did, though GitHub asks nobody.
+    if (pr.turn?.kind === 'authorReplied') return { key: 'asked', tone: 'attn', icon: 'eye', title: `${pr.turn.who} wrote after your last review or comment: your move` };
     const by = pr.requestedBy ? `, by ${pr.requestedBy}` : '';
     const yours = yourReviewNote(pr);
     const again = yours ? ' again' : '';

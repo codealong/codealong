@@ -80,7 +80,8 @@
 //! or carries the review with posting off (`without_draft`). A PR that waits on your review is held
 //! out of what waits on you until its review is submitted, when it's to be; GitHub then asks
 //! nobody, until commits come after it, when it waits on you again (`asked_again`) and is reviewed
-//! again, as though the author had asked GitHub for your review. An agent that can't
+//! again, as though the author had asked GitHub for your review; so does one whose author wrote
+//! after you did, though GitHub asks nobody. An agent that can't
 //! tell leaves it to you. The PR's box submits it by hand, as the verdict its agent suggests, with
 //! what you wrote before it (`submit_now`, through lib.rs `review_pr`).
 
@@ -93,7 +94,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{support_dir, AccountCfg, Config, ReviewPost, ReviewStart, ReviewSubmit, ReviewsCfg};
 use crate::engine::Handle;
 use crate::github::{LineComment, PendingReview, Verdict};
-use crate::model::{AutoReview, Board, Harness, Lane, LastReviewState, PartState, PrItem, PrState, ReviewPart, ReviewStage, Session, Status};
+use crate::model::{AutoReview, Board, Harness, Lane, LastReviewState, PartState, PrItem, PrState, ReviewPart, ReviewStage, Session, Status, TurnKind};
 use crate::prlinks::pr_key;
 use crate::start::{Place, ResumeIn, StartSpec};
 use crate::transcript::Item;
@@ -1377,13 +1378,21 @@ fn asked_to_review(board: &Board, store: &Store, global: &ReviewsCfg, review: &S
     asked && opens && origin(&board.lanes, pr).is_some_and(|(_, s)| s.key == to) && board.repo_settings.reviews(global, pr).own.send
 }
 
-/// Has the PRs that wait on your review again, though GitHub asks nobody, say so
-/// (`back_with_you`). Before the snoozes and `apply`, which go by whether a PR waits on you. Only
-/// in the repos whose PRs are read (`board::polled_slugs`): another's are kept as last read, and
-/// GitHub's search has the last word on them (`board::pr_items`).
+/// Has the PRs that wait on your review again, though GitHub asks nobody, say so: commits came
+/// after the review Codealong submitted for you (`back_with_you`), or its author wrote after you
+/// did, you or your agent's review having written on it first (`TurnKind::AuthorReplied`, board.rs
+/// `turn_of`), which waits on you since then. An answer to you left where only its badge said so
+/// was lost among the PRs nobody asked you of (2026-10-22). Before the snoozes and `apply`, which go
+/// by whether a PR waits on you, so it's reviewed as any PR that does, once for each commit: an
+/// author's words alone start nothing the agent hasn't done. Only in the repos whose PRs are read
+/// (`board::polled_slugs`): another's are kept as last read, and GitHub's search has the last word
+/// on them (`board::pr_items`).
 pub fn asked_again(prs: &mut [PrItem], store: &Store, polled: &BTreeSet<String>) {
-    for pr in prs.iter_mut().filter(|p| polled.contains(&p.repo_slug)) {
-        if store.prs.get(&pr_key(&pr.key)).is_some_and(|t| back_with_you(pr, t)) {
+    for pr in prs.iter_mut().filter(|p| polled.contains(&p.repo_slug) && !p.review_requested) {
+        if let Some(turn) = pr.turn.as_ref().filter(|t| t.kind == TurnKind::AuthorReplied) {
+            pr.requested_at = turn.since;
+            pr.review_requested = true;
+        } else if store.prs.get(&pr_key(&pr.key)).is_some_and(|t| back_with_you(pr, t)) {
             pr.review_requested = true;
         }
     }
@@ -3095,6 +3104,29 @@ mod tests {
         let mut elsewhere = vec![after(NEXT, submitted)];
         asked_again(&mut elsewhere, &r.store, &BTreeSet::new());
         assert!(!elsewhere[0].review_requested);
+    }
+
+    #[test]
+    fn a_pr_whose_author_wrote_after_you_waits_on_you_since() {
+        use crate::model::Turn;
+        let replied = |at: i64| Some(Turn { kind: TurnKind::AuthorReplied, who: "ana".into(), also: Vec::new(), since: Some(at) });
+        let unasked = |turn| PrItem { review_requested: false, requested_at: None, turn, ..pr(7, HEAD) };
+        let polled = BTreeSet::from(["o/r".to_string()]);
+        let mut prs = vec![unasked(replied(NOW)), unasked(None)];
+        asked_again(&mut prs, &Store::default(), &polled);
+        assert_eq!(prs.iter().map(|p| (p.review_requested, p.requested_at)).collect::<Vec<_>>(), [(true, Some(NOW)), (false, None)]);
+        // Asked already, GitHub's request and its time stand.
+        let mut asked = vec![PrItem { review_requested: true, requested_at: Some(NOW - 5), ..unasked(replied(NOW)) }];
+        asked_again(&mut asked, &Store::default(), &polled);
+        assert_eq!(asked[0].requested_at, Some(NOW - 5));
+        // A repo whose PRs aren't read is as last read.
+        let mut elsewhere = vec![unasked(replied(NOW))];
+        asked_again(&mut elsewhere, &Store::default(), &BTreeSet::new());
+        assert!(!elsewhere[0].review_requested);
+        // Back with you, its commit is reviewed as any PR that waits on you is, once.
+        let cfg = on();
+        let back = board(vec![PrItem { review_requested: true, ..unasked(replied(NOW)) }], vec![]);
+        assert!(kinds(&Reviewer::default().due(&back, &cfg, NOW + QUIET_MS)).iter().any(|k| k.starts_with("review 7 1111111")));
     }
 
     #[test]

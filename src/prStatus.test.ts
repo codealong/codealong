@@ -53,6 +53,8 @@ describe('prPills', () => {
     expect(both.title).toMatch(/^Waiting on ken and ana, who asked for changes/);
     // Beside Ready to merge too, where the agent has nothing to say.
     expect(prPills(facts({ state: 'approved', merge: 'clean', mine: false, turn: { kind: 'authorReplied', who: 'gwen' } })).map((p) => p.text)).toEqual(['Author replied', 'Ready to merge']);
+    // Back with you for it (autoreview.rs `asked_again`), the chip's mark says why.
+    expect(reviewMark({ state: 'open', reviewRequested: true, turn: { kind: 'authorReplied', who: 'gwen' } })).toMatchObject({ key: 'asked', tone: 'attn', title: 'gwen wrote after your last review or comment: your move' });
     // The chip says it too, and no longer Changes requested.
     expect(chipWord(facts({ state: 'changes', mine: true, turn: { kind: 'rereviewAsked', who: 'ken' } }))).toBe('Re-review asked');
     // A draft says so whatever was said; the agent's approval, which is what you sign off on, wins.

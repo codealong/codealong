@@ -3,7 +3,9 @@
 // went unsaid (Reply needed, amber), one whose reviewer is asked again (Re-review asked, grey),
 // one whose reviewer wrote again (Reviewer replied, amber), and someone else's whose author wrote
 // after you (Author replied, amber), each saying who and why on hover, where Changes requested
-// would have shown; and one with no turn still saying Changes requested.
+// would have shown; and one with no turn still saying Changes requested. The one whose author
+// wrote after you waits on you as the engine has it (autoreview.rs `asked_again`): under Review
+// requested, marked as your move at its left edge.
 //   scripts/preview.sh prs '' scripts/preview/pr-turn-check.js
 //   PREVIEW_SCHEME=dark scripts/preview.sh prs '' scripts/preview/pr-turn-check.js
 (function () {
@@ -14,7 +16,7 @@
     { mine: true, state: 'changes', turn: { kind: 'replyNeeded', who: 'ken', since: at } },
     { mine: true, state: 'changes', turn: { kind: 'rereviewAsked', who: 'ken', since: at } },
     { mine: true, state: 'changes', turn: { kind: 'reviewerReplied', who: 'ken', since: at } },
-    { mine: false, state: 'open', reviewRequested: false, turn: { kind: 'authorReplied', who: 'gwen', since: at } },
+    { mine: false, state: 'open', reviewRequested: true, requestedBy: null, requestedAt: at, turn: { kind: 'authorReplied', who: 'gwen', since: at } },
     { mine: true, state: 'changes', turn: undefined },
   ];
   var real = window.__TAURI_INTERNALS__.invoke;
@@ -35,6 +37,7 @@
     });
   };
   var rowOf = function (pr) { return all('.ca-prrow').filter(function (r) { return (q('.ca-prrow-num', r) || {}).textContent === '#' + pr.number; })[0]; };
+  var sectionOf = function (row) { var b = row && row.closest('.ca-bayblock'); var head = b && q('.ca-bay > span', b); return head ? head.textContent : null; };
   var pill = function (pr) { var r = rowOf(pr); return r && q('.ca-prpill--review', r); };
 
   say('pr turn check: waiting for the PRs');
@@ -53,6 +56,8 @@
         var title = p.getAttribute('title') || '';
         check('#' + pr.number + ' reads ' + want[i][0], text === want[i][0] && p.classList.contains(want[i][1]) && want[i][2].test(title), text + ' / ' + p.className + ' / ' + title);
       });
+      var replied = rowOf(picked[3]);
+      check('the PR whose author wrote after you is under Review requested, your move', sectionOf(replied) === 'Review requested' && replied.classList.contains('is-flag-attn'), sectionOf(replied) + ' / ' + replied.className);
     })
     .then(done)
     .catch(stopped);

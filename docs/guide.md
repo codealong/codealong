@@ -767,7 +767,8 @@ says why instead.
 
 Sorted by status, as it starts, the PRs that aren't pinned are under Review requested (which has
 a PR your review is back with once commits come after the agent's review submitted for you, see
-`[reviews] submit`), Yours, Others and Snoozed; sorted by when they were opened, the open ones are under the day each was
+`[reviews] submit`, or once its author wrote after you did, see Author replied), Yours, Others and
+Snoozed; sorted by when they were opened, the open ones are under the day each was
 opened, the newest first, snoozed ones too. Merged & closed is folded at the end either way.
 
 #### Nudging a PR's primary session
@@ -1030,7 +1031,10 @@ requested, reading Re-review, and the floating bar) and the agent reviews the ne
 whether or not the author asked GitHub for your review again. Only on the Mac that submitted it,
 and not in a repo checked out only on its default branch, whose PRs aren't read and which
 GitHub's search for review requests no longer lists it in. One you submitted yourself, from the
-box or on GitHub, ends the request as GitHub has it. Without a draft, a
+box or on GitHub, ends the request as GitHub has it. A PR whose author answers in a comment after
+you, or your agent, wrote on it (Author replied) waits on you from then too, on any of your Macs
+that reads its repo's PRs, and the agent reviews its commit if it hasn't yet; their words alone
+start no other review. Without a draft, a
 request for changes or a comment links to the agent's review posted as a comment, or with posting
 off carries the review itself; one whose draft went (submitted or thrown away) isn't submitted. Not
 when your draft holds words of yours (the part of its text that isn't the agent's), which is said
@@ -1154,7 +1158,10 @@ request but not of a push; Re-review asked (grey, their move) once they're asked
 again or written to since; and Reviewer replied (amber) when they wrote again after that, an agent
 of theirs finding it fixed say, which leaves you to ask for the approval. Someone else's PR you
 reviewed or commented on reads Author replied (amber) when its author wrote after you, your
-agent's posted reviews counting as yours, unless your agent approves the commit it's at. The
+agent's posted reviews counting as yours, unless your agent approves the commit it's at, and
+waits on your review again (Review requested, Needs you, the floating bar) though GitHub asks
+nobody; not once your own latest review approves the commit it's at, when what they say is
+theirs to act on, and only in a repo whose PRs are read. The
 tooltip says who and since when, naming each reviewer it holds for. Codealong reads it from each
 open PR's last twenty comments and reviews and its last review requests, a bot's comments and
 requests for changes left out; a push is taken to be when its latest commit was made, so one made

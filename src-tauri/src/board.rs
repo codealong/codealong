@@ -1185,7 +1185,8 @@ fn pr_item(lanes: &[Lane], owners: &HashMap<&Path, &[String]>, slug: &str, (proj
 /// nobody said so (`ReplyNeeded`), or where they wrote again after asking (`ReviewerReplied`);
 /// and with nothing since, the request for changes says it. Of several such reviewers, the move
 /// that's yours goes first, naming each it holds for. Someone else's PR you wrote on or reviewed
-/// is yours where its author wrote since you did (`AuthorReplied`). A push is taken to be when its
+/// is yours where its author wrote since you did (`AuthorReplied`), unless your latest review
+/// approves the commit it's at: what they say then is theirs to act on. A push is taken to be when its
 /// head commit was made, the nearest GitHub says: one made long before it's pushed reads as earlier
 /// than it was. Nobody said so only where what was said reaches back to the push
 /// (`PrRaw::said_from`): a run of a bot's comments can hide an older word of yours.
@@ -1199,7 +1200,8 @@ pub fn turn_of(p: &PrRaw, mine: bool, login: Option<&str>) -> Option<Turn> {
     let turn = |kind, who: &str, since| Some(Turn { kind, who: who.to_string(), also: Vec::new(), since });
     if !mine {
         let (yours, theirs) = (wrote(login?)?, wrote(author)?);
-        return if theirs > yours { turn(TurnKind::AuthorReplied, author, Some(theirs)) } else { None };
+        let approved = p.last_review.as_ref().is_some_and(|l| l.state == LastReviewState::Approved && l.commit.is_some() && l.commit == p.head_oid);
+        return if theirs > yours && !approved { turn(TurnKind::AuthorReplied, author, Some(theirs)) } else { None };
     }
     let of = |c: &crate::github::ChangesAsked| -> Option<Turn> {
         let asked = p.said.iter().filter(|s| s.asked.as_deref().is_some_and(|r| same(r, &c.who))).map(|s| s.at).max();
@@ -2573,6 +2575,11 @@ mod tests {
         assert_eq!(kind(&p(vec![wrote("gwen", 110)]), false), None);
         // Asking you again isn't words to answer: Re-review says it.
         assert_eq!(kind(&p(vec![wrote("me", 100), asked("gwen", "me", 110)]), false), None);
+        // Approved as it is, their thanks are theirs to act on; after new commits, yours again.
+        let approved = |commit: &str| Some(LastReview { state: LastReviewState::Approved, commit: Some(commit.into()), at: Some(100) });
+        let thanked = |commit: &str| PrRaw { last_review: approved(commit), ..p(vec![wrote("me", 100), wrote("gwen", 110)]) };
+        assert_eq!(kind(&thanked("0ef4ed2"), false), None);
+        assert_eq!(kind(&thanked("a11ce55"), false).map(|t| t.0), Some(TurnKind::AuthorReplied));
     }
 
     #[test]
