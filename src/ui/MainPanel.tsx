@@ -118,6 +118,9 @@ export interface MainPanelProps {
   showSchedule: (id: string) => void;
   /** The Schedules view's panel, which the window draws (SchedulePanel.tsx). */
   schedulePanel: ReactNode;
+  /** A session selected under its schedule there, whose own panel shows in its place, with the
+   *  way back to the schedule's. */
+  scheduleSession: (Placed & { back: { label: string; onBack: () => void } }) | null;
   showTodoFromPanel: (todo: Todo) => void;
   laneMenu: (lane: Lane) => void;
   sessionMenu: (lane: Lane, s: Session, pin: 'session' | 'worktree') => void;
@@ -143,7 +146,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -342,7 +345,7 @@ export function MainPanel(props: MainPanelProps) {
   })();
 
   return view === 'schedules' ? (
-    schedulePanel
+    scheduleSession ? sessionPanel(scheduleSession.lane, scheduleSession.session, scheduleSession.back) : schedulePanel
   ) : view === 'canvas' ? (
     canvasPanel
   ) : view === 'todo' ? (

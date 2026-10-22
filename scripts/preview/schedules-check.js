@@ -4,7 +4,9 @@
 // runs; the row's menu (menus.ts `scheduleMenu`), whose Run now and Pause send their change; and
 // the dialog, which previews a time as it's written and saves what it was given, and whose
 // session field (FieldPicker.tsx) finds a session by typing, says how long since it did anything,
-// and brings its worktree.
+// and brings its worktree. Under a schedule, set in as helpers are in Sessions, its latest run's
+// session and the ones it started, an earlier run's a click away (boardLists.ts
+// `scheduleSessions`); one picked there shows its own panel, with the way back to the schedule's.
 //   PREVIEW_WAIT=60000 PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json scripts/preview.sh schedules '' scripts/preview/schedules-check.js
 (function () {
   var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-schedrow')); };
@@ -20,8 +22,41 @@
   };
   var bare = function (l) { return l.replace(/ ✓$/, ''); };
 
+  // The rows set in under schedule `name`, up to the next schedule's.
+  var under = function (name) {
+    var out = [];
+    for (var el = named(name).nextElementSibling; el && !el.classList.contains('ca-schedrow'); el = el.nextElementSibling) out.push(el);
+    return out;
+  };
+  var sessionsUnder = function (name) { return under(name).filter(function (el) { return el.classList.contains('is-nested') && !el.classList.contains('is-fold'); }); };
+  var foldUnder = function (name) { return under(name).filter(function (el) { return el.classList.contains('is-fold'); })[0]; };
+
   say('schedules check: waiting for the schedules');
   until(function () { return rows().length >= 5; }, 20000, 'the sample schedules')
+    .then(function () {
+      var listed = sessionsUnder('Morning triage');
+      check('under a schedule, its latest run’s session and the two it started', listed.length === 3, listed.map(function (el) { return el.textContent; }).join(' | '));
+      var fold = foldUnder('Morning triage');
+      check('an earlier run’s, done with, a click away', !!fold && /List 1 more session/.test(fold.textContent), fold ? fold.textContent : 'none');
+      fold.querySelector('button').click();
+      return until(function () { return sessionsUnder('Morning triage').length === 4; }, 3000, 'every session listed');
+    })
+    .then(function () {
+      check('and back to the latest and those at work', /List only the latest run/.test(foldUnder('Morning triage').textContent), foldUnder('Morning triage').textContent);
+      foldUnder('Morning triage').querySelector('button').click();
+      return until(function () { return sessionsUnder('Morning triage').length === 3; }, 3000, 'the fold');
+    })
+    .then(function () {
+      press(sessionsUnder('Morning triage')[1]);
+      return until(function () { return !!q('.ca-panelback'); }, 3000, 'the session’s own panel');
+    })
+    .then(function () {
+      var back = q('.ca-panelback');
+      check('a session picked there shows its own panel, the way back naming the schedule', back.textContent.indexOf('Morning triage') >= 0 && !q('.ca-schedinsp'), back.textContent);
+      check('it’s the one selected, not its schedule', sessionsUnder('Morning triage')[1].classList.contains('is-selected') && !named('Morning triage').classList.contains('is-selected'), named('Morning triage').className);
+      back.click();
+      return until(function () { return !!q('.ca-schedinsp'); }, 3000, 'the schedule’s panel again');
+    })
     .then(function () {
       var triage = named('Morning triage');
       check('a row says when it runs', triage.textContent.indexOf('Weekdays at 9:00') >= 0, triage.textContent);

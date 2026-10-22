@@ -284,6 +284,32 @@ export function schedulesIn(items: ScheduleItem[], lanes: Lane[], project: strin
   return items.filter((x) => (project === ALL_PROJECTS || scheduleProject(x, lanes) === project) && (!words || [x.name, x.whenWords, x.run.prompt].some((t) => t.toLowerCase().includes(words))));
 }
 
+/** A session at work, or waiting on you: listed under its schedule whichever run it's from. */
+const SESSION_AT_WORK: readonly Session['status'][] = ['needs', 'error', 'working', 'unread'];
+
+/** The sessions listed under a schedule in the Schedules view (SchedulesView.tsx), as helpers are
+ *  under the session they work for in Sessions: each one its runs started or sent to, the latest
+ *  run's first, each followed by the sessions its agent started (what a triage found, handed on),
+ *  not its helpers, which are listed under it in Sessions. Listed: the latest run's, and any other
+ *  at work or waiting on you, archived ones left out; the rest only with `all`. `more` is how many
+ *  are listed only then. */
+export function scheduleSessions(item: Pick<ScheduleItem, 'runs'>, homes: ReadonlyMap<string, Placed>, all: boolean): { rows: Placed[]; more: number } {
+  const seen = new Set<string>();
+  const families: Placed[][] = [];
+  const latest = (a: Placed, b: Placed) => b.session.lastActivity - a.session.lastActivity;
+  for (const run of item.runs) {
+    const head = run.session ? homes.get(run.session) : undefined;
+    if (!head || seen.has(head.session.key)) continue;
+    seen.add(head.session.key);
+    const kids = [...homes.values()].filter((p) => p.session.origin?.key === head.session.key && p.session.origin.how === 'started' && !p.session.helper && !p.session.headless && !seen.has(p.session.key)).sort(latest);
+    for (const k of kids) seen.add(k.session.key);
+    families.push([head, ...kids]);
+  }
+  const listed = (p: Placed, i: number) => !p.session.archived && (i === 0 || SESSION_AT_WORK.includes(p.session.status));
+  const every = families.flatMap((f, i) => f.map((p) => ({ p, listed: listed(p, i) })));
+  return { rows: every.filter((x) => all || x.listed).map((x) => x.p), more: every.filter((x) => !x.listed).length };
+}
+
 const UNARCHIVED: LaneCopies = new WeakMap();
 
 /** Every worktree with its archived sessions left out: they leave every view but the Archived list.

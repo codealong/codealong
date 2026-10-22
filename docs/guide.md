@@ -1351,7 +1351,12 @@ each saying when it runs, what it does and when next, and a mark when it can't r
 last run failed; New schedule… at the top of the list makes one, in the worktree selected, else
 where the quick panel would start. A schedule is in its worktree's project, else in the project
 of the session it sends to; one that starts a chat of its own is in none, and only All projects
-lists it. The panel beside it has the schedule's prompt, the
+lists it. Under each schedule, set in as a session's helpers are in Sessions, are the sessions its
+runs started or sent to, each followed by the sessions it started (what a triage handed on): the
+latest run's, and any other still at work or waiting on you, with the rest, archived ones too, a
+click away (List N more). One picked there shows its own panel in place of the schedule's, with the
+way back; Return or a double-click opens it where it lives, and its right-click menu is a session's.
+The panel beside a schedule has its prompt, the
 session it keeps going, and its latest runs, each with why it ran and how it went (started, sent,
 went on, waiting, skipped, missed, failed) and its session a click away. Run now, Pause and Edit
 are its buttons; its right-click menu has those, Copy schedule ID and Delete schedule. A session a

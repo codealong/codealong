@@ -9,6 +9,12 @@
       "runs": [
         { "atAgo": 800, "why": "9:00", "outcome": "started", "said": "On claude, opus", "session": "$session:2" },
         { "atAgo": 2240, "why": "9:00, late", "outcome": "started", "said": "On codex", "session": "$session:5" }
+      ],
+      "sessions": [
+        { "session": "$session:2", "status": "idle" },
+        { "session": "$session:6", "by": "$session:2", "status": "working" },
+        { "session": "$session:7", "by": "$session:2", "status": "unread" },
+        { "session": "$session:5", "status": "idle" }
       ]
     },
     {

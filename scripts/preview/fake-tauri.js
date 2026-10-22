@@ -59,7 +59,8 @@ function withFixture(board, fixture) {
 }
 // Schedules from schedules-fixture.json (PREVIEW_SCHEDULES in preview.sh) in place of the board's
 // own, with "$lane:N" and "$session:N" as the project's Nth most recent worktree and session, and
-// times in minutes from now: `nextIn`, a check's and a run's `atAgo`.
+// times in minutes from now: `nextIn`, a check's and a run's `atAgo`. A schedule's `sessions` set
+// those sessions' status, and with `by`, make them sessions that one started, not a helper of it.
 function withSchedules(board, fixture) {
   var shown = null;
   try {
@@ -86,6 +87,19 @@ function withSchedules(board, fixture) {
       thread: s.thread ? at(s.thread) || undefined : undefined,
       check: s.check ? Object.assign({}, s.check, { at: now - (s.check.atAgo || 0) * 60e3 }) : undefined,
       runs: (s.runs || []).map(function (r) { return Object.assign({}, r, { at: now - r.atAgo * 60e3, session: r.session ? at(r.session) || undefined : undefined }); }),
+    });
+  });
+  fixture.schedules.forEach(function (s) {
+    (s.sessions || []).forEach(function (x) {
+      var hit = sessions.filter(function (y) { return y.key === at(x.session); })[0];
+      if (!hit) return;
+      hit.status = x.status;
+      hit.archived = false;
+      if (x.by) {
+        hit.origin = { key: at(x.by), how: 'started' };
+        hit.helper = undefined;
+        hit.headless = false;
+      }
     });
   });
   return board;

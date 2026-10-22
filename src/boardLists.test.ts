@@ -57,6 +57,7 @@ import {
   todoLabelOptions,
   togglePick,
   type Facets,
+  scheduleSessions,
   schedulesIn,
 } from './boardLists';
 import { needsOn } from './devices';
@@ -1199,5 +1200,37 @@ describe('the Schedules view’s list', () => {
   it('narrows to what the find has, by name, when or what it says', () => {
     expect(names(schedulesIn(items, lanes, ALL_PROJECTS, 'gh run'))).toEqual(['Deploys']);
     expect(names(schedulesIn(items, lanes, 'Northwind', 'standup'))).toEqual([]);
+  });
+
+  it('lists under a schedule its latest run’s sessions and the ones at work, the rest when asked', () => {
+    const started = (key: string, from: string, over: Partial<Session> = {}) => session(key, { origin: { key: from, how: 'started' }, ...over });
+    const homes = sessionHomes([
+      fx.lane({
+        id: '/w/app',
+        sessions: [
+          // Today's triage, and the two sessions it handed what it found to.
+          session('claude:claude:today', { status: 'idle', lastActivity: 300 }),
+          started('claude:claude:fix-a', 'claude:claude:today', { status: 'working', lastActivity: 320 }),
+          started('claude:claude:fix-b', 'claude:claude:today', { status: 'idle', lastActivity: 310 }),
+          // Its helper is listed under it in Sessions, not here.
+          started('claude:claude:help', 'claude:claude:today', { helper: { parent: 'claude:claude:today' } as Session['helper'] }),
+          // Yesterday's, and the one it started that still waits on you.
+          session('claude:claude:yesterday', { status: 'idle', lastActivity: 200 }),
+          started('claude:claude:fix-c', 'claude:claude:yesterday', { status: 'unread', lastActivity: 210 }),
+          started('claude:claude:fix-d', 'claude:claude:yesterday', { status: 'idle', lastActivity: 205 }),
+          // The day before's, done with.
+          session('claude:claude:before', { status: 'idle', archived: true, lastActivity: 100 }),
+        ],
+      }),
+    ]);
+    const run = (key: string, at: number) => ({ at, why: 'Weekdays at 9:00', outcome: 'started' as const, said: '', session: key });
+    const triage = { runs: [run('claude:claude:today', 3), run('claude:claude:yesterday', 2), run('claude:claude:before', 1), run('claude:claude:gone', 0)] };
+    const keys = (all: boolean) => scheduleSessions(triage, homes, all).rows.map((p) => p.session.key.split(':')[2]);
+    expect(keys(false)).toEqual(['today', 'fix-a', 'fix-b', 'fix-c']);
+    expect(scheduleSessions(triage, homes, false).more).toBe(3);
+    expect(keys(true)).toEqual(['today', 'fix-a', 'fix-b', 'yesterday', 'fix-c', 'fix-d', 'before']);
+    // A schedule that keeps one session going lists it once.
+    expect(scheduleSessions({ runs: [run('claude:claude:today', 2), run('claude:claude:today', 1)] }, homes, false).rows.map((p) => p.session.key)).toEqual(['claude:claude:today', 'claude:claude:fix-a', 'claude:claude:fix-b']);
+    expect(scheduleSessions({ runs: [] }, homes, true)).toEqual({ rows: [], more: 0 });
   });
 });

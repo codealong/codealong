@@ -94,7 +94,7 @@ import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { improveTitle } from './improve';
@@ -244,8 +244,12 @@ export function App() {
   }, []);
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  // The Schedules view's selected schedule, and the one its dialog makes or changes.
+  // The Schedules view's selected schedule, and the one its dialog makes or changes; a session
+  // selected under it, whose panel shows meanwhile; and the schedules listing every session of
+  // theirs, not only the latest run's and those at work.
   const [scheduleId, setScheduleId] = useState<string | null>(null);
+  const [scheduleSession, setScheduleSession] = useState<string | null>(null);
+  const [schedulesAll, setSchedulesAll] = useState<ReadonlySet<string>>(() => new Set());
   const [scheduleEdit, setScheduleEdit] = useState<Schedule | null>(null);
   // The session shown in Sessions as you moved it (menus.ts `moving`), and its copy's key once the
   // move says it: the panel holds it until the copy is listed, then shows the copy.
@@ -1015,6 +1019,7 @@ export function App() {
       setQuery('');
       setView('schedules');
       setScheduleId(r.id);
+      setScheduleSession(null);
       return;
     }
     // A todo the quick panel found: the Todo view, in its project.
@@ -1902,6 +1907,8 @@ export function App() {
   const projectSchedules = useMemo(() => schedulesIn(board?.schedules ?? [], board?.lanes ?? [], current, ''), [board?.schedules, board?.lanes, current]);
   const shownSchedules = useMemo(() => schedulesIn(projectSchedules, board?.lanes ?? [], ALL_PROJECTS, query), [projectSchedules, board?.lanes, query]);
   const selectedSchedule: ScheduleItem | null = shownSchedules.find((x) => x.id === scheduleId) ?? shownSchedules[0] ?? null;
+  // The session selected under it, while it's still listed there.
+  const scheduleSessionShown = selectedSchedule && scheduleSession && homes.has(scheduleSession) ? scheduleSessions(selectedSchedule, homes, true).rows.find((p) => p.session.key === scheduleSession) ?? null : null;
   const sessionTitle = (key: string) => homes.get(key)?.session.title ?? null;
   const scheduleDone = (what: Promise<unknown>) => void what.catch((e: unknown) => setToast(errorText(e)));
   const runSchedule = (x: ScheduleItem) => scheduleDone(scheduleOp({ op: 'run', id: x.id }).then(() => setToast(`“${x.name}” runs in a few seconds.`)));
@@ -1925,7 +1932,9 @@ export function App() {
   const panelKind = boardless
     ? null
     : view === 'schedules'
-      ? 'schedule'
+      ? scheduleSessionShown
+        ? 'session'
+        : 'schedule'
       : view === 'canvas'
       ? (canvasPick?.kind ?? null)
       : view === 'prs'
@@ -2324,8 +2333,27 @@ export function App() {
               problem={board.schedulesProblem}
               now={now}
               selectedId={selectedSchedule?.id ?? null}
+              selectedSession={scheduleSessionShown?.session.key ?? null}
               sessionTitle={sessionTitle}
-              onSelect={setScheduleId}
+              sessionsOf={(x) => scheduleSessions(x, homes, schedulesAll.has(x.id))}
+              allShown={schedulesAll}
+              onToggleAll={(id) =>
+                setSchedulesAll((all) => {
+                  const next = new Set(all);
+                  if (!next.delete(id)) next.add(id);
+                  return next;
+                })
+              }
+              onSelect={(id) => {
+                setScheduleId(id);
+                setScheduleSession(null);
+              }}
+              onSelectSession={(x, p) => {
+                setScheduleId(x.id);
+                setScheduleSession(p.session.key);
+              }}
+              onOpenSession={(p) => open(p.lane, p.session.openTarget)}
+              onSessionMenu={(p) => sessionMenu(p.lane, p.session, 'session')}
               onEdit={(item) => setScheduleEdit(scheduleOf(item))}
               onMenu={scheduleMenu}
               onNew={newSchedule}
@@ -2574,6 +2602,7 @@ export function App() {
             markSeen={markSeen}
             setToast={setToast}
             showSchedule={(id) => reveal.current({ kind: 'schedule', id })}
+            scheduleSession={scheduleSessionShown && selectedSchedule ? { ...scheduleSessionShown, back: { label: selectedSchedule.name, onBack: () => setScheduleSession(null) } } : null}
             schedulePanel={
               <SchedulePanel
                 item={selectedSchedule}
