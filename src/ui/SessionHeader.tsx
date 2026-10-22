@@ -45,7 +45,7 @@ import { untilWords } from '../snooze';
 import { sessionTokens } from '../api';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
 import type { Board, DeviceView, Lane, Pr, Session, SessionSpent, SideGlance, Target, Todo } from '../types';
-import { panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
+import { isOpen, panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { ArtifactChip, ArtifactList } from './ArtifactBits';
 import { DeviceBadge } from './DeviceBadge';
 import { InsightChips } from './InsightBits';
@@ -337,8 +337,9 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   // started, so the list holds still as they work.
   const came = useMemo(() => cameLines(lineage), [lineage]);
   const listed = useMemo(() => panelTodos(todos ?? []), [todos]);
-  // The todo it's on: one in progress, else one still to do. Done ones wait behind "+N".
-  const current = listed.find((t) => t.status !== 'done');
+  // The todo it's on: one in progress, else one still to do. Done and archived ones wait behind
+  // "+N".
+  const current = listed.find(isOpen);
 
   const icons = useEditorIcons(apps);
   // Shown in the panel it lives in, it has nowhere of its own to open.

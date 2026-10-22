@@ -362,12 +362,13 @@ export interface TodoRow {
   marks: [number, number][];
 }
 
-const SECTION_RANK: Record<TodoSectionId, number> = { 'in-progress': 0, review: 1, ready: 2, waiting: 3, done: 4 };
+const SECTION_RANK: Record<TodoSectionId, number> = { 'in-progress': 0, review: 1, ready: 2, waiting: 3, done: 4, archived: 5 };
 
 /**
  * Todos with every typed word in their title, description, labels or project, or in the
  * worktrees and sessions linked to them, best first: those whose title has them all, then In
  * progress, In review, Ready, Waiting and Done, then the latest activity. In a project, only its own todos.
+ * Archived ones aren't found: they're in the Todo view's Archived fold alone.
  */
 export function findTodos(board: Board, project: string, query: string, limit = FOUND_TODOS): TodoRow[] {
   const words = queryWords(query);
@@ -377,7 +378,7 @@ export function findTodos(board: Board, project: string, query: string, limit = 
   const homes = sessionHomes(board.lanes);
   const labelById = new Map((board.labels ?? []).map((l) => [l.id, l]));
   const found = todos
-    .filter((t) => project === ALL_PROJECTS || t.project === project)
+    .filter((t) => !t.archivedAt && (project === ALL_PROJECTS || t.project === project))
     .flatMap((t) => {
       const item = todoItem(t, laneById, homes, labelById);
       const hay = [

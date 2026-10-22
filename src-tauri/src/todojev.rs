@@ -14,7 +14,7 @@ use serde_json::{json, Map, Value};
 
 use crate::jev::{self, ago_words, clip};
 use crate::model::{Board, Lane, PrState, Session, Status, TodoHint};
-use crate::todos::{Label, Todo, TodoStatus};
+use crate::todos::{is_open, Label, Todo};
 
 /// A session is offered for linking while it's this new.
 const LINK_WITHIN_MS: i64 = 2 * 3600 * 1000;
@@ -84,7 +84,7 @@ impl Memory {
     pub fn hints(&self, board: &Board, todos: &[Todo]) -> BTreeMap<String, TodoHint> {
         todos
             .iter()
-            .filter(|t| t.status != TodoStatus::Done)
+            .filter(|t| is_open(t))
             .filter_map(|t| {
                 let a = self.done.get(&t.id)?;
                 let now = done_input(board, t)?;
@@ -161,7 +161,7 @@ pub fn link_candidates<'a>(board: &'a Board, todos: &[Todo], asked: &BTreeSet<St
 }
 
 fn open_todos<'a>(todos: &'a [Todo], project: &'a str) -> impl Iterator<Item = &'a Todo> + 'a {
-    todos.iter().filter(move |t| t.status != TodoStatus::Done && t.project == project)
+    todos.iter().filter(move |t| is_open(t) && t.project == project)
 }
 
 fn todo_card(t: &Todo, board: &Board) -> Value {
@@ -236,7 +236,7 @@ pub struct DoneInput {
 }
 
 pub fn done_input(board: &Board, t: &Todo) -> Option<DoneInput> {
-    if t.status == TodoStatus::Done {
+    if !is_open(t) {
         return None;
     }
     let mut sessions: Vec<(&Lane, &Session)> = board
@@ -366,7 +366,7 @@ pub fn suggest_request(model: &str, id: Option<&str>, title: &str, description: 
     }
     let deps: Vec<&Todo> = todos
         .iter()
-        .filter(|t| t.status != TodoStatus::Done && Some(t.id.as_str()) != id && (project.is_empty() || t.project == project) && !t.title.trim().is_empty())
+        .filter(|t| is_open(t) && Some(t.id.as_str()) != id && (project.is_empty() || t.project == project) && !t.title.trim().is_empty())
         .take(MAX_DEPS)
         .collect();
     for (i, t) in deps.iter().enumerate() {
@@ -415,6 +415,7 @@ pub fn suggest_read(req: &SuggestRequest, response: &Value) -> Suggested {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::todos::TodoStatus;
     use crate::model::{Origin, Pr};
 
     const NOW: i64 = 100 * 24 * 3600 * 1000;

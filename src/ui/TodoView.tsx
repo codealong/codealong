@@ -1,5 +1,6 @@
 // The Todo view: work you mean to hand an agent. In progress, In review, Ready and Waiting come
-// in your order (drag, or ⌃⌘↑ ⌃⌘↓, to reorder), then Done under a fold. In review holds the
+// in your order (drag, or ⌃⌘↑ ⌃⌘↓, to reorder), then Done under a fold, and Archived under
+// another, the latest archived first and never grouped. In review holds the
 // todos marked as ready for review and the ones whose PR is with its reviewers. A todo dragged out of the window
 // is pinned to the desktop (useRowDrag.tsx). Waiting holds the todos marked as
 // waiting and the ones not started that wait on a todo that isn't done. A row shows when the todo
@@ -282,6 +283,8 @@ interface TodoViewProps {
   onMove: (section: TodoSectionId, id: string, index: number) => void;
   showDone: boolean;
   onToggleDone: () => void;
+  showArchived: boolean;
+  onToggleArchived: () => void;
   composer: ReactNode;
   /** What to say when there's nothing to show. */
   empty: ReactNode;
@@ -290,7 +293,7 @@ interface TodoViewProps {
 }
 
 /** Each section's box: its todos' status, dashed for Waiting, filled for In review. */
-const SECTION_STATUS: Record<TodoSectionId, TodoStatus> = { 'in-progress': 'in-progress', review: 'in-progress', ready: 'todo', waiting: 'todo', done: 'done' };
+const SECTION_STATUS: Record<TodoSectionId, TodoStatus> = { 'in-progress': 'in-progress', review: 'in-progress', ready: 'todo', waiting: 'todo', done: 'done', archived: 'done' };
 
 function SectionHead({ id, count, hint }: { id: TodoSectionId; count: number; hint?: ReactNode }) {
   return (
@@ -373,13 +376,15 @@ function useTodoDrag(rows: TodoItem[], onMove?: (id: string, index: number) => v
 }
 
 export function TodoView(props: TodoViewProps) {
-  const { sections, groups, groupActs, now, showDone, onToggleDone, composer, empty } = props;
-  const open = sections.filter((s) => s.id !== 'done');
+  const { sections, groups, groupActs, now, showDone, onToggleDone, showArchived, onToggleArchived, composer, empty } = props;
+  const open = sections.filter((s) => s.id !== 'done' && s.id !== 'archived');
   const done = sections.find((s) => s.id === 'done');
   const groupedDone = groups?.sections.find((s) => s.id === 'done');
   const doneRows = groupedDone ? groupedDone.groups.flatMap((g) => g.rows) : (done?.rows ?? []);
-  // Done todos keep no order of yours; they can still go to the desktop.
+  const archivedRows = sections.find((s) => s.id === 'archived')?.rows ?? [];
+  // Done and archived todos keep no order of yours; they can still go to the desktop.
   const doneDrag = useTodoDrag(doneRows);
+  const archivedDrag = useTodoDrag(archivedRows);
   return (
     <>
       {composer}
@@ -423,6 +428,22 @@ export function TodoView(props: TodoViewProps) {
             </div>
           )}
           {doneDrag.ghost}
+        </section>
+      )}
+      {archivedRows.length > 0 && (
+        <section className="ca-bayblock ca-todo-archived">
+          <SectionHeader
+            icon="archive"
+            label={SECTION_WORD.archived}
+            count={archivedRows.length}
+            hint={
+              <button type="button" className="ca-linkbtn" aria-expanded={showArchived} onClick={onToggleArchived}>
+                {showArchived ? 'Hide' : 'Show'}
+              </button>
+            }
+          />
+          {showArchived && <div className="ca-bay-lanes">{archivedRows.map((r) => todoRow(props, r, 'archived', archivedDrag.rowProps(r.todo.id, null, 0)))}</div>}
+          {archivedDrag.ghost}
         </section>
       )}
     </>

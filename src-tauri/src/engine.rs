@@ -1418,7 +1418,7 @@ impl Engine {
         if self.todos_unreadable || self.todos.todos.iter().any(|t| t.sessions.contains(&key)) {
             return;
         }
-        if !self.todos.todos.iter().any(|t| t.id == id && t.status != todos::TodoStatus::Done) {
+        if !self.todos.todos.iter().any(|t| t.id == id && todos::is_open(t)) {
             return;
         }
         let op = TodoOp::Link { id, worktree: None, session: Some(key), linked: true };

@@ -1,4 +1,4 @@
-/* The Todo view (TodoView.tsx): todo rows, the box that adds one, done todos. */
+/* The Todo view (TodoView.tsx): todo rows, the box that adds one, done and archived todos. */
 
 .ca-chips > .ca-todorow-blocked .ca-todorow-blocked-text {
   max-width: 190px;
@@ -34,7 +34,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ca-todo-done .ca-lane {
+.ca-todo-done .ca-lane,
+.ca-todo-archived .ca-lane {
   opacity: 0.8;
 }
 

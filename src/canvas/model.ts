@@ -399,7 +399,7 @@ export function clearDoc(doc: CanvasDoc, now: number): CanvasDoc {
 }
 
 function todoIn(e: Entities, t: Todo, now: number, age: TodoAge): boolean {
-  if (t.status === 'done') return false;
+  if (t.status === 'done' || t.archivedAt) return false;
   if (age === 'open') return true;
   const worked = Math.max(t.updatedAt, ...t.sessions.map((k) => e.sessions.get(k)?.session.lastActivity ?? 0));
   return worked >= now - TODO_MS[age];

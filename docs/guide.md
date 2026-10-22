@@ -1236,8 +1236,14 @@ waiting (`w` again) also drops what it waits on that isn't done, so it's Ready a
 can undo it. Start session (⌘N) opens the quick panel with the todo as the prompt, and the session
 it starts is linked to the todo, which moves to In progress; one started in the Claude app is linked
 when it shows up. ⌘-click (or ⇧-click, ⇧↑ ⇧↓) picks several todos: Start one session (⌘N) starts a
-single session on a prompt that numbers each of them, linked to all of them, and `x`, `w`, `r` and
-Delete act on all of them. A todo's row is its title and the start of its description, then when it's
+single session on a prompt that numbers each of them, linked to all of them, and `x`, `w`, `r`, `a`
+and Delete act on all of them. Archive a todo (`a`, or Archive todo in its menu) to put it away,
+done or not: it keeps its status but leaves every other list (the Kanban, the quick panel, the bar,
+Jev's picks) for Archived, a fold after Done with the latest archived first, and no todo waits on it
+meanwhile. The toast can undo it. Unarchive todo (`a` again) brings it back where its status puts it,
+and so does reopening it, starting it, or a session started from it; marking it done keeps it
+archived. `codealong todo archive <id>` and `unarchive <id>` do the same, and `codealong todo list
+--archived` lists the archived ones. A todo's row is its title and the start of its description, then when it's
 due, its labels, what it waits on, the sessions on it, its worktrees and its PR: on one line they
 follow at the line's end as they fit, its PR always; on two lines they're under it.
 

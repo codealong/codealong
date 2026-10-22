@@ -797,6 +797,9 @@ describe('the Kanban view’s columns', () => {
       fx.todo({ id: 'landed', status: 'in-progress', worktrees: ['/r/merged'] }),
       fx.todo({ id: 'done', status: 'done', doneAt: NOW - DAY }),
       fx.todo({ id: 'long-done', status: 'done', doneAt: NOW - 30 * DAY }),
+      // Archived, it's on no board, whatever its status.
+      fx.todo({ id: 'archived', status: 'in-progress', archivedAt: NOW }),
+      fx.todo({ id: 'archived-done', status: 'done', doneAt: NOW, archivedAt: NOW }),
     ];
     expect(cols(todos.map((t) => todoOf(t, lanes)), todos, [], [], NOW - 7 * DAY)).toEqual({
       todo: ['todo:ready', 'todo:wait'],

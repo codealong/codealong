@@ -296,6 +296,7 @@ describe('findTodos', () => {
     todo('t5', 'MFA for Globex', { project: 'Globex' }),
     todo('t6', 'Ship the MFA page', { waiting: { note: 'design review', since: NOW } }),
     todo('t7', 'Clean up', { sessions: ['s1'] }),
+    todo('t8', 'Archived MFA idea', { archivedAt: NOW }),
   ];
   const b = board(lanes, todos, labels);
 
@@ -308,7 +309,7 @@ describe('findTodos', () => {
 
   it('puts titles with every word first, then in progress, ready, waiting and done, and keeps to the project', () => {
     // t2 has MFA only in its description and t7 only in its session's title, so they come after
-    // the titles, in progress before ready.
+    // the titles, in progress before ready. Archived t8 isn't found.
     expect(findTodos(b, 'Acme', 'mfa').map((r) => r.key)).toEqual(['todo:t1', 'todo:t6', 'todo:t4', 'todo:t2', 'todo:t7']);
     expect(findTodos(b, ALL_PROJECTS, 'mfa').map((r) => r.key)).toContain('todo:t5');
     expect(findTodos(b, 'Globex', 'mfa').map((r) => r.key)).toEqual(['todo:t5']);

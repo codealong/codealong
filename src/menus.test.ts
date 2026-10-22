@@ -834,6 +834,7 @@ describe('the todo menus', () => {
       'Copy as prompt',
       'Copy todo ID',
       '-',
+      'Archive todo',
       'Delete todo',
     ]);
     expect(checked(menu)).toEqual(['In progress']);
@@ -866,12 +867,37 @@ describe('the todo menus', () => {
     const t = fx.todo({ due: '2026-10-02' });
     const ops: TodoOp[] = [];
     const menu = todoMenu(t, { report, start: noop, reveal: noop, edit: { run: (op) => ops.push(op) }, desktop: new Set() });
-    expect(labels(menu)).toEqual(['Start session…', 'Show in Codealong', '-', 'Todo', 'In progress', 'Done', 'Ready for review', '-', 'Due date ›', '-', 'Pin to desktop', '-', 'Copy as prompt', 'Copy todo ID']);
+    expect(labels(menu)).toEqual(['Start session…', 'Show in Codealong', '-', 'Todo', 'In progress', 'Done', 'Ready for review', '-', 'Due date ›', '-', 'Pin to desktop', '-', 'Copy as prompt', 'Copy todo ID', '-', 'Archive todo']);
     // No picker here, and the day it's due is checked.
     expect(labels(submenu(menu, 'Due date'))).toEqual(['Today', 'Tomorrow', 'Monday', 'Next Friday', '-', 'Remove due date']);
     expect(checked(submenu(menu, 'Due date'))).toEqual(['Today']);
     pick(menu, 'Due date', 'Remove due date');
-    expect(ops).toEqual([{ op: 'update', id: 't1', patch: { due: null } }]);
+    pick(menu, 'Archive todo');
+    expect(ops).toEqual([
+      { op: 'update', id: 't1', patch: { due: null } },
+      { op: 'update', id: 't1', patch: { archived: true } },
+    ]);
+  });
+
+  it('archives todos, and unarchives them once they all are', () => {
+    const a = fx.todo({ id: 'a' });
+    const b = fx.todo({ id: 'b', archivedAt: fx.NOW });
+    const { ops, edit } = editing([a, b]);
+    // Several: the ones not archived yet.
+    pick(todosMenu([a, b], { report, start: noop, edit }), 'Archive 1 todo');
+    expect(ops).toEqual([{ op: 'update', id: 'a', patch: { archived: true } }]);
+    const both = { ...a, archivedAt: fx.NOW };
+    pick(todosMenu([both, b], { report, start: noop, edit }), 'Unarchive 2 todos');
+    expect(ops.slice(1)).toEqual([
+      { op: 'update', id: 'a', patch: { archived: false } },
+      { op: 'update', id: 'b', patch: { archived: false } },
+    ]);
+    // The main window's does it with an undo of its own.
+    const asked: boolean[] = [];
+    pick(todoMenu(b, { report, start: noop, edit, archive: (on) => asked.push(on) }), 'Unarchive todo');
+    pick(todoPanelMenu(a, { report, edit, archive: (on) => asked.push(on) }), 'Archive todo');
+    expect(asked).toEqual([false, true]);
+    expect(ops).toHaveLength(3);
   });
 
   it('acts on all of several todos, and checks what they all are', () => {
@@ -881,7 +907,7 @@ describe('the todo menus', () => {
     const boards = [{ label: 'Add 2 todos to board', items: [{ label: 'Release', run: noop }] }];
     const menu = todosMenu([a, b], { report, start: noop, edit, boards, remove: noop });
     // Done ones can't wait.
-    expect(labels(menu)).toEqual(['Start one session for 2 todos…', '-', 'Todo', 'In progress', 'Done', 'Due date ›', '-', 'Add 2 todos to board ›', '-', 'Copy as prompt', 'Copy todo IDs', '-', 'Delete 2 todos']);
+    expect(labels(menu)).toEqual(['Start one session for 2 todos…', '-', 'Todo', 'In progress', 'Done', 'Due date ›', '-', 'Add 2 todos to board ›', '-', 'Copy as prompt', 'Copy todo IDs', '-', 'Archive 2 todos', 'Delete 2 todos']);
     expect(checked(menu)).toEqual(['Done']);
     expect(labels(submenu(menu, 'Due date'))).toEqual(['Today', 'Tomorrow', 'Monday', 'Next Friday', '-', 'Remove due dates']);
     expect(checked(submenu(menu, 'Due date'))).toEqual(['Monday']);
@@ -894,7 +920,7 @@ describe('the todo menus', () => {
 
   it("has what the todo panel has no control for in its ⋯ menu", () => {
     const t = fx.todo();
-    expect(labels(todoPanelMenu(t, { report, edit: editing([t]).edit, remove: noop }))).toEqual(['Move to project ›', 'Copy as prompt', 'Copy todo ID', '-', 'Delete todo']);
+    expect(labels(todoPanelMenu(t, { report, edit: editing([t]).edit, remove: noop }))).toEqual(['Move to project ›', 'Copy as prompt', 'Copy todo ID', '-', 'Archive todo', 'Delete todo']);
     expect(labels(todoPanelMenu(t, { report }))).toEqual(['Copy as prompt', 'Copy todo ID']);
   });
 

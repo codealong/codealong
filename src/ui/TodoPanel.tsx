@@ -15,7 +15,7 @@ import { below } from '../contextMenu';
 import { dayKey, dueChoices, dueDate, dueWords } from '../due';
 import { absolute, ago, middleTruncate } from '../format';
 import { branchLabel } from '../lanes';
-import { blockedBy, cantWaitOn, dependents, depsOf, itemSection, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp } from '../todos';
+import { blockedBy, cantWaitOn, dependents, depsOf, isOpen, itemSection, newId, nextColor, SECTION_WORD, sectionOf, STATUSES, STATUS_WORD, todoSuggestions, waitsOnTodos, worthSuggesting, type TodoItem, type TodoOp } from '../todos';
 import type { Label, Lane, Session, Todo, TodoHint, TodoSuggested } from '../types';
 import { DescriptionEditor } from './DescriptionEditor';
 import { DetailsButton, PanelPlaces, TODO_PRIMARY, useDetailsOpen } from './PanelSession';
@@ -35,7 +35,7 @@ const SUGGEST_AFTER_MS = 800;
  *  again when the title, description or project change. A failure (no key, off) shows nothing. */
 function useSuggested(todo: Todo, on: boolean): TodoSuggested | null {
   const [got, setGot] = useState<{ for: string; s: TodoSuggested } | null>(null);
-  const key = on && todo.status !== 'done' && worthSuggesting(todo) ? [todo.id, todo.project, todo.title, todo.description].join('\n') : null;
+  const key = on && isOpen(todo) && worthSuggesting(todo) ? [todo.id, todo.project, todo.title, todo.description].join('\n') : null;
   const latest = useRef(todo);
   latest.current = todo;
   useEffect(() => {
@@ -259,13 +259,13 @@ function LabelPicker({ labels, chosen, onToggle, onCreate, onRename, onMenu, onC
 }
 
 /** Pick a todo for this one to wait on, or type what else it waits for: a person, a release.
- *  Done ones and this one aren't offered; ones that already wait on this one are shown greyed,
+ *  Done and archived ones and this one aren't offered; ones that already wait on this one are shown greyed,
  *  since waiting on them would make a loop. */
 function WaitPicker({ todo, todos, onPick, onWaitFor, onClose }: { todo: Todo; todos: Todo[]; onPick: (id: string) => void; onWaitFor: (note: string) => void; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
   const offered = todos
-    .filter((t) => t.id !== todo.id && t.status !== 'done' && !depsOf(todo).includes(t.id))
+    .filter((t) => t.id !== todo.id && isOpen(t) && !depsOf(todo).includes(t.id))
     .map((t) => ({ t, why: cantWaitOn(todo, t, todos) }))
     .filter(({ t }) => (t.title || 'Untitled').toLowerCase().includes(q))
     // The todo's own project first; the rest keep your order.
@@ -486,7 +486,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
               {todo.project ? `Move to ${offer.project}?` : `In ${offer.project}?`}
             </button>
           )}
-          <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Move, copy or delete" className="ca-todoinsp-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
+          <Button variant="ghost" size="sm" icon="dots" aria-label="More" title="Move, copy, archive or delete" className="ca-todoinsp-more" onClick={(e) => onMoreMenu(below(e.currentTarget))} />
         </div>
         <TitleField value={todo.title} onSave={(title) => update({ title })} />
         <div className="ca-todoinsp-meta">

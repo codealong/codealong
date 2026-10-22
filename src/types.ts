@@ -1501,6 +1501,9 @@ export interface Todo {
    *  find instead of taking it on too (todos.rs `Primary`). Kept after that session stops, as
    *  the one that had it last. Missing or null when no session has been on it. */
   primary?: TodoPrimary | null;
+  /** When it was archived: it's under Archived and in no other list, keeping its status
+   *  (todos.rs). Missing or null when it isn't. */
+  archivedAt?: number | null;
 }
 
 export interface TodoPrimary {

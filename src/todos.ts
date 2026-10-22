@@ -1,6 +1,6 @@
 // Todos: work you mean to hand an agent. The engine keeps them in todos.json
 // (src-tauri/src/todos.rs) and publishes them with the board. This file has the list's rules:
-// its sections (In progress, In review, Ready, Waiting, Done), search and the status filters, the worktrees and sessions each todo is linked
+// its sections (In progress, In review, Ready, Waiting, Done, Archived), search and the status filters, the worktrees and sessions each todo is linked
 // to and which of them is its primary session, the prompt a todo starts a session with, and the
 // copy of each change a window shows until the engine's board has it.
 
@@ -13,8 +13,9 @@ import { LABEL_COLORS } from './types';
 import { errorText } from './report';
 
 /** `dependsOn` replaces the whole list. `waiting: null` says it's ready; `review: null` sends it
- *  back to In progress; `due: null` takes the due date off. */
-export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn' | 'waiting' | 'review' | 'due'>>;
+ *  back to In progress; `due: null` takes the due date off; `archived` archives it or brings it
+ *  back. */
+export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'labels' | 'project' | 'dependsOn' | 'waiting' | 'review' | 'due'>> & { archived?: boolean };
 
 /** A change, as the engine takes it (`TodoOp` in todos.rs). */
 export type TodoOp =
@@ -79,13 +80,14 @@ export function nextColor(labels: Label[]): LabelColor {
   return free ?? LABEL_COLORS[labels.length % LABEL_COLORS.length];
 }
 
-/** A status set the way the engine sets it: a done todo isn't waiting on anything, and only one
- *  in progress is in review. */
+/** A status set the way the engine sets it: a done todo isn't waiting on anything, only one in
+ *  progress is in review, and one reopened or started is out of the archive. */
 function withStatus(t: Todo, status: TodoStatus, now: number): Todo {
   const waiting = status === 'done' ? null : t.waiting;
   const review = status === 'in-progress' ? t.review : null;
-  if (t.status === status) return waiting === t.waiting && review === t.review ? t : { ...t, waiting, review };
-  return { ...t, status, doneAt: status === 'done' ? now : null, waiting, review };
+  const archivedAt = status === 'done' ? (t.archivedAt ?? null) : null;
+  if (t.status === status) return waiting === t.waiting && review === t.review && archivedAt === (t.archivedAt ?? null) ? t : { ...t, waiting, review, archivedAt };
+  return { ...t, status, doneAt: status === 'done' ? now : null, waiting, review, archivedAt };
 }
 
 /** A mark's time as the engine keeps it: a new note keeps the time it began, one put back by an
@@ -145,24 +147,32 @@ export function waitsOn(from: string, target: string, todos: Todo[]): boolean {
   return false;
 }
 
-/** The todos `todo` waits on that aren't done, in its order. Deleted ones don't count. */
+/** Whether a todo is still to do: not done, and not archived (`is_open` in todos.rs). */
+export function isOpen(t: Todo): boolean {
+  return t.status !== 'done' && !t.archivedAt;
+}
+
+/** The todos `todo` waits on that aren't done, in its order. Deleted and archived ones don't
+ *  count. */
 export function blockedBy(todo: Todo, todos: Todo[]): Todo[] {
-  return depsOf(todo).flatMap((d) => todos.find((t) => t.id === d && t.status !== 'done') ?? []);
+  return depsOf(todo).flatMap((d) => todos.find((t) => t.id === d && isOpen(t)) ?? []);
 }
 
 /** Where the Todo view lists a todo. */
-export type TodoSectionId = 'in-progress' | 'review' | 'ready' | 'waiting' | 'done';
+export type TodoSectionId = 'in-progress' | 'review' | 'ready' | 'waiting' | 'done' | 'archived';
 
-export const SECTION_WORD: Record<TodoSectionId, string> = { 'in-progress': 'In progress', review: 'In review', ready: 'Ready', waiting: 'Waiting', done: 'Done' };
+export const SECTION_WORD: Record<TodoSectionId, string> = { 'in-progress': 'In progress', review: 'In review', ready: 'Ready', waiting: 'Waiting', done: 'Done', archived: 'Archived' };
 
 /**
- * A todo's section: Waiting when it's marked as waiting, or when it isn't started and waits on
- * a todo that isn't done; In review when it's in progress and marked as ready for review, or
- * `prReview` says its PR is in review (`prInReview`); else by its status. One an agent is
- * already on stays In progress while the todos it waits on finish. `is_waiting` and
- * `is_in_review` in todos.rs have the same rules.
+ * A todo's section: Archived once it's archived, whatever its status; Waiting when it's marked as
+ * waiting, or when it isn't started and waits on a todo that isn't done; In review when it's in
+ * progress and marked as ready for review, or `prReview` says its PR is in review
+ * (`prInReview`); else by its status. One an agent is already on stays In progress while the
+ * todos it waits on finish. `is_waiting`, `is_ready` and `is_in_review` in todos.rs have the
+ * same rules.
  */
 export function sectionOf(todo: Todo, todos: Todo[], prReview = false): TodoSectionId {
+  if (todo.archivedAt) return 'archived';
   if (todo.status === 'done') return 'done';
   if (todo.waiting) return 'waiting';
   if (todo.status === 'in-progress') return todo.review || prReview ? 'review' : 'in-progress';
@@ -242,12 +252,14 @@ export function dependents(todo: Todo, todos: Todo[]): Todo[] {
   return todos.filter((t) => t.id !== todo.id && depsOf(t).includes(todo.id));
 }
 
-/** Why `todo` can't wait on `other`, or null when it can: not itself, not a done one, not one
- *  already on its list, and not one that already waits on it (that would be a loop). */
+/** Why `todo` can't wait on `other`, or null when it can: not itself, not a done or archived
+ *  one, not one already on its list, and not one that already waits on it (that would be a
+ *  loop). */
 export function cantWaitOn(todo: Todo, other: Todo, todos: Todo[]): string | null {
   if (other.id === todo.id) return 'This todo';
   if (depsOf(todo).includes(other.id)) return 'Already waits on it';
   if (other.status === 'done') return 'Done';
+  if (other.archivedAt) return 'Archived';
   if (waitsOn(other.id, todo.id, todos)) return 'Waits on this one';
   return null;
 }
@@ -277,7 +289,7 @@ export function applyOp(store: TodoStore, op: TodoOp, now: number): TodoStore {
   switch (op.op) {
     case 'create': {
       if (store.todos.some((t) => t.id === op.todo.id)) return store;
-      let t: Todo = { ...op.todo, worktrees: uniq(op.todo.worktrees), sessions: uniq(op.todo.sessions), pending: [], dependsOn: cleanDeps(op.todo.id, depsOf(op.todo)), waiting: null, review: null };
+      let t: Todo = { ...op.todo, worktrees: uniq(op.todo.worktrees), sessions: uniq(op.todo.sessions), pending: [], dependsOn: cleanDeps(op.todo.id, depsOf(op.todo)), waiting: null, review: null, archivedAt: null };
       // The engine keeps the clock: a new todo's wait, or review, begins now.
       if (op.todo.waiting) t = withWaiting(t, { ...op.todo.waiting, since: 0 }, now);
       if (op.todo.review) t = withReview(t, { ...op.todo.review, since: 0 }, now);
@@ -286,7 +298,7 @@ export function applyOp(store: TodoStore, op: TodoOp, now: number): TodoStore {
     }
     case 'update':
       return map(op.id, (t) => {
-        const { status, waiting, review, ...rest } = op.patch;
+        const { status, waiting, review, archived, ...rest } = op.patch;
         let next: Todo = { ...t, ...rest, updatedAt: now };
         if (rest.dependsOn) next.dependsOn = cleanDeps(t.id, rest.dependsOn);
         if (status) {
@@ -295,7 +307,9 @@ export function applyOp(store: TodoStore, op: TodoOp, now: number): TodoStore {
           if (status === 'in-progress' && (next.waiting || next.review)) next = { ...next, waiting: null, review: null };
         }
         if (waiting !== undefined) next = withWaiting(next, waiting, now);
-        return review === undefined ? next : withReview(next, review, now);
+        if (review !== undefined) next = withReview(next, review, now);
+        // Archived again, it keeps the time it was.
+        return archived === undefined ? next : { ...next, archivedAt: archived ? (next.archivedAt ?? now) : null };
       });
     case 'link':
       return map(op.id, (t) => {
@@ -489,7 +503,8 @@ export interface TodoSection {
 
 /** By status: In progress, In review, Ready and Waiting in your order. By when added: the todos
  *  that aren't done under the day each was added, the newest first. Either way Done comes last,
- *  the latest first. `todos` is every todo, in any project: what a todo waits on can be anywhere. */
+ *  the latest first, then Archived, the latest archived first. `todos` is every todo, in any
+ *  project: what a todo waits on can be anywhere. */
 export function todoSections(items: TodoItem[], todos: Todo[], sort: TodoSort = 'status', now = Date.now()): TodoSection[] {
   const rows = new Map<TodoSectionId, TodoItem[]>([
     ['in-progress', []],
@@ -497,18 +512,20 @@ export function todoSections(items: TodoItem[], todos: Todo[], sort: TodoSort = 
     ['ready', []],
     ['waiting', []],
     ['done', []],
+    ['archived', []],
   ]);
   for (const r of items) rows.get(itemSection(r, todos))?.push(r);
   rows.get('done')?.sort((a, b) => (b.todo.doneAt ?? b.todo.updatedAt) - (a.todo.doneAt ?? a.todo.updatedAt));
-  const done: TodoSection = { id: 'done', label: SECTION_WORD.done, rows: rows.get('done') ?? [] };
+  rows.get('archived')?.sort((a, b) => (b.todo.archivedAt ?? 0) - (a.todo.archivedAt ?? 0));
+  const last = (['done', 'archived'] as const).map((id): TodoSection => ({ id, label: SECTION_WORD[id], rows: rows.get(id) ?? [] }));
   if (sort === 'added') {
-    const isDone = new Set(done.rows);
+    const put = new Set(last.flatMap((s) => s.rows));
     const open = newestFirst(
-      items.filter((r) => !isDone.has(r)),
+      items.filter((r) => !put.has(r)),
       (r) => r.todo.createdAt,
       (r) => r.key,
     );
-    return [...byDay(open, (r) => r.todo.createdAt, now), done].filter((s) => s.rows.length > 0);
+    return [...byDay(open, (r) => r.todo.createdAt, now), ...last].filter((s) => s.rows.length > 0);
   }
   return [...rows].filter(([, list]) => list.length > 0).map(([id, list]) => ({ id, label: SECTION_WORD[id], rows: list }));
 }
@@ -568,10 +585,11 @@ export function todoIndex(todos: Todo[], homes: Map<string, Placed>): { bySessio
   return { bySession, byLane, byWorktree };
 }
 
-/** A session's linked todos as its panel lists them: the ones still under way, then the done
- *  ones, latest first, so the few shown before "more" are the ones that matter now. */
+/** A session's linked todos as its panel lists them: the ones still under way, then the done and
+ *  archived ones, the done latest first, so the few shown before "more" are the ones that matter
+ *  now. */
 export function panelTodos(todos: Todo[]): Todo[] {
-  const rank = (t: Todo) => (t.status === 'in-progress' ? 0 : t.status === 'todo' ? 1 : 2);
+  const rank = (t: Todo) => (!isOpen(t) ? 2 : t.status === 'in-progress' ? 0 : 1);
   return [...todos].sort((a, b) => rank(a) - rank(b) || (a.status === 'done' ? (b.doneAt ?? 0) - (a.doneAt ?? 0) : 0));
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, prInReview, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoItem, todoPr, todoPrompt, todosPrompt, todoSections, statusSection, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, isOpen, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, prInReview, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoItem, todoPr, todoPrompt, todosPrompt, todoSections, statusSection, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import type { Label, Lane, Session, Todo } from './types';
@@ -97,6 +97,27 @@ describe('applyOp', () => {
     expect(applyOp(s, { op: 'primary', id: 'a', session: null }, NOW + 5).todos[0].primary).toBeNull();
   });
 
+  it('archives a todo as the engine does, keeping its status, until it’s unarchived, reopened or started', () => {
+    let s = applyOp(store(todo('a', { status: 'in-progress', review: { note: '', since: 1 } })), { op: 'update', id: 'a', patch: { archived: true } }, NOW);
+    expect(s.todos[0]).toMatchObject({ status: 'in-progress', archivedAt: NOW, review: { note: '', since: 1 } });
+    expect(sectionOf(s.todos[0], s.todos, true)).toBe('archived');
+    expect(isOpen(s.todos[0])).toBe(false);
+    // Archived again, it keeps the time it was.
+    expect(applyOp(s, { op: 'update', id: 'a', patch: { archived: true } }, NOW + 5).todos[0].archivedAt).toBe(NOW);
+    const back = applyOp(s, { op: 'update', id: 'a', patch: { archived: false } }, NOW + 5).todos[0];
+    expect([back.archivedAt, sectionOf(back, [back])]).toEqual([null, 'review']);
+    // Reopened or started, it's back; marked done, it stays archived.
+    expect(applyOp(s, { op: 'update', id: 'a', patch: { status: 'todo' } }, NOW + 5).todos[0].archivedAt).toBeNull();
+    expect(applyOp(s, { op: 'update', id: 'a', patch: { status: 'in-progress' } }, NOW + 5).todos[0].archivedAt).toBeNull();
+    s = applyOp(s, { op: 'update', id: 'a', patch: { status: 'done' } }, NOW + 5);
+    expect(s.todos[0]).toMatchObject({ status: 'done', archivedAt: NOW });
+    // A todo not started that a session is linked to is started, and back too.
+    const linked = applyOp(store(todo('b', { archivedAt: NOW })), { op: 'link', id: 'b', session: 'claude:claude:s1', linked: true }, NOW + 5).todos[0];
+    expect([linked.status, linked.archivedAt]).toEqual(['in-progress', null]);
+    // A new todo isn't made archived.
+    expect(applyOp(store(), { op: 'create', todo: todo('c', { archivedAt: NOW }) }, NOW).todos[0].archivedAt).toBeNull();
+  });
+
   it('deletes, restores in place and reorders', () => {
     const s = store(todo('a'), todo('b'), todo('c'));
     const gone = applyOp(s, { op: 'delete', id: 'b' }, NOW);
@@ -157,6 +178,23 @@ describe('the list', () => {
     // What a todo waits on can be in another project, outside the rows shown.
     expect(todoSections([items[4]], todos).map((s) => s.id)).toEqual(['waiting']);
     expect(sectionOf(todo('k', { dependsOn: ['c'] }), [])).toBe('ready');
+  });
+
+  it('lists archived todos last, the latest archived first, whatever their status, and nothing waits on them', () => {
+    const todos = [
+      todo('a', { archivedAt: NOW - 10 }),
+      todo('b', { status: 'done', doneAt: NOW, archivedAt: NOW }),
+      todo('c', { dependsOn: ['a'] }),
+      todo('d', { status: 'done', doneAt: NOW }),
+    ];
+    const items = todos.map((t) => todoItem(t, byId, homes, labels));
+    expect(todoSections(items, todos).map((s) => [s.id, s.label, s.rows.map((r) => r.todo.id)])).toEqual([
+      ['ready', 'Ready', ['c']],
+      ['done', 'Done', ['d']],
+      ['archived', 'Archived', ['b', 'a']],
+    ]);
+    expect(todoSections(items, todos, 'added', NOW).map((s) => s.id).slice(-2)).toEqual(['done', 'archived']);
+    expect(blockedBy(todos[2], todos)).toEqual([]);
   });
 
   it('by when added, lists the todos not done under the day each was added, the newest first, then Done', () => {
@@ -333,6 +371,8 @@ describe("a session's panel", () => {
   it('lists todos under way first, then the done ones latest first', () => {
     const list = [todo('a', { status: 'done', doneAt: NOW - 3000 }), todo('b'), todo('c', { status: 'done', doneAt: NOW - 1000 }), todo('d', { status: 'in-progress' }), todo('e', { status: 'done', doneAt: null })];
     expect(panelTodos(list).map((t) => t.id)).toEqual(['d', 'b', 'c', 'a', 'e']);
+    // An archived one goes with the done ones.
+    expect(panelTodos([todo('f', { status: 'in-progress', archivedAt: NOW }), todo('g')]).map((t) => t.id)).toEqual(['g', 'f']);
     expect(list.map((t) => t.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 });
@@ -437,6 +477,12 @@ describe('dependencies', () => {
     expect(dependents(b, todos).map((t) => t.id)).toEqual(['a']);
     expect(dependents(d, todos).map((t) => t.id)).toEqual(['b']);
     expect(dependents(a, todos)).toEqual([]);
+  });
+
+  it('refuses archived ones', () => {
+    const a = todo('a');
+    const b = todo('b', { archivedAt: NOW });
+    expect(cantWaitOn(a, b, [a, b])).toBe('Archived');
   });
 
   it('refuses itself, done ones, repeats and loops', () => {

@@ -43,10 +43,12 @@ export function sessionStage(r: SessionItem, prs: PrItem[]): Exclude<Stage, 'tod
   return !busy && (pr?.state === 'merged' || s.insight?.landing === 'landed') ? 'done' : 'progress';
 }
 
-/** A todo's stage: its Todo view section (todos.ts `itemSection`), Ready and Waiting both To do. */
+/** A todo's stage: its Todo view section (todos.ts `itemSection`), Ready and Waiting both To do,
+ *  and Archived done with (an archived todo is on no board's Kanban, boardLists.ts
+ *  `kanbanColumns`). */
 export function todoStage(item: TodoItem, todos: Todo[]): Stage {
   const section = itemSection(item, todos);
-  return section === 'ready' || section === 'waiting' ? 'todo' : section === 'in-progress' ? 'progress' : section;
+  return section === 'ready' || section === 'waiting' ? 'todo' : section === 'in-progress' ? 'progress' : section === 'archived' ? 'done' : section;
 }
 
 /** A PR's stage, and a worktree's by its PR: a draft is under way, an open one in review, and a

@@ -2,8 +2,8 @@
 // together, the box that adds one, the due date a panel opens its picker on, and every change,
 // menu and key, each going through the todo store (todos.ts), which shows a change at once. The
 // Kanban view's todo cards have the same keys and picks. The filters it shares with the other
-// views (the label, Show done) stay with them in App.tsx, as the lists are made from them
-// (boardLists.ts).
+// views (the label, Show done, Show archived) stay with them in App.tsx, as the lists are made
+// from them (boardLists.ts).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ListRow } from './boardLists';
@@ -14,7 +14,7 @@ import { nextAfter, usePicks } from './picks';
 import { reorderPinned, type Pins } from './pins';
 import { ALL_PROJECTS, inProject } from './quick';
 import type { Report } from './report';
-import { COLOR_WORD, itemPrimaryHolds, newTodo, reviewChange, todoAgent, todoProjects, todoPrompt, todosPrompt, useTodoStore, type TodoItem, type TodoSection, type TodoSectionId } from './todos';
+import { COLOR_WORD, isOpen, itemPrimaryHolds, newTodo, reviewChange, todoAgent, todoProjects, todoPrompt, todosPrompt, useTodoStore, type TodoItem, type TodoSection, type TodoSectionId } from './todos';
 import type { Label, Lane, ProjectSummary, Todo, TodoStatus } from './types';
 import { LABEL_COLORS } from './types';
 import type { UndoToast } from './ui/Toasts';
@@ -45,6 +45,7 @@ export interface TodoViewInput {
   /** Unpicks a label, as when it's deleted. */
   unpickLabel: (id: string) => void;
   setShowDoneTodos: (show: boolean) => void;
+  setShowArchivedTodos: (show: boolean) => void;
   report: Report;
   setToast: (message: string | null) => void;
   setTodoUndo: (undo: UndoToast | null) => void;
@@ -64,7 +65,7 @@ export interface TodoViewInput {
 }
 
 export function useTodoView(input: TodoViewInput) {
-  const { store: todoStore, selected, setSelectedKey, visible, todoVisible, todoSecs, ordered, current, projects, lanes, laneById, lanePins, selectedLane, labelPicks, unpickLabel, setShowDoneTodos, report, setToast, setTodoUndo, newSession, open, pickProject, setView, listsTodos, clearFilters, setQuery, onDesktop, boardItems } = input;
+  const { store: todoStore, selected, setSelectedKey, visible, todoVisible, todoSecs, ordered, current, projects, lanes, laneById, lanePins, selectedLane, labelPicks, unpickLabel, setShowDoneTodos, setShowArchivedTodos, report, setToast, setTodoUndo, newSession, open, pickProject, setView, listsTodos, clearFilters, setQuery, onDesktop, boardItems } = input;
   const runTodo = todoStore.run;
   // The todo whose panel should open its due date's picker, for Pick a date… and D.
   const [duePick, setDuePick] = useState<string | null>(null);
@@ -108,7 +109,8 @@ export function useTodoView(input: TodoViewInput) {
     setView('todo');
     clearFilters();
     setQuery('');
-    if (t.status === 'done') setShowDoneTodos(true);
+    if (t.archivedAt) setShowArchivedTodos(true);
+    else if (t.status === 'done') setShowDoneTodos(true);
     setSelectedKey(`todo:${t.id}`);
   };
 
@@ -181,6 +183,25 @@ export function useTodoView(input: TodoViewInput) {
     });
   };
 
+  /** Archives todos, or brings them back from the archive. Archiving moves the selection on, as
+   *  deleting does, and the toast can bring them back. */
+  const archiveTodos = (ts: Todo[], archived: boolean) => {
+    const changing = ts.filter((t) => !t.archivedAt === archived);
+    if (changing.length === 0) return;
+    if (archived) {
+      const keys = new Set(changing.map((t) => `todo:${t.id}`));
+      if (selected && keys.has(selected.key)) setSelectedKey(nextAfter(todoVisible.map((r) => r.key), keys));
+      clearPick();
+    }
+    for (const t of changing) runTodo({ op: 'update', id: t.id, patch: { archived } });
+    if (!archived) return;
+    setTodoUndo({
+      message: changing.length === 1 ? `Archived “${changing[0].title || 'Untitled'}”.` : `Archived ${changing.length} todos.`,
+      icon: 'archive',
+      undo: () => changing.forEach((t) => void runTodo({ op: 'update', id: t.id, patch: { archived: false } })),
+    });
+  };
+
   /** Moves a todo to insertion point `index` among the todos `rows` show. */
   const moveTodoAmong = (rows: TodoItem[], id: string, index: number) => {
     const all = todoStore.todos.map((t) => t.id);
@@ -235,6 +256,7 @@ export function useTodoView(input: TodoViewInput) {
       edit: todoEdit,
       desktop: onDesktop,
       boards: boardItems('todo', [t.id]),
+      archive: (archived) => archiveTodos([t], archived),
       remove: () => deleteTodos([t]),
     });
   };
@@ -242,14 +264,14 @@ export function useTodoView(input: TodoViewInput) {
   /** The right-click menu of several todos picked together, and their panel's ⋯ menu. */
   const pickMenuSpec = (rows: TodoItem[]): MenuSpec => {
     const ts = rows.map((r) => r.todo);
-    return menus.todosMenu(ts, { report, start: () => startForTodos(rows), edit: todoEdit, boards: boardItems('todo', ts.map((t) => t.id)), remove: () => deleteTodos(ts) });
+    return menus.todosMenu(ts, { report, start: () => startForTodos(rows), edit: todoEdit, boards: boardItems('todo', ts.map((t) => t.id)), archive: (archived) => archiveTodos(ts, archived), remove: () => deleteTodos(ts) });
   };
   const pickMenu = (rows: TodoItem[], at?: { x: number; y: number }) => void showContextMenu(pickMenuSpec(rows), at).catch((e: unknown) => setToast(String(e)));
 
   /** The panel's ⋯ menu. */
   const todoMoreMenu = (r: TodoItem, at: { x: number; y: number }) => {
     const t = r.todo;
-    void showContextMenu(menus.todoPanelMenu(t, { report, edit: todoEdit, remove: () => deleteTodos([t]) }), at).catch((e: unknown) => setToast(String(e)));
+    void showContextMenu(menus.todoPanelMenu(t, { report, edit: todoEdit, archive: (archived) => archiveTodos([t], archived), remove: () => deleteTodos([t]) }), at).catch((e: unknown) => setToast(String(e)));
   };
 
   /** Link…: the project's worktrees (pinned first) and recent sessions a todo isn't linked to. */
@@ -282,13 +304,13 @@ export function useTodoView(input: TodoViewInput) {
   };
 
   /**
-   * "Add to todo" for a session's or a worktree's menu: the project's open todos it isn't on,
-   * newest first, and a new one; then taking it off the todos it's on.
+   * "Add to todo" for a session's or a worktree's menu: the project's open todos it isn't on
+   * (not done, not archived), newest first, and a new one; then taking it off the todos it's on.
    */
   const todoMenuItems = (project: string, link: { worktree?: string; session?: string }, context: ComposerContext, title = ''): MenuSpec => {
     const on = todoStore.todos.filter((t) => (link.session ? t.sessions.includes(link.session) : t.worktrees.includes(link.worktree ?? '')));
     const open = todoStore.todos
-      .filter((t) => t.status !== 'done' && !on.includes(t) && (!t.project || t.project === project))
+      .filter((t) => isOpen(t) && !on.includes(t) && (!t.project || t.project === project))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 15);
     return [
@@ -301,8 +323,8 @@ export function useTodoView(input: TodoViewInput) {
         ],
       },
       ...on.map((t) => ({ label: `Remove from todo “${(t.title || 'Untitled').slice(0, 40)}”`, run: () => runTodo({ op: 'link', id: t.id, ...link, linked: false }) })),
-      // A session's own: the todos it's on that aren't done, it as their primary session or not.
-      ...(link.session ? on.filter((t) => t.status !== 'done') : []).map((t) => {
+      // A session's own: the open todos it's on, it as their primary session or not.
+      ...(link.session ? on.filter(isOpen) : []).map((t) => {
         const primary = t.primary?.session === link.session;
         return {
           label: `Primary session for “${(t.title || 'Untitled').slice(0, 40)}”`,
@@ -316,9 +338,9 @@ export function useTodoView(input: TodoViewInput) {
 
   // The Todo view's own keys, bound fresh each render so they see the rows as they are. N adds a
   // todo, X marks one done (or reopens it), W moves it to Waiting or out, R marks it ready for
-  // review or sends it back, D picks its due date, Delete deletes it, ⌃⌘↑ ⌃⌘↓ move it. ⇧↑ ⇧↓ pick
-  // the rows above or below too; then X, W, R and Delete act on all of them, Return starts one
-  // session for them, and Escape goes back to one.
+  // review or sends it back, D picks its due date, A archives it (or brings it back), Delete
+  // deletes it, ⌃⌘↑ ⌃⌘↓ move it. ⇧↑ ⇧↓ pick the rows above or below too; then X, W, R, A and
+  // Delete act on all of them, Return starts one session for them, and Escape goes back to one.
   const todoKeys = useLatest((e: KeyboardEvent, key: string): boolean => {
     if (!listsTodos) return false;
     // Reordering moves one todo at a time.
@@ -326,7 +348,7 @@ export function useTodoView(input: TodoViewInput) {
     if (reorder) {
       if (selected?.kind !== 'todo') return false;
       e.preventDefault();
-      if (pickedRows.length > 0 || selected.todo.status === 'done') return true;
+      if (pickedRows.length > 0 || !isOpen(selected.todo)) return true;
       const run = ordered.find((rows) => rows.some((r) => r.key === selected.key));
       const i = run?.findIndex((r) => r.key === selected.key) ?? -1;
       // Insertion points: one up is the row's own index less one; one down is two past it.
@@ -370,6 +392,11 @@ export function useTodoView(input: TodoViewInput) {
     }
     if (key === 'r' && !e.altKey) {
       reviewChange(ts)?.ops.forEach((op) => void runTodo(op));
+      return true;
+    }
+    if (key === 'a' && !e.altKey) {
+      // Archived, unless they all are: then they come out of it.
+      archiveTodos(ts, ts.some((x) => !x.archivedAt));
       return true;
     }
     if (key === 'd' && !e.altKey && pickedRows.length === 0) {

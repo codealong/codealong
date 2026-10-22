@@ -27,6 +27,11 @@
 //! first session linked to it is the primary one, and the next one is once that one has stopped
 //! (`holds`); you, or an agent told to (`codealong todo start --take`), can make another one it.
 //! A session linked while the primary one runs works alongside it.
+//!
+//! An archived todo is put away, done or not: it leaves every list but Archived, keeping its
+//! status, and nothing waits on it, as nothing waits on a deleted one. It's back where its status
+//! puts it once it's unarchived, a session starts from it, or it's reopened or started
+//! (`set_status`).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -323,6 +328,10 @@ pub struct Todo {
     /// when it has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary: Option<Primary>,
+    /// When it was archived (see the top of this file). Left out when it isn't, so a build from
+    /// before reads the file as it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -371,6 +380,9 @@ pub struct TodoPatch {
     /// doesn't change.
     #[serde(default, deserialize_with = "due_change", skip_serializing_if = "Option::is_none")]
     pub due: Option<Option<String>>,
+    /// Archives it, or brings it back from the archive. Left out when it doesn't change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
 }
 
 /// A change from the UI. Changes are small and specific, so one made in a window never undoes
@@ -539,10 +551,12 @@ fn push_unique(list: &mut Vec<String>, item: &str) -> bool {
 }
 
 /// Sets a status, keeping `done_at` in step. A done todo isn't waiting on anything, and only one
-/// in progress is in review.
+/// in progress is in review. One reopened or started is out of the archive: its work goes on.
 fn set_status(t: &mut Todo, status: TodoStatus, now: i64) {
     if status == TodoStatus::Done {
         t.waiting = None;
+    } else {
+        t.archived_at = None;
     }
     if status != TodoStatus::InProgress {
         t.review = None;
@@ -591,6 +605,11 @@ fn set_review(t: &mut Todo, review: Option<TodoReview>, now: i64) {
         }
         _ => None,
     };
+}
+
+/// Archives a todo, keeping the time it was if it already was, or brings it back.
+fn set_archived(t: &mut Todo, archived: bool, now: i64) {
+    t.archived_at = archived.then(|| t.archived_at.unwrap_or(now));
 }
 
 /// A linked session means an agent is on it.
@@ -731,6 +750,7 @@ impl TodoStore {
                     review: None,
                     due,
                     primary: None,
+                    archived_at: None,
                 };
                 set_status(&mut t, todo.status, now);
                 // The engine keeps the clock: a new todo's wait, or review, begins now.
@@ -790,6 +810,9 @@ impl TodoStore {
                 }
                 if let Some(d) = due {
                     t.due = d;
+                }
+                if let Some(a) = patch.archived {
+                    set_archived(t, a, now);
                 }
                 let changed = *t != before;
                 if changed {
@@ -974,29 +997,35 @@ pub fn prompt_for(ts: &[&Todo], holding: impl Fn(&Todo) -> bool) -> String {
     parts.join("\n\n")
 }
 
-/// The todos `t` waits on that aren't done yet, in its order, among `todos`. Deleted ones don't
-/// count.
+/// The todos `t` waits on that aren't done yet, in its order, among `todos`. Deleted and
+/// archived ones don't count.
 pub fn blocked_by<'a>(t: &Todo, todos: &'a [Todo]) -> Vec<&'a Todo> {
-    t.depends_on.iter().filter_map(|d| todos.iter().find(|x| &x.id == d)).filter(|x| x.status != TodoStatus::Done).collect()
+    t.depends_on.iter().filter_map(|d| todos.iter().find(|x| &x.id == d)).filter(|x| x.status != TodoStatus::Done && x.archived_at.is_none()).collect()
 }
 
-/// Whether `t` is under Waiting: marked as waiting, or not started and waiting on a todo that
-/// isn't done. One an agent is already on stays In progress while its todos finish.
+/// Whether `t` is still to do: not done, and not archived. The todos Jev links a session to, and
+/// the ones `whoami` names.
+pub fn is_open(t: &Todo) -> bool {
+    t.status != TodoStatus::Done && t.archived_at.is_none()
+}
+
+/// Whether `t` is under Waiting: open, and marked as waiting, or not started and waiting on a todo
+/// that isn't done. One an agent is already on stays In progress while its todos finish.
 /// `sectionOf` in src/todos.ts has the same rule.
 pub fn is_waiting(t: &Todo, todos: &[Todo]) -> bool {
-    t.status != TodoStatus::Done && (t.waiting.is_some() || (t.status == TodoStatus::Todo && !blocked_by(t, todos).is_empty()))
+    is_open(t) && (t.waiting.is_some() || (t.status == TodoStatus::Todo && !blocked_by(t, todos).is_empty()))
 }
 
-/// Whether `t` is under Ready: not started, and waiting on nothing.
+/// Whether `t` is under Ready: not started, not archived, and waiting on nothing.
 pub fn is_ready(t: &Todo, todos: &[Todo]) -> bool {
-    t.status == TodoStatus::Todo && !is_waiting(t, todos)
+    t.status == TodoStatus::Todo && t.archived_at.is_none() && !is_waiting(t, todos)
 }
 
 /// Whether `t` is under In review: in progress, not marked as waiting, and marked as ready for
 /// review or its PR is in review (`pr_in_review`). `itemSection` in src/todos.ts has the same
 /// rule.
 pub fn is_in_review(t: &Todo, lanes: &[Lane]) -> bool {
-    t.status == TodoStatus::InProgress && t.waiting.is_none() && (t.review.is_some() || pr_in_review(t, lanes))
+    t.status == TodoStatus::InProgress && t.archived_at.is_none() && t.waiting.is_none() && (t.review.is_some() || pr_in_review(t, lanes))
 }
 
 /// Whether the PR of a todo's work is with its reviewers: the PR of its worktrees, then of its
@@ -1140,6 +1169,7 @@ mod tests {
             review: None,
             due: None,
             primary: None,
+            archived_at: None,
         }
     }
 
@@ -1527,6 +1557,71 @@ mod tests {
         let reopen = TodoPatch { status: Some(TodoStatus::Todo), ..TodoPatch::default() };
         s.apply(TodoOp::Update { id: "a".into(), patch: reopen }, &lanes(), 90).unwrap();
         assert_eq!(s.todos[0].done_at, None);
+    }
+
+    fn archive(on: bool) -> TodoPatch {
+        TodoPatch { archived: Some(on), ..TodoPatch::default() }
+    }
+
+    #[test]
+    fn an_archived_todo_keeps_its_status_and_is_under_no_section() {
+        let mut s = store(&["a", "b"]);
+        update(&mut s, "a", review(""), 10);
+        assert!(update(&mut s, "a", archive(true), 20));
+        let a = s.todos[0].clone();
+        assert_eq!((a.archived_at, a.status, a.review.is_some()), (Some(20), TodoStatus::InProgress, true));
+        assert!(!is_open(&a) && !s.is_ready(&a) && !s.is_waiting(&a) && !is_in_review(&a, &[]));
+        // Archiving again keeps the time it was; nothing new is no change.
+        assert!(!update(&mut s, "a", archive(true), 30));
+        assert_eq!(s.todos[0].archived_at, Some(20));
+        // Unarchived, it's back where its status puts it.
+        assert!(update(&mut s, "a", archive(false), 40));
+        assert!(s.todos[0].archived_at.is_none() && is_in_review(&s.todos[0], &[]));
+        // A done one stays done, and marking an archived one done keeps it archived.
+        update(&mut s, "b", TodoPatch { status: Some(TodoStatus::Done), ..archive(true) }, 50);
+        update(&mut s, "b", TodoPatch { status: Some(TodoStatus::Done), ..TodoPatch::default() }, 60);
+        assert_eq!((s.todos[1].status, s.todos[1].archived_at), (TodoStatus::Done, Some(50)));
+    }
+
+    #[test]
+    fn reopening_starting_or_a_start_from_it_brings_an_archived_todo_back() {
+        let mut s = store(&["a"]);
+        for (status, at) in [(TodoStatus::Todo, 10), (TodoStatus::InProgress, 30)] {
+            update(&mut s, "a", archive(true), at);
+            update(&mut s, "a", TodoPatch { status: Some(status), ..TodoPatch::default() }, at + 10);
+            assert!(s.todos[0].archived_at.is_none(), "{status:?}");
+        }
+        update(&mut s, "a", archive(true), 50);
+        s.started("a", Some("/r/app"), Some("claude:claude:s1"), None, &lanes(), 60);
+        assert!(s.todos[0].archived_at.is_none());
+        // A new todo isn't made archived.
+        let t = Todo { archived_at: Some(5), ..todo("b") };
+        s.apply(TodoOp::Create { todo: t }, &lanes(), 70).unwrap();
+        assert!(s.todos[0].archived_at.is_none());
+    }
+
+    #[test]
+    fn nothing_waits_on_an_archived_todo() {
+        let mut s = store(&["a", "b"]);
+        update(&mut s, "a", TodoPatch { depends_on: Some(vec!["b".into()]), ..TodoPatch::default() }, 10);
+        assert!(s.is_waiting(&s.todos[0]));
+        update(&mut s, "b", archive(true), 20);
+        assert!(s.is_ready(&s.todos[0]) && s.blocked_by(&s.todos[0]).is_empty());
+        // It still has it on its list, as it has a deleted one, for when it's back.
+        assert_eq!(s.todos[0].depends_on, vec!["b".to_string()]);
+        update(&mut s, "b", archive(false), 30);
+        assert!(s.is_waiting(&s.todos[0]));
+    }
+
+    #[test]
+    fn archived_is_written_only_when_it_is_and_reads_back() {
+        let t = todo("a");
+        assert!(!serde_json::to_string(&t).unwrap().contains("archived"));
+        let read: Todo = serde_json::from_str(r#"{"id":"a","status":"done","archivedAt":5}"#).unwrap();
+        assert_eq!(read.archived_at, Some(5));
+        let patch: TodoPatch = serde_json::from_str(r#"{"archived":true}"#).unwrap();
+        assert_eq!(patch.archived, Some(true));
+        assert!(!serde_json::to_string(&TodoPatch::default()).unwrap().contains("archived"));
     }
 
     #[test]

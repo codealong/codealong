@@ -61,7 +61,9 @@ through the list for something to do. What follows is for when they've asked.
   the description with attachments as full paths you can read.
 - `codealong todo update <id>` changes fields (`--title`, `--description`, `--status`,
   `--project`, `--add-label`, `--remove-label`); `link` and `unlink` change what a todo is
-  attached to; `delete` removes one, which the app can't undo later, so ask first.
+  attached to; `archive` puts one away, done or not, and `unarchive` brings it back (only when
+  the user asks; `todo list --archived` lists them); `delete` removes one, which the app can't
+  undo later, so ask first.
 - **Order and dependencies.** The list's order is the user's priority, top first. `codealong
   todo move <id> --top|--bottom|--before <id>|--after <id>` changes it; don't reorder
   without being asked. A todo can wait on others: `todo add … --depends-on <id>`, `todo

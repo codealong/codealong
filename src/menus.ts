@@ -1357,6 +1357,18 @@ function projectItems(t: Todo, edit: TodoEdit): MenuSpec {
   return [{ label: 'Move to project', items: projects.map((p) => ({ label: p, checked: t.project === p, run: () => edit.run({ op: 'update', id: t.id, patch: { project: p } }) })) }];
 }
 
+/** Archive todo, or Unarchive todo once it's archived; for several, any not archived are archived,
+ *  and when all are they come out of it. `archive` does it where that does more (the main
+ *  window's undo), else `edit`. */
+function archiveItems(ts: Todo[], edit: TodoEdit | undefined, archive: ((archived: boolean) => void) | undefined): MenuSpec {
+  const on = ts.some((t) => !t.archivedAt);
+  const changing = ts.filter((t) => !t.archivedAt === on);
+  const run = archive ?? (edit && ((archived: boolean) => changing.forEach((t) => edit.run({ op: 'update', id: t.id, patch: { archived } }))));
+  if (!run) return [];
+  const what = ts.length === 1 ? 'todo' : count(changing.length, 'todo');
+  return [{ label: `${on ? 'Archive' : 'Unarchive'} ${what}`, run: () => run(on) }];
+}
+
 /** Copy as prompt: the prompt the todos would start a session with, attachments as their paths. */
 function copyPromptItem(ts: Todo[], report: Report): MenuAction {
   const what = ts.length > 1 ? 'todos as a prompt' : 'todo as a prompt';
@@ -1386,12 +1398,16 @@ export interface TodoCan {
   desktop?: ReadonlySet<string>;
   /** Add to board, and Remove from board on the board it's on. */
   boards?: MenuSpec;
+  /** Archive todo and Unarchive todo, where that does more (the main window's undo); else `edit`
+   *  does it. */
+  archive?: (archived: boolean) => void;
   /** Delete todo, where it can be put back (the main window's undo). */
   remove?: () => void;
 }
 
 /** A todo's menu: starting a session for it, opening its session, showing it; its status,
- *  waiting, review, due date, labels and project; pinning it; copying it; deleting it. */
+ *  waiting, review, due date, labels and project; pinning it; copying it; archiving it; deleting
+ *  it. */
 export function todoMenu(t: Todo, can: TodoCan): MenuSpec {
   const { report, edit } = can;
   const s = can.session;
@@ -1405,20 +1421,20 @@ export function todoMenu(t: Todo, can: TodoCan): MenuSpec {
     can.desktop ? [desktopItem('todo', t.id, can.desktop, report)] : [],
     can.boards ?? [],
     [copyPromptItem([t], report), ...some(copyItem('Copy todo ID', t.id, 'todo ID', report))],
-    can.remove ? [{ label: 'Delete todo', run: can.remove }] : [],
+    [...archiveItems([t], edit, can.archive), ...(can.remove ? [{ label: 'Delete todo', run: can.remove }] : [])],
   );
 }
 
 /** The menu of several todos picked together: one session for them all; their status, waiting,
- *  review and due date; the boards; copying them; deleting them. */
-export function todosMenu(ts: Todo[], can: Pick<TodoCan, 'report' | 'start' | 'edit' | 'boards' | 'remove'>): MenuSpec {
+ *  review and due date; the boards; copying them; archiving them; deleting them. */
+export function todosMenu(ts: Todo[], can: Pick<TodoCan, 'report' | 'start' | 'edit' | 'boards' | 'archive' | 'remove'>): MenuSpec {
   const { report, edit } = can;
   return sections(
     [{ label: `Start one session for ${ts.length} todos…`, run: can.start }],
     edit ? [...statusItems(ts, edit), ...waitingItems(ts, edit, report), ...reviewItems(ts, edit), dueItem(ts, edit)] : [],
     can.boards ?? [],
     [copyPromptItem(ts, report), ...some(copyItem('Copy todo IDs', ts.map((t) => t.id).join(' '), 'todo IDs', report))],
-    can.remove ? [{ label: `Delete ${ts.length} todos`, run: can.remove }] : [],
+    [...archiveItems(ts, edit, can.archive), ...(can.remove ? [{ label: `Delete ${ts.length} todos`, run: can.remove }] : [])],
   );
 }
 
@@ -1447,7 +1463,10 @@ export function scheduleMenu(s: Pick<Schedule, 'id' | 'name' | 'paused'>, can: S
 }
 
 /** The todo panel's ⋯ menu: what the panel has no control for. */
-export function todoPanelMenu(t: Todo, can: Pick<TodoCan, 'report' | 'edit' | 'remove'>): MenuSpec {
+export function todoPanelMenu(t: Todo, can: Pick<TodoCan, 'report' | 'edit' | 'archive' | 'remove'>): MenuSpec {
   const { report, edit } = can;
-  return sections([...(edit ? projectItems(t, edit) : []), copyPromptItem([t], report), ...some(copyItem('Copy todo ID', t.id, 'todo ID', report))], can.remove ? [{ label: 'Delete todo', run: can.remove }] : []);
+  return sections(
+    [...(edit ? projectItems(t, edit) : []), copyPromptItem([t], report), ...some(copyItem('Copy todo ID', t.id, 'todo ID', report))],
+    [...archiveItems([t], edit, can.archive), ...(can.remove ? [{ label: 'Delete todo', run: can.remove }] : [])],
+  );
 }

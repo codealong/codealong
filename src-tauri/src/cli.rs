@@ -142,7 +142,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: TerminalCmd,
     },
-    /// What changed since an earlier look, for an agent that keeps watch over every session on a loop (an orchestrator: the skill's references/orchestrate.md). Sessions that started (`new`), began a turn (`working`), wait on their user (`waiting`: a call to allow, a question, an error), ended a turn (`finished`) or stopped (`stopped`), a turn that another session's message, Codealong's, a background command's report or a scheduled wakeup began among them, each with its worktree, PRs, todos and `lastPromptAt` (when its user last prompted it, for `session suggest` and `session tag`; a message from another session or from Codealong doesn't move it), and for the first --texts of them, waiting ones first, what began its latest turn and its reply: `prompt` is its user's latest prompt, or a message sent after it, whose sender `promptFrom` names (`agent` for another session, `codealong` for Codealong's own); PRs in your repos opened, out of draft, approved, sent back, merged or closed, or asking your review (`prs`, null when they can't be read); todos added, started, done, reopened or set waiting; worktrees a second agent started working in (`shared`; not an app's chats, which are listed together for having no folder of yours). Headless runs (`claude -p`, `codex exec`, which a script or an agent started and reads itself) aren't sessions there, nor a second agent: they're counted by the worktree they ran in (`headless`). With them, every session that waits on you now (`waiting`, as `sessions --waiting` lists them), each saying whether it has suggested replies or a tag, why Codealong took away ones it had (`untagged`, `unsuggested`: it was sent a prompt, or a turn of its started, since), and `helper` when it works for another agent or a PR (`start --helper`, an automatic review), whose reply is that agent's or PR's to read, not a question for you. It prints a `cursor`: give it to --since next time, and what changed is told by difference from what this look saw, so a busy app or a GitHub error never makes a session or a PR look new. What it couldn't read is said in `notes`, and told once it can be. Without --since, or with a duration, it goes by times alone, which can't tell a review's change. The session running it is left out.
+    /// What changed since an earlier look, for an agent that keeps watch over every session on a loop (an orchestrator: the skill's references/orchestrate.md). Sessions that started (`new`), began a turn (`working`), wait on their user (`waiting`: a call to allow, a question, an error), ended a turn (`finished`) or stopped (`stopped`), a turn that another session's message, Codealong's, a background command's report or a scheduled wakeup began among them, each with its worktree, PRs, todos and `lastPromptAt` (when its user last prompted it, for `session suggest` and `session tag`; a message from another session or from Codealong doesn't move it), and for the first --texts of them, waiting ones first, what began its latest turn and its reply: `prompt` is its user's latest prompt, or a message sent after it, whose sender `promptFrom` names (`agent` for another session, `codealong` for Codealong's own); PRs in your repos opened, out of draft, approved, sent back, merged or closed, or asking your review (`prs`, null when they can't be read); todos added, started, done, reopened, set waiting, archived or unarchived; worktrees a second agent started working in (`shared`; not an app's chats, which are listed together for having no folder of yours). Headless runs (`claude -p`, `codex exec`, which a script or an agent started and reads itself) aren't sessions there, nor a second agent: they're counted by the worktree they ran in (`headless`). With them, every session that waits on you now (`waiting`, as `sessions --waiting` lists them), each saying whether it has suggested replies or a tag, why Codealong took away ones it had (`untagged`, `unsuggested`: it was sent a prompt, or a turn of its started, since), and `helper` when it works for another agent or a PR (`start --helper`, an automatic review), whose reply is that agent's or PR's to read, not a question for you. It prints a `cursor`: give it to --since next time, and what changed is told by difference from what this look saw, so a busy app or a GitHub error never makes a session or a PR look new. What it couldn't read is said in `notes`, and told once it can be. Without --since, or with a duration, it goes by times alone, which can't tell a review's change. The session running it is left out.
     Changes(ChangesArgs),
     /// Processes left over from old sessions, and this Mac's load, memory and swap, for keeping a Mac with many agents usable. It lists: the processes of sessions quiet for --after (an agent's own process and what it runs; not one working or waiting on you, unless it's archived), older copies of a background job's attach client (`claude attach <job>` in a second tab), a harness's background processes left with no parent, and dev servers and watchers in a linked worktree no session has been active in for --after (never a repo's main checkout). With --kill it ends those, each with its child processes: it checks again that each process runs the same command first, stops a background job through its harness as Close does and asks the rest to end (SIGTERM), kills what's left after a while (SIGKILL), sweeps once more for dev processes that came back in the worktrees it cleared, and logs each to --log. A session whose process ended keeps its conversation and resumes as usual. It judges nothing, and kills nothing, when the app doesn't answer or is still reading after a start: without its board, every session would look old.
     Hygiene(HygieneArgs),
@@ -285,7 +285,7 @@ enum DevicesCmd {
 
 #[derive(Subcommand, Debug)]
 enum TodoCmd {
-    /// Todos that aren't done, in the app's order. --status all for every one.
+    /// Todos that aren't done or archived, in the app's order. --status all for every status, --archived for the archived ones.
     List(TodoListArgs),
     /// One todo in full, with attachments as full paths.
     Show { id: String },
@@ -321,6 +321,10 @@ enum TodoCmd {
     Link(LinkArgs),
     /// Unlink a session or a worktree from a todo.
     Unlink(LinkArgs),
+    /// Archive a todo, done or not, when your user asks: the app lists it under Archived and in no other list, keeping its status, and no todo waits on it meanwhile. Reopening or starting it, or a session started from it, brings it back.
+    Archive { id: String },
+    /// Bring an archived todo back to where its status puts it.
+    Unarchive { id: String },
     /// Delete a todo. The app can't undo this once its window's undo is gone, so ask first.
     Delete { id: String },
     /// The labels, or add and remove one.
@@ -344,9 +348,12 @@ enum LabelCmd {
 
 #[derive(Args, Debug)]
 struct TodoListArgs {
-    /// todo, in-progress, done, open (todo and in-progress; the default) or all.
-    #[arg(long, default_value = "open")]
-    status: String,
+    /// todo, in-progress, done, open (todo and in-progress; the default) or all. With --archived, all is the default.
+    #[arg(long)]
+    status: Option<String>,
+    /// Only archived todos, which are otherwise left out.
+    #[arg(long)]
+    archived: bool,
     /// Only todos of this project.
     #[arg(long)]
     project: Option<String>,
@@ -4699,7 +4706,7 @@ fn others_text(others: &[SessionRow], ended: usize) -> String {
 /// worktree's todos are the others' work. When the caller isn't known, one agent running there
 /// may be the caller itself.
 fn my_todos<'a>(board: &'a Board, key: Option<&str>, lane: Option<&Lane>) -> Vec<&'a Todo> {
-    let open = |t: &&Todo| t.status != TodoStatus::Done;
+    let open = |t: &&Todo| todos::is_open(t);
     let mut out: Vec<&Todo> = board.todos.iter().filter(open).filter(|t| key.is_some_and(|k| t.sessions.iter().any(|s| s == k))).collect();
     let alone = lane.filter(|l| others_in(l, key).count() <= usize::from(key.is_none()));
     if let Some(l) = alone {
@@ -4793,8 +4800,10 @@ struct TodoRow {
     waiting: Option<Waiting>,
     /// Marked as ready for review: `note` says what to look at, `since` when. Null when it isn't.
     review: Option<TodoReview>,
-    /// Where the app lists it: in-progress, review, ready, waiting or done.
+    /// Where the app lists it: in-progress, review, ready, waiting, done or archived.
     section: &'static str,
+    /// When it was archived. Null when it isn't.
+    archived_at: Option<i64>,
     /// The day it's due, as 2026-10-03, and how many days off that is on this Mac's clock:
     /// 0 today, below 0 once it's past. Null when it has none.
     due: Option<String>,
@@ -4849,6 +4858,7 @@ fn todo_row(t: &Todo, store: &TodoStore, lanes: &[Lane], full: bool) -> TodoRow 
         waiting: t.waiting.clone(),
         review: t.review.clone(),
         section: section_of(store, t, lanes),
+        archived_at: t.archived_at,
         due: t.due.clone(),
         due_in_days: t.due.as_deref().and_then(todos::due_day).map(|d| d - util::today_local()),
         created_at: t.created_at,
@@ -4865,6 +4875,7 @@ fn todo_row(t: &Todo, store: &TodoStore, lanes: &[Lane], full: bool) -> TodoRow 
 /// in review puts it under In review only by a board with PRs (`Client::pr_lanes`).
 fn section_of(store: &TodoStore, t: &Todo, lanes: &[Lane]) -> &'static str {
     match t.status {
+        _ if t.archived_at.is_some() => "archived",
         TodoStatus::Done => "done",
         _ if store.is_waiting(t) => "waiting",
         _ if todos::is_in_review(t, lanes) => "review",
@@ -5184,7 +5195,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             let now = now_ms();
             let waiting = a.wait_for.map(|note| Waiting { note, since: now });
             let due = a.due.as_deref().map(|w| todos::due_from_words(w, util::today_local())).transpose()?;
-            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on, waiting, review: None, due, primary: None };
+            let todo = Todo { id: id.clone(), project: a.project.unwrap_or_default(), title: a.title, description, status: TodoStatus::Todo, labels, worktrees: vec![], sessions: vec![], created_at: now, updated_at: now, done_at: None, pending: vec![], depends_on, waiting, review: None, due, primary: None, archived_at: None };
             c.apply(TodoOp::Create { todo })?;
             link(c, &id, worktree.as_deref(), session.as_deref(), true)?;
             show_after(c, &id, json)
@@ -5226,7 +5237,7 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
                 (None, true) => Some(None),
                 (None, false) => None,
             };
-            let patch = TodoPatch { depends_on, title: a.title, description: read_text(a.description, a.description_file)?, status, labels, project: a.project, waiting: None, review: None, due };
+            let patch = TodoPatch { depends_on, title: a.title, description: read_text(a.description, a.description_file)?, status, labels, project: a.project, waiting: None, review: None, due, archived: None };
             c.apply(TodoOp::Update { id: id.clone(), patch })?;
             if let Some(s) = status.filter(|_| !a.no_link) {
                 link_caller(c, &id, s, json);
@@ -5335,6 +5346,8 @@ fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {
             link(c, &id, a.worktree.as_deref(), a.session.as_deref(), false)?;
             show_after(c, &id, json)
         }
+        TodoCmd::Archive { id } => set_archived(c, &id, true, json),
+        TodoCmd::Unarchive { id } => set_archived(c, &id, false, json),
         TodoCmd::Delete { id } => {
             let store = c.todos()?;
             let id = resolve_todo(&store, &id)?;
@@ -5414,6 +5427,14 @@ fn set_status(c: &mut Client, id: &str, status: TodoStatus, link: bool, json: bo
     show_after(c, &id, json)
 }
 
+/// Archives a todo, or brings it back from the archive.
+fn set_archived(c: &mut Client, id: &str, archived: bool, json: bool) -> Result<()> {
+    let store = c.todos()?;
+    let id = resolve_todo(&store, id)?;
+    c.apply(TodoOp::Update { id: id.clone(), patch: TodoPatch { archived: Some(archived), ..Default::default() } })?;
+    show_after(c, &id, json)
+}
+
 /// Links the session running this command to a todo it just said it's working on or has
 /// finished. In progress links the session and the worktree the command runs in; done links
 /// only the session, since a finished todo is found through its sessions, and a worktree
@@ -5485,6 +5506,12 @@ fn show_after(c: &mut Client, id: &str, json: bool) -> Result<()> {
 
 fn print_todo(r: &TodoRow) {
     println!("{}  {}  [{}]{}", r.id, r.title, r.status, if r.project.is_empty() { String::new() } else { format!("  {}", r.project) });
+    if let Some(at) = r.archived_at {
+        match ago(now_ms() - at).as_str() {
+            "now" => println!("Archived just now"),
+            a => println!("Archived {a} ago"),
+        }
+    }
     if !r.labels.is_empty() {
         println!("Labels: {}", r.labels.join(", "));
     }
@@ -5538,10 +5565,12 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
     let label = a.label.as_deref().map(|n| store.labels.iter().find(|l| l.name.eq_ignore_ascii_case(n)).map(|l| l.id.clone()).ok_or_else(|| anyhow!("There's no label called {n}."))).transpose()?;
     let today = util::today_local();
     let due_by = a.due_by.as_deref().map(|w| todos::due_from_words(w, today)).transpose()?.and_then(|d| todos::due_day(&d));
+    let status = a.status.as_deref().unwrap_or(if a.archived { "all" } else { "open" });
     let rows: Vec<TodoRow> = store
         .todos
         .iter()
-        .filter(|t| match a.status.as_str() {
+        .filter(|t| t.archived_at.is_some() == a.archived)
+        .filter(|t| match status {
             "all" => true,
             "open" => t.status != TodoStatus::Done,
             s => parse_todo_status(s).map(|st| st == t.status).unwrap_or(false),
@@ -5556,7 +5585,7 @@ fn todo_list(c: &mut Client, a: &TodoListArgs, json: bool) -> Result<()> {
         .filter(|t| due_by.map_or(true, |by| t.due.as_deref().and_then(todos::due_day).is_some_and(|d| d <= by)))
         .map(|t| todo_row(t, &store, &lanes, false))
         .collect();
-    if !["all", "open", "todo", "in-progress", "done"].contains(&a.status.as_str()) {
+    if !["all", "open", "todo", "in-progress", "done"].contains(&status) {
         bail!("--status is todo, in-progress, done, open or all.");
     }
     if json {
@@ -6762,7 +6791,7 @@ mod tests {
     fn ids_are_usable_and_prefixes_resolve() {
         let id = new_todo_id();
         assert!(id.starts_with("t-") && id.len() > 8 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
-        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None };
+        let t = |id: &str| Todo { id: id.into(), project: String::new(), title: String::new(), description: String::new(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None, archived_at: None };
         let store = TodoStore { todos: vec![t("t-abc1"), t("t-abd2")], labels: vec![] };
         assert_eq!(resolve_todo(&store, "t-abc").unwrap(), "t-abc1");
         assert!(resolve_todo(&store, "t-ab").unwrap_err().to_string().contains("2 todos"));
@@ -6772,7 +6801,7 @@ mod tests {
 
     #[test]
     fn several_todos_start_on_one_prompt() {
-        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None };
+        let t = |id: &str, title: &str, description: &str| Todo { id: id.into(), project: String::new(), title: title.into(), description: description.into(), status: TodoStatus::Todo, labels: vec![], worktrees: vec![], sessions: vec![], created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None, archived_at: None };
         let (a, b, c) = (t("t-a", " Fix the header ", "\nIt wraps.\n"), t("t-b", "Add a logout button", ""), t("t-c", "", "No title."));
         // The same text as `todosPrompt`'s test in src/todos.test.ts.
         let footer = "When one is ready for me to review, say so with `codealong todo review <id>`. When the work on one is merged or I say it's done, mark it done with `codealong todo done <id>`.";
@@ -6915,6 +6944,7 @@ mod tests {
             review: None,
             due: None,
             primary: primary.map(|s| todos::Primary { session: s.into(), since: 0 }),
+            archived_at: None,
         };
         let (a, b) = (t("t-a", Some("claude:claude:s1")), t("t-b", None));
         // The same text as `todoPrompt`'s test in src/todos.test.ts.
@@ -6986,7 +7016,7 @@ mod tests {
 
     fn todo(id: &str, status: TodoStatus, sessions: &[&str], worktrees: &[&str]) -> Todo {
         let strings = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
-        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None }
+        Todo { id: id.into(), project: String::new(), title: id.to_uppercase(), description: String::new(), status, labels: vec![], worktrees: strings(worktrees), sessions: strings(sessions), created_at: 0, updated_at: 0, done_at: None, pending: vec![], depends_on: vec![], waiting: None, review: None, due: None, primary: None, archived_at: None }
     }
 
     /// The main checkout, where this session and another live one work, and a worktree of its

@@ -112,23 +112,24 @@ Commands:
              message sent after it, whose sender `promptFrom` names (`agent` for another
              session, `codealong` for Codealong's own); PRs in your repos opened, out of
              draft, approved, sent back, merged or closed, or asking your review (`prs`,
-             null when they can't be read); todos added, started, done, reopened or set
-             waiting; worktrees a second agent started working in (`shared`; not an
-             app's chats, which are listed together for having no folder of yours).
-             Headless runs (`claude -p`, `codex exec`, which a script or an agent
-             started and reads itself) aren't sessions there, nor a second agent:
-             they're counted by the worktree they ran in (`headless`). With them, every
-             session that waits on you now (`waiting`, as `sessions --waiting` lists
-             them), each saying whether it has suggested replies or a tag, why Codealong
-             took away ones it had (`untagged`, `unsuggested`: it was sent a prompt, or
-             a turn of its started, since), and `helper` when it works for another agent
-             or a PR (`start --helper`, an automatic review), whose reply is that
-             agent's or PR's to read, not a question for you. It prints a `cursor`: give
-             it to --since next time, and what changed is told by difference from what
-             this look saw, so a busy app or a GitHub error never makes a session or a
-             PR look new. What it couldn't read is said in `notes`, and told once it can
-             be. Without --since, or with a duration, it goes by times alone, which
-             can't tell a review's change. The session running it is left out
+             null when they can't be read); todos added, started, done, reopened, set
+             waiting, archived or unarchived; worktrees a second agent started working
+             in (`shared`; not an app's chats, which are listed together for having no
+             folder of yours). Headless runs (`claude -p`, `codex exec`, which a script
+             or an agent started and reads itself) aren't sessions there, nor a second
+             agent: they're counted by the worktree they ran in (`headless`). With them,
+             every session that waits on you now (`waiting`, as `sessions --waiting`
+             lists them), each saying whether it has suggested replies or a tag, why
+             Codealong took away ones it had (`untagged`, `unsuggested`: it was sent a
+             prompt, or a turn of its started, since), and `helper` when it works for
+             another agent or a PR (`start --helper`, an automatic review), whose reply
+             is that agent's or PR's to read, not a question for you. It prints a
+             `cursor`: give it to --since next time, and what changed is told by
+             difference from what this look saw, so a busy app or a GitHub error never
+             makes a session or a PR look new. What it couldn't read is said in `notes`,
+             and told once it can be. Without --since, or with a duration, it goes by
+             times alone, which can't tell a review's change. The session running it is
+             left out
   hygiene    Processes left over from old sessions, and this Mac's load, memory and
              swap, for keeping a Mac with many agents usable. It lists: the processes of
              sessions quiet for --after (an agent's own process and what it runs; not
@@ -303,36 +304,42 @@ ones under In progress, In review, Ready and Waiting
 Usage: codealong todo [OPTIONS] <COMMAND>
 
 Commands:
-  list    Todos that aren't done, in the app's order. --status all for every one
-  show    One todo in full, with attachments as full paths
-  add     A new todo at the top of the list. Prints it
-  update  Change a todo's fields. Only the ones given change
-  start   Mark a todo in progress, and link the session running this command and its
-          worktree to it. The first session on a todo is its primary one, where the work
-          on it goes on; while another session is that and is running, this is turned
-          down: send that session what you have instead (`codealong session send`), or
-          take the todo over with --take
-  done    Mark a todo done, and link the session running this command to it: finishing a
-          todo says you worked on it
-  reopen  Put a done or in-progress todo back to todo
-  wait    Mark a todo as waiting, on something outside the list: a person's answer, a
-          release, a date. It stays under Waiting until `todo ready`, until it's
-          started, or until it's done
-  ready   Say a todo marked as waiting is ready. One that waits on todos that aren't
-          done stays under Waiting until they are
-  review  Mark a todo as ready for review: your part of its work is done, and it waits
-          on your user's verdict (a look, a test, a merge). The app lists it under In
-          review until it's done or started again, or until --off sends it back to In
-          progress. A todo whose PR is open for review, or merged while the todo isn't
-          done, is listed there already
-  move    Move a todo in the list: to the top or bottom, or before or after another. The
-          app shows todos in this order within each section
-  link    Link a session or a worktree to a todo
-  unlink  Unlink a session or a worktree from a todo
-  delete  Delete a todo. The app can't undo this once its window's undo is gone, so ask
-          first
-  labels  The labels, or add and remove one
-  help    Print this message or the help of the given subcommand(s)
+  list       Todos that aren't done or archived, in the app's order. --status all for
+             every status, --archived for the archived ones
+  show       One todo in full, with attachments as full paths
+  add        A new todo at the top of the list. Prints it
+  update     Change a todo's fields. Only the ones given change
+  start      Mark a todo in progress, and link the session running this command and its
+             worktree to it. The first session on a todo is its primary one, where the
+             work on it goes on; while another session is that and is running, this is
+             turned down: send that session what you have instead (`codealong session
+             send`), or take the todo over with --take
+  done       Mark a todo done, and link the session running this command to it:
+             finishing a todo says you worked on it
+  reopen     Put a done or in-progress todo back to todo
+  wait       Mark a todo as waiting, on something outside the list: a person's answer, a
+             release, a date. It stays under Waiting until `todo ready`, until it's
+             started, or until it's done
+  ready      Say a todo marked as waiting is ready. One that waits on todos that aren't
+             done stays under Waiting until they are
+  review     Mark a todo as ready for review: your part of its work is done, and it
+             waits on your user's verdict (a look, a test, a merge). The app lists it
+             under In review until it's done or started again, or until --off sends it
+             back to In progress. A todo whose PR is open for review, or merged while
+             the todo isn't done, is listed there already
+  move       Move a todo in the list: to the top or bottom, or before or after another.
+             The app shows todos in this order within each section
+  link       Link a session or a worktree to a todo
+  unlink     Unlink a session or a worktree from a todo
+  archive    Archive a todo, done or not, when your user asks: the app lists it under
+             Archived and in no other list, keeping its status, and no todo waits on it
+             meanwhile. Reopening or starting it, or a session started from it, brings
+             it back
+  unarchive  Bring an archived todo back to where its status puts it
+  delete     Delete a todo. The app can't undo this once its window's undo is gone, so
+             ask first
+  labels     The labels, or add and remove one
+  help       Print this message or the help of the given subcommand(s)
 
 Options:
       --json
@@ -351,7 +358,8 @@ Options:
 ## codealong todo list
 
 ```
-Todos that aren't done, in the app's order. --status all for every one
+Todos that aren't done or archived, in the app's order. --status all for every status,
+--archived for the archived ones
 
 Usage: codealong todo list [OPTIONS]
 
@@ -360,21 +368,23 @@ Options:
           JSON output. The default when stdout isn't a terminal
 
       --status <STATUS>
-          todo, in-progress, done, open (todo and in-progress; the default) or all
-          
-          [default: open]
+          todo, in-progress, done, open (todo and in-progress; the default) or all. With
+          --archived, all is the default
 
-      --project <PROJECT>
-          Only todos of this project
+      --archived
+          Only archived todos, which are otherwise left out
 
       --table
           Tables, even when piped
 
-      --label <LABEL>
-          Only todos with this label (by name)
+      --project <PROJECT>
+          Only todos of this project
 
       --verbose
           Say on stderr whether the app or the files answered
+
+      --label <LABEL>
+          Only todos with this label (by name)
 
       --worktree <WORKTREE>
           Only todos linked to this worktree (a path, or `.`)
@@ -819,6 +829,58 @@ Options:
 
       --worktree <WORKTREE>
           A worktree path, or `.`
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo archive
+
+```
+Archive a todo, done or not, when your user asks: the app lists it under Archived and in
+no other list, keeping its status, and no todo waits on it meanwhile. Reopening or
+starting it, or a session started from it, brings it back
+
+Usage: codealong todo archive [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
+
+      --verbose
+          Say on stderr whether the app or the files answered
+
+  -h, --help
+          Print help
+```
+
+## codealong todo unarchive
+
+```
+Bring an archived todo back to where its status puts it
+
+Usage: codealong todo unarchive [OPTIONS] <ID>
+
+Arguments:
+  <ID>
+          
+
+Options:
+      --json
+          JSON output. The default when stdout isn't a terminal
+
+      --table
+          Tables, even when piped
 
       --verbose
           Say on stderr whether the app or the files answered
@@ -3525,21 +3587,21 @@ ones first, what began its latest turn and its reply: `prompt` is its user's lat
 prompt, or a message sent after it, whose sender `promptFrom` names (`agent` for another
 session, `codealong` for Codealong's own); PRs in your repos opened, out of draft,
 approved, sent back, merged or closed, or asking your review (`prs`, null when they
-can't be read); todos added, started, done, reopened or set waiting; worktrees a second
-agent started working in (`shared`; not an app's chats, which are listed together for
-having no folder of yours). Headless runs (`claude -p`, `codex exec`, which a script or
-an agent started and reads itself) aren't sessions there, nor a second agent: they're
-counted by the worktree they ran in (`headless`). With them, every session that waits on
-you now (`waiting`, as `sessions --waiting` lists them), each saying whether it has
-suggested replies or a tag, why Codealong took away ones it had (`untagged`,
-`unsuggested`: it was sent a prompt, or a turn of its started, since), and `helper` when
-it works for another agent or a PR (`start --helper`, an automatic review), whose reply
-is that agent's or PR's to read, not a question for you. It prints a `cursor`: give it
-to --since next time, and what changed is told by difference from what this look saw, so
-a busy app or a GitHub error never makes a session or a PR look new. What it couldn't
-read is said in `notes`, and told once it can be. Without --since, or with a duration,
-it goes by times alone, which can't tell a review's change. The session running it is
-left out
+can't be read); todos added, started, done, reopened, set waiting, archived or
+unarchived; worktrees a second agent started working in (`shared`; not an app's chats,
+which are listed together for having no folder of yours). Headless runs (`claude -p`,
+`codex exec`, which a script or an agent started and reads itself) aren't sessions
+there, nor a second agent: they're counted by the worktree they ran in (`headless`).
+With them, every session that waits on you now (`waiting`, as `sessions --waiting` lists
+them), each saying whether it has suggested replies or a tag, why Codealong took away
+ones it had (`untagged`, `unsuggested`: it was sent a prompt, or a turn of its started,
+since), and `helper` when it works for another agent or a PR (`start --helper`, an
+automatic review), whose reply is that agent's or PR's to read, not a question for you.
+It prints a `cursor`: give it to --since next time, and what changed is told by
+difference from what this look saw, so a busy app or a GitHub error never makes a
+session or a PR look new. What it couldn't read is said in `notes`, and told once it can
+be. Without --since, or with a duration, it goes by times alone, which can't tell a
+review's change. The session running it is left out
 
 Usage: codealong changes [OPTIONS]
 

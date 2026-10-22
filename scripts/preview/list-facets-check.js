@@ -15,7 +15,7 @@
   };
   var tool = function (label) { return q('.ca-listtools button[aria-label="' + label + '"]'); };
   var heads = function () { return all('.ca-board-list .ca-bay').map(function (h) { return q('span', h).textContent; }); };
-  var DAYS = ['Pinned', 'Today', 'Yesterday', 'Last 7 days', 'Older', 'Merged & closed', 'Done'];
+  var DAYS = ['Pinned', 'Today', 'Yesterday', 'Last 7 days', 'Older', 'Merged & closed', 'Done', 'Archived'];
   var byDay = function () { var h = heads(); return h.length > 0 && h.every(function (x) { return DAYS.indexOf(x) >= 0; }); };
   // A facet's chips in the sidebar, under its heading.
   var chips = function (label) {

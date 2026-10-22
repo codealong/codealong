@@ -14,7 +14,7 @@ import type { RefKind } from './canvas/model';
 import { columnsOf, isProjects, stageOfColumn, type BoardColumn, type BoardDoc, type Stage } from './boards/model';
 import { columnOf, memberTest, sessionStage, subjectsOf, todoStage, type Subject } from './boards/rules';
 import { ALL_PROJECTS, hasWords, inProject, queryWords, saidLine, type SaidLine } from './quick';
-import { itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
+import { isOpen, itemSection, todoIndex, todoInFilter, todoItem, todoSections, type TodoItem, type TodoSectionId, type TodoSort } from './todos';
 import { scheduleProject } from './schedules';
 import type { Board, DevicesView, Label, Lane, PrItem, ProjectSummary, ScheduleItem, Session, TextHit, Todo } from './types';
 import type { ActionCounts } from './ui/ProjectSwitcher';
@@ -271,7 +271,7 @@ export function prFacetOptions(rows: PrRowItem[], f: Facets): { repos: FacetOpti
  *  unpicked. */
 export function todoLabelOptions(rows: TodoItem[], labels: Label[], f: Facets): FacetOption[] {
   const counts = new Map<string, number>();
-  for (const r of rows) if (r.todo.status !== 'done') for (const id of r.todo.labels) counts.set(id, (counts.get(id) ?? 0) + 1);
+  for (const r of rows) if (isOpen(r.todo)) for (const id of r.todo.labels) counts.set(id, (counts.get(id) ?? 0) + 1);
   const known = labels.filter((l) => counts.has(l.id) || f.labels?.includes(l.id)).map((l) => ({ id: l.id, label: l.name, count: counts.get(l.id) ?? 0, color: l.color }));
   const gone = (f.labels ?? []).filter((id) => !labels.some((l) => l.id === id)).map((id) => ({ id, label: 'Deleted label', count: 0 }));
   return [...known, ...gone];
@@ -776,8 +776,8 @@ export interface KanbanInput {
  * them: each one put on the board by hand, and the rest that are worth one (`current`, or in
  * review), but helpers and headless runs that don't need you (lanes.ts `unattended`), which work
  * for another session. A session is the board's when it is, or its worktree is, or a PR it worked
- * on. Done todos go back to `doneSince`, but those put on the board by hand. Each column goes in
- * its own order: yours, whose move it is, or the latest first.
+ * on. Done todos go back to `doneSince`, but those put on the board by hand; archived ones are on
+ * no board. Each column goes in its own order: yours, whose move it is, or the latest first.
  */
 export function kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board, subjects, member, now }: KanbanInput): KanbanColumn[] {
   const columns = columnsOf(board);
@@ -785,7 +785,7 @@ export function kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board
   const removed = new Set(board.removed);
   const todoCards = todoRows.filter((r) => {
     const card = `todo:${r.todo.id}`;
-    return member(card) && (added.has(card) || !(todoStage(r, todos) === 'done' && doneAt(r) < doneSince));
+    return !r.todo.archivedAt && member(card) && (added.has(card) || !(todoStage(r, todos) === 'done' && doneAt(r) < doneSince));
   });
   // What an open todo's card lists, which has no archived session: one of those goes on a card of its own.
   const onCards = new Set(todoCards.filter((c) => todoStage(c, todos) !== 'done').flatMap((c) => c.sessions.map((p) => p.session.key)));
@@ -894,6 +894,7 @@ export interface ListsInput {
   /** What the sidebar narrows each view to beside its statuses (`Facets`). */
   facets: Facets;
   showDoneTodos: boolean;
+  showArchivedTodos: boolean;
   /** The board the Board view shows (boards/model.ts). */
   shownBoard: BoardDoc;
   /** Whether a column of its Kanban is open: a folded one is a rail until it's opened. */
@@ -902,7 +903,7 @@ export interface ListsInput {
 
 /** The lists, each kept while what it's made from stays the same. */
 export function useBoardLists(input: ListsInput) {
-  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionGroup, repoPins, openGroups, prGroup, openPrGroups, todoGroup, openTodoGroups, prSort, todoSort, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, shownBoard, columnOpen } = input;
+  const { board, deviceLanes, devices, deviceFilter, project, loading, cutoff, since, now, query, said, filter, sessionPins, helpersShown, lanePins, prPins, sessionSort, sessionGroup, repoPins, openGroups, prGroup, openPrGroups, todoGroup, openTodoGroups, prSort, todoSort, showArchived, showDonePrs, todos, labels, facets, showDoneTodos, showArchivedTodos, shownBoard, columnOpen } = input;
 
   const projects = useMemo(() => projectsOf(board?.projects ?? [], deviceLanes), [board?.projects, deviceLanes]);
   const current = currentProject(project, projects, loading);
@@ -1014,12 +1015,13 @@ export function useBoardLists(input: ListsInput) {
   const todoLabels = useMemo(() => todoLabelOptions(listedTodos, labels, facets), [listedTodos, labels, facets]);
   const todoSecs = useMemo(() => todoSections(todoRows, todos, todoSort, now), [todoRows, todos, todoSort, now]);
   // Grouped by worktree or repo (groups.ts): by the worktree a todo's actions use, the pinned groups
-  // first, one in progress or in review never folded away, Done grouped among itself.
+  // first, one in progress or in review never folded away, Done grouped among itself. Archived
+  // todos aren't grouped: they're listed after the groups, the latest archived first.
   const groupedTodos = useMemo(
     () =>
       todoGroup === 'none'
         ? null
-        : groupRows(todoSecs, todoGroup, (r) => placeIn(r.lane, todoGroup), {
+        : groupRows(todoSecs.filter((s) => s.id !== 'archived'), todoGroup, (r) => placeIn(r.lane, todoGroup), {
             pinned: todoGroupPins,
             lanes: projectLanes,
             empty: false,
@@ -1030,14 +1032,13 @@ export function useBoardLists(input: ListsInput) {
           }),
     [todoGroup, todoSecs, todoGroupPins, projectLanes, openTodoGroups, query, todos],
   );
-  const todoVisible = useMemo<ListRow[]>(
-    () =>
-      groupedTodos
-        ? [...groupedTodos.pinned.flatMap((g) => g.rows), ...groupedTodos.sections.flatMap((s) => (s.id === 'done' && !showDoneTodos ? [] : s.groups.flatMap((g) => g.rows)))]
-        : todoSecs.flatMap((s) => (s.id === 'done' && !showDoneTodos ? [] : s.rows)),
-    [groupedTodos, todoSecs, showDoneTodos],
-  );
-  const openTodoCount = useMemo(() => projectTodos.filter((t) => t.status !== 'done').length, [projectTodos]);
+  const todoVisible = useMemo<ListRow[]>(() => {
+    const archived = showArchivedTodos ? (todoSecs.find((s) => s.id === 'archived')?.rows ?? []) : [];
+    return groupedTodos
+      ? [...groupedTodos.pinned.flatMap((g) => g.rows), ...groupedTodos.sections.flatMap((s) => (s.id === 'done' && !showDoneTodos ? [] : s.groups.flatMap((g) => g.rows))), ...archived]
+      : todoSecs.flatMap((s) => (s.id === 'archived' ? archived : s.id === 'done' && !showDoneTodos ? [] : s.rows));
+  }, [groupedTodos, todoSecs, showDoneTodos, showArchivedTodos]);
+  const openTodoCount = useMemo(() => projectTodos.filter(isOpen).length, [projectTodos]);
   // Which todos each session and worktree is on, for their chips.
   const todoLinks = useMemo(() => todoIndex(todos, homes), [todos, homes]);
   // Which todos each session is linked to depends on the todos alone, so rows that ask keep one

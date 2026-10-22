@@ -480,6 +480,7 @@ export function App() {
   // until the engine's board shows them.
   const todoStore = useTodoStore(board, setToast);
   const [showDoneTodos, setShowDoneTodos] = useState(false);
+  const [showArchivedTodos, setShowArchivedTodos] = useState(false);
   // The columns of a board's Kanban that start folded (Done) and that you opened, by board and
   // column: each is a rail until it's opened.
   const [openedColumns, setOpenedColumns] = useState<ReadonlySet<string>>(() => new Set());
@@ -587,6 +588,7 @@ export function App() {
     labels: todoStore.labels,
     facets,
     showDoneTodos,
+    showArchivedTodos,
     shownBoard,
     columnOpen,
   });
@@ -819,7 +821,7 @@ export function App() {
           : []
         : todoGroup !== 'none'
           ? []
-          : todoSecs.filter((s) => s.id !== 'done' && statusSection(s.id)).map((s) => s.rows),
+          : todoSecs.filter((s) => s.id !== 'done' && s.id !== 'archived' && statusSection(s.id)).map((s) => s.rows),
     [view, kanbanCols, todoSecs, shownBoard, todoGroup],
   );
   // The Todo view's picks and its box, and what's done to todos from here (useTodoView.ts).
@@ -865,6 +867,7 @@ export function App() {
     labelPicks: facets.labels ?? NO_PICKS,
     unpickLabel: (id) => setFacets((f) => ({ ...f, labels: (f.labels ?? []).filter((x) => x !== id) })),
     setShowDoneTodos,
+    setShowArchivedTodos,
     report,
     setToast,
     setTodoUndo,
@@ -2401,6 +2404,8 @@ export function App() {
                 hints={board.jev?.todos ? board.todoHints : undefined}
                 showDone={showDoneTodos}
                 onToggleDone={() => setShowDoneTodos(!showDoneTodos)}
+                showArchived={showArchivedTodos}
+                onToggleArchived={() => setShowArchivedTodos(!showArchivedTodos)}
                 composer={todoComposer}
                 empty={
                   projectTodos.length === 0
