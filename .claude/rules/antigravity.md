@@ -38,8 +38,12 @@ runs on this Mac (2026-10-01). Paths are under `src-tauri/src/`.
   the app (2.25.0) was restarted on 2026-10-22 its table had two rows with `source`
   `CORTEX_TRAJECTORY_SOURCE_CLI` and `app_data_dir` `antigravity`, one of them for an `agy` still
   running in a terminal and writing its steps and transcript in `antigravity-cli`, the app's row
-  kept up to date and `IDLE`; the app didn't list it. A conversation both tables claim is read
-  from the folder that keeps its record (`once_each`).
+  kept up to date and `IDLE`. The app files such conversations under a project of its own,
+  `default-cli-project` in `agyhub_summaries_proto.pb`, which its sidebar shows as "CLI Project",
+  but can't open them: its `language_server.log` says "trajectory <id> not found in any store"
+  every few seconds, the steps being in `antigravity-cli`, and the sidebar shows "No conversations
+  yet". A conversation both tables claim is read from the folder that keeps its record
+  (`once_each`).
 - Opening a WAL database whose harness has quit: `harness.rs` (`open_database`).
 - `conversations/<id>.db` holds a conversation's steps (`steps`: `idx`, `step_type`, `status`,
   and protobuf blobs). The numbers are in the binary's own definitions: status 1 pending,
