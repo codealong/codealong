@@ -27,9 +27,29 @@
     var c = nav(label).querySelector('.ca-nav-count');
     return c ? Number(c.textContent) : 0;
   };
-  var marked = function () {
-    var h = typeof CSS !== 'undefined' && CSS.highlights ? CSS.highlights.get('ca-settings-find') : null;
-    return h ? h.size : -1;
+  var marks = function () { return all('.ca-settings-find-marks > span'); };
+  // Whether every place the word shows in a setting that's found has a mark over it, as it's
+  // laid out now.
+  var markedWhere = function (word) {
+    var boxes = marks().map(function (m) { return m.getBoundingClientRect(); });
+    var range = document.createRange();
+    var missed = [];
+    var places = 0;
+    all('.ca-settings-found [data-section]:not([data-unmatched]) .ca-field').filter(shown).forEach(function (f) {
+      var walker = document.createTreeWalker(f, NodeFilter.SHOW_TEXT);
+      for (var n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (n.parentElement.closest('[data-unmatched], textarea') || !n.parentElement.getClientRects().length) continue;
+        var at = n.data.toLowerCase().indexOf(word);
+        if (at < 0) continue;
+        places++;
+        range.setStart(n, at);
+        range.setEnd(n, at + word.length);
+        var r = range.getClientRects()[0];
+        var over = boxes.some(function (b) { return Math.abs(b.left - r.left) < 1 && Math.abs(b.top - r.top) < 1 && Math.abs(b.width - r.width) < 1; });
+        if (!over) missed.push(n.data.slice(0, 40));
+      }
+    });
+    return { places: places, missed: missed };
   };
   var search = function (text) {
     type(field(), text);
@@ -58,8 +78,8 @@
       check('counts what each section has that matches', count('Automation') === auto.length, count('Automation') + ' for ' + auto.length);
       check('fades the sections that have none', nav('Sounds').classList.contains('is-unmatched') && !nav('Automation').classList.contains('is-unmatched'));
       check('no section is picked while searching', !q('.ca-settings-nav .ca-nav.is-active'));
-      if (marked() < 0) note('no CSS highlights here: the words aren’t marked');
-      else check('marks the words', marked() >= auto.length, marked() + ' marks');
+      var where = markedWhere('nudge');
+      check('marks the words where they show', where.places >= auto.length && where.missed.length === 0, where.places + ' places, ' + marks().length + ' marks, missed: ' + where.missed.join(' | '));
       var box = all('.ca-settings-found .ca-field').filter(function (f) { return shown(f) && /^Nudge the session/.test(f.textContent); })[0].querySelector('input[type="checkbox"]');
       var was = box.checked;
       box.click();
@@ -71,6 +91,14 @@
     })
     .then(function () {
       check('and stays found', labels('automation').some(function (l) { return /^Nudge the session/.test(l); }));
+      return search('pull');
+    })
+    .then(function () {
+      // Enough settings to scroll through: the marks scroll with the words under them.
+      var pane = q('.ca-settings-found');
+      pane.scrollTop = pane.scrollHeight / 2;
+      var where = markedWhere('pull');
+      check('the marks scroll with the words', pane.scrollTop > 0 && where.places > 0 && where.missed.length === 0, 'scrolled to ' + pane.scrollTop + ', ' + where.places + ' places, missed: ' + where.missed.join(' | '));
       return search('sounds');
     })
     .then(function () {

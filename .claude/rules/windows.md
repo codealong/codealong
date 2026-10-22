@@ -93,6 +93,12 @@ under `src-tauri/src/`.
   "com.apple.WebKit" AND category == "ProcessSuspension"'`).
 - WebKit repaints a rotating path inside an SVG every frame, so the working glyph turns its
   whole `<svg>`: `src/styles/glyphs.css` (`.ca-glyph--working`).
+- WebKit draws CSS highlights (`CSS.highlights`) by checking every highlighted range for each
+  piece of text it paints, so a repaint costs in proportion to the ranges: on Settings some 5 ms
+  a range (50 took 0.3 s, 600 took 3.3 s), with StaticRange no cheaper, where Chrome's cost was
+  too small to see (2026-10-22, in a WKWebView). Settings' search marks with boxes of its own
+  instead (`src/ui/SettingsFind.tsx` `paint`). A find in a conversation still marks with
+  highlights (`src/ui/ThreadFind.tsx`), so it slows the same way as its matches grow.
 - WebKit slows a visible page's timers and drawing while its app isn't frontmost, and every
   panel opts out: `panel.rs` (`builder`, `background_throttling`).
 - A scroller that isn't a stacking context, with positioned rows in it, gets a composited layer

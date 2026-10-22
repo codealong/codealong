@@ -102,6 +102,20 @@
   color: var(--ink-2);
 }
 
-::highlight(ca-settings-find) {
-  background-color: var(--attn-tint);
+/* The words found, marked with a box over each (SettingsFind.tsx `paint`) in a layer at the top
+   left of what scrolls, which scrolls with it. The box is see-through, so the words read through
+   it as through a highlighter's ink. */
+.ca-settings-found {
+  position: relative;
+}
+.ca-settings-find-marks {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+.ca-settings-find-marks > span {
+  position: absolute;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--attn-solid) 20%, transparent);
 }

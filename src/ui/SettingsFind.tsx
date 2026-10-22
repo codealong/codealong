@@ -25,7 +25,6 @@ const UNREAD = new Set(['TEXTAREA', 'SCRIPT', 'STYLE']);
 const WRITTEN = new Set(['text', 'search', 'url', 'email']);
 /** What a setting the search passes over carries, which hides it. */
 const OUT = 'data-unmatched';
-const HIGHLIGHT = 'ca-settings-find';
 
 function pieceOf(el: Element): Piece<Element> {
   let text = el instanceof HTMLInputElement && WRITTEN.has(el.type) ? el.value : '';
@@ -37,29 +36,35 @@ function pieceOf(el: Element): Piece<Element> {
   return { at: el, setting: el.matches(SETTING), alert: el.matches(ALERT), text, kids };
 }
 
-/** Marks the words wherever they show in `sections`, their names included. */
-function paint(sections: Iterable<Element>, words: string[]) {
-  const reg = typeof CSS !== 'undefined' ? CSS.highlights : undefined;
-  if (!reg) return;
-  const ranges: Range[] = [];
+/**
+ * Marks the words wherever they show in `sections`, their names included, with a box over each
+ * in `layer`, which sits at the top left of what scrolls. Not with CSS highlights: WebKit checks
+ * every highlighted range for each piece of text it draws, some 5 ms a range on Settings, so a
+ * letter typed, which marks 1,600 places, held the window for 8 s (2026-10-22). Where every
+ * mark goes is read before any box goes in, so the page is laid out once.
+ */
+function paint(layer: HTMLElement, sections: Iterable<Element>, words: string[]) {
+  const origin = layer.getBoundingClientRect();
+  const range = document.createRange();
+  const boxes: HTMLElement[] = [];
   for (const section of sections) {
     const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT, {
       acceptNode: (node) => (node.parentElement?.closest(`[${OUT}], textarea`) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
     });
     for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
       for (const [from, to] of spansIn(node.data, words)) {
-        const range = document.createRange();
         range.setStart(node, from);
         range.setEnd(node, to);
-        ranges.push(range);
+        // A mark the line wraps through has a box on each line.
+        for (const r of range.getClientRects()) {
+          const box = document.createElement('span');
+          box.style.cssText = `left:${r.left - origin.left}px;top:${r.top - origin.top}px;width:${r.width}px;height:${r.height}px`;
+          boxes.push(box);
+        }
       }
     }
   }
-  reg.set(HIGHLIGHT, new Highlight(...ranges));
-}
-
-function unpaint() {
-  if (typeof CSS !== 'undefined') CSS.highlights?.delete(HIGHLIGHT);
+  layer.replaceChildren(...boxes);
 }
 
 /**
@@ -76,12 +81,23 @@ export function useSettingsFind(root: RefObject<HTMLElement | null>, query: stri
     const words = findWords(query);
     if (!el || words.length === 0) return;
     el.scrollTop = 0;
+    const layer = document.createElement('div');
+    layer.className = 'ca-settings-find-marks';
+    layer.setAttribute('aria-hidden', 'true');
+    el.append(layer);
+    const sections = () => el.querySelectorAll<HTMLElement>('[data-section]');
+    // The sizes the marks were drawn at: the pane's and its sections'.
+    const sizes = () => [el, ...sections()].map((e) => `${e.clientWidth}x${e.clientHeight}`).join(' ');
+    let drawnAt = '';
+    const mark = () => {
+      paint(layer, sections(), words);
+      drawnAt = sizes();
+    };
     const kept = new Set<Element>();
     const run = () => {
       for (let s = document.activeElement?.closest(SETTING); s && el.contains(s); s = s.parentElement?.closest(SETTING)) kept.add(s);
       const counts: Record<string, number> = {};
-      const sections = el.querySelectorAll<HTMLElement>('[data-section]');
-      for (const section of sections) {
+      for (const section of sections()) {
         const pane = section.querySelector('[data-pane]');
         if (!pane) continue;
         for (const out of pane.querySelectorAll(`[${OUT}]`)) out.removeAttribute(OUT);
@@ -91,16 +107,27 @@ export function useSettingsFind(root: RefObject<HTMLElement | null>, query: stri
         section.toggleAttribute(OUT, found.count === 0 && !found.alerting);
         counts[section.dataset.section ?? ''] = found.count;
       }
-      paint(sections, words);
+      mark();
       counted.current(counts);
     };
     run();
-    // Only what's laid out changing, not the marks the search sets, which it doesn't hear.
-    const watch = new MutationObserver(run);
+    // Only what's laid out changing, not what the search sets: the settings it hides, which it
+    // doesn't hear, and its marks.
+    const watch = new MutationObserver((changes) => {
+      if (changes.some((c) => !layer.contains(c.target))) run();
+    });
     watch.observe(el, { childList: true, subtree: true, characterData: true });
+    // The marks move with what moves the text without a change to it, a narrower window or a box
+    // that grows as it's typed in, and not again for what they were just drawn over: a pass costs
+    // WebKit some 50 ms when a letter marks 1,500 places.
+    const moved = new ResizeObserver(() => {
+      if (sizes() !== drawnAt) mark();
+    });
+    for (const e of [el, ...sections()]) moved.observe(e);
     return () => {
       watch.disconnect();
-      unpaint();
+      moved.disconnect();
+      layer.remove();
     };
   }, [root, query, counted]);
 }
