@@ -78,9 +78,9 @@ an experiment, off until your user turns them on in Settings › Experimental. W
    ```
 
    List a worktree to head its sessions' column. Cards no frame names go below your frames,
-   laid out by worktree. With `--rest off` they come off the canvas instead. Use that only
-   when your user wants just your picture, since it takes off cards they placed outside
-   their own frames. A plan with a card the CLI can't find fails with every such card
+   laid out by worktree. With `--rest off` they come off the canvas and the board instead,
+   its Kanban too, and stay off. Use that only when your user wants just your picture, since
+   it takes off cards they placed outside their own frames. A plan with a card the CLI can't find fails with every such card
    named. Fix those and run it again. Cards the project doesn't have come back under
    `missing`. A card you name that isn't on the board is put on it.
 7. **Reply.** Give a line per frame (its title and its note's gist) and what you left out

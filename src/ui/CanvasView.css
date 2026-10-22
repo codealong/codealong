@@ -278,8 +278,3 @@
   font: var(--type-code-meta);
   font-variant-numeric: tabular-nums;
 }
-
-.ca-cv-tool.is-open {
-  background: var(--surface-selected);
-  color: var(--ink);
-}

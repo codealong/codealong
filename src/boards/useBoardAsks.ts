@@ -89,11 +89,10 @@ async function answer(ask: BoardAsk, latest: { readonly current: BoardAsks }): P
       doc = await boardAsked(ask);
     }
   }
-  const { member, archived } = kanbanOf(board, rawLanes, doc, now);
+  const { member, shows, archived } = kanbanOf(board, rawLanes, doc, now);
   const projectLanes = unarchived(rawLanes).filter((l) => inProject(l, doc.project));
   const e = entitiesOf(board, projectLanes, board.todos, (p) => doc.project === ALL_PROJECTS || p === doc.project, archived);
-  const pinned = new Set(board.pinnedWorktrees);
-  const on = holdsOf(doc, member);
+  const on = holdsOf(doc, member, shows);
   const file = await readCanvas(doc.id);
   // The window's own document once it holds the board's, which may have a change still to save,
   // else the file, read again if the window saved the board meanwhile (`readCanvas`). Taken after
@@ -106,10 +105,13 @@ async function answer(ask: BoardAsk, latest: { readonly current: BoardAsks }): P
   if (op.kind === 'show') return { board: named(doc), exists: !!canvas, ...outline(canvas ?? emptyDoc(), e) };
   if (op.kind === 'arrange') {
     // A board whose canvas was never shown starts as it would have: tidied.
-    const done = arrange(canvas ?? seed(e, now, pinned, on), e, op.frames, op.rest, now, pinned, on);
+    const done = arrange(canvas ?? seed(e, now, on), e, op.frames, op.rest, now, on);
     // Saved before the command hears it's done, so a failure to save is its answer. The board the
     // window shows goes through its handle, so the window holds what was saved.
     await (here ? o.canvas.put(done.doc) : saveCanvas(doc.id, done.doc));
+    // What came off the canvas comes off the board, which would show it there again; a window
+    // that put it back meanwhile takes it off once the board has.
+    if (done.off.length > 0) await o.apply({ op: 'remove', id: doc.id, cards: done.off });
     return { board: named(doc), frames: done.frames, missing: done.missing, rest: done.rest };
   }
   throw new Error('This Codealong doesn’t know that board request: the command is newer than the app.');

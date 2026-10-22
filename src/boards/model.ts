@@ -68,8 +68,7 @@ export interface BoardDoc {
   /** Cards added by hand and taken off by hand, by card id (`refId`). */
   added: string[];
   removed: string[];
-  /** When each card was added by hand: a canvas brings on by itself only what was added after its
-   *  last tidy or clear (canvas/model.ts `recentRefs`). */
+  /** When each card was added by hand. */
   addedAt?: Record<string, number>;
   /** Its Kanban columns; null for the four stages. */
   columns?: BoardColumn[] | null;
@@ -229,9 +228,10 @@ export function applyOp(boards: BoardDoc[], op: BoardOp, now: number): BoardDoc[
   return boards.map((x, i) => (i === at ? next : x));
 }
 
-/** What a board holds, as its canvas takes it (canvas/model.ts `OnBoard`). */
-export function holdsOf(b: BoardDoc, member: (card: string) => boolean): OnBoard {
-  return { has: member, added: new Map(b.added.map((c) => [c, b.addedAt?.[c] ?? 0])), removed: new Set(b.removed) };
+/** What a board shows on its canvas (canvas/model.ts `OnBoard`): `shows` from boardLists.ts
+ *  `canvasCards`, `member` from boards/rules.ts `memberTest`. */
+export function holdsOf(b: BoardDoc, member: (card: string) => boolean, shows: ReadonlySet<string>): OnBoard {
+  return { shows, has: member, removed: new Set(b.removed) };
 }
 
 /** A board as the engine sends it, with what a window counts on filled in. */

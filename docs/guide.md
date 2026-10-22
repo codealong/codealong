@@ -1538,27 +1538,24 @@ for its usual menu.
 
 ##### What's on it
 
-What's on a board's canvas is what the board holds, set in two places. Tidy (its panel, or Tidy up
-in a right-click) lays the canvas out once, holding what its own settings say, each kind on or off:
-sessions active in the last 1h to 7d or all (24h at first) and any that's working or needs you;
-open todos changed or worked on in the last 7 or 30 days, or all of them; recent worktrees even
-with nothing on them (off, a worktree comes on only to head what's there); and PRs, yours and ones
-waiting on your review, or every open one. It lays the cards out in columns, one per worktree, in a
-frame per repo or per day, takes off cards older than that, kept or not, which is how the sessions
-you never archived leave, and says first what would come off and on. Frames you drew or renamed
-stay, with what's in them, and so does whatever you added to the board by hand, whatever its age.
-Bring in (the gear in the toolbar) has the same choices for new work: what moves on after the last
-tidy (a new prompt, a finished turn, a question for you, a changed todo) comes on by itself and
-lands in its frame beside what it belongs to (a session under its worktree, a worktree in the next
-free column of its repo's or the latest day's frame, else in one column beside the frames); the
-frame grows to hold it, and what's below or beside moves along whole; so does what's added to the
-board after the last tidy, whatever its age. Nothing comes off by itself but what's taken off the
-board. Add older things from Add in the toolbar or a right-click on the
-canvas, which puts them on the board too. Remove from board takes a card off the board, its Kanban
-too, and it doesn't come back by itself. Notes (`n`) and frames (`f`) organize it; a frame carries
-what's in it, and grows to hold a card dropped over its edge. Clear canvas (in Tidy, or a
-right-click on the canvas) takes everything off the canvas, though not off the board; Bring in adds
-work back as it moves on, and a tidy brings back what its settings hold.
+What's on a board's canvas is what the board shows, and only the board's settings say what that is
+(the gear in the toolbar, or Board settings… in a right-click on the canvas, opens them): the
+canvas has no settings of its own. It shows the work its Kanban shows, each card under its
+worktree: its todos but the done ones (which the Kanban keeps in Done), its sessions, the ones an
+open todo's card lists too, and the open PRs it holds; the worktrees it holds head them, and
+whatever you added to the board shows whatever its age. What the board comes to show lands by
+itself, in its frame beside what it belongs to (a session under its worktree, a worktree in the
+next free column of its repo's or the latest day's frame, else in one column beside the frames);
+the frame grows to hold it, and what's below or beside moves along whole. Nothing comes off by
+itself but what's taken off the board: a card the board no longer shows stays where it is until a
+tidy. Tidy (in the toolbar, or a right-click on the canvas) lays the canvas out once, by worktree
+(a frame per repo) or by day, in columns, one per worktree, taking off what the board no longer
+shows and bringing on what it does, and its toast says what came off and on and can undo it;
+frames you drew or renamed stay, with what's in them. New work goes by the layout the last tidy
+used. Add things the board doesn't show from Add in the toolbar or a right-click on the canvas,
+which puts them on the board. Remove from board takes a card off the board, its Kanban too, and it
+doesn't come back by itself. Notes (`n`) and frames (`f`) organize it; a frame carries what's in
+it, and grows to hold a card dropped over its edge.
 
 ##### Arranged by an agent
 
@@ -1569,7 +1566,8 @@ lays them out in that order, each frame's cards in columns by worktree and its n
 a card it names that isn't on the board is put on it. In Claude Code, `/codealong:visualize` has an
 agent do it for your recent and running sessions. Frames you drew and notes stay where they are,
 with what's in them, unless the agent names a card that's in one; the cards no frame names go
-below, laid out by worktree, or come off when it asks. Tidy leaves arranged frames and their notes
+below, laid out by worktree, or when it asks come off the canvas and the board, which would show
+them there again. Tidy leaves arranged frames and their notes
 as if you drew them; the next arrange replaces them, unless you renamed the frame or edited the
 note, which makes it yours. With `--show`, the main window comes forward on the canvas with the new
 frames in view. A second window showing the same board follows the change.

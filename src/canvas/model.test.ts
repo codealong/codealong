@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as fx from '../testing/fixtures';
 import { NOW } from '../testing/fixtures';
-import type { Lane, PrItem, Session, Todo } from '../types';
-import { addRef, arrange, contains, FRAME_GAP, settleDrop, CARD_H, clearDoc, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, originLinks, outline, overlaps, readDoc, rectOf, DEFAULT_SCOPE, DEFAULT_TIDY, DEFAULT_INCLUDE, refId, sync, tidy, tidyPlan, type CanvasDoc, type OnBoard, type FrameItem, type NoteItem, type RefItem } from './model';
+import type { Lane, Session, Todo } from '../types';
+import { addRef, arrange, contains, FRAME_GAP, settleDrop, CARD_H, CARD_W, COLUMN_MAX, emptyDoc, entitiesOf, freeSpot, itemId, links, originLinks, outline, overlaps, readDoc, rectOf, refId, sync, tidy, tidyPlan, type CanvasDoc, type Entities, type OnBoard, type FrameItem, type NoteItem, type RefItem } from './model';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -16,13 +16,19 @@ function ents(lanes: Lane[], todos: Todo[] = []) {
   return entitiesOf(null, lanes, todos, () => true);
 }
 
-/** What a board holds: everything but what was taken off, or with `has` only what it says; what
- *  was added, added at `at`. */
-const onBoard = (added: string[], removed: string[], has: (id: string) => boolean = () => true, at = NOW): OnBoard => ({
+/** A board that shows `ids` and holds them and, with `has`, what that says, less what was taken off. */
+const showing = (ids: string[], removed: string[] = [], has: (id: string) => boolean = () => true): OnBoard => ({
+  shows: new Set(ids),
   has: (id) => has(id) && !removed.includes(id),
-  added: new Map(added.map((c) => [c, at])),
   removed: new Set(removed),
 });
+
+/** A board that shows everything the canvas can, worktrees and all, but what was taken off. */
+const everything = (e: Entities, removed: string[] = []): OnBoard =>
+  showing(
+    [...[...e.lanes.keys()].map((k) => refId('worktree', k)), ...[...e.sessions.keys()].map((k) => refId('session', k)), ...[...e.todos.keys()].map((k) => refId('todo', k)), ...[...e.prs.keys()].map((k) => refId('pr', k))],
+    removed,
+  );
 
 const refs = (d: CanvasDoc) => d.items.filter((it): it is RefItem => it.kind === 'ref');
 const at = (d: CanvasDoc, id: string) => d.items.find((it) => itemId(it) === id);
@@ -32,14 +38,15 @@ describe('sync', () => {
   const b = lane('b', [session('s3')], { repo: 'site' });
   const old = lane('old', [], { lastActivity: NOW - 10 * DAY });
   const e = ents([a, b, old], [todo('t1', { worktrees: ['a'] }), todo('t2', { status: 'done' })]);
+  const on = showing(['session:s1', 'session:s3', 'todo:t1']);
 
-  it('brings on recent worktrees, sessions and open todos, and nothing old', () => {
-    const d = sync(emptyDoc(), e, NOW);
+  it('brings on what the board shows, under the worktrees it holds, and nothing else', () => {
+    const d = sync(emptyDoc(), e, on);
     expect(refs(d).map(itemId).sort()).toEqual(['session:s1', 'session:s3', 'todo:t1', 'worktree:a', 'worktree:b']);
   });
 
   it('puts a session and a todo under their worktree, clear of each other', () => {
-    const d = sync(emptyDoc(), e, NOW);
+    const d = sync(emptyDoc(), e, on);
     const w = at(d, 'worktree:a') as RefItem;
     const s = at(d, 'session:s1') as RefItem;
     const t = at(d, 'todo:t1') as RefItem;
@@ -51,32 +58,29 @@ describe('sync', () => {
   });
 
   it('leaves what is there where it is, and says so by returning the same document', () => {
-    const d = sync(emptyDoc(), e, NOW);
-    expect(sync(d, e, NOW)).toBe(d);
+    const d = sync(emptyDoc(), e, on);
+    expect(sync(d, e, on)).toBe(d);
     // A new session lands without moving the others.
     const a2 = lane('a', [...a.sessions, session('s4')]);
-    const d2 = sync(d, ents([a2, b, old], [todo('t1', { worktrees: ['a'] })]), NOW);
+    const d2 = sync(d, ents([a2, b, old], [todo('t1', { worktrees: ['a'] })]), showing(['session:s1', 'session:s3', 'session:s4', 'todo:t1']));
     for (const it of d.items) expect(at(d2, itemId(it))).toMatchObject({ x: it.x, y: it.y });
     expect(at(d2, 'session:s4')).toBeTruthy();
   });
 
-  it('takes nothing off once it is old, and never brings back what was taken off the board', () => {
-    let d = sync(emptyDoc(), e, NOW);
-    d = { ...d, items: d.items.filter((it) => itemId(it) !== 'worktree:b') };
-    const off = onBoard([], ['worktree:b']);
-    expect(sync(d, e, NOW + 2 * DAY, new Set(), off)).toBe(d);
+  it('takes nothing off once the board no longer shows it, but what was taken off the board', () => {
+    const d = sync(emptyDoc(), e, on);
+    expect(sync(d, e, showing([]))).toBe(d);
+    const off = sync(d, e, showing(['session:s3', 'todo:t1'], ['session:s1']));
+    expect(at(off, 'session:s1')).toBeUndefined();
+    // Nor does a worktree taken off come back to head what's under it.
+    const gone = { ...d, items: d.items.filter((it) => itemId(it) !== 'worktree:b') };
+    expect(sync(gone, e, showing(['session:s1', 'session:s3', 'todo:t1'], ['worktree:b']))).toBe(gone);
   });
 
-  it('brings on only what the board holds, what was added by hand since the last tidy or clear whatever its age, and takes off what was taken off the board', () => {
-    const cleared = { ...emptyDoc(), scope: { ...DEFAULT_SCOPE, since: NOW } };
-    const holds = (id: string) => id === 'session:s1' || id === 'worktree:a';
-    const d = sync(cleared, e, NOW, new Set(), onBoard(['session:s1'], [], holds, NOW + 1));
-    // Its worktree, which the board holds too, heads it.
-    expect(d.items.filter((it) => it.kind === 'ref').map(itemId).sort()).toEqual(['session:s1', 'worktree:a']);
-    // Added before the clear, it stays off: a clear isn't undone by what was added by hand.
-    expect(refs(sync(cleared, e, NOW, new Set(), onBoard(['session:s1'], [], holds, NOW - 1)))).toEqual([]);
-    const all = sync(emptyDoc(), e, NOW);
-    expect(at(sync(all, e, NOW, new Set(), onBoard([], ['session:s1'])), 'session:s1')).toBeUndefined();
+  it('brings a worktree on to head what the board shows only when it holds the worktree, and one it shows with nothing under it', () => {
+    const notA = showing(['session:s1'], [], (id) => id !== 'worktree:a');
+    expect(refs(sync(emptyDoc(), e, notA)).map(itemId)).toEqual(['session:s1']);
+    expect(refs(sync(emptyDoc(), e, showing(['worktree:old']))).map(itemId)).toEqual(['worktree:old']);
   });
 
   it('has a todo in no project on All projects’ boards alone, as their lists have it', () => {
@@ -86,39 +90,39 @@ describe('sync', () => {
     expect(ids(() => true)).toEqual(['mine', 'theirs', 'loose']);
   });
 
-  it('brings on an archived session or a helper put on the board by hand, and no other', () => {
+  it('can show an archived session the board has by hand', () => {
     const marked = session('marked', { archived: true, status: 'stopped' });
-    const helper = session('review', { helper: { parent: 's1' } });
-    const home = lane('h', [marked, session('gone', { archived: true }), helper, session('other-review', { helper: { parent: 's1' } })]);
+    const home = lane('h', [marked, session('gone', { archived: true })]);
     // The window's worktrees have their archived sessions left out; the board's come apart.
     const shown = { ...home, sessions: home.sessions.filter((s) => !s.archived) };
     const hand = entitiesOf(null, [shown], [], () => true, [{ lane: home, session: marked }]);
-    const d = sync(emptyDoc(), hand, NOW, new Set(), onBoard(['session:marked', 'session:review'], [], (id) => id !== 'session:other-review'));
-    expect(refs(d).map(itemId).sort()).toEqual(['session:marked', 'session:review', 'worktree:h']);
+    const d = sync(emptyDoc(), hand, showing(['session:marked', 'session:gone']));
+    expect(refs(d).map(itemId).sort()).toEqual(['session:marked', 'worktree:h']);
   });
 });
 
 describe('addRef and freeSpot', () => {
   it('finds room below what is in the way', () => {
-    const d = addRef(emptyDoc(), ents([lane('a', [])]), 'worktree', 'a', { x: 0, y: 0 }, true);
+    const d = addRef(emptyDoc(), ents([lane('a', [])]), 'worktree', 'a', { x: 0, y: 0 });
     const spot = freeSpot(d.items, { x: 10, y: 10, w: CARD_W, h: CARD_H.session });
     expect(overlaps({ ...spot, w: CARD_W, h: CARD_H.session }, rectOf(d.items[0]))).toBe(false);
   });
 
-  it('adds a thing once, kept', () => {
+  it('adds a thing once', () => {
     const e = ents([lane('a', [])]);
-    const d = addRef(emptyDoc(), e, 'worktree', 'a', null, true);
-    expect(d.items).toMatchObject([{ kind: 'ref', ref: 'worktree', key: 'a', kept: true, title: 'a' }]);
-    expect(addRef(d, e, 'worktree', 'a', null, true)).toBe(d);
+    const d = addRef(emptyDoc(), e, 'worktree', 'a', null);
+    expect(d.items).toMatchObject([{ kind: 'ref', ref: 'worktree', key: 'a', title: 'a' }]);
+    expect(addRef(d, e, 'worktree', 'a', null)).toBe(d);
   });
 });
 
 describe('tidy', () => {
   const lanes = [lane('a', [session('s1'), session('s2')]), lane('b', [session('s3')]), lane('c', [], { repo: 'site' })];
   const e = ents(lanes, [todo('t1', { worktrees: ['b'] }), todo('loose')]);
+  const all = everything(e);
 
   it('makes a frame per repo with each worktree in a column, and nothing overlapping', () => {
-    const d = tidy(sync(emptyDoc(), e, NOW), e, NOW);
+    const d = tidy(sync(emptyDoc(), e, all), e, NOW, all);
     const frames = d.items.filter((it): it is FrameItem => it.kind === 'frame');
     expect(frames.map((f) => f.title).sort()).toEqual(['Not in a worktree', 'app', 'site']);
     const cards = refs(d);
@@ -133,7 +137,7 @@ describe('tidy', () => {
   it('continues a long column beside its worktree rather than down the canvas', () => {
     const many = lane('main', Array.from({ length: 20 }, (_, i) => session(`m${i}`, { lastActivity: NOW - i * 1000, lastPromptAt: NOW - i * 1000 })));
     const e2 = ents([many]);
-    const d = tidy(sync(emptyDoc(), e2, NOW), e2, NOW);
+    const d = tidy(sync(emptyDoc(), e2, everything(e2)), e2, NOW, everything(e2));
     const xs = new Map<number, number>();
     for (const c of refs(d)) if (c.ref === 'session') xs.set(c.x, (xs.get(c.x) ?? 0) + 1);
     expect([...xs.values()]).toEqual([COLUMN_MAX, COLUMN_MAX, 20 - 2 * COLUMN_MAX]);
@@ -144,17 +148,42 @@ describe('tidy', () => {
   });
 
   it('keeps your frames and what is in them, and replaces its own', () => {
-    let d = tidy(sync(emptyDoc(), e, NOW), e, NOW);
+    let d = tidy(sync(emptyDoc(), e, all), e, NOW, all);
     const s1 = at(d, 'session:s1') as RefItem;
     const mine: FrameItem = { kind: 'frame', id: 'frame-mine', title: 'Billing', x: s1.x - 20, y: s1.y - 20, w: CARD_W + 40, h: CARD_H.session + 40, color: 'green' };
     d = { ...d, items: [mine, ...d.items] };
-    const again = tidy(d, e, NOW, new Set(), { ...DEFAULT_TIDY, layout: 'time' });
+    const again = tidy(d, e, NOW, all, 'time');
     expect(at(again, 'frame-mine')).toEqual(mine);
     expect(at(again, 'session:s1')).toMatchObject({ x: s1.x, y: s1.y });
     const autos = again.items.filter((it) => it.kind === 'frame' && it.auto);
     expect(autos.map((f) => (f as FrameItem).title)).toEqual(['Today']);
     // Laid out below what stayed.
     for (const c of refs(again)) if (itemId(c) !== 'session:s1') expect(c.y).toBeGreaterThan(mine.y + mine.h);
+  });
+
+  it('holds what the board shows: takes off what it no longer does, wherever you moved it, and brings on what it does', () => {
+    const d = tidy(emptyDoc(), e, NOW, showing(['session:s1', 'session:s3']));
+    expect(refs(d).map(itemId).sort()).toEqual(['session:s1', 'session:s3', 'worktree:a', 'worktree:b']);
+    const moved = { ...d, items: d.items.map((it) => (itemId(it) === 'session:s3' ? { ...it, x: it.x + 5000 } : it)) };
+    const now = showing(['session:s1', 'todo:t1']);
+    const plan = tidyPlan(moved, e, now);
+    expect(plan.dropped.map(itemId)).toEqual(['session:s3']);
+    expect(plan.added.map(itemId)).toEqual(['todo:t1']);
+    expect(refs(tidy(moved, e, NOW, now)).map(itemId).sort()).toEqual(['session:s1', 'todo:t1', 'worktree:a', 'worktree:b']);
+  });
+
+  it('leaves what sits in a frame you drew, unless it was taken off the board', () => {
+    const d = tidy(emptyDoc(), e, NOW, all);
+    const s = at(d, 'session:s3') as RefItem;
+    const mine: FrameItem = { kind: 'frame', id: 'frame-mine', title: 'Later', x: s.x - 10, y: s.y - 10, w: CARD_W + 20, h: CARD_H.session + 20, color: 'blue' };
+    expect(tidyPlan({ ...d, items: [mine, ...d.items] }, e, showing(['session:s1'])).dropped.map(itemId)).not.toContain('session:s3');
+    expect(tidyPlan({ ...d, items: [mine, ...d.items] }, e, showing(['session:s1'], ['session:s3'])).dropped.map(itemId)).toContain('session:s3');
+  });
+
+  it('keeps the layout it was asked for, which the next tidy and new work go by', () => {
+    const byDay = tidy(emptyDoc(), e, NOW, all, 'time');
+    expect(byDay.layout).toBe('time');
+    expect(tidy(byDay, e, NOW, all).items.filter((it) => it.kind === 'frame').map((f) => (f as FrameItem).title)).toEqual(['Today']);
   });
 });
 
@@ -175,13 +204,14 @@ describe('new work in frames', () => {
   };
   const app = (n: number) => Array.from({ length: n }, (_, i) => lane(`a${i}`, [session(`s${i}`)]));
   const base = [...app(3), lane('site1', [session('x1')], { repo: 'site' }), lane('lib1', [session('y1')], { repo: 'lib' })];
-  // Tidied a minute ago, so what the tests add counts as new since.
-  const tidied = (lanes: Lane[], layout: 'worktree' | 'time' = 'worktree') => tidy(emptyDoc(), ents(lanes), NOW - 60_000, new Set(), { ...DEFAULT_TIDY, layout });
+  const tidied = (lanes: Lane[], layout: 'worktree' | 'time' = 'worktree') => tidy(emptyDoc(), ents(lanes), NOW - 60_000, everything(ents(lanes)), layout);
+  /** The board showing everything of `lanes`, as it comes to. */
+  const synced = (d: CanvasDoc, lanes: Lane[]) => sync(d, ents(lanes), everything(ents(lanes)));
 
   it('puts a new worktree of a repo in the next free column of its frame, and the frame grows', () => {
     const d = tidied(base);
     const before = frame(d, 'auto:repo:app');
-    const d2 = sync(d, ents([...base, lane('a9', [session('s9')])]), NOW);
+    const d2 = synced(d, [...base, lane('a9', [session('s9')])]);
     const f = frame(d2, 'auto:repo:app');
     expect(within(f, at(d2, 'worktree:a9') as RefItem)).toBe(true);
     expect(at(d2, 'session:s9')).toMatchObject({ x: (at(d2, 'worktree:a9') as RefItem).x });
@@ -196,7 +226,7 @@ describe('new work in frames', () => {
     const d = tidied(lanes);
     const heads = refs(d).filter((c) => c.ref === 'worktree');
     let next = d;
-    for (let i = 4; i < 12; i++) next = sync(next, ents([...lanes, ...app(i + 1).slice(4)]), NOW);
+    for (let i = 4; i < 12; i++) next = synced(next, [...lanes, ...app(i + 1).slice(4)]);
     neat(next);
     const ys = new Set(refs(next).filter((c) => c.ref === 'worktree').map((c) => c.y));
     expect(ys.size).toBeGreaterThan(1);
@@ -205,7 +235,10 @@ describe('new work in frames', () => {
     for (const h of heads) expect(at(next, itemId(h))).toMatchObject({ x: h.x, y: h.y });
     // A session under a worktree of the first row moves the rows below down whole, level.
     const all = [...lanes, ...app(12).slice(4)];
-    const more = sync(next, ents(all.map((l) => (l.id === 'a0' ? lane('a0', [...l.sessions, session('more')]) : l))), NOW);
+    const more = synced(
+      next,
+      all.map((l) => (l.id === 'a0' ? lane('a0', [...l.sessions, session('more')]) : l)),
+    );
     neat(more);
     const rows = (d: CanvasDoc) => [...new Set(refs(d).filter((c) => c.ref === 'worktree').map((c) => c.y))].length;
     expect(rows(more)).toBe(rows(next));
@@ -221,7 +254,10 @@ describe('new work in frames', () => {
     expect(below.length).toBeGreaterThan(0);
     const lane0 = repos.find((l) => `auto:repo:${l.repo}` === top.id)!;
     const grown = lane(lane0.id, [...lane0.sessions, session('new')], { repo: lane0.repo });
-    const d2 = sync(d, ents(repos.map((l) => (l.id === lane0.id ? grown : l))), NOW);
+    const d2 = synced(
+      d,
+      repos.map((l) => (l.id === lane0.id ? grown : l)),
+    );
     neat(d2);
     const dy = frame(d2, top.id).h - top.h;
     expect(dy).toBe(CARD_H.session + 10);
@@ -239,7 +275,7 @@ describe('new work in frames', () => {
     const lanes = [...base];
     for (let i = 3; i < 8; i++) {
       lanes.push(lane(`a${i}`, [session(`s${i}`)]));
-      next = sync(next, ents(lanes), NOW);
+      next = synced(next, lanes);
     }
     neat(next);
     const f = frame(next, 'auto:repo:app');
@@ -248,7 +284,7 @@ describe('new work in frames', () => {
 
   it('by day, puts new work in the latest day', () => {
     const d = tidied(base, 'time');
-    const d2 = sync(d, ents([...base, lane('b1', [session('z1')], { repo: 'other' })]), NOW);
+    const d2 = synced(d, [...base, lane('b1', [session('z1')], { repo: 'other' })]);
     neat(d2);
     expect(frames(d2).filter((f) => within(f, at(d2, 'worktree:b1') as RefItem)).map((f) => f.title)).toEqual(['Today']);
   });
@@ -259,7 +295,7 @@ describe('new work in frames', () => {
     const lanes = [...base];
     for (const r of ['n1', 'n2', 'n3']) {
       lanes.push(lane(r, [], { repo: r }));
-      next = sync(next, ents(lanes), NOW);
+      next = synced(next, lanes);
     }
     const loose = ['n1', 'n2', 'n3'].map((r) => at(next, `worktree:${r}`) as RefItem);
     expect(new Set(loose.map((c) => c.x)).size).toBe(1);
@@ -278,130 +314,17 @@ describe('new work in frames', () => {
   });
 
   it('changes nothing when synced again', () => {
-    const d = sync(tidied(base), ents([...base, lane('a9', [session('s9')])]), NOW);
-    expect(sync(d, ents([...base, lane('a9', [session('s9')])]), NOW)).toBe(d);
+    const d = synced(tidied(base), [...base, lane('a9', [session('s9')])]);
+    expect(synced(d, [...base, lane('a9', [session('s9')])])).toBe(d);
   });
 });
 
-describe('tidy with ages', () => {
-  const fresh = session('fresh');
-  const week = session('week', { lastActivity: NOW - 5 * DAY, lastPromptAt: NOW - 5 * DAY, status: 'unread' });
-  const busy = session('busy', { lastActivity: NOW - 9 * DAY, status: 'working' });
-  const lanes = [lane('a', [fresh, busy]), lane('b', [week], { lastActivity: NOW - 5 * DAY })];
-  const todos = [todo('new'), todo('stale', { updatedAt: NOW - 20 * DAY }), todo('worked', { updatedAt: NOW - 20 * DAY, sessions: ['fresh'] })];
-  const e = ents(lanes, todos);
-
-  it('keeps what was put on the board by hand whatever its age, and takes off what was taken off the board', () => {
-    const d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '7d' });
-    const hand = onBoard(['todo:stale', 'session:week'], ['session:fresh']);
-    const plan = tidyPlan(d, e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '1d', todos: '7d' }, hand);
-    expect(plan.dropped.map(itemId).sort()).toEqual(['session:fresh']);
-    const after = tidy(d, e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '1d', todos: '7d' }, hand);
-    expect(refs(after).map(itemId)).toEqual(expect.arrayContaining(['todo:stale', 'session:week']));
-    expect(at(after, 'session:fresh')).toBeUndefined();
-    // Added at no known time, a tidy keeps it too, and a fresh canvas starts with it.
-    const timeless = onBoard(['todo:stale'], [], () => true, 0);
-    expect(refs(tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_TIDY, todos: '7d' }, timeless)).map(itemId)).toContain('todo:stale');
-  });
-
-  it('takes older sessions off, kept or not, but never busy ones', () => {
-    let d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '7d' });
-    expect(refs(d).map(itemId).sort()).toEqual(['session:busy', 'session:fresh', 'session:week', 'todo:new', 'todo:stale', 'todo:worked', 'worktree:a', 'worktree:b']);
-    d = { ...d, items: d.items.map((it) => (it.kind === 'ref' ? { ...it, kept: true } : it)) };
-    const plan = tidyPlan(d, e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '1d', todos: '7d' });
-    expect(plan.dropped.map(itemId).sort()).toEqual(['session:week', 'todo:stale', 'worktree:b']);
-    const after = tidy(d, e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '1d', todos: '7d' });
-    expect(refs(after).map(itemId).sort()).toEqual(['session:busy', 'session:fresh', 'todo:new', 'todo:worked', 'worktree:a']);
-    // The options stick for the next tidy, and Bring in doesn't bring the old ones back, even with longer ages.
-    expect(after.tidy).toMatchObject({ sessions: '1d', todos: '7d' });
-    expect(sync({ ...after, scope: { ...after.scope, sessions: '7d', todos: 'open' } }, e, NOW + 1000)).toMatchObject({ items: after.items });
-  });
-
-  it('then brings in only what moves on after it', () => {
-    const after = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_TIDY, include: { ...DEFAULT_INCLUDE, todos: false } });
-    const later = NOW + 60_000;
-    const e2 = ents([lane('a', [fresh, busy, session('next', { lastPromptAt: later, lastActivity: later })]), lane('b', [week], { lastActivity: NOW - 5 * DAY })], todos);
-    const d = sync(after, e2, later);
-    expect(refs(d).map(itemId).filter((id) => !refs(after).some((it) => itemId(it) === id))).toEqual(['session:next']);
-  });
-
-  it('keeps a pinned worktree, and what sits in a frame you drew', () => {
-    const d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_TIDY, sessions: '7d' });
-    const w = at(d, 'session:week') as RefItem;
-    const mine: FrameItem = { kind: 'frame', id: 'frame-mine', title: 'Later', x: w.x - 10, y: w.y - 10, w: CARD_W + 20, h: CARD_H.session + 20, color: 'blue' };
-    const plan = tidyPlan({ ...d, items: [mine, ...d.items] }, e, NOW, new Set(['b']), DEFAULT_TIDY);
-    expect(plan.dropped.map(itemId)).toEqual([]);
-  });
-
-  it('goes back as little as an hour', () => {
-    const e2 = ents([lane('a', [session('now'), session('twoh', { lastActivity: NOW - 2 * 3600_000, lastPromptAt: NOW - 2 * 3600_000 })])]);
-    const ids = (sessions: '1h' | '3h') => refs(tidy(emptyDoc(), e2, NOW, new Set(), { ...DEFAULT_TIDY, sessions })).filter((it) => it.ref === 'session').map(itemId).sort();
-    expect(ids('1h')).toEqual(['session:now']);
-    expect(ids('3h')).toEqual(['session:now', 'session:twoh']);
-  });
-
-  it('takes off an old session still open in a terminal tab', () => {
-    const open = session('open', { live: true, status: 'unread', lastActivity: NOW - 5 * DAY, lastPromptAt: NOW - 5 * DAY });
-    const e2 = ents([lane('a', [open], { lastActivity: NOW - 5 * DAY })]);
-    expect(refs(tidy(emptyDoc(), e2, NOW))).toEqual([]);
-  });
-
-  it('shows no todos when asked for none', () => {
-    const d = tidy(emptyDoc(), e, NOW, new Set(), { ...DEFAULT_TIDY, include: { ...DEFAULT_SCOPE.include, todos: false } });
-    expect(refs(d).filter((it) => it.ref === 'todo')).toEqual([]);
-  });
-});
-
-describe('bring in', () => {
-  const lanes = [lane('a', [session('s1')]), lane('b', []), lane('c', [])];
-  const pr = (key: string, fields: Partial<PrItem> = {}): PrItem => fx.prItem({ key, title: key, head: key, author: null, merge: 'clean', ...fields });
-  const board = fx.board({ prs: [pr('mine', { mine: true, lanes: ['c'] }), pr('theirs'), pr('shut', { mine: true, state: 'merged' })] });
-  const e = entitiesOf(board, lanes, [todo('t', { worktrees: ['b'] })], () => true);
-  const ids = (include: Partial<typeof DEFAULT_SCOPE.include>) => refs(sync({ ...emptyDoc(), scope: { ...DEFAULT_SCOPE, include: { ...DEFAULT_SCOPE.include, ...include } } }, e, NOW)).map(itemId).sort();
-
-  it('brings each kind in only when it is on', () => {
-    expect(ids({})).toEqual(['session:s1', 'todo:t', 'worktree:a', 'worktree:b', 'worktree:c']);
-    expect(ids({ sessions: false, todos: false })).toEqual(['worktree:a', 'worktree:b', 'worktree:c']);
-  });
-
-  it('without worktrees, brings a worktree only to head what is there', () => {
-    expect(ids({ worktrees: false, todos: false })).toEqual(['session:s1', 'worktree:a']);
-  });
-
-  it('brings in your open PRs, or every open one, with the worktree that holds them', () => {
-    expect(ids({ worktrees: false, sessions: false, todos: false, prs: 'mine' })).toEqual(['pr:mine', 'worktree:c']);
-    expect(ids({ worktrees: false, sessions: false, todos: false, prs: 'open' })).toEqual(['pr:mine', 'pr:theirs', 'worktree:c']);
-  });
-
-  it('reads an old canvas: todos that were None are off, and its one scope is the tidy options too', () => {
-    const d = readDoc({ items: [], scope: { sessions: '3d', todos: 'none', layout: 'time', clearedAt: NOW } });
-    const filter = { include: { ...DEFAULT_SCOPE.include, todos: false }, sessions: '3d', todos: 'open' };
-    expect(d.scope).toEqual({ ...filter, since: NOW, cleared: true });
-    expect(d.tidy).toEqual({ ...filter, layout: 'time' });
-  });
-});
-
-describe('clearing', () => {
-  const idle = session('idle', { lastPromptAt: NOW - 3000, statusSince: NOW - 2000 });
-  const running = session('running', { status: 'working', live: true, lastPromptAt: NOW - 3000, statusSince: NOW - 3000 });
-  const e = ents([lane('a', [idle]), lane('b', [running])], [todo('t', { worktrees: ['a'], createdAt: NOW - 5000, updatedAt: NOW - 5000 })]);
-
-  it('brings nothing straight back, not even what is running', () => {
-    const d = clearDoc(sync(emptyDoc(), e, NOW), NOW);
-    expect(d.items).toEqual([]);
-    expect(sync(d, e, NOW + 1000)).toBe(d);
-  });
-
-  it('brings back what moves on afterwards, with its worktree', () => {
-    const d = clearDoc(sync(emptyDoc(), e, NOW), NOW);
-    const later = NOW + 60_000;
-    const e2 = ents(
-      [lane('a', [session('idle', { lastPromptAt: later, lastActivity: later })]), lane('b', [session('running', { status: 'unread', live: true, lastPromptAt: NOW - 3000, statusSince: later, lastActivity: later })])],
-      [todo('t', { worktrees: ['a'], createdAt: NOW - 5000, updatedAt: NOW - 5000 })],
-    );
-    expect(refs(sync(d, e2, later)).map(itemId).sort()).toEqual(['session:idle', 'session:running', 'worktree:a', 'worktree:b']);
-    // A tidy brings the todo back, by its own options.
-    expect(refs(tidy(d, e2, later)).map(itemId)).toContain('todo:t');
+describe('readDoc', () => {
+  it('reads the layout a canvas kept when it had settings of its own, and leaves the rest to the board', () => {
+    expect(readDoc({ items: [], scope: { sessions: '3d', todos: 'none', layout: 'time', clearedAt: NOW } })).toEqual({ ...emptyDoc(), layout: 'time' });
+    expect(readDoc({ items: [], scope: { since: NOW, layout: 'worktree' }, tidy: { include: {}, sessions: '1d', layout: 'time' } })).toEqual({ ...emptyDoc(), layout: 'time' });
+    expect(readDoc({ items: [], layout: 'time' }).layout).toBe('time');
+    expect(readDoc({ items: [], layout: 'sideways' }).layout).toBe('worktree');
   });
 });
 
@@ -438,7 +361,8 @@ describe('readDoc and links', () => {
 describe('arrange', () => {
   const lanes = [lane('a', [session('s1'), session('s2')]), lane('b', [session('s3')]), lane('c', [session('s4')], { repo: 'site' })];
   const e = ents(lanes, [todo('t1', { worktrees: ['b'] })]);
-  const tidied = tidy(sync(emptyDoc(), e, NOW), e, NOW);
+  const all = everything(e);
+  const tidied = tidy(sync(emptyDoc(), e, all), e, NOW, all);
   const frames = (d: CanvasDoc) => d.items.filter((it): it is FrameItem => it.kind === 'frame');
   const notes = (d: CanvasDoc) => d.items.filter((it): it is NoteItem => it.kind === 'note');
   const card = (d: CanvasDoc, id: string) => at(d, id) as RefItem;
@@ -454,6 +378,7 @@ describe('arrange', () => {
       ],
       'keep',
       NOW,
+      all,
     );
     expect(r.frames.map((f) => [f.title, f.cards])).toEqual([
       ['Billing', 3],
@@ -469,7 +394,6 @@ describe('arrange', () => {
     expect([s2.x, s1.x]).toEqual([w.x, w.x]);
     expect(s2.y).toBeGreaterThan(w.y);
     expect(s1.y).toBeGreaterThan(s2.y);
-    expect(s1.kept).toBe(true);
     // A column per worktree, the one named first on the left.
     expect(card(r.doc, 'session:s4').x).toBeLessThan(card(r.doc, 'session:s3').x);
     // The note goes across the frame's top, the cards under it.
@@ -483,27 +407,29 @@ describe('arrange', () => {
 
   it('lays out the rest below the frames as a tidy would, or takes it off', () => {
     const asked = [{ title: 'Billing', cards: [s('s1')] }];
-    const kept = arrange(tidied, e, asked, 'keep', NOW);
+    const kept = arrange(tidied, e, asked, 'keep', NOW, all);
     expect(kept.rest).toBe(refs(tidied).length - 1);
     expect(refs(kept.doc)).toHaveLength(refs(tidied).length);
     const billing = frames(kept.doc).find((f) => f.arranged) as FrameItem;
     const autos = frames(kept.doc).filter((f) => f.auto);
     expect(autos.length).toBeGreaterThan(0);
     for (const f of autos) expect(f.y).toBeGreaterThan(billing.y + billing.h);
-    const off = arrange(tidied, e, asked, 'off', NOW);
+    const off = arrange(tidied, e, asked, 'off', NOW, all);
     expect(refs(off.doc).map(itemId)).toEqual(['session:s1']);
-    // Bring in doesn't bring them back until they move on.
-    expect(sync(off.doc, e, NOW)).toBe(off.doc);
+    // They come off the board too, which would show them again.
+    expect(off.off.sort()).toEqual(refs(tidied).map(itemId).filter((id) => id !== 'session:s1').sort());
+    expect(kept.off).toEqual([]);
+    expect(sync(off.doc, e, everything(e, off.off))).toBe(off.doc);
   });
 
   it('replaces the frames and notes the last arrange made, which a tidy keeps as yours', () => {
-    const first = arrange(tidied, e, [{ title: 'Billing', note: 'Invoices', cards: [s('s1')] }], 'keep', NOW).doc;
+    const first = arrange(tidied, e, [{ title: 'Billing', note: 'Invoices', cards: [s('s1')] }], 'keep', NOW, all).doc;
     const billing = frames(first).find((f) => f.arranged) as FrameItem;
-    const t = tidy(first, e, NOW + 1000);
+    const t = tidy(first, e, NOW + 1000, all);
     expect(at(t, billing.id)).toEqual(billing);
     expect(at(t, 'session:s1')).toEqual(at(first, 'session:s1'));
     expect(notes(t)).toEqual(notes(first));
-    const second = arrange(t, e, [{ title: 'Site', cards: [s('s4')] }], 'keep', NOW + 2000).doc;
+    const second = arrange(t, e, [{ title: 'Site', cards: [s('s4')] }], 'keep', NOW + 2000, all).doc;
     expect(frames(second).filter((f) => f.arranged).map((f) => f.title)).toEqual(['Site']);
     expect(notes(second)).toEqual([]);
     // Named by no frame now, it's with the rest.
@@ -515,12 +441,12 @@ describe('arrange', () => {
     const mine: FrameItem = { kind: 'frame', id: 'frame-mine', title: 'Mine', x: s1.x - 20, y: s1.y - 20, w: CARD_W + 40, h: CARD_H.session + 40, color: 'green' };
     const note: NoteItem = { kind: 'note', id: 'note-mine', text: 'Ask about this', x: -1000, y: -1000, w: 220, h: 140, color: 'gray' };
     const d = { ...tidied, items: [mine, note, ...tidied.items] };
-    const r = arrange(d, e, [{ title: 'Billing', cards: [s('s2')] }], 'off', NOW).doc;
+    const r = arrange(d, e, [{ title: 'Billing', cards: [s('s2')] }], 'off', NOW, all).doc;
     expect(at(r, 'frame-mine')).toEqual(mine);
     expect(at(r, 'note-mine')).toEqual(note);
     expect(at(r, 'session:s1')).toEqual(s1);
     // Named, it leaves your frame for the one that names it.
-    const again = arrange(d, e, [{ title: 'Billing', cards: [s('s1')] }], 'off', NOW).doc;
+    const again = arrange(d, e, [{ title: 'Billing', cards: [s('s1')] }], 'off', NOW, all).doc;
     expect(at(again, 'frame-mine')).toEqual(mine);
     expect(contains(mine, rectOf(card(again, 'session:s1')))).toBe(false);
   });
@@ -536,6 +462,7 @@ describe('arrange', () => {
       ],
       'keep',
       NOW,
+      all,
     );
     expect(r.missing).toEqual([s('gone')]);
     expect(r.frames.map((f) => [f.title, f.cards])).toEqual([
@@ -545,23 +472,21 @@ describe('arrange', () => {
     expect(refs(r.doc).filter((c) => itemId(c) === 'session:s1')).toHaveLength(1);
   });
 
-  it('first brings on what Bring in would have, for a canvas read from its file behind the board', () => {
-    // Saved before s4 moved on, by a window that has shown another project since.
-    const behind = { ...tidied, items: tidied.items.filter((it) => itemId(it) !== 'session:s4'), scope: { ...tidied.scope, since: NOW - DAY } };
-    const r = arrange(behind, e, [{ title: 'Billing', cards: [s('s1')] }], 'keep', NOW);
+  it('first brings on what the board shows, for a canvas read from its file behind the board', () => {
+    // Saved before the board showed s4, by a window that has shown another project since.
+    const behind = { ...tidied, items: tidied.items.filter((it) => itemId(it) !== 'session:s4') };
+    const r = arrange(behind, e, [{ title: 'Billing', cards: [s('s1')] }], 'keep', NOW, all);
     expect(at(r.doc, 'session:s4')).toBeTruthy();
-    // And from here on, Bring in starts after the arrange.
-    expect(r.doc.scope.since).toBe(NOW);
   });
 
   it('brings on a named card that was off the canvas', () => {
     const d = { ...tidied, items: tidied.items.filter((it) => itemId(it) !== 'session:s3') };
-    const r = arrange(d, e, [{ title: 'B', cards: [s('s3')] }], 'keep', NOW).doc;
-    expect(at(r, 'session:s3')).toMatchObject({ kept: true, title: lanes[1].sessions[0].title });
+    const r = arrange(d, e, [{ title: 'B', cards: [s('s3')] }], 'keep', NOW, all).doc;
+    expect(at(r, 'session:s3')).toMatchObject({ title: lanes[1].sessions[0].title });
   });
 
   it('makes a note tall enough for its text', () => {
-    const r = arrange(emptyDoc(), e, [{ title: 'Notes', note: 'word '.repeat(200), cards: [] }], 'keep', NOW).doc;
+    const r = arrange(emptyDoc(), e, [{ title: 'Notes', note: 'word '.repeat(200), cards: [] }], 'keep', NOW, all).doc;
     const [n] = notes(r);
     // A thousand characters, about 65 to a line two columns wide.
     expect(n.h).toBeGreaterThanOrEqual(15 * 20);
@@ -573,7 +498,8 @@ describe('arrange', () => {
 describe('outline', () => {
   it('says what each frame holds and who made it, and what the board no longer has', () => {
     const e = ents([lane('a', [session('s1')])]);
-    let d = arrange(tidy(sync(emptyDoc(), e, NOW), e, NOW), e, [{ title: 'Billing', note: 'Invoices', cards: [{ ref: 'session', key: 's1' }] }], 'keep', NOW).doc;
+    const all = everything(e);
+    let d = arrange(tidy(sync(emptyDoc(), e, all), e, NOW, all), e, [{ title: 'Billing', note: 'Invoices', cards: [{ ref: 'session', key: 's1' }] }], 'keep', NOW, all).doc;
     d = { ...d, items: [...d.items, { kind: 'ref', ref: 'session', key: 'old', x: -5000, y: -5000, title: 'Old one' }] };
     const o = outline(d, e);
     const [billing, app] = o.frames;

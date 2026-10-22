@@ -868,7 +868,7 @@ enum BoardCmd {
     Set(BoardSetArgs),
     /// Move a card on a board's Kanban to a column, doing what dragging it there does in the app: in a stage column a todo is marked ready for review, done, or reopened, and a session marked done; in a label column a todo gets the label; in a column of your own the card is put there. Starting a todo from To do starts a session in the app, so it's turned down here: run `codealong todo start` in the session that takes it on. --dry-run says what it would do without doing it.
     Move(BoardMoveArgs),
-    /// Lay a board's canvas out in frames you name, by what the work is for: a goal, a release, what waits on your user. Each frame's cards go in columns by worktree, in the order you give, its note across its top, and the frames go in rows in the order you give. Frames your user drew and notes stay where they are, with what's in them, unless a frame of yours names it. The frames and notes the last arrange made are replaced; a tidy leaves them as if your user drew them, and once they rename one it's theirs. The cards no frame names go below your frames, laid out by worktree, or come off the canvas with `--rest off`. A card you name that isn't on the board is put on it.
+    /// Lay a board's canvas out in frames you name, by what the work is for: a goal, a release, what waits on your user. Each frame's cards go in columns by worktree, in the order you give, its note across its top, and the frames go in rows in the order you give. Frames your user drew and notes stay where they are, with what's in them, unless a frame of yours names it. The frames and notes the last arrange made are replaced; a tidy leaves them as if your user drew them, and once they rename one it's theirs. The cards no frame names go below your frames, laid out by worktree, or come off the canvas and the board with `--rest off`. A card you name that isn't on the board is put on it.
     ///
     /// The plan is JSON: {"frames": [{"title": "Release 0.8", "color": "blue", "note": "Two PRs open; the docs one waits on review.", "worktrees": ["~/src/app-release"], "sessions": ["claude:claude2:<uuid>"], "todos": ["t-abc"], "prs": ["acme/app#12"]}]}. A frame has a title and at least one card or a note; color is optional (gray, red, pink, purple, indigo, blue, teal, green). Name a worktree by its path, a session by its key or id, a todo by its id, a PR by its URL or owner/name#number; ids take a unique prefix. A worktree you list heads its sessions' column. A card named twice goes in the first frame that names it; one the board's project doesn't have is left out and listed under `missing`. Prints each frame made with how many cards it holds (`frames`, with each frame's id) and how many other cards went below or came off (`rest`).
     Arrange(BoardArrangeArgs),
@@ -1047,7 +1047,7 @@ struct BoardArrangeArgs {
     at: BoardAt,
     /// The plan: a JSON file, or `-` to read it from stdin.
     plan: String,
-    /// What becomes of the cards on the canvas no frame names: laid out by worktree below your frames, or taken off the canvas (Bring in puts one back once it moves on).
+    /// What becomes of the cards on the canvas no frame names: laid out by worktree below your frames, or taken off the canvas and the board, its Kanban too.
     #[arg(long, value_enum, default_value_t = boards::Rest::Keep)]
     rest: boards::Rest,
     /// Bring Codealong's main window forward on the canvas, with your frames in view.
@@ -2629,7 +2629,7 @@ fn arranged_text(a: &CanvasArranged, rest: boards::Rest) -> String {
     if a.rest > 0 {
         out.push_str(&match rest {
             boards::Rest::Keep => format!("{} no frame named went below them, by worktree.\n", cards(a.rest)),
-            boards::Rest::Off => format!("{} no frame named came off.\n", cards(a.rest)),
+            boards::Rest::Off => format!("{} no frame named came off the canvas and the board.\n", cards(a.rest)),
         });
     }
     if !a.missing.is_empty() {
@@ -7625,7 +7625,7 @@ mod tests {
             arranged_text(&a, boards::Rest::Keep),
             "Arranged the Acme canvas in 2 frames: Billing (3 cards), Site (1 card).\n1 card no frame named went below them, by worktree.\nLeft out, as Acme doesn't have them: session claude:claude:gone.\n"
         );
-        assert!(arranged_text(&a, boards::Rest::Off).contains("1 card no frame named came off."));
+        assert!(arranged_text(&a, boards::Rest::Off).contains("1 card no frame named came off the canvas and the board."));
     }
 
     #[test]

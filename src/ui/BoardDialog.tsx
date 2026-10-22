@@ -63,7 +63,7 @@ export function BoardDialog({ board, project, suggestion = '', onSave, onClose, 
     <Dialog
       className="ca-boarddlg"
       title={board ? 'Board settings' : 'New board'}
-      lede={board ? `A board in ${project}.` : `A board in ${project}, shown as Kanban or as Canvas. Add to it from any row’s menu, or have it take in what matches.`}
+      lede={board ? `A board in ${project}. What it takes in shows on its Kanban and its canvas.` : `A board in ${project}, shown as Kanban or as Canvas. Add to it from any row’s menu, or have it take in what matches.`}
       onClose={onClose}
       onSubmit={save}
       aside={<span className="ca-boarddlg-sum">{ruleWords(ruleNow, choices.labels)}</span>}

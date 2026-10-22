@@ -29,7 +29,7 @@ import {
   refId,
   tidy,
   tidyPlan,
-  clearDoc,
+  TIDY_WORD,
   titleOf,
   type Camera,
   type CanvasDoc,
@@ -41,7 +41,7 @@ import {
   type Rect,
   type RefItem,
   type RefKind,
-  type TidyOptions,
+  type TidyMode,
   type TidyPlan,
 } from '../canvas/model';
 import { arrowhead, connector, polyline } from '../lineage';
@@ -50,7 +50,6 @@ import { LABEL_COLORS, type Label, type LabelColor, type Pr, type Theme, type To
 import { CanvasCard } from './CanvasCard';
 import { CardDetail, CardPopover } from './card/CardPopover';
 import { cardData, cardSig } from './card/data';
-import { BringInPanel, TidyPanel, tidySummary } from './CanvasTidy';
 import { cx, Icon } from './primitives';
 import { chordMod, cmd, keysIn, pinch, zoomWheel } from '../platform';
 
@@ -75,14 +74,14 @@ export interface CanvasViewProps {
   doc: CanvasDoc;
   update: (fn: (doc: CanvasDoc) => CanvasDoc) => void;
   entities: Entities;
-  /** What the board holds (model.ts `OnBoard`). */
+  /** What the board shows (model.ts `OnBoard`). */
   holds: OnBoard;
   /** Takes cards off the board, by card id, which takes them off its canvas. */
   onTakeOff: (cards: string[]) => void;
   /** Puts cards on the board by hand, by card id: one added to the canvas, or put back. */
   onPutOn: (cards: string[]) => void;
-  /** Pinned worktrees, which stay on the canvas whatever their age. */
-  pinned: Set<string>;
+  /** The board's settings, which say what's on its canvas. */
+  onSettings: () => void;
   labels: Map<string, Label>;
   todos: Todo[];
   now: number;
@@ -139,8 +138,25 @@ function readColors() {
 
 const clamp = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
+const KIND_WORDS: Record<RefKind, [string, string]> = { session: ['session', 'sessions'], todo: ['todo', 'todos'], worktree: ['worktree', 'worktrees'], pr: ['PR', 'PRs'] };
+
+function counted(items: RefItem[]): string {
+  const n: Partial<Record<RefKind, number>> = {};
+  for (const it of items) n[it.ref] = (n[it.ref] ?? 0) + 1;
+  const parts = (['session', 'todo', 'worktree', 'pr'] as RefKind[]).filter((k) => n[k]).map((k) => `${n[k]} ${KIND_WORDS[k][n[k] === 1 ? 0 : 1]}`);
+  return parts.length <= 1 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+/** What a tidy took off and brought on, in a sentence; nothing when it only laid the cards out again. */
+function tidySummary(plan: TidyPlan): string {
+  const off = counted(plan.dropped);
+  const on = counted(plan.added);
+  if (!off && !on) return '';
+  return [off && `Took off ${off}`, on && `brought on ${on}`].filter(Boolean).join('; ').replace(/^b/, 'B') + '.';
+}
+
 export function CanvasView(props: CanvasViewProps) {
-  const { doc, update, entities, holds, onTakeOff, onPutOn, pinned, labels, todos, now, terminal, theme, project, focus, onOpen, onShowPr, menuFor, onToast, onUndo, keys, onSelectItem, query, filtering, matches, fitMatches } = props;
+  const { doc, update, entities, holds, onTakeOff, onPutOn, onSettings, labels, todos, now, terminal, theme, project, focus, onOpen, onShowPr, menuFor, onToast, onUndo, keys, onSelectItem, query, filtering, matches, fitMatches } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const glCanvas = useRef<HTMLCanvasElement>(null);
@@ -479,27 +495,18 @@ export function CanvasView(props: CanvasViewProps) {
     });
   }, [selection, doc, byId, update, entities, onUndo, onTakeOff, onPutOn]);
 
-  // One of the panels above the toolbar at a time.
-  const [panel, setPanel] = useState<'tidy' | 'bring' | null>(null);
-  const tidyOpen = panel !== null;
-  const setTidyOpen = (on: boolean) => setPanel(on ? 'tidy' : null);
   const runTidy = useCallback(
-    (opts: TidyOptions, plan: TidyPlan) => {
+    (layout: TidyMode) => {
       const before = doc;
-      update((d) => tidy(d, entities, Date.now(), pinned, opts, holds));
-      onUndo(`Tidied. ${tidySummary(plan).replace(/^Nothing.*$/, '')}`.trim(), () => update(() => before), 'layout-grid');
-      setTidyOpen(false);
+      const plan = tidyPlan(doc, entities, holds);
+      update((d) => tidy(d, entities, Date.now(), holds, layout));
+      onUndo(`Tidied. ${tidySummary(plan)}`.trim(), () => update(() => before), 'layout-grid');
       fitted.current = false;
     },
-    [doc, update, entities, pinned, holds, onUndo],
+    [doc, update, entities, holds, onUndo],
   );
-  const clearCanvas = useCallback(() => {
-    const before = doc;
-    update((d) => clearDoc(d, Date.now()));
-    setSelection(new Set());
-    setTidyOpen(false);
-    onUndo('Cleared the canvas. Work comes back as it moves on.', () => update(() => before), 'trash');
-  }, [doc, update, onUndo]);
+  // Tidy's two layouts, the one it was last laid out by checked.
+  const tidyItems = (): MenuSpec => (Object.keys(TIDY_WORD) as TidyMode[]).map((layout) => ({ label: TIDY_WORD[layout], checked: doc.layout === layout, run: () => runTidy(layout) }));
 
   // After a tidy, the whole canvas comes into view.
   useEffect(() => {
@@ -535,7 +542,7 @@ export function CanvasView(props: CanvasViewProps) {
 
   const addHere = useCallback(
     (ref: RefKind, key: string, at: { x: number; y: number }) => {
-      update((d) => addRef(d, entities, ref, key, at, true));
+      update((d) => addRef(d, entities, ref, key, at));
       onPutOn([refId(ref, key)]);
       setSelection(new Set([refId(ref, key)]));
     },
@@ -570,8 +577,7 @@ export function CanvasView(props: CanvasViewProps) {
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
-    if (target.closest('.ca-cv-toolbar, .ca-cv-popover, .ca-cv-tidy, textarea, input')) return;
-    setTidyOpen(false);
+    if (target.closest('.ca-cv-toolbar, .ca-cv-popover, textarea, input')) return;
     if (e.button === 2) return;
     rootRef.current?.focus({ preventScroll: true });
     const p = toWorld(e.clientX, e.clientY);
@@ -718,9 +724,8 @@ export function CanvasView(props: CanvasViewProps) {
         next.delete(d.toggle);
         setSelection(next);
       }
-      // Moved cards are yours: they stay when they're no longer recent.
       // A card dropped hanging over a frame's edge makes the frame grow to hold it.
-      if (d.moved) update((doc) => settleDrop({ ...doc, items: doc.items.map((it) => (it.kind === 'ref' && d.start.has(itemId(it)) && !it.kept ? { ...it, kept: true } : it)) }, new Set(d.start.keys())));
+      if (d.moved) update((doc) => settleDrop(doc, new Set(d.start.keys())));
     }
     if (d.mode === 'marquee') setMarquee(null);
     if (d.mode === 'frame') {
@@ -734,7 +739,7 @@ export function CanvasView(props: CanvasViewProps) {
 
   const onDoubleClick = (e: ReactMouseEvent) => {
     const target = e.target as HTMLElement;
-    if (target.closest('.ca-cv-toolbar, .ca-cv-tidy, .ca-cv-popover, textarea, input')) return;
+    if (target.closest('.ca-cv-toolbar, .ca-cv-popover, textarea, input')) return;
     const frameTitle = target.closest<HTMLElement>('[data-frame]');
     if (frameTitle) {
       setEditing(frameTitle.dataset.frame ?? null);
@@ -749,7 +754,7 @@ export function CanvasView(props: CanvasViewProps) {
   const onContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault();
     const target = e.target as HTMLElement;
-    if (target.closest('.ca-cv-toolbar, .ca-cv-tidy, .ca-cv-popover, textarea, input')) return;
+    if (target.closest('.ca-cv-toolbar, .ca-cv-popover, textarea, input')) return;
     const p = toWorld(e.clientX, e.clientY);
     const frameTitle = target.closest<HTMLElement>('[data-frame]');
     const hit = frameTitle ? (byId.get(frameTitle.dataset.frame ?? '') ?? null) : pick(p.x, p.y);
@@ -770,9 +775,8 @@ export function CanvasView(props: CanvasViewProps) {
       { label: 'Add frame here', run: () => addFrame({ x: p.x, y: p.y, w: 560, h: 360 }) },
       { label: 'Add to canvas', items: addItems({ x: p.x, y: p.y }) },
       'separator',
-      { label: 'Tidy up', run: () => runTidy(doc.tidy, tidyPlan(doc, entities, now, pinned, doc.tidy)) },
-      { label: 'Tidy…', run: () => setTidyOpen(true) },
-      { label: 'Clear canvas', run: clearCanvas },
+      ...tidyItems(),
+      { label: 'Board settings…', run: onSettings },
       'separator',
       { label: 'Zoom to fit', run: fitAll },
     ]);
@@ -869,12 +873,6 @@ export function CanvasView(props: CanvasViewProps) {
       if (!e.repeat) setSpaceHeld(true);
       return true;
     }
-    if (tidyOpen && e.key === 'Escape') {
-      setTidyOpen(false);
-      return true;
-    }
-    // Return presses the panel's focused button.
-    if (tidyOpen && e.key === 'Enter') return false;
     if (e.key === 'Escape') {
       if (tool !== 'select') setTool('select');
       else setSelection(new Set());
@@ -939,7 +937,7 @@ export function CanvasView(props: CanvasViewProps) {
         return true;
       }
       const moving = carried(selection);
-      update((d) => ({ ...d, items: d.items.map((it) => (moving.has(itemId(it)) ? { ...it, x: it.x + dx, y: it.y + dy, ...(it.kind === 'ref' ? { kept: true } : {}) } : it)) }));
+      update((d) => ({ ...d, items: d.items.map((it) => (moving.has(itemId(it)) ? { ...it, x: it.x + dx, y: it.y + dy } : it)) }));
       return true;
     }
     // J and K walk the list in other views; here there's no list.
@@ -1077,11 +1075,7 @@ export function CanvasView(props: CanvasViewProps) {
       </div>
       {items.length === 0 && (
         <div className="ca-cv-empty">
-          <p>
-            {doc.scope.cleared
-              ? 'Cleared. Sessions and todos come on here as they move on; right-click to add one now.'
-              : `Nothing recent in ${project}. Right-click to add a worktree, a session or a note.`}
-          </p>
+          <p>Nothing on this board right now. Its settings say what comes on by itself; right-click to add a worktree, a session or a note.</p>
         </div>
       )}
       {popItem?.kind === 'ref' && popRect && (
@@ -1110,8 +1104,6 @@ export function CanvasView(props: CanvasViewProps) {
           />
         </CardPopover>
       )}
-      {panel === 'bring' && <BringInPanel doc={doc} onChange={(scope) => update((d) => ({ ...d, scope }))} />}
-      {panel === 'tidy' && <TidyPanel doc={doc} entities={entities} holds={holds} now={now} pinned={pinned} onTidy={runTidy} onClear={clearCanvas} onClose={() => setTidyOpen(false)} />}
       <div className="ca-cv-toolbar" role="toolbar" aria-label="Canvas tools" onDoubleClick={(e) => e.stopPropagation()}>
         <button type="button" className={cx('ca-cv-tool', tool === 'note' && 'is-on')} title="Note (N): click where it goes" aria-pressed={tool === 'note'} onClick={() => setTool(tool === 'note' ? 'select' : 'note')}>
           <Icon name="note" size={16} />
@@ -1123,9 +1115,12 @@ export function CanvasView(props: CanvasViewProps) {
         <button
           type="button"
           className="ca-cv-tool is-wide"
-          title="Lay the canvas out once, choosing what it keeps"
-          aria-expanded={panel === 'tidy'}
-          onClick={() => setPanel(panel === 'tidy' ? null : 'tidy')}
+          title="Lay the canvas out again, by worktree or by day, with what the board shows"
+          aria-haspopup="menu"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            void showContextMenu(tidyItems(), { x: r.left, y: r.top - 60 }).catch((err: unknown) => onToast(String(err)));
+          }}
         >
           <Icon name="layout-grid" size={15} />
           <span>Tidy</span>
@@ -1144,14 +1139,7 @@ export function CanvasView(props: CanvasViewProps) {
           <Icon name="plus" size={15} />
           <span>Add</span>
         </button>
-        <button
-          type="button"
-          className={cx('ca-cv-tool', panel === 'bring' && 'is-open')}
-          title="Bring in: which new work comes onto the canvas by itself"
-          aria-label="Bring in"
-          aria-expanded={panel === 'bring'}
-          onClick={() => setPanel(panel === 'bring' ? null : 'bring')}
-        >
+        <button type="button" className="ca-cv-tool" title="Board settings: what comes onto its Kanban and its canvas by itself" aria-label="Board settings" onClick={onSettings}>
           <Icon name="settings" size={16} />
         </button>
         <span className="ca-cv-sep" />

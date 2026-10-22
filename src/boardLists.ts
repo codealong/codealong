@@ -783,22 +783,7 @@ export interface KanbanInput {
  */
 export function kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board, subjects, member, now }: KanbanInput): KanbanColumn[] {
   const columns = columnsOf(board);
-  const added = new Set(board.added);
-  const removed = new Set(board.removed);
-  const todoCards = todoRows.filter((r) => {
-    const card = `todo:${r.todo.id}`;
-    return !r.todo.archivedAt && member(card) && (added.has(card) || !(todoStage(r, todos) === 'done' && doneAt(r) < doneSince));
-  });
-  // What an open todo's card lists, which has no archived session: one of those goes on a card of its own.
-  const onCards = new Set(todoCards.filter((c) => todoStage(c, todos) !== 'done').flatMap((c) => c.sessions.map((p) => p.session.key)));
-  const viaPrs = new Set(prs.filter((p) => member(`pr:${p.key}`)).flatMap((p) => p.sessions.map((s) => s.key)));
-  const sessionCards = sessions.filter((r) => {
-    const card = `session:${r.session.key}`;
-    // Taken off the board, it stays off, though its worktree or a PR of its is on it.
-    if (removed.has(card) || !(member(card) || member(`worktree:${r.lane.id}`) || viaPrs.has(r.session.key))) return false;
-    if (onCards.has(r.session.key)) return false;
-    return added.has(card) || (!unattended(r.session) && (current(r.session) || sessionStage(r, prs) === 'review'));
-  });
+  const { todoCards, sessionCards } = boardCards({ todoRows, todos, sessions, prs, doneSince, board, member }, false);
   const into = new Map<string, KanbanCard[]>(columns.map((c) => [c.id, []]));
   const loose: KanbanCard[] = [];
   for (const c of [...todoCards, ...sessionCards]) {
@@ -813,10 +798,63 @@ export function kanbanColumns({ todoRows, todos, sessions, prs, doneSince, board
   return out;
 }
 
+/** A board's todos among `todoRows` and its sessions among `sessions`, as `kanbanColumns` says,
+ *  with the sessions an open todo's card lists only `withTodos`. */
+function boardCards({ todoRows, todos, sessions, prs, doneSince, board, member }: Omit<KanbanInput, 'subjects' | 'now'>, withTodos: boolean): { todoCards: TodoItem[]; sessionCards: SessionItem[] } {
+  const added = new Set(board.added);
+  const removed = new Set(board.removed);
+  const todoCards = todoRows.filter((r) => {
+    const card = `todo:${r.todo.id}`;
+    return !r.todo.archivedAt && member(card) && (added.has(card) || !(todoStage(r, todos) === 'done' && doneAt(r) < doneSince));
+  });
+  // What an open todo's card lists, which has no archived session: one of those goes on a card of its own.
+  const onCards = withTodos ? new Set<string>() : new Set(todoCards.filter((c) => todoStage(c, todos) !== 'done').flatMap((c) => c.sessions.map((p) => p.session.key)));
+  const viaPrs = new Set(prs.filter((p) => member(`pr:${p.key}`)).flatMap((p) => p.sessions.map((s) => s.key)));
+  const sessionCards = sessions.filter((r) => {
+    const card = `session:${r.session.key}`;
+    // Taken off the board, it stays off, though its worktree or a PR of its is on it.
+    if (removed.has(card) || !(member(card) || member(`worktree:${r.lane.id}`) || viaPrs.has(r.session.key))) return false;
+    if (onCards.has(r.session.key)) return false;
+    return added.has(card) || (!unattended(r.session) && (current(r.session) || sessionStage(r, prs) === 'review'));
+  });
+  return { todoCards, sessionCards };
+}
+
+export interface CanvasInput {
+  /** Every todo in the board's project, with none of a window's search or filters. */
+  todoItems: TodoItem[];
+  todos: Todo[];
+  /** Every session in it, with the archived ones the board has by hand (`archivedOn`). */
+  sessions: SessionItem[];
+  prs: PrItem[];
+  board: BoardDoc;
+  member: (card: string) => boolean;
+}
+
+/**
+ * What a board's canvas shows by itself, by card id (canvas/model.ts `OnBoard`), whatever a
+ * window's search, filters and age: the todos and sessions its Kanban shows but its done todos,
+ * which the Kanban folds away in Done, and with every session an open todo's card lists that's
+ * worth a card of its own, since the canvas puts each under its worktree; the open PRs it holds;
+ * and whatever was put on it by hand. The worktrees it holds come on to head these (canvas/model.ts
+ * `shownRefs`).
+ */
+export function canvasCards({ todoItems, todos, sessions, prs, board, member }: CanvasInput): Set<string> {
+  const { todoCards, sessionCards } = boardCards({ todoRows: todoItems, todos, sessions, prs, doneSince: Infinity, board, member }, true);
+  const added = new Set(board.added);
+  const open = prs.filter((p) => member(`pr:${p.key}`) && (added.has(`pr:${p.key}`) || (p.state !== 'merged' && p.state !== 'closed')));
+  return new Set([
+    ...todoCards.map((r) => `todo:${r.todo.id}`),
+    ...sessionCards.map((r) => `session:${r.session.key}`),
+    ...open.map((p) => `pr:${p.key}`),
+    ...board.added.filter((c) => c.startsWith('worktree:') && member(c)),
+  ]);
+}
+
 /** A board's Kanban as `codealong board show` and `move` see it (boards/useBoardAsks.ts): from
  *  everything in its project on `lanes` (every worktree, archived sessions and all), with none of
- *  a window's search or filters. Archived sessions are left out but the board's own
- *  (`archivedOn`), which it gives back for its canvas. */
+ *  a window's search or filters, and what its canvas shows (`canvasCards`). Archived sessions are
+ *  left out but the board's own (`archivedOn`), which it gives back for its canvas. */
 export function kanbanOf(board: Board, rawLanes: Lane[], doc: BoardDoc, now: number) {
   const project = doc.project;
   const lanes = unarchived(rawLanes);
@@ -832,7 +870,8 @@ export function kanbanOf(board: Board, rawLanes: Lane[], doc: BoardDoc, now: num
   const member = memberTest(doc, subjects, now);
   const sessions = shownSessionsOf(sessionItems, 0, NO_PINS, '', []);
   const columns = kanbanColumns({ todoRows: todoItems, todos: board.todos, sessions, prs: board.prs, doneSince: now - DONE_SPAN, board: doc, subjects, member, now });
-  return { columns, subjects, member, archived };
+  const shows = canvasCards({ todoItems, todos: board.todos, sessions: sessionItems, prs, board: doc, member });
+  return { columns, subjects, member, shows, archived };
 }
 
 /** Needs you and Your turn per project, for the switcher's badge and menu. */
@@ -1078,6 +1117,11 @@ export function useBoardLists(input: ListsInput) {
     [part.todoRows, todos, cardSessions, board?.prs, doneSince, shownBoard, subjects, member, now],
   );
   const kanbanVisible = useMemo<ListRow[]>(() => kanbanCols.flatMap((c) => (columnOpen(c) ? c.cards : [])), [kanbanCols, columnOpen]);
+  // What its canvas shows, whatever the search and the filters, which fade cards there instead.
+  const canvasShows = useMemo(
+    () => (shownBoard ? canvasCards({ todoItems: part.todoItems, todos, sessions: boardSessions, prs: part.prs, board: shownBoard, member }) : new Set<string>()),
+    [shownBoard, part.todoItems, todos, boardSessions, part.prs, member],
+  );
   // What's open on it: the cards outside the columns that start folded (Done).
   const openCardCount = useMemo(() => kanbanCols.reduce((n, c) => (c.column?.folded ? n : n + c.cards.length), 0), [kanbanCols]);
 
@@ -1129,6 +1173,7 @@ export function useBoardLists(input: ListsInput) {
     subjects,
     allSubjects,
     member,
+    canvasShows,
     rawLanes,
     boardLanes: part.lanes,
     boardArchived,

@@ -166,8 +166,7 @@ pub struct BoardDoc {
     pub added: Vec<String>,
     #[serde(default)]
     pub removed: Vec<String>,
-    /// When each card was added by hand: a canvas brings on by itself only what was added after
-    /// its last tidy or clear (canvas/model.ts `recentRefs`).
+    /// When each card was added by hand.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub added_at: BTreeMap<String, i64>,
     /// Its Kanban columns; none for the four stages.
@@ -657,7 +656,7 @@ pub enum Rest {
     /// Laid out below the frames, as a tidy lays them out.
     #[default]
     Keep,
-    /// Taken off the canvas, as a tidy takes off what's older.
+    /// Taken off the canvas and the board, which would show them there again.
     Off,
 }
 

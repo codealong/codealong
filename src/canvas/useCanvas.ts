@@ -1,12 +1,12 @@
 // A board's canvas document for the window: read from the engine when the board changes, kept up
-// to date with what the board holds, and saved a moment after each change. A board whose canvas
+// to date with what the board shows, and saved a moment after each change. A board whose canvas
 // was never shown has no document until it's first shown; it then starts tidied.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { canvasLoad, canvasSave, onCanvasSaved, windowLabel } from '../api';
 import { useLatest } from '../latest';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
-import { addRef, DEFAULT_TIDY, emptyDoc, itemId, readDoc, refId, sync, tidy, type CanvasDoc, type Entities, type OnBoard, type RefKind } from './model';
+import { addRef, emptyDoc, readDoc, refId, sync, tidy, type CanvasDoc, type Entities, type OnBoard, type RefKind } from './model';
 
 const SAVE_AFTER_MS = 600;
 
@@ -25,8 +25,8 @@ export interface CanvasHandle {
   /** Replaces the document and saves it at once, for a change whose saving must be known (an
    *  arrange the command asked for, which says whether it was saved). */
   put: (doc: CanvasDoc) => Promise<void>;
-  /** Puts a thing on the canvas and keeps it there; returns its canvas id. */
-  keep: (ref: RefKind, key: string) => string;
+  /** Puts a thing on the canvas if it isn't there; returns its canvas id. */
+  place: (ref: RefKind, key: string) => string;
   /** Whether a thing is on the canvas now. */
   has: (ref: RefKind, key: string) => boolean;
 }
@@ -55,20 +55,20 @@ export async function readCanvas(board: string): Promise<CanvasDoc | null> {
   throw new Error('The canvas kept changing while it was read. Ask again in a moment.');
 }
 
-/** The first document for a board: what's recent of what it holds, tidied by worktree. */
-export function seed(e: Entities, now: number, pinned: Set<string>, on: OnBoard): CanvasDoc {
-  return tidy(emptyDoc(), e, now, pinned, DEFAULT_TIDY, on);
+/** The first document for a board: what it shows, tidied by worktree. */
+export function seed(e: Entities, now: number, on: OnBoard): CanvasDoc {
+  return tidy(emptyDoc(), e, now, on);
 }
 
 /** `board` is none while the project has no board, when there's no canvas to read or save.
  *  `read` is false until the engine's first scan has finished: the board has only other devices'
  *  worktrees then, and a first tidy of those would leave out this Mac's. `on` is what the board
- *  holds (model.ts `OnBoard`). */
-export function useCanvas(board: string | null, shown: boolean, read: boolean, e: Entities, now: number, pinned: Set<string>, on: OnBoard): CanvasHandle {
+ *  shows (model.ts `OnBoard`). */
+export function useCanvas(board: string | null, shown: boolean, read: boolean, e: Entities, now: number, on: OnBoard): CanvasHandle {
   const [held, setHeld] = useState<Held | null>(null);
   const loaded = held?.board === board;
-  const ctx = useRef({ e, now, pinned, on });
-  ctx.current = { e, now, pinned, on };
+  const ctx = useRef({ e, now, on });
+  ctx.current = { e, now, on };
 
   // Saving: the latest document per board, written a moment after the last change.
   const pending = useRef<{ board: string; doc: CanvasDoc } | null>(null);
@@ -144,24 +144,24 @@ export function useCanvas(board: string | null, shown: boolean, read: boolean, e
     if (!held || board === null || held.board !== board || !read) return;
     if (!held.doc) {
       if (!shown || e.lanes.size === 0) return;
-      const doc = seed(e, now, pinned, on);
+      const doc = seed(e, now, on);
       setHeld({ board, doc });
       save(board, doc);
       return;
     }
-    const next = sync(held.doc, e, now, pinned, on);
+    const next = sync(held.doc, e, on);
     if (next !== held.doc) {
       setHeld({ board, doc: next });
       save(board, next);
     }
-  }, [held, board, shown, read, e, now, pinned, on, save]);
+  }, [held, board, shown, read, e, now, on, save]);
 
   const update = useCallback(
     (fn: (doc: CanvasDoc) => CanvasDoc) => {
       setHeld((h) => {
         if (!h || board === null || h.board !== board) return h;
-        const { e: ents, now: at, pinned: pins, on: holds } = ctx.current;
-        const before = h.doc ?? seed(ents, at, pins, holds);
+        const { e: ents, now: at, on: holds } = ctx.current;
+        const before = h.doc ?? seed(ents, at, holds);
         const doc = fn(before);
         if (doc === h.doc) return h;
         save(board, doc);
@@ -191,24 +191,15 @@ export function useCanvas(board: string | null, shown: boolean, read: boolean, e
     [board, boardNow],
   );
 
-  const keep = useCallback(
+  const place = useCallback(
     (ref: RefKind, key: string) => {
-      const id = refId(ref, key);
-      update((d) => {
-        const at = d.items.findIndex((it) => itemId(it) === id);
-        if (at < 0) return addRef(d, ctx.current.e, ref, key, null, true);
-        const it = d.items[at];
-        if (it.kind !== 'ref' || it.kept) return d;
-        const items = [...d.items];
-        items[at] = { ...it, kept: true };
-        return { ...d, items };
-      });
-      return id;
+      update((d) => addRef(d, ctx.current.e, ref, key, null));
+      return refId(ref, key);
     },
     [update],
   );
 
   const doc = loaded ? (held?.doc ?? null) : null;
   const has = useCallback((ref: RefKind, key: string) => !!doc?.items.some((it) => it.kind === 'ref' && it.ref === ref && it.key === key), [doc]);
-  return { doc, loaded, update, put, keep, has };
+  return { doc, loaded, update, put, place, has };
 }

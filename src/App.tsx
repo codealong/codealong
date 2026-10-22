@@ -543,6 +543,7 @@ export function App() {
     subjects,
     allSubjects,
     member,
+    canvasShows,
     rawLanes,
     boardLanes,
     boardArchived,
@@ -614,8 +615,8 @@ export function App() {
     () => entitiesOf(board, boardLanes, todoStore.todos, (p) => boardProject === ALL_PROJECTS || p === boardProject, boardArchived),
     [board, boardLanes, todoStore.todos, boardProject, boardArchived],
   );
-  const holds = useMemo<OnBoard>(() => (shownBoard ? holdsOf(shownBoard, member) : { has: member, added: new Map(), removed: new Set() }), [member, shownBoard]);
-  const canvas = useCanvas(shownBoard?.id ?? null, view === 'canvas', !loading && boardsOn, canvasEntities, now, lanePins.set, holds);
+  const holds = useMemo<OnBoard>(() => (shownBoard ? holdsOf(shownBoard, member, canvasShows) : { shows: canvasShows, has: member, removed: new Set() }), [member, shownBoard, canvasShows]);
+  const canvas = useCanvas(shownBoard?.id ?? null, view === 'canvas', !loading && boardsOn, canvasEntities, now, holds);
   /** A change to a board, here at once; what the engine turns down is said in a toast. */
   const applyBoard = useCallback((op: Parameters<typeof boards.apply>[0]) => boards.apply(op).catch((e: unknown) => setToast(errorText(e))), [boards, setToast]);
   const [canvasFocus, setCanvasFocus] = useState<{ ids: string[]; n: number } | null>(null);
@@ -631,9 +632,9 @@ export function App() {
   // Picking a status, or pressing Return in the filter, brings what matches into view.
   const [canvasFit, setCanvasFit] = useState(0);
   const canvasLane = view === 'canvas' && canvasSel ? homeLane(canvasEntities, canvasSel.ref, canvasSel.key) : null;
-  /** Puts a thing on the board's canvas if it isn't there, keeps it, and shows it there. */
+  /** Puts a thing on the board's canvas if it isn't there, and shows it there. */
   const showOnCanvas = (ref: RefKind, key: string) => {
-    const id = canvas.keep(ref, key);
+    const id = canvas.place(ref, key);
     setView('canvas');
     setCanvasFocus((f) => ({ ids: [id], n: (f?.n ?? 0) + 1 }));
   };
@@ -2296,7 +2297,7 @@ export function App() {
               holds={holds}
               onTakeOff={(cards) => void applyBoard({ op: 'remove', id: shownBoard.id, cards })}
               onPutOn={(cards) => void applyBoard({ op: 'add', id: shownBoard.id, cards })}
-              pinned={lanePins.set}
+              onSettings={() => setBoardEdit({ board: shownBoard })}
               labels={labelById}
               todos={todoStore.todos}
               now={now}

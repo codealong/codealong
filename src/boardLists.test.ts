@@ -890,6 +890,28 @@ describe('the Kanban view’s columns', () => {
     expect(Object.fromEntries(columns.map((c) => [c.id, c.cards.map((r) => r.key)]))).toEqual({ todo: [], progress: ['todo:open'], review: [], done: ['/r/app::claude:claude:marked'] });
   });
 
+  it('shows on its canvas what its Kanban shows, but done todos, with the sessions on open todos, the open PRs it holds and what was added by hand', () => {
+    const mine = session('claude:claude:mine', { status: 'working' });
+    const seen = session('claude:claude:seen');
+    const helper = session('codex:codex:help', { helper: { parent: mine.key }, status: 'working' });
+    const l = lane('/r/app', [mine, seen, helper]);
+    const other = lane('/r/old', []);
+    const todos = [
+      fx.todo({ id: 'open', project: 'Acme', status: 'in-progress', sessions: [mine.key] }),
+      fx.todo({ id: 'done', project: 'Acme', status: 'done', doneAt: NOW - DAY }),
+      fx.todo({ id: 'kept', project: 'Acme', status: 'done', doneAt: NOW - 30 * DAY }),
+    ];
+    const prs = [fx.prItem({ key: 'acme/app#1', project: 'Acme', state: 'open' }), fx.prItem({ key: 'acme/app#2', project: 'Acme', state: 'merged' }), fx.prItem({ key: 'acme/app#3', project: 'Acme', state: 'closed' })];
+    const doc: BoardDoc = { ...everything, added: ['todo:kept', 'pr:acme/app#3', 'worktree:/r/old'] };
+    const { shows, columns } = kanbanOf(fx.board({ lanes: [l, other], todos, prs }), [l, other], doc, NOW);
+    expect([...shows].sort()).toEqual(['pr:acme/app#1', 'pr:acme/app#3', 'session:claude:claude:mine', 'todo:kept', 'todo:open', 'worktree:/r/old']);
+    // The Kanban has the done todo, and its todo's card lists the session at work on it.
+    expect(columns.flatMap((c) => c.cards.map((r) => r.key)).sort()).toEqual(['todo:done', 'todo:kept', 'todo:open']);
+    // A rule's board shows what it takes in alone.
+    const sessionsOnly: BoardDoc = { ...everything, rule: { kinds: ['session'] } };
+    expect([...kanbanOf(fx.board({ lanes: [l, other], todos, prs }), [l, other], sessionsOnly, NOW).shows]).toEqual(['session:claude:claude:mine']);
+  });
+
   it('shows a project’s board under All projects from that project’s work alone', () => {
     const here = lane('/r/app', [session('claude:claude:here')]);
     const there = lane('/r/site', [session('claude:claude:there')], { project: 'Atlas' });

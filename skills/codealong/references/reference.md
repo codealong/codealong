@@ -3772,8 +3772,9 @@ Commands:
            they are, with what's in them, unless a frame of yours names it. The frames
            and notes the last arrange made are replaced; a tidy leaves them as if your
            user drew them, and once they rename one it's theirs. The cards no frame
-           names go below your frames, laid out by worktree, or come off the canvas with
-           `--rest off`. A card you name that isn't on the board is put on it
+           names go below your frames, laid out by worktree, or come off the canvas and
+           the board with `--rest off`. A card you name that isn't on the board is put
+           on it
   open     Bring Codealong's main window forward on a board, as Kanban, or with --as
            canvas as Canvas
   rename   Rename a board
@@ -4207,8 +4208,8 @@ give, its note across its top, and the frames go in rows in the order you give. 
 your user drew and notes stay where they are, with what's in them, unless a frame of
 yours names it. The frames and notes the last arrange made are replaced; a tidy leaves
 them as if your user drew them, and once they rename one it's theirs. The cards no frame
-names go below your frames, laid out by worktree, or come off the canvas with `--rest
-off`. A card you name that isn't on the board is put on it.
+names go below your frames, laid out by worktree, or come off the canvas and the board
+with `--rest off`. A card you name that isn't on the board is put on it.
 
 The plan is JSON: {"frames": [{"title": "Release 0.8", "color": "blue", "note": "Two PRs
 open; the docs one waits on review.", "worktrees": ["~/src/app-release"], "sessions":
@@ -4243,12 +4244,11 @@ Options:
 
       --rest <REST>
           What becomes of the cards on the canvas no frame names: laid out by worktree
-          below your frames, or taken off the canvas (Bring in puts one back once it
-          moves on)
+          below your frames, or taken off the canvas and the board, its Kanban too
 
           Possible values:
           - keep: Laid out below the frames, as a tidy lays them out
-          - off:  Taken off the canvas, as a tidy takes off what's older
+          - off:  Taken off the canvas and the board, which would show them there again
           
           [default: keep]
 
