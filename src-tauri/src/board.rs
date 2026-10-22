@@ -395,6 +395,7 @@ pub fn claude_session(
             .or_else(|| tr.and_then(|t| t.started_at))
             .unwrap_or(last_activity),
         last_activity,
+        turn_ended: tr.and_then(|t| t.ended_at),
         excerpt,
         branch: tr.and_then(|t| t.git_branch.clone()),
         attach_command,
@@ -1519,13 +1520,16 @@ impl MovedOn {
 /// prompt it sent at `prompt_at`: a prompt sent since, or a turn started since the word was
 /// given. A turn that started after it has moved on from what it answered, even once it ends, so
 /// the engine takes the word away once it sees one (`Engine::forget_stale_tags`,
-/// `Engine::forget_stale_suggestions`). None while the word holds; a turn the agent read it in
-/// started before it.
+/// `Engine::forget_stale_suggestions`). Busy with nothing said since a turn that ended before
+/// the word isn't one (`Session::turn_ended`): Claude Code compacting a conversation left idle
+/// took away the tags and replies of sessions still waiting on what they were for. None while
+/// the word holds; a turn the agent read it in started before it.
 pub fn moved_on(s: &Session, prompt_at: i64, at: i64) -> Option<MovedOn> {
     if s.last_prompt_at > prompt_at {
         return Some(MovedOn::Prompt { at: s.last_prompt_at });
     }
-    s.status_since.filter(|since| s.status == Status::Working && *since > at).map(|since| MovedOn::Turn { at: since })
+    let said_nothing = s.turn_ended.is_some_and(|ended| ended <= at);
+    s.status_since.filter(|since| s.status == Status::Working && *since > at && !said_nothing).map(|since| MovedOn::Turn { at: since })
 }
 
 /// Whether replies suggested for a session still answer where it stands (`moved_on`): it's been
@@ -3721,6 +3725,36 @@ mod tests {
         assert_eq!(moved_on(&Session { status_since: Some(NOW - 20 * MIN), ..woke.clone() }, read, at), None);
         // A prompt says so over the turn it started.
         assert_eq!(moved_on(&Session { last_prompt_at: NOW - 2 * MIN, ..woke }, read, at), Some(MovedOn::Prompt { at: NOW - 2 * MIN }));
+    }
+
+    #[test]
+    fn a_compaction_is_no_turn_for_tags_and_suggested_replies() {
+        const MIN: i64 = 60_000;
+        let a = acct("claude");
+        // Its turn ended an hour ago, on a prompt sent before it; an agent read it then and both
+        // tagged it and suggested replies 50 minutes ago.
+        let (read, at) = (NOW - 70 * MIN, NOW - 50 * MIN);
+        let ended = TranscriptInfo { last_prompt_at: Some(read), ended_at: Some(NOW - 60 * MIN), last_ts: NOW - 60 * MIN, ..tr() };
+        let tag = crate::tags::Tag { insight: SessionInsight { asks_you: Some(1.0), ..Default::default() }, at, prompt_at: read };
+        let suggested = Suggestions { replies: vec!["Yes, push it".into()], picks: Default::default(), why: Default::default(), note: None, by: None, by_title: None, at, prompt_at: Some(read) };
+        let holds = |s: &Session| (crate::tags::moved_on(s, &tag), suggestions_hold(s, &suggested));
+        // Claude Code compacts it, going busy for a minute and writing nothing it says.
+        let compacting = claude_session(&a, Some(&reg("busy", NOW - MIN)), Some(&ended), NOW - 55 * MIN, NOW, &Quiet::default()).unwrap();
+        assert_eq!((compacting.status, compacting.status_since), (Status::Working, Some(NOW - MIN)));
+        assert_eq!(holds(&compacting), (None, true));
+        // Once it's done, it's where it was.
+        let compacted = TranscriptInfo { compacted: Some(NOW - 60 * MIN), last_ts: NOW - 10_000, ..ended.clone() };
+        assert_eq!(holds(&claude_session(&a, Some(&reg("idle", NOW - 9_000)), Some(&compacted), NOW - 55 * MIN, NOW, &Quiet::default()).unwrap()), (None, true));
+        // A turn another session's message started has said it, and takes both away.
+        let messaged = TranscriptInfo { ended_at: None, last_ts: NOW - MIN, ..ended.clone() };
+        let woke = claude_session(&a, Some(&reg("busy", NOW - MIN)), Some(&messaged), NOW - 55 * MIN, NOW, &Quiet::default()).unwrap();
+        assert_eq!(holds(&woke), (Some(MovedOn::Turn { at: NOW - MIN }), false));
+        // So does a turn that ended since they were given, though nothing's been said after it.
+        let again = TranscriptInfo { ended_at: Some(NOW - 5 * MIN), ..ended.clone() };
+        assert_eq!(holds(&claude_session(&a, Some(&reg("busy", NOW - MIN)), Some(&again), NOW - 55 * MIN, NOW, &Quiet::default()).unwrap()), (Some(MovedOn::Turn { at: NOW - MIN }), false));
+        // A turn they were given in, gone on after you allowed its call, has moved on too.
+        let allowed = TranscriptInfo { ended_at: None, unfinished: Some(NOW - 52 * MIN), ..ended };
+        assert_eq!(holds(&claude_session(&a, Some(&reg("busy", NOW - MIN)), Some(&allowed), NOW - 55 * MIN, NOW, &Quiet::default()).unwrap()).1, false);
     }
 
     #[test]

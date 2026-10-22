@@ -83,6 +83,12 @@ pub struct TranscriptInfo {
     /// while idle"), and the registry goes busy and idle again around it, though no turn was
     /// taken. The lines it writes, and the links it stamps again as it starts, are timed then.
     pub compacted: Option<i64>,
+    /// When its last turn ended, while nothing has been said since (`said`, `ends_turn`). A turn
+    /// starts by saying something, its prompt, another session's message or a background task's
+    /// report (all but 2 of 4,026 turns that came after one ended here, 2026-10-22), so a session
+    /// that goes busy with this set hasn't started one: Claude Code compacting it (`compacted`)
+    /// writes nothing until the boundary, and only metadata and the links it stamps again before.
+    pub ended_at: Option<i64>,
     /// The tool call waiting on a result, e.g. "Bash · `yarn test`".
     pub pending_tool: Option<String>,
     /// The latest tool call as an activity, e.g. "editing `App.tsx`", since the latest prompt
@@ -259,8 +265,9 @@ pub fn parse_transcript(path: &Path, mtime: i64, prev: Option<Parsed>) -> Option
             let mut info = from_head(&head);
             // The tail reads on from what was said before it, and a compaction's own lines can
             // run past it (up to 450 KB of them here).
-            let (said_at, compacted) = said_before(path, tail.start);
+            let (said_at, ended_at, compacted) = said_before(path, tail.start);
             info.compacted = said_at.filter(|_| compacted);
+            info.ended_at = ended_at;
             info.queue = queue_before(path, tail.start);
             (head, info, TailState { said_at, ..TailState::default() }, tail)
         }
@@ -357,9 +364,11 @@ fn prompt_before(path: &Path, end: u64) -> Option<(i64, Option<String>)> {
 }
 
 /// When the latest reply, message or turn's end before `end` (a line start) was written, reading
-/// backwards, and whether a compaction's boundary came after it.
-fn said_before(path: &Path, end: u64) -> (Option<i64>, bool) {
+/// backwards, the same when it ended a turn (`TranscriptInfo::ended_at`), and whether a
+/// compaction's boundary came after it.
+fn said_before(path: &Path, end: u64) -> (Option<i64>, Option<i64>, bool) {
     let mut at = None;
+    let mut ended = false;
     let mut compacted = false;
     scan_lines_back(path, 0, end, |line| {
         // Only these can be either.
@@ -369,9 +378,10 @@ fn said_before(path: &Path, end: u64) -> (Option<i64>, bool) {
         let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
         compacted |= compaction_step(&v) == Some(true);
         at = str_of(&v, "timestamp").as_deref().and_then(parse_rfc3339_ms).filter(|_| said(&v));
+        ended = ends_turn(&v);
         at.is_some()
     });
-    (at, compacted)
+    (at, at.filter(|_| ended), compacted)
 }
 
 /// Whether a line is something the conversation said: a reply, a message or a turn's end, as
@@ -447,6 +457,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         }
         if said(&v) {
             state.said_at = state.said_at.max(ts);
+            info.ended_at = ts.filter(|_| ends_turn(&v));
         }
         // Moving the conversation to the background isn't something it did.
         if let Some(ts) = ts.filter(|_| kind != Some("continued-in")) {
@@ -758,6 +769,12 @@ fn turn_step(v: &Value) -> Option<Option<i64>> {
         }
         _ => None,
     }
+}
+
+/// Whether a line ends the turn it's in (`turn_step`): every line that does but a prompt you
+/// typed, which starts one.
+fn ends_turn(v: &Value) -> bool {
+    turn_step(v) == Some(None) && !you_typed(v)
 }
 
 /// The worktree a `worktree-state` line says the session made and holds. Claude Code writes one
@@ -2109,6 +2126,22 @@ pub(super) mod tests {
         let info = parse_lines(HEAD, &format!("{ended}\n{compaction}\n"));
         assert_eq!(info.compacted, at("2026-10-21T16:58:30.000Z"));
         assert_eq!((info.last_ts, Some(info.active_at())), (at("2026-10-21T17:53:08.725Z").unwrap(), info.compacted));
+        // Its turn ended then and nothing's been said since, while it compacts and after.
+        assert_eq!(parse_lines(HEAD, &format!("{ended}\n")).ended_at, at("2026-10-21T16:58:30.000Z"));
+        let starting = boundary.lines().next().unwrap();
+        assert_eq!(parse_lines(HEAD, &format!("{ended}\n{starting}\n")).ended_at, at("2026-10-21T16:58:30.000Z"));
+        assert_eq!(info.ended_at, at("2026-10-21T16:58:30.000Z"));
+        // What starts a turn says something first: a prompt, another session's message, a
+        // background task's report. A call is a turn going on.
+        let message = r#"{"type":"user","isMeta":true,"timestamp":"2026-10-21T18:05:00.000Z","origin":{"kind":"peer","name":"atlas-2f"},"message":{"content":"The build is green"}}"#;
+        let report = r#"{"type":"user","timestamp":"2026-10-21T18:06:00.000Z","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>done</task-notification>"}}"#;
+        let call = r#"{"type":"assistant","timestamp":"2026-10-21T18:07:00.000Z","message":{"stop_reason":"tool_use","content":[]}}"#;
+        let typed = r#"{"type":"user","timestamp":"2026-10-21T18:10:00.000Z","origin":{"kind":"human"},"message":{"content":"Thanks"}}"#;
+        for line in [message, report, call, typed] {
+            assert_eq!(parse_lines(HEAD, &format!("{ended}\n{compaction}\n{line}\n")).ended_at, None, "{line}");
+        }
+        let replied = r#"{"type":"assistant","timestamp":"2026-10-21T18:10:09.000Z","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Glad it's in."}]}}"#;
+        assert_eq!(parse_lines(HEAD, &format!("{ended}\n{compaction}\n{typed}\n{replied}\n")).ended_at, at("2026-10-21T18:10:09.000Z"));
         // Read a line at a time, as it's written.
         let mut info = parse_lines(HEAD, "");
         let mut state = TailState::default();
@@ -2133,10 +2166,11 @@ pub(super) mod tests {
         std::fs::write(&path, format!("{HEAD}{ended}\n{boundary}\n{big}\n{notice}\n")).unwrap();
         let parsed = parse_transcript(&path, 1, None).unwrap();
         assert_eq!(parsed.1.compacted, at("2026-10-21T16:58:30.000Z"));
+        assert_eq!(parsed.1.ended_at, at("2026-10-21T16:58:30.000Z"));
         use std::io::Write;
         writeln!(std::fs::OpenOptions::new().append(true).open(&path).unwrap(), "{prompt}").unwrap();
         let parsed = parse_transcript(&path, 2, Some(parsed)).unwrap();
-        assert_eq!(parsed.1.compacted, None);
+        assert_eq!((parsed.1.compacted, parsed.1.ended_at), (None, None));
         // Compacted again later, read on from there, it's the prompt's turn that ended before it.
         writeln!(std::fs::OpenOptions::new().append(true).open(&path).unwrap(), "{compaction}").unwrap();
         assert_eq!(parse_transcript(&path, 3, Some(parsed)).unwrap().1.compacted, at("2026-10-21T18:10:00.000Z"));

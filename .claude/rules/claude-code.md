@@ -648,8 +648,11 @@ on this Mac; read it before changing the Claude adapter (paths are under `src-ta
   your prompt's turn. Read as a turn, it brought a session you'd seen back to Your turn an hour
   after its last one: `claude/transcript.rs` (`TranscriptInfo::compacted`, `said`,
   `said_before`), `board.rs` (`claude_session`). While it runs nothing in the transcript says
-  so, so the session shows as working, and that takes away its tag and suggested replies
-  (`board::moved_on`).
+  so, so the session shows as working; but it has said nothing since its turn ended (all 52
+  idle compactions here came straight after a turn's end, 2026-10-22), where a turn starts by
+  saying something, so it keeps its tag and suggested replies: `claude/transcript.rs`
+  (`TranscriptInfo::ended_at`, `ends_turn`), `board.rs` (`moved_on`). Read as a turn, it took
+  them away from sessions still waiting on what they were for.
 - Provider flags (2026-10-19): assistant lines with `message.stop_reason: "refusal"`,
   including the synthetic `error: "invalid_request"` reply whose text says the model's safeguards
   flagged the session. The refusal is also on the preceding empty assistant message. Read by

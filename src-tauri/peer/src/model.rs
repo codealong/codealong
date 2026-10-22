@@ -181,6 +181,12 @@ pub struct Session {
     /// When you last sent it a prompt, or when it started if its log doesn't say. Unlike its
     /// last activity this holds still while it works, so lists sort by it.
     pub last_prompt_at: i64,
+    /// When its last turn ended, while it has said nothing since: no prompt, message or reply.
+    /// Its harness may go busy by itself meanwhile, which isn't a turn (Claude Code compacting a
+    /// conversation left idle); a turn says something first. For the engine's rules
+    /// (`board::moved_on`). None where its harness doesn't say.
+    #[serde(skip)]
+    pub turn_ended: Option<i64>,
     /// What the session is doing or asking. Backtick spans render as code.
     pub excerpt: Option<String>,
     pub resume_command: Option<String>,
@@ -523,6 +529,7 @@ impl Session {
             status_since: None,
             last_activity: 0,
             last_prompt_at: 0,
+            turn_ended: None,
             excerpt: None,
             resume_command: None,
             app_account: false,

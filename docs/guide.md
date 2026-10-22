@@ -2616,7 +2616,8 @@ tagged it and the note. A tag is for the reply the agent read: one written after
 since, or while the session takes a turn, is turned down, and it goes once anything is sent to the
 session or a turn of its starts; tagging again replaces it. A turn may start with nothing of yours:
 another session's message, Codealong's, a background command's report or a scheduled wakeup.
-Tags are kept in tags.json, and so is what moved a session on when its tag went, which `codealong
+Claude Code compacting a conversation left idle isn't one, though the session shows as working
+for the minute it takes: its tag and suggested replies stay. Tags are kept in tags.json, and so is what moved a session on when its tag went, which `codealong
 changes` gives as `untagged` until it's tagged again (suggested replies the same way, as
 `unsuggested`). A session on another device keeps its tag on its Mac.
 
