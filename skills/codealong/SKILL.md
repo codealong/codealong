@@ -394,7 +394,8 @@ user's sessions with nothing tying them to yours.
   `excerpt`): tell your user, then wait again with `--until-done`, which waits through it to
   the turn's end. In Claude Code, run the wait in the background
   so you're told when it's done. To ask it more, `session send <key>` and wait again with
-  `--since` the time you sent. A helper that runs in Codealong itself (a Codex one, usually) is
+  `--since` the time you sent (epoch ms), or `--since-file` a file you wrote it to as you sent
+  (`date +%s000 > <file>`). A helper that runs in Codealong itself (a Codex one, usually) is
   cut off when the app restarts, and Codealong tells it to carry on as it comes back; the wait
   waits through that, so don't start another.
 - Or start it with `--report` too and end your turn: Codealong sends you a message when its
@@ -406,7 +407,11 @@ user's sessions with nothing tying them to yours.
   user on a screen of its own: tell them.
 - Give it everything it needs in the prompt (paths, the diff, what to look for, what to
   answer with), and tell it to change nothing it wasn't asked to: nobody reads it as it goes.
-  A call it can't make without asking stops it until your user answers.
+  A call it can't make without asking stops it until your user answers. Write a long prompt,
+  or one that names git, to a file outside the checkout and give `--prompt-file <file>`
+  (`session send` takes `--message-file`): a guard on your commands, such as Claude Code's in
+  an isolated worktree, turns down one whose words name git or that reads a value in with
+  `$(…)`.
 - Once you have what you need from it, `codealong session done <key>` ends it. Your user
   marking your session done ends its helpers too, and they can make one a session of their own.
 - Your harness's own subagents (Claude Code's Agent tool) are lighter for work inside your

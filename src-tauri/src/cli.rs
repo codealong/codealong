@@ -664,6 +664,9 @@ struct SessionWaitArgs {
     /// Only a reply written after this (epoch ms): when you sent it the message to wait on. Without it, a reply after its last prompt as the first look finds it.
     #[arg(long, value_name = "MS")]
     since: Option<i64>,
+    /// Read --since from a file, or from stdin with `-`: one you wrote the time to as you sent (`date +%s000 > <file>`), so the command has no `$(…)` for a guard on your commands to refuse.
+    #[arg(long, value_name = "FILE", conflicts_with = "since")]
+    since_file: Option<String>,
     /// How long to wait at most: 30m (the default), 2h.
     #[arg(long, default_value = "30m")]
     timeout: String,
@@ -1118,13 +1121,16 @@ struct WorktreesArgs {
 #[derive(Args, Debug)]
 struct StartArgs {
     /// The todo to start: its title and description become the prompt, and the session is linked to it. Give it more than once to start several todos in one session, on one prompt that has each of them.
-    #[arg(long, conflicts_with = "prompt")]
+    #[arg(long, conflicts_with_all = ["prompt", "prompt_file"])]
     todo: Vec<String>,
-    /// The prompt, when not starting a todo.
+    /// The prompt, when not starting a todo. Or --prompt-file.
     #[arg(long, allow_hyphen_values = true)]
     prompt: Option<String>,
+    /// Read the prompt from a file, or from stdin with `-`: for a long one, or one whose words a guard on your commands would refuse (an isolated Claude Code worktree turns down a command that names git).
+    #[arg(long, value_name = "FILE", conflicts_with = "prompt")]
+    prompt_file: Option<String>,
     /// Start it on a todo whose primary session is running, and make the new session the primary one. Without it, a session running this command that isn't that one is turned down; one started from a terminal works alongside it.
-    #[arg(long, conflicts_with = "prompt")]
+    #[arg(long, conflicts_with_all = ["prompt", "prompt_file"])]
     take: bool,
     /// The account or routing group to run it on. `auto` picks as the quick panel does: from `[routing] auto` when set, else an account of the first account's harness with room under its `usage_cap`, and among those the one whose weekly limit resets soonest.
     #[arg(long, default_value = "auto")]
@@ -3677,6 +3683,13 @@ impl Watch {
     }
 }
 
+/// `session wait`'s --since, as given or as --since-file holds it.
+fn wait_since(a: &SessionWaitArgs) -> Result<Option<i64>> {
+    let Some(t) = read_text(None, a.since_file.clone())? else { return Ok(a.since) };
+    let t = t.trim();
+    t.parse().map(Some).map_err(|_| anyhow!("--since-file should hold a time in epoch ms (`date +%s000`), not {t:?}."))
+}
+
 /// `session wait`: looks at the session every few seconds until its turn ends or it waits on its
 /// user (`Watch::look`), and prints its reply.
 fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
@@ -3689,7 +3702,7 @@ fn session_wait(c: &mut Client, a: &SessionWaitArgs, json: bool) -> Result<()> {
     };
     let timeout = crate::idle::parse_after(&a.timeout).ok_or_else(|| anyhow!("--timeout is like 30m or 2h, not {}.", a.timeout))?;
     let started = now_ms();
-    let mut since = a.since;
+    let mut since = wait_since(a)?;
     let mut seen = false;
     let carries_on = c.cfg().is_ok_and(|cfg| cfg.sessions.continue_after_restart);
     let mut watch = Watch { through_user: a.until_done, carries_on, ..Watch::default() };
@@ -5637,8 +5650,9 @@ fn place_of(p: PlaceArg) -> Place {
 }
 
 fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
+    let given = read_text(a.prompt.clone(), a.prompt_file.clone())?;
     if let Some(device) = &a.device {
-        return start_on_device(c, a, device, json);
+        return start_on_device(c, a, given, device, json);
     }
     // Codealong's chats are a lane like any other, by their folder, which start.rs gives a chat
     // of its own.
@@ -5650,9 +5664,9 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
     }
     // The todos whose primary session runs, which --take takes them from.
     let mut taken: Vec<(String, todos::Primary)> = Vec::new();
-    let (prompt, todo_ids) = match (a.todo.as_slice(), &a.prompt) {
-        ([], Some(p)) => (p.clone(), Vec::new()),
-        ([], None) => bail!("Give --todo or --prompt."),
+    let (prompt, todo_ids) = match (a.todo.as_slice(), given) {
+        ([], Some(p)) => (p, Vec::new()),
+        ([], None) => bail!("Give --todo, --prompt or --prompt-file."),
         (given, _) => {
             let store = c.todos()?;
             let mut ids: Vec<String> = Vec::new();
@@ -5735,8 +5749,8 @@ fn start_cmd(c: &mut Client, a: &StartArgs, json: bool) -> Result<()> {
 /// run there would (`api::START_PICK`), and then starts it as it does a window's start from here
 /// (actions.rs `start_there`). Only through the app, which holds the link, so neither request can
 /// end up started on this Mac.
-fn start_on_device(c: &mut Client, a: &StartArgs, device: &str, json: bool) -> Result<()> {
-    let prompt = a.prompt.clone().ok_or_else(|| anyhow!("Give --prompt."))?;
+fn start_on_device(c: &mut Client, a: &StartArgs, prompt: Option<String>, device: &str, json: bool) -> Result<()> {
+    let prompt = prompt.ok_or_else(|| anyhow!("Give --prompt or --prompt-file."))?;
     if c.app.is_none() {
         bail!("Starting a session on another device needs the Codealong app running here.");
     }
@@ -6858,6 +6872,37 @@ mod tests {
         assert_eq!((w.key.as_str(), w.timeout.as_str(), w.since), ("abc", "2h", Some(5)));
         let Cmd::Session { cmd: SessionCmd::Wait(w) } = Cli::try_parse_from(["codealong", "session", "wait", "abc"]).unwrap().cmd else { panic!() };
         assert_eq!((w.timeout.as_str(), w.since), ("30m", None));
+    }
+
+    /// In an isolated worktree, Claude Code's guard turns down a `codealong` command that names git
+    /// or reads a value in with `$(…)`: from 2026-10-10 to 2026-10-22, 219 helper starts in 137
+    /// sessions, the review prompt naming git, and 8 waits whose --since was `$(cat …)`. A prompt
+    /// and a time read from files leave it nothing to turn down.
+    #[test]
+    fn a_helper_takes_its_prompt_and_its_wait_takes_its_time_from_a_file() {
+        let Cmd::Start(s) = Cli::try_parse_from(["codealong", "start", "--helper", "--account", "codex", "--prompt-file", "-"]).unwrap().cmd else { panic!() };
+        assert_eq!((s.prompt, s.prompt_file.as_deref()), (None, Some("-")));
+        for other in [&["--prompt", "Review it"][..], &["--todo", "t-a"], &["--take"]] {
+            let line: Vec<&str> = ["codealong", "start", "--prompt-file", "review.txt"].into_iter().chain(other.iter().copied()).collect();
+            assert!(Cli::try_parse_from(line).is_err(), "{other:?}");
+        }
+        let dir = std::env::temp_dir().join(format!("codealong-since-file-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("sent");
+        let wait = |args: &[&str]| -> SessionWaitArgs {
+            let line: Vec<&str> = ["codealong", "session", "wait", "abc"].into_iter().chain(args.iter().copied()).collect();
+            let Cmd::Session { cmd: SessionCmd::Wait(w) } = Cli::try_parse_from(line).unwrap().cmd else { panic!() };
+            w
+        };
+        let path = file.to_str().unwrap();
+        std::fs::write(&file, "1793145600000\n").unwrap();
+        assert_eq!(wait_since(&wait(&["--since-file", path])).unwrap(), Some(1793145600000));
+        assert_eq!(wait_since(&wait(&["--since", "5"])).unwrap(), Some(5));
+        assert_eq!(wait_since(&wait(&[])).unwrap(), None);
+        std::fs::write(&file, "1m\n").unwrap();
+        assert!(wait_since(&wait(&["--since-file", path])).unwrap_err().to_string().contains("epoch ms"));
+        assert!(Cli::try_parse_from(["codealong", "session", "wait", "abc", "--since", "5", "--since-file", path]).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -2057,6 +2057,11 @@ Options:
           Only a reply written after this (epoch ms): when you sent it the message to
           wait on. Without it, a reply after its last prompt as the first look finds it
 
+      --since-file <FILE>
+          Read --since from a file, or from stdin with `-`: one you wrote the time to as
+          you sent (`date +%s000 > <file>`), so the command has no `$(…)` for a guard on
+          your commands to refuse
+
       --table
           Tables, even when piped
 
@@ -2065,13 +2070,13 @@ Options:
           
           [default: 30m]
 
+      --verbose
+          Say on stderr whether the app or the files answered
+
       --until-done
           Wait on while it waits on your user to allow a call or answer a question,
           until its turn ends: for after you've told them. It still comes back on an
           error
-
-      --verbose
-          Say on stderr whether the app or the files answered
 
   -h, --help
           Print help
@@ -2934,18 +2939,23 @@ Options:
           session, on one prompt that has each of them
 
       --prompt <PROMPT>
-          The prompt, when not starting a todo
+          The prompt, when not starting a todo. Or --prompt-file
 
       --table
           Tables, even when piped
+
+      --prompt-file <FILE>
+          Read the prompt from a file, or from stdin with `-`: for a long one, or one
+          whose words a guard on your commands would refuse (an isolated Claude Code
+          worktree turns down a command that names git)
+
+      --verbose
+          Say on stderr whether the app or the files answered
 
       --take
           Start it on a todo whose primary session is running, and make the new session
           the primary one. Without it, a session running this command that isn't that
           one is turned down; one started from a terminal works alongside it
-
-      --verbose
-          Say on stderr whether the app or the files answered
 
       --account <ACCOUNT>
           The account or routing group to run it on. `auto` picks as the quick panel

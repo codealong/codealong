@@ -221,19 +221,24 @@ none. These notes are your user's say-so for the helper it starts: don't ask.
    skill's *Helpers*) on a signed-in account (`codealong accounts`) whose models come from
    another provider than yours: Codex when you're a Claude model, whatever your harness runs it
    (Antigravity, Cursor and OpenCode can), and Claude Code when you're any other. With none,
-   another model than yours (`--model`).
+   another model than yours (`--model`). Write the prompt below, filled in, to a file outside
+   the checkout (your scratch folder) and give the file: a guard on an isolated worktree turns
+   down a command whose words name git, as the prompt's do.
 
    ```bash
-   codealong start --helper --account <account> --prompt "Review the commits on this branch \
-   that origin/main doesn't have (git log origin/main..HEAD, git diff origin/main...HEAD). \
-   They <what they're for, in a sentence or two>. CLAUDE.md has the repo's rules. Look for \
-   bugs, regressions, cases nothing handles, missing tests and breaks of CLAUDE.md, and for \
-   where the change doesn't fit the code around it in a way that costs: something in another \
-   place than the code keeps it, a way of doing things other than the one beside it, a copy of \
-   what's already written, more machinery than it needs; not matters of taste. Read whatever \
-   code you need. Change nothing: no edits, and no git command that writes. Answer \
-   with each finding as file:line, how sure you are and why, the most serious first, or say \
-   in a sentence that there's nothing to raise."
+   codealong start --helper --account <account> --prompt-file <file>
+   ```
+
+   ```text
+   Review the commits on this branch that origin/main doesn't have (git log origin/main..HEAD,
+   git diff origin/main...HEAD). They <what they're for, in a sentence or two>. CLAUDE.md has
+   the repo's rules. Look for bugs, regressions, cases nothing handles, missing tests and breaks
+   of CLAUDE.md, and for where the change doesn't fit the code around it in a way that costs:
+   something in another place than the code keeps it, a way of doing things other than the one
+   beside it, a copy of what's already written, more machinery than it needs; not matters of
+   taste. Read whatever code you need. Change nothing: no edits, and no git command that
+   writes. Answer with each finding as file:line, how sure you are and why, the most serious
+   first, or say in a sentence that there's nothing to raise.
    ```
 
 2. Wait for its reply. In Claude Code, run `codealong session wait <key> --timeout 1h` in the
@@ -244,8 +249,8 @@ none. These notes are your user's say-so for the helper it starts: don't ask.
    Fix what holds up without asking, with a test where one would have caught it, and rerun the
    checks the fix touches; leave what doesn't. A finding that would change what your user asked
    for goes to them rather than into the code. When the fixes are more than small, ask it to
-   look again (`session send`, then `session wait --since`). Then `codealong session done
-   <key>`.
+   look again: `date +%s000 > <time file>`, `session send <key> --message-file <file>`, then
+   `session wait <key> --since-file <time file>`. Then `codealong session done <key>`.
 4. Under the status line, your last message says who reviewed it (account and model), what it
    raised, and what you did with each finding: fixed, or left and why. When no review could be
    had (the helper failed on every account you tried), push without one and say why there.
