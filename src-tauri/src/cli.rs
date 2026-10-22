@@ -1473,9 +1473,30 @@ pub fn main(args: &[String]) -> i32 {
 }
 
 /// How long a lookup waits for the app's first scan after a start (`Client::loaded_board`), which
-/// took 3 to 7 s at a load of 100 to 300 on 2026-10-22's relaunches, and how often it asks.
+/// took 3 to 7 s at a load of 100 to 300 on 2026-10-22's relaunches, how often it asks, and how
+/// long it waits for an answer.
 const LOADING_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 const LOADING_EVERY: std::time::Duration = std::time::Duration::from_millis(500);
+const LOADING_ASK: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Waits, at most `within`, for an app still reading after a start to finish, asking with `ask`,
+/// which waits no longer than it's given: the app's status once it has, or None when it stops
+/// answering or the time is up first.
+fn loaded_within(within: std::time::Duration, mut ask: impl FnMut(std::time::Duration) -> Option<server::Status>) -> Option<server::Status> {
+    let until = std::time::Instant::now() + within;
+    loop {
+        std::thread::sleep(LOADING_EVERY.min(until.saturating_duration_since(std::time::Instant::now())));
+        // Zero would have the ask wait for as long as it takes (`server::ask_within`).
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        match ask(left.min(LOADING_ASK))? {
+            status if status.loading => {}
+            status => return Some(status),
+        }
+    }
+}
 
 /// Where answers come from: the app over its socket, or the files.
 struct Client {
@@ -1550,22 +1571,17 @@ impl Client {
         self.board()
     }
 
-    /// Waits, at most `within`, for the app's first scan after a start to end, asking its status
-    /// rather than its board, which is a megabyte or more; the board is read again after. An app
-    /// that stops answering meanwhile is restarting again, and the files answer until it's back
-    /// (`board`).
+    /// Waits, at most `within`, for the app's first scan after a start to end (`loaded_within`),
+    /// asking its status rather than its board, which is a megabyte or more; the board is read
+    /// again after. An app that stops answering meanwhile is restarting again, and the files
+    /// answer until it's back (`board`).
     fn wait_loaded(&mut self, within: std::time::Duration) {
-        let until = std::time::Instant::now() + within;
-        while std::time::Instant::now() < until {
-            std::thread::sleep(LOADING_EVERY);
-            match server::ask_within(&Request::Status, std::time::Duration::from_secs(5)).map(|r| r.map(serde_json::from_value::<server::Status>)) {
-                Some(Ok(Ok(status))) if status.loading => {}
-                Some(Ok(Ok(status))) => {
-                    self.app = Some(status);
-                    break;
-                }
-                _ => break,
-            }
+        let status = |wait| match server::ask_within(&Request::Status, wait) {
+            Some(Ok(v)) => serde_json::from_value::<server::Status>(v).ok(),
+            _ => None,
+        };
+        if let Some(status) = loaded_within(within, status) {
+            self.app = Some(status);
         }
         self.board = None;
     }
@@ -1693,12 +1709,17 @@ impl Client {
         let params = serde_json::to_value(params)?;
         if self.app.is_some() {
             let run = Request::Run { name: name.to_string(), key: key.to_string(), params: params.clone(), from: from.clone() };
+            let asked = std::time::Instant::now();
             let mut answer = server::ask_within(&run, wait);
             // An app that restarted after the board was read answers before its first scan has
-            // ended, having done nothing: once it has, it's asked again.
+            // ended, having done nothing: once it has, it's asked again, in what's left of `wait`.
             if matches!(&answer, Some(Err(e)) if e == actions::STILL_READING) {
-                self.wait_loaded(LOADING_WAIT.min(wait));
-                answer = server::ask_within(&run, wait);
+                self.wait_loaded(wait.saturating_sub(asked.elapsed()).min(LOADING_WAIT));
+                // Zero would wait for as long as it takes (`server::ask_within`).
+                let left = wait.saturating_sub(asked.elapsed());
+                if !left.is_zero() {
+                    answer = server::ask_within(&run, left);
+                }
             }
             match answer {
                 Some(Ok(v)) => return Ok(v),
@@ -3329,7 +3350,7 @@ fn session_show(c: &mut Client, key: &str, json: bool) -> Result<()> {
     let cfg = c.cfg()?.clone();
     let key = resolve_session(c, key)?;
     let board = c.board()?;
-    let (s, lane) = all_sessions(board).into_iter().find(|(s, _)| s.key == key).ok_or_else(|| anyhow!("There's no session {key}."))?;
+    let (s, lane) = all_sessions(board).into_iter().find(|(s, _)| s.key == key).ok_or_else(|| no_session(board, &key))?;
     let row = session_row(s, lane, &board.todos);
     let account = cfg.accounts.iter().find(|a| a.name == s.account);
     let out = SessionDetail {
@@ -3408,7 +3429,7 @@ fn session_open(c: &mut Client, key: &str, json: bool) -> Result<()> {
     }
     let key = resolve_session(c, key)?;
     let board = c.board()?;
-    let (s, lane) = all_sessions(board).into_iter().find(|(s, _)| s.key == key).ok_or_else(|| anyhow!("There's no session {key}."))?;
+    let (s, lane) = all_sessions(board).into_iter().find(|(s, _)| s.key == key).ok_or_else(|| no_session(board, &key))?;
     let out = OpenOut { shown: s.key.clone(), title: session_row(s, lane, &board.todos).title, worktree: lane.path.clone() };
     let reveal = json!({ "kind": "session", "laneId": lane.id, "key": s.key });
     c.show(reveal)?;
@@ -7507,6 +7528,39 @@ mod tests {
         // Found is found, loading or not.
         let mut c = client(Board { loading: true, ..listed });
         assert_eq!(resolve_session(&mut c, "claude:claude:abc123").unwrap(), "claude:claude:abc123");
+        // `me` from the environment names a session the board doesn't list yet.
+        let mut c = Client { cfg: Some(Config::default()), me: Some((Some("claude:claude:kestrel".into()), Some("environment"))), ..client(Board { loading: true, ..Board::default() }) };
+        let said = session_show(&mut c, "me", true).unwrap_err().to_string();
+        assert!(said.starts_with("Codealong is still reading its sessions") && said.contains("claude:claude:kestrel"), "{said}");
+    }
+
+    /// The wait for the app to finish reading after a start keeps to its time, however slowly the
+    /// app answers, and ends as soon as it has read or stops answering.
+    #[test]
+    fn a_wait_for_the_app_to_finish_reading_keeps_to_its_time() {
+        use std::time::{Duration, Instant};
+        let status = |loading| server::Status { version: "0.4.0".into(), pid: 1, generated_at: 0, loading };
+        let mut looks = 0;
+        let read = loaded_within(Duration::from_secs(10), |_| {
+            looks += 1;
+            Some(status(looks < 2))
+        });
+        assert!(read.is_some_and(|s| !s.loading) && looks == 2);
+        let mut looks = 0;
+        let gone = loaded_within(Duration::from_secs(10), |_| {
+            looks += 1;
+            None
+        });
+        assert!(gone.is_none() && looks == 1);
+        // Slow to answer and never done: each ask gets no more than what's left.
+        let (within, began) = (Duration::from_millis(1200), Instant::now());
+        let read = loaded_within(within, |wait| {
+            assert!(began.elapsed() + wait <= within + Duration::from_millis(50), "{wait:?}");
+            std::thread::sleep(wait);
+            Some(status(true))
+        });
+        assert!(read.is_none() && began.elapsed() < within + Duration::from_millis(400), "{:?}", began.elapsed());
+        assert!(loaded_within(Duration::ZERO, |_| panic!("asked with no time")).is_none());
     }
 
     #[test]
