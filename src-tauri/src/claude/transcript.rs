@@ -36,9 +36,18 @@ pub struct TailState {
     pub open_tools: Vec<(String, String, i64)>,
     /// When the latest reply, message or turn's end was written (`said`).
     pub said_at: Option<i64>,
+    /// What replaying Claude Code's queue carries from line to line (`hold_line`).
+    pub holding: Holding,
+}
+
+/// What replaying what Claude Code holds carries from line to line (`hold_line`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Holding {
     /// The latest unmarked command line, as typed (`/goal …`), until the line after it says
     /// whether it took a turn (`ran_a_turn`).
-    pub command: Option<String>,
+    command: Option<String>,
+    /// What the `dequeue`s since the last turn's prompt were put down to (`turn_took`).
+    dequeued: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -457,9 +466,7 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
         if let Some(step) = turn_step(&v) {
             info.unfinished = step;
         }
-        if kind == Some("queue-operation") {
-            queue_step(&mut info.queue, &v);
-        }
+        let typed = hold_line(&mut info.queue, &mut state.holding, &v);
         // A subagent's prompt, in transcripts from before their own logs, went in its mode.
         if matches!(kind, Some("permission-mode") | Some("user")) && v.get("isSidechain").and_then(Value::as_bool) != Some(true) {
             if let Some(mode) = str_of(&v, "permissionMode").filter(|m| !m.is_empty()) {
@@ -570,11 +577,6 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                     info.limit = None;
                     info.connection_lost = None;
                     info.last_tool = None;
-                    // A command that took a turn is said on the line before (`ran_a_turn`).
-                    let typed = typed_text(&v).or_else(|| state.command.take().filter(|_| ran_a_turn(&v)));
-                    if let Some(ts) = ts {
-                        turn_took(&mut info.queue, ts, typed.as_deref());
-                    }
                     // Its `last-prompt` line often comes only after the reply has begun (in 104 of
                     // 191 prompts here, 2026-10-15), so the prompt itself says what it's on now.
                     if let Some(p) = typed {
@@ -589,7 +591,6 @@ pub fn apply_tail(info: &mut TranscriptInfo, state: &mut TailState, tail: &str) 
                         info.cwd = cwd;
                     }
                 }
-                state.command = unmarked_command(&v);
             }
             // A message you sent while it worked is a new ask too. It's written once the turn
             // takes it in, timed when it came, so lines before it can be timed after it.
@@ -878,11 +879,12 @@ pub(super) fn ran_a_turn(v: &Value) -> bool {
 /// (2026-10-21), that left a message of yours looking held at 12 of 7,516 turns' ends, ten of them
 /// automated prompts in plain words (a loop's) and two commands, where taking the first alone left
 /// 157. Each is known by the time it came, which is how its send finds it (`queued_as`).
-pub(super) fn queue_step(queue: &mut Vec<QueuedMessage>, v: &Value) {
+/// Says what a `dequeue` was put down to.
+pub(super) fn queue_step(queue: &mut Vec<QueuedMessage>, v: &Value) -> Option<QueuedMessage> {
     let content = v.get("content").and_then(Value::as_str);
     match v.get("operation").and_then(Value::as_str) {
         Some("enqueue") => {
-            let Some(id) = str_of(v, "timestamp") else { return };
+            let id = str_of(v, "timestamp")?;
             let at = parse_rfc3339_ms(&id).unwrap_or(0);
             queue.push(QueuedMessage { id, at, text: content.unwrap_or_default().to_string() });
         }
@@ -892,10 +894,34 @@ pub(super) fn queue_step(queue: &mut Vec<QueuedMessage>, v: &Value) {
             }
         }
         Some("popAll") => queue.clear(),
-        Some("dequeue") if !queue.is_empty() => {
-            queue.remove(0);
-        }
+        Some("dequeue") if !queue.is_empty() => return Some(queue.remove(0)),
         _ => {}
+    }
+    None
+}
+
+/// Replays a transcript line onto what Claude Code holds: its queue's (`queue_step`), a turn's
+/// prompt of yours (`turn_took`) or the command line before one (`ran_a_turn`). Says what the
+/// prompt was typed as, where it's one: its own words, or the command the line before says.
+fn hold_line(queue: &mut Vec<QueuedMessage>, holding: &mut Holding, v: &Value) -> Option<String> {
+    match v.get("type").and_then(Value::as_str) {
+        Some("queue-operation") => {
+            holding.dequeued.extend(queue_step(queue, v).map(|m| m.text));
+            None
+        }
+        Some("user") => {
+            let mut typed = None;
+            if you_typed(v) {
+                typed = typed_text(v).or_else(|| holding.command.take().filter(|_| ran_a_turn(v)));
+                if let Some(at) = str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
+                    turn_took(queue, at, typed.as_deref(), &holding.dequeued);
+                }
+                holding.dequeued.clear();
+            }
+            holding.command = unmarked_command(v);
+            typed
+        }
+        _ => None,
     }
 }
 
@@ -955,27 +981,20 @@ const QUEUE_SCAN: u64 = 1024 * 1024;
 /// What Claude Code held as the tail read from `end` starts (`queue_step`): a message can be held
 /// while more than the tail holds is written (a long step's output, a subagent's), and a held
 /// command for as long as the turn another command took (`turn_took`). A first read replays the
-/// queue's lines and the turns' prompts from `QUEUE_SCAN` before its tail, once; later reads carry
-/// what's held forward. A prompt's line is known for a turn's by its `turnPosition` (2.1.30x).
+/// queue's lines, the turns' prompts and the command lines before them from `QUEUE_SCAN` before
+/// its tail, once (`hold_line`); later reads carry what's held forward. A prompt's line is known
+/// for a turn's by its `turnPosition` (2.1.30x).
 fn queue_before(path: &Path, end: u64) -> Vec<QueuedMessage> {
     let mut lines: Vec<Value> = Vec::new();
     scan_lines_back(path, end.saturating_sub(QUEUE_SCAN), end, |line| {
-        if line.contains("\"queue-operation\"") || line.contains("\"turnPosition\"") {
+        if line.contains("\"queue-operation\"") || line.contains("\"turnPosition\"") || line.contains("<command-name>") {
             lines.extend(serde_json::from_str::<Value>(line).ok());
         }
         false
     });
-    let mut queue = Vec::new();
+    let (mut queue, mut holding) = (Vec::new(), Holding::default());
     for v in lines.iter().rev() {
-        match v.get("type").and_then(Value::as_str) {
-            Some("queue-operation") => queue_step(&mut queue, v),
-            Some("user") if you_typed(v) => {
-                if let Some(at) = str_of(v, "timestamp").as_deref().and_then(parse_rfc3339_ms) {
-                    turn_took(&mut queue, at, typed_text(v).as_deref());
-                }
-            }
-            _ => {}
-        }
+        hold_line(&mut queue, &mut holding, v);
     }
     queue
 }
@@ -984,11 +1003,15 @@ fn queue_before(path: &Path, end: u64) -> Vec<QueuedMessage> {
 /// Code held (`queue_step`): every message of yours in words held before it, which it puts in
 /// together, whichever the `dequeue`s are put down to (a notification it never took off can sit
 /// first), and the command it runs, where it's one: held commands (`/`, and `!` for the shell) go
-/// one at a time, each a turn of its own, so the others stay held (2.1.307's code).
-fn turn_took(queue: &mut Vec<QueuedMessage>, at: i64, typed: Option<&str>) {
+/// one at a time, each a turn of its own, so the others stay held (2.1.307's code). The command is
+/// taken out by its words unless the `dequeue`s before the prompt were put down to it already
+/// (`dequeued`): the same command held twice is still held once.
+fn turn_took(queue: &mut Vec<QueuedMessage>, at: i64, typed: Option<&str>, dequeued: &[String]) {
     let typed = typed.map(str::trim);
-    if let Some(i) = queue.iter().position(|m| m.at <= at && Some(m.text.trim()) == typed) {
-        queue.remove(i);
+    if !dequeued.iter().any(|d| Some(d.trim()) == typed) {
+        if let Some(i) = queue.iter().position(|m| m.at <= at && Some(m.text.trim()) == typed) {
+            queue.remove(i);
+        }
     }
     queue.retain(|m| m.at > at || prompt_words(&m.text).is_none() || m.text.trim_start().starts_with(['/', '!']));
 }
@@ -1773,6 +1796,11 @@ pub(super) mod tests {
         lines.push(queue_line("2026-10-21T10:00:13.000Z", "dequeue", None));
         lines.push(r#"{"type":"user","timestamp":"2026-10-21T10:00:13.010Z","origin":{"kind":"human"},"message":{"content":"<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>the parser</command-args>"}}"#.to_string());
         assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:12.000Z", "/review the docs")]);
+        // The same command held twice is still held once after the first's turn.
+        lines.push(queue_line("2026-10-21T10:00:14.000Z", "enqueue", Some("/review the docs")));
+        lines.push(queue_line("2026-10-21T10:00:15.000Z", "dequeue", None));
+        lines.push(r#"{"type":"user","timestamp":"2026-10-21T10:00:15.010Z","origin":{"kind":"human"},"message":{"content":"<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>the docs</command-args>"}}"#.to_string());
+        assert_eq!(info(&lines).held(), vec![held("2026-10-21T10:00:14.000Z", "/review the docs")]);
     }
 
     #[test]
@@ -1821,6 +1849,17 @@ pub(super) mod tests {
         std::fs::write(&path, format!("{HEAD}{}\n{padding}\n", lines.join("\n"))).unwrap();
         let (_, info, _) = parse_transcript(&path, 1, None).unwrap();
         assert_eq!(info.held().iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["Also check the docs"]);
+        // A `/goal` that took its turn, its `dequeue` put down to a notification never taken off:
+        // the line before its turn's says what it was, as a later read's does.
+        let notice = "<task-notification>\n<task-id>b1</task-id>\n</task-notification>";
+        let lines = [
+            queue_line("2026-10-21T09:59:00.000Z", "enqueue", Some(notice)),
+            queue_line("2026-10-21T09:59:59.000Z", "enqueue", Some("/goal the parser's tests pass")),
+            queue_line("2026-10-21T09:59:59.500Z", "dequeue", None),
+        ];
+        std::fs::write(&path, format!("{HEAD}{}\n{}\n{padding}\n", lines.join("\n"), GOAL.join("\n"))).unwrap();
+        let (_, info, _) = parse_transcript(&path, 2, None).unwrap();
+        assert_eq!(info.held(), vec![]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
