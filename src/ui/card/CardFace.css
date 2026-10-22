@@ -96,6 +96,9 @@
 }
 .ca-cv-due {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   white-space: nowrap;
 }
 .ca-cv-due.is-today {
@@ -138,8 +141,10 @@
 .ca-cv-bad {
   color: var(--alert);
 }
-.ca-cv-l2 .ca-labeldot {
+.ca-cv-labels {
   flex: none;
+  display: inline-flex;
+  gap: 3px;
 }
 /* A session's chips are as tall as the line, so the card keeps its height. */
 .ca-cv-l2 .ca-pr,

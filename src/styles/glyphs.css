@@ -53,9 +53,14 @@
 .ca-todoglyph.is-done .ca-tg-box {
   fill: var(--ink-3);
 }
-/* In review: the box filled, its work done but not yet checked off. */
-.ca-todoglyph.is-review .ca-tg-box {
-  fill: var(--ink-2);
+/* In review: ticked in the box's own ink but not filled, its work done and not yet checked off.
+   A filled box would read as a label's swatch beside it. */
+.ca-tg-tick {
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 /* Waiting: the box drawn dashed, as not yet free to start. */
 .ca-todoglyph.is-waiting .ca-tg-box {

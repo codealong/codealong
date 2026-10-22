@@ -32,6 +32,10 @@
       var heads = all('.ca-kb-col .ca-kb-head span:nth-child(2)').map(function (s) { return s.textContent; });
       check('it has To do, In progress and In review, Done folded to a rail', heads.join('|') === 'To do|In progress|In review' && !!q('.ca-kb-rail[data-kb-column="done"]'), heads.join('|'));
       check('To do holds only todos, in the box’s column', cards('todo').length > 0 && cards('todo').every(function (r) { return face(r).indexOf('todo:') === 0; }) && !!q('.ca-kb-col.is-todo .ca-todonew'), cards('todo').map(face).join(' '));
+      // A label's swatch is square, as the todo's box is, so a card's line leads with when it's
+      // due, by its icon, and leaves the swatches to its end.
+      var dated = cards('todo').map(function (r) { return q('.ca-cv-l2', r); }).filter(function (l) { return l && q('.ca-cv-due', l) && q('.ca-cv-labels', l); })[0];
+      check('a todo card leads with its due date, by its icon, and ends with its labels', !!dated && dated.firstElementChild.classList.contains('ca-cv-due') && !!q('.ca-cv-due .ca-icon', dated) && dated.lastElementChild.classList.contains('ca-cv-labels'), dated ? dated.innerHTML : 'no card with a due date and labels');
       q('.ca-kb-rail').click();
       return until(function () { return column('done'); }, 5000, 'Done opened');
     })

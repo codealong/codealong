@@ -9,7 +9,7 @@ import { ago, duration } from '../../format';
 import type { RefItem } from '../../canvas/model';
 import type { Pr } from '../../types';
 import { BranchLabel, cx, Drift, Icon, LaneGlyph, PR_ICON, PR_WORD, PrChip, Rich, SessionEmblem, SessionGlyph } from '../primitives';
-import { LabelDot, TodoGlyph } from '../TodoBits';
+import { DUE_ICON, LabelDot, TodoGlyph } from '../TodoBits';
 import { DeviceBadge } from '../DeviceBadge';
 import { ProviderFlagChip } from '../InsightBits';
 import { sessionLine, type CardData } from './data';
@@ -118,11 +118,9 @@ export function CardFace({ item, data, now, style, className, children, onPrShow
             <span className="ca-cv-title">{t.title || 'Untitled'}</span>
           </div>
           <div className="ca-cv-l2">
-            {data.labels.slice(0, 4).map((l) => (
-              <LabelDot key={l.id} label={l} />
-            ))}
             {due && (
               <span className={`ca-cv-due is-${due.tone}`} title={`Due ${due.long}`}>
+                <Icon name={DUE_ICON} size={11} />
                 {due.text}
               </span>
             )}
@@ -133,6 +131,14 @@ export function CardFace({ item, data, now, style, className, children, onPrShow
                   ? data.lane.callsign
                   : 'Todo'}
             </span>
+            {/* At the line's end, away from the box: a swatch is square too. */}
+            {data.labels.length > 0 && (
+              <span className="ca-cv-labels" title={data.labels.map((l) => l.name).join(', ')}>
+                {data.labels.slice(0, 4).map((l) => (
+                  <LabelDot key={l.id} label={l} />
+                ))}
+              </span>
+            )}
           </div>
           {children}
         </div>
