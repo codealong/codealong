@@ -1312,6 +1312,11 @@ mod tests {
         let p = play(Setup { stays: &[IN_GHOSTTY], ..setup() }, marked, move || close_session_terminals(&[(IN_GHOSTTY, dir), (ALSO_IN_GHOSTTY, dir)]));
         assert_eq!(said(&p.got), ["Its process (pid 100010) didn't exit, so the tab stays.", "closed"]);
         assert_eq!(p.log[6..], ["GHOSTTY_IN_FRONT []", "hang up [100010, 100020]", "hang up [100013]", r#"GHOSTTY_CLOSE ["T2"]"#]);
+        // A shell that stays once its session's gone keeps its tab: Ghostty's close would only
+        // hide it.
+        let p = play(Setup { stays: &[100_003], ..setup() }, marked, move || close_session_terminals(&[(IN_GHOSTTY, dir), (ALSO_IN_GHOSTTY, dir)]));
+        assert_eq!(said(&p.got), ["Its shell (pid 100003) didn't exit, so the tab stays.", "closed"]);
+        assert_eq!(p.log[6..], ["GHOSTTY_IN_FRONT []", "hang up [100010, 100020]", "hang up [100003, 100013]", r#"GHOSTTY_CLOSE ["T2"]"#]);
         let refuses = |s: &Sent| match s.what.as_str() {
             "GHOSTTY_LIST" => Ok(match marks().as_slice() {
                 [one] => format!("T1\t{one}\ta\n"),

@@ -985,17 +985,24 @@ fn hang_up_tabs(tabs: &[&Closing]) -> Vec<Option<u32>> {
 }
 
 /// Hangs up each process, as its tab closing would, and waits up to ten seconds for them to
-/// exit. Whether each one did, in order. Each is continued too, as the kernel does a stopped job
-/// it hangs up: a job stopped with ^Z takes the hangup only once it runs.
+/// exit. Whether each one did, in order. A process that leads a process group (a job: job control
+/// gives each its own) is hung up with its group, as a closing tab hangs up the group in its
+/// foreground, so a wrapper that exits without passing the hangup on leaves nothing behind; one
+/// of the group that ignores it outlives the tab, as it would a tab closed by hand. Each is
+/// continued too, as the kernel does a stopped job it hangs up: a job stopped with ^Z takes the
+/// hangup only once it runs.
 fn hang_up(pids: &[u32]) -> Vec<bool> {
     #[cfg(test)]
     if let Some(exited) = stage::hang_up(pids) {
         return exited;
     }
+    // SAFETY: getpgid and kill take plain numbers; a process that's gone answers an error.
     let alive = |pid: u32| unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
-    for pid in pids {
-        unsafe { libc::kill(*pid as libc::pid_t, libc::SIGHUP) };
-        unsafe { libc::kill(*pid as libc::pid_t, libc::SIGCONT) };
+    for &pid in pids {
+        let pid = pid as libc::pid_t;
+        let target = if unsafe { libc::getpgid(pid) } == pid { -pid } else { pid };
+        unsafe { libc::kill(target, libc::SIGHUP) };
+        unsafe { libc::kill(target, libc::SIGCONT) };
     }
     let started = std::time::Instant::now();
     while pids.iter().any(|p| alive(*p)) && started.elapsed() < Duration::from_secs(10) {

@@ -48,8 +48,8 @@ pub struct Tab {
     /// What closing it hangs up, each with its command line: the jobs its shell runs, the one in
     /// front first, or what runs in place of a shell.
     pub runs: Vec<(u32, String)>,
-    /// Every process on its device, with its parent.
-    pub procs: Vec<(u32, u32)>,
+    /// Every process on its device, with its parent and command line.
+    pub procs: Vec<(u32, u32, String)>,
     pub cwd: String,
     pub opened: i64,
     /// When something was last typed or printed in it.
@@ -65,7 +65,7 @@ impl Tab {
                 return true;
             }
             match self.procs.iter().find(|p| p.0 == at) {
-                Some(&(_, parent)) => at = parent,
+                Some(p) => at = p.1,
                 None => return false,
             }
         }
@@ -151,9 +151,10 @@ pub fn plan(board: &Board, tabs: &[Tab], now: i64, after_ms: i64) -> Plan {
         shown.sort_by_key(|(s, _)| std::cmp::Reverse(s.last_activity));
         let place = crate::util::tilde(Path::new(&tab.cwd));
         let unused = format!("unused {}", span(unused));
-        // What closing ends besides its sessions: what runs that's neither a session's process
-        // nor one a session runs under (a wrapper that started it).
-        let other = tab.runs.iter().find(|(run, _)| !shown.iter().any(|(_, pid)| tab.under(*pid, *run)));
+        // What closing ends besides its sessions: anything it runs, or that runs under that,
+        // that's neither a session's, nor under one, nor one a session runs under (a wrapper or a
+        // shell that started it), so an editor beside a session under a nested shell counts.
+        let other = tab.procs.iter().find(|(pid, _, _)| tab.runs.iter().any(|(run, _)| tab.under(*pid, *run)) && !shown.iter().any(|(_, s)| tab.under(*pid, *s) || tab.under(*s, *pid)));
         let (shows, title, ticked, why) = match (shown.first(), tab.runs.first()) {
             (Some((newest, _)), _) => {
                 let verdicts: Vec<_> = shown.iter().map(|(s, _)| crate::idle::verdict(s, now, after_ms)).collect();
@@ -165,7 +166,7 @@ pub fn plan(board: &Board, tabs: &[Tab], now: i64, after_ms: i64) -> Plan {
                         let why = if shown.len() > 1 { format!("“{}” {held}", shown[i].0.title) } else { held };
                         (Shows::Session, title, false, format!("{place} · {unused} · {why}"))
                     }
-                    (None, Some((_, command))) => (Shows::Session, title, false, format!("{place} · {unused} · also runs `{}`", short_command(command))),
+                    (None, Some((_, _, command))) => (Shows::Session, title, false, format!("{place} · {unused} · also runs `{}`", short_command(command))),
                     (None, None) => (Shows::Session, title, true, format!("{place} · {}", verdicts[0].clone().unwrap_or_default())),
                 }
             }
@@ -285,7 +286,7 @@ fn tabs_in(lines: &[PsLine], terminal: impl Fn(u32) -> Option<&'static str>, is_
             }
             false => vec![(shell.pid, shell.command.clone())],
         };
-        out.push(Tab { tty: tty.to_string(), terminal: name, shell: shell.pid, runs, procs: procs.iter().map(|p| (p.pid, p.ppid)).collect(), cwd: String::new(), opened: 0, used: 0 });
+        out.push(Tab { tty: tty.to_string(), terminal: name, shell: shell.pid, runs, procs: procs.iter().map(|p| (p.pid, p.ppid, p.command.clone())).collect(), cwd: String::new(), opened: 0, used: 0 });
     }
     out
 }
@@ -331,14 +332,16 @@ mod tests {
     }
 
     /// A Ghostty tab: `login` (its number one less than the shell's) above the shell, and the
-    /// shell's processes, each with its parent; `runs` are what closing it hangs up.
-    fn tab(tty: &str, shell: u32, procs: &[(u32, u32)], runs: &[(u32, &str)], unused: i64) -> Tab {
+    /// shell's processes, each with its parent and command line; `runs` are what closing it
+    /// hangs up, by number.
+    fn tab(tty: &str, shell: u32, procs: &[(u32, u32, &str)], runs: &[u32], unused: i64) -> Tab {
+        let procs: Vec<(u32, u32, String)> = [(shell - 1, 1, "login"), (shell, shell - 1, "-zsh")].iter().chain(procs).map(|&(pid, parent, command)| (pid, parent, command.to_string())).collect();
         Tab {
             tty: tty.into(),
             terminal: "Ghostty",
             shell,
-            runs: runs.iter().map(|&(pid, command)| (pid, command.to_string())).collect(),
-            procs: [(shell - 1, 1), (shell, shell - 1)].into_iter().chain(procs.iter().copied()).collect(),
+            runs: runs.iter().map(|pid| (*pid, procs.iter().find(|p| p.0 == *pid).unwrap().2.clone())).collect(),
+            procs,
             cwd: "/work/northwind".into(),
             opened: NOW - unused - DAY_MS,
             used: NOW - unused,
@@ -387,7 +390,7 @@ mod tests {
         let tabs = tabs_in(&lines, terminal, is_shell, foreground);
         let got: Vec<(&str, &str, u32, Vec<u32>)> = tabs.iter().map(|t| (t.tty.as_str(), t.terminal, t.shell, t.runs.iter().map(|r| r.0).collect())).collect();
         assert_eq!(got, [("ttys001", "Ghostty", 12, vec![]), ("ttys002", "Ghostty", 22, vec![25, 24]), ("ttys003", "iTerm2", 31, vec![]), ("ttys005", "Ghostty", 52, vec![52])]);
-        assert_eq!(tabs[1].procs, [(21, 10), (22, 21), (24, 22), (25, 22), (26, 25)]);
+        assert_eq!(tabs[1].procs.iter().map(|p| (p.0, p.1)).collect::<Vec<_>>(), [(21, 10), (22, 21), (24, 22), (25, 22), (26, 25)]);
     }
 
     #[test]
@@ -411,23 +414,26 @@ mod tests {
             session("pair-new", 53, Status::Idle, 3 * day),
             session("wrapped", 73, Status::Idle, 3 * day),
             session("beside", 83, Status::Idle, 3 * day),
+            session("nested", 104, Status::Idle, 3 * day),
         ]);
         let tabs = [
             tab("ttys001", 12, &[], &[], 4 * day),
-            tab("ttys002", 22, &[(23, 22)], &[(23, "/usr/local/bin/node /usr/local/bin/npm run dev")], 3 * day),
+            tab("ttys002", 22, &[(23, 22, "/usr/local/bin/node /usr/local/bin/npm run dev")], &[23], 3 * day),
             // A session's own processes (caffeinate) are its.
-            tab("ttys003", 32, &[(33, 32), (34, 33)], &[(33, "claude")], 3 * day),
-            tab("ttys004", 42, &[(43, 42)], &[(43, "claude")], 3 * day),
+            tab("ttys003", 32, &[(33, 32, "claude"), (34, 33, "caffeinate -i")], &[33], 3 * day),
+            tab("ttys004", 42, &[(43, 42, "claude")], &[43], 3 * day),
             // One OpenCode terminal showing two sessions.
-            tab("ttys005", 52, &[(53, 52)], &[(53, "opencode")], 3 * day),
+            tab("ttys005", 52, &[(53, 52, "opencode")], &[53], 3 * day),
             // Used an hour ago: not stale.
             tab("ttys006", 62, &[], &[], 3_600_000),
             // A session under a wrapper that started it.
-            tab("ttys007", 72, &[(71, 70), (73, 71)], &[(71, "node /usr/local/bin/codex")], 3 * day),
+            tab("ttys007", 72, &[(74, 72, "node /usr/local/bin/codex"), (73, 74, "codex")], &[74], 3 * day),
             // A session with an editor stopped beside it.
-            tab("ttys008", 82, &[(83, 82), (84, 82)], &[(84, "vim notes.md"), (83, "claude")], 3 * day),
+            tab("ttys008", 82, &[(83, 82, "claude"), (84, 82, "vim notes.md")], &[84, 83], 3 * day),
             // Two jobs, and no session.
-            tab("ttys009", 92, &[(93, 92), (94, 92)], &[(93, "python3 -m http.server"), (94, "sleep 100")], 3 * day),
+            tab("ttys009", 92, &[(93, 92, "python3 -m http.server"), (94, 92, "sleep 100")], &[93, 94], 3 * day),
+            // A session in a nested shell with an editor beside it there.
+            tab("ttys010", 102, &[(103, 102, "bash"), (104, 103, "claude"), (105, 103, "vim notes.md")], &[103], 3 * day),
         ];
         let p = plan(&b, &tabs, NOW, day);
         assert_eq!(p.fresh, 1);
@@ -447,6 +453,7 @@ mod tests {
         assert!(row("ttys007:72").2, "a wrapper's session closes");
         assert_eq!(row("ttys008:82"), (Shows::Session, "Session beside", false, "/work/northwind · unused 3 days · also runs `vim notes.md`"));
         assert_eq!(row("ttys009:92"), (Shows::Program, "python3 -m http.server", false, "/work/northwind · unused 3 days · closing ends it and 1 more"));
+        assert_eq!(row("ttys010:102"), (Shows::Session, "Session nested", false, "/work/northwind · unused 3 days · also runs `vim notes.md`"));
     }
 
     #[test]
@@ -455,7 +462,7 @@ mod tests {
         let mut needs = session("needs", 43, Status::Needs, 3 * day);
         needs.title = "Fix login".into();
         let b = board(vec![session("idle", 43, Status::Idle, 4 * day), needs]);
-        let p = plan(&b, &[tab("ttys004", 42, &[(43, 42)], &[(43, "opencode")], 3 * day)], NOW, day);
+        let p = plan(&b, &[tab("ttys004", 42, &[(43, 42, "opencode")], &[43], 3 * day)], NOW, day);
         assert_eq!((p.tabs[0].ticked, p.tabs[0].why.as_str()), (false, "/work/northwind · unused 3 days · “Fix login” needs you"));
     }
 

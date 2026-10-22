@@ -632,20 +632,22 @@ fn close_tabs(tabs: &[&Closing]) -> Result<Vec<Result<()>>> {
         }
     }
     let stayed = hang_up_tabs(&ending.iter().map(|(i, _)| tabs[*i]).collect::<Vec<_>>());
-    let mut closing = Vec::new();
-    let mut ended_shells = Vec::new();
-    for ((i, id), stayed) in ending.iter().zip(stayed) {
+    // (index into `ending`, shell) of the tabs whose processes ended and whose shell is left.
+    let mut left = Vec::new();
+    for (j, ((i, _), stayed)) in ending.iter().zip(stayed).enumerate() {
         match stayed {
-            None => {
-                closing.push(id.as_str());
-                ended_shells.extend(shells[*i].filter(|s| !tabs[*i].hang_up.contains(s)));
-            }
+            None => left.extend(shells[*i].filter(|s| !tabs[*i].hang_up.contains(s)).map(|s| (j, s))),
             Some(pid) => out[*i] = Err(anyhow!("Its process (pid {pid}) didn't exit, so the tab stays.")),
         }
     }
-    if !ended_shells.is_empty() {
-        hang_up(&ended_shells);
+    // A shell that stays keeps its tab: the script would only hide it.
+    let gone = if left.is_empty() { Vec::new() } else { hang_up(&left.iter().map(|(_, s)| *s).collect::<Vec<_>>()) };
+    for ((j, shell), gone) in left.iter().zip(gone) {
+        if !gone {
+            out[ending[*j].0] = Err(anyhow!("Its shell (pid {shell}) didn't exit, so the tab stays."));
+        }
     }
+    let closing: Vec<&str> = ending.iter().filter(|(i, _)| out[*i].is_ok()).map(|(_, id)| id.as_str()).collect();
     if !closing.is_empty() {
         // A moment for Ghostty to close the terminals whose shells ended, or for a shell to draw
         // its prompt, which tells Ghostty it's safe to close.

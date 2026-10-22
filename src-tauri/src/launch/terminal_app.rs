@@ -192,11 +192,15 @@ end run
 
 /// `<tty>...`: closes those tabs. Terminal can close a window but not a tab, so a tab with others
 /// beside it is closed by its shell exiting, which closes it unless its profile keeps a window
-/// whose shell exited (Settings › Profiles › Shell › When the shell exits).
+/// whose shell exited (Settings › Profiles › Shell › When the shell exits). A tab whose last
+/// process was hung up (a program run in place of a shell, Close stale terminals) has nothing
+/// running for `whereIs` to find it by, so a window you can see whose one tab is on that TTY with
+/// nothing running is closed in its place: closing it ends nothing. One beside other tabs stays.
 const CLOSE: &str = r#"
 on run argv
   repeat with n from 1 to count of argv
     set loc to whereIs(item n of argv)
+    if loc is missing value then set loc to endedAlone(item n of argv)
     if loc is not missing value then
       tell application "Terminal"
         try
@@ -211,6 +215,19 @@ on run argv
   end repeat
   return "ok"
 end run
+
+on endedAlone(want)
+  tell application "Terminal"
+    set wids to id of every window whose visible is true or miniaturized is true
+    repeat with k from 1 to count of wids
+      set wid to item k of wids
+      if (count of tabs of window id wid) is 1 then
+        if (tty of tab 1 of window id wid) is want and (count of (processes of tab 1 of window id wid)) is 0 then return {wid, 1}
+      end if
+    end repeat
+  end tell
+  return missing value
+end endedAlone
 "#;
 
 /// Opens a window whose shell `launcher` sets up (Terminal takes no folder or environment from a
