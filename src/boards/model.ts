@@ -287,15 +287,17 @@ export function boardsFor(boards: BoardDoc[], project: string | null): BoardDoc[
 }
 
 /** Add to board ›'s choices for things picked together, which may be of several projects: each
- *  board that would show any of them (`boardsFor`), with the ones it would show and whether it
- *  holds every one of those (`holds` asks of each board once). A pick puts on the ones it doesn't
- *  hold, or takes them all off when it holds them all, as Pin does for several. */
-export function boardChoices(boards: BoardDoc[], cards: { card: string; project: string | null }[], holds: (b: BoardDoc) => (card: string) => boolean): { board: BoardDoc; cards: string[]; on: boolean }[] {
+ *  board that would show any of them (`boardsFor`), with the ones it would show, those of them it
+ *  doesn't hold yet, and whether it holds every one (`holds` asks of each board once: it can read
+ *  everything the window has). A pick puts on the ones it doesn't hold, or takes them all off when
+ *  it holds them all, as Pin does for several. */
+export function boardChoices(boards: BoardDoc[], cards: { card: string; project: string | null }[], holds: (b: BoardDoc) => (card: string) => boolean): { board: BoardDoc; cards: string[]; fresh: string[]; on: boolean }[] {
   return boards.flatMap((board) => {
     const shown = cards.filter((c) => boardsFor([board], c.project).length > 0).map((c) => c.card);
     if (shown.length === 0) return [];
     const has = holds(board);
-    return [{ board, cards: shown, on: shown.every(has) }];
+    const fresh = shown.filter((c) => !has(c));
+    return [{ board, cards: shown, fresh, on: fresh.length === 0 }];
   });
 }
 

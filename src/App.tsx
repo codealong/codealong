@@ -639,10 +639,10 @@ export function App() {
     const many = (n: number) => (keys.length > 1 ? ` ${count(n, ONE_WORD[ref])}` : '');
     const holds = (b: BoardDoc) => (b.id === shownBoard.id ? member : memberTest(b, allSubjects, now));
     const put = (b: BoardDoc, yes: boolean, list: string[]) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: list });
-    const choices = boardChoices(boards.boards, cards, holds).map(({ board: b, cards: list, on }) => ({
+    const choices = boardChoices(boards.boards, cards, holds).map(({ board: b, cards: list, fresh, on }) => ({
       label: list.length < cards.length ? `${boardName(b, current)} (${list.length} of ${cards.length})` : boardName(b, current),
       checked: on,
-      run: () => put(b, !on, on ? list : list.filter((c) => !holds(b)(c))),
+      run: () => put(b, !on, on ? list : fresh),
     }));
     const held = view === 'kanban' ? cards.map((c) => c.card).filter(member) : [];
     const remove: MenuSpec = held.length > 0 ? [{ label: `Remove${many(held.length)} from board`, run: () => put(shownBoard, false, held) }] : [];

@@ -40,13 +40,19 @@ describe('a project’s boards', () => {
       { card: 'session:b', project: 'Atlas' },
       { card: 'session:c', project: 'Acme' },
     ];
-    const holds = (b: BoardDoc) => (card: string) => b.added.includes(card);
-    expect(boardChoices(boards, cards, holds).map((c) => [c.board.id, c.cards, c.on])).toEqual([
-      ['b-2', ['session:a', 'session:b', 'session:c'], false],
-      ['b-1', ['session:a', 'session:c'], false],
+    // Each board is asked once, however many there are.
+    const asked: string[] = [];
+    const holds = (b: BoardDoc) => {
+      asked.push(b.id);
+      return (card: string) => b.added.includes(card);
+    };
+    expect(boardChoices(boards, cards, holds).map((c) => [c.board.id, c.cards, c.fresh, c.on])).toEqual([
+      ['b-2', ['session:a', 'session:b', 'session:c'], ['session:a', 'session:b', 'session:c'], false],
+      ['b-1', ['session:a', 'session:c'], ['session:c'], false],
       // It holds every one it would show, so a pick takes it off.
-      ['b-4', ['session:b'], true],
+      ['b-4', ['session:b'], [], true],
     ]);
+    expect(asked).toEqual(['b-2', 'b-1', 'b-4']);
     // One whose project isn't known goes on any.
     expect(boardChoices(boards, [{ card: 'pr:x', project: null }], holds).map((c) => c.board.id)).toEqual(['b-2', 'b-1', 'b-4', 'b-5']);
   });
