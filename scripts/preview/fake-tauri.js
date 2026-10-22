@@ -886,6 +886,43 @@ window.__TAURI_INTERNALS__ = {
         };
       });
     }
+    // Close stale terminals: a shell and a dev server of its own, then a tab for each of the
+    // board's live sessions in a terminal, quiet that long, the ones that need you unticked.
+    // Nothing is closed. The first key asked to close stays open, as the tab you're in would.
+    if (cmd === 'stale_terminals' || cmd === 'close_stale_terminals') {
+      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
+        var after = (args || {}).afterMs || 864e5;
+        var now = Date.now();
+        var span = function (ms) { var d = Math.floor(ms / 864e5); return d >= 2 ? d + ' days' : Math.floor(ms / 36e5) + ' hours'; };
+        var tabs = [
+          { key: 'ttys003:4821', terminal: 'Ghostty', shows: 'shell', title: '~/projects/northwind', pid: 4821, cwd: '/Users/me/projects/northwind', opened: now - 9 * 864e5, used: now - 8 * 864e5, ticked: true, why: 'unused 8 days · a shell at its prompt' },
+          { key: 'ttys005:5120', terminal: 'Ghostty', shows: 'program', title: 'node /usr/local/bin/npm run dev', pid: 5120, cwd: '/Users/me/projects/atlas', opened: now - 6 * 864e5, used: now - 5 * 864e5, ticked: false, why: '~/projects/atlas · unused 5 days · closing ends it' },
+        ];
+        var seen = {};
+        var pid = 6000;
+        board.lanes.forEach(function (l) {
+          l.sessions.forEach(function (s) {
+            if (s.visitor || seen[s.key] || !s.live || s.surface !== 'cli' || s.hosted || !s.pid) return;
+            seen[s.key] = true;
+            if (now - s.lastActivity < after) return;
+            var needs = s.status === 'needs';
+            var place = s.cwd.replace(/^\/Users\/[^/]+/, '~');
+            pid += 1;
+            tabs.push({ key: 'ttys0' + (10 + tabs.length) + ':' + pid, terminal: 'Ghostty', shows: 'session', title: s.title, sessions: [s.key], pid: pid, cwd: s.cwd, opened: s.lastActivity - 36e5, used: s.lastActivity, ticked: !needs, why: place + ' · ' + (needs ? 'unused ' + span(now - s.lastActivity) + ' · needs you' : 'idle ' + span(now - s.lastActivity) + ' · last reply asks nothing') });
+          });
+        });
+        tabs = tabs.filter(function (t) { return now - t.used >= after; });
+        tabs.sort(function (a, b) { return a.used - b.used; });
+        if (cmd === 'close_stale_terminals') {
+          return (args.keys || []).map(function (k, i) {
+            var t = tabs.find(function (x) { return x.key === k; });
+            if (i === 0) return { key: k, title: t ? t.title : '', closed: false, message: 'It’s the tab you’re in.' };
+            return { key: k, title: t ? t.title : '', closed: true, message: 'Closed.' };
+          });
+        }
+        return { afterMs: after, tabs: tabs, fresh: 7 };
+      });
+    }
     if (cmd === 'todo_op') return Promise.resolve(Number.MAX_SAFE_INTEGER);
     // Mark as done does what it would to a session in a terminal of its own; the board never shows
     // it archived, so it comes back once its change has waited long enough (ahead.ts).

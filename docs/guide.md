@@ -2915,6 +2915,25 @@ and the sessions Codealong can't close (in the Claude or Codex app, run by Codea
 archived only, staying open where they are. `codealong sessions close-idle --dry-run [--archive]`
 lists the same from the command line.
 
+### Close stale terminals
+
+*File › Close stale terminals…*
+
+Lists every Ghostty, iTerm2 and Terminal tab (or split) that nothing was typed or printed in for a
+day or more (12 hours to a week, you choose), whatever runs in it, the longest unused first: a
+shell, a session, or another program. It goes by the tab's terminal device, which is touched as you
+type there and as anything prints, so a working agent or a server printing its log stays fresh and
+an agent at rest doesn't. A tab that sat that long opened at least that long ago; a terminal that
+reopens its tabs as it starts (Ghostty restoring its windows) starts their shells anew, so they
+count from then. tmux's own panes, and terminals Codealong doesn't script, aren't listed.
+
+The ones whose closing loses nothing start ticked: a shell at its prompt, and a tab whose sessions
+Close idle sessions would close. A tab with something else in its foreground (a dev server, an
+editor, a tmux client) starts unticked and says closing ends it, and so does one whose session needs
+you or asks you something. Tick or untick any of them. Closing hangs up the tab's shell, which
+ends what runs in it, and closes the tab; a session's conversation stays and resumes like any other.
+The tab you're in stays open, and a tab used since the list was made isn't closed.
+
 ### Clean up worktrees
 
 *A worktree's right-click menu › Clean up worktree…*

@@ -2511,6 +2511,47 @@ export interface IdlePlan {
   kept: KeptSession[];
 }
 
+/** What a tab Close stale terminals lists shows: its shell at its prompt, sessions on the board,
+ *  or another program in its foreground (stale.rs `Shows`). */
+export type StaleShows = 'shell' | 'session' | 'program';
+
+/** A terminal tab nothing was typed or printed in for the wait (stale.rs). */
+export interface StaleTab {
+  /** Its terminal device and its shell, `ttys004:4821`: what closing it goes by. */
+  key: string;
+  /** Ghostty, iTerm2 or Terminal. */
+  terminal: string;
+  shows: StaleShows;
+  /** The session it shows, the program in its foreground, or its folder. */
+  title: string;
+  /** The sessions it shows, newest first. */
+  sessions?: string[];
+  pid: number;
+  cwd: string;
+  opened: number;
+  used: number;
+  /** Ticked to close at first: closing it loses nothing. */
+  ticked: boolean;
+  /** Why it may close, or what closing it ends. */
+  why: string;
+}
+
+export interface StalePlan {
+  afterMs: number;
+  /** The longest unused first. */
+  tabs: StaleTab[];
+  /** How many tabs were used since. */
+  fresh: number;
+}
+
+/** What closing one tab did. */
+export interface StaleOutcome {
+  key: string;
+  title: string;
+  closed: boolean;
+  message: string;
+}
+
 /** What closing one session did. */
 export interface CloseOutcome {
   key: string;

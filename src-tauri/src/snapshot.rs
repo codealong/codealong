@@ -103,12 +103,23 @@ const MODES: &[Mode] = &[
     Mode { flag: "--improve", takes: "", run: |_, _| Ok(pretty(&board_now().read(|b| b.improve.clone()))) },
     Mode { flag: "--tokens", takes: "[days] [--account <name>] [--session <key>] [--into <ledger file>]", run: tokens },
     Mode { flag: "--jev-usage", takes: "[days]", run: jev_usage },
+    Mode { flag: "--stale-terminals", takes: "[how long unused: 90m, 24h, 3d, 1w]", run: stale_terminals },
     Mode { flag: "--schedules", takes: "", run: schedules },
     Mode { flag: "--schedule-plan", takes: "<schedule>", run: schedule_plan },
     Mode { flag: "--schedule-check", takes: "<schedule>", run: schedule_check },
     Mode { flag: "--schedule-run", takes: "<schedule>", run: schedule_run },
     Mode { flag: "--schedule-times", takes: "<time, as a schedule writes it>", run: |_, rest| Ok(pretty(&crate::schedules::times(&rest.join(" "), util::now_ms(), &crate::schedules::rule::Local))) },
 ];
+
+/// `codealong --snapshot --stale-terminals [wait]`: the terminal tabs File › Close stale
+/// terminals… would list, unused for the wait (a day when left out), closing nothing.
+fn stale_terminals(_: &Args, rest: &[String]) -> Done {
+    let after_ms = match rest.first() {
+        Some(wait) => crate::idle::parse_after(wait).ok_or(Stop::Usage)?,
+        None => util::DAY_MS,
+    };
+    Ok(pretty(&crate::stale::plan_now(&engine::snapshot(false, false), after_ms)))
+}
 
 /// `codealong --snapshot --schedules`: the schedules as the Schedules view lists them, with when
 /// each runs next and its latest runs.

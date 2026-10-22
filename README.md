@@ -769,8 +769,8 @@ in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
 - **Only you allow what an agent does.** Agents can see what another agent is waiting on, and deny
   it, but never allow it. With Codealong closed, your agents ask you the usual way.
 - **It acts only when you ask.** Codealong types into a session only what you send it, or what
-  a schedule you made sends when its time comes. Mark as done and Close idle sessions end only the
-  sessions you pick, and their conversations stay, to resume.
+  a schedule you made sends when its time comes. Mark as done, Close idle sessions and Close stale
+  terminals end only the sessions and tabs you pick, and their conversations stay, to resume.
 - **Sessions you start** open in a new terminal running the account's own command, with your
   prompt passed in the window's environment (`CODEALONG_PROMPT`), so nothing in it is typed or
   needs quoting. A session run *In Codealong* is a child of the app, allowed what the agent's own

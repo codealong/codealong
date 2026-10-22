@@ -221,7 +221,9 @@ recording its input, 2026-09-29), and launch.rs's starts in iTerm2 and Terminal 
 - `cargo test ghostty_hands_over -- --ignored` opens a real Ghostty window that echoes a tricky
   prompt back through its environment, then closes. `cargo test tty_apps -- --ignored
   --test-threads=1` does the same in iTerm2 and Terminal, and types, presses keys, focuses and
-  closes there, on windows of its own; don't type on the Mac while it runs.
+  closes there, on windows of its own; don't type on the Mac while it runs. `cargo test
+  ghostty_closes_a_stale_tab -- --ignored` opens two Ghostty windows and closes the one behind
+  as Close stale terminals does (stale.rs), hanging up its shell with a `sleep` in front.
 
 ## Unchecked
 

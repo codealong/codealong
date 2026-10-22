@@ -15,7 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { below, showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { useEditorIcons } from './editors';
 import { homeOf, narrowed, runsShownKey, sidesShownKey, type BoardRow, type Filter } from './lanes';
-import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
+import { answerLink, barMode, getDevices, onDevices, onBarMode, onCloseIdle, onCloseStale, onUsageMenu, onWebsiteMenu, onNewWindow, onReveal, onSettings, onSetupMenu, onCheckUpdates, openConfig, openProjectWindow, openUrl, orderAccounts, refresh, refreshUsage, scheduleOp, setBarMode, startOptions, setPinned, setPinnedPrs, setPinnedRepos, setPinnedWorktrees, setTheme, setupNeeded, showQuick, signIn, stopTraining, windowLabel, zoomWindows, onZoomMenu, WEBSITE, type BarMode, type Reveal } from './api';
 import { count, middleTruncate } from './format';
 import * as menus from './menus';
 import { prRefOf } from './prLinks';
@@ -32,6 +32,7 @@ import { shortOf, type DeviceFilter } from './devices';
 import { NEW_PROJECT, SettingsDialog, type SettingsSection } from './ui/SettingsDialog';
 import { CleanUpDialog } from './ui/CleanUpDialog';
 import { CloseIdleDialog } from './ui/CloseIdleDialog';
+import { CloseStaleDialog } from './ui/CloseStaleDialog';
 import { SetupDialog } from './ui/SetupDialog';
 import { UsageDialog } from './ui/UsageDialog';
 import { PreviewDialog } from './ui/PreviewBits';
@@ -348,8 +349,10 @@ export function App() {
   useEffect(() => onSettings(() => openSettings()), [openSettings]);
   // The app menu's Check for updates…: Settings › General says how it goes.
   useEffect(() => onCheckUpdates(() => openSettings('general')), [openSettings]);
-  // File › Close idle sessions… (ui/CloseIdleDialog.tsx).
+  // File › Close idle sessions… (ui/CloseIdleDialog.tsx) and Close stale terminals…
+  // (ui/CloseStaleDialog.tsx).
   const [closeIdle, setCloseIdle] = useState(false);
+  const [closeStale, setCloseStale] = useState(false);
   // Set up Codealong (ui/SetupDialog.tsx): by itself in the main window on a first run, and from
   // the app menu's Set up Codealong… whenever asked.
   const [setup, setSetup] = useState(false);
@@ -375,6 +378,7 @@ export function App() {
   // The session and PR Merge and done… asks about (ui/MergeDone.tsx).
   const [mergingDone, setMergingDone] = useState<menus.MergeDoneAsk | null>(null);
   useEffect(() => onCloseIdle(() => setCloseIdle(true)), []);
+  useEffect(() => onCloseStale(() => setCloseStale(true)), []);
   // ⌘= ⌘- ⌘0 (mainKeys.ts) and View's zoom items zoom every board window: the engine saves the
   // zoom and sets it on them, and the board says what it is (zoom.ts).
   const zoom = useCallback(
@@ -2649,6 +2653,7 @@ export function App() {
         />
       )}
       {closeIdle && <CloseIdleDialog onClose={() => setCloseIdle(false)} onDone={setToast} />}
+      {closeStale && <CloseStaleDialog onClose={() => setCloseStale(false)} onDone={setToast} />}
       {setup && <SetupDialog onClose={() => setSetup(false)} onDone={setToast} onSettings={(section) => openSettings(section)} now={now} />}
       {usageOf && board && (
         <UsageDialog

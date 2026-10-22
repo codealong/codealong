@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { BoardDoc, BoardOp } from './boards/model';
 import type { TodoOp } from './todos';
@@ -356,6 +356,11 @@ export function onCloseIdle(cb: () => void): () => void {
   };
 }
 
+/** Calls `cb` when File › Close stale terminals… asks this window to show its dialog. */
+export function onCloseStale(cb: () => void): () => void {
+  return onWindowEvent('close-stale', () => cb());
+}
+
 /** View › Usage… (⇧⌘U), sent to the front board window (lib.rs `add_usage_menu`). */
 export function onUsageMenu(cb: () => void): () => void {
   if (!inTauri) return () => {};
@@ -416,6 +421,18 @@ export async function idleSessions(afterMs: number, archive: boolean): Promise<I
 export async function closeIdleSessions(keys: string[], afterMs: number, archive: boolean): Promise<CloseOutcome[]> {
   if (!inTauri) return [];
   return invoke<CloseOutcome[]>('close_idle_sessions', { keys, afterMs, archive });
+}
+
+/** The terminal tabs nothing was typed or printed in for `afterMs` (stale.rs). */
+export async function staleTerminals(afterMs: number): Promise<StalePlan> {
+  if (!inTauri) return { afterMs, tabs: [], fresh: 0 };
+  return invoke<StalePlan>('stale_terminals', { afterMs });
+}
+
+/** Closes these tabs, each looked at again first. */
+export async function closeStaleTerminals(keys: string[], afterMs: number): Promise<StaleOutcome[]> {
+  if (!inTauri) return [];
+  return invoke<StaleOutcome[]>('close_stale_terminals', { keys, afterMs });
 }
 
 /** Closes one session: its terminal tab, or a background job stopped. Says what happened. */

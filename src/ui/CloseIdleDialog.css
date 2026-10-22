@@ -1,4 +1,4 @@
-/* Close idle sessions (File menu): a dialog listing what would close. */
+/* Close idle sessions and Close stale terminals (File menu): a dialog listing what would close. */
 
 .ca-idle {
   width: min(640px, 100%);
