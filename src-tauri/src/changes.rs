@@ -724,18 +724,20 @@ fn pr_row(change: PrChange, was: Option<PrState>, p: &PrItem) -> PrRow {
     }
 }
 
-/// What happened to a todo since its mark, or with none since `since`. Marked ready for review
-/// says so over its start or the end of its wait, which the mark brings with it, and a new
-/// status over its leaving the archive, which reopening or starting it does.
+/// What happened to a todo since its mark, or with none since `since`. Archived says so over
+/// anything else, since it's out of every list after; marked ready for review over its start or
+/// the end of its wait, which the mark brings with it; and a new status over its leaving the
+/// archive, which reopening or starting it does.
 pub fn todo_change(t: &Todo, mark: Option<&TodoMark>, since: i64) -> Option<TodoChange> {
     match mark {
+        Some(m) if !m.archived && t.archived_at.is_some() => Some(TodoChange::Archived),
         Some(m) if !m.review && t.review.is_some() => Some(TodoChange::InReview),
         Some(m) if m.status != t.status => Some(match t.status {
             TodoStatus::Done => TodoChange::Done,
             TodoStatus::InProgress => TodoChange::Started,
             TodoStatus::Todo => TodoChange::Reopened,
         }),
-        Some(m) if m.archived != t.archived_at.is_some() => Some(if m.archived { TodoChange::Unarchived } else { TodoChange::Archived }),
+        Some(m) if m.archived && t.archived_at.is_none() => Some(TodoChange::Unarchived),
         Some(m) if m.waiting != t.waiting.is_some() => Some(if t.waiting.is_some() { TodoChange::Waiting } else { TodoChange::Ready }),
         Some(m) if m.review && t.review.is_none() => Some(TodoChange::SentBack),
         Some(_) => None,
@@ -1289,7 +1291,11 @@ mod tests {
         let archived = TodoMark { archived: true, ..done.clone() };
         assert_eq!(todo_change(&Todo { archived_at: None, ..t.clone() }, Some(&archived), NOW - MIN), Some(TodoChange::Unarchived));
         // Reopened from the archive says it's reopened.
-        assert_eq!(todo_change(&Todo { status: TodoStatus::Todo, archived_at: None, ..t }, Some(&archived), NOW - MIN), Some(TodoChange::Reopened));
+        assert_eq!(todo_change(&Todo { status: TodoStatus::Todo, archived_at: None, ..t.clone() }, Some(&archived), NOW - MIN), Some(TodoChange::Reopened));
+        // Started, or marked for review, and archived since the last look says it's archived.
+        let todo_mark = TodoMark { status: TodoStatus::Todo, ..done.clone() };
+        let reviewed = Todo { status: TodoStatus::InProgress, review: Some(crate::todos::TodoReview::default()), ..t };
+        assert_eq!(todo_change(&reviewed, Some(&todo_mark), NOW - MIN), Some(TodoChange::Archived));
         // A mark from before archiving reads as not archived.
         let old: TodoMark = serde_json::from_value(serde_json::json!({ "status": "done" })).unwrap();
         assert!(!old.archived);

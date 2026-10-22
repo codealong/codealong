@@ -593,6 +593,12 @@ export function panelTodos(todos: Todo[]): Todo[] {
   return [...todos].sort((a, b) => rank(a) - rank(b) || (a.status === 'done' ? (b.doneAt ?? 0) - (a.doneAt ?? 0) : 0));
 }
 
+/** What a session's panel calls the todos it lists when none is still to do, before "todo" or
+ *  "todos": done when they all are, archived when they all are, else nothing. */
+export function closedWord(ts: Todo[]): string {
+  return ts.every((t) => t.status === 'done') ? 'done ' : ts.every((t) => t.archivedAt) ? 'archived ' : '';
+}
+
 /** What a session started from a todo is asked: the title, the description, then which todo
  *  it is, so the agent can mark it done through the codealong skill, and its primary session
  *  (`primaryLine`) when `holding` says whether that one still has it. `todo_prompt` in cli.rs

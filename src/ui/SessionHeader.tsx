@@ -45,7 +45,7 @@ import { untilWords } from '../snooze';
 import { sessionTokens } from '../api';
 import { cacheShare, money, tokenCount, totalTokens } from '../spend';
 import type { Board, DeviceView, Lane, Pr, Session, SessionSpent, SideGlance, Target, Todo } from '../types';
-import { isOpen, panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
+import { closedWord, isOpen, panelTodos, STATUS_WORD as TODO_WORD } from '../todos';
 import { ArtifactChip, ArtifactList } from './ArtifactBits';
 import { DeviceBadge } from './DeviceBadge';
 import { InsightChips } from './InsightBits';
@@ -338,7 +338,7 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
   const came = useMemo(() => cameLines(lineage), [lineage]);
   const listed = useMemo(() => panelTodos(todos ?? []), [todos]);
   // The todo it's on: one in progress, else one still to do. Done and archived ones wait behind
-  // "+N".
+  // "+N", or a count that says what they are.
   const current = listed.find(isOpen);
 
   const icons = useEditorIcons(apps);
@@ -543,11 +543,11 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             className="ca-linkbtn ca-sessinsp-more"
             title={listed
               .filter((t) => t !== current)
-              .map((t) => `${t.title || 'Untitled'} · ${TODO_WORD[t.status]}`)
+              .map((t) => `${t.title || 'Untitled'} · ${TODO_WORD[t.status]}${t.archivedAt ? ', archived' : ''}`)
               .join('\n')}
             onClick={() => setAllTodos(true)}
           >
-            {current ? `+${listed.length - 1}` : `${listed.length} done ${listed.length === 1 ? 'todo' : 'todos'}`}
+            {current ? `+${listed.length - 1}` : `${listed.length} ${closedWord(listed)}${listed.length === 1 ? 'todo' : 'todos'}`}
           </button>
         )}
       </div>

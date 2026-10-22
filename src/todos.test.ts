@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { filesToAttach } from './attachInput';
 import { sessionHomes } from './lanes';
-import { applyOp, attachmentsIn, blockedBy, cantWaitOn, dependents, inlines, isOpen, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, prInReview, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoItem, todoPr, todoPrompt, todosPrompt, todoSections, statusSection, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
+import { applyOp, attachmentsIn, blockedBy, cantWaitOn, closedWord, dependents, inlines, isOpen, insertAttachments, itemPrimaryHolds, mergeAttachments, nextColor, panelTodos, pieces, primaryHolds, prInReview, sectionOf, snippet, splitAttachments, todoAgent, todoIndex, todoInFilter, todoItem, todoPr, todoPrompt, todosPrompt, todoSections, statusSection, todoSuggestions, waitingChange, waitsOn, withAttachments, worthSuggesting, withoutAttachment, type TodoPatch, type TodoStore } from './todos';
 import * as fx from './testing/fixtures';
 import { NOW } from './testing/fixtures';
 import type { Label, Lane, Session, Todo } from './types';
@@ -371,9 +371,17 @@ describe("a session's panel", () => {
   it('lists todos under way first, then the done ones latest first', () => {
     const list = [todo('a', { status: 'done', doneAt: NOW - 3000 }), todo('b'), todo('c', { status: 'done', doneAt: NOW - 1000 }), todo('d', { status: 'in-progress' }), todo('e', { status: 'done', doneAt: null })];
     expect(panelTodos(list).map((t) => t.id)).toEqual(['d', 'b', 'c', 'a', 'e']);
+    expect(list.map((t) => t.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
     // An archived one goes with the done ones.
     expect(panelTodos([todo('f', { status: 'in-progress', archivedAt: NOW }), todo('g')]).map((t) => t.id)).toEqual(['g', 'f']);
-    expect(list.map((t) => t.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('says what the todos are when none is still to do, never calling an archived one done', () => {
+    const done = todo('a', { status: 'done' });
+    const shelved = todo('b', { status: 'in-progress', archivedAt: NOW });
+    expect(closedWord([done, { ...done, archivedAt: NOW }])).toBe('done ');
+    expect(closedWord([shelved])).toBe('archived ');
+    expect(closedWord([done, shelved])).toBe('');
   });
 });
 
