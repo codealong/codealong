@@ -3947,12 +3947,14 @@ fn board_hash(board: &mut Board) -> u64 {
     }
     // Buffered, so the hasher is handed a few kilobytes at a time, not each comma and quote.
     let mut out = std::io::BufWriter::new(Hashed(std::collections::hash_map::DefaultHasher::new()));
-    // Neither what's read of the repos' team files nor which limits have lifted long enough to be
-    // carried on is sent, but what acts on the board waits on them; the second comes with time
-    // alone, which the heartbeat's board then goes out for.
+    // Neither what's read of the repos' team files, which limits have lifted long enough to be
+    // carried on, nor which PRs' unsaid fixes have settled long enough to ask their reviewer about
+    // is sent, but what acts on the board waits on them; the last two come with time alone, which
+    // the heartbeat's board then goes out for.
     let lifted = crate::reconnect::lifted(board, board.generated_at);
+    let settled: Vec<String> = crate::rerequest::settled(board, board.generated_at).into_iter().map(String::from).collect();
     let at = std::mem::take(&mut board.generated_at);
-    let written = serde_json::to_writer(&mut out, board).and_then(|()| serde_json::to_writer(&mut out, &(board.repo_settings.readiness(), lifted)));
+    let written = serde_json::to_writer(&mut out, board).and_then(|()| serde_json::to_writer(&mut out, &(board.repo_settings.readiness(), lifted, settled)));
     board.generated_at = at;
     // A board that can't be written out hashes as nothing at all, as it did.
     match (written, out.into_inner()) {

@@ -88,6 +88,15 @@ impl Rerequester {
     }
 }
 
+/// The PRs on `board` whose unsaid fixes have settled at `now` (`SETTLE_MS`). Nothing the windows
+/// get says so, and it comes with time alone, so the board's hash takes it in (engine.rs
+/// `board_hash`), as reconnect.rs `lifted` is: the board that's composed then goes out, and `due`
+/// runs on it.
+pub fn settled(board: &Board, now: i64) -> Vec<&str> {
+    let unsaid = |p: &&PrItem| p.turn.as_ref().is_some_and(|t| t.kind == TurnKind::ReplyNeeded && t.since.is_some_and(|at| now - at >= SETTLE_MS));
+    board.prs.iter().filter(unsaid).map(|p| p.key.as_str()).collect()
+}
+
 /// The reviewer `pr` owes a request to now, if any: it's yours, its fixes went unsaid
 /// (`ReplyNeeded`), its repo has it on, the last push is `SETTLE_MS` old, and none of its
 /// sessions is in a turn.
@@ -194,6 +203,13 @@ mod tests {
         // A later push is asked about again.
         let later = board(PrItem { head_oid: Some("ccc".into()), ..pr(unsaid(pushed)) }, Status::Idle);
         assert_eq!(r.due(&later, &ON, NOW).len(), 1);
+    }
+
+    #[test]
+    fn a_push_settling_changes_the_boards_hash_so_its_asked_about_without_anything_else_changing() {
+        let b = board(pr(unsaid(NOW - SETTLE_MS + 1)), Status::Idle);
+        assert!(settled(&b, NOW).is_empty());
+        assert_eq!(settled(&b, NOW + 1), vec!["o/r#7"]);
     }
 
     #[test]
