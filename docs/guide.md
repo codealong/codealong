@@ -1033,8 +1033,8 @@ and not in a repo checked out only on its default branch, whose PRs aren't read 
 GitHub's search for review requests no longer lists it in. One you submitted yourself, from the
 box or on GitHub, ends the request as GitHub has it. A PR whose author answers in a comment after
 you, or your agent, wrote on it (Author replied) waits on you from then too, on any of your Macs
-that reads its repo's PRs, and the agent reviews its commit if it hasn't yet; their words alone
-start no other review. Without a draft, a
+that reads its repo's PRs (see Author replied for what answers it), and the agent reviews its
+commit if it hasn't yet; their words alone start no other review. Without a draft, a
 request for changes or a comment links to the agent's review posted as a comment, or with posting
 off carries the review itself; one whose draft went (submitted or thrown away) isn't submitted. Not
 when your draft holds words of yours (the part of its text that isn't the agent's), which is said
@@ -1162,9 +1162,10 @@ reviewed or commented on reads Author replied (amber) when its author wrote afte
 approves the commit it's at, and waits on your review again (Review requested, Needs you, the
 floating bar) though GitHub asks nobody. A review you submit answers them, at once, and so do
 words of your own; your agent's review posted as you after their reply doesn't, so a PR it
-approves still waits on your sign-off, as one GitHub asks you of does. Not once your own latest
-review approves the commit it's at, when what they say is theirs to act on, and only in a repo
-whose PRs are read. The
+approves still waits on your sign-off, as one GitHub asks you of does. Only the Mac that posted
+it knows it for your agent's, though: another of yours takes it for your answer. Not once your own
+latest review approves the commit it's at, when what they say is theirs to act on, and only in a
+repo whose PRs are read. The
 tooltip says who and since when, naming each reviewer it holds for. Codealong reads it from each
 open PR's last twenty comments and reviews and its last review requests, a bot's comments and
 requests for changes left out; a push is taken to be when its latest commit was made, so one made

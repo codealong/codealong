@@ -167,7 +167,9 @@ pub struct PrLinks {
     /// The same for particular repos, by slug, where your `[repos."github.com/…"]` table says.
     pub nudge_by_default_in: HashMap<String, bool>,
     /// The comments Codealong posted your agent's reviews as from this Mac, by link (reviews.json):
-    /// they say you were on a PR, but don't answer its author for you (`turn_of`).
+    /// they say you were on a PR, but don't answer its author for you (`turn_of`). Only this Mac
+    /// knows them: another takes them for your words, since telling them by their hidden mark would
+    /// mean reading every comment's text on every PR the board reads.
     pub agent_posts: HashSet<String>,
 }
 
@@ -2596,6 +2598,9 @@ mod tests {
         let post = |at| crate::github::Said { url: Some("agents-post".into()), ..wrote("me", at) };
         assert_eq!(kind(&p(vec![wrote("me", 100), wrote("gwen", 110), post(120)]), false).map(|t| t.0), Some(TurnKind::AuthorReplied));
         assert_eq!(kind(&p(vec![post(100), wrote("gwen", 110)]), false).map(|t| t.0), Some(TurnKind::AuthorReplied));
+        // A Mac that didn't post it takes it for your answer.
+        let elsewhere = turn_of(&p(vec![wrote("me", 100), wrote("gwen", 110), post(120)]), false, Some("me"), &HashSet::new());
+        assert_eq!(elsewhere, None);
         // A review you submitted after it answers them, as soon as it's submitted here, before
         // GitHub's next answer has it among what was said.
         let submitted = |state| PrRaw { last_review: Some(LastReview { state, commit: Some("a11ce55".into()), at: Some(120) }), ..p(vec![wrote("me", 100), wrote("gwen", 110)]) };
