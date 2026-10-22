@@ -9,6 +9,7 @@ import { useMemo } from 'react';
 import type { ListRow } from './boardLists';
 import { showContextMenu, type MenuAction, type MenuSpec } from './contextMenu';
 import { count } from './format';
+import type { RefKind } from './canvas/model';
 import type { LaneItem } from './lanes';
 import * as menus from './menus';
 import { usePicks, type SelectHow } from './picks';
@@ -45,6 +46,8 @@ export interface ListPicksInput {
   approve: (prs: PrItem[]) => void;
   /** Asks to remove worktrees that can go (ui/CleanUpDialog.tsx). */
   cleanUp: (lanes: Lane[]) => void;
+  /** Add to board › for these, as one's menu has it. */
+  boardItems: (ref: RefKind, keys: string[]) => MenuSpec;
 }
 
 /** One list's picks: the rows, in the list's order, and what's done to them. */
@@ -71,7 +74,7 @@ export interface ListPicksKeys {
 }
 
 export function useListPicks(input: ListPicksInput) {
-  const { view, loading, selected, setSelectedKey, sessionRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve, cleanUp } = input;
+  const { view, loading, selected, setSelectedKey, sessionRows, prVisible, showArchived, report, setToast, sessionPins, lanePins, prPins, archive, undoArchive, approve, cleanUp, boardItems } = input;
   const sessionItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is SessionItem => r.kind === 'agent') : null), [view, loading, sessionRows]);
   const laneItems = useMemo(() => (view === 'sessions' && !loading ? sessionRows.filter((r): r is LaneItem => r.kind === 'lane') : null), [view, loading, sessionRows]);
   const prItems = useMemo(() => (view === 'prs' && !loading ? prVisible.filter((r): r is PrRowItem => r.kind === 'pr') : null), [view, loading, prVisible]);
@@ -97,6 +100,8 @@ export function useListPicks(input: ListPicksInput) {
     report,
     keys: 'chords',
     pin: pinItem(sessionPins, rows.filter((r) => !r.session.archived).map((r) => r.session.key), 'session'),
+    // Not one shown in a worktree it doesn't run in (a visitor), which one's menu leaves out too.
+    boards: boardItems('session', rows.filter((r) => !r.session.visitor).map((r) => r.session.key)),
     archive: (keys, archived) => archive(keys, archived, rows.find((r) => r.session.key === keys[0])?.session.title ?? ''),
     // Undo takes them out of the archive, as it does one.
     undoDone: (keys, message) => undoArchive({ keys, title: '', message }),
@@ -105,8 +110,8 @@ export function useListPicks(input: ListPicksInput) {
       sessions.leave(new Set(rows.filter((r) => keys.includes(r.session.key)).map((r) => r.key)));
     },
   });
-  const lanesOf = (rows: LaneItem[]): menus.LanesCan => ({ report, keys: 'chords', pin: pinItem(lanePins, rows.map((r) => r.lane.id), 'worktree'), cleanUp });
-  const prsOf = (rows: PrRowItem[]): menus.PrsCan => ({ report, keys: true, approve, pin: pinItem(prPins, rows.map((r) => r.pr.key), 'PR') });
+  const lanesOf = (rows: LaneItem[]): menus.LanesCan => ({ report, keys: 'chords', pin: pinItem(lanePins, rows.map((r) => r.lane.id), 'worktree'), cleanUp, boards: boardItems('worktree', rows.map((r) => r.lane.id)) });
+  const prsOf = (rows: PrRowItem[]): menus.PrsCan => ({ report, keys: true, approve, pin: pinItem(prPins, rows.map((r) => r.pr.key), 'PR'), boards: boardItems('pr', rows.map((r) => r.pr.key)) });
   const lanes = worktrees.picked.map((r) => r.lane);
   const pickedPrs = prs.picked.map((r) => r.pr);
 

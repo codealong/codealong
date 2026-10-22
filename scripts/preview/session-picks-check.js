@@ -2,10 +2,11 @@
 // `sessionsActions`, mainKeys.ts): five sessions of this device's, two waiting on you, one with a
 // terminal of its own. ⌘-click picks another beside the selected one and ⇧-click a run; the
 // panel says how many and what each action takes; a right-click on a picked row is the menu for
-// all of them, on another row that row's own, leaving the pick. ⌘A picks every one, ⌘E marks the
-// two waiting seen and keeps the pick, Esc goes back to one, ⇧↓ picks the rows below, ⌃⌘A
-// archives them with one Undo, which puts them all back, and Done on the strip asks the engine
-// about each in turn.
+// all of them, whose Add 3 sessions to board › takes them all off a board that holds them and
+// puts them all back, on another row that row's own, leaving the pick. ⌘A picks every one, ⌘E
+// marks the two waiting seen and keeps the pick, Esc goes back to one, ⇧↓ picks the rows below,
+// ⌃⌘A archives them with one Undo, which puts them all back, and Done on the strip asks the
+// engine about each in turn.
 //   scripts/preview.sh sessions '' scripts/preview/session-picks-check.js
 (function () {
   // This runs before the app's script: the board it gets has five sessions, made from real ones
@@ -116,6 +117,27 @@
       var want = ['Pin 3 sessions', 'Close 1 session', 'Mark 3 sessions as done', 'Archive 3 sessions', 'Copy session IDs'];
       check('a right-click on a picked row is the menu for all of them', want.every(function (l) { return labels.indexOf(l) >= 0; }) && labels.some(function (l) { return /^Snooze 3 sessions/.test(l); }), labels.join(' | '));
       check('and leaves the pick', selectedRows() === 'CDE', selectedRows());
+      var board = labels.filter(function (l) { return l.indexOf('Add 3 sessions to board › ') === 0; });
+      check('it puts all three on a board, All projects’ checked as it holds them already', board.indexOf('Add 3 sessions to board › All projects ✓') >= 0 && board.indexOf('Add 3 sessions to board › New board with them…') >= 0, board.join(' | '));
+      menuItem('Add 3 sessions to board › All projects ✓')();
+      return wait(150);
+    })
+    .then(function () {
+      var cards = ['session:' + picked[2].key, 'session:' + picked[3].key, 'session:' + picked[4].key].sort();
+      var ops = sent('board_op').map(function (a) { return a.op; });
+      var last = ops[ops.length - 1] || {};
+      check('picked, it takes the three off that board at once', ops.length === 1 && last.op === 'remove' && JSON.stringify((last.cards || []).slice().sort()) === JSON.stringify(cards), JSON.stringify(ops));
+      return menuOf(row(3)).then(function (labels) { return { labels: labels, cards: cards }; });
+    })
+    .then(function (was) {
+      check('then unchecked', was.labels.indexOf('Add 3 sessions to board › All projects') >= 0, was.labels.filter(function (l) { return /board/.test(l); }).join(' | '));
+      menuItem('Add 3 sessions to board › All projects')();
+      return wait(150).then(function () { return was.cards; });
+    })
+    .then(function (cards) {
+      var ops = sent('board_op').map(function (a) { return a.op; });
+      var last = ops[ops.length - 1] || {};
+      check('and picked again it puts them all back', ops.length === 2 && last.op === 'add' && JSON.stringify((last.cards || []).slice().sort()) === JSON.stringify(cards), JSON.stringify(ops));
       return menuOf(row(0));
     })
     .then(function (labels) {

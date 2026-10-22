@@ -564,6 +564,8 @@ export interface SessionsCan {
   undoDone?: (keys: string[], message: string) => void;
   /** These left the list they were picked from, or what waits on you, and how. */
   left?: (done: Left, keys: string[]) => void;
+  /** Add them to a board, where the window has boards. */
+  boards?: MenuSpec;
   keys?: boolean | 'chords';
 }
 
@@ -765,17 +767,19 @@ export function sessionsActions(picked: { lane: Lane; session: Session }[], can:
   };
 }
 
-/** The order of the menu of several sessions picked together: carrying on the ones cut off, what
- *  they are to you, then copying them. Opening them, and what's done to one at a time (rename, move, fork), aren't. */
+/** The order of the menu of several sessions picked together: carrying on the ones cut off, the
+ *  boards, what they are to you, then copying them. Opening them, and what's done to one at a time
+ *  (rename, move, fork), aren't. */
 const SESSIONS_MENU = [
   ['carryOn'],
+  ['boards'],
   ['stop', 'seen', 'unread', 'pin', 'snooze', 'quiet', 'close', 'done', 'archive'],
   ['copyId'],
 ] as const;
 
 /** The menu of several sessions picked together. */
 export function sessionsMenu(picked: { lane: Lane; session: Session }[], can: SessionsCan): MenuSpec {
-  return laidOut(SESSIONS_MENU, sessionsActions(picked, can), {}, can.keys);
+  return laidOut(SESSIONS_MENU, sessionsActions(picked, can), { boards: can.boards ?? [] }, can.keys);
 }
 
 /** What a window can do to several worktrees picked together (the main window's Worktrees). */
@@ -785,6 +789,8 @@ export interface LanesCan {
   pin?: MenuAction;
   /** Asks to remove the ones that can go, where the window has a dialog for it. */
   cleanUp?: (lanes: Lane[]) => void;
+  /** Add them to a board, where the window has boards. */
+  boards?: MenuSpec;
   keys?: boolean | 'chords';
 }
 
@@ -822,11 +828,11 @@ export function lanesActions(lanes: Lane[], can: LanesCan): LanesActions {
 }
 
 /** The order of the menu of several worktrees picked together, as one worktree's menu has them. */
-const LANES_MENU = [['seen'], ['reuse', 'cleanUp'], ['pin'], ['copyPath', 'copyBranch']] as const;
+const LANES_MENU = [['seen'], ['boards'], ['reuse', 'cleanUp'], ['pin'], ['copyPath', 'copyBranch']] as const;
 
 /** The menu of several worktrees picked together. */
 export function lanesMenu(lanes: Lane[], can: LanesCan): MenuSpec {
-  return laidOut(LANES_MENU, lanesActions(lanes, can), {}, can.keys);
+  return laidOut(LANES_MENU, lanesActions(lanes, can), { boards: can.boards ?? [] }, can.keys);
 }
 
 /** What a window can do to several PRs picked together (the main window's PRs). */
@@ -836,6 +842,8 @@ export interface PrsCan {
   approve?: (prs: PrItem[]) => void;
   /** Pins them to this window's own list, or unpins them. */
   pin?: MenuAction;
+  /** Add them to a board, where the window has boards. */
+  boards?: MenuSpec;
   keys?: boolean | 'chords';
 }
 
@@ -877,11 +885,11 @@ export function prsActions(prs: PrItem[], can: PrsCan): PrsActions {
 }
 
 /** The order of the menu of several PRs picked together, as one PR's menu has them. */
-const PRS_MENU = [['github'], ['approve', 'snooze'], ['pin'], ['copyLink', 'copyBranch']] as const;
+const PRS_MENU = [['github'], ['approve', 'snooze'], ['pin'], ['boards'], ['copyLink', 'copyBranch']] as const;
 
 /** The menu of several PRs picked together. */
 export function prsMenu(prs: PrItem[], can: PrsCan): MenuSpec {
-  return laidOut(PRS_MENU, prsActions(prs, can), {}, can.keys);
+  return laidOut(PRS_MENU, prsActions(prs, can), { boards: can.boards ?? [] }, can.keys);
 }
 
 export interface LaneCan {
@@ -1402,12 +1410,13 @@ export function todoMenu(t: Todo, can: TodoCan): MenuSpec {
 }
 
 /** The menu of several todos picked together: one session for them all; their status, waiting,
- *  review and due date; copying them; deleting them. */
-export function todosMenu(ts: Todo[], can: Pick<TodoCan, 'report' | 'start' | 'edit' | 'remove'>): MenuSpec {
+ *  review and due date; the boards; copying them; deleting them. */
+export function todosMenu(ts: Todo[], can: Pick<TodoCan, 'report' | 'start' | 'edit' | 'boards' | 'remove'>): MenuSpec {
   const { report, edit } = can;
   return sections(
     [{ label: `Start one session for ${ts.length} todos…`, run: can.start }],
     edit ? [...statusItems(ts, edit), ...waitingItems(ts, edit, report), ...reviewItems(ts, edit), dueItem(ts, edit)] : [],
+    can.boards ?? [],
     [copyPromptItem(ts, report), ...some(copyItem('Copy todo IDs', ts.map((t) => t.id).join(' '), 'todo IDs', report))],
     can.remove ? [{ label: `Delete ${ts.length} todos`, run: can.remove }] : [],
   );

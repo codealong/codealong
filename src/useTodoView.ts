@@ -59,8 +59,8 @@ export interface TodoViewInput {
   clearFilters: () => void;
   setQuery: (query: string) => void;
   onDesktop: ReadonlySet<string>;
-  /** Add to board, and Remove from board, for a todo's menu. */
-  boardItems: (ref: 'todo', key: string) => MenuSpec;
+  /** Add to board, and Remove from board, for a todo's menu and several todos'. */
+  boardItems: (ref: 'todo', keys: string[]) => MenuSpec;
 }
 
 export function useTodoView(input: TodoViewInput) {
@@ -234,7 +234,7 @@ export function useTodoView(input: TodoViewInput) {
       session: agent ? { ...agent, open: () => open(agent.lane, agent.session.openTarget) } : undefined,
       edit: todoEdit,
       desktop: onDesktop,
-      boards: boardItems('todo', t.id),
+      boards: boardItems('todo', [t.id]),
       remove: () => deleteTodos([t]),
     });
   };
@@ -242,7 +242,7 @@ export function useTodoView(input: TodoViewInput) {
   /** The right-click menu of several todos picked together, and their panel's ⋯ menu. */
   const pickMenuSpec = (rows: TodoItem[]): MenuSpec => {
     const ts = rows.map((r) => r.todo);
-    return menus.todosMenu(ts, { report, start: () => startForTodos(rows), edit: todoEdit, remove: () => deleteTodos(ts) });
+    return menus.todosMenu(ts, { report, start: () => startForTodos(rows), edit: todoEdit, boards: boardItems('todo', ts.map((t) => t.id)), remove: () => deleteTodos(ts) });
   };
   const pickMenu = (rows: TodoItem[], at?: { x: number; y: number }) => void showContextMenu(pickMenuSpec(rows), at).catch((e: unknown) => setToast(String(e)));
 

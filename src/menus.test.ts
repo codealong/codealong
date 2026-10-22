@@ -348,6 +348,11 @@ describe('several sessions picked together', () => {
     expect(labels(sessionsMenu([c, d], { report, pin: { label: 'Pin 2 sessions', run: noop } }))).toEqual(['Unarchive 2 sessions', '-', 'Copy session IDs']);
   });
 
+  it('puts them on a board where the window has boards, where one session’s menu has it', () => {
+    const boards = [{ label: 'Add 2 sessions to board', items: [{ label: 'Release', run: noop }] }];
+    expect(labels(sessionsMenu([c, { ...c, session: { ...c.session, key: 'claude:c:4' } }], { report, boards }))).toEqual(['Add 2 sessions to board ›', '-', 'Unarchive 2 sessions', '-', 'Copy session IDs']);
+  });
+
   it('runs on the chords one session’s actions do, shown beside them', () => {
     const acts = sessionsActions([a, b], { report, keys: 'chords' });
     expect(keyed(acts, 'a', true)?.action).toBe(acts.archive);
@@ -506,6 +511,11 @@ describe('worktrees picked together', () => {
   it('leaves out Mark as seen where none of their sessions has a turn that ended', () => {
     expect(labels(lanesMenu([web], { report, pin }))).toEqual(['Reuse for new work', '-', 'Pin 2 worktrees', '-', 'Copy path', 'Copy branch name']);
   });
+
+  it('puts them on a board where the window has boards, where one worktree’s menu has it', () => {
+    const boards = [{ label: 'Add 2 worktrees to board', items: [{ label: 'Release', run: noop }] }];
+    expect(labels(lanesMenu([api, web], { report, boards })).slice(0, 4)).toEqual(['Mark 1 session as seen', '-', 'Add 2 worktrees to board ›', '-']);
+  });
 });
 
 describe('PRs picked together', () => {
@@ -530,6 +540,11 @@ describe('PRs picked together', () => {
   it('offers no approval where the window can’t give one, nor where none can be given', () => {
     expect(prsActions([asked, other], { report }).approve).toBeUndefined();
     expect(labels(prsMenu([mine, merged], { report, approve: noop }))).toEqual(['Open 2 PRs on GitHub', '-', 'Copy links', 'Copy branch names']);
+  });
+
+  it('puts them on a board where the window has boards, where one PR’s menu has it', () => {
+    const boards = [{ label: 'Add 2 PRs to board', items: [{ label: 'Release', run: noop }] }];
+    expect(labels(prsMenu([mine, merged], { report, boards }))).toEqual(['Open 2 PRs on GitHub', '-', 'Add 2 PRs to board ›', '-', 'Copy links', 'Copy branch names']);
   });
 });
 
@@ -863,9 +878,10 @@ describe('the todo menus', () => {
     const a = fx.todo({ id: 'a', status: 'done', due: '2026-10-05' });
     const b = fx.todo({ id: 'b', status: 'done', due: '2026-10-05' });
     const { ops, edit } = editing([a, b], { pickDate: noop });
-    const menu = todosMenu([a, b], { report, start: noop, edit, remove: noop });
+    const boards = [{ label: 'Add 2 todos to board', items: [{ label: 'Release', run: noop }] }];
+    const menu = todosMenu([a, b], { report, start: noop, edit, boards, remove: noop });
     // Done ones can't wait.
-    expect(labels(menu)).toEqual(['Start one session for 2 todos…', '-', 'Todo', 'In progress', 'Done', 'Due date ›', '-', 'Copy as prompt', 'Copy todo IDs', '-', 'Delete 2 todos']);
+    expect(labels(menu)).toEqual(['Start one session for 2 todos…', '-', 'Todo', 'In progress', 'Done', 'Due date ›', '-', 'Add 2 todos to board ›', '-', 'Copy as prompt', 'Copy todo IDs', '-', 'Delete 2 todos']);
     expect(checked(menu)).toEqual(['Done']);
     expect(labels(submenu(menu, 'Due date'))).toEqual(['Today', 'Tomorrow', 'Monday', 'Next Friday', '-', 'Remove due dates']);
     expect(checked(submenu(menu, 'Due date'))).toEqual(['Monday']);

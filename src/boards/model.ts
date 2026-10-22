@@ -24,6 +24,8 @@ export const STATUS_WORD: Record<StatusPick, string> = { needs: 'Needs you', unr
 export const ACTIVES: Active[] = ['1d', '3d', '7d', '30d'];
 export const KINDS: RefKind[] = ['todo', 'session', 'worktree', 'pr'];
 export const KIND_WORD: Record<RefKind, string> = { todo: 'Todos', session: 'Sessions', worktree: 'Worktrees', pr: 'PRs' };
+/** One of a kind, as a count says it: `3 sessions`. */
+export const ONE_WORD: Record<RefKind, string> = { todo: 'todo', session: 'session', worktree: 'worktree', pr: 'PR' };
 
 /**
  * What a rule takes in (rules.ts `matches`). Each part it has must hold, and a part holds when a
@@ -282,6 +284,19 @@ export function boardName(b: BoardDoc, shown: string): string {
  *  isn't known. */
 export function boardsFor(boards: BoardDoc[], project: string | null): BoardDoc[] {
   return project == null ? boards : boards.filter((b) => b.project === ALL_PROJECTS || b.project === project);
+}
+
+/** Add to board ›'s choices for things picked together, which may be of several projects: each
+ *  board that would show any of them (`boardsFor`), with the ones it would show and whether it
+ *  holds every one of those (`holds` asks of each board once). A pick puts on the ones it doesn't
+ *  hold, or takes them all off when it holds them all, as Pin does for several. */
+export function boardChoices(boards: BoardDoc[], cards: { card: string; project: string | null }[], holds: (b: BoardDoc) => (card: string) => boolean): { board: BoardDoc; cards: string[]; on: boolean }[] {
+  return boards.flatMap((board) => {
+    const shown = cards.filter((c) => boardsFor([board], c.project).length > 0).map((c) => c.card);
+    if (shown.length === 0) return [];
+    const has = holds(board);
+    return [{ board, cards: shown, on: shown.every(has) }];
+  });
 }
 
 /** A project's boards as they're listed: its own first, then the rest as they were made. All

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Label } from '../types';
-import { applyOp, boardName, boardsFor, boardsIn, followsMove, cleanRule, columnsOf, newColumnId, presetColumns, projectBoard, ruleWords, STAGE_COLUMNS, stageOfColumn, takesAll, type BoardDoc } from './model';
+import { applyOp, boardChoices, boardName, boardsFor, boardsIn, followsMove, cleanRule, columnsOf, newColumnId, presetColumns, projectBoard, ruleWords, STAGE_COLUMNS, stageOfColumn, takesAll, type BoardDoc } from './model';
 
 const NOW = 1_790_000_000_000;
 const named = (id: string, name: string, over: Partial<BoardDoc> = {}): BoardDoc => ({ id, name, project: 'Acme', rule: null, added: [], removed: [], createdAt: 5, ...over });
@@ -31,6 +31,24 @@ describe('a project’s boards', () => {
     expect(boardsFor(boards, null)).toBe(boards);
     expect(boardName(boards[3], 'All projects')).toBe('Site · Atlas');
     expect(boardName(boards[3], 'Atlas')).toBe('Site');
+  });
+
+  it('offers things picked together each board that would show any of them, with the ones it would show', () => {
+    const boards = [named('b-2', 'Ideas', { project: 'All projects' }), named('b-1', 'Release', { added: ['session:a'] }), named('b-4', 'Site', { project: 'Atlas', added: ['session:b'] }), named('b-5', 'Kestrel', { project: 'Kestrel' })];
+    const cards = [
+      { card: 'session:a', project: 'Acme' },
+      { card: 'session:b', project: 'Atlas' },
+      { card: 'session:c', project: 'Acme' },
+    ];
+    const holds = (b: BoardDoc) => (card: string) => b.added.includes(card);
+    expect(boardChoices(boards, cards, holds).map((c) => [c.board.id, c.cards, c.on])).toEqual([
+      ['b-2', ['session:a', 'session:b', 'session:c'], false],
+      ['b-1', ['session:a', 'session:c'], false],
+      // It holds every one it would show, so a pick takes it off.
+      ['b-4', ['session:b'], true],
+    ]);
+    // One whose project isn't known goes on any.
+    expect(boardChoices(boards, [{ card: 'pr:x', project: null }], holds).map((c) => c.board.id)).toEqual(['b-2', 'b-1', 'b-4', 'b-5']);
   });
 
   it('has the four stage columns until it has its own', () => {

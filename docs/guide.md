@@ -188,11 +188,11 @@ rest.
 
 ⌘-click (or ⇧-click, ⇧↑ ⇧↓ from the list, ⌘A for all) picks several sessions: the panel lists them
 with Seen, Done, Snooze, Close and Archive for all of them at once, each saying how many it takes
-where that's fewer, a right-click on one of them is the menu for all (Pin, Quiet, Stop turn and Copy
-session IDs too), and the same chords act on all of them; Esc goes back to one. Archive and Mark as
-done have one Undo for the lot. Where any of them was cut off (a restart leaves many so), Carry on
-leads: each cut off resumes where its own Carry on would take it, one after another, told to carry
-on. With a search typed, Sessions' Archived fold lists the archived
+where that's fewer, a right-click on one of them is the menu for all (Pin, Quiet, Stop turn, Add 3
+sessions to board › and Copy session IDs too), and the same chords act on all of them; Esc goes back
+to one. Archive and Mark as done have one Undo for the lot. Where any of them was cut off (a
+restart leaves many so), Carry on leads: each cut off resumes where its own Carry on would take it,
+one after another, told to carry on. With a search typed, Sessions' Archived fold lists the archived
 sessions it finds, so its count says how many match.
 
 #### Emblems
@@ -1370,7 +1370,11 @@ Everything takes in the whole project; Only what you add takes in nothing by its
 in any session's, worktree's, todo's or PR's right-click menu puts it on a board (checked where
 it's on one already: pick it again to take it off), or on a new one; Remove from board on a card in
 Kanban, or on the canvas, takes it off, and it stays off whatever the rule says until it's added
-again. A worktree or a PR on a board brings its sessions onto the board's Kanban, and a todo made
+again. Sessions, worktrees, PRs or todos picked together have Add N to board › in their menu: a
+board is checked when it holds all of them, and picking it puts on the ones it doesn't, or takes
+them all off when it holds them all. Under All projects they may be of several projects, and a
+board that would show only some of them says how many (Release (2 of 3)) and takes those alone.
+A worktree or a PR on a board brings its sessions onto the board's Kanban, and a todo made
 from a board's Kanban is put on the board. What you add shows however old it is, an archived
 session (in Done) or a helper too, as long as it's in the board's project: `codealong board add`
 puts one from another project on the board all the same, and says it won't show there. What's at

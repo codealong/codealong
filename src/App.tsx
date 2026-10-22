@@ -60,7 +60,7 @@ import { applyKanbanDrop, boardOrderWith, columnWith, inSlots, kanbanCardId, kan
 import { CanvasView } from './ui/CanvasView';
 import { entitiesOf, homeLane, refId, type OnBoard, type RefItem, type RefKind } from './canvas/model';
 import { useCanvas } from './canvas/useCanvas';
-import { boardName, boardsFor, columnsOf, followsMove, type BoardPlace, holdsOf, isProjects, newBoardId, newColumnId, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
+import { boardChoices, boardName, columnsOf, followsMove, type BoardPlace, holdsOf, isProjects, newBoardId, newColumnId, ONE_WORD, ruleWords, takesAll, type BoardColumn, type BoardDoc } from './boards/model';
 import { columnOf, memberTest, repoOf } from './boards/rules';
 import { useBoardAsks } from './boards/useBoardAsks';
 import { useBoards } from './boards/useBoards';
@@ -627,31 +627,35 @@ export function App() {
     setView('canvas');
     setCanvasFocus((f) => ({ ids: [id], n: (f?.n ?? 0) + 1 }));
   };
-  /** Add to board ›, each of the project's boards that would show the thing (under All projects,
-   *  every project's and its own project's) checked when it holds it (a pick puts it on or takes
-   *  it off); and in Kanban, Remove from board for the board shown. The canvas has its own Remove
-   *  from board, for what's picked on it. */
-  const boardItems = (ref: RefKind, key: string): MenuSpec => {
-    if (!boardsOn) return [];
-    const card = refId(ref, key);
-    const offered = boardsFor(boards.boards, projectOfCard(ref, key, { lanes: rawLanes, todos: todoStore.todos, prs: board?.prs ?? [] }));
-    const on = (b: BoardDoc) => (b.id === shownBoard.id ? member(card) : memberTest(b, allSubjects, now)(card));
-    const put = (b: BoardDoc, yes: boolean) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: [card] });
-    const remove: MenuSpec = view === 'kanban' && member(card) ? [{ label: 'Remove from board', run: () => put(shownBoard, false) }] : [];
+  /** Add to board › for one thing or several of a kind picked together: each of the project's
+   *  boards that would show them (under All projects, every project's and each one's own
+   *  project's) checked when it holds them (a pick puts them on or takes them off, `boardChoices`),
+   *  saying how many of them it takes where that's fewer than all; and in Kanban, Remove from
+   *  board for the board shown. The canvas has its own Remove from board, for what's picked on it. */
+  const boardItems = (ref: RefKind, keys: string[]): MenuSpec => {
+    if (!boardsOn || keys.length === 0) return [];
+    const has = { lanes: rawLanes, todos: todoStore.todos, prs: board?.prs ?? [] };
+    const cards = keys.map((key) => ({ card: refId(ref, key), project: projectOfCard(ref, key, has) }));
+    const many = (n: number) => (keys.length > 1 ? ` ${count(n, ONE_WORD[ref])}` : '');
+    const holds = (b: BoardDoc) => (b.id === shownBoard.id ? member : memberTest(b, allSubjects, now));
+    const put = (b: BoardDoc, yes: boolean, list: string[]) => void applyBoard({ op: yes ? 'add' : 'remove', id: b.id, cards: list });
+    const choices = boardChoices(boards.boards, cards, holds).map(({ board: b, cards: list, on }) => ({
+      label: list.length < cards.length ? `${boardName(b, current)} (${list.length} of ${cards.length})` : boardName(b, current),
+      checked: on,
+      run: () => put(b, !on, on ? list : list.filter((c) => !holds(b)(c))),
+    }));
+    const held = view === 'kanban' ? cards.map((c) => c.card).filter(member) : [];
+    const remove: MenuSpec = held.length > 0 ? [{ label: `Remove${many(held.length)} from board`, run: () => put(shownBoard, false, held) }] : [];
     return [
       {
-        label: 'Add to board',
-        items: [
-          ...offered.map((b) => ({ label: boardName(b, current), checked: on(b), run: () => put(b, !on(b)) })),
-          'separator',
-          { label: 'New board with it…', run: () => setBoardEdit({ board: null, with: card }) },
-        ],
+        label: `Add${many(cards.length)} to board`,
+        items: [...choices, 'separator', { label: keys.length > 1 ? 'New board with them…' : 'New board with it…', run: () => setBoardEdit({ board: null, with: cards.map((c) => c.card) }) }],
       },
       ...remove,
     ];
   };
   // Making or changing a board, or a column of its Kanban (BoardDialog.tsx).
-  const [boardEdit, setBoardEdit] = useState<{ board: BoardDoc | null; with?: string } | null>(null);
+  const [boardEdit, setBoardEdit] = useState<{ board: BoardDoc | null; with?: string[] } | null>(null);
   const [columnEdit, setColumnEdit] = useState<{ column: BoardColumn | null } | null>(null);
   const boardLayout: BoardLayout = view === 'canvas' ? 'canvas' : 'kanban';
   const showBoard = (id: string) => {
@@ -667,7 +671,7 @@ export function App() {
       return;
     }
     const id = newBoardId();
-    void applyBoard({ op: 'create', board: { id, name: draft.name, project: current, rule: draft.rule, added: boardEdit?.with ? [boardEdit.with] : [], removed: [], columns: draft.columns } });
+    void applyBoard({ op: 'create', board: { id, name: draft.name, project: current, rule: draft.rule, added: boardEdit?.with ?? [], removed: [], columns: draft.columns } });
     boards.pick(id);
     if (view !== 'kanban' && view !== 'canvas') setView(lastLayout);
   };
@@ -1274,6 +1278,7 @@ export function App() {
     undoArchive: setArchivedUndo,
     approve: approveAll,
     cleanUp: setCleaning,
+    boardItems,
   });
 
   // A session moved from Sessions' panel (`moving`): once the board lists its copy, the copy is
@@ -1353,7 +1358,7 @@ export function App() {
       showLane: lane ? { lane, run: () => focusLane(lane, view === 'prs' ? { key: r.key, select: () => picks.prs.select(r, 'one') } : undefined) } : undefined,
       pin: { label: prPins.set.has(p.key) ? 'Unpin PR' : 'Pin PR', run: () => prPins.toggle(p.key), accelerator: 'P' },
       desktop: onDesktop,
-      boards: boardItems('pr', p.key),
+      boards: boardItems('pr', [p.key]),
       lanes,
     });
   };
@@ -1439,7 +1444,7 @@ export function App() {
         setMoving({ from, to: null });
         void copy.then((to) => setMoving((m) => (m?.from !== from ? m : to ? { from, to } : null)));
       },
-      boards: boardItems('session', s.key),
+      boards: boardItems('session', [s.key]),
   });
   const sessionMenuSpec = (lane: Lane, s: Session, pin: 'session' | 'worktree'): MenuSpec => menus.sessionMenu(lane, s, sessionCan(lane, s, pin));
   const sessionMenu = (lane: Lane, s: Session, pin: 'session' | 'worktree') => void showContextMenu(sessionMenuSpec(lane, s, pin)).catch((e: unknown) => setToast(String(e)));
@@ -1499,7 +1504,7 @@ export function App() {
       todos: todoItemsRef.current(lane.project, { worktree: lane.id }, { worktree: lane.id, label: lane.callsign }),
       pin: { label: lanePins.set.has(lane.id) ? 'Unpin worktree' : 'Pin worktree', run: () => toggleLanePin(lane) },
       desktop: onDesktop,
-      boards: boardItems('worktree', lane.id),
+      boards: boardItems('worktree', [lane.id]),
       cleanUp: setCleaning,
   });
   const laneMenuSpec = (lane: Lane): MenuSpec => menus.laneMenu(lane, laneCan(lane));
