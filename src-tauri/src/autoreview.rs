@@ -2004,10 +2004,11 @@ fn keep_files(pr: &PrItem, head: &str, md: &str, diff: &str, changes: Option<&st
 #[allow(clippy::too_many_arguments)]
 fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, model: Option<&str>, effort: Option<&str>, text: String) -> Result<(Option<String>, Option<Pending>), String> {
     let Some((lane, s)) = board.session(key) else { return Err("its session is gone".into()) };
-    // A review you were talking to is the PR's again: what this round says is Codealong's to post.
-    engine.talking(key, false);
     if s.live {
         crate::send::tell(engine, key, &text).map_err(|e| format!("its session couldn't be sent it: {e:#}"))?;
+        // A review you were talking to is the PR's again: what this round says is Codealong's to
+        // post. Not before the round goes, as one that fails leaves it yours.
+        engine.talking(key, false);
         return Ok((Some(key.to_string()), None));
     }
     let start = cfg.reviews.start;
@@ -2016,6 +2017,7 @@ fn hand(engine: &Handle, board: &Board, cfg: &Config, pr: &PrItem, key: &str, mo
     let at = now_ms();
     let how = ResumeIn { place, model: model.map(str::to_string), effort: effort.map(str::to_string) };
     let r = crate::start::resume(board, cfg, key, &how, &crate::send::by_codealong(&text), &crate::send::Sender::Codealong).map_err(|e| format!("its session couldn't go on {}: {e:#}", start_words(start)))?;
+    engine.talking(key, false);
     if let Some(k) = r.key.as_deref().filter(|k| *k != key) {
         link(engine, pr, k);
     }

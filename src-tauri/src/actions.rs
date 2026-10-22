@@ -713,6 +713,7 @@ fn answer_here(engine: &Handle, c: &Call) -> Result<Value, String> {
     let adapter = harness::adapter(s.harness);
     if let Some(m) = saying {
         if let Some(said) = adapter.deny_saying(&ctx, s, &id, m).map_err(words)? {
+            note_talking(engine, c, key);
             return Ok(Value::String(said));
         }
         let said = adapter.answer(&ctx, s, &id, answer).map_err(words)?;
@@ -753,10 +754,18 @@ fn sent_after(engine: &Handle, c: &Call, key: &str, text: &str, said: &str) -> R
 /// your phone makes it yours, and an agent's message gives it back to its agent. Another
 /// device's claims nothing of yours, as an agent there may have sent it, and changes nothing.
 fn note_talking(engine: &Handle, c: &Call, key: &str) {
-    match c.from {
-        From::Here | From::Phone => engine.talking(key, true),
-        From::Command(_) => engine.talking(key, false),
-        From::Device => {}
+    if let Some(yours) = talks(c.from) {
+        engine.talking(key, yours);
+    }
+}
+
+/// Whether a message from `from` makes a helper yours (true), gives it back to its agent
+/// (false), or changes nothing (`note_talking`).
+fn talks(from: &From) -> Option<bool> {
+    match from {
+        From::Here | From::Phone => Some(true),
+        From::Command(_) => Some(false),
+        From::Device => None,
     }
 }
 
@@ -924,6 +933,9 @@ fn resume(engine: &Handle, c: &Call) -> Result<Value, String> {
     unarchive_to_send(engine, c, key);
     let board = engine.board();
     let resumed = crate::start::resume(&board, &cfg()?, key, &p.resume, &p.prompt, &sender_of(c.from)).map_err(words)?;
+    if !p.prompt.trim().is_empty() {
+        note_talking(engine, c, resumed.key.as_deref().unwrap_or(key));
+    }
     if let Some(copy) = resumed.key.as_deref().filter(|k| *k != key) {
         hand_over(engine, &board, key, copy);
     }
@@ -1708,6 +1720,15 @@ mod tests {
         for from in [From::Command(Some("claude:claude:boss".into())), From::Command(None)] {
             assert!(!unarchives(&from, true), "{from:?}");
         }
+    }
+
+    /// What you send a helper from a window or your phone makes it yours; an agent's message
+    /// gives it back; another Mac's, which an agent there may have sent, changes nothing.
+    #[test]
+    fn a_message_you_send_a_helper_makes_it_yours_and_an_agents_gives_it_back() {
+        assert_eq!((talks(&From::Here), talks(&From::Phone)), (Some(true), Some(true)));
+        assert_eq!((talks(&From::Command(Some("claude:claude:boss".into()))), talks(&From::Command(None))), (Some(false), Some(false)));
+        assert_eq!(talks(&From::Device), None);
     }
 
     #[test]
