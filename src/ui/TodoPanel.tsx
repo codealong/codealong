@@ -555,17 +555,9 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
         ))}
       </header>
       <div className="ca-insp-actions ca-todoinsp-actions">
-        {item.primary ? (
-          <>
-            {/* Its primary session runs: what you want done goes there, so it comes first. */}
-            <Button variant="primary" icon="message-circle" title={`Show “${item.primary.session.title}”, its primary session, here`} onClick={() => item.primary && onShowSession(item.primary.lane, item.primary.session)}>
-              Show session
-            </Button>
-            <Button icon="player-play" title={keysIn(`Start another session for this todo (⌘N). It works alongside “${item.primary.session.title}”, which stays its primary session.`)} onClick={onStart}>
-              Start another
-            </Button>
-          </>
-        ) : (
+        {/* While its primary session runs, its chip in the header shows it, and another start is
+            ⌘N or the todo's menu, so the way on isn't a button here. */}
+        {!item.primary && (
           <Button variant="primary" icon="player-play" title={keysIn('Start a session for this todo (⌘N). ⌘-click other todos in the list to start them with it, in one session.')} onClick={onStart}>
             Start session
           </Button>

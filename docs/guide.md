@@ -1325,8 +1325,9 @@ doing, which stays so for the next todo.
 #### The primary session
 
 The first session on a todo is its primary session, so two agents don't do the same work: while it
-runs, the todo opens it, its panel offers Show session before Start another, and a session started
-for it works alongside it and is told to send it what it finds. Once it stops, the next session on
+runs, the todo opens it, its panel has no Start session (its chip, marked primary, shows it; ⌘N or
+Start session… in the todo's menu starts another), and a session started for it works alongside it
+and is told to send it what it finds. Once it stops, the next session on
 the todo takes over and is told where the last one's records are. A session's right-click menu makes
 it a todo's primary session (Primary session for …), and Move to hands the role to the copy. An
 agent's `codealong todo start` is turned down while another session is the primary one and runs,

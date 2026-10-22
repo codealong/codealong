@@ -1,5 +1,5 @@
 // A session's menu in the todo panel says whether it's the todo's primary session, ticked when it
-// is, and the todo panel offers that session before another start.
+// is, and the todo panel has no start button while that session runs, its chip showing it.
 //
 //   PREVIEW_TODOS=scripts/preview/todos-sample.json scripts/preview.sh todo '' scripts/preview/todo-primary-menu-check.js
 //
@@ -13,7 +13,7 @@ until(function () {
     var row = all('.ca-chip', places).filter(function (c) { return !!q('.ca-places-primary', c); })[0];
     if (!row) return stopped('the sample todo’s primary session isn’t running on this board');
     var buttons = all('.ca-todoinsp-actions .ca-btn').map(function (b) { return b.textContent.trim(); });
-    check('the panel offers its primary session first, and another start after it', buttons[0] === 'Show session' && buttons[1] === 'Start another', buttons.join(' | '));
+    check('the panel has no start button while its primary session runs: its chip shows it', buttons.length === 0, buttons.join(' | '));
     rightClick(row);
     return wait(100).then(function () {
       var labels = menuLabels();
