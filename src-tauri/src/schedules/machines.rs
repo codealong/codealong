@@ -53,11 +53,19 @@ pub fn able(s: &Schedule, board: &Board, cfg: &Config, zone: &dyn Zone) -> std::
     }
     if s.run.to != To::Session {
         let account = s.run.account.trim();
+        let on = |name: &str| cfg.accounts.iter().any(|a| a.name == name && !a.disabled);
         if let Some(a) = cfg.accounts.iter().find(|a| a.name == account && a.disabled) {
             return Err(format!("{} is turned off here.", a.name));
         }
-        if (account.is_empty() || account == "auto") && !cfg.accounts.is_empty() && cfg.accounts.iter().all(|a| a.disabled) {
-            return Err("Every account is turned off here.".into());
+        // A routing group with a member turned on here; Auto, or a group of every account, with
+        // any account on.
+        let members = cfg.routing.groups.iter().find(|g| g.name.trim() == account).map(|g| &g.members);
+        let any_on = !cfg.accounts.is_empty() && cfg.accounts.iter().all(|a| a.disabled);
+        match members {
+            Some(m) if !m.is_empty() && !m.iter().any(|x| on(&x.account)) => return Err(format!("Every account in {account} is turned off here.")),
+            Some(m) if m.is_empty() && any_on => return Err("Every account is turned off here.".into()),
+            None if (account.is_empty() || account == "auto") && any_on => return Err("Every account is turned off here.".into()),
+            _ => {}
         }
     }
     Ok(())
@@ -146,12 +154,13 @@ pub fn merged(file: &File, machines: &Machines, now: i64) -> Option<Merged> {
             Some(_) => {}
         }
     }
-    // A schedule shared again since it went is back; and what went long ago is forgotten, once no
-    // machine has a copy from before it went (one that's off keeps its copy here, and it would
-    // come back from that).
+    // A schedule shared again since it went is back; and what went long ago is forgotten, once
+    // every other machine has been heard from since without a copy from before it went (one that's
+    // off keeps its copy, and it would come back from that).
     let back = |g: &codealong_peer::schedules::Gone| out.schedules.iter().any(|s| s.id == g.id && s.runs_on.shared() && s.updated_at > g.at);
-    let before = |g: &codealong_peer::schedules::Gone| machines.others.iter().flat_map(|m| &m.schedules.list).any(|x| x.id == g.id && x.schedule.get("updatedAt").and_then(serde_json::Value::as_i64).is_none_or(|u| u <= g.at));
-    let gone: Vec<_> = out.gone.iter().filter(|g| !back(g) && (now - g.at < KEEP_GONE_MS || before(g))).cloned().collect();
+    let copy_before = |m: &crate::shared::Machine, g: &codealong_peer::schedules::Gone| m.schedules.list.iter().any(|x| x.id == g.id && x.schedule.get("updatedAt").and_then(serde_json::Value::as_i64).is_none_or(|u| u <= g.at));
+    let heard = |g: &codealong_peer::schedules::Gone| machines.others.iter().all(|m| m.last_seen.is_some_and(|t| t > g.at) && !copy_before(m, g));
+    let gone: Vec<_> = out.gone.iter().filter(|g| !back(g) && (now - g.at < KEEP_GONE_MS || !heard(g))).cloned().collect();
     out.gone = gone;
     (out != *file).then_some(Merged { file: out, resumed, removed })
 }
@@ -203,10 +212,11 @@ pub fn taken<'a>(machines: &'a Machines, id: &str, due: i64) -> Option<&'a str> 
     machines.others.iter().find(|m| m.schedules.get(id).and_then(|x| x.took).is_some_and(|t| t >= due)).map(|m| m.name.as_str())
 }
 
-/// Whether a machine that has a copy of a schedule isn't connected, so what it did since it was
-/// last heard from isn't known here.
-pub fn unheard(machines: &Machines, id: &str) -> bool {
-    machines.others.iter().any(|m| !m.online && m.schedules.get(id).is_some())
+/// Whether a machine that has a copy of a schedule hasn't been heard from since `since` (this one
+/// woke), so what it did meanwhile isn't known here: a connection that outlived the sleep, or
+/// one just made, brings its feed a moment later.
+pub fn unheard(machines: &Machines, id: &str, since: i64) -> bool {
+    machines.others.iter().any(|m| m.schedules.get(id).is_some() && m.last_seen.is_none_or(|t| t < since))
 }
 
 /// What the other machines ran a schedule for.
@@ -318,6 +328,25 @@ mod tests {
     }
 
     #[test]
+    fn a_routing_group_or_auto_with_nothing_on_here_cant_run_it() {
+        let z = rule::tests::Fake::utc();
+        let account = |name: &str, disabled| crate::config::AccountCfg { name: name.into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled };
+        let member = |a: &str| crate::config::GroupMemberCfg { account: a.into(), ..crate::config::GroupMemberCfg::default() };
+        let mut cfg = Config::default();
+        cfg.accounts = vec![account("claude", true), account("codex", false)];
+        cfg.routing.groups = vec![crate::config::RoutingGroupCfg { name: "reviewers".into(), members: vec![member("claude")], ..crate::config::RoutingGroupCfg::default() }];
+        let mut s = schedule("s-1", one(""), 5);
+        s.run.account = "reviewers".into();
+        assert_eq!(able(&s, &Board::default(), &cfg, &z), Err("Every account in reviewers is turned off here.".into()));
+        s.run.account = "claude".into();
+        assert_eq!(able(&s, &Board::default(), &cfg, &z), Err("claude is turned off here.".into()));
+        s.run.account = String::new();
+        assert_eq!(able(&s, &Board::default(), &cfg, &z), Ok(()), "Auto has codex");
+        cfg.accounts[1].disabled = true;
+        assert_eq!(able(&s, &Board::default(), &cfg, &z), Err("Every account is turned off here.".into()));
+    }
+
+    #[test]
     fn says_where_it_runs_next() {
         let s = schedule("s-1", one(MINI), 5);
         let mini = machine(MINI, "Mini", Rank::First, true, vec![copy(&s, true)]);
@@ -386,6 +415,10 @@ mod tests {
         assert!(merged(&old, &machines(Rank::First, vec![went]), NOW).unwrap().file.gone.iter().all(|g| g.id != "s-7"));
         let off = machine(STUDIO, "Studio", Rank::First, false, vec![copy(&schedule("s-7", one(""), NOW - 2 * KEEP_GONE_MS), true)]);
         assert_eq!(merged(&old, &machines(Rank::First, vec![off]), NOW), None, "kept, and the copy not taken in");
+        // Nor while a machine hasn't been heard from since it went, whose copy may not be in its
+        // feed yet.
+        let quiet = Machine { last_seen: Some(NOW - 2 * KEEP_GONE_MS), ..machine(STUDIO, "Studio", Rank::First, false, Vec::new()) };
+        assert_eq!(merged(&old, &machines(Rank::First, vec![quiet]), NOW), None);
     }
 
     #[test]

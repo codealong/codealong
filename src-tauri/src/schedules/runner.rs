@@ -119,6 +119,17 @@ pub struct Cause {
     pub by_check: bool,
 }
 
+/// When this machine first saw a shared schedule's time due, as `(due, at)`, from what it noted
+/// before: a later time while the one before it was taken by nobody goes on from when that one
+/// came, so a schedule that runs every few minutes still gets to the next in line.
+fn noticing(before: Option<(i64, i64)>, due: i64, last_due: Option<i64>, now: i64) -> (i64, i64) {
+    match before {
+        Some((d, at)) if d == due => (d, at),
+        Some((d, at)) if d < due && last_due.is_none_or(|l| l < d) => (due, at),
+        _ => (due, now),
+    }
+}
+
 /// The first machine in a shared schedule's line, whose turn it was, when it isn't this one.
 fn instead_of(line: Option<&Vec<machines::Seat>>) -> Option<&str> {
     line?.first().filter(|x| !x.me).map(|x| x.name.as_str())
@@ -220,12 +231,9 @@ impl Scheduler {
         let cx = Cx { cfg: &cfg, noticed: &self.noticed, woke_at: self.woke_at };
         let (jobs, notes, noticed) = plan_in(&file, &runs, board, &self.busy, &cx, now, zone);
         for (id, due) in noticed {
-            match self.noticed.get(&id) {
-                Some((d, _)) if *d == due => {}
-                _ => {
-                    self.noticed.insert(id, (due, now));
-                }
-            }
+            let last_due = runs.of.get(&id).and_then(|t| t.last_due);
+            let seen = noticing(self.noticed.get(&id).copied(), due, last_due, now);
+            self.noticed.insert(id, seen);
         }
         // What each run is for is noted as taken before it goes, so a run that falls over partway
         // (or Codealong quitting) can't start it twice: at most once, never twice.
@@ -335,7 +343,7 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
         // one of them, the line it goes by, and whether the others' feeds are still to come.
         let able_here = !s.runs_on.shared() || machines::able(s, board, cx.cfg, zone).is_ok();
         let line = matches!(s.runs_on, RunsOn::One { .. }).then(|| machines::line(s, &board.machines, able_here, now));
-        let settling = now - cx.woke_at < machines::SETTLE_MS && machines::unheard(&board.machines, &s.id);
+        let settling = now - cx.woke_at < machines::SETTLE_MS && machines::unheard(&board.machines, &s.id, cx.woke_at);
         // Its watch looks, and its events run, on the first in line alone.
         let first_here = match &line {
             Some(l) => !settling && l.first().is_some_and(|x| x.me),
@@ -739,17 +747,21 @@ fn watch(engine: &Handle, id: &str) {
         RunsOn::One { .. } => engine.read(|b| Baseline { track: &track, theirs: machines::their_watches(&b.machines, id).into_iter().cloned().collect(), their_seen: machines::their_seen(&b.machines, id).into_iter().map(str::to_string).collect() }),
         _ => Baseline { track: &track, theirs: Vec::new(), their_seen: HashSet::new() },
     };
-    let (seeded_before, last_value) = (base.seeded(), base.value());
+    let seeded_before = base.seeded();
     let is_new = |line: &str| base.is_new(line);
     let now = now_ms();
     let looked = run_command(s, command, track.last_ok);
     let mut found = Vec::new();
+    // What it printed is what the next look goes by, here and on your other machines, once it's
+    // other than what that was: `changed_at` says so.
+    let mut moved = false;
     let (check, lines, value, seeded) = match looked {
         Err(why) => (Check { at: now, ok: false, said: why, failures: track.check.as_ref().map_or(0, |c| c.failures) + 1 }, None, track.value.clone(), track.seeded),
         Ok(out) => match mode {
             WatchMode::Lines => {
                 let lines = found_in(&out);
                 let ids: Vec<String> = lines.iter().map(|f| f.id.clone()).collect();
+                moved = ids != track.looked;
                 if seeded_before {
                     found = lines.into_iter().filter(|f| is_new(&f.id)).collect();
                 }
@@ -762,7 +774,8 @@ fn watch(engine: &Handle, id: &str) {
             }
             WatchMode::Value => {
                 let v = out.trim().to_string();
-                let changed = seeded_before && !v.is_empty() && last_value.as_deref() != Some(v.as_str());
+                moved = base.changed_to(&v);
+                let changed = seeded_before && moved;
                 if changed {
                     found.push(Found { id: format!("value:{}", crate::util::one_line(&v, 120)), title: crate::util::one_line(&v, 120), url: String::new(), text: v.clone(), todo: None });
                 }
@@ -781,8 +794,7 @@ fn watch(engine: &Handle, id: &str) {
             t.last_ok = Some(check.at);
         }
         t.check = Some(check);
-        // When what it printed last changed, for the machine that looks next.
-        if t.value != value || lines.as_ref().is_some_and(|l| *l != t.looked) {
+        if moved {
             t.changed_at = Some(now);
         }
         t.value = value;
@@ -842,6 +854,11 @@ impl Baseline<'_> {
     fn value(&self) -> Option<String> {
         let mine = self.track.changed_at.unwrap_or_default();
         self.theirs.iter().filter(|w| w.changed_at > mine).max_by_key(|w| w.changed_at).map_or_else(|| self.track.value.clone(), |w| w.value.clone())
+    }
+
+    /// Whether a value printed now is other than the latest any of them saw.
+    fn changed_to(&self, v: &str) -> bool {
+        !v.is_empty() && self.value().as_deref() != Some(v)
     }
 }
 
@@ -1556,7 +1573,22 @@ mod tests {
             assert_eq!(base.value().as_deref(), Some("deploy 41"), "the latest change, wherever it was seen");
             // This machine's own look is the later.
             let later = Track { changed_at: Some(30), ..mine.clone() };
-            assert_eq!(Baseline { track: &later, ..base }.value().as_deref(), Some("deploy 39"));
+            assert_eq!(Baseline { track: &later, theirs: base.theirs.clone(), their_seen: base.their_seen.clone() }.value().as_deref(), Some("deploy 39"));
+            // Taking over, this machine sees deploy 39 again: a change from Mini's deploy 41, run
+            // for once, and noted as the latest, so the next look of it isn't another.
+            assert!(base.changed_to("deploy 39") && !base.changed_to(""));
+            let noted = Track { value: Some("deploy 39".into()), changed_at: Some(40), ..mine.clone() };
+            assert!(!Baseline { track: &noted, ..base }.changed_to("deploy 39"));
+        }
+
+        #[test]
+        fn a_time_nobody_took_keeps_its_wait_as_the_next_comes() {
+            // Every 5m: 9:00 came at 9:00 and nobody took it; at 9:05 the wait goes on from 9:00.
+            assert_eq!(noticing(None, 900, Some(800), 901), (900, 901));
+            assert_eq!(noticing(Some((900, 901)), 900, Some(800), 950), (900, 901));
+            assert_eq!(noticing(Some((900, 901)), 905, Some(800), 906), (905, 901));
+            // Taken, the next time's wait starts when it comes.
+            assert_eq!(noticing(Some((900, 901)), 905, Some(900), 906), (905, 906));
         }
 
         #[test]

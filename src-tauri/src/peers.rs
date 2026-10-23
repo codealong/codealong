@@ -1207,6 +1207,10 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
             st.boards += 1;
             st.board_at = None;
         }
+        // What it doesn't know any more, back on another build, goes from the copy kept of it.
+        if let Some(c) = st.replicas.get_mut(&hex).filter(|_| linked) {
+            c.replica.heard_from(&knows);
+        }
         // A device that knows how gets only what changed since its copy of this one's last feed.
         let resume = (linked && knows.iter().any(|k| k == peerproto::HAVE)).then(|| st.replicas.get(&hex).map(|c| c.replica.have())).flatten().filter(|h| !h.is_empty());
         st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::for_device(&knows), knows, fed_board: 0, fed_at: None });

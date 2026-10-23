@@ -1470,8 +1470,9 @@ the others' looks saw and what they ran for, and with *Keep notes between runs* 
 the latest any machine wrote; *At most … runs a day* counts the runs of all of them. A machine's
 runs of it are listed on the others too, with where they ran. Run now and `codealong schedule
 fire` run it on the machine you ask. Each machine reads its times on its own clock, so machines in
-other time zones run a time as their clocks have it. Machines on builds from before 2026-10-23
-take no part.
+other time zones run a time as their clocks have it. Link each of them with each of the others: a
+machine linked to the rest only through one of them hears the schedule but not what they ran, and
+runs it too. Machines on builds from before 2026-10-23 take no part.
 
 `codealong schedule list|show|add|remove|pause|resume|run|fire|times` does the same from a
 terminal or an agent, an agent adding one for itself with `--to me` (a check back on its own work
