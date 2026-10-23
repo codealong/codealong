@@ -436,7 +436,7 @@ which pass along packets they can't read. There's no Codealong server in between
 **On your iPhone**, [Codealong for iPhone](https://github.com/codealong/codealong-ios) links with
 your machines the same way and lists every session, most urgent first, to read, and where a machine
 has remote control on, to reply to, approve and start. It's early, and for now you build and install
-it yourself.
+it yourself: Get the iPhone app, in Settings › Devices, starts an agent that does it with you.
 
 ### A board your agents can read too
 
@@ -832,8 +832,9 @@ starts.
 
 **Can I answer my agents from my phone?**
 Soon: [Codealong for iPhone](https://github.com/codealong/codealong-ios) is early, and for now you
-build and install it yourself. Today you can answer an agent from any of your machines: link them,
-and turn on remote control on the machine the agent runs on.
+build and install it yourself (Get the iPhone app, in Settings › Devices, has an agent do it with
+you). Today you can answer an agent from any of your machines: link them, and turn on remote
+control on the machine the agent runs on.
 
 **How is it different from apps that run agents in their own window?**
 Those apps see only the agents they launched. Codealong reads the agents you already run, across

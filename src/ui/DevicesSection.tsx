@@ -1,18 +1,21 @@
 // Settings › Devices: Codealong on your other devices (src-tauri/src/peers.rs). Turning it on,
-// how this device finds the others, the devices it's linked with and their colors, linking more,
+// how this device finds the others, the devices it's linked with and their colors, linking more
+// (and getting the iPhone app, which a session started here installs with you),
 // remote control, and where this machine stands for the automations your machines share
 // (shared.rs). The switches are `[devices]` in config.toml; linking goes through the engine,
 // which keeps the list.
 
 import { useEffect, useState } from 'react';
 import { below, showContextMenu } from '../contextMenu';
-import { answerLink, deviceLinkCode, getDevices, linkCodeQr, linkDevice, linkWithCode, onDevices, setDeviceColor, unlinkDevice } from '../api';
+import { answerLink, deviceLinkCode, getDevices, linkCodeQr, linkDevice, linkWithCode, onDevices, setDeviceColor, showQuick, unlinkDevice, windowLabel } from '../api';
+import { IPHONE_PROMPT } from '../devices';
 import { agoPhrase } from '../format';
 import { COLOR_WORD } from '../todos';
 import type { Config, DevicesCfg, DevicesView, DeviceView, LabelColor, Rank } from '../types';
 import { DEVICES_OFF, LABEL_COLORS } from '../types';
 import { Button, CheckBox, Seg } from './primitives';
 import { errorText } from '../report';
+import { platform } from '../platform';
 
 /** Where a machine stands for the automations your machines share, in words. */
 const RANKS: { id: Rank; label: string; says: string }[] = [
@@ -223,6 +226,16 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
                   {busy === 'code' ? 'Linking…' : 'Link'}
                 </Button>
               </form>
+              {/* Building it takes Xcode, so a Mac. The panel opens on a chat of its own, which
+                  finds or clones the app's repo itself. */}
+              {platform() === 'mac' && (
+                <div className="ca-acct-actions">
+                  <Button size="sm" icon="device-mobile" onClick={() => void showQuick({ chat: true, prompt: IPHONE_PROMPT, opener: windowLabel() })}>
+                    Get the iPhone app…
+                  </Button>
+                  <span className="ca-acct-asof">It isn’t on the App Store yet: an agent builds it and installs it on your phone with you.</span>
+                </div>
+              )}
             </div>
           )}
           {note && (

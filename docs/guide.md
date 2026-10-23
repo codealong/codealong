@@ -3024,6 +3024,14 @@ Settings › General, has it running again after a restart without your opening 
 session goes out with its place among its Mac's pins, so the iPhone app lists a Mac's pinned
 sessions first, in that Mac's order, and pins or unpins one there, remote control or not.
 
+The iPhone app isn't on the App Store yet: you build it with Xcode and install it on your phone, as
+[its README](https://github.com/codealong/codealong-ios) says. Get the iPhone app, on the card for
+linking a phone in Settings › Devices (on a Mac), opens the quick panel on a chat of its own with a
+prompt that has an agent do it with you: find or clone the app's repo (into a folder Codealong scans),
+install what it needs, walk you through what only you can do on the phone and in Xcode, run its
+install script, and link the phone with this Mac by a link code. With a free Apple developer team
+the app runs for a week before it needs installing again, which the same button does.
+
 One of your machines runs what they share rather than all of them: for now, reviewing a pull
 request that asks for your review (see *Automatic reviews*). Settings › Devices says where this
 machine stands for those, a first choice, or a backup that runs them only while no first choice
