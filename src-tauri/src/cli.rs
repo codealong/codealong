@@ -5197,7 +5197,8 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
         _ => None,
     };
     let cfg = c.cfg()?.clone();
-    let done = schedules::apply_op(op, by.as_deref(), &cfg, now, &Local)?;
+    let board = c.board()?.clone();
+    let done = schedules::apply_op(op, by.as_deref(), Some(&board), &cfg, now, &Local)?;
     if json {
         return print_json(&done);
     }

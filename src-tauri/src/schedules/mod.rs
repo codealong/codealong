@@ -129,8 +129,8 @@ pub struct Schedule {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resumed_at: Option<i64>,
     /// The repo its folder is a checkout of, for your other machines, which run it in a checkout of
-    /// their own wherever that is (`place`): said as it's shared (machines.rs `outgoing`), and kept
-    /// while its folder stays as it was.
+    /// their own wherever that is (`place`): as the worktree picked says it, on the machine where it
+    /// was saved (`checkout_for`), and passed on as it is by the others.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkout: Option<Checkout>,
 }
@@ -950,9 +950,25 @@ pub enum Op {
     },
 }
 
+/// The repo a schedule saved here is a checkout of: as its worktree here says now (none when that
+/// worktree has no repo another machine could tell, or is on no branch); for a folder that isn't a
+/// worktree here, a copy from a machine laid out otherwise, the one it came with while its folder
+/// stays as it was.
+pub fn checkout_for(s: &Schedule, was: Option<&Schedule>, board: Option<&Board>) -> Option<Checkout> {
+    let folder = s.run.folder.trim();
+    if folder.is_empty() {
+        return None;
+    }
+    match board.and_then(|b| worktree(b, folder)) {
+        Some(lane) => Checkout::of(lane),
+        None => was.filter(|w| w.run.folder.trim() == folder).and_then(|w| w.checkout.clone()),
+    }
+}
+
 /// Makes a change to the schedules. `by` is the session whose agent asked, from the command: a
-/// schedule it adds is its own. What the change came to, for its window or command to show.
-pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zone) -> Result<serde_json::Value> {
+/// schedule it adds is its own. `board` says which worktree its folder is (`checkout_for`). What
+/// the change came to, for its window or command to show.
+pub fn apply_op(op: Op, by: Option<&str>, board: Option<&Board>, cfg: &Config, now: i64, zone: &dyn Zone) -> Result<serde_json::Value> {
     let found = |file: &File, id: &str| -> Result<String> {
         match file.find(id) {
             Some(s) => Ok(s.id.clone()),
@@ -972,9 +988,6 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
                         schedule.created_at = was.created_at;
                         schedule.created_by = was.created_by.clone();
                         schedule.resumed_at = if was.paused && !schedule.paused { Some(now) } else { was.resumed_at };
-                        if schedule.checkout.is_none() && schedule.run.folder == was.run.folder {
-                            schedule.checkout = was.checkout.clone();
-                        }
                         // Made this machine's alone: the other machines drop their copies.
                         if was.runs_on.shared() && !schedule.runs_on.shared() {
                             file.gone.push(codealong_peer::schedules::Gone { id: schedule.id.clone(), at: now });
@@ -989,6 +1002,7 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
                     }
                 }
                 schedule.updated_at = now;
+                schedule.checkout = checkout_for(&schedule, old.map(|i| &file.schedules[i]), board);
                 if let Err(why) = check(&schedule, cfg, now, zone) {
                     bail!("{why}");
                 }
@@ -1329,6 +1343,23 @@ mod tests {
         // What a worktree is, said for another machine.
         assert_eq!(Checkout::of(&board.lanes[2]), Some(Checkout { repo: "acme/infra".into(), branch: Some("fix-alerts".into()) }));
         assert_eq!(Checkout::of(&crate::fixtures::lane("/tmp/x", Vec::new())), None, "no repo");
+    }
+
+    #[test]
+    fn its_repo_is_as_the_worktree_saved_here_says() {
+        let here = crate::model::Lane { id: "/Users/me/code/infra".into(), path: "/Users/me/code/infra".into(), repo_slug: Some("acme/infra".into()), ..crate::fixtures::lane("/w", Vec::new()) };
+        let board = Board { lanes: vec![here.clone()], ..Board::default() };
+        let s = |folder: &str, checkout: Option<Checkout>| Schedule { run: Run { folder: folder.into(), ..Run::default() }, checkout, ..Schedule::default() };
+        let acme = Some(Checkout { repo: "acme/infra".into(), branch: None });
+        assert_eq!(checkout_for(&s("/Users/me/code/infra", None), None, Some(&board)), acme);
+        // A copy laid out otherwise, saved here: the repo it came with.
+        let came = s("~/projects/infra", Some(Checkout { repo: "acme/infra".into(), branch: None }));
+        assert_eq!(checkout_for(&s("~/projects/infra", None), Some(&came), Some(&board)), acme);
+        // Its folder changed to one that isn't a worktree here: none to say.
+        assert_eq!(checkout_for(&s("~/projects/other", None), Some(&came), Some(&board)), None);
+        // Its worktree here no longer has a repo another machine could tell: none, not the old one.
+        let bare = Board { lanes: vec![crate::model::Lane { repo_slug: None, ..here }], ..Board::default() };
+        assert_eq!(checkout_for(&s("/Users/me/code/infra", None), Some(&s("/Users/me/code/infra", acme.clone())), Some(&bare)), None);
     }
 
     #[test]

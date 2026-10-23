@@ -230,7 +230,7 @@ impl Scheduler {
             self.noticed.clear();
         }
         self.last_tick = now;
-        sync(&board.machines, now);
+        sync(board, now);
         let (Ok(file), Ok(runs), Ok(cfg)) = (load(), load_runs(), crate::config::current()) else { return Vec::new() };
         let cx = Cx { cfg: &cfg, noticed: &self.noticed, woke_at: self.woke_at };
         let (jobs, notes, noticed) = plan_in(&file, &runs, board, &self.busy, &cx, now, zone);
@@ -449,9 +449,27 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
 /// latest notes of the ones that run on one of them: a copy that's newer, one that's new here, one
 /// that went; notes written elsewhere since this machine's were. What's changed here is left to the
 /// next feed to tell the others of.
-fn sync(others: &crate::shared::Machines, now: i64) {
+fn sync(board: &Board, now: i64) {
+    let others: &crate::shared::Machines = &board.machines;
     if others.others.is_empty() {
         return;
+    }
+    let Ok(file) = load() else { return };
+    // Shared before copies said their repo: said now, as a change the others take in.
+    if !machines::unsaid(&file, board, others).is_empty() {
+        let _ = change(|f| {
+            let unsaid = machines::unsaid(f, board, others);
+            if unsaid.is_empty() {
+                bail!("Nothing to say.");
+            }
+            for (id, c) in unsaid {
+                if let Some(s) = f.schedules.iter_mut().find(|s| s.id == id) {
+                    s.checkout = Some(c);
+                    s.updated_at = now;
+                }
+            }
+            Ok(())
+        });
     }
     let Ok(file) = load() else { return };
     if machines::merged(&file, others, now).is_some() {

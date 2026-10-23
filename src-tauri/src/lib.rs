@@ -1732,9 +1732,10 @@ fn board_answer(id: u64, result: serde_json::Value, error: Option<String>) {
 /// A change to the schedules (schedules.rs `Op`): what it came to. The board shows it once the
 /// engine reads the file again.
 #[tauri::command(async)]
-fn schedule_op(op: schedules::Op) -> Result<serde_json::Value, String> {
+fn schedule_op(engine: State<'_, engine::Handle>, op: schedules::Op) -> Result<serde_json::Value, String> {
     let cfg = config::current().map_err(util::words)?;
-    schedules::apply_op(op, None, &cfg, util::now_ms(), &schedules::rule::Local).map_err(util::words)
+    let board = engine.board();
+    schedules::apply_op(op, None, Some(&board), &cfg, util::now_ms(), &schedules::rule::Local).map_err(util::words)
 }
 
 /// A schedule's time as it's being written: in words, and its next few times.
