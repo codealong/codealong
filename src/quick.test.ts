@@ -697,9 +697,11 @@ describe('folders typed in the worktree menu', () => {
     expect(['projects', '~kestrel', 'app main', ''].map(isFolderPath)).toEqual([false, false, false, false]);
   });
 
-  it('starts where most main checkouts are', () => {
+  it('starts where most main checkouts are, written whole', () => {
     const at = (path: string, origin: Lane['origin'] = 'main') => fx.lane({ id: path, path, origin });
-    expect(folderStart([at('/Users/me/projects/a'), at('/Users/me/projects/b'), at('/Users/me/code/c'), at('/Users/me/code/d/w', 'claude-app'), at('/Users/me/code/e/w', 'claude-app')])).toBe('~/projects/');
+    expect(folderStart([at('/Users/me/projects/a'), at('/Users/me/projects/b'), at('/Users/me/code/c'), at('/Users/me/code/d/w', 'claude-app'), at('/Users/me/code/e/w', 'claude-app')])).toBe('/Users/me/projects/');
+    // Not your home's projects folder, which `~/projects/` would name.
+    expect(folderStart([at('/Users/Shared/projects/a')])).toBe('/Users/Shared/projects/');
     expect(folderStart([])).toBe('~/');
   });
 

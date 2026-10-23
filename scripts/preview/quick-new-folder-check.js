@@ -4,10 +4,10 @@
 // whose names start with what’s typed, ahead of making a folder of a name half typed, a click on
 // one going on from it; a new folder is offered as a project of its own and in the project the
 // panel is on, an existing one to add, one whose parent isn't there is refused, and a worktree's
-// own folder is that worktree. ⏎ adds the first
-// (add_folder, a project of its own), and until the board has it the chip says it's being added
-// and the start row starts nothing. The disk is fake-tauri.js's: ~/projects with atlas and
-// atlas-web in it.
+// own folder is that worktree. ⏎ adds the first (add_folder, a project of its own), and until the
+// board has it the chip says it's being added and the start row starts nothing; a worktree picked
+// before an add's answer comes stays picked, and starts there. The disk is fake-tauri.js's:
+// ~/projects with atlas and atlas-web in it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-new-folder-check.js
 // The board needs a project with a worktree in it.
 (function () {
@@ -104,6 +104,35 @@
       var info = q('.ca-quick-error.is-info');
       check('the start row waits for it', calls('start_from_quick').length === 0, calls('start_from_quick').length + ' starts');
       check('and says why', !!info && /Still adding kestrel/.test(info.textContent), info && info.textContent);
+      // Another folder added slowly, and a worktree picked before its answer comes.
+      window.__ADD_FOLDER_DELAY__ = 1500;
+      chip().click();
+      return until(function () { return options().length > 0; }, 5000, 'the worktree menu again');
+    })
+    .then(function () {
+      return typeIn('~/projects/northwind', function () { return !!named('northwind'); });
+    })
+    .then(function () {
+      key(filter(), { key: 'Enter' });
+      return until(function () { return calls('add_folder').length > 1 && /Adding northwind/.test(chip().title); }, 3000, 'northwind being added');
+    })
+    .then(function () {
+      chip().click();
+      return until(function () { return !!named(lane.callsign + ' (main checkout)'); }, 5000, lane.callsign + ' in the menu');
+    })
+    .then(function () {
+      named(lane.callsign + ' (main checkout)').click();
+      return wait(2500);
+    })
+    .then(function () {
+      check('a worktree picked while a folder is added stays picked once its answer comes', chip().textContent === lane.callsign + ' (main)' && !/Adding/.test(chip().title), chip().textContent + ' / ' + chip().title);
+      var before = calls('start_from_quick').length;
+      key(input(), { key: 'Enter', metaKey: true });
+      return until(function () { return calls('start_from_quick').length > before; }, 3000, 'the start').then(function () { return null; });
+    })
+    .then(function () {
+      var spec = last('start_from_quick').spec;
+      check('and the start goes there', spec.laneId === lane.id, spec.laneId);
       done();
     })
     .catch(stopped);

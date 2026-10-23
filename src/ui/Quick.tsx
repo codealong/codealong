@@ -270,8 +270,13 @@ export function Quick() {
   const [attached, setAttached] = useState<Attachment[]>([]);
   const [laneId, setLaneId] = useState<string | null>(null);
   // A folder picked in the worktree menu that's being put on the board (newfolder.rs): until the
-  // board here has its worktree, the panel waits for it rather than start somewhere else.
-  const [adding, setAdding] = useState<{ name: string; laneId: string | null } | null>(null);
+  // board here has its worktree, the panel waits for it rather than start somewhere else. It
+  // holds while the worktree picked is the one it was picked over (`from`), or the one it
+  // answered; each pick and each fresh open is a new turn, and an answer to an earlier one picks
+  // nothing.
+  const [adding, setAdding] = useState<{ name: string; from: string | null; laneId: string | null } | null>(null);
+  const addTurn = useRef(0);
+  const addingNow = adding && laneId === (adding.laneId ?? adding.from) ? adding : null;
   // A folder's path typed in the worktree menu, and what the engine found there.
   const [folderTyped, setFolderTyped] = useState('');
   const [folderLook, setFolderLook] = useState<FolderLook | null>(null);
@@ -391,6 +396,9 @@ export function Quick() {
         routes.current.clear();
         setOpener(ctx.opener ?? null);
         setError(null);
+        // A folder still being added is no longer what's picked.
+        addTurn.current += 1;
+        setAdding(null);
         // Improve Codealong (improve.ts) opens on Codealong's own project and worktree, as the
         // board has them, with the pictures the engine took of the windows.
         const improving = ctx.improve && typeof ctx.improve === 'object' ? ctx.improve : null;
@@ -1283,8 +1291,8 @@ export function Quick() {
     if (!where || !targetAccount || !targetPlace) return;
     // The worktree picked below is still coming onto the board: the start row would start in
     // another one meanwhile.
-    if (!over && adding) {
-      setInfo(`Still adding ${adding.name}; start again in a moment.`);
+    if (!over && addingNow) {
+      setInfo(`Still adding ${addingNow.name}; start again in a moment.`);
       return;
     }
     const newTree = targetMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
@@ -1724,20 +1732,31 @@ export function Quick() {
   const pickWorktree = (id: string) => {
     setPicker(null);
     refocus();
+    const turn = ++addTurn.current;
     const project = addsTo(id);
     if (project === undefined || !looked) {
+      setAdding(null);
       setLaneId(id);
       return;
     }
     const name = looked.name;
-    setAdding({ name, laneId: null });
+    const from = laneId;
+    setAdding({ name, from, laneId: null });
     setError(null);
+    // The answer picks the folder only while nothing else has been picked since.
+    const ours = () => addTurn.current === turn;
     addFolder(looked.typed, project)
       .then((added) => {
+        if (!ours()) return;
+        if (laneIdNow.current !== from) {
+          setAdding(null);
+          return;
+        }
         setLaneId(added);
-        setAdding({ name, laneId: added });
+        setAdding({ name, from, laneId: added });
       })
       .catch((e: unknown) => {
+        if (!ours()) return;
         setAdding(null);
         setError(errorText(e));
       });
@@ -2383,9 +2402,9 @@ export function Quick() {
               </div>
             )}
             <div className="ca-quick-pick">
-              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(adding ? `Adding ${adding.name}…` : lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
-                <Icon name={adding ? 'folder-plus' : lane?.startsChats ? 'message-circle' : 'folder'} size={14} />
-                <span>{adding ? adding.name : lane ? (lane.startsChats ? NO_PROJECT : lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(addingNow ? `Adding ${addingNow.name}…` : lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
+                <Icon name={addingNow ? 'folder-plus' : lane?.startsChats ? 'message-circle' : 'folder'} size={14} />
+                <span>{addingNow ? addingNow.name : lane ? (lane.startsChats ? NO_PROJECT : lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
                 <Icon name="chevron-down" size={12} />
               </button>
               {picker === 'worktree' && (

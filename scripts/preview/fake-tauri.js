@@ -964,7 +964,8 @@ window.__TAURI_INTERNALS__ = {
     // A folder's path typed in the quick panel's worktree menu (newfolder.rs `look`), on a made-up
     // disk: the board's worktrees, and ~/projects with atlas and atlas-web in it; any other name in
     // ~/projects is a new folder, and anywhere else isn't there. Adding one answers a worktree the
-    // board never gets, so the panel goes on waiting for it.
+    // board never gets, so the panel goes on waiting for it, after `window.__ADD_FOLDER_DELAY__`
+    // milliseconds when a check sets it.
     if (cmd === 'look_folder' || cmd === 'add_folder') {
       return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
         var typed = (args && args.typed) || '';
@@ -988,7 +989,7 @@ window.__TAURI_INTERNALS__ = {
         var look = { typed: typed, path: path, shown: shown, name: path.slice(path.lastIndexOf('/') + 1), exists: exists, refused: refused, lane: lane ? lane.id : null, project: null, completions: completions };
         if (cmd === 'look_folder') return look;
         if (look.refused) return Promise.reject(look.refused);
-        return look.lane || path;
+        return new Promise(function (answer) { setTimeout(function () { answer(look.lane || path); }, window.__ADD_FOLDER_DELAY__ || 0); });
       });
     }
     // The setup wizard shows by itself only when `window.__setupNeeded` says it's a first run;

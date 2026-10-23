@@ -8,7 +8,7 @@
 // (`sendTargets`), its own box finding one while the prompt waits. Kept free of React so the
 // rules have tests.
 
-import { agoPhrase, middleTruncate, tildePath } from './format';
+import { agoPhrase, middleTruncate } from './format';
 import { heldForAgent } from './prStatus';
 import { branchLabel, byStatusTime, sessionHomes, snoozedApart, unattended } from './lanes';
 import { inQueueOrder, statusWaits, type Reads } from './queue';
@@ -511,7 +511,8 @@ export function isFolderPath(text: string): boolean {
 }
 
 /** Where a folder typed in the worktree menu starts from: the folder most of this Mac's main
- *  checkouts are in, `~/` without any. */
+ *  checkouts are in, `~/` without any. Written whole: the page doesn't know which folder is your
+ *  home (`tildePath` takes any `/Users/<name>` for it), and the engine writes it with `~`. */
 export function folderStart(lanes: readonly Pick<Lane, 'path' | 'origin' | 'device'>[]): string {
   const counts = new Map<string, number>();
   for (const l of lanes) {
@@ -519,7 +520,7 @@ export function folderStart(lanes: readonly Pick<Lane, 'path' | 'origin' | 'devi
     if (l.origin === 'main' && !l.device && parent) counts.set(parent, (counts.get(parent) ?? 0) + 1);
   }
   const most = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
-  return most ? `${tildePath(most)}/` : '~/';
+  return most ? `${most}/` : '~/';
 }
 
 /** What a folder typed in the worktree menu offers, from what the engine found there
