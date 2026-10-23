@@ -1,7 +1,7 @@
 // Improve Codealong in the installed app (a release, the board's `improve.installed`): no change
 // to Codealong's source reaches the copy that's running, so before the panel asks what to change
 // it suggests switching to Codealong Dev, a build of the source, and offers a session that sets
-// it up (improve.ts `devSetupPrompt`). Quick.tsx holds it over the panel, so the button and the
+// it up (agentTasks.ts `devSetupTask`). Quick.tsx holds it over the panel, so the button and the
 // shortcut ask alike; Not now goes on to Improve Codealong as it is.
 
 import { useState } from 'react';

@@ -681,7 +681,7 @@ account = "claude-work"        # any of [reviews] but start, [reviews.own] (as r
 post = "none"
 
 [updates]
-check = true                   # look for a new version by itself (Settings › General)
+check = true                   # look for a new version by itself (Settings › General); Codealong Dev looks at origin/main
 
 [experimental]                 # features still being tried out, each off until it's turned on (Settings › Experimental)
 boards = false                 # the Board view, as Kanban and as Canvas, Add to board in the menus, and `codealong board`

@@ -41,7 +41,23 @@
         "usage": [],
         "color": "teal",
         "kind": "mac",
-        "automations": "first"
+        "automations": "first",
+        "projects": [
+          {
+            "name": "Northwind",
+            "repos": [
+              "github.com/northwind/app",
+              "github.com/northwind/api"
+            ]
+          },
+          {
+            "name": "Atlas",
+            "repos": [
+              "github.com/atlas/web",
+              "/Users/me/projects/atlas-notes"
+            ]
+          }
+        ]
       },
       {
         "key": "4a3b2c1d0e5f6a7b8c9d0e1f2a3b4c5d4a3b2c1d0e5f6a7b8c9d0e1f2a3b4c5d",

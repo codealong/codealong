@@ -214,6 +214,39 @@ pub struct DeviceView {
     pub kind: String,
     /// Where it stands for the automations your machines share; none from one that shares none.
     pub automations: Option<codealong_peer::feed::Rank>,
+    /// Its projects as it names them, from its worktrees as they came (`projects_there`): Settings ›
+    /// Devices' Sync projects asks an agent to match this device's to them (src/agentTasks.ts).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub projects: Vec<ProjectThere>,
+}
+
+/// A project as another device names it, with its repos as config.toml names them
+/// (`github.com/owner/name`), or a checkout's folder there when it has no GitHub remote.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct ProjectThere {
+    pub name: String,
+    pub repos: Vec<String>,
+}
+
+/// What a device's own worktrees say of its projects, in the order they come, before
+/// `project_here` puts them into this device's: each repo once, by what GitHub calls it now. Its
+/// chats and its worktrees in none of its projects (Elsewhere) are left out.
+fn projects_there(lanes: &[Lane]) -> Vec<ProjectThere> {
+    let mut out: Vec<ProjectThere> = Vec::new();
+    for l in lanes.iter().filter(|l| !l.starts_chats && l.project != crate::board::ELSEWHERE) {
+        let repo = l.repo_slug_now.as_ref().or(l.repo_slug.as_ref()).map(|s| format!("github.com/{s}")).or_else(|| (l.origin == crate::model::Origin::Main).then(|| l.path.clone()));
+        let at = match out.iter().position(|p| p.name == l.project) {
+            Some(i) => i,
+            None => {
+                out.push(ProjectThere { name: l.project.clone(), repos: Vec::new() });
+                out.len() - 1
+            }
+        };
+        if let Some(repo) = repo.filter(|r| !out[at].repos.contains(r)) {
+            out[at].repos.push(repo);
+        }
+    }
+    out
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -905,6 +938,7 @@ impl Inner {
                     usage: cached.map(|c| c.replica.usage.clone()).unwrap_or_default(),
                     kind: l.kind.clone().unwrap_or_else(|| peerproto::MAC.into()),
                     automations: cached.and_then(|c| c.replica.device.shares),
+                    projects: cached.map(|c| projects_there(&c.replica.lanes)).unwrap_or_default(),
                 }
             };
         let devices = st.linked.iter().filter(|l| !l.watches()).map(view_of).collect();
@@ -2326,6 +2360,32 @@ mod tests {
         let mut l = with(Some("acme/app"), "Elsewhere", true);
         project_here(&mut l, &projects, &none);
         assert_eq!((l.project.as_str(), l.hidden), ("Elsewhere", true));
+    }
+
+    #[test]
+    fn another_devices_projects_are_read_as_it_names_them() {
+        let with = |id: &str, slug: Option<&str>, project: &str, origin: crate::model::Origin| {
+            let mut l = lane(id, vec![]);
+            (l.path, l.repo_slug, l.project, l.origin) = (id.into(), slug.map(str::to_string), project.into(), origin);
+            l
+        };
+        use crate::model::Origin::{Main, Other};
+        let mut renamed = with("/r/api", Some("northwind/api-old"), "Northwind", Main);
+        renamed.repo_slug_now = Some("northwind/api".into());
+        let mut chats = with("/r/chats", None, "Kestrel", Main);
+        chats.starts_chats = true;
+        let lanes = [
+            with("/r/app", Some("northwind/app"), "Northwind", Main),
+            with("/r/app-fix", Some("northwind/app"), "Northwind", Other),
+            renamed,
+            // No GitHub remote: its folder there, once.
+            with("/r/notes", None, "Atlas", Main),
+            with("/r/notes-wt", None, "Atlas", Other),
+            with("/r/scratch", Some("me/scratch"), "Elsewhere", Main),
+            chats,
+        ];
+        let p = |name: &str, repos: &[&str]| ProjectThere { name: name.into(), repos: repos.iter().map(|r| r.to_string()).collect() };
+        assert_eq!(projects_there(&lanes), vec![p("Northwind", &["github.com/northwind/app", "github.com/northwind/api"]), p("Atlas", &["/r/notes"])]);
     }
 
     #[test]

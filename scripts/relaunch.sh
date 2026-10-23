@@ -72,8 +72,9 @@ built=""
 clean && built="$(git rev-parse HEAD)"
 
 # The UI is built with vite alone, in a few seconds: checking its types is npm run typecheck's job,
-# and the tsc in npm run build took half a minute of every relaunch.
-npx tauri build --config src-tauri/tauri.dev.conf.json --config '{"build": {"beforeBuildCommand": "npx vite build"}}'
+# and the tsc in npm run build took half a minute of every relaunch. The commit goes into the app,
+# which looks at origin/main for commits it hasn't (updates.rs `built_commit`).
+CODEALONG_COMMIT="$built" npx tauri build --config src-tauri/tauri.dev.conf.json --config '{"build": {"beforeBuildCommand": "npx vite build"}}'
 # macOS remembers what the app was allowed (controlling Ghostty, reading Documents or an external
 # drive) by its signature. The linker's ad-hoc one changes with every build, so macOS takes each
 # build for a new app and asks again; one signed with an Apple Development certificate is the same

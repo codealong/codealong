@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FoundAccount } from '../types';
-import { foundNote, monthlyOf, startPlaces } from './AccountsSection';
+import { commandOf, foundNote, missingCliNote, monthlyOf, startPlaces } from './AccountsSection';
 
 describe('monthlyOf', () => {
   it('reads a plan price as typed, a dollar sign and commas too, and nothing for one it can’t', () => {
@@ -56,5 +56,21 @@ describe('startPlaces', () => {
     expect(startPlaces('codex', '~/.codex')).toEqual(['codex-app', 'terminal', 'background', 'codealong']);
     expect(startPlaces('codex', '~/.codex2')).toEqual(['terminal', 'background', 'codealong']);
     expect(startPlaces('opencode', '~/.local/share/opencode')).toEqual(['terminal', 'background', 'codealong']);
+  });
+});
+
+describe('commandOf', () => {
+  it('is config.toml’s command, else the harness’s command line, else the account’s name', () => {
+    expect(commandOf({ name: 'work', harness: 'cursor', command: 'CURSOR_CONFIG_DIR=~/.work cursor-agent' })).toBe('CURSOR_CONFIG_DIR=~/.work cursor-agent');
+    expect(commandOf({ name: 'cursor', harness: 'cursor', command: null })).toBe('cursor-agent');
+    expect(commandOf({ name: 'antigravity', harness: 'antigravity', command: null })).toBe('agy');
+    expect(commandOf({ name: 'claude2', harness: 'claude', command: null })).toBe('claude2');
+  });
+});
+
+describe('missingCliNote', () => {
+  it('says which command line isn’t here, and nothing when it is', () => {
+    expect(missingCliNote({ name: 'cursor', harness: 'cursor', missingCli: 'cursor-agent' })).toBe('cursor-agent, Cursor’s command line, isn’t on this machine, so Codealong starts none of cursor’s sessions that need it. An agent on another account can install it.');
+    expect(missingCliNote({ name: 'cursor', harness: 'cursor' })).toBeNull();
   });
 });

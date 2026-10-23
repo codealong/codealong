@@ -1798,7 +1798,7 @@ impl crate::harness::Adapter for Cursor {
 
     /// The command line signs in with `login`; without it, the app does from its own window.
     fn sign_in_command(&self, account: &AccountCfg) -> String {
-        if account.command.is_some() || cli_installed(&crate::util::home()) {
+        if self.missing_cli(account, &crate::util::home()).is_none() {
             format!("{} login", cli_command(account))
         } else {
             "open -a Cursor".to_string()
@@ -1807,6 +1807,11 @@ impl crate::harness::Adapter for Cursor {
 
     fn installed(&self, home: &Path, on_path: &dyn Fn(&str) -> bool) -> bool {
         crate::detect::app("Cursor.app").is_some() || on_path(CLI) || crate::detect::is_executable(&home.join(".local/bin").join(CLI))
+    }
+
+    /// The app needs none: only its command line starts chats from Codealong.
+    fn missing_cli(&self, account: &AccountCfg, home: &Path) -> Option<&'static str> {
+        crate::harness::missing_program(cli_command(account), CLI, home, || cli_installed(home))
     }
 
     fn folder_use(&self, dir: &Path) -> crate::harness::FolderUse {
@@ -1847,7 +1852,7 @@ impl crate::harness::Adapter for Cursor {
 
     /// The command line starts a chat in a terminal; the app only in its own window.
     fn places(&self, account: &AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
-        if account.command.is_some() || cli_installed(home) {
+        if self.missing_cli(account, home).is_none() {
             Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background])
         } else {
             Err(format!("The Cursor app starts chats only in its own window. With its command line, {CLI}, installed, {} can start them in a terminal from here.", account.name))

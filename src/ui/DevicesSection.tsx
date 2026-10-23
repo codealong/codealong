@@ -7,8 +7,8 @@
 
 import { useEffect, useState } from 'react';
 import { below, showContextMenu } from '../contextMenu';
-import { answerLink, deviceLinkCode, getDevices, linkCodeQr, linkDevice, linkWithCode, onDevices, setDeviceColor, showQuick, unlinkDevice, windowLabel } from '../api';
-import { IPHONE_PROMPT } from '../devices';
+import { answerLink, askAgent, deviceLinkCode, getDevices, linkCodeQr, linkDevice, linkWithCode, onDevices, setDeviceColor, unlinkDevice } from '../api';
+import { iphoneTask, syncProjectsTask } from '../agentTasks';
 import { agoPhrase } from '../format';
 import { COLOR_WORD } from '../todos';
 import type { Config, DevicesCfg, DevicesView, DeviceView, LabelColor, Rank } from '../types';
@@ -230,7 +230,7 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
                   finds or clones the app's repo itself. */}
               {platform() === 'mac' && (
                 <div className="ca-acct-actions">
-                  <Button size="sm" icon="device-mobile" onClick={() => void showQuick({ chat: true, prompt: IPHONE_PROMPT, opener: windowLabel() })}>
+                  <Button size="sm" icon="device-mobile" onClick={() => void askAgent(iphoneTask())}>
                     Get the iPhone app…
                   </Button>
                   <span className="ca-acct-asof">It isn’t on the App Store yet: an agent builds it and installs it on your phone with you.</span>
@@ -251,6 +251,8 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
 
 function DeviceCard({ dev, now, busy, onColor, onUnlink }: { dev: DeviceView; now: number; busy: boolean; onColor: (color: LabelColor) => void; onUnlink: () => void }) {
   const where = dev.online ? (dev.via === 'iroh' ? 'Connected through iroh' : 'Connected on your tailnet') : dev.lastSeen ? `Last seen ${agoPhrase(dev.lastSeen, now)}` : 'Not connected';
+  // Its projects come with its worktrees, so there's nothing to match until it has sent them.
+  const projects = dev.projects ?? [];
   return (
     <div className="ca-ucard ca-acct">
       <div className="ca-ucard-head">
@@ -279,6 +281,15 @@ function DeviceCard({ dev, now, busy, onColor, onUnlink }: { dev: DeviceView; no
       </div>
       {!dev.linkedBack && <p className="ca-acct-note">{dev.name} doesn't have this device linked any more. Unlink it here, then link again.</p>}
       <div className="ca-acct-actions">
+        <Button
+          size="sm"
+          icon="folder"
+          disabled={projects.length === 0}
+          title={projects.length > 0 ? `Opens the quick panel with a prompt for an agent to make this machine’s projects match ${dev.name}’s, asking you before it changes anything` : `Nothing from ${dev.name} yet: its projects come with its worktrees once it’s connected.`}
+          onClick={() => void askAgent(syncProjectsTask(dev.name, projects))}
+        >
+          Sync projects…
+        </Button>
         <Button size="sm" disabled={busy} onClick={onUnlink}>
           Unlink
         </Button>

@@ -1077,6 +1077,11 @@ impl crate::harness::Adapter for OpenCode {
         on_path("opencode") || crate::detect::is_executable(&home.join(".opencode/bin/opencode"))
     }
 
+    /// Another home than yours (a test's) isn't looked into: the PATH is this Mac's.
+    fn missing_cli(&self, account: &crate::config::AccountCfg, home: &Path) -> Option<&'static str> {
+        crate::harness::missing_program(account.command(), "opencode", home, || home != crate::util::home() || self.installed(home, &crate::detect::on_user_path))
+    }
+
     fn folder_use(&self, dir: &Path) -> crate::harness::FolderUse {
         crate::harness::FolderUse {
             has_data: dir.join("opencode.db").is_file(),
@@ -1095,8 +1100,12 @@ impl crate::harness::Adapter for OpenCode {
         Ok((format!("{} acp", account.command()), Vec::new()))
     }
 
-    fn places(&self, _account: &crate::config::AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
-        Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background, crate::start::Place::Codealong])
+    /// Every place runs its command line, Codealong's own sessions too (`acp_command`).
+    fn places(&self, account: &crate::config::AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
+        match self.missing_cli(account, home) {
+            None => Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background, crate::start::Place::Codealong]),
+            Some(cli) => Err(format!("OpenCode's command line, {cli}, isn't on this machine, so {} can't start sessions from Codealong.", account.name)),
+        }
     }
 
     /// Its messages are rows in its database.

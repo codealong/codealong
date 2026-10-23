@@ -442,7 +442,7 @@ export interface Improve {
   laneId?: string | null;
   source?: ImproveSource | null;
   /** This app is the installed Codealong (a release), which no change to the source reaches, so
-   *  the panel suggests Codealong Dev first (improve.ts `devSetupPrompt`). Missing otherwise. */
+   *  the panel suggests Codealong Dev first (agentTasks.ts `devSetupTask`). Missing otherwise. */
   installed?: boolean;
 }
 
@@ -925,7 +925,17 @@ export type ReviewStart = 'no-terminal' | 'codealong' | 'background' | 'terminal
 export type ReviewSubmit = 'never' | 'approve' | 'approve-or-request-changes' | 'approve-or-comment' | 'request-changes' | 'comment';
 
 /** Where automatic updates stand (src-tauri/src/updates.rs): this copy's version, and a state. */
-export type UpdateView = { current: string } & (
+/** What origin/main has that a development build hasn't (updates.rs `Behind`). */
+export interface DevBehind {
+  /** The commit the build was built from. */
+  built: string;
+  commits: number;
+  /** The checkout of Codealong's source it was looked at in: its worktree's id. */
+  source: string;
+  checkedAt: number;
+}
+
+export type UpdateView = { current: string; behind?: DevBehind } & (
   | { state: 'off' } // a development build, which never updates itself
   | { state: 'idle' }
   | { state: 'checking' }
@@ -1020,6 +1030,15 @@ export interface DeviceView {
   kind: 'mac' | 'phone' | 'tablet';
   /** Where it stands for the automations your machines share; none from one that shares none. */
   automations?: Rank | null;
+  /** Its projects as it names them, from its worktrees as they came (peers.rs `projects_there`). */
+  projects?: ProjectThere[];
+}
+
+/** A project as another machine names it, with its repos as config.toml names them
+ *  (`github.com/owner/name`), or a checkout's folder there when it has no GitHub remote. */
+export interface ProjectThere {
+  name: string;
+  repos: string[];
 }
 
 export interface FoundDevice {
@@ -1110,6 +1129,9 @@ export interface AccountInfo extends AccountCfg {
   /** What to say of its sign-in in place of the email: the providers OpenCode is signed in to,
    *  or that it runs only free models. */
   signInNote: string | null;
+  /** Its command line's program when it isn't on this machine (harness.rs `missing_cli`), so it
+   *  starts nothing that needs it; missing when it's there. */
+  missingCli?: string;
 }
 
 /** An account on this Mac that config.toml doesn't list (detect.rs). */

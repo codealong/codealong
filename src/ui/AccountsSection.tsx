@@ -7,7 +7,8 @@
 // Settings › Agents does; that page is where each account's plugin or skill shows.
 
 import { useEffect, useState } from 'react';
-import { agentsStatus, foundAccounts, getAccounts, installAgents, openUrl, saveAccounts, signIn, stopTraining } from '../api';
+import { installCliTask } from '../agentTasks';
+import { agentsStatus, askAgent, foundAccounts, getAccounts, installAgents, openUrl, saveAccounts, signIn, stopTraining } from '../api';
 import { agoPhrase } from '../format';
 import { HARNESSES, HARNESS_WORD } from '../harness';
 import { afterStop, flagged, readNote, trainingOf, trainingTag } from '../training';
@@ -153,6 +154,18 @@ function folderHelp(harness: Harness): React.ReactNode {
         </>
       );
   }
+}
+
+/** The command that starts an account's sessions, as Codealong runs it: config.toml's, else
+ *  its harness's command line, else (Claude Code, Codex, OpenCode) its name. */
+export function commandOf(a: Pick<AccountCfg, 'name' | 'harness' | 'command'>): string {
+  return a.command ?? (a.harness === 'antigravity' ? 'agy' : a.harness === 'cursor' ? 'cursor-agent' : a.name);
+}
+
+/** What an account's card says when its command line isn't on this machine. */
+export function missingCliNote(a: Pick<AccountInfo, 'name' | 'harness' | 'missingCli'>): string | null {
+  if (!a.missingCli) return null;
+  return `${a.missingCli}, ${HARNESS_WORD[a.harness]}’s command line, isn’t on this machine, so Codealong starts none of ${a.name}’s sessions that need it. An agent on another account can install it.`;
 }
 
 /** What Codealong does with the command for a harness. */
@@ -511,6 +524,12 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
                   {a.signedIn && <Icon name="check" size={12} stroke={2} />}
                   {status}
                 </span>
+                {a.missingCli && (
+                  <span className="ca-tag is-attn" title={missingCliNote(a) ?? undefined}>
+                    <Icon name="alert" size={12} stroke={2} />
+                    No {a.missingCli}
+                  </span>
+                )}
                 {tag && t && (
                   <span className={cx('ca-tag', tag.ok ? 'is-ok' : 'is-attn')} title={t.note}>
                     <Icon name={tag.ok ? 'shield-check' : 'shield-off'} size={12} stroke={2} />
@@ -531,11 +550,12 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
                 <Rich text={u.error} now={now} />
               </p>
             )}
+            {a.missingCli && <p className="ca-acct-note">{missingCliNote(a)}</p>}
             <dl className="ca-kv">
               <dt>Folder</dt>
               <dd className="ca-code">{a.home}</dd>
               <dt>Command</dt>
-              <dd className="ca-code">{a.command ?? (a.harness === 'antigravity' ? 'agy' : a.harness === 'cursor' ? 'cursor-agent' : a.name)}</dd>
+              <dd className="ca-code">{commandOf(a)}</dd>
               {startPlaces(a.harness, a.home).length > 1 && (
                 <>
                   <dt>Starts in</dt>
@@ -584,6 +604,11 @@ export function AccountsSection({ focus, usage, training, mcp, terminal, now, on
               </div>
             ) : (
               <div className="ca-acct-actions">
+                {a.missingCli && (
+                  <Button size="sm" icon="package" title="Opens the quick panel with a prompt for an agent to install it, in a chat of its own" onClick={() => void askAgent(installCliTask({ name: a.name, harness: a.harness, command: commandOf(a), cli: a.missingCli as string })).catch((e: unknown) => setError(String(e)))}>
+                    Install {a.missingCli}…
+                  </Button>
+                )}
                 {!a.signedIn && (
                   <Button size="sm" icon="terminal" onClick={() => startSignIn(a.name)}>
                     Sign in with {terminal}

@@ -15,7 +15,7 @@ import type { SavedView } from '../savedViews';
 import type { DevicesView, LabelColor, Status } from '../types';
 import { cx, Icon, NavItem, PickChip, Seg, StatusGlyph } from './primitives';
 import { LabelDot } from './TodoBits';
-import { RestartToUpdate } from './Updates';
+import { SidebarUpdate } from './Updates';
 import { joinKeys, keysIn } from '../platform';
 
 export interface SideView {
@@ -265,7 +265,7 @@ function Open(p: SidebarProps) {
           )
         )}
       </div>
-      <RestartToUpdate />
+      <SidebarUpdate />
       {p.foot}
     </nav>
   );
@@ -384,7 +384,7 @@ function Rail(p: SidebarProps) {
       <span className="ca-rail-sep" aria-hidden="true" />
       <RailButton icon="filter" label={filtered ? `Filtered: ${p.filters.join(', ')}. Show the sidebar` : 'Filters: show the sidebar'} active={filtered} badge={p.filters.length} tone="ink" onClick={p.onExpand} />
       <span className="ca-rail-fill" />
-      <RestartToUpdate compact />
+      <SidebarUpdate compact />
       <RailButton icon="settings" label={keysIn('Settings (⌘,)')} onClick={p.onSettings} />
     </nav>
   );

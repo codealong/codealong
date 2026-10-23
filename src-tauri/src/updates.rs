@@ -6,7 +6,11 @@
 //! at the next launch, or when you choose Restart to update.
 //!
 //! Only release builds update themselves: scripts/release.sh builds with `CODEALONG_RELEASE`
-//! set. A build from relaunch.sh that found a release would replace itself with it.
+//! set. A build from relaunch.sh that found a release would replace itself with it. Codealong Dev,
+//! built from a clean checkout of the source by relaunch.sh (`CODEALONG_COMMIT`), looks at the
+//! source's origin/main instead now and then (`dev_check`), and once it has commits the build
+//! hasn't, the sidebar offers a session that pulls them and relaunches it (src/agentTasks.ts
+//! `devUpdateTask`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -27,6 +31,10 @@ const EVERY_MS: i64 = 6 * 60 * 60 * 1000;
 const TICK: Duration = Duration::from_secs(10 * 60);
 /// A check, or a download, that takes longer than this has failed.
 const TIMEOUT: Duration = Duration::from_secs(300);
+/// How often a development build looks at its source's origin/main (`dev_check`).
+const DEV_EVERY: Duration = Duration::from_secs(15 * 60);
+/// A fetch of origin/main that takes longer than this has failed; the last one fetched is counted.
+const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub const MENU_ID: &str = "check-updates";
 const MENU_CHECK: &str = "Check for updates…";
@@ -51,17 +59,35 @@ pub enum Status {
     Failed { error: String, at: i64 },
 }
 
+/// What origin/main has that a development build hasn't (`dev_check`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Behind {
+    /// The commit the build was built from (`built_commit`).
+    pub built: String,
+    /// How many commits origin/main has past it.
+    pub commits: u32,
+    /// The checkout of Codealong's source it was looked at in, where Improve Codealong starts its
+    /// sessions (the board's `improve`), which is where the session that updates it starts.
+    pub source: String,
+    pub checked_at: i64,
+}
+
 /// What the windows get: this copy's version, and where updates stand.
 #[derive(Debug, Clone, Serialize)]
 pub struct View {
     pub current: String,
     #[serde(flatten)]
     pub status: Status,
+    /// In a development build, what origin/main has that it hasn't, once there's any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub behind: Option<Behind>,
 }
 
 #[derive(Default)]
 pub struct Updates {
     status: Mutex<Option<Status>>,
+    behind: Mutex<Option<Behind>>,
     /// When the last check finished, by the clock (ms), for the next one's turn.
     last_check: Mutex<i64>,
     menu: Mutex<Option<MenuItem<Wry>>>,
@@ -81,6 +107,18 @@ pub fn setup(app: &AppHandle) {
         eprintln!("Couldn't add Check for updates to the menu: {e:#}");
     }
     if !enabled() {
+        if let Some(built) = built_commit() {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(FIRST_CHECK);
+                loop {
+                    if crate::config::updates_check() {
+                        dev_check(&app, built);
+                    }
+                    std::thread::sleep(DEV_EVERY);
+                }
+            });
+        }
         return;
     }
     let app = app.clone();
@@ -97,8 +135,43 @@ pub fn setup(app: &AppHandle) {
 }
 
 pub fn view(app: &AppHandle) -> View {
-    let status = app.state::<Updates>().status.lock().unwrap().clone().unwrap_or(Status::Off);
-    View { current: app.package_info().version.to_string(), status }
+    let updates = app.state::<Updates>();
+    let status = updates.status.lock().unwrap().clone().unwrap_or(Status::Off);
+    let behind = updates.behind.lock().unwrap().clone();
+    View { current: app.package_info().version.to_string(), status, behind }
+}
+
+/// The commit a development build was built from: relaunch.sh sets `CODEALONG_COMMIT` when the
+/// checkout it builds has no uncommitted changes. None for any other build, which has no commit
+/// to compare.
+fn built_commit() -> Option<&'static str> {
+    option_env!("CODEALONG_COMMIT").map(str::trim).filter(|c| !c.is_empty())
+}
+
+/// Looks at origin/main in Codealong's source on this machine (the board's `improve` worktree,
+/// whose id is its folder) for commits this build hasn't, and tells the windows. Fetching only
+/// moves the remote's branches, as relaunch.sh's own fetch does. Nothing's said while the board
+/// has no source here, or git can't tell (the commit isn't in that checkout: a fork's build).
+fn dev_check(app: &AppHandle, built: &str) {
+    let source = app.try_state::<crate::engine::Handle>().and_then(|e| e.read(|b| b.improve.lane_id.clone())).filter(|id| !id.starts_with('@'));
+    let behind = source.and_then(|source| {
+        let commits = commits_behind(Path::new(&source), built)?;
+        (commits > 0).then(|| Behind { built: built.to_string(), commits, source, checked_at: now_ms() })
+    });
+    *app.state::<Updates>().behind.lock().unwrap() = behind;
+    let _ = app.emit("update-status", view(app));
+}
+
+/// How many commits origin/main has past `built`, in the checkout at `dir`, once origin/main is
+/// fetched; a fetch that fails (offline) leaves the last one fetched to count against.
+fn commits_behind(dir: &Path, built: &str) -> Option<u32> {
+    let git = |args: &[&str], timeout: Duration| {
+        let mut full = vec!["-C", dir.to_str()?];
+        full.extend_from_slice(args);
+        crate::procs::run_background("git", &full, None, timeout).ok()
+    };
+    let _ = git(&["fetch", "--quiet", "origin", "main"], FETCH_TIMEOUT);
+    git(&["rev-list", "--count", &format!("{built}..origin/main")], Duration::from_secs(15))?.trim().parse().ok()
 }
 
 fn set(app: &AppHandle, status: Status) {
@@ -287,6 +360,34 @@ mod tests {
         assert_eq!(cant_replace(&crate::util::home()), None);
     }
 
+    #[test]
+    fn a_development_build_counts_what_origin_main_has_past_its_commit() {
+        let dir = std::env::temp_dir().join(format!("ca-dev-behind-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (origin, writer, source) = (dir.join("origin.git"), dir.join("writer"), dir.join("source"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |at: &Path, args: &[&str]| {
+            let mut full = vec!["-C", at.to_str().unwrap(), "-c", "user.name=Test", "-c", "user.email=test@example.com"];
+            full.extend_from_slice(args);
+            crate::procs::run("git", &full, None, Duration::from_secs(20)).unwrap()
+        };
+        git(&dir, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+        git(&dir, &["clone", "-q", origin.to_str().unwrap(), writer.to_str().unwrap()]);
+        git(&writer, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        git(&writer, &["push", "-q", "origin", "HEAD:main"]);
+        let built = git(&writer, &["rev-parse", "HEAD"]).trim().to_string();
+        git(&dir, &["clone", "-q", origin.to_str().unwrap(), source.to_str().unwrap()]);
+        assert_eq!(commits_behind(&source, &built), Some(0));
+        // Two more land; the source's checkout hasn't fetched them, and the check does.
+        git(&writer, &["commit", "-q", "--allow-empty", "-m", "second"]);
+        git(&writer, &["commit", "-q", "--allow-empty", "-m", "third"]);
+        git(&writer, &["push", "-q", "origin", "HEAD:main"]);
+        assert_eq!(commits_behind(&source, &built), Some(2));
+        // A commit the checkout doesn't have (a fork's build) says nothing.
+        assert_eq!(commits_behind(&source, "0123456789abcdef0123456789abcdef01234567"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A release's update, end to end, through the updater itself: a local server hands out its
     /// latest.json and archive, the public key is tauri.conf.json's, and the update replaces a copy
     /// of an app bundle as it would the installed one. Before a release goes out:
@@ -440,11 +541,15 @@ mod tests {
 
     #[test]
     fn a_status_says_its_state_to_the_windows() {
-        let ready = View { current: "0.2.0".into(), status: Status::Ready { version: "0.3.0".into(), notes: Some("Faster".into()) } };
+        let ready = View { current: "0.2.0".into(), status: Status::Ready { version: "0.3.0".into(), notes: Some("Faster".into()) }, behind: None };
         assert_eq!(serde_json::to_value(ready).unwrap(), serde_json::json!({"current": "0.2.0", "state": "ready", "version": "0.3.0", "notes": "Faster"}));
-        let checked = View { current: "0.2.0".into(), status: Status::UpToDate { checked_at: 5 } };
+        let checked = View { current: "0.2.0".into(), status: Status::UpToDate { checked_at: 5 }, behind: None };
         assert_eq!(serde_json::to_value(checked).unwrap(), serde_json::json!({"current": "0.2.0", "state": "upToDate", "checkedAt": 5}));
-        let off = View { current: "0.2.0".into(), status: Status::Off };
+        let off = View { current: "0.2.0".into(), status: Status::Off, behind: None };
         assert_eq!(serde_json::to_value(off).unwrap(), serde_json::json!({"current": "0.2.0", "state": "off"}));
+        // A development build origin/main has moved past.
+        let behind = Behind { built: "1a2b3c4d".into(), commits: 3, source: "/Users/me/projects/codealong".into(), checked_at: 7 };
+        let off = View { current: "0.2.0".into(), status: Status::Off, behind: Some(behind) };
+        assert_eq!(serde_json::to_value(off).unwrap(), serde_json::json!({"current": "0.2.0", "state": "off", "behind": {"built": "1a2b3c4d", "commits": 3, "source": "/Users/me/projects/codealong", "checkedAt": 7}}));
     }
 }

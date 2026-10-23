@@ -2913,6 +2913,9 @@ struct AccountRow {
     /// Turned off in config.toml: Codealong starts nothing on it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     disabled: bool,
+    /// Its command line, when it isn't on this Mac: it starts nothing that needs it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    missing_cli: Option<String>,
     home: String,
     /// The plan limits, when read: label, percent used, when it resets.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2940,7 +2943,7 @@ fn accounts(c: &mut Client, with_usage: bool, json: bool) -> Result<()> {
         .iter()
         .map(|a| {
             let info = usage::describe(a);
-            AccountRow { name: info.name, harness: info.harness, command: info.command, signed_in: info.signed_in, email: info.email, sign_in_note: info.sign_in_note, disabled: info.disabled, home: info.home, usage: None, room: None, usage_error: None }
+            AccountRow { name: info.name, harness: info.harness, command: info.command, signed_in: info.signed_in, email: info.email, sign_in_note: info.sign_in_note, disabled: info.disabled, missing_cli: info.missing_cli, home: info.home, usage: None, room: None, usage_error: None }
         })
         .collect();
     if with_usage {
@@ -2975,7 +2978,8 @@ fn accounts(c: &mut Client, with_usage: bool, json: bool) -> Result<()> {
                 (false, true) => "signed in",
                 (false, false) => "not signed in",
             };
-            vec![r.name.clone(), r.harness.clone(), sign_in.into(), r.sign_in_note.clone().or_else(|| r.email.clone()).unwrap_or_default(), usage]
+            let sign_in = r.missing_cli.as_ref().map_or_else(|| sign_in.to_string(), |cli| format!("{sign_in}, no {cli}"));
+            vec![r.name.clone(), r.harness.clone(), sign_in, r.sign_in_note.clone().or_else(|| r.email.clone()).unwrap_or_default(), usage]
         })
         .collect();
     print!("{}", table_text(&["ACCOUNT", "HARNESS", "SIGN-IN", "EMAIL", "USAGE"], table));

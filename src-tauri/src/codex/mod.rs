@@ -93,6 +93,12 @@ impl crate::harness::Adapter for Codex {
         on_path("codex") || crate::detect::codex_app_cli().is_some()
     }
 
+    /// The CLI inside the Codex app counts (`codex_cli`). Another home than yours (a test's)
+    /// isn't looked into: the PATH and the app are this Mac's.
+    fn missing_cli(&self, account: &crate::config::AccountCfg, home: &Path) -> Option<&'static str> {
+        crate::harness::missing_program(account.command(), "codex", home, || home != crate::util::home() || self.installed(home, &crate::detect::on_user_path))
+    }
+
     fn folder_use(&self, dir: &Path) -> crate::harness::FolderUse {
         let sessions = dir.join("sessions");
         crate::harness::FolderUse {
@@ -130,10 +136,14 @@ impl crate::harness::Adapter for Codex {
         Ok((program, vec![("CODEX_HOME".into(), account.home_path().to_string_lossy().into_owned())]))
     }
 
-    /// The Codex app runs the account in `~/.codex`, where its threads usually start.
+    /// The Codex app runs the account in `~/.codex`, where its threads usually start; the
+    /// terminal and the background need its CLI, which Codealong's own sessions (codex-acp) don't.
     fn places(&self, account: &crate::config::AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
         use crate::start::Place;
-        Ok(if account.home_path() == home.join(".codex") { vec![Place::CodexApp, Place::Terminal, Place::Background, Place::Codealong] } else { vec![Place::Terminal, Place::Background, Place::Codealong] })
+        let cli = self.missing_cli(account, home).is_none();
+        let app = account.home_path() == home.join(".codex");
+        let wanted = [(Place::CodexApp, app), (Place::Terminal, cli), (Place::Background, cli), (Place::Codealong, true)];
+        Ok(wanted.into_iter().filter(|(_, ok)| *ok).map(|(p, _)| p).collect())
     }
 
     fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {

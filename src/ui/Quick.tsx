@@ -53,7 +53,8 @@ import {
   todoOp,
   type QuickOpen,
 } from '../api';
-import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, devSetupPrompt, improvePrompt, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
+import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
+import { devSetupTask, type AgentTask } from '../agentTasks';
 import { boardAhead, boardView, observe, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, shortOf } from '../devices';
@@ -743,18 +744,23 @@ export function Quick() {
   const devSourceLane = board?.improve?.laneId ? board.lanes.find((l) => l.id === board.improve?.laneId && !l.device) : undefined;
   const devSource = devSourceLane?.path ?? improveSource?.root ?? null;
   const setUpDev = (dontAsk: boolean) => {
-    const where = devSourceLane ?? board?.lanes.find((l) => l.startsChats && !l.device);
     setDevAsk(false);
     if (dontAsk) writeStored(NO_DEV_KEY, flag, true);
-    if (!where) {
-      setError('There’s no place on this machine to start the session yet: try again once the board is read.');
-      return;
-    }
     // The folders Codealong looks for repos in, for the clone; without them it's asked where.
     getConfig()
       .then((view) => view.config.scan)
       .catch(() => [])
-      .then((scan) => start({ lane: where, newWorktree: false, prompt: devSetupPrompt(devSource, scan) }));
+      .then((scan) => startTask(devSetupTask(devSource, scan, devSourceLane?.id ?? null)));
+  };
+  // A session Codealong offers (agentTasks.ts) that's asked for here, not opened on the panel by
+  // another window: it starts as a Return would, in its worktree or this machine's chats.
+  const startTask = (task: AgentTask) => {
+    const where = board?.lanes.find((l) => (task.laneId ? l.id === task.laneId : l.startsChats && !l.device));
+    if (!where) {
+      setError('There’s no place on this machine to start the session yet: try again once the board is read.');
+      return;
+    }
+    start({ lane: where, newWorktree: false, prompt: task.prompt });
   };
   const closeDevAsk = (dontAsk: boolean) => {
     setDevAsk(false);

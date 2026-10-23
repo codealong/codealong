@@ -588,6 +588,8 @@ impl Handle {
     /// The accounts in config.toml, each with whether it's signed in.
     pub fn accounts(&self) -> Result<Vec<AccountInfo>> {
         let cfg = config::current()?;
+        // Settings reads them again as it comes forward, after an agent installed a command line, say.
+        crate::detect::forget_shell();
         Ok(cfg.accounts.iter().map(usage::describe).collect())
     }
 

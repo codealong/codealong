@@ -63,7 +63,7 @@ pub struct Improve {
     pub source: Option<Source>,
     /// This app is the Codealong people install (a release, `updates::enabled`), not a build of
     /// the source: a change made to the source never shows in it, so the panel suggests setting
-    /// up Codealong Dev first, which an agent can do (improve.ts `devSetupPrompt`).
+    /// up Codealong Dev first, which an agent can do (agentTasks.ts `devSetupTask`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub installed: bool,
 }

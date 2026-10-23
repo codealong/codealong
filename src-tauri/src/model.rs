@@ -79,6 +79,10 @@ pub struct AccountInfo {
     pub email: Option<String>,
     /// What Settings says of its sign-in in place of the email (`Adapter::sign_in_note`).
     pub sign_in_note: Option<String>,
+    /// Its command line's program when it isn't on this Mac (`Adapter::missing_cli`): Settings
+    /// offers a session that installs it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_cli: Option<String>,
 }
 
 /// Something in the background that isn't working: a file that doesn't read, GitHub not

@@ -170,10 +170,15 @@ pub fn cli_installed(home: &Path) -> bool {
     crate::detect::is_executable(&home.join(".local/bin").join(CLI)) || (home == crate::util::home() && crate::detect::on_user_path(CLI))
 }
 
-/// Whether an account has a command line to run: its own command, when config.toml gives one,
-/// or `agy` installed.
+/// Whether an account has a command line to run: its own command, when config.toml gives one
+/// that runs another program, or `agy` installed (`missing_cli`).
 fn has_cli(account: &AccountCfg, home: &Path) -> bool {
-    account.command.is_some() || cli_installed(home)
+    missing_cli(account, home).is_none()
+}
+
+/// `agy`, when the account runs it and it isn't on this Mac (`Adapter::missing_cli`).
+fn missing_cli(account: &AccountCfg, home: &Path) -> Option<&'static str> {
+    crate::harness::missing_program(cli_command(account), CLI, home, || cli_installed(home))
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1709,7 +1714,7 @@ impl crate::harness::Reader for Reader {
 
     /// Keeps the list of models a start can ask for at hand (`models`).
     fn poll(&mut self, accounts: &[AccountCfg]) {
-        for a in accounts.iter().filter(|a| a.command.is_some() || cli_installed(&crate::util::home())) {
+        for a in accounts.iter().filter(|a| has_cli(a, &crate::util::home())) {
             models(cli_command(a));
         }
     }
@@ -1995,6 +2000,11 @@ impl crate::harness::Adapter for Antigravity {
 
     fn installed(&self, home: &Path, on_path: &dyn Fn(&str) -> bool) -> bool {
         crate::detect::app("Antigravity.app").is_some() || on_path(CLI) || crate::detect::is_executable(&home.join(".local/bin").join(CLI))
+    }
+
+    /// The app needs none: only its command line starts conversations from Codealong.
+    fn missing_cli(&self, account: &AccountCfg, home: &Path) -> Option<&'static str> {
+        missing_cli(account, home)
     }
 
     fn folder_use(&self, dir: &Path) -> crate::harness::FolderUse {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deviceLabel, deviceOf, IPHONE_PROMPT, IPHONE_REPO, needsOn, shortOf, withDevices, workingOn } from './devices';
+import { deviceLabel, deviceOf, needsOn, shortOf, withDevices, workingOn } from './devices';
 import * as fx from './testing/fixtures';
 import type { Lane, Session } from './types';
 
@@ -44,16 +44,6 @@ describe('your other devices', () => {
     // A helper or a headless run at work isn't an agent of yours at work.
     const runs = [lane('/a', [session('s2', 'working'), { ...session('r1', 'working'), headless: true }, { ...session('h1', 'working'), helper: { parent: 's2' } }])];
     expect(workingOn(runs, null)).toBe(1);
-  });
-
-  it('asks an agent to install the iPhone app from its repo and link it here', () => {
-    // The steps are the iOS README's: the prompt points there and names only what links the phone.
-    expect(IPHONE_PROMPT).toContain(`https://${IPHONE_REPO}`);
-    expect(IPHONE_PROMPT).toContain('“Get it on your iPhone”');
-    expect(IPHONE_PROMPT).toContain('`scripts/install-device.sh`');
-    expect(IPHONE_PROMPT).toContain('`codealong devices code`');
-    // iOS lists the developer to trust only once the app is on the phone.
-    expect(IPHONE_PROMPT.indexOf('trusting the developer')).toBeGreaterThan(IPHONE_PROMPT.indexOf('`scripts/install-device.sh`'));
   });
 
   it('names a device without its owner', () => {

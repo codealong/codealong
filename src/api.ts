@@ -6,6 +6,7 @@ import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
+import type { AgentTask } from './agentTasks';
 import type { BoardDoc, BoardOp } from './boards/model';
 import type { TodoOp } from './todos';
 import { pageZoom, type ZoomStep } from './zoom';
@@ -1654,6 +1655,13 @@ export interface QuickOpen {
 export async function showQuick(context: QuickOpen = {}): Promise<void> {
   if (!inTauri) return;
   await invoke('show_quick', { context });
+}
+
+/** Opens the quick panel on a session Codealong offers to start (agentTasks.ts): its prompt
+ *  filled in, in its worktree or a chat of its own, to send on the agent you pick. */
+export async function askAgent(task: AgentTask): Promise<void> {
+  const where: QuickOpen = task.laneId ? { laneId: task.laneId, project: task.project ?? null } : { chat: true };
+  await showQuick({ ...where, prompt: task.prompt, opener: windowLabel() });
 }
 
 export async function hideQuick(): Promise<void> {

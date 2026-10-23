@@ -444,6 +444,14 @@ pub trait Adapter: Sync {
         false
     }
 
+    /// Its command line's program, when `account` starts sessions with it and it isn't on this
+    /// Mac (`missing_program`; `home` is yours): `places` offers nothing that needs it, and
+    /// Settings › Accounts says so and offers a session that installs it (src/agentTasks.ts).
+    /// None when it's there, or the account runs a command of your own.
+    fn missing_cli(&self, _account: &AccountCfg, _home: &Path) -> Option<&'static str> {
+        None
+    }
+
     /// What its folder `dir` holds, for finding its accounts on this Mac (detect.rs).
     fn folder_use(&self, _dir: &Path) -> FolderUse {
         FolderUse::default()
@@ -1017,6 +1025,18 @@ pub fn steerable(s: &Session, account: Option<&AccountCfg>) -> bool {
     s.live && s.status == crate::model::Status::Working && !s.hosted && account.is_some_and(|account| adapter(s.harness).steers(&Ctx { account }, s))
 }
 
+/// `program`, a harness's command line, when `command` (an account's, as config.toml gives it)
+/// runs it and it isn't on this Mac: neither where `found` looks (the PATH Codealong gives
+/// programs, where its installer puts it in `home`) nor, when `home` is yours, where your shell
+/// finds it (`detect::shell_finds`). A command that runs another program is a wrapper or alias
+/// of yours, which isn't looked into (`Adapter::missing_cli`).
+pub fn missing_program(command: &str, program: &'static str, home: &Path, found: impl FnOnce() -> bool) -> Option<&'static str> {
+    if crate::detect::program_of(command) != Some(program) || found() {
+        return None;
+    }
+    (home != crate::util::home() || !crate::detect::shell_finds(program)).then_some(program)
+}
+
 /// What one of a harness's folders holds (`Adapter::folder_use`).
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct FolderUse {
@@ -1176,6 +1196,41 @@ mod tests {
         // Harness::from_config reads anything unknown as Claude Code; an account's harness
         // doesn't, so nothing is asked of Claude Code's adapter for it.
         assert!(named("gemini").is_none());
+    }
+
+    #[test]
+    fn a_command_line_is_missing_only_when_the_account_runs_it_and_nothing_finds_it() {
+        // Another home than yours: your shell isn't asked, and `found` says.
+        let home = Path::new("/Users/someone-else");
+        assert_eq!(missing_program("cursor-agent", "cursor-agent", home, || false), Some("cursor-agent"));
+        assert_eq!(missing_program("CURSOR_CONFIG_DIR=~/.cw cursor-agent", "cursor-agent", home, || false), Some("cursor-agent"));
+        assert_eq!(missing_program("cursor-agent", "cursor-agent", home, || true), None);
+        // A wrapper or alias of yours, or a path, is yours to keep working.
+        assert_eq!(missing_program("cursor-work", "cursor-agent", home, || panic!("looked for a wrapper's program")), None);
+        assert_eq!(missing_program("/opt/agy/bin/agy", "agy", home, || false), None);
+    }
+
+    #[test]
+    fn an_account_whose_command_line_is_missing_starts_only_where_it_needs_none() {
+        let dir = std::env::temp_dir().join(format!("ca-missing-cli-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let home = dir.as_path();
+        let account = |harness: &str, command: Option<&str>| AccountCfg { name: harness.into(), harness: harness.into(), home: home.join(format!(".{harness}")).to_string_lossy().into_owned(), command: command.map(String::from), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        // Cursor's own command, which used to count as installed whatever was there.
+        let cursor = account("cursor", Some("cursor-agent"));
+        assert_eq!(adapter(Harness::Cursor).missing_cli(&cursor, home), Some("cursor-agent"));
+        assert!(crate::start::places_of(&cursor, home).is_err());
+        std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+        let cli = home.join(".local/bin/cursor-agent");
+        std::fs::write(&cli, "#!/bin/sh\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(adapter(Harness::Cursor).missing_cli(&cursor, home), None);
+        assert!(crate::start::places_of(&cursor, home).is_ok());
+        // Antigravity's runs `agy` though config.toml gives no command.
+        let agy = account("antigravity", None);
+        assert_eq!(adapter(Harness::Antigravity).missing_cli(&agy, home), Some("agy"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

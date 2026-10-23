@@ -58,6 +58,7 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
     let harness = crate::harness::of(a);
     let (signed_in, email) = harness.map_or((false, None), |h| h.signed_in(&dir));
     let sign_in_note = harness.and_then(|h| h.sign_in_note(&dir));
+    let missing_cli = harness.and_then(|h| h.missing_cli(a, &crate::util::home())).map(str::to_string);
     AccountInfo {
         name: a.name.clone(),
         harness: a.harness.clone(),
@@ -73,6 +74,7 @@ pub fn describe(a: &AccountCfg) -> AccountInfo {
         signed_in,
         email,
         sign_in_note,
+        missing_cli,
     }
 }
 

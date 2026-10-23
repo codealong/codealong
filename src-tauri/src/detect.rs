@@ -594,12 +594,94 @@ pub fn on_user_path(name: &str) -> bool {
     crate::procs::user_path().split(':').filter(|p| !p.is_empty()).any(|d| is_executable(&Path::new(d).join(name)))
 }
 
+/// The program a command as config.toml gives an account's runs: its first word past any
+/// `VAR=value` (`CURSOR_CONFIG_DIR=~/.x cursor-agent` runs `cursor-agent`).
+pub fn program_of(command: &str) -> Option<&str> {
+    let assignment = |w: &str| w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && k.chars().all(is_word_char));
+    command.split_whitespace().find(|w| !assignment(w))
+}
+
+/// How long what your shell said of a program is kept (`shell_finds`).
+const SHELL_SAID_MS: i64 = 10 * 60 * 1000;
+
+/// What the shell prints for a program it doesn't find (`shell_finds`).
+const SHELL_MISSES: &str = "codealong-not-found";
+
+/// What your shell said of each program it was asked about, and when.
+static SHELL_SAID: std::sync::Mutex<Vec<(String, bool, i64)>> = std::sync::Mutex::new(Vec::new());
+
+/// Whether your shell runs `program`, as an interactive login shell's `command -v` finds it: it
+/// reads your .zshrc as a terminal does, so a node version manager's folder or an alias there
+/// counts where the PATH Codealong gives programs (`on_user_path`) has neither. Asked only once
+/// a quicker look has missed it, and kept ten minutes, since start.rs asks whenever it lists an
+/// account's places; `forget_shell` drops what was kept. A shell that doesn't start or answer in
+/// time counts as finding it: a command line said to be missing when it isn't takes starts away.
+pub fn shell_finds(program: &str) -> bool {
+    let now = now_ms();
+    let kept = SHELL_SAID.lock().ok().and_then(|said| said.iter().find(|(p, _, at)| p == program && now - at < SHELL_SAID_MS).map(|(_, found, _)| *found));
+    if let Some(found) = kept {
+        return found;
+    }
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    // The answer is a word of its own, since startup files can print what they like.
+    let ask = format!("command -v {} >/dev/null 2>&1 || echo {SHELL_MISSES}", crate::util::sh_quote(program));
+    let found = crate::procs::run(&shell, &["-ilc", &ask], None, std::time::Duration::from_secs(4)).map_or(true, |out| !out.lines().any(|l| l.trim() == SHELL_MISSES));
+    if let Ok(mut said) = SHELL_SAID.lock() {
+        said.retain(|(p, _, _)| p != program);
+        said.push((program.to_string(), found, now));
+    }
+    found
+}
+
+/// Drops what the shell said of programs, so the next `shell_finds` asks again: Settings ›
+/// Accounts reads the accounts afresh after an agent installed a command line.
+pub fn forget_shell() {
+    if let Ok(mut said) = SHELL_SAID.lock() {
+        said.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn decl(name: Option<&str>, var: &str, value: &str) -> Decl {
         Decl { name: name.map(str::to_string), var: var.into(), value: value.into() }
+    }
+
+    #[test]
+    fn a_command_runs_its_first_word_past_the_variables_it_sets() {
+        assert_eq!(program_of("cursor-agent"), Some("cursor-agent"));
+        assert_eq!(program_of("CURSOR_CONFIG_DIR=~/.cursor-work cursor-agent --trust"), Some("cursor-agent"));
+        assert_eq!(program_of("XDG_DATA_HOME=~/.oc2  opencode"), Some("opencode"));
+        assert_eq!(program_of("/opt/agy/bin/agy"), Some("/opt/agy/bin/agy"));
+        assert_eq!(program_of("  "), None);
+    }
+
+    #[test]
+    fn your_shell_is_asked_once_for_a_program_the_path_misses() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        let asked = Rc::new(Cell::new(0));
+        let counted = asked.clone();
+        crate::procs::stand_in::set(Some(Box::new(move |_, args, _, _| {
+            counted.set(counted.get() + 1);
+            let script = args.last().copied().unwrap_or_default();
+            // A startup file's own words come first; then what the question printed.
+            Ok(if script.contains("'codealong-test-nvm-agent'") { "Welcome back\n".into() } else { format!("Welcome back\n{SHELL_MISSES}\n") })
+        })));
+        assert!(shell_finds("codealong-test-nvm-agent"));
+        assert!(!shell_finds("codealong-test-gone-agent"));
+        assert!(!shell_finds("codealong-test-gone-agent"));
+        assert_eq!(asked.get(), 2, "the second ask is kept");
+        forget_shell();
+        assert!(!shell_finds("codealong-test-gone-agent"));
+        assert_eq!(asked.get(), 3);
+        // A shell that doesn't answer leaves the program be.
+        crate::procs::stand_in::set(Some(Box::new(|_, _, _, _| Err(anyhow::anyhow!("timed out")))));
+        forget_shell();
+        assert!(shell_finds("codealong-test-slow-agent"));
+        crate::procs::stand_in::set(None);
     }
 
     #[test]

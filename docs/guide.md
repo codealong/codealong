@@ -1800,7 +1800,10 @@ wait on you, and how loud (see *Sounds*); Jev has the TypeSafe key (kept in the 
 what Jev's requests used and cost (see *What sessions used and cost*), and a switch per feature,
 each saying what it sends; Accounts adds, edits, turns off, removes and
 signs in accounts, says how each pays (a plan's price a month, or by the token; see *What sessions
-used and cost*), and under Found on this Mac lists the ones Codealong could read but doesn't, to add
+used and cost*), tags one whose command line isn't on this machine (Cursor's app without
+`cursor-agent`, say: not on the PATH a terminal has, nor where its installer puts it), which then
+starts nothing that needs it, and offers to have an agent on another account install it,
+and under Found on this Mac lists the ones Codealong could read but doesn't, to add
 with a click (with the agent skill, unless you untick it); Routing has Auto's rule, routing groups and Jev's routing instructions; Automation has what Codealong does by itself:
 the agent that reviews the pull requests that wait on your review (the account, model and effort it
 runs on, picked in the agent menu at the foot of a box like a session's that holds what it's told,
@@ -1924,6 +1927,14 @@ you opens where it lives), ⇥ answers it in the waiting window, and its right-c
 prompt too. Escape, ⌫ in the empty box, ⌘F again or a click on the
 prompt puts the prompt back in the box. The new session's row and the bar under it, which only set
 up a new session, are put away meanwhile.
+
+Some buttons have an agent do something for Codealong: Get the iPhone app and Sync projects in
+Settings › Devices, Install a command line that isn't on this machine in Settings › Accounts, and
+Update in Codealong Dev's sidebar. Each opens the quick panel on its prompt, written for you, in a
+chat of its own or in the checkout it's about, so you read what the agent will be asked, change it
+if you like, and pick the agent that does it; nothing starts until you send it. Switch to Codealong
+Dev (*Improve Codealong*) is the one asked from inside the panel, and starts once you say so in its
+dialog.
 
 ### Suggestions in the quick panel
 
@@ -2243,6 +2254,15 @@ for repos in (`scan`); its prompt points the agent at the repo's `docs/developme
 building needs, has it run `relaunch.sh`, and has it say how to go back (open Codealong from
 Applications). **Not now** goes on to Improve Codealong as above, and *Don't suggest this again*
 keeps it from asking. Builds of the source (Codealong Dev, `npm run tauri dev`) never ask.
+
+Codealong Dev doesn't update itself, but it knows the commit it was built from (when
+`scripts/relaunch.sh` built it from a checkout with nothing uncommitted), and two minutes after it
+opens, then every fifteen, it fetches origin/main in its source's checkout (the one Improve
+Codealong starts in) and counts the commits there since. Once there are any, *Update: N new
+commits* shows at the foot of the sidebar, and Settings › General says so beside the version with
+an Update… button. Either opens the quick panel on that checkout with a prompt that has an agent
+bring it to origin/main, stopping to ask rather than lose uncommitted changes or commits of its own,
+run `relaunch.sh`, and say what's new. *Look for updates by itself* turns the looking off too.
 
 On the iPhone, the button at the top of the list does the same
 with a picture of the phone's screen, kept on the Mac the session starts on.
@@ -3080,6 +3100,15 @@ install what it needs, walk you through what only you can do on the phone and in
 install script, have you trust the developer on the phone once the app is on it, and link the phone
 with this Mac by a link code. With a free Apple developer team
 the app runs for a week before it needs installing again, which the same button does.
+
+Each machine names its own projects, and another machine's worktrees go into this one's by their
+repos. To have the same work be the same project on both, under the same name, Sync projects on a
+linked machine's card opens the quick panel on a chat of its own with a prompt that lists that
+machine's projects as it names them, with their repos: the agent compares them with this machine's
+`[[projects]]` and its checkouts, says what it would add, move or clone, and changes config.toml
+(and clones repos into a folder Codealong searches) only as you say. It keeps what's only here, and
+asks before renaming or removing a project. Sync projects on the other machine does the same the
+other way. The button waits until that machine has sent its worktrees.
 
 One of your machines runs what they share rather than all of them: reviewing a pull request that
 asks for your review (see *Automatic reviews*), and a schedule that runs on one of them, after the

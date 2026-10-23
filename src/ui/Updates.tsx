@@ -1,9 +1,11 @@
 // Automatic updates in the windows (src-tauri/src/updates.rs): the sidebar's Restart to update,
-// once a newer version is in place, and the Updates field in Settings › General.
+// once a newer version is in place, or in Codealong Dev its Update, once origin/main has commits
+// the build hasn't; and the Updates field in Settings › General.
 import { useEffect, useState } from 'react';
-import { checkForUpdates, onUpdateStatus, restartToUpdate, updateStatus } from '../api';
+import { devUpdateTask } from '../agentTasks';
+import { askAgent, checkForUpdates, onUpdateStatus, restartToUpdate, updateStatus } from '../api';
 import { agoPhrase } from '../format';
-import type { Config, UpdateView } from '../types';
+import type { Config, DevBehind, UpdateView } from '../types';
 import { Button, CheckBox, Icon } from './primitives';
 
 /** Where updates stand, kept current; `null` until the app has said (and outside it). */
@@ -26,10 +28,39 @@ export function useUpdates(): UpdateView | null {
   return view;
 }
 
-/** Above the foot of the sidebar once a newer version is in place. The next launch runs it
- *  anyway; this is for now. */
-export function RestartToUpdate({ compact }: { compact?: boolean }) {
+/** What a development build's Update says, and its tooltip. */
+export function devUpdateWords(b: DevBehind): { label: string; title: string } {
+  const n = b.commits === 1 ? '1 new commit' : `${b.commits} new commits`;
+  return { label: `Update: ${n}`, title: `origin/main has ${n} since this build of Codealong Dev (${b.built.slice(0, 8)}): an agent pulls them and relaunches it` };
+}
+
+/** A development build's place behind origin/main, when it's a development build that is. */
+function devBehind(view: UpdateView | null): DevBehind | null {
+  return view?.state === 'off' ? (view.behind ?? null) : null;
+}
+
+/** Above the foot of the sidebar: Restart to update once a newer version is in place (the next
+ *  launch runs it anyway; this is for now), or in Codealong Dev, Update once origin/main has
+ *  commits the build hasn't, which opens the quick panel on a session that pulls them and
+ *  relaunches it (agentTasks.ts `devUpdateTask`). */
+export function SidebarUpdate({ compact }: { compact?: boolean }) {
   const view = useUpdates();
+  const behind = devBehind(view);
+  if (behind) {
+    const { label, title } = devUpdateWords(behind);
+    const update = () => void askAgent(devUpdateTask(behind));
+    return compact ? (
+      <button type="button" className="ca-rail-btn is-update" aria-label={label} title={title} onClick={update}>
+        <Icon name="refresh" size={18} />
+        <span className="ca-rail-badge is-ink" aria-hidden="true" />
+      </button>
+    ) : (
+      <button type="button" className="ca-side-update" title={title} onClick={update}>
+        <Icon name="refresh" size={14} />
+        <span>{label}</span>
+      </button>
+    );
+  }
   if (view?.state !== 'ready') return null;
   // In the collapsed sidebar: its icon alone, marked.
   if (compact) {
@@ -52,7 +83,9 @@ export function RestartToUpdate({ compact }: { compact?: boolean }) {
 export function updateSays(view: UpdateView, now: number): string {
   switch (view.state) {
     case 'off':
-      return 'This is a development build, which never updates itself.';
+      return view.behind
+        ? `This is a development build, from ${view.behind.built.slice(0, 8)}. origin/main has ${view.behind.commits === 1 ? '1 commit' : `${view.behind.commits} commits`} since: Update has an agent pull them and relaunch it.`
+        : 'This is a development build, which never updates itself.';
     case 'idle':
       return 'Codealong looks for a newer version a couple of minutes after it opens, then every six hours.';
     case 'checking':
@@ -117,6 +150,10 @@ export function UpdatesFields({ cfg, onSave, now }: { cfg: Config; onSave: (next
           {view.state === 'ready' ? (
             <Button size="sm" icon="refresh" onClick={() => void restartToUpdate()}>
               Restart to update
+            </Button>
+          ) : view.state === 'off' && view.behind ? (
+            <Button size="sm" icon="refresh" title={devUpdateWords(view.behind).title} onClick={() => void askAgent(devUpdateTask(view.behind as DevBehind))}>
+              Update…
             </Button>
           ) : (
             view.state !== 'off' && (
