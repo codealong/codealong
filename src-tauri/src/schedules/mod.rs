@@ -655,8 +655,18 @@ fn board_problem(s: &Schedule, board: &Board) -> Option<String> {
     match run.to {
         To::Session => board.session(run.session.trim()).is_none().then(|| "The session it sends to isn't on the board.".to_string()),
         _ if run.folder.trim().is_empty() => None,
-        _ => crate::start::lane_at(board, &crate::util::expand(run.folder.trim())).is_none().then(|| format!("{} isn't a worktree Codealong knows.", run.folder.trim())),
+        _ => worktree(board, run.folder.trim()).is_none().then(|| format!("{} isn't a worktree Codealong knows.", run.folder.trim())),
     }
+}
+
+/// The worktree a schedule's folder names: that worktree itself, never one that holds the folder
+/// (`start::lane_at` falls back to that), which on a machine without it would be your home folder,
+/// or a repo's checkout, and a run would start there instead.
+pub fn worktree<'a>(board: &'a Board, folder: &str) -> Option<&'a crate::model::Lane> {
+    let dir = crate::util::expand(folder);
+    let real = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let want = real(&dir);
+    board.lanes.iter().find(|l| std::path::Path::new(&l.path) == dir || std::path::Path::new(&l.id) == dir || real(std::path::Path::new(&l.path)) == want)
 }
 
 /// When a schedule's watch looks next: `every` after its last look, or now when it hasn't.
@@ -1218,6 +1228,18 @@ mod tests {
         assert_eq!(when_words(&When::Event { event: Event::PrMerged, repo: "acme/web".into(), label: String::new(), mine: true }), "When a PR of yours merges in acme/web");
         assert_eq!(when_words(&When::Event { event: Event::TodoReady, repo: String::new(), label: "overnight".into(), mine: false }), "When a todo labeled overnight is ready");
         assert_eq!(when_words(&When::Watch { command: "gh api deployments".into(), every: "5m".into(), mode: WatchMode::Value }), "When `gh api deployments` prints a change, every 5m");
+    }
+
+    #[test]
+    fn a_schedules_worktree_is_that_worktree_not_one_that_holds_it() {
+        let home = crate::util::home().to_string_lossy().into_owned();
+        let lane = |path: &str| crate::model::Lane { id: path.into(), path: path.into(), ..crate::fixtures::lane(path, Vec::new()) };
+        let board = Board { lanes: vec![lane(&home), lane("/Users/me/projects/northwind")], ..Board::default() };
+        assert!(worktree(&board, "/Users/me/projects/northwind").is_some());
+        // Your home folder holds it, but it isn't a worktree here: a run would start in the wrong place.
+        assert!(worktree(&board, "~/projects/atlas").is_none());
+        let s = Schedule { run: Run { folder: "~/projects/atlas".into(), prompt: "Look".into(), ..Run::default() }, ..Schedule::default() };
+        assert!(board_problem(&s, &board).is_some_and(|p| p.contains("isn't a worktree")));
     }
 
     #[test]

@@ -459,6 +459,20 @@ mod tests {
     }
 
     #[test]
+    fn the_view_lists_the_others_runs_among_its_own() {
+        let s = schedule("s-1", one(""), 10);
+        let run = RunRecord { at: 5, why: "9:00".into(), session: Some("claude:claude:9f".into()), ..RunRecord::default() };
+        let mut x = copy(&s, true);
+        x.runs = vec![serde_json::to_value(&run).unwrap()];
+        let board = Board { machines: std::sync::Arc::new(machines(Rank::First, vec![machine("bbbbbbbbbbbb", "Mini", Rank::First, true, vec![x])])), ..Board::default() };
+        let mine = Track { runs: vec![RunRecord { at: 9, why: "Run now".into(), ..RunRecord::default() }], ..Track::default() };
+        let runs = Runs { of: [("s-1".to_string(), mine)].into(), ..Runs::default() };
+        let items = items(&File { schedules: vec![s], gone: Vec::new() }, &runs, &board, &Config::default(), NOW, &rule::tests::Fake::utc());
+        let listed: Vec<(i64, Option<&str>, Option<&str>)> = items[0].runs.iter().map(|r| (r.at, r.machine.as_deref(), r.session.as_deref())).collect();
+        assert_eq!(listed, [(9, None, None), (5, Some("Mini"), Some("@bbbbbbbbbb:claude:claude:9f"))]);
+    }
+
+    #[test]
     fn shows_the_others_runs_with_where_they_ran() {
         let s = schedule("s-1", one(""), 10);
         let run = RunRecord { at: 5, why: "9:00".into(), session: Some("claude:claude:9f".into()), ..RunRecord::default() };

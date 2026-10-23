@@ -2017,6 +2017,30 @@ mod tests {
         }
     }
 
+    /// A schedule shared from one machine reaches the other with its runs there, whose sessions the
+    /// other finds among that machine's worktrees, as the rows under a schedule look them up.
+    #[test]
+    fn a_shared_schedules_runs_on_one_machine_are_found_on_the_other() {
+        let a = device("Book", vec![]);
+        let b = device("Mini", vec![lane("/Users/sam/infra", vec![session("claude:claude:run1", Status::Idle)])]);
+        let schedule = crate::schedules::Schedule { id: "s-1".into(), name: "Triage".into(), runs_on: crate::schedules::RunsOn::One { prefer: String::new() }, ..Default::default() };
+        let run = crate::schedules::RunRecord { at: 5, why: "9:00".into(), session: Some("claude:claude:run1".into()), ..Default::default() };
+        let copy = codealong_peer::schedules::SharedSchedule { id: "s-1".into(), schedule: serde_json::to_value(&schedule).unwrap(), able: true, runs: vec![serde_json::to_value(&run).unwrap()], ..Default::default() };
+        b.board.lock().unwrap().shared_schedules = codealong_peer::schedules::Shared { list: vec![copy], gone: Vec::new() };
+        join(&a, &b);
+        link(&a, &b);
+        until("a to get b's schedule", || a.peers.view().machines.others.iter().any(|m| m.schedules.get("s-1").is_some_and(|x| !x.runs.is_empty())));
+        until("a to get b's lanes", || a.peers.view().lanes.len() == 1);
+        let view = a.peers.view();
+        let runs = crate::schedules::machines::their_runs("s-1", &view.machines);
+        let keys: Vec<&str> = view.lanes.iter().flat_map(|l| l.sessions.iter().map(|s| s.key.as_str())).collect();
+        assert_eq!(runs.len(), 1);
+        assert!(keys.contains(&runs[0].session.as_deref().unwrap()), "{runs:?} among {keys:?}");
+        for m in [&a, &b] {
+            let _ = std::fs::remove_dir_all(&m.dir);
+        }
+    }
+
     #[test]
     fn a_session_on_a_mac_that_wont_end_it_is_still_done_with() {
         let a = device("Book", vec![]);

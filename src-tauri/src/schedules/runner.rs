@@ -946,7 +946,7 @@ fn start_step(board: &Board, cfg: &crate::config::Config, s: &Schedule, prompt: 
     let lane_id = if s.run.folder.trim().is_empty() {
         crate::config::chats_dir().to_string_lossy().into_owned()
     } else {
-        match crate::start::lane_at(board, &crate::util::expand(s.run.folder.trim())) {
+        match worktree(board, s.run.folder.trim()) {
             Some(l) => l.id.clone(),
             None => return Step::Fail { why: format!("{} isn't a worktree Codealong knows.", s.run.folder.trim()) },
         }
