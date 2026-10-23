@@ -25,7 +25,6 @@ import type { useTodoView } from '../useTodoView';
 import { Inspector } from './Inspector';
 import { PrInspector } from './PrInspector';
 import type { PanelBackTo } from './primitives';
-import { ALL_PROJECTS } from './ProjectSwitcher';
 import type { PrRowItem } from './PrsView';
 import { SessionPanel } from './SessionPanel';
 import type { FindAsk } from './ThreadFind';
@@ -84,7 +83,6 @@ export interface MainPanelProps {
   laneById: Map<string, Lane>;
   homes: Map<string, Placed>;
   devices: DevicesView | null;
-  current: string;
   projectTodos: Todo[];
   todoStore: Pick<ReturnType<typeof useTodoStore>, 'todos' | 'labels' | 'run'>;
   todoLinks: { bySession: Map<string, Todo[]>; byLane: Map<string, Todo[]> };
@@ -146,7 +144,7 @@ export interface MainPanelProps {
 }
 
 export function MainPanel(props: MainPanelProps) {
-  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, current, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
+  const { view, selected, selectedLane, canvasPicked, board, now, loading, lanes, laneById, homes, devices, projectTodos, todoStore, todoLinks, todosFor, prRowOf, pickedRows, picks, approving, drill, setDrill, queue, boxFocus, panelMax, togglePanelMax, prPanelMax, togglePrPanelMax, actionsRef, open, newSession, showLaneFromPanel, showSessionFromPanel, showSchedule, schedulePanel, scheduleSession, showTodoFromPanel, laneMenu, sessionMenu, sessionMenuSpec, lanePrMenu, showPr, prMenu, prChipMenu, approve, reviewMenuFrom, snoozeMenuFrom, reviewedPr, setPreviewFor, markSeen, setToast, findIn } = props;
   const { startForTodo, startForTodos, todoMenu, todoLinkMenu, todoMoreMenu, labelMenu, projectsForTodos, duePick, duePicked, selectTodoRow, pickMenu } = props.todo;
   const runTodo = todoStore.run;
   const { run: runQueue } = queue;
@@ -192,7 +190,6 @@ export function MainPanel(props: MainPanelProps) {
     <TodoPickPanel
       items={rows}
       todos={todoStore.todos}
-      showProject={current === ALL_PROJECTS}
       onStart={() => startForTodos(rows)}
       onShow={(r) => selectTodoRow(r, 'one')}
       onLeaveOut={(r) => selectTodoRow(r, 'toggle')}

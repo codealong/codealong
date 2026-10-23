@@ -28,6 +28,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { barNote, getBoard, inPreview, keepSession, keptClose, keptFocus, keptReady, keptResize, keptSession, onKeptKeys, onPeekHidden, onPeekOpen, onPeekShown, peekDrag, peekFit, peekFocus, peekHide, peekOpen, peekReady, peekResize, sideClose } from '../api';
 import { renameAhead, sentWorthSaying } from '../ahead';
+import { BAR_PROJECT_KEY } from '../bar';
 import { readDraft } from '../drafts';
 import { followBoard } from '../followBoard';
 import { useLatest } from '../latest';
@@ -38,11 +39,13 @@ import { attentionRows, ALL_PROJECTS } from '../quick';
 import type { Board, Lane, PeekOpen, Session } from '../types';
 import { useKeyPerf } from '../perf';
 import { useCardHost, useLiveSession } from './cardHost';
+import { ProjectShown } from './ProjectSaid';
 import { SessionCard, type WindowCan } from './SessionCard';
 import { SideReply } from './SessionReply';
 import { useTheme } from './ThemeSwitch';
 import { useNow } from './useNow';
 import { errorText } from '../report';
+import { asText, readStored } from '../stored';
 import { cardZoom, zoomFactor } from '../zoom';
 import { cx } from './primitives';
 import { chordMod, held } from '../platform';
@@ -412,7 +415,7 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
       </div>
     );
   }
-  return (
+  const page = (
     <div
       className={cx('ca-peek-root', !open.below && 'is-over', kept && 'is-kept', filled && 'is-filled')}
       style={{ padding: open.below ? `${NEAR}px ${MARGIN}px ${FAR}px` : `${FAR}px ${MARGIN}px ${NEAR}px` }}
@@ -474,4 +477,8 @@ export function Peek({ kept = false, side = false }: { kept?: boolean; side?: bo
       {grip('corner')}
     </div>
   );
+  // The peek says a session's project as the bar it came from does, under the project the bar
+  // shows; a session kept on the desktop is under none, and says it.
+  const shownProject = kept ? ALL_PROJECTS : readStored(BAR_PROJECT_KEY, asText, ALL_PROJECTS);
+  return <ProjectShown.Provider value={shownProject}>{page}</ProjectShown.Provider>;
 }

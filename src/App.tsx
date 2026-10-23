@@ -41,6 +41,7 @@ import { MergeDoneDialog } from './ui/MergeDone';
 import type { HelperActions } from './ui/HelpersCard';
 import { Button, cx, Icon, Kbd, Seg } from './ui/primitives';
 import { ALL_PROJECTS, ProjectSwitcher } from './ui/ProjectSwitcher';
+import { ProjectShown } from './ui/ProjectSaid';
 import { useLogo } from './logo';
 import { usePrLinks } from './ui/PrLink';
 import { reviewedWords } from './prDraft';
@@ -2095,7 +2096,9 @@ export function App() {
   // The quick panel's shortcut from any app, which the box in the title bar shows; ⌘K without one.
   const quickKeys = shortcutKeys(board?.quickShortcut);
 
-  return (
+  // Everything in it says a worktree's or a PR's project where it isn't the one shown
+  // (ProjectSaid.tsx): under All projects, everywhere.
+  const page = (
     <div className="ca-win ca-win--app">
       <div className="ca-win-bar" data-tauri-drag-region>
         <div className="ca-win-bar-start" data-tauri-drag-region>
@@ -2449,7 +2452,6 @@ export function App() {
                 selectedKey={selected?.key ?? null}
                 picked={pickedKeys}
                 domId={domId}
-                showProject={current === ALL_PROJECTS}
                 canReorder={todoSort === 'status' && todoGroup === 'none'}
                 onSelect={(r, how) => {
                   pressRow(r.key, how);
@@ -2590,7 +2592,6 @@ export function App() {
             laneById={laneById}
             homes={homes}
             devices={devices}
-            current={current}
             projectTodos={projectTodos}
             todoStore={todoStore}
             todoLinks={todoLinks}
@@ -2694,4 +2695,5 @@ export function App() {
       <Toasts state={toasts} anchor={toastAnchor} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />
     </div>
   );
+  return <ProjectShown.Provider value={current}>{page}</ProjectShown.Provider>;
 }

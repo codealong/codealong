@@ -24,6 +24,7 @@ import { FlagChip, InsightChips, LooksFinished } from './InsightBits';
 import { HelpersCard, type HelperActions } from './HelpersCard';
 import { useHoverCard } from './HoverCard';
 import { PreviewChip } from './PreviewBits';
+import { ProjectPrefix } from './ProjectSaid';
 import { TodoChips } from './TodoBits';
 import { cmd } from '../platform';
 
@@ -120,6 +121,7 @@ function WorktreeHeadView({ lane, now, role, domId, selected, picked, pinned, on
       </div>
       <div className="ca-seg ca-seg-main" title={`${lane.path}. Double-click to open its most recent session.`}>
         <div className="ca-grouphead-line">
+          <ProjectPrefix project={lane.project} beside={[lane.repo, worktreeName(lane)]} />
           <span className="ca-grouphead-name">{worktreeName(lane)}</span>
           <span className="ca-lane-sub ca-grouphead-sub" title={branch ?? lane.path}>
             {lane.device && <DeviceBadge device={lane.device} now={now} />}
@@ -147,7 +149,7 @@ export const WorktreeHead = memoRow(WorktreeHeadView);
  *  row to select (there's no repo panel), but it has a menu and is pinned and dragged as a
  *  worktree's heading is. */
 function RepoHeadView({ repo, pinned, onMenu, drag }: { repo: RepoName; pinned: boolean; onMenu?: () => void; drag?: DragProps }) {
-  const { name, slug } = repo;
+  const { name, slug, project } = repo;
   return (
     <Row role="heading" level={4} className={cx('ca-lane', 'ca-grouphead', 'is-repo-head', pinned && 'is-pinned')} drag={drag} onMenu={onMenu}>
       <div className="ca-seg ca-seg-glyph" aria-hidden="true">
@@ -155,6 +157,7 @@ function RepoHeadView({ repo, pinned, onMenu, drag }: { repo: RepoName; pinned: 
       </div>
       <div className="ca-seg ca-seg-main" title={slug ?? name}>
         <div className="ca-grouphead-line">
+          <ProjectPrefix project={project} beside={[name]} />
           <span className="ca-grouphead-name">{name}</span>
           {slug && slug !== name && <span className="ca-lane-sub ca-grouphead-sub">{slug}</span>}
         </div>

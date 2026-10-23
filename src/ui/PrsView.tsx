@@ -22,6 +22,7 @@ import { rowsOptions, type RowLines } from './ListBar';
 import { PinnedSection } from './PinnedSection';
 import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
+import { ProjectSaidHere } from './ProjectSaid';
 import { cx, HarnessChip, Icon, MoreChip, PR_ICON, PR_WORD, RepoChip, Row, SectionHeader, WorktreeChip } from './primitives';
 import { GroupBlock, PinnedGroups, type GroupActs } from './Groups';
 import { SnoozeChip } from './LaneRow';
@@ -98,7 +99,7 @@ export const PR_NONE = 'No worktree here';
 export function prPlace(r: PrRowItem, by: GroupBy): Place {
   if (by === 'worktree') return placeIn(r.lane, by);
   const slug = r.pr.repoSlug;
-  return { key: slug, lane: null, repo: { name: r.pr.repo, slug } };
+  return { key: slug, lane: null, repo: { name: r.pr.repo, slug, project: r.pr.project } };
 }
 
 export interface PrSection {
@@ -186,7 +187,7 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
   // leave neither readable on a row's line; the +n names the rest, and the PR panel lists them all.
   const sessions = [...item.sessions].sort((a, b) => Number(b.session.key === pr.primary) - Number(a.session.key === pr.primary));
   const shown = sessions.slice(0, 1);
-  const repo = under !== 'repo' && <RepoChip repo={pr.repo} slug={pr.repoSlug} onShowOnly={onShowRepo && (() => onShowRepo(pr.repoSlug))} />;
+  const repo = under !== 'repo' && <RepoChip repo={pr.repo} slug={pr.repoSlug} project={pr.project} onShowOnly={onShowRepo && (() => onShowRepo(pr.repoSlug))} />;
   const snooze = reviewSnoozed(pr) && <SnoozeChip until={pr.snoozedUntil} now={now} away="out of Review requested and off the floating bar" />;
   const diff = (
     <span className="ca-diff">
@@ -254,7 +255,11 @@ function PrRow({ item, domId, now, slim, opened, onShowRepo, selected, onSelect,
                   <MoreChip names={sessions.slice(shown.length).map(({ session }) => `${session.title} · ${session.account}`)} />
                 </span>
               )}
-              {item.lane && under !== 'worktree' && <WorktreeChip lane={item.lane} short />}
+              {item.lane && under !== 'worktree' && (
+                <ProjectSaidHere project={repo ? pr.project : null}>
+                  <WorktreeChip lane={item.lane} short />
+                </ProjectSaidHere>
+              )}
             </div>
             <span className="ca-lane-right">{diff}</span>
           </div>

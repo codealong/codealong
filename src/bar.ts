@@ -14,6 +14,9 @@ export const GROUPS: Group[] = ['needs', 'unread', 'working'];
  *  stays in Codealong, two open the session where it lives or the PR on GitHub, without the first
  *  click's doing showing first. */
 export const CLICK_WAIT_MS = 250;
+/** Where the project picked in the bar's menu is kept: the peek reads it too, to say a session's
+ *  project as the bar would (ui/ProjectSaid.tsx). */
+export const BAR_PROJECT_KEY = 'codealong.bar.project';
 /** The order groups fold in when the bar runs out of room. */
 const FOLD_ORDER: Group[] = ['working', 'unread', 'needs'];
 

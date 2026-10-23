@@ -28,10 +28,12 @@ export function groupOptions(what: string): { id: ListGroupBy; label: string; ic
  *  folds the rest away; more when more of them wait on you, which never fold. */
 export const GROUP_SHOWN = 5;
 
-/** A repo as its heading names it: its name, and its slug on GitHub where it has one. */
+/** A repo as its heading names it: its name, its slug on GitHub where it has one, and its
+ *  project, said before it where the window lists every project. */
 export interface RepoName {
   name: string;
   slug: string | null;
+  project: string;
 }
 
 /** A worktree or a repo heading its rows. */
@@ -73,7 +75,7 @@ export interface Place {
 }
 
 export function repoNameOf(lane: Lane): RepoName {
-  return { name: lane.repo, slug: lane.repoSlugNow ?? lane.repoSlug };
+  return { name: lane.repo, slug: lane.repoSlugNow ?? lane.repoSlug, project: lane.project };
 }
 
 /** The group of a row in `lane`: the worktree's, or its repo's; none for a row in no worktree. */

@@ -45,6 +45,7 @@ import { PrLabels } from './PrLabels';
 import { PrPills } from './PrPills';
 import { PrReviewers } from './PrReviewers';
 import { BranchLabel, Button, cx, headerMenu, Icon, PanelBack, Tabs, type PanelBackTo } from './primitives';
+import { ProjectPrefix } from './ProjectSaid';
 import { PrGlyph, prIsOpen, reviewSnoozed, syncWords, type PrPlace, type PrRowItem } from './PrsView';
 import { Tip } from './Tip';
 import { untilWords } from '../snooze';
@@ -358,7 +359,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
 
   // Where it lives on this Mac: chips under the header, the tree with its details.
   const places = item.places.map((p) => ({ lane: p.lane, sessions: p.sessions, note: placeNote(p, pr.number, pr.head) }));
-  const placesProps = { places, label: 'On this Mac', now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary: pr.primary ? { key: pr.primary, means: primaryWords(pr) } : null };
+  const placesProps = { places, label: 'On this Mac', project: pr.project, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary: pr.primary ? { key: pr.primary, means: primaryWords(pr) } : null };
 
   // Links in the description open in the browser rather than inside the app, but for a link to a
   // PR, which shows here as one in a conversation does (PrLink.tsx `followPrLink`).
@@ -399,6 +400,7 @@ export function PrDetails({ item, now, lead, trail, onMenu, onShowSession, onOpe
           </div>
         </div>
         <div className="ca-prinsp-meta">
+          <ProjectPrefix project={pr.project} beside={[pr.repo]} />
           <span title={pr.repoSlug}>{pr.repo}</span>
           <span aria-hidden="true">·</span>
           <BranchLabel branch={pr.head} />

@@ -18,6 +18,7 @@ import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
 import type { DragProps } from './useRowDrag';
 import { useFocusTrap } from './focusTrap';
 import { useEscape } from './useDismiss';
+import { ProjectPrefix } from './ProjectSaid';
 import { capsSaid, contextPress, typed } from '../platform';
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
@@ -735,9 +736,10 @@ export function AccountLabel({ session, small = false }: { session: Session; sma
 }
 
 /** A worktree as a chip, wherever a row names one: its name, after its repo when it has a name of
- *  its own (the main worktree is its repo, then `main`), and after its device, in that device's
- *  color, when it's on another of yours. `short` leaves it at the one name that tells it apart,
- *  and a lane short of room does the same (see .ca-wtchip-more). A panel that lists it
+ *  its own (the main worktree is its repo, then `main`), after its project where the window lists
+ *  another or all of them (ProjectSaid.tsx), and after its device, in that device's color, when
+ *  it's on another of yours. `short` leaves it at the one name that tells it apart, and its
+ *  project, and a lane short of room does the same (see .ca-wtchip-more). A panel that lists it
  *  (PanelSession.tsx `PanelPlaces`) shows it on a click and gives its menu on a right-click, and
  *  adds what it says of it on hover (`note`: how it stands against the PR, say). */
 export function WorktreeChip({ lane, short = false, note, onShow, onMenu }: { lane: Lane; short?: boolean; note?: string | null; onShow?: () => void; onMenu?: () => void }) {
@@ -759,6 +761,7 @@ export function WorktreeChip({ lane, short = false, note, onShow, onMenu }: { la
           {deviceLabel(lane.device.name)}
         </span>
       )}
+      <ProjectPrefix project={lane.project} beside={own && short ? [lane.callsign] : [lane.repo, lane.callsign]} />
       {own && !short && <span className="ca-wtchip-more">{lane.repo} /</span>}
       <span className="ca-wtchip-name">{main ? lane.repo : lane.callsign}</span>
       {main && !short && <span className="ca-wtchip-more">/ main</span>}
@@ -766,12 +769,14 @@ export function WorktreeChip({ lane, short = false, note, onShow, onMenu }: { la
   );
 }
 
-/** A PR's repo on its row, an outline chip as a place's is, named as GitHub names it. On a list's
- *  row a double-click shows only that repo's PRs (`onShowOnly`), as a label's chip does its todos. */
-export function RepoChip({ repo, slug, onShowOnly }: { repo: string; slug: string; onShowOnly?: () => void }) {
+/** A PR's repo on its row, an outline chip as a place's is, named as GitHub names it, after its
+ *  project where the window lists another or all of them. On a list's row a double-click shows
+ *  only that repo's PRs (`onShowOnly`), as a label's chip does its todos. */
+export function RepoChip({ repo, slug, project, onShowOnly }: { repo: string; slug: string; project?: string; onShowOnly?: () => void }) {
   return (
     <Chip className="ca-repochip" title={slug} does={`show only ${repo}’s PRs`} act={onShowOnly} inRow>
       <Icon name="book" size={12} />
+      <ProjectPrefix project={project} beside={[repo]} />
       <span className="ca-repochip-name">{repo}</span>
     </Chip>
   );

@@ -122,6 +122,12 @@
   color: var(--ink);
   text-decoration: underline;
 }
+/* Its project before it (ProjectSaid.tsx) stays quiet on hover: the click shows the worktree. */
+.ca-sessinsp-lane:hover .ca-projprefix,
+.ca-sessinsp-lane:hover .ca-projprefix-name {
+  color: var(--ink-3);
+  text-decoration: none;
+}
 /* Where the window can't show the worktree, its name is only said. */
 .ca-sessinsp-lane.is-plain {
   cursor: default;

@@ -102,6 +102,7 @@ import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
 import { SnoozeChip } from './LaneRow';
+import { placeWords } from './ProjectSaid';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
@@ -2053,7 +2054,7 @@ export function Quick() {
                               </span>
                               <span className="ca-quick-row-why">{todoWhy(r, now)}</span>
                             </span>
-                            <span className="ca-quick-row-where">{r.item.lane?.callsign ?? (t.project || 'No worktree')}</span>
+                            <span className="ca-quick-row-where">{r.item.lane ? placeWords(r.item.lane.project, r.item.lane.callsign, current) : t.project || 'No worktree'}</span>
                             <span className="ca-quick-row-age">{ago(r.item.lastActivity, now)}</span>
                             {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                           </div>
@@ -2123,7 +2124,7 @@ export function Quick() {
                               </span>
                               <span className="ca-quick-row-why">{prWhy(pr)}</span>
                             </span>
-                            <span className="ca-quick-row-where">{pr.repo}</span>
+                            <span className="ca-quick-row-where">{placeWords(pr.project, pr.repo, current)}</span>
                             <span className="ca-quick-row-age">{ago(pr.updatedAt, now)}</span>
                             {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                           </div>
@@ -2166,7 +2167,7 @@ export function Quick() {
                           )}
                           <SnoozeChip until={s2.snoozedUntil} now={now} away="out of what waits on you" />
                           <span className="ca-quick-row-where">
-                            {s2.account} · {r.lane.callsign}
+                            {s2.account} · {placeWords(r.lane.project, r.lane.callsign, current)}
                           </span>
                           {sendLikely && sendsTo && <span className={cx('ca-quick-sure', r.p != null && `is-${sureness(r.p)}`)}>{r.p != null ? `${Math.round(r.p * 100)}%` : ''}</span>}
                           <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>

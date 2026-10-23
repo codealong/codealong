@@ -22,6 +22,7 @@ import { attachmentsIn, blockedBy, itemSection, SECTION_WORD, snippet, statusSec
 import type { Label, Lane, Pr, Session, Todo, TodoHint, TodoStatus } from '../types';
 import { Chip, cx, HarnessChip, Icon, Kbd, MoreChip, PrChip, ReorderHint, Row, SectionHeader, WorktreeChip } from './primitives';
 import { rowsOptions, type RowLines } from './ListBar';
+import { ProjectSaidHere, ProjectTag } from './ProjectSaid';
 import { GroupBlock, PinnedGroups, type GroupActs } from './Groups';
 import { DueChip, LabelChip, TodoGlyph } from './TodoBits';
 import { useRowDrag, type DragProps } from './useRowDrag';
@@ -111,8 +112,6 @@ interface TodoRowProps {
   /** Sorted by when added, its age says when it was added, not when it was last active. */
   added: boolean;
   selected: boolean;
-  /** Show the project: the view spans all of them. */
-  showProject: boolean;
   onSelect: (how: SelectHow) => void;
   onOpen: () => void;
   onContextMenu: () => void;
@@ -136,7 +135,7 @@ const CHIPS_SHOWN = 3;
 /** A todo in the list: its title and the start of its description, then when it's due, its labels,
  *  what it waits on, the sessions on it and the worktrees and PR it's in. On one line (`slim`)
  *  they follow its title at the line's end, the last giving way first, its PR always shown. */
-function TodoRow({ item, section, domId, now, slim, added, selected, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, blocked, hint, drag, under }: TodoRowProps) {
+function TodoRow({ item, section, domId, now, slim, added, selected, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel, blocked, hint, drag, under }: TodoRowProps) {
   const { todo } = item;
   const pr = todoPr(item);
   const detail = snippet(todo.description);
@@ -146,7 +145,7 @@ function TodoRow({ item, section, domId, now, slim, added, selected, showProject
   const attached = attachmentsIn(todo.description);
   const chips = (
     <>
-      {showProject && todo.project && <span className="ca-tag">{todo.project}</span>}
+      <ProjectTag project={todo.project} />
       <DueChip todo={todo} now={now} />
       {item.labels.map((l) => (
         <LabelChip key={l.id} label={l} title={`Double-click to show only “${l.name}”`} onClick={() => onFilterLabel(l)} inRow />
@@ -193,13 +192,14 @@ function TodoRow({ item, section, domId, now, slim, added, selected, showProject
       )}
     </>
   );
+  // Its project is said once, on its tag, and its worktrees in it don't say it again.
   const places = (
-    <>
+    <ProjectSaidHere project={todo.project}>
       {lanes.slice(0, 2).map((l) => (
         <WorktreeChip key={l.id} lane={l} short />
       ))}
       <MoreChip names={lanes.slice(2).map((l) => l.callsign)} />
-    </>
+    </ProjectSaidHere>
   );
   const prChip = pr && <PrChip pr={pr} compact onShow={() => onShowPr(pr)} onOpen={() => onOpenPr(pr)} inRow />;
   return (
@@ -267,7 +267,6 @@ interface TodoViewProps {
   /** The rows picked together with the selected one, when there are several. */
   picked: Set<string>;
   domId: (row: TodoItem) => string;
-  showProject: boolean;
   /** Dragging reorders a status's section, which sorting by when added doesn't list. */
   canReorder: boolean;
   onSelect: (row: TodoItem, how: SelectHow) => void;
@@ -309,7 +308,7 @@ function SectionHead({ id, count, hint }: { id: TodoSectionId; count: number; hi
 /** A todo's row, as every section lists it: `section` is the one it's listed in, `drag` how it's
  *  dragged, and `under` the worktree whose heading it's under. */
 function todoRow(props: TodoViewProps, r: TodoItem, section: TodoSectionId, drag: DragProps, under?: string) {
-  const { todos, sort, lines, now, selectedKey, picked, domId, showProject, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel } = props;
+  const { todos, sort, lines, now, selectedKey, picked, domId, onSelect, onOpen, onContextMenu, onOpenSession, onShowPr, onOpenPr, onFilterLabel } = props;
   return (
     <TodoRow
       key={r.key}
@@ -320,7 +319,6 @@ function todoRow(props: TodoViewProps, r: TodoItem, section: TodoSectionId, drag
       slim={lines === 'one'}
       added={sort === 'added'}
       selected={r.key === selectedKey || picked.has(r.key)}
-      showProject={showProject}
       onSelect={(how) => onSelect(r, how)}
       onOpen={() => onOpen(r)}
       onContextMenu={() => onContextMenu(r)}

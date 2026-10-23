@@ -2,7 +2,8 @@
 // the main window, the floating bar's peek and the waiting window (SessionPanel.tsx puts
 // it over the conversation in all three). It keeps to a few lines so the conversation has the room:
 // the title with the ways to open it and act on it (its folder in your terminal and your editors
-// among them), one line of where it stands and where it works, and one of the PRs it worked on
+// among them), one line of where it stands and where it works (its project too, where the window
+// lists every project: ProjectSaid.tsx), and one of the PRs it worked on
 // (each one's card on hover), the latest page on the web it made (ArtifactBits.tsx) and the todo
 // it's on. The rest is in Details and the ⋯ menu. Merge and done… for a PR's primary session is
 // on the strip over it where there's one (SessionPanel.tsx `QueueStrip`), and in its menu.
@@ -52,6 +53,7 @@ import { InsightChips } from './InsightBits';
 import { ModeLabel } from './ModeLabel';
 import { OpenInMenu } from './Inspector';
 import { PreviewChip } from './PreviewBits';
+import { ProjectPrefix } from './ProjectSaid';
 import { PrChipCard } from './PrLink';
 import { AccountLabel, BranchLabel, Button, HarnessChip, headerMenu, Icon, PanelBack, STATUS_WORD, SessionEmblem, SessionGlyph, type PanelBackTo } from './primitives';
 import { runFolder } from './RunButton';
@@ -444,11 +446,13 @@ export function SessionHeader({ lane, session: s, apps, now, onOpen, onShowLane,
             {onShowLane ? (
               <button type="button" className="ca-sessinsp-lane" title={`Show ${lane.callsign}: ${tildePath(lane.path)}`} onClick={() => onShowLane(lane)}>
                 <Icon name="folder" size={12} />
+                <ProjectPrefix project={lane.project} beside={[lane.callsign]} />
                 <span>{lane.callsign}</span>
               </button>
             ) : (
               <span className="ca-sessinsp-lane is-plain" title={tildePath(lane.path)}>
                 <Icon name="folder" size={12} />
+                <ProjectPrefix project={lane.project} beside={[lane.callsign]} />
                 <span>{lane.callsign}</span>
               </span>
             )}

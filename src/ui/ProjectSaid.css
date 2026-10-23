@@ -1,0 +1,22 @@
+/* A place's project before its name (ProjectSaid.tsx): in the quieter ink a worktree's repo is
+   said in, then a slash, as a worktree chip's device and repo are. Short of room it shortens
+   before the place's own name does, down to its first letters. */
+.ca-projprefix {
+  display: inline-flex;
+  flex: 0 4 auto;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--ink-3);
+}
+.ca-projprefix::after {
+  content: '/';
+  flex: none;
+  opacity: 0.6;
+}
+.ca-projprefix-name {
+  min-width: 3ch;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

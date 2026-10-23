@@ -25,8 +25,13 @@ it is, how to install it and how to get going. The settings file is annotated in
 (grouped by worktree or by repo if you like), PRs, Todo, Schedules (every project's), and its
 boards, each shown as Kanban or as Canvas (an experiment, off until Settings › Experimental turns
 it on: see *Boards*). The project switcher (⌘P) shows each project's key: ⌥⌘1 to ⌥⌘9 switch
-projects, ⌥⌘0 shows them all. Add project… at its foot opens Settings › Projects with a new
-project's form, and Edit projects… the list. ⇧⌘S,
+projects, ⌥⌘0 shows them all. Under All projects, wherever a worktree or a PR's repo is named
+(a row's chip, a group's heading, a session's header and a PR's, the quick panel's rows, the
+floating bar's tooltips and menus), its project is said quietly before it, `Northwind /
+fix-login`, unless the name already is the project's; a todo's row says its own on a tag. The
+waiting window and a session kept on the desktop say it always, and the peek as the floating bar
+does. Add project… at its foot opens Settings › Projects with a new project's form, and Edit
+projects… the list. ⇧⌘S,
 ⇧⌘P, ⇧⌘T, ⇧⌘L, ⇧⌘K and ⇧⌘B go straight to Sessions, PRs, Todo, Schedules (L for later), and the
 board as Kanban and as Canvas (B for board: ⇧⌘C is often a clipboard manager's), from a text field
 too. In the windows that float (the notch's session, the quick panel, the waiting window, the

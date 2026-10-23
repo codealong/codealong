@@ -22,6 +22,7 @@ import { DescriptionEditor } from './DescriptionEditor';
 import { DetailsButton, PanelPlaces, TODO_PRIMARY, useDetailsOpen } from './PanelSession';
 import { PickList, PickPanel, PickRow } from './PickPanel';
 import { Button, Chip, cx, headerMenu, Icon, Seg } from './primitives';
+import { ProjectTag } from './ProjectSaid';
 import { AddChip, LabelChip, LabelDot, TodoGlyph } from './TodoBits';
 import { useDismiss } from './useDismiss';
 import { keysIn } from '../platform';
@@ -494,6 +495,7 @@ export function TodoPanel({ item, todos, onShowTodo, labels, lanes, now, onRun, 
   const placesProps = {
     places: item.places.map((p) => ({ lane: p.lane, sessions: p.sessions, note: placeNote(p.lane) })),
     label: 'Worktrees and sessions',
+    project: item.todo.project,
     now,
     onShowLane,
     onLaneMenu: (lane: Lane) => onLaneMenu(lane, !!item.places.find((p) => p.lane.id === lane.id)?.linked),
@@ -702,8 +704,6 @@ interface TodoPickPanelProps {
   items: TodoItem[];
   /** Every todo, in any project, for what each waits on. */
   todos: Todo[];
-  /** Show each one's project: the view spans all of them. */
-  showProject: boolean;
   /** Opens the quick panel for one session on all of them. */
   onStart: () => void;
   /** Selects only this one. */
@@ -717,7 +717,7 @@ interface TodoPickPanelProps {
 /** Several todos picked in the list (⌘-click, ⇧-click), in the pick panel (PickPanel.tsx): one
  *  session for all of them, started on one prompt that has each, numbered as listed here, and
  *  linked to each. */
-export function TodoPickPanel({ items, todos, showProject, onStart, onShow, onLeaveOut, onMoreMenu }: TodoPickPanelProps) {
+export function TodoPickPanel({ items, todos, onStart, onShow, onLeaveOut, onMoreMenu }: TodoPickPanelProps) {
   const ids = items.map((r) => r.todo.id);
   return (
     <PickPanel
@@ -746,7 +746,7 @@ export function TodoPickPanel({ items, todos, showProject, onStart, onShow, onLe
           const open = t.status === 'done' ? [] : blockedBy(t, todos).filter((w) => !ids.includes(w.id));
           return (
             <PickRow key={r.key} n={i + 1} lead={<TodoGlyph status={t.status} waiting={sectionOf(t, todos) === 'waiting'} size={12} />} name={title} title={`${title}. Click to show only this todo.`} onShow={() => onShow(r)} onLeaveOut={() => onLeaveOut(r)}>
-              {showProject && t.project && <span className="ca-tag">{t.project}</span>}
+              <ProjectTag project={t.project} />
               {open.length > 0 && (
                 <span className="ca-todopick-flag" title={`Waits on ${open.map((w) => `“${w.title || 'Untitled'}”`).join(', ')}, not done yet.`}>
                   <Icon name="lock" size={12} />

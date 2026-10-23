@@ -12,6 +12,7 @@ import { sessionWhy } from '../lanes';
 import { flag, useStored } from '../stored';
 import type { Lane, Session } from '../types';
 import { Button, cx, HarnessChip, Icon, LaneGlyph, SessionEmblem, SessionGlyph, WorktreeChip } from './primitives';
+import { ProjectSaidHere } from './ProjectSaid';
 
 /** What the Primary tag on a todo's session means. */
 export const TODO_PRIMARY = "The todo's primary session: where the work on it goes on. Sessions started for it while this one runs work alongside it.";
@@ -125,6 +126,9 @@ interface PanelPlacesProps extends Omit<PanelPlaceProps, 'lane' | 'sessions' | '
   open: boolean;
   /** What a screen reader calls the list. */
   label: string;
+  /** The project of the PR or todo the panel is about, which its header says, so its worktrees'
+   *  chips don't say it again (ProjectSaid.tsx). */
+  project?: string;
 }
 
 /** The places with the primary session's worktree first and that session first in it, the one the
@@ -138,7 +142,7 @@ export function primaryFirst(places: Place[], key: string | null | undefined): P
 }
 
 /** The worktrees and sessions behind a PR or a todo: chips, or with `open` the tree. */
-export function PanelPlaces({ places: given, open, label, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary = null }: PanelPlacesProps) {
+export function PanelPlaces({ places: given, open, label, project, now, onShowLane, onLaneMenu, onShowSession, onOpenSession, onSessionMenu, primary = null }: PanelPlacesProps) {
   const places = primaryFirst(given, primary?.key);
   if (open) {
     return (
@@ -165,7 +169,9 @@ export function PanelPlaces({ places: given, open, label, now, onShowLane, onLan
     <div className="ca-places" role="list" aria-label={label}>
       {places.map(({ lane, sessions, note }) => (
         <span key={lane.id} className="ca-places-group" role="listitem">
-          <WorktreeChip lane={lane} short note={note} onShow={() => onShowLane(lane)} onMenu={() => onLaneMenu(lane)} />
+          <ProjectSaidHere project={project}>
+            <WorktreeChip lane={lane} short note={note} onShow={() => onShowLane(lane)} onMenu={() => onLaneMenu(lane)} />
+          </ProjectSaidHere>
           {sessions.map((s) => {
             const main = s.key === primary?.key;
             return (

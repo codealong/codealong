@@ -217,6 +217,11 @@
   white-space: nowrap;
   font: var(--type-callsign);
 }
+/* Its project before it, in its type, as close to it as a chip's is (ProjectSaid.tsx). */
+.ca-grouphead-line > .ca-projprefix {
+  margin-right: calc(var(--space-1) - var(--space-2));
+  font: var(--type-callsign);
+}
 .ca-grouphead-sub {
   flex: 0 1000000 auto;
 }

@@ -49,6 +49,7 @@ import { dialogUp } from './focusTrap';
 import { PrCard, type CameFrom, type PrWindowCan } from './PrCard';
 import { showPrTab } from './PrInspector';
 import { usePrLinks } from './PrLink';
+import { ProjectShown } from './ProjectSaid';
 import { SessionCard, type WindowCan } from './SessionCard';
 import { useTheme } from './ThemeSwitch';
 import { Reading } from './Tip';
@@ -317,7 +318,7 @@ export function Waiting() {
   const back = looked.back ? () => void way.run('historyBack') : null;
   const apps = board?.apps ?? { terminal: 'Terminal', terminalId: '', editor: 'Editor', editorId: '' };
 
-  return (
+  const page = (
     <div className="ca-waiting" data-tauri-drag-region={replying || reviewing ? undefined : 'deep'}>
       {replying ? (
         <SessionCard
@@ -398,4 +399,6 @@ export function Waiting() {
       )}
     </div>
   );
+  // What waits comes from every project, so a session says its project before its worktree.
+  return <ProjectShown.Provider value={ALL_PROJECTS}>{page}</ProjectShown.Provider>;
 }

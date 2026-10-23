@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { barMode, dragToDesktop, fitBar, getBarFeed, onBarFeed, onDesktopDragEnd, onBarMode, onBarNote, onPeekShown, onWaitingShortcut, peekHide, peekOpen, sessionAt, setBarMode, setNotchOpen, showMain, showQuick, showWaiting, type BarModeView, type PillRect } from '../api';
-import { CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
+import { BAR_PROJECT_KEY, CLICK_WAIT_MS, elsewhereWaits, fitGroups, GROUPS, plain, projectWaits, type Group, type GroupFit, type WaitCounts } from '../bar';
 import { showContextMenu, type MenuAction, type MenuSpec } from '../contextMenu';
 import { useEditorIcons, type Apps } from '../editors';
 import { ago } from '../format';
@@ -35,6 +35,7 @@ import { applyTheme } from './ThemeSwitch';
 import { NotchShell } from './Notch';
 import { NotchReview } from './NotchReview';
 import { NotchSession, useNotchStage } from './NotchSession';
+import { placeWords, ProjectShown, usePlaceWords, type PlaceWords } from './ProjectSaid';
 import { LOGO_LABEL, useLogo } from '../logo';
 import { useMarkMoment } from '../mark';
 import { useNow } from './useNow';
@@ -55,8 +56,6 @@ const PADDING = 5;
 const MARK = 24;
 /** A folded pill is measured holding this, so a real count never outgrows it. */
 const FOLD_SAMPLE = '+88';
-/** Where the project picked in the bar's menu is kept. */
-const PROJECT_KEY = 'codealong.bar.project';
 /** How long the pointer rests on a session's pill before the peek shows it, and before it moves
  *  to another pill once it's up: long enough that passing over the bar doesn't open it. */
 const PEEK_AFTER_MS = 300;
@@ -73,9 +72,10 @@ function tone(status: Status): string {
   return status === 'error' ? 'is-error' : `is-${status}`;
 }
 
-/** What a pill says to a screen reader; the peek shows the rest. */
-function sessionLabel(i: BarItem, now: number): string {
-  const where = `${STATUS_WORD[i.status]} · ${i.callsign} · ${i.account}`;
+/** What a pill says to a screen reader; the peek shows the rest. `place` says its worktree, after
+ *  its project where the bar lists every project (ProjectSaid.tsx). */
+function sessionLabel(i: BarItem, now: number, place: PlaceWords): string {
+  const where = `${STATUS_WORD[i.status]} · ${place(i.project, i.callsign)} · ${i.account}`;
   return [i.title, where, i.detail ? plain(i.detail, now) : ''].filter(Boolean).join('. ');
 }
 
@@ -100,12 +100,13 @@ interface SessionPillProps {
 }
 
 function SessionPill({ item, now, peeked, told, onOpen, onMenu, onHover, onLeave, onPress, onDrag, dragged, measure }: SessionPillProps) {
+  const place = usePlaceWords();
   return (
     <button
       type="button"
       className={cx('ca-hud-pill', tone(item.status), peeked && 'is-peeked', dragged && 'is-dragged')}
-      aria-label={measure ? undefined : sessionLabel(item, now)}
-      title={told && !measure && !peeked ? sessionLabel(item, now) : undefined}
+      aria-label={measure ? undefined : sessionLabel(item, now, place)}
+      title={told && !measure && !peeked ? sessionLabel(item, now, place) : undefined}
       aria-pressed={measure ? undefined : peeked}
       data-pill={measure ? item.group : undefined}
       data-key={measure ? undefined : item.key}
@@ -190,11 +191,12 @@ function reviewLabel(p: BarReview): string {
 
 /** The rest of the sessions started in the last day, as one pill: a click drops a menu of them. */
 function RecentPill({ items, now, onOpen, measure }: { items: BarRecent[]; now: number; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+  const place = usePlaceWords();
   return (
     <button
       type="button"
       className="ca-hud-pill is-recent"
-      title={measure ? undefined : `${items.length === 1 ? '1 other session' : `${items.length} other sessions`} from the last 24 hours:\n${items.map((i) => `${i.title} · ${i.callsign} · ${ago(i.since, now)}`).join('\n')}`}
+      title={measure ? undefined : `${items.length === 1 ? '1 other session' : `${items.length} other sessions`} from the last 24 hours:\n${items.map((i) => `${i.title} · ${place(i.project, i.callsign)} · ${ago(i.since, now)}`).join('\n')}`}
       data-recent={measure ? '' : undefined}
       onClick={onOpen}
       onContextMenu={
@@ -215,11 +217,12 @@ function RecentPill({ items, now, onOpen, measure }: { items: BarRecent[]; now: 
 
 /** The sessions you snoozed, as one pill: a click drops a menu to open or wake them. */
 function SnoozedPill({ items, now, onOpen, measure }: { items: BarSnoozed[]; now: number; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+  const place = usePlaceWords();
   return (
     <button
       type="button"
       className="ca-hud-pill is-snoozed"
-      title={measure ? undefined : `${items.length === 1 ? '1 session' : `${items.length} sessions`} snoozed, back on the bar when their time comes:\n${items.map((i) => `${i.title} · ${i.callsign} · until ${untilWords(i.snoozedUntil, now)}`).join('\n')}`}
+      title={measure ? undefined : `${items.length === 1 ? '1 session' : `${items.length} sessions`} snoozed, back on the bar when their time comes:\n${items.map((i) => `${i.title} · ${place(i.project, i.callsign)} · until ${untilWords(i.snoozedUntil, now)}`).join('\n')}`}
       data-snoozed={measure ? '' : undefined}
       onClick={onOpen}
       onContextMenu={
@@ -241,11 +244,12 @@ function SnoozedPill({ items, now, onOpen, measure }: { items: BarSnoozed[]; now
 /** The todos ready to start, as one pill beside the reviews: a click opens the quick panel ready
  *  to start one (the only one, or the one picked from its menu). */
 function TodosPill({ todos, onOpen, onMenu, measure }: { todos: BarTodo[]; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; onMenu?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+  const place = usePlaceWords();
   return (
     <button
       type="button"
       className="ca-hud-pill is-todos"
-      title={measure ? undefined : `${todos.length === 1 ? '1 todo' : `${todos.length} todos`} ready to start:\n${todos.map(todoLabel).join('\n')}`}
+      title={measure ? undefined : `${todos.length === 1 ? '1 todo' : `${todos.length} todos`} ready to start:\n${todos.map((t) => todoLabel(t, place)).join('\n')}`}
       data-todos={measure ? '' : undefined}
       onClick={onOpen}
       onContextMenu={
@@ -266,8 +270,8 @@ function TodosPill({ todos, onOpen, onMenu, measure }: { todos: BarTodo[]; onOpe
 
 /** A todo as its menu item and tooltip line say it: its title, where it starts, and when it's
  *  due. */
-function todoLabel(t: BarTodo): string {
-  const where = t.callsign ?? t.project;
+function todoLabel(t: BarTodo, place: PlaceWords): string {
+  const where = t.callsign ? place(t.project, t.callsign) : t.project;
   const due = t.due ? dueWords(t.due, Date.now())?.text : undefined;
   return [t.title || 'Untitled', where, due && due[0].toLowerCase() + due.slice(1)].filter(Boolean).join(' · ');
 }
@@ -359,7 +363,7 @@ export function Bar() {
   const pointerAt = useRef<{ x: number; y: number } | null>(null);
   // Fonts load after the first layout; pills are measured again once they have.
   const [fontsReady, setFontsReady] = useState(false);
-  const [project, setProject] = useState(() => readStored(PROJECT_KEY, asText, ALL_PROJECTS));
+  const [project, setProject] = useState(() => readStored(BAR_PROJECT_KEY, asText, ALL_PROJECTS));
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   // How many of the bar's menus are up: docked in the notch, it stays open under them.
   const [menusUp, setMenusUp] = useState(0);
@@ -437,6 +441,9 @@ export function Bar() {
   const projects = useMemo(() => feed?.projects ?? [], [feed]);
   const picking = projects.length > 1;
   const current = picking && projects.includes(project) ? project : ALL_PROJECTS;
+  // A session's worktree is said after its project while the bar lists more than one.
+  const shownProject = picking ? current : null;
+  const placeOf: PlaceWords = (p, callsign) => placeWords(p, callsign, shownProject);
   const allItems = useMemo(() => feed?.items ?? [], [feed]);
   const items = useMemo(() => allItems.filter((i) => inProject(i, current)), [allItems, current]);
   const recent = useMemo(() => (feed?.recent ?? []).filter((i) => inProject(i, current)), [feed, current]);
@@ -700,7 +707,7 @@ export function Bar() {
   const failedOn = (anchor: string) => (e: unknown) => setFailed({ anchor, message: errorText(e) });
 
   const foldMenu = (group: Group, folded: BarItem[], e: MouseEvent<HTMLButtonElement>) => {
-    const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${i.callsign}`, checked: i.key === shownKey || undefined, run: () => pick(i) }));
+    const menu: MenuSpec = folded.map((i) => ({ label: `${i.title} · ${placeOf(i.project, i.callsign)}`, checked: i.key === shownKey || undefined, run: () => pick(i) }));
     const keys = folded.map((i) => i.key);
     if (group !== 'working') menu.push('separator');
     if (group === 'unread') menu.push({ label: 'Mark these as seen', run: () => markSeen(keys, `fold:${group}`) });
@@ -719,7 +726,7 @@ export function Bar() {
     const t = Date.now();
     const terminal = feed?.terminal ?? 'Terminal';
     const menu: MenuSpec = snoozed.map((i) => ({
-      label: `${i.title} · ${i.callsign} · until ${untilWords(i.snoozedUntil, t)}`,
+      label: `${i.title} · ${placeOf(i.project, i.callsign)} · until ${untilWords(i.snoozedUntil, t)}`,
       items: [
         { label: 'Show in Codealong', run: () => reveal(i) },
         { label: i.target?.label ?? openWords(i.openTarget, terminal), run: () => wakeAndOpen(i) },
@@ -737,7 +744,7 @@ export function Bar() {
 
   const recentMenu = (e: MouseEvent<HTMLButtonElement>) => {
     void popup(
-      recent.map((i) => ({ label: `${i.title} · ${i.callsign} · ${ago(i.since, now)}`, run: () => pick(i) })),
+      recent.map((i) => ({ label: `${i.title} · ${placeOf(i.project, i.callsign)} · ${ago(i.since, now)}`, run: () => pick(i) })),
       below(e),
     );
   };
@@ -764,7 +771,7 @@ export function Bar() {
   const todosMenu = (e: MouseEvent<HTMLButtonElement>) => {
     void popup(
       [
-        ...todos.map((t) => ({ label: todoLabel(t), run: () => startTodo(t) })),
+        ...todos.map((t) => ({ label: todoLabel(t, placeOf), run: () => startTodo(t) })),
         'separator',
         { label: 'Show todos in Codealong', run: () => void showMain({ kind: 'todo', id: todos[0].id }) },
       ],
@@ -779,7 +786,7 @@ export function Bar() {
 
   const pickProject = (name: string) => {
     setProject(name);
-    writeStored(PROJECT_KEY, asText, name);
+    writeStored(BAR_PROJECT_KEY, asText, name);
   };
 
   const projectMenu = (e: MouseEvent<HTMLButtonElement>) => {
@@ -886,7 +893,7 @@ export function Bar() {
 
   if (notch) {
     return (
-      <>
+      <ProjectShown.Provider value={shownProject}>
         <NotchShell
           notch={notch}
           logoStatus={logoStatus}
@@ -968,12 +975,12 @@ export function Bar() {
           {sections.flatMap((section, i) => [...(i > 0 ? [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />] : []), ...section])}
         </NotchShell>
         {measured}
-      </>
+      </ProjectShown.Provider>
     );
   }
 
   return (
-    <>
+    <ProjectShown.Provider value={shownProject}>
       <div
         ref={hud}
         className="ca-hud"
@@ -1016,6 +1023,6 @@ export function Bar() {
         {sections.flatMap((section, i) => [<span key={`divider-${i}`} className="ca-hud-divider" aria-hidden="true" />, ...section])}
       </div>
       {measured}
-    </>
+    </ProjectShown.Provider>
   );
 }

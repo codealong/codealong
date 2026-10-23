@@ -79,7 +79,7 @@ describe('groupRows', () => {
     const rows = Array.from({ length: GROUP_SHOWN + 2 }, (_, i) => item(`r${i}`, a));
     const g = groupRows([{ id: 'all', rows }], 'repo', (r) => placeIn(r.lane, 'repo'), opts({ awake: ([r]) => r.key === `r${GROUP_SHOWN + 1}` }));
     const [one] = groupsOf(g);
-    expect([one.key, one.repo, one.lane]).toEqual(['acme/app', { name: 'app', slug: 'acme/app' }, null]);
+    expect([one.key, one.repo, one.lane]).toEqual(['acme/app', { name: 'app', slug: 'acme/app', project: 'Acme' }, null]);
     expect([keysOf(one.rows).slice(GROUP_SHOWN), one.folded]).toEqual([[`r${GROUP_SHOWN + 1}`], 1]);
   });
 });
@@ -92,7 +92,7 @@ describe('prPlace', () => {
     const held = lane('/r/web-fix', { repo: 'web', repoSlug: 'acme/web' });
     expect(prPlace(row(held), 'worktree')).toMatchObject({ key: '/r/web-fix', lane: held });
     expect(prPlace(row(null), 'worktree')).toEqual({ key: '', lane: null, repo: null });
-    expect(prPlace(row(null), 'repo')).toEqual({ key: 'acme/web', lane: null, repo: { name: 'web', slug: 'acme/web' } });
+    expect(prPlace(row(null), 'repo')).toEqual({ key: 'acme/web', lane: null, repo: { name: 'web', slug: 'acme/web', project: 'Acme' } });
     expect(prPlace(row(held), 'repo').key).toBe(prPlace(row(null), 'repo').key);
   });
 });
