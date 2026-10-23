@@ -8,7 +8,7 @@
 // (`sendTargets`), its own box finding one while the prompt waits. Kept free of React so the
 // rules have tests.
 
-import { agoPhrase, middleTruncate } from './format';
+import { agoPhrase, middleTruncate, tildePath } from './format';
 import { heldForAgent } from './prStatus';
 import { branchLabel, byStatusTime, sessionHomes, snoozedApart, unattended } from './lanes';
 import { inQueueOrder, statusWaits, type Reads } from './queue';
@@ -16,7 +16,7 @@ import { itemSection, sectionOf, todoItem, type TodoItem, type TodoSectionId } f
 import { prFlag } from './prStatus';
 import type { Codec } from './stored';
 import { platform } from './platform';
-import type { Attachment, Board, DeviceFound, DeviceView, Lane, PrItem, PrState, RoutePick, Session, TextHit, Todo } from './types';
+import type { Attachment, Board, DeviceFound, DeviceView, FolderLook, Lane, PrItem, PrState, RoutePick, Session, TextHit, Todo } from './types';
 
 export const ALL_PROJECTS = 'All projects';
 /** What the panel's empty box says, and the box in the main window's title bar that opens it. */
@@ -502,6 +502,52 @@ export function laneGroups(lanes: Lane[], pinned: string[]): LaneGroup[] {
     ...repos.filter((r) => r.lanes.length > 0).map((r) => ({ label: r.label, lanes: r.lanes })),
     ...repos.filter((r) => r.rest.length > 0).map((r) => ({ label: r.label, lanes: r.rest, more: true })),
   ];
+}
+
+/** What's typed in the worktree menu names a folder: from your home folder or the top of the disk. */
+export function isFolderPath(text: string): boolean {
+  const t = text.trim();
+  return t === '~' || t.startsWith('~/') || t.startsWith('/');
+}
+
+/** Where a folder typed in the worktree menu starts from: the folder most of this Mac's main
+ *  checkouts are in, `~/` without any. */
+export function folderStart(lanes: readonly Pick<Lane, 'path' | 'origin' | 'device'>[]): string {
+  const counts = new Map<string, number>();
+  for (const l of lanes) {
+    const parent = l.path.slice(0, l.path.lastIndexOf('/'));
+    if (l.origin === 'main' && !l.device && parent) counts.set(parent, (counts.get(parent) ?? 0) + 1);
+  }
+  const most = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+  return most ? `${tildePath(most)}/` : '~/';
+}
+
+/** What a folder typed in the worktree menu offers, from what the engine found there
+ *  (`lookFolder`): the worktree the board has there; else adding it to a project of its own and
+ *  to the one the panel is on, or to the one config.toml lists it in; or why it can't be added.
+ *  Then the folders in it whose names start with what's typed, to go on typing from; those come
+ *  first while what's typed isn't a folder yet, as ⏎ picks the first row and a name half typed
+ *  shouldn't be made. */
+export type FolderChoice =
+  | { kind: 'worktree'; lane: string }
+  | { kind: 'add'; project: string | null; label: string; detail: string }
+  | { kind: 'refused'; why: string }
+  | { kind: 'into'; path: string; label: string };
+
+/** `look`'s choices in the worktree menu, the panel on project `current`, with the board's
+ *  `projects`. A project of its own is named after the folder, or is the project of that name
+ *  when there's one (config.rs `with_folder`). */
+export function folderChoices(look: FolderLook, current: string, projects: readonly string[]): FolderChoice[] {
+  const into = look.completions.map((path): FolderChoice => ({ kind: 'into', path, label: `${path.slice(path.lastIndexOf('/') + 1)}/` }));
+  if (look.refused) return [{ kind: 'refused', why: look.refused }, ...into];
+  if (look.lane) return [{ kind: 'worktree', lane: look.lane }, ...into];
+  const what = look.exists ? `Add ${look.shown}` : `New folder ${look.shown}`;
+  const add = (project: string | null, where: string): FolderChoice => ({ kind: 'add', project, label: look.name, detail: `${what} · ${where}` });
+  const own = add(null, projects.includes(look.name) ? `in ${look.name}` : 'a project of its own');
+  // Elsewhere is where folders outside your projects go: none is added to it.
+  const real = ![ALL_PROJECTS, NO_PROJECT, 'Elsewhere', look.name].includes(current) && projects.includes(current);
+  const adds = look.project ? [add(look.project, `in ${look.project}`)] : [own, ...(real ? [add(current, `in ${current}`)] : [])];
+  return !look.exists && into.length > 0 ? [...into, ...adds] : [...adds, ...into];
 }
 
 /** A worktree's branch, when it says more than its name. */

@@ -59,7 +59,12 @@ pub fn expand_in(p: &str, home: &Path) -> PathBuf {
 
 /// Shows a path with the home directory as `~`.
 pub fn tilde(p: &Path) -> String {
-    match p.strip_prefix(home()) {
+    tilde_in(p, &home())
+}
+
+/// `tilde`, with `home` as the home directory.
+pub fn tilde_in(p: &Path, home: &Path) -> String {
+    match p.strip_prefix(home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
         Ok(rest) => format!("~/{}", rest.display()),
         Err(_) => p.display().to_string(),

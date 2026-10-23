@@ -2224,11 +2224,27 @@ doesn't ask), and the apps and OpenCode get their paths.
 
 #### Chats
 
-**No project**, last in the worktree picker, starts a chat for a question that belongs to none of
+**No project**, first in the worktree picker, starts a chat for a question that belongs to none of
 your repos: the session gets a folder of its own under `~/Library/Application
 Support/Codealong/chats` (trusted once for Claude Code, for all of them, and each one for Codex and
 `agy`, which trust a folder only by itself), and no new worktree. The
 chats are listed together in one lane, Chats, in Elsewhere, and `codealong start --chat` starts one.
+
+#### A folder that isn't listed
+
+The worktree picker takes a folder's path too, for a new project or a folder Codealong doesn't list:
+type one from `~/` or `/`, or pick **Another folder…**, after No project, which puts the folder
+most of your repos are in into the filter to type a name after. The folders in it whose names
+start with what's typed are listed to go on from (a click or ⏎ puts one in the filter), ahead of
+making a folder of a name only half typed. The folder itself is offered as a project of its own,
+named after it (or the project of that name), and in the project the panel is on. Picking one
+makes the folder when it isn't there (the one it goes in must be), adds it to that project's
+`folders` in config.toml, and picks it once the board has it, which takes a moment: the chip says
+it's being added, and the start row waits for it. A folder a worktree is or is in picks that
+worktree, and one a project lists already stays in it. A repo whose folder a project lists is that
+project's, whatever its remote matches, so a new project's repo stays in it once it has a remote.
+Nothing is listed as you type in Documents, Desktop, Downloads or Library, which macOS asks about
+first, nor on another Mac (⌘D).
 
 ### Improve Codealong
 

@@ -30,6 +30,7 @@ import { aimAfter, aimAfterChange, aimedAt, aimedAtNothing, aimedByScroll, click
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
+  addFolder,
   deviceStartOptions,
   getBoard,
   getDevices,
@@ -37,6 +38,7 @@ import {
   inPreview,
   getConfig,
   keepStartPlace,
+  lookFolder,
   noteRoute,
   onBoard,
   onDevices,
@@ -67,7 +69,7 @@ import { ago, tildePath } from '../format';
 import { useLogo } from '../logo';
 import { useRowDrag } from './useRowDrag';
 import { prPills } from '../prStatus';
-import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, FOUND_SESSIONS, inProject, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
+import { ALL_PROJECTS, NO_PROJECT, attachmentsNote, attentionRows, draftCodec, findPrs, findSessions, findTodos, folderChoices, folderStart, FOUND_SESSIONS, inProject, isFolderPath, laneGroups, macUnavailable, MAX_ROWS, nextDraft, primaryRunningWords, projectCounts, QUICK_PLACEHOLDER, queryWords, readyTodos, recallList, recentRows, SEND_TO_PLACEHOLDER, sendTargets, shortcutLabel, startTitle, todosStayNote, worktreeCount, type PrRow, type QuickDraft, type ReviewRow, type RowGroup, type SessionRow, type TodoRow, withPrompt as historyWith } from '../quick';
 import {
   agentChipWords,
   isAuto,
@@ -94,11 +96,11 @@ import { alreadyOnWords, duplicateOf, rankedBy, routeChoice, routeDone, sameStar
 import { dueWords } from '../due';
 import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
-import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec } from '../types';
+import type { Attachment, Board, DesktopPinned, DevicesView, FolderLook, Lane, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
 import { DevSetupDialog } from './DevSetupDialog';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
-import { chatOption, laneSections } from './pickerOptions';
+import { addsTo, anotherFolderOption, chatOption, folderOptions, laneSections } from './pickerOptions';
 import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
@@ -267,6 +269,12 @@ export function Quick() {
   const [text, setText] = useState('');
   const [attached, setAttached] = useState<Attachment[]>([]);
   const [laneId, setLaneId] = useState<string | null>(null);
+  // A folder picked in the worktree menu that's being put on the board (newfolder.rs): until the
+  // board here has its worktree, the panel waits for it rather than start somewhere else.
+  const [adding, setAdding] = useState<{ name: string; laneId: string | null } | null>(null);
+  // A folder's path typed in the worktree menu, and what the engine found there.
+  const [folderTyped, setFolderTyped] = useState('');
+  const [folderLook, setFolderLook] = useState<FolderLook | null>(null);
   // The account or Auto, model, effort and place picked for a new session, and whether it gets a
   // new worktree (useStartChoice.ts).
   const startPicks = useStartPicks();
@@ -1273,6 +1281,12 @@ export function Quick() {
     const targetEffort = sgChoice ? sgChoice.effortNow : effortNow;
     const targetMakesWorktree = sgChoice ? sgChoice.makesWorktree : harnessMakesWorktree;
     if (!where || !targetAccount || !targetPlace) return;
+    // The worktree picked below is still coming onto the board: the start row would start in
+    // another one meanwhile.
+    if (!over && adding) {
+      setInfo(`Still adding ${adding.name}; start again in a moment.`);
+      return;
+    }
     const newTree = targetMakesWorktree && !where.startsChats && (over ? over.newWorktree : newWorktree);
     // The skill that starts the prompt goes as the account's agent takes it.
     const base = skillNow && harness && !over ? writtenFor(text, [skillNow.skill], harness) : text;
@@ -1671,11 +1685,63 @@ export function Quick() {
     { key: 'all', head: <span className="ca-picker-sep" />, options: [projectOption(ALL_PROJECTS)] },
   ];
 
-  const worktreeSections: PickerSection[] = [
-    // First, so a long list of worktrees doesn't hide it.
-    ...(chatLane ? [{ key: 'chat', options: [chatOption(chatLane.id)] }] : []),
-    ...laneSections(groups),
-  ];
+  // A folder's path typed in the worktree menu is looked up as it's typed; an answer goes only
+  // with what was typed for it. Another Mac's folders aren't this one's to look in.
+  const typingFolder = !deviceNow && isFolderPath(folderTyped);
+  useEffect(() => {
+    if (picker !== 'worktree' || !typingFolder) return;
+    let live = true;
+    lookFolder(folderTyped)
+      .then((l) => live && setFolderLook(l))
+      // A look that fails says why in the folder's row.
+      .catch((e: unknown) => live && setFolderLook({ typed: folderTyped, path: '', shown: folderTyped, name: '', exists: false, refused: errorText(e), completions: [] }));
+    return () => {
+      live = false;
+    };
+  }, [picker, typingFolder, folderTyped]);
+  useEffect(() => {
+    if (picker !== 'worktree') setFolderTyped('');
+  }, [picker]);
+  // A folder added comes onto the board in a moment, and is picked from then.
+  useEffect(() => {
+    if (adding?.laneId && board?.lanes.some((l) => l.id === adding.laneId)) setAdding(null);
+  }, [adding, board?.lanes]);
+
+  const looked = typingFolder && folderLook?.typed === folderTyped ? folderLook : null;
+  const worktreeSections: PickerSection[] = typingFolder
+    ? looked
+      ? [{ key: 'folder', options: folderOptions(folderChoices(looked, current, projects.map((p) => p.name)), folderTyped, board?.lanes ?? []) }]
+      : []
+    : [
+        // First, so a long list of worktrees doesn't hide them: a chat in no project, and a
+        // folder the list doesn't have.
+        { key: 'elsewhere', options: [...(chatLane ? [chatOption(chatLane.id)] : []), ...(deviceNow ? [] : [anotherFolderOption(folderStart(board?.lanes ?? []))])] },
+        ...laneSections(groups),
+      ];
+
+  /** A worktree picked in its menu, or a folder typed there: added to the project its row says,
+   *  then picked once the board has it. */
+  const pickWorktree = (id: string) => {
+    setPicker(null);
+    refocus();
+    const project = addsTo(id);
+    if (project === undefined || !looked) {
+      setLaneId(id);
+      return;
+    }
+    const name = looked.name;
+    setAdding({ name, laneId: null });
+    setError(null);
+    addFolder(looked.typed, project)
+      .then((added) => {
+        setLaneId(added);
+        setAdding({ name, laneId: added });
+      })
+      .catch((e: unknown) => {
+        setAdding(null);
+        setError(errorText(e));
+      });
+  };
 
   const agentSections: PickerSection[] = useMemo(
     () => agentMenuSections(agents, accounts, pick, usage, models, now, agentNow, AUTO_STARTS, routingGroups, allLanes),
@@ -2317,12 +2383,25 @@ export function Quick() {
               </div>
             )}
             <div className="ca-quick-pick">
-              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
-                <Icon name={lane?.startsChats ? 'message-circle' : 'folder'} size={14} />
-                <span>{lane ? (lane.startsChats ? NO_PROJECT : lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
+              <button type="button" data-picker-trigger className="ca-quick-chip" title={keysIn(adding ? `Adding ${adding.name}…` : lane ? `${lane.startsChats ? 'A chat of its own, in no project' : tildePath(lane.path)}\nWorktree (⌘T)` : 'Worktree (⌘T)')} disabled={lanes.length === 0 && !chatLane} aria-haspopup="dialog" aria-expanded={picker === 'worktree'} onClick={() => togglePicker('worktree')}>
+                <Icon name={adding ? 'folder-plus' : lane?.startsChats ? 'message-circle' : 'folder'} size={14} />
+                <span>{adding ? adding.name : lane ? (lane.startsChats ? NO_PROJECT : lane.origin === 'main' ? `${lane.callsign} (main)` : lane.callsign) : 'No worktree'}</span>
                 <Icon name="chevron-down" size={12} />
               </button>
-              {picker === 'worktree' && <Picker sections={worktreeSections} value={lane?.id ?? null} placeholder="Worktree, branch or repo" onPick={(id) => { setLaneId(id); setPicker(null); refocus(); }} onClose={() => { setPicker(null); refocus(); }} />}
+              {picker === 'worktree' && (
+                <Picker
+                  sections={worktreeSections}
+                  value={lane?.id ?? null}
+                  placeholder={deviceNow ? 'Worktree, branch or repo' : 'Worktree, branch, repo or a folder’s path'}
+                  empty={typingFolder ? 'Looking for it…' : undefined}
+                  onPick={pickWorktree}
+                  onFilter={setFolderTyped}
+                  onClose={() => {
+                    setPicker(null);
+                    refocus();
+                  }}
+                />
+              )}
             </div>
             <label
               className={cx('ca-check', 'ca-quick-newtree', !makesWorktree && 'is-disabled')}

@@ -1861,7 +1861,7 @@ function ProjectsPane({ cfg, chromeProfiles, disabled, onSave, lanes, adding }: 
       <div className="ca-field">
         <span>Folders</span>
         <ListField items={draft.folders} placeholder="~/projects/notes" addLabel="Add folder" onChange={(folders) => setDraft({ ...draft, folders })} />
-        <small>Folders that aren't repos but belong to the project.</small>
+        <small>Other folders that belong to the project. A repo here is this project’s, whatever its remote matches.</small>
       </div>
       {(chromeProfiles.length > 0 || draft.chromeProfile) && (
         <label className="ca-field">

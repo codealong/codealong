@@ -125,6 +125,11 @@ export const ICONS: Record<string, string[]> = {
  "folder": [
   "M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2"
  ],
+ "folder-plus": [
+  "M12 19h-7a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2h4l3 3h7a2 2 0 0 1 2 2v3.5",
+  "M16 19h6",
+  "M19 16v6"
+ ],
  "search": [
   "M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0",
   "M21 21l-6 -6"

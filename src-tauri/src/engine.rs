@@ -2569,7 +2569,10 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         self.checkouts.clear();
         for c in found {
             let Some(identity) = c.identity.clone() else { continue };
-            if let Some(p) = self.cfg.projects.iter().find(|p| p.repos.iter().any(|pat| repos::matches(&identity, pat))) {
+            // A project that lists the repo's folder has it, before one its remote matches: a
+            // folder added for a new project stays there once its repo has a remote.
+            let listed = config::project_with_folder(&self.cfg.projects, &c.root);
+            if let Some(p) = listed.or_else(|| self.cfg.projects.iter().find(|p| p.repos.iter().any(|pat| repos::matches(&identity, pat)))) {
                 self.checkouts.push((p.name.clone(), c));
             }
         }

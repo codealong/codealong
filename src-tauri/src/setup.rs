@@ -14,7 +14,7 @@ use serde::Serialize;
 use crate::config::{self, AccountCfg};
 use crate::detect::{self, Found};
 use crate::held::Held;
-use crate::util::{home, now_ms, DAY_MS};
+use crate::util::{expand_in, home, now_ms, tilde_in, DAY_MS};
 
 /// How far back the folders your agents worked in count.
 const WORKED_DAYS: i64 = 30;
@@ -210,22 +210,6 @@ fn folders_of(paths: &[PathBuf], scan: &[String], repos: &HashMap<PathBuf, Vec<P
         .collect();
     rows.sort_by_key(|f| if f.scanned { (0, 0, 0) } else { (1, usize::MAX - f.worked, usize::MAX - f.repos.unwrap_or(0)) });
     rows
-}
-
-fn expand_in(s: &str, h: &Path) -> PathBuf {
-    match s.strip_prefix("~/") {
-        Some(rest) => h.join(rest),
-        None if s == "~" => h.to_path_buf(),
-        None => PathBuf::from(s),
-    }
-}
-
-fn tilde_in(p: &Path, h: &Path) -> String {
-    match p.strip_prefix(h) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => p.display().to_string(),
-    }
 }
 
 #[cfg(test)]

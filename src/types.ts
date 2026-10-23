@@ -722,7 +722,7 @@ export interface ProjectCfg {
   name: string;
   /** `github.com/owner/*` or `github.com/owner/name`. */
   repos: string[];
-  /** Folders that aren't repos but belong to the project. */
+  /** Other folders that belong to the project; a repo among them is this project's, whatever its remote matches. */
   folders: string[];
   /** The Chrome profile its worktrees' previews open in; missing opens them in the default
    *  browser. */
@@ -817,6 +817,29 @@ export interface TeamCfg {
   nudgeAbout?: NudgeAbout | null;
   /** What the team suggests each person turns on. */
   suggests: RepoCfg;
+}
+
+/** A folder typed in the quick panel's worktree menu, as the engine finds it (newfolder.rs
+ *  `Look`). */
+export interface FolderLook {
+  /** What was typed: the answer goes with that, not with what's typed since. */
+  typed: string;
+  /** The folder, `~` expanded. */
+  path: string;
+  /** As config.toml writes it, `~` for your home folder. */
+  shown: string;
+  /** Its last part: what a project of its own is named. */
+  name: string;
+  /** It's there; adding one that isn't makes it. */
+  exists: boolean;
+  /** Why it can't be added. */
+  refused?: string | null;
+  /** The worktree on the board it is or is in, started in as it is. */
+  lane?: string | null;
+  /** The project config.toml lists it in already. */
+  project?: string | null;
+  /** Folders in the one typed whose names start with what's typed after its last `/`. */
+  completions: string[];
 }
 
 /** A repo's team file on one branch, as read from that branch as fetched (teamfile.rs

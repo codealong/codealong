@@ -30,7 +30,7 @@
     })
     .then(function () {
       var open = all('.ca-picker');
-      check('one menu is open, the worktree menu', open.length === 1 && !!filter() && filter().placeholder === 'Worktree, branch or repo', open.length + ' open');
+      check('one menu is open, the worktree menu', open.length === 1 && !!filter() && filter().placeholder === 'Worktree, branch, repo or a folder’s path', open.length + ' open');
       check('with the keyboard in its filter', document.activeElement === filter(), document.activeElement ? document.activeElement.className : 'nothing');
       var before = input().value;
       type(filter(), 'zzqx');

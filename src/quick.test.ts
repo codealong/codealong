@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { agoPhrase } from './format';
-import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits } from './quick';
+import { ALL_PROJECTS, attachmentsNote, attentionRows, draftCodec, folderChoices, folderStart, isFolderPath, macUnavailable, nextDraft, primaryRunningWords, queueRows, recallList, startTitle, todosStayNote, withPrompt, findPrs, findSessions, findTodos, heldSaid, laneGroups, projectCounts, readyTodos, recentRows, sendTargets, shortcutFromKey, shortcutKeys, shortcutLabel, stillSaid, TAKEN, takenFor, titleMarks, worktreeCount, deviceHits } from './quick';
 import { setPlatform } from './platform';
 import * as fx from './testing/fixtures';
-import type { Board, Label, Lane, PrItem, Session, Todo } from './types';
+import type { Board, FolderLook, Label, Lane, PrItem, Session, Todo } from './types';
 
 const NOW = 1_790_200_000_000;
 
@@ -685,5 +685,46 @@ describe('what the start row and the Mac menu say', () => {
       off: 'Remote control is off there',
       title: 'Remote control is off on Studio; turn it on there in Settings › Devices to start sessions from here.',
     });
+  });
+});
+
+describe('folders typed in the worktree menu', () => {
+  const look = (over: Partial<FolderLook> = {}): FolderLook => ({ typed: '~/projects/kestrel', path: '/Users/me/projects/kestrel', shown: '~/projects/kestrel', name: 'kestrel', exists: false, completions: [], ...over });
+  const projects = ['Acme', 'Atlas', 'Elsewhere'];
+
+  it('takes a path from your home folder or the top of the disk', () => {
+    expect(['~', '~/projects', ' /opt/x', '/'].map(isFolderPath)).toEqual([true, true, true, true]);
+    expect(['projects', '~kestrel', 'app main', ''].map(isFolderPath)).toEqual([false, false, false, false]);
+  });
+
+  it('starts where most main checkouts are', () => {
+    const at = (path: string, origin: Lane['origin'] = 'main') => fx.lane({ id: path, path, origin });
+    expect(folderStart([at('/Users/me/projects/a'), at('/Users/me/projects/b'), at('/Users/me/code/c'), at('/Users/me/code/d/w', 'claude-app'), at('/Users/me/code/e/w', 'claude-app')])).toBe('~/projects/');
+    expect(folderStart([])).toBe('~/');
+  });
+
+  it('adds a new folder as a project of its own, or to the project the panel is on', () => {
+    expect(folderChoices(look(), 'Atlas', projects)).toEqual([
+      { kind: 'add', project: null, label: 'kestrel', detail: 'New folder ~/projects/kestrel · a project of its own' },
+      { kind: 'add', project: 'Atlas', label: 'kestrel', detail: 'New folder ~/projects/kestrel · in Atlas' },
+    ]);
+    for (const current of [ALL_PROJECTS, 'Elsewhere', 'Gone']) {
+      expect(folderChoices(look({ exists: true }), current, projects).map((c) => c.kind === 'add' && c.detail)).toEqual(['Add ~/projects/kestrel · a project of its own']);
+    }
+    expect(folderChoices(look({ name: 'Atlas' }), 'Atlas', projects).map((c) => c.kind === 'add' && [c.project, c.detail])).toEqual([[null, 'New folder ~/projects/kestrel · in Atlas']]);
+    expect(folderChoices(look({ project: 'Acme' }), 'Atlas', projects).map((c) => c.kind === 'add' && [c.project, c.detail])).toEqual([['Acme', 'New folder ~/projects/kestrel · in Acme']]);
+  });
+
+  it('offers the worktree the board has there, or says why it can’t be added, then folders to go on from', () => {
+    const into = { kind: 'into', path: '~/projects/kestrel-web', label: 'kestrel-web/' };
+    expect(folderChoices(look({ lane: '/Users/me/projects/kestrel', completions: ['~/projects/kestrel-web'] }), 'Atlas', projects)).toEqual([{ kind: 'worktree', lane: '/Users/me/projects/kestrel' }, into]);
+    expect(folderChoices(look({ refused: '~/projets isn’t there.', completions: ['~/projects/kestrel-web'] }), 'Atlas', projects)).toEqual([{ kind: 'refused', why: '~/projets isn’t there.' }, into]);
+  });
+
+  it('goes on to the folders a name half typed starts, before making it', () => {
+    const kinds = (l: FolderLook) => folderChoices(l, 'Atlas', projects).map((c) => c.kind);
+    expect(kinds(look({ completions: ['~/projects/kestrel-web'] }))).toEqual(['into', 'add', 'add']);
+    expect(kinds(look({ exists: true, completions: ['~/projects/kestrel-web'] }))).toEqual(['add', 'add', 'into']);
+    expect(kinds(look({ project: 'Acme', completions: ['~/projects/kestrel-web'] }))).toEqual(['into', 'add']);
   });
 });

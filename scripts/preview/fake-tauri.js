@@ -961,6 +961,36 @@ window.__TAURI_INTERNALS__ = {
       var defaults = { quick: 'Option+Cmd+/', chat: "Option+Cmd+'", waiting: 'Option+Cmd+.', improve: 'Option+Cmd+,', main: 'Option+Cmd+;' };
       return Promise.resolve({ which: which, shortcut: which in set ? set[which] : defaults[which], error: null });
     }
+    // A folder's path typed in the quick panel's worktree menu (newfolder.rs `look`), on a made-up
+    // disk: the board's worktrees, and ~/projects with atlas and atlas-web in it; any other name in
+    // ~/projects is a new folder, and anywhere else isn't there. Adding one answers a worktree the
+    // board never gets, so the panel goes on waiting for it.
+    if (cmd === 'look_folder' || cmd === 'add_folder') {
+      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (board) {
+        var typed = (args && args.typed) || '';
+        var mine = board.lanes.filter(function (l) { return !l.device; });
+        var home = ((mine[0] || {}).path || '/Users/you').replace(/^(\/Users\/[^/]+).*$/, '$1');
+        var t = typed.trim();
+        var path = t === '~' ? home : t.indexOf('~/') === 0 ? home + t.slice(1) : t;
+        path = path.length > 1 ? path.replace(/\/+$/, '') : path;
+        var shown = path.indexOf(home) === 0 ? '~' + path.slice(home.length) : path;
+        var made = [home + '/projects', home + '/projects/atlas', home + '/projects/atlas-web'];
+        var lane = mine.filter(function (l) { return l.path === path; })[0];
+        var exists = made.indexOf(path) >= 0 || !!lane;
+        var parent = path.slice(0, path.lastIndexOf('/'));
+        var cut = t.lastIndexOf('/');
+        var start = t.slice(cut + 1).toLowerCase();
+        var dir = cut < 0 ? path : (t.slice(0, cut + 1) === '~/' ? home : (t.slice(0, cut) || '/').replace(/^~/, home));
+        var completions = made
+          .filter(function (f) { return f.slice(0, f.lastIndexOf('/')) === dir && f.slice(f.lastIndexOf('/') + 1).toLowerCase().indexOf(start) === 0 && f !== path; })
+          .map(function (f) { return '~' + f.slice(home.length); });
+        var refused = lane || exists ? null : made.indexOf(parent) < 0 ? '~' + parent.slice(home.length) + ' isn’t there.' : null;
+        var look = { typed: typed, path: path, shown: shown, name: path.slice(path.lastIndexOf('/') + 1), exists: exists, refused: refused, lane: lane ? lane.id : null, project: null, completions: completions };
+        if (cmd === 'look_folder') return look;
+        if (look.refused) return Promise.reject(look.refused);
+        return look.lane || path;
+      });
+    }
     // The setup wizard shows by itself only when `window.__setupNeeded` says it's a first run;
     // finishing it, and saving what it picked, need no answer.
     if (cmd === 'setup_needed') return Promise.resolve(!!window.__setupNeeded);

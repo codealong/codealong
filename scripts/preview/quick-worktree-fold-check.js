@@ -21,6 +21,8 @@
     });
   };
   var front = 0;
+  // No project and Another folder…, ahead of every worktree.
+  var lead = 2;
   var buried = [];
 
   say('quick worktree fold check: waiting for the panel');
@@ -44,16 +46,16 @@
       check('the rest are behind one row', !!row, opts.map(function (o) { return o.textContent; }).slice(-3).join(' | '));
       check('at the end', !!row && opts[opts.length - 1] === row);
       check('that says how many', !!row && row.textContent === buried.length + ' more', row && row.textContent);
-      // No project, then every main checkout and reusable worktree.
-      check('every main checkout and reusable worktree comes before it', opts.length === 1 + front + 1, (opts.length - 2) + ' listed, ' + front + ' expected');
+      // No project and Another folder…, then every main checkout and reusable worktree.
+      check('every main checkout and reusable worktree comes before it', opts.length === lead + front + 1, (opts.length - lead - 1) + ' listed, ' + front + ' expected');
       check('none of the rest is listed', heads().every(function (h) { return !/other worktrees/.test(h); }), heads().join(' | '));
       row.click();
       return wait(100);
     })
     .then(function () {
-      check('a click opens them', !more() && options().length === 1 + front + buried.length, options().length + ' options');
+      check('a click opens them', !more() && options().length === lead + front + buried.length, options().length + ' options');
       check('under their repos', heads().some(function (h) { return /· other worktrees$/.test(h); }), heads().join(' | '));
-      var first = options()[1 + front];
+      var first = options()[lead + front];
       check('on the first of them', !!first && active() === first, active() && active().textContent);
       return open();
     })
@@ -69,7 +71,7 @@
       return wait(100);
     })
     .then(function () {
-      check('⏎ on it opens them and picks nothing', !!filter() && !more() && options().length === 1 + front + buried.length, options().length + ' options');
+      check('⏎ on it opens them and picks nothing', !!filter() && !more() && options().length === lead + front + buried.length, options().length + ' options');
       return open();
     })
     .then(function () {

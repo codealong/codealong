@@ -63,6 +63,7 @@ mod kept;
 mod launch;
 mod ledger;
 mod limits;
+mod newfolder;
 mod nudges;
 mod lineage;
 mod logo;
@@ -1456,6 +1457,21 @@ fn take_team_settings(engine: State<'_, engine::Handle>, repo: String, branch: S
     engine.take_team_settings(&repo, &branch).map_err(words)
 }
 
+/// What a folder typed in the quick panel's worktree menu is (newfolder.rs).
+#[tauri::command]
+async fn look_folder(engine: State<'_, engine::Handle>, typed: String) -> Result<newfolder::Look, String> {
+    let engine = engine.inner().clone();
+    blocking(move || newfolder::look(&engine, &typed)).await
+}
+
+/// Makes a folder typed in the worktree menu, puts it in a project (one of its own with none),
+/// and answers its worktree once the board has it (newfolder.rs).
+#[tauri::command]
+async fn add_folder(engine: State<'_, engine::Handle>, typed: String, project: Option<String>) -> Result<String, String> {
+    let engine = engine.inner().clone();
+    blocking(move || newfolder::add(&engine, &typed, project.as_deref()).map_err(words)).await?
+}
+
 /// Opens a repo's `.codealong/config.toml` from its main checkout in the editor.
 #[tauri::command]
 async fn open_team_file(engine: State<'_, engine::Handle>, repo: String) -> Result<(), String> {
@@ -2355,7 +2371,7 @@ pub fn run() {
             kept::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |ctx, request, responder| serve_image(ctx.app_handle().clone(), request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, token_report, session_tokens, idle_sessions, close_idle_sessions, stale_terminals, close_stale_terminals, close_session, session_done, open_target, open_config, editor_icons, mark_seen, mark_unread, set_pr_nudge, set_pr_primary, snooze_sessions, quiet_sessions, own_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_pinned_repos, set_preview, set_reusable, remove_worktree, archive_session, rename_session, dismiss_suggestions, pr_detail, pr_since, pr_card, pr_comment_asks, pr_agent_reviews, send_agent_review, review_pr_now, review_pr_again, review_pr, pr_draft, edit_draft, edit_draft_comment, drop_draft_comment, merge_box, merge_pr, review_in_codex, open_url, open_pr_file, run_command, shell_commands, get_accounts, save_accounts, order_accounts, keep_start_place, found_accounts, setup_view, setup_needed, finish_setup, get_config, save_config, save_config_text, play_sound, take_team_settings, open_team_file, sign_in, stop_training, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, pr_side_ask, pr_side_close, todo_op, schedule_op, schedule_times, boards_list, board_op, canvas_load, canvas_save, board_answer, save_attachment, import_attachment, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, expand_attachments, set_theme, zoom, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, route_quick, note_route, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, session_steer, send_to_session, resume_session, switch_session_model, switch_session_effort, switch_session_mode, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, jev_usage, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, pointer_probe, popup_menu, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, token_report, session_tokens, idle_sessions, close_idle_sessions, stale_terminals, close_stale_terminals, close_session, session_done, open_target, open_config, editor_icons, mark_seen, mark_unread, set_pr_nudge, set_pr_primary, snooze_sessions, quiet_sessions, own_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_pinned_repos, set_preview, set_reusable, remove_worktree, archive_session, rename_session, dismiss_suggestions, pr_detail, pr_since, pr_card, pr_comment_asks, pr_agent_reviews, send_agent_review, review_pr_now, review_pr_again, review_pr, pr_draft, edit_draft, edit_draft_comment, drop_draft_comment, merge_box, merge_pr, review_in_codex, open_url, open_pr_file, run_command, shell_commands, get_accounts, save_accounts, order_accounts, keep_start_place, found_accounts, setup_view, setup_needed, finish_setup, get_config, save_config, save_config_text, play_sound, take_team_settings, open_team_file, look_folder, add_folder, sign_in, stop_training, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, pr_side_ask, pr_side_close, todo_op, schedule_op, schedule_times, boards_list, board_op, canvas_load, canvas_save, board_answer, save_attachment, import_attachment, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, expand_attachments, set_theme, zoom, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, route_quick, note_route, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, session_steer, send_to_session, resume_session, switch_session_model, switch_session_effort, switch_session_mode, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, jev_usage, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, pointer_probe, popup_menu, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

@@ -1264,7 +1264,8 @@ pub struct ProjectCfg {
     /// Repo patterns such as `github.com/acme/*`, or exact `github.com/owner/name`.
     #[serde(default)]
     pub repos: Vec<String>,
-    /// Folders that aren't repos but belong to the project.
+    /// Other folders that belong to the project; a repo among them is this project's, whatever
+    /// its remote matches (`project_with_folder`).
     #[serde(default)]
     pub folders: Vec<String>,
     /// The Chrome profile its worktrees' previews open in (chrome.rs): the name Chrome's
@@ -2251,9 +2252,15 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
     set_value(&mut doc["debug"]["perf_log"], Value::from(cfg.debug.perf_log));
 
     set_accounts(&mut doc, &cfg.accounts);
+    set_projects(&mut doc, &cfg.projects);
+    Ok(doc.to_string())
+}
 
-    let projects: Vec<Table> = cfg
-        .projects
+/// Sets the `[[projects]]` tables to `projects`.
+fn set_projects(doc: &mut toml_edit::DocumentMut, projects: &[ProjectCfg]) {
+    use toml_edit::{Array, Item, Table, Value};
+    let strings = |items: &[String]| Value::Array(Array::from_iter(items.iter().map(|s| s.trim())));
+    let tables: Vec<Table> = projects
         .iter()
         .map(|p| {
             let mut t = Table::new();
@@ -2266,8 +2273,42 @@ pub fn with_config(text: &str, cfg: &Config) -> Result<String> {
             t
         })
         .collect();
-    set_tables(&mut doc, "projects", projects);
-    Ok(doc.to_string())
+    set_tables(doc, "projects", tables);
+}
+
+/// The project whose `folders` list `path`: a repo there is in that project, whatever its
+/// remote matches.
+pub fn project_with_folder<'a>(projects: &'a [ProjectCfg], path: &Path) -> Option<&'a ProjectCfg> {
+    projects.iter().find(|p| p.folders.iter().any(|f| expand(f.trim()) == path))
+}
+
+/// Puts `folder` (as config.toml writes it, `~` for your home folder) in a project, keeping
+/// everything else in config.toml as written: in `project`, or with none in a project of its
+/// own, named after the folder (the one of that name, when there's one already). A folder a
+/// project lists already stays where it is. Answers the project it's in.
+pub fn add_folder(folder: &str, project: Option<&str>) -> Result<String> {
+    update(|text| with_folder(text, folder, project))
+}
+
+/// `text` with `folder` in a project, as `add_folder` saves it, and the project it's in.
+pub fn with_folder(text: &str, folder: &str, project: Option<&str>) -> Result<(String, String)> {
+    let mut cfg = from_text(text).map_err(|e| anyhow!("config.toml has an error; fix it before adding a folder: {}", e.to_string().trim()))?;
+    if let Some(p) = project_with_folder(&cfg.projects, &expand(folder)) {
+        return Ok((text.to_string(), p.name.clone()));
+    }
+    let name = match project {
+        Some(p) => p.trim().to_string(),
+        None => Path::new(folder).file_name().map(|n| n.to_string_lossy().into_owned()).ok_or_else(|| anyhow!("{folder} has no name to give a project."))?,
+    };
+    match cfg.projects.iter_mut().find(|p| p.name.trim() == name) {
+        Some(p) => p.folders.push(folder.to_string()),
+        None if project.is_some() => return Err(anyhow!("There's no project named {name} any more.")),
+        None => cfg.projects.push(ProjectCfg { name: name.clone(), repos: Vec::new(), folders: vec![folder.to_string()], chrome_profile: None }),
+    }
+    check_projects(&cfg.projects).map_err(anyhow::Error::msg)?;
+    let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has an error; fix it before adding a folder")?;
+    set_projects(&mut doc, &cfg.projects);
+    Ok((doc.to_string(), name))
 }
 
 fn set_routing(doc: &mut toml_edit::DocumentMut, routing: &RoutingCfg) {
@@ -3860,5 +3901,35 @@ mod tests {
         assert_eq!(p[1].name, "Spruce");
         assert_eq!(p[2].name, "Spur");
         assert_eq!(p[2].repos, vec!["github.com/spurhq/*".to_string()]);
+    }
+
+    #[test]
+    fn a_folder_goes_into_a_project_of_its_own_or_the_one_asked() {
+        let text = "scan = [\"~/projects\"]\n\n# Mine.\n[[projects]]\nname = \"Atlas\"\nrepos = [\"github.com/atlas/*\"]\nfolders = []\nchrome_profile = \"Work\"\n";
+        let (out, project) = with_folder(text, "~/projects/kestrel", None).unwrap();
+        assert_eq!(project, "kestrel");
+        let cfg = parse(&out).unwrap();
+        assert_eq!(cfg.projects.iter().map(|p| (p.name.as_str(), p.folders.clone())).collect::<Vec<_>>(), [("Atlas", vec![]), ("kestrel", vec!["~/projects/kestrel".to_string()])]);
+        assert!(out.starts_with("scan = [\"~/projects\"]\n\n# Mine.\n[[projects]]\nname = \"Atlas\""), "the rest stays as written: {out}");
+        assert_eq!(cfg.projects[0].chrome_profile.as_deref(), Some("Work"));
+
+        let (out, project) = with_folder(text, "~/projects/kestrel", Some("Atlas")).unwrap();
+        assert_eq!(project, "Atlas");
+        assert_eq!(parse(&out).unwrap().projects[0].folders, ["~/projects/kestrel"]);
+        assert!(with_folder(text, "~/projects/kestrel", Some("Gone")).unwrap_err().to_string().contains("no project named Gone"));
+    }
+
+    #[test]
+    fn a_folder_a_project_lists_stays_there_and_one_named_alike_joins_it() {
+        let text = "[[projects]]\nname = \"Atlas\"\nrepos = []\nfolders = [\"~/work/notes\"]\n\n[[projects]]\nname = \"kestrel\"\nrepos = [\"github.com/me/kestrel\"]\nfolders = []\n";
+        let (out, project) = with_folder(text, "~/work/notes", Some("kestrel")).unwrap();
+        assert_eq!((out.as_str(), project.as_str()), (text, "Atlas"), "nothing changes");
+        let (out, project) = with_folder(text, "~/code/kestrel", None).unwrap();
+        assert_eq!(project, "kestrel");
+        let cfg = parse(&out).unwrap();
+        assert_eq!(cfg.projects.len(), 2);
+        assert_eq!(cfg.projects[1].folders, ["~/code/kestrel"]);
+        assert_eq!(project_with_folder(&cfg.projects, &expand("~/code/kestrel")).map(|p| p.name.as_str()), Some("kestrel"));
+        assert!(project_with_folder(&cfg.projects, &expand("~/code")).is_none(), "only the folder itself");
     }
 }

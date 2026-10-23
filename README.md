@@ -730,7 +730,7 @@ home = "~/.cursor"             # the command line's folder; the Cursor app's cha
 [[projects]]
 name = "Acme"
 repos = ["github.com/acme/*"]
-folders = []
+folders = []                   # folders that belong to it too; a repo in one is this project's, whatever its remote
 chrome_profile = "Work"        # its worktrees' previews, and links into them, open in this Chrome profile; without it, the default browser
 ```
 

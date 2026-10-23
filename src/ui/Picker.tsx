@@ -3,7 +3,8 @@
 // It's made for the keyboard: typing filters, ↑ ↓ move, ⏎ picks, ← → change the setting while
 // the filter is empty, and Escape closes it and leaves the panel open. Native menus aren't used here: the panel doesn't activate
 // Codealong, and a menu can't show usage meters or filter. Options seldom picked can be folded
-// away behind one row at the end that says how many.
+// away behind one row at the end that says how many, and an option can put text in the filter
+// rather than be picked, to go on typing from (a folder's path).
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useDismiss } from './useDismiss';
@@ -22,6 +23,8 @@ export interface PickerOption {
   trail?: ReactNode;
   disabled?: boolean;
   title?: string;
+  /** Picking it puts this in the filter instead, to go on typing from: a folder's path. */
+  fill?: string;
 }
 
 export interface PickerSection {
@@ -46,6 +49,8 @@ interface PickerProps {
   foot?: ReactNode;
   /** ← or → while the filter is empty, for the setting below. */
   onStep?: (delta: -1 | 1) => void;
+  /** What's typed in the filter, as it changes: for options that depend on it. */
+  onFilter?: (text: string) => void;
 }
 
 /** The row that opens the folded sections, as an option: no option's id starts with a NUL. */
@@ -57,8 +62,12 @@ function matches(o: PickerOption, words: string[]): boolean {
   return words.every((w) => t.includes(w));
 }
 
-export function Picker({ sections, value, placeholder, onPick, onClose, empty = 'Nothing matches.', className, foot, onStep }: PickerProps) {
+export function Picker({ sections, value, placeholder, onPick, onClose, empty = 'Nothing matches.', className, foot, onStep, onFilter }: PickerProps) {
   const [filter, setFilter] = useState('');
+  const typed = (text: string) => {
+    setFilter(text);
+    onFilter?.(text);
+  };
   const words = useMemo(() => filter.toLowerCase().split(/\s+/).filter(Boolean), [filter]);
   const [unfolded, setUnfolded] = useState(false);
   const shown = useMemo(() => {
@@ -94,8 +103,14 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
     },
   });
 
-  // The row in the folded sections' place opens them, leaving the first of them to pick.
+  // The row in the folded sections' place opens them, leaving the first of them to pick; an
+  // option that fills the filter goes on from what it puts there.
   const pick = (id: string) => {
+    const fill = sections.flatMap((s) => s.options).find((o) => o.id === id)?.fill;
+    if (fill !== undefined) {
+      typed(fill);
+      return;
+    }
     if (id !== MORE) {
       onPick(id);
       return;
@@ -121,7 +136,7 @@ export function Picker({ sections, value, placeholder, onPick, onClose, empty = 
         autoCapitalize="off"
         placeholder={placeholder}
         aria-label={placeholder}
-        onChange={(e) => setFilter(e.target.value)}
+        onChange={(e) => typed(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown' || emacsCtrl(e, 'n')) {
             e.preventDefault();
