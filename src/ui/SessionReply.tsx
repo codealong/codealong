@@ -99,7 +99,7 @@ import { mergeAttachments, splitAttachments, withAttachments } from '../todos';
 import type { Answers, Attachment, Pending, Question, Sent, Session, StartPlace, Suggestions, Way } from '../types';
 import { CodeBlock } from './CopyButton';
 import { bangCommand } from './RunButton';
-import { AttachmentStrip } from './DescriptionEditor';
+import { AttachmentStrip, ImagesFrom } from './DescriptionEditor';
 import { Markdown } from './Markdown';
 import { ModeLabel, ModeMenu, nextMode } from './ModeLabel';
 import { BoxText, Button, Chip, cx, Icon, OneLine, Rich, Seg } from './primitives';
@@ -1252,7 +1252,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
         <div className="ca-approval-label">
           <Rich text={pending.label} now={0} />
         </div>
-        {pending.input && <Markdown text={pending.input} className="ca-approval-plan" />}
+        {pending.input && <Plan session={s} text={pending.input} />}
         <div className="ca-composer-foot">
           <span className="ca-composer-note" title={pending.cannot}>
             {note?.text ?? `${pending.cannot} Answer it in ${where}.`}
@@ -1332,7 +1332,7 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
           <Rich text={pending.label} now={0} />
         </div>
       )}
-      {pending.input && pending.input !== pending.label && (plan || message ? <Markdown text={pending.input} className="ca-approval-plan" /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
+      {pending.input && pending.input !== pending.label && (plan || message ? <Plan session={s} text={pending.input} /> : <CodeBlock text={pending.input} className="ca-approval-input" />)}
       <div className="ca-composer-foot">
         <span className={cx('ca-composer-note', note?.error && 'is-error')}>{busy ? 'Answering…' : (note?.text ?? says)}</span>
         <Button size="sm" kbd={['⌘', '⌫']} disabled={busy} onClick={() => answer('deny')}>
@@ -1355,6 +1355,17 @@ function Approval({ session: s, terminal, onOpen, onAnswered, keys, onKeys, onNe
 
 /** The head of a box of questions it asks you, with the button that minimizes the box to it.
  *  Minimized, it says the question showing on one line, which shows the box again when clicked. */
+/** A plan or a held message to read before answering, as the session's conversation shows its
+ *  replies: the files it names are on the session's device (`ImagesFrom`), so one on another
+ *  device's doesn't open here. */
+function Plan({ session, text }: { session: Session; text: string }) {
+  return (
+    <ImagesFrom.Provider value={shortOf(session.key)}>
+      <Markdown text={text} className="ca-approval-plan" />
+    </ImagesFrom.Provider>
+  );
+}
+
 function AsksHead({ question, more, where, onOpen, folded, onFold }: { question: string; more: number; where: string | null; onOpen: () => void; folded: boolean; onFold: (on: boolean) => void }) {
   return (
     <div className="ca-approval-head">

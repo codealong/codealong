@@ -17,25 +17,16 @@ describe('pathIn', () => {
     expect(pathIn('/Users/me/shots/12:30 run.png')).toEqual({ path: '/Users/me/shots/12:30 run.png', line: null });
   });
 
-  it('leaves what only looks like one: a relative path, a skill, a command, a glob, a link', () => {
-    for (const code of [
-      'src/ui/Markdown.tsx',
-      './run.sh',
-      '/release',
-      '/codealong:orchestrate',
-      '/',
-      '~/',
-      '/usr/bin/open -R /Users/me/a.md',
-      'ls /Users/me',
-      '/Users/me/projects/*.md',
-      '/Users/me/{a,b}.md',
-      '/Users/me/$HOME/a',
-      '/Users/me/a.md | head',
-      'https://example.com/a/b',
-      '//cdn.example.com/a.js',
-      ' /Users/me/a.md',
-      '/Users/me/a.md ',
-    ]) {
+  it('takes any name a file can have, leaving it to the engine to say whether one is there', () => {
+    for (const path of ['/Users/me/Documents/Plan - final.md', "/Users/me/Documents/Client's notes.md", '/Users/me/Research & Development/plan.md', '/Users/me/projects/atlas/app/[id]/page.tsx']) {
+      expect(pathIn(path), path).toEqual({ path, line: null });
+    }
+    // A command is asked about too, and found to be nothing.
+    expect(pathIn('/usr/bin/open -R /Users/me/a.md')?.path).toBe('/usr/bin/open -R /Users/me/a.md');
+  });
+
+  it('leaves what can’t be one: a relative path, a skill, a command that doesn’t start with one, a link', () => {
+    for (const code of ['src/ui/Markdown.tsx', './run.sh', '/release', '/codealong:orchestrate', '/', '~/', 'ls /Users/me', 'https://example.com/a/b', '//cdn.example.com/a.js', ' /Users/me/a.md', '/Users/me/a.md ']) {
       expect(pathIn(code), code).toBeNull();
     }
   });

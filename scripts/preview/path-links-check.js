@@ -1,8 +1,9 @@
 // Checks paths an agent writes as code in a reply: a full path, or one under home, that's on this
 // Mac reads as it's written, underlined, and opens on a click, in your editor at its line where
 // it gives one; a right-click offers Open, your editor, the Finder and its path, in place of the
-// message's own menu. What only looks like a path (a route, a skill, a command, a file that's
-// gone) stays code, and every path in the reply is asked about in one go. A file Codex cites has
+// message's own menu. A name with a dash, an ampersand or a quote in it is a path like any other;
+// what only looks like one (a route, a skill, a command, a file that's gone) stays code, and every
+// path in the reply is asked about in one go. A file Codex cites has
 // the same menu. The conversation is a stand-in, on the first session:
 //   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/path-links-check.js
 // As PREVIEW_INIT (with PREVIEW_NAME=path-links) it leaves the panel open on it, for a screenshot.
@@ -13,9 +14,17 @@
   var FOLDER = '/Users/me/projects/northwind/docs/';
   var CLEARED = '/private/tmp/claude-501/-Users-me-projects-northwind/118c2b2f/scratchpad/cleared.md';
   var CITED = '/Users/me/projects/northwind/README.md';
+  var PLAN = '/Users/me/projects/northwind/docs/Plan - final.md';
+  // What the engine finds on this stand-in Mac: these, and nothing else.
+  var HERE = {};
+  HERE[STEPS] = 'file';
+  HERE[MAIN] = 'file';
+  HERE[FOLDER] = 'folder';
+  HERE[CLEARED] = 'file';
+  HERE[PLAN] = 'file';
   var REPLY = [
     '1. **Workspace exports.** These are the 8 steps in `' + STEPS + '`. You said you’d do them this week.',
-    '2. **The fix** is at `' + MAIN + ':42`, and the notes are in `' + FOLDER + '`.',
+    '2. **The fix** is at `' + MAIN + ':42`, and the notes are in `' + FOLDER + '`, the plan in `' + PLAN + '`.',
     '3. Not paths: `/api/v1/users`, `/release`, `/usr/bin/open -R ' + STEPS + '` and `/Users/me/projects/northwind/gone.md`.',
     '4. The old plan was `' + CLEARED + '`. See :codex-file-citation{path="' + CITED + '"}.',
   ].join('\n');
@@ -27,10 +36,9 @@
       var item = function (kind, text, n) { return { at: at + n * 1000, kind: kind, text: text, failed: false, cursor: n, n: 0 }; };
       return Promise.resolve({ before: null, after: 2, items: [item('you', 'What’s left for me to do?', 0), item('agent', REPLY, 1)] });
     }
-    // What the engine finds: nothing at a route or a file that's gone.
     if (cmd === 'path_kinds') {
       window.__calls.push([cmd, args, options]);
-      return Promise.resolve(args.paths.map(function (p) { return /^\/api\/|gone/.test(p) ? null : /\/$/.test(p) ? 'folder' : 'file'; }));
+      return Promise.resolve(args.paths.map(function (p) { return HERE[p] || null; }));
     }
     // A file that was there when the reply showed and was cleared before the click.
     if (cmd === 'open_file' && /cleared/.test((args || {}).path)) {
@@ -59,16 +67,16 @@
     .then(function () {
       row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       row().click();
-      return until(function () { return reply() && links().length >= 4; }, 10000);
+      return until(function () { return reply() && links().length >= 5; }, 10000);
     })
     .then(function () {
       var shown = links().map(function (c) { return c.textContent; });
-      check('paths on this Mac are links, as written', shown.join('|') === [STEPS, MAIN + ':42', FOLDER, CLEARED].join('|'), shown.join('|'));
+      check('paths on this Mac are links, as written', shown.join('|') === [STEPS, MAIN + ':42', FOLDER, PLAN, CLEARED].join('|'), shown.join('|'));
       var plain = all('code.ca-ic', reply()).filter(function (c) { return !c.classList.contains('ca-ic-path'); }).map(function (c) { return c.textContent; });
       check('what only looks like a path stays code', plain.join('|') === ['/api/v1/users', '/release', '/usr/bin/open -R ' + STEPS, '/Users/me/projects/northwind/gone.md'].join('|'), plain.join('|'));
       var asked = sent('path_kinds');
-      check('the reply’s paths are asked about in one go', asked.length === 1 && asked[0].paths.length === 6, JSON.stringify(asked));
-      check('a skill and a command are never asked about', asked.length === 1 && asked[0].paths.indexOf('/release') < 0 && asked[0].paths.every(function (p) { return !/ -R /.test(p); }), JSON.stringify(asked));
+      check('the reply’s paths are asked about in one go', asked.length === 1 && asked[0].paths.length === 8, JSON.stringify(asked));
+      check('a skill is never asked about', asked.length === 1 && asked[0].paths.indexOf('/release') < 0, JSON.stringify(asked));
       check('underlined as a link is', getComputedStyle(linkTo(STEPS)).textDecorationLine === 'underline');
 
       linkTo(STEPS).click();

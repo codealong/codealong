@@ -15,15 +15,12 @@ export interface PathAt {
   line: number | null;
 }
 
-/** What a shell or a pattern would read as more than a name: a path written with them is a
- *  command or a glob, not a file to open. */
-const NOT_IN_A_PATH = /[*?<>|;&$"'`\\{}\n]/;
-
-/** The path a piece of code is, when it's one: full or under home, of two parts at least
- *  (`/release` is a skill), no protocol's `//`, no flag after a space (`/usr/bin/open -R x` is a
- *  command). A line after it is kept apart. */
+/** The path a piece of code may be: full or under home, of two parts at least (`/release` is a
+ *  skill), with no protocol's `//`. A line after it is kept apart. Anything else a name can hold
+ *  is let through (`Plan - final.md`, `R&D`, `Client's notes.md`): whether it's a file is the
+ *  engine's to say, and a command written as code (`/usr/bin/open -R x`) is nothing it finds. */
 export function pathIn(code: string): PathAt | null {
-  if (code.length > 1024 || NOT_IN_A_PATH.test(code) || code.includes('//') || /\s-/.test(code) || code !== code.trim()) return null;
+  if (code.length > 1024 || code.includes('\n') || code.includes('//') || code !== code.trim()) return null;
   const m = /^(.*?)(?::(\d+)(?::\d+)?)?$/.exec(code);
   const path = m?.[1] ?? '';
   const parts = path.startsWith('~/') ? path.slice(2).split('/') : path.startsWith('/') ? path.slice(1).split('/') : [];
