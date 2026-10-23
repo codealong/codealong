@@ -216,6 +216,25 @@ describe('findSessions', () => {
     expect(findSessions(named, ALL_PROJECTS, 'nightly harbor watch', NOW, 9, said, 'with')[0].key).toBe('by-name');
   });
 
+  it('finds sessions in other projects than the one picked, after its own, but not Elsewhere’s', () => {
+    const HOUR = 3600e3;
+    const projects = board([
+      lane('app2', [session('mine', 'idle', NOW - 2 * HOUR, { title: 'Login retries' }), session('mention', 'unread', NOW - 1, { title: 'Upgrade deps' })]),
+      lane('globex', [session('theirs', 'idle', NOW - 10, { title: 'Login page' })], { project: 'Globex' }),
+      lane('stray', [session('stray', 'idle', NOW - 10, { title: 'Login stray' })], { project: 'Elsewhere', hidden: true }),
+    ]);
+    const said = new Map([['mention', { key: 'mention', snippet: 'after the login change', you: true, at: NOW, score: 7 }]]);
+    const found = findSessions(projects, 'Acme', 'login', NOW, 9, said);
+    // Globex's is newer, but Acme is the project picked; a title elsewhere still comes before a
+    // mention in Acme.
+    expect(found.map((r) => r.key)).toEqual(['mine', 'theirs', 'mention']);
+    // Its row carries its worktree, which says its project.
+    expect(found[1].lane.project).toBe('Globex');
+    expect(findSessions(projects, ALL_PROJECTS, 'login', NOW, 9, said).map((r) => r.key)).toEqual(['theirs', 'mine', 'mention']);
+    expect(findSessions(projects, 'Elsewhere', 'login', NOW, 9, said).map((r) => r.key)).toEqual(['stray', 'theirs', 'mine', 'mention']);
+    expect(findSessions(projects, 'Globex', 'retries', NOW).map((r) => r.key)).toEqual(['mine']);
+  });
+
   it('marks where the words are in the title', () => {
     expect(findSessions(b, ALL_PROJECTS, 'login flake', NOW)[0].marks).toEqual([
       [8, 13],
@@ -279,6 +298,8 @@ describe('sendTargets', () => {
 
   it('keeps to the project, and lists at most the limit while counting them all', () => {
     expect(sendTargets(b, 'Globex', '', [], NOW).rows.map((r) => r.key)).toEqual(['elsewhere']);
+    // Words typed find sessions as a search does, in the other projects too.
+    expect(sendTargets(b, 'Globex', 'login', [], NOW).rows.map((r) => r.key)).toEqual(['busy', 'old']);
     const few = sendTargets(b, ALL_PROJECTS, '', [], NOW, new Map(), 'without', 2);
     expect(few.rows.length).toBe(2);
     expect(few.count).toBe(4);

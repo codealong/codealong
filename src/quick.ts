@@ -256,6 +256,12 @@ function searchCost(closeness: number, s: Session, now: number): number {
   return closeness + (s.archived ? 1 : 0) + Math.log2(1 + Math.max(0, now - s.lastActivity) / HOUR);
 }
 
+/** How many doublings further down a search puts a session in another project than the one
+ *  picked: as if it were eight times older. A title in the project you picked comes before the
+ *  same title elsewhere, but a session elsewhere that the words name still comes before one in
+ *  the project that only mentions them. */
+const ANOTHER_PROJECT = 3;
+
 /** The shortest search that's sent to the text search: fewer letters match nearly everything. */
 export const TEXT_SEARCH_MIN = 3;
 
@@ -268,26 +274,32 @@ export const TEXT_SEARCH_MIN = 3;
  * enough that a recent session that matches less closely comes before an old one that matches
  * better (`CLOSENESS` says how far): the session you look for is most often one you worked in
  * lately, and a common word names hundreds of old ones. Archived sessions are left out unless
- * `archived` asks for them, and then count as older than they are.
+ * `archived` asks for them, and then count as older than they are. A project picked doesn't hide
+ * the others' sessions from a search, since the one you look for may be in another: they come
+ * after the project's own as older ones would (`ANOTHER_PROJECT`), and each row says its project.
+ * Elsewhere's stay out unless it's the one picked, as under All projects.
  */
 export function findSessions(board: Board, project: string, query: string, now: number, limit = MAX_ROWS, said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without'): SessionRow[] {
   const words = queryWords(query);
   if (words.length === 0) return [];
   const asked = words.join(' ');
-  const found = sessionsIn(board, project, archived).flatMap(({ lane, session: s }) => {
+  const others = project === ALL_PROJECTS ? [] : sessionsIn(board, ALL_PROJECTS, archived).filter(({ lane }) => !inProject(lane, project));
+  const found = [...sessionsIn(board, project, archived), ...others].flatMap(({ lane, session: s }) => {
+    const away = inProject(lane, project) ? 0 : ANOTHER_PROJECT;
+    const cost = (closeness: number) => away + searchCost(closeness, s, now);
     // Marks only for a session that matches: a long prompt has hundreds of words, and looking for
     // each in every session's title was most of what a key cost.
     const row = (): SessionRow => ({ kind: 'session', key: s.key, group: 'found', lane, session: s, marks: titleMarks(s.title, words) });
     // Each name on its own: words split between a title and a name don't name the session.
     const names = s.name ? [s.title, s.name] : [s.title];
     const named = names.filter((n) => hasWords(n.toLowerCase(), words));
-    if (named.length > 0) return [{ row: row(), cost: searchCost(named.some((n) => queryWords(n).join(' ') === asked) ? CLOSENESS.exact : CLOSENESS.named, s, now) }];
+    if (named.length > 0) return [{ row: row(), cost: cost(named.some((n) => queryWords(n).join(' ') === asked) ? CLOSENESS.exact : CLOSENESS.named) }];
     const pr = lane.pr ? `#${lane.pr.number} ${lane.pr.title}` : '';
     const hay = [...names, s.account, lane.callsign, lane.repo, lane.branch ?? '', s.branch ?? '', lane.project, pr].join('\n').toLowerCase();
-    if (hasWords(hay, words)) return [{ row: row(), cost: searchCost(CLOSENESS.described, s, now) }];
+    if (hasWords(hay, words)) return [{ row: row(), cost: cost(CLOSENESS.described) }];
     const hit = said.get(s.key);
     if (!hit) return [];
-    return [{ row: { ...row(), said: saidLine(hit, words) }, cost: searchCost(CLOSENESS.said + (SAID_BEST - Math.min(hit.score ?? 0, SAID_BEST)) / 4, s, now) }];
+    return [{ row: { ...row(), said: saidLine(hit, words) }, cost: cost(CLOSENESS.said + (SAID_BEST - Math.min(hit.score ?? 0, SAID_BEST)) / 4) }];
   });
   return found
     .sort((a, b) => a.cost - b.cost || b.row.session.lastActivity - a.row.session.lastActivity || a.row.key.localeCompare(b.row.key))
@@ -303,7 +315,8 @@ export const SEND_TO = 40;
  * typed in its box: the ones Jev weighed (`picks`, its answer's sessions with how likely each
  * is), in Jev's order, then every other session in the project, the one you last prompted first,
  * so the list holds still while agents work. With words typed: the sessions they find
- * (`findSessions`, by what was said in them too), Jev's first in its order, the rest in theirs.
+ * (`findSessions`, by what was said in them too, and in other projects after the project's own),
+ * Jev's first in its order, the rest in theirs.
  * Helpers and headless runs are left out while they don't need you, as the empty panel leaves
  * them out: their agent or script talks to them, not you. Archived ones are left out unless
  * `archived` asks for them: then they come last with nothing typed, and with words where

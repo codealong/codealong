@@ -97,7 +97,7 @@ import { canvasPicked, MainPanel, type Drill } from './ui/MainPanel';
 import { showPrTab } from './ui/PrInspector';
 import type { FindAsk } from './ui/ThreadFind';
 import { Toasts, useToasts } from './ui/Toasts';
-import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
+import { ageListingChain, ageListingPr, chainOf, currentProject, FACET_WORD, facetsIn, facetsOn, laneInQuery, onlyPick, prInDone, prInFilter, prInQuery, projectOfCard, revealing, unarchived, scheduleSessions, schedulesIn, sessionInFacets, sessionInFilter, sessionInQuery, sessionItemOf, sessionItemsOf, showingHelper, todoInQuery, togglePick, toggleShown, useBoardLists, projectsOf, type Facets } from './boardLists';
 import { inProject, QUICK_PLACEHOLDER, queryWords, shortcutKeys, shortcutLabel } from './quick';
 import { findFor } from './threadFind';
 import { improveTitle } from './improve';
@@ -1010,8 +1010,9 @@ export function App() {
   }, [selected?.key]);
 
   // The floating bar, the quick panel or a card on the desktop asks to show a session, worktree,
-  // PR or todo here: in its project, with no search hiding it, nor one of its sessions shown in
-  // its panel's place (`drill`), which selecting what's selected already would leave.
+  // PR or todo here: in its project, with no search or machine filter hiding it, nor one of its
+  // sessions shown in its panel's place (`drill`), which selecting what's selected already would
+  // leave.
   // Each time something asks to show a row here, which opens the group that folds it away even
   // when it's the row selected already.
   const [revealed, setRevealed] = useState(0);
@@ -1059,21 +1060,28 @@ export function App() {
       }
       return;
     }
-    const lane = r.kind === 'session' || r.kind === 'worktree' ? lanes.find((l) => l.id === r.laneId) : undefined;
+    // A worktree on a machine the sidebar's machine filter leaves out shows with the filter
+    // cleared, as the sidebar's other filters are, and is looked for among every machine's.
+    const everyLane = [...(board?.lanes ?? []), ...deviceLanes];
+    const laneId = r.kind === 'session' || r.kind === 'worktree' ? r.laneId : null;
+    const offMachine = laneId != null && !rawLanes.some((l) => l.id === laneId) && everyLane.some((l) => l.id === laneId);
+    const listed = offMachine ? unarchived(everyLane) : lanes;
+    const lane = listed.find((l) => l.id === laneId);
     const session = lane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : ''));
     // An archived session isn't in the lists the views show (`unarchived`): it's in Sessions'
     // Archived fold, so it's looked for on the board as the engine sent it.
-    const archivedLane = r.kind === 'session' && !session ? [...(board?.lanes ?? []), ...deviceLanes].find((l) => l.id === r.laneId) : undefined;
+    const archivedLane = r.kind === 'session' && !session ? everyLane.find((l) => l.id === r.laneId) : undefined;
     const archived = archivedLane?.sessions.find((s) => s.key === (r.kind === 'session' ? r.key : '') && s.archived);
     const pr = r.kind === 'pr' ? board?.prs.find((p) => p.key === r.key) : undefined;
     const home = lane?.project ?? archivedLane?.project ?? pr?.project;
     if (!home) return;
     if (current !== ALL_PROJECTS && current !== home) pickProject(home);
+    if (offMachine) setDeviceFilter([]);
     setQuery('');
     setDrill(null);
     if (lane && r.kind === 'worktree') {
-      // In another project, what's listed now isn't what will be.
-      focusLane(lane, undefined, current !== ALL_PROJECTS && current !== home);
+      // In another project, or on a machine that wasn't listed, what's listed now isn't what will be.
+      focusLane(lane, undefined, (current !== ALL_PROJECTS && current !== home) || offMachine);
     } else if (archivedLane && archived) {
       // Its row in the Archived fold, opened, with its conversation in the panel; the age
       // filter doesn't apply there.
@@ -1090,7 +1098,7 @@ export function App() {
       // and as far as the sessions a helper or a run is listed under. A finished helper, or a run
       // its session's row only counts, is listed under its session.
       const item = sessionItemOf({ lane, session });
-      const items = sessionItemsOf(lanes);
+      const items = sessionItemsOf(listed);
       const wider = ageListingChain(chainOf(item, items).map((r) => r.session), sessionPins.set, AGES, age, Date.now());
       if (wider) setAge(wider);
       setHelpersShownList((prev) => revealing(prev, items, item));

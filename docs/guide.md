@@ -1885,7 +1885,8 @@ Archived box at the end of the Sessions heading, there whenever you search, says
 checked (a click, or ⇧⌘A) lists them, each with an Archived chip, ranked as if they were twice as
 old, in this and later searches until you uncheck it. ⏎ on a session shows it in
 Codealong, with its conversation and a box to answer it (one found by what was said, with the find
-bar on the words), and ⌥⏎ opens it where it lives. ⏎ on a todo
+bar on the words), in its project, and with the sidebar's devices cleared when they leave out the
+machine it's on; ⌥⏎ opens it where it lives. ⏎ on a todo
 shows its session the same way, or, when it has none, gets a session ready to start for it (its
 prompt, its worktree, linked to it); on a PR it shows the PR in Codealong, and ⌥⏎ opens it on
 GitHub; the PR's right-click menu copies its link. ⏎ or ⇥ on a PR under Review requested reviews it
@@ -1900,7 +1901,9 @@ for it): the list scrolls within it, the row that starts a new session stays abo
 bar's menus open over the list. A click does a row
 only when you moved the pointer onto it: one the list moved under a pointer that stayed put (as
 suggestions and what was said come in) is selected by the click, and a second click does it. A
-project picker (⌘P) narrows everything to one project. ⌥⌘' (`[shortcuts] chat`) opens the same
+project picker (⌘P) narrows everything to one project, but for a search: the sessions it finds in
+other projects come after the project's own, as if they were eight times older, each saying its
+project before its worktree. ⌥⌘' (`[shortcuts] chat`) opens the same
 panel with the worktree picker on No project, so what you type starts a chat of its own, in a folder
 of its own among Codealong's chats, rather than in a worktree; it finds sessions as ⌥⌘/ does, and
 the picker (⌘T) still goes to a worktree. The shortcuts are yours to change in Settings › General;
