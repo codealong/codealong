@@ -475,11 +475,13 @@ impl Tracked {
     /// again; with `wide`, any that did anything since. Not one prompted since: what it's at is
     /// someone else's. True when it was.
     fn take_up(&mut self, board: &Board, pr: &PrItem, wide: bool) -> bool {
-        let Some(r) = self.rounds.last_mut().filter(|r| r.stage == ReviewStage::Failed && pr.state.is_open() && pr.head_oid.as_deref() == Some(r.head.as_str())) else { return false };
         let gave_up_on = |p: &Part| p.state == PartState::Failed && p.note.as_deref() == Some(if p.session.is_none() { NEVER_SHOWED } else { STOPPED });
-        if r.parts.is_empty() || !r.parts.iter().all(gave_up_on) {
+        let given_up = |r: &Round| r.stage == ReviewStage::Failed && pr.state.is_open() && pr.head_oid.as_deref() == Some(r.head.as_str()) && !r.parts.is_empty() && r.parts.iter().all(gave_up_on);
+        if !self.rounds.last().is_some_and(given_up) {
             return false;
         }
+        let asked: HashSet<String> = self.asked().map(String::from).collect();
+        let Some(r) = self.rounds.last_mut() else { return false };
         let since = r.ended_at.unwrap_or(r.at);
         let went_on = |p: &Part, s: &Session| s.last_prompt_at <= since && (at_work(s) && (wide || !p.begun()) || wide && s.last_activity > since);
         let here = || board.lanes.iter().filter(|l| l.device.is_none()).flat_map(|l| &l.sessions);
@@ -487,7 +489,7 @@ impl Tracked {
         for p in r.parts.iter_mut() {
             let shown = match (&p.session, &p.pending) {
                 (Some(k), _) => board.session(k).filter(|(_, s)| went_on(p, s)).map(|_| k.clone()),
-                (None, Some(pending)) => found(board, pending, pr, &self.sessions),
+                (None, Some(pending)) => found(board, pending, pr, &asked),
                 (None, None) if wide => first_naming(here(), pr, p.at),
                 (None, None) => None,
             };
@@ -587,15 +589,18 @@ fn session_at_limit(board: &Board, accounts: &[AccountCfg], key: &str, model: Op
     account_at_limit(board, accounts, &s.account, model.or(s.model.as_deref()), now)
 }
 
-/// Whether `account` is at a usage limit on `model` (its own for none): a session of it was
+/// Whether `account` is at a usage limit on `model`, its own for none as a group's pick has it
+/// (`start::pick_from_group`), so another model's limit doesn't count: a session of it was
 /// refused, it needs signing in again, or its meters are at its usage cap.
 fn account_at_limit(board: &Board, accounts: &[AccountCfg], account: &str, model: Option<&str>, now: i64) -> bool {
     let all = crate::start::all_sessions(&board.lanes);
     if crate::start::refused_accounts(&all, now).contains(account) {
         return true;
     }
-    let cap = accounts.iter().find(|a| a.name == account).and_then(|a| a.usage_cap);
-    board.usage.iter().any(|u| u.account == account && (u.needs_sign_in || crate::start::near_limit(u, model, cap)))
+    let a = accounts.iter().find(|a| a.name == account);
+    let model = model.map(String::from).or_else(|| a.and_then(|a| crate::harness::of(a)?.default_model(a)));
+    let cap = a.and_then(|a| a.usage_cap);
+    board.usage.iter().any(|u| u.account == account && (u.needs_sign_in || crate::start::near_limit(u, model.as_deref(), cap)))
 }
 
 /// `seat_for`, starting afresh when the PR's kept session is on an account at its usage limit, or
@@ -1062,12 +1067,12 @@ fn first_naming<'a>(sessions: impl Iterator<Item = &'a Session>, pr: &PrItem, at
 }
 
 /// The session a start that named none made: the first of its account in its worktree started
-/// since, whose first prompt is a review of `pr`, but a session the PR's reviews keep (`kept`,
-/// `Tracked::sessions`). One that stopped with an error moments before a review started afresh
-/// reads as started since where its harness keeps no start time, and would be taken for it.
-fn found(board: &Board, p: &Pending, pr: &PrItem, kept: &BTreeMap<String, String>) -> Option<String> {
+/// since, whose first prompt is a review of `pr`, but one the PR's reviews asked before (`asked`,
+/// `Tracked::asked`). One that stopped with an error moments before a review started afresh reads
+/// as started since where its harness keeps no start time, and would be taken for it.
+fn found(board: &Board, p: &Pending, pr: &PrItem, asked: &HashSet<String>) -> Option<String> {
     let lane = board.lanes.iter().find(|l| l.id == p.lane && l.device.is_none())?;
-    first_naming(lane.sessions.iter().filter(|s| s.account == p.account && !kept.values().any(|k| *k == s.key)), pr, p.at)
+    first_naming(lane.sessions.iter().filter(|s| s.account == p.account && !asked.contains(&s.key)), pr, p.at)
 }
 
 /// What's next for a round under way on PR `pr`, which is at `head` now. The reviewer's turn is
@@ -1169,6 +1174,8 @@ impl Reviewer {
                     changed |= t.take_up(board, pr, false);
                 }
             }
+            // What a start that named no session made isn't one asked before (`found`).
+            let asked: HashSet<String> = t.rounds.last().filter(|r| r.parts.iter().any(|p| p.pending.is_some())).map(|_| t.asked().map(String::from).collect()).unwrap_or_default();
             let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { continue };
             // A round `next` never looks at, a PR's that isn't listed or whose reviews were turned
             // off, would hold a place for good. `next` gives up on the rest itself, once nothing
@@ -1186,7 +1193,7 @@ impl Reviewer {
             }
             for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
                 if let Some(pending) = p.pending.clone() {
-                    if let Some(s) = pr.and_then(|pr| found(board, &pending, pr, &t.sessions)) {
+                    if let Some(s) = pr.and_then(|pr| found(board, &pending, pr, &asked)) {
                         t.sessions.insert(p.who.clone(), s.clone());
                         p.session = Some(s);
                         p.pending = None;
@@ -4470,8 +4477,9 @@ mod tests {
     }
 
     /// A review started afresh after an error, on the same account, whose start named no session
-    /// (Antigravity in a terminal), is the new session that shows, not the one that stopped a
-    /// moment before, which reads as started since where its harness keeps no start time.
+    /// (Antigravity in a terminal), is the new session that shows, not one that stopped a moment
+    /// before, which reads as started since where its harness keeps no start time: on the retry,
+    /// and on Try again after that one stopped too.
     #[test]
     fn a_review_started_afresh_isnt_found_in_the_session_that_stopped() {
         let review = |key: &str, status: Status, when: i64| Session { first_prompt: Some(format!("{} at 1111111", opening(&pr(7, HEAD)))), started_at: None, ..at(key, status, when) };
@@ -4485,10 +4493,40 @@ mod tests {
         let asked = NOW + QUIET_MS + 3;
         let pending = Pending { lane: "/r".into(), account: "claude".into(), at: asked };
         r.told(&jobs[0], Went::Started(vec![Part::asked(AUTO, None, Some(pending), asked)]), asked).unwrap();
-        let shown = board(vec![pr(7, HEAD)], vec![stopped, review("claude:claude:afresh", Status::Working, asked + 20_000)]);
+        let shown = board(vec![pr(7, HEAD)], vec![stopped.clone(), review("claude:claude:afresh", Status::Working, asked + 20_000)]);
         r.due(&shown, &on(), asked + 20_001);
         let t = &r.store.prs["o/r#7"];
         assert_eq!((t.rounds[1].parts[0].session.as_deref(), t.sessions[AUTO].as_str()), (Some("claude:claude:afresh"), "claude:claude:afresh"));
+
+        let second = review("claude:claude:afresh", Status::Error, asked + 25_000);
+        r.due(&board(vec![pr(7, HEAD)], vec![stopped.clone(), second.clone()]), &on(), asked + 25_001);
+        assert_eq!(r.store.prs["o/r#7"].rounds[1].stage, ReviewStage::Failed);
+        let third = asked + 30_000;
+        let again = Job::Review { pr: pr(7, HEAD), head: HEAD.into(), since: None, seat: seat(&on(), None), by_hand: true };
+        let pending = Pending { lane: "/r".into(), account: "claude".into(), at: third };
+        r.told(&again, Went::Started(vec![Part::asked(AUTO, None, Some(pending), third)]), third).unwrap();
+        let shown = board(vec![pr(7, HEAD)], vec![stopped, second, review("claude:claude:third", Status::Working, third + 20_000)]);
+        r.due(&shown, &on(), third + 20_001);
+        assert_eq!(r.store.prs["o/r#7"].rounds[2].parts[0].session.as_deref(), Some("claude:claude:third"));
+    }
+
+    /// Another model's limit doesn't keep a review off an account whose own model has room: a
+    /// group's pick names no model where the account's own will do.
+    #[test]
+    fn another_models_limit_doesnt_keep_a_review_off_an_account() {
+        use crate::config::{GroupMemberCfg, RoutingGroupCfg, RoutingStrategy};
+        use crate::model::{Meter, Severity, Usage};
+        let home = fixtures::scratch("review-own-model");
+        std::fs::write(home.join("settings.json"), r#"{"model": "opus"}"#).unwrap();
+        let account = |name: &str, harness: &str, home: String| AccountCfg { name: name.into(), harness: harness.into(), home, command: Some(harness.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
+        let mut cfg = Config { accounts: vec![account("codex", "codex", "/Users/me/.codex".into()), account("claude", "claude", home.to_string_lossy().into_owned())], ..Config::default() };
+        cfg.routing.groups = vec![RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::Fallback, members: vec![member("codex"), member("claude")] }];
+        let sonnet = Meter { key: "week-sonnet".into(), label: "Sonnet".into(), window: "week".into(), percent: 100.0, resets_at: None, severity: Severity::Critical, model: Some("sonnet".into()) };
+        let mut b = board(vec![pr(7, HEAD)], vec![]);
+        b.usage = vec![Usage { account: "claude".into(), harness: Harness::Claude, plan: None, meters: vec![sonnet], as_of: Some(NOW), error: None, needs_sign_in: false, loading: false, no_limits: false, preferred: false, rate_limited: false }];
+        let seat = Seat { instead_of: Some("codex".into()), ..named_seat("reviewers", "", "", None) };
+        assert_eq!(reviewer_place(&cfg, &b, &seat, None).map(|(account, ..)| account).as_deref(), Ok("claude"));
     }
 
     /// A review tried again after its reviewer's turn stopped with an error starts on another of
