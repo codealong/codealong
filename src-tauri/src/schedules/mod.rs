@@ -994,10 +994,11 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
 
 /// A schedule resumed: what passed while it was paused isn't run, though Codealong was closed
 /// meanwhile and never saw it pass. Its times go on from now, it's armed again (what's on the
-/// board now isn't new), and its watch's next look only notes what's there. A time it ran since
-/// (a resume on another machine heard late) stays run: times only go forward.
+/// board now isn't new), and its watch's next look only notes what's there. A time it took a run
+/// of since (a resume on another machine heard late) stays run; one it let pass, on a copy still
+/// paused here, runs.
 pub fn resumed(t: &mut Track, now: i64) {
-    t.last_due = Some(t.last_due.map_or(now, |d| d.max(now)));
+    t.last_due = Some(t.took.map_or(now, |d| d.max(now)));
     t.armed_at = 0;
     t.seeded = false;
     t.reset_at = Some(now);
@@ -1164,6 +1165,10 @@ mod tests {
         let mut ran = Track { last_due: Some(900), took: Some(900), armed_at: 5, ..Track::default() };
         resumed(&mut ran, 845);
         assert_eq!((ran.last_due, ran.reset_at), (Some(900), Some(845)));
+        // Heard late, after its copy here, still paused, let that time pass: it runs.
+        let mut passed = Track { last_due: Some(900), took: Some(600), armed_at: 5, ..Track::default() };
+        resumed(&mut passed, 845);
+        assert_eq!(passed.last_due, Some(845));
     }
 
     #[test]
