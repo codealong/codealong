@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::menu::MenuItem;
-use tauri::{AppHandle, Emitter, Manager, Wry};
-use tauri_plugin_updater::UpdaterExt;
+use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
+use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::util::now_ms;
 
@@ -167,14 +167,12 @@ fn finish(app: &AppHandle) {
 
 /// The newer version put in place, with its release notes; `None` when this is the latest.
 async fn install_newer(app: &AppHandle) -> Result<Option<(String, Option<String>)>, String> {
-    let mut builder = app.updater_builder().timeout(TIMEOUT);
     // A manifest of your own, to try an update before it's released.
-    if let Ok(url) = std::env::var("CODEALONG_UPDATE_URL") {
-        let url: tauri::Url = url.parse().map_err(|e| format!("CODEALONG_UPDATE_URL isn't a URL: {e}"))?;
-        builder = builder.endpoints(vec![url]).map_err(|e| e.to_string())?;
-    }
-    let updater = builder.build().map_err(|e| format!("Couldn't check for updates: {e}"))?;
-    let Some(update) = updater.check().await.map_err(|e| format!("Couldn't check for updates: {e}"))? else {
+    let own = match std::env::var("CODEALONG_UPDATE_URL") {
+        Ok(url) => Some(url.parse().map_err(|e| format!("CODEALONG_UPDATE_URL isn't a URL: {e}"))?),
+        Err(_) => None,
+    };
+    let Some(update) = newest(app, own).await.map_err(|e| format!("Couldn't check for updates: {e}"))? else {
         return Ok(None);
     };
     if let Some(why) = std::env::current_exe().ok().as_deref().and_then(bundle_of).and_then(|b| cant_replace(&b)) {
@@ -186,6 +184,33 @@ async fn install_newer(app: &AppHandle) -> Result<Option<(String, Option<String>
         .await
         .map_err(|e| format!("Couldn't install Codealong {}: {e}", update.version))?;
     Ok(Some((update.version.clone(), update.body.clone().filter(|n| !n.trim().is_empty()))))
+}
+
+/// A newer release, as tauri.conf.json's endpoints (or `only`) offer it. The updater asks them
+/// in order and moves past one that fails, but gives up when one answers with something other
+/// than JSON, so a codealong.com that's up but wrong (a parked domain) would hold back every
+/// update: then the last endpoint, GitHub's own manifest, is asked alone.
+async fn newest<R: Runtime>(app: &AppHandle<R>, only: Option<tauri::Url>) -> Result<Option<Update>, tauri_plugin_updater::Error> {
+    let ask = |endpoints: Option<Vec<tauri::Url>>| async move {
+        let mut builder = app.updater_builder().timeout(TIMEOUT);
+        if let Some(endpoints) = endpoints {
+            builder = builder.endpoints(endpoints)?;
+        }
+        builder.build()?.check().await
+    };
+    let retry = only.is_none();
+    match ask(only.map(|url| vec![url])).await {
+        Err(tauri_plugin_updater::Error::Reqwest(e)) if retry && (e.is_decode() || e.is_body()) => match last_endpoint(app) {
+            Some(github) => ask(Some(vec![github])).await,
+            None => Err(tauri_plugin_updater::Error::Reqwest(e)),
+        },
+        found => found,
+    }
+}
+
+/// The endpoint tauri.conf.json lists last: GitHub's own manifest.
+fn last_endpoint<R: Runtime>(app: &AppHandle<R>) -> Option<tauri::Url> {
+    app.config().plugins.0.get("updater")?["endpoints"].as_array()?.last()?.as_str()?.parse().ok()
 }
 
 /// The app bundle an executable inside it belongs to: `…/Codealong.app` for
@@ -342,8 +367,8 @@ mod tests {
     }
 
     /// Installed copies ask codealong.com first, which counts the check and redirects to the
-    /// manifest on GitHub (the website's worker/index.ts), and GitHub itself when the site fails:
-    /// the updater tries its endpoints in order, follows a redirect, and moves on past an error.
+    /// manifest on GitHub (the website's worker/index.ts), and GitHub itself when the site fails
+    /// or answers with something other than a manifest.
     #[test]
     fn copies_ask_the_site_first_and_github_when_it_fails() {
         use std::io::{Read, Write};
@@ -358,7 +383,8 @@ mod tests {
             return;
         }
 
-        // The two on loopback: /up/ redirects as the site does, /down/ fails, /github/ answers.
+        // The two on loopback: /up/ redirects as the site does, /down/ fails, /parked/ answers
+        // with a page, and /github/ with the manifest.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let entry = serde_json::json!({ "url": format!("{base}/github/Codealong.app.tar.gz"), "signature": "unused" });
@@ -384,13 +410,15 @@ mod tests {
                     write!(stream, "HTTP/1.1 302 Found\r\nLocation: {to}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
                 } else if path == "/github/latest.json" {
                     write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", manifest.len()).and_then(|_| stream.write_all(&manifest))
+                } else if path.starts_with("/parked/") {
+                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 13\r\nConnection: close\r\n\r\n<p>parked</p>")
                 } else {
                     write!(stream, "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
                 };
             }
         });
 
-        let newest = |site_now: &str| {
+        let found = |site_now: &str| {
             let endpoints: Vec<String> = endpoints.iter().map(|e| e.replace(site, &format!("{base}/{site_now}")).replace(github, &format!("{base}/github"))).collect();
             let mut context = tauri::test::mock_context(tauri::test::noop_assets());
             context.config_mut().plugins.0.insert(
@@ -399,17 +427,15 @@ mod tests {
             );
             context.package_info_mut().version = "0.0.1".parse().unwrap();
             let app = tauri::test::mock_builder().plugin(tauri_plugin_updater::Builder::new().build()).build(context).unwrap();
-            let update = tauri::async_runtime::block_on(app.updater_builder().timeout(Duration::from_secs(10)).build().unwrap().check()).unwrap();
-            update.map(|u| u.version)
+            tauri::async_runtime::block_on(newest(app.handle(), None)).unwrap().map(|u| u.version)
         };
-        assert_eq!(newest("up"), Some("0.0.2".into()));
-        let first = asked.lock().unwrap().first().cloned().unwrap();
-        assert!(first.starts_with("/up/api/update/") && first.ends_with("/0.0.1"), "the site was asked {first}");
-        assert_eq!(asked.lock().unwrap()[1..], ["/github/latest.json"]);
-
-        asked.lock().unwrap().clear();
-        assert_eq!(newest("down"), Some("0.0.2".into()));
-        assert_eq!(asked.lock().unwrap()[1..], ["/github/latest.json"]);
+        for site_now in ["up", "down", "parked"] {
+            asked.lock().unwrap().clear();
+            assert_eq!(found(site_now), Some("0.0.2".into()), "with the site {site_now}");
+            let first = asked.lock().unwrap().first().cloned().unwrap();
+            assert!(first.starts_with(&format!("/{site_now}/api/update/")) && first.ends_with("/0.0.1"), "the site was asked {first}");
+            assert_eq!(asked.lock().unwrap()[1..], ["/github/latest.json"], "with the site {site_now}");
+        }
     }
 
     #[test]
