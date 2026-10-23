@@ -22,6 +22,9 @@ export interface QuickSize {
   list: RefObject<HTMLDivElement | null>;
   scroller: RefObject<HTMLDivElement | null>;
   input: RefObject<HTMLTextAreaElement | null>;
+  /** True while a dialog over the panel has the keyboard (DevSetupDialog.tsx): an open leaves it
+   *  there rather than giving it to the input behind it. */
+  asking: { readonly current: boolean };
   /** Counts opens; each is answered with the height. */
   opens: number;
   /** How tall the window can be on its screen. */
@@ -32,7 +35,7 @@ export interface QuickSize {
   reported: MutableRefObject<number>;
 }
 
-export function useQuickSize({ list, scroller, input, opens, room, opening, reported }: QuickSize): void {
+export function useQuickSize({ list, scroller, input, asking, opens, room, opening, reported }: QuickSize): void {
   // A scrollbar, where macOS shows one, narrows the rows while the list scrolls; the new-session
   // row below it keeps in line with them.
   useLayoutEffect(() => {
@@ -47,11 +50,11 @@ export function useQuickSize({ list, scroller, input, opens, room, opening, repo
     // The cursor goes at the end of whatever the panel opens with: nothing, a todo's prompt, or
     // what a failed start left.
     const el = input.current;
-    if (el) {
+    if (el && !asking.current) {
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     }
     if (opening.current !== 'script') void quickReady(h);
     // The room comes with each open. The refs are the same objects on every render.
-  }, [opens, room, input, opening, reported]);
+  }, [opens, room, input, asking, opening, reported]);
 }

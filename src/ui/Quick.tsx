@@ -281,9 +281,9 @@ export function Quick() {
   const [improve, setImprove] = useState<{ shots: Attachment[] } | null>(null);
   const improveNow = useLatest(improve);
   // Opened for Improve Codealong in the installed app: Switch to Codealong Dev? is asked first
-  // (DevSetupDialog.tsx), until it's answered, or for good once you say not to again.
+  // (DevSetupDialog.tsx), until it's answered; once you say not to again (`NO_DEV_KEY`), no open
+  // asks it.
   const [devAsk, setDevAsk] = useState(false);
-  const [noDevSetup, setNoDevSetup] = useStored(NO_DEV_KEY, flag, false);
   // While ↑ shows a draft written over Improve's pictures: the pictures the panel had before it,
   // which walking on brings back, and where it was starting, when it wasn't open for Improve.
   const recalledOver = useRef<{ improve: { shots: Attachment[] } | null; place: { project: string; laneId: string | null; device: string | null; asChat: boolean } | null } | null>(null);
@@ -385,7 +385,7 @@ export function Quick() {
         // board has them, with the pictures the engine took of the windows.
         const improving = ctx.improve && typeof ctx.improve === 'object' ? ctx.improve : null;
         setImprove(improving);
-        setDevAsk(!!improving);
+        setDevAsk(!!improving && !readStored(NO_DEV_KEY, flag, false));
         recalledOver.current = null;
         improveFollowed.current = false;
         setAsChat(!!ctx.chat);
@@ -735,12 +735,16 @@ export function Quick() {
   // In the installed app, Switch to Codealong Dev? first (DevSetupDialog.tsx). The session it
   // starts sets up this machine, so it goes to the source's checkout here, or to a chat of its
   // own here that clones one: never to another Mac's source, which the panel waits to move to.
-  const askingDev = devAsk && !!improve && !!board?.improve?.installed && !noDevSetup;
+  const askingDev = devAsk && !!improve && !!board?.improve?.installed;
+  // An open while it's up leaves it the keyboard (useQuickSize), even one that finds it still up
+  // from before the panel was put away.
+  const askingDevNow = useLatest(askingDev);
   const devSourceLane = board?.improve?.laneId ? board.lanes.find((l) => l.id === board.improve?.laneId && !l.device) : undefined;
   const devSource = devSourceLane?.path ?? improveSource?.root ?? null;
-  const setUpDev = () => {
+  const setUpDev = (dontAsk: boolean) => {
     const where = devSourceLane ?? board?.lanes.find((l) => l.startsChats && !l.device);
     setDevAsk(false);
+    if (dontAsk) writeStored(NO_DEV_KEY, flag, true);
     if (!where) {
       setError('There’s no place on this machine to start the session yet: try again once the board is read.');
       return;
@@ -753,7 +757,7 @@ export function Quick() {
   };
   const closeDevAsk = (dontAsk: boolean) => {
     setDevAsk(false);
-    if (dontAsk) setNoDevSetup(true);
+    if (dontAsk) writeStored(NO_DEV_KEY, flag, true);
     refocus();
   };
   // The source's worktree is taken from the board once per open: a worktree or Mac you pick
@@ -912,7 +916,7 @@ export function Quick() {
   });
 
   // The panel's height, one whatever it lists, told to quick.rs as it opens (useQuickSize.ts).
-  useQuickSize({ list, scroller, input, opens, room, opening, reported });
+  useQuickSize({ list, scroller, input, asking: askingDevNow, opens, room, opening, reported });
 
   // The last answer orders the sessions found too while the next is worked out, so the ones it
   // put first don't drop back at every key.

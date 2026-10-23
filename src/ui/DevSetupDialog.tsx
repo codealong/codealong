@@ -13,8 +13,9 @@ interface DevSetupDialogProps {
   /** The checkout of Codealong's source the session starts in, as it's shown; null when this
    *  machine has none, and it starts in a chat of its own to clone one. */
   source: string | null;
-  onSetUp: () => void;
-  /** Not now, or the dialog closed; `dontAsk` when it shouldn't be suggested again. */
+  /** Set it up, or Not now and the dialog closed; `dontAsk` when it shouldn't be suggested again,
+   *  which holds whichever way it's answered. */
+  onSetUp: (dontAsk: boolean) => void;
   onClose: (dontAsk: boolean) => void;
 }
 
@@ -26,7 +27,7 @@ export function DevSetupDialog({ account, source, onSetUp, onClose }: DevSetupDi
       title="Switch to Codealong Dev?"
       lede="This is the installed Codealong, which changes only with a new release, so what an agent changes in Codealong’s source won’t show up here. Codealong Dev is built from that source on this machine: it keeps your settings and todos, and runs each change once it’s built."
       onClose={() => onClose(dontAsk)}
-      onSubmit={onSetUp}
+      onSubmit={() => onSetUp(dontAsk)}
       aside={
         <label className="ca-check">
           <CheckBox checked={dontAsk} onChange={setDontAsk} />

@@ -45,6 +45,17 @@
       check('it says the session works in the source’s checkout', dialog().textContent.indexOf(lane.path.replace(/^\/Users\/[^/]+/, '~')) >= 0, q('.ca-devsetup-note').textContent);
       await until(function () { return primary() && !primary().disabled; }, 10000, 'Set it up with an account');
       check('the button names the account it starts on', /^Set it up with \S+/.test(primary().textContent.trim()), primary().textContent);
+      // It has the keyboard, not the input behind it: as it opens, and when the panel is put away
+      // with it up and opened again.
+      var inDialog = function () { return dialog().contains(document.activeElement); };
+      await wait(100);
+      check('it has the keyboard as it opens', inDialog(), document.activeElement && document.activeElement.outerHTML.slice(0, 80));
+      window.__emit('quick-hidden', null);
+      await wait(100);
+      window.__quickOpen({ improve: { shots: [] } }, installed({ project: lane.project, laneId: lane.id }));
+      await until(dialog, 5000, 'Switch to Codealong Dev? after the panel was put away');
+      await wait(100);
+      check('and keeps it when the panel is opened again', inDialog() && document.activeElement !== input(), document.activeElement && document.activeElement.outerHTML.slice(0, 80));
       // The panel's own keys wait: ⌘P doesn't open the project menu behind it.
       key(document.activeElement || document.body, { key: 'p', metaKey: true });
       await wait(100);
@@ -109,6 +120,16 @@
       window.__quickOpen({ improve: { shots: [] } }, installed({ project: lane.project, laneId: lane.id }));
       await wait(300);
       check('once told not to, it doesn’t ask again', !dialog() && localStorage.getItem(NO_DEV_KEY) === '1');
+      localStorage.removeItem(NO_DEV_KEY);
+      // Ticked and set up, it holds too.
+      window.__quickOpen({ improve: { shots: [] } }, installed({ project: lane.project, laneId: lane.id }));
+      await until(dialog, 5000, 'Switch to Codealong Dev? for Set it up ticked');
+      q('.ca-check input', dialog()).click();
+      await until(function () { return primary() && !primary().disabled; }, 10000, 'Set it up with an account');
+      starts = calls('start_from_quick').length;
+      primary().click();
+      await until(function () { return calls('start_from_quick').length > starts; }, 5000, 'Set it up starting');
+      check('set up with it ticked, it doesn’t ask again either', localStorage.getItem(NO_DEV_KEY) === '1');
       localStorage.removeItem(NO_DEV_KEY);
 
       // An ordinary open never asks.
