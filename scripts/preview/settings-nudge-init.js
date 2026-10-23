@@ -20,7 +20,7 @@
     var nav = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-nav button'), function (b) { return b.textContent.trim() === 'Automation'; })[0];
     if (nav) {
       nav.click();
-      var field = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-check > span:not(.ca-checkbox)'), function (s) { return s.textContent.indexOf('Nudge the session that opened a pull request') === 0; })[0];
+      var field = Array.prototype.filter.call(document.querySelectorAll('.ca-settings-check > span:not(.ca-checkbox)'), function (s) { return s.textContent.indexOf('Nudge a pull request’s primary session') === 0; })[0];
       if (field) {
         field.scrollIntoView({ block: 'start' });
         clearInterval(open);

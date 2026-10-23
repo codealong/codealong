@@ -344,9 +344,9 @@ checks, comments and diffs.
   auto-merge, the merge queue, updating the branch. A merge shows everywhere as you confirm it,
   and comes back with why if GitHub refuses it.
 - **Snooze** a review request until later.
-- **Nudge a PR's agent** (the session that opened it or pushed to it most, or one you pick), and
-  it's told when someone reviews, asks for changes or comments, or when checks fail, so it takes
-  it from there; it's never told to merge.
+- **Nudge a PR's agent**: its primary session (the one that pushed to it most, usually the one that
+  opened it, or one you pick) is told when someone reviews, asks for changes or comments, or when
+  checks fail, so it takes it from there; it's never told to merge.
 - **Ask about a PR**: put questions to an agent that has read its whole diff.
 - **Automatic reviews** (optional): an agent on the account, model and effort you pick reviews each PR
   that asks for your review, told what to look for by instructions you can edit (which can have it
@@ -356,7 +356,7 @@ checks, comments and diffs.
   needs fixing. The PR waits on you only once it's done, and new commits get reviewed again.
 - **A second opinion on your agents' PRs** (optional): each PR a session of yours opens is
   reviewed by an agent on another model or provider (Codex reviews what Claude Code wrote, say),
-  kept in Codealong and handed back to the session that opened it to act on. Nothing goes on
+  kept in Codealong and handed back to its primary session to act on. Nothing goes on
   GitHub.
 - **Settings per repo, and shared with your team**: pick a repo in Settings › Automation to set how
   its PRs are reviewed and nudged. A `.codealong/config.toml` committed to the repo shares words
@@ -662,11 +662,11 @@ model = ""                     # the model it starts on; "" for the account's or
 effort = ""                    # the effort it starts at, with an account named; "" for the account's or group member's own
 other_harness = true           # prefer a harness other than the PR's session or trailers
 prompt = ""                    # what it's told to do; "" for Codealong's own
-send = true                    # hand each review to the session that opened the PR; nothing goes on GitHub
+send = true                    # hand each review to the PR's primary session; nothing goes on GitHub
 drafts = false                 # review your draft PRs too; others' drafts are never reviewed
 
 [pull_requests]
-nudge_by_default = false       # every open PR of yours tells the session that opened it what happens on it (Settings › Automation)
+nudge_by_default = false       # every open PR of yours tells its primary session what happens on it (Settings › Automation)
 nudge_about = "everything"     # what a nudge tells of: "feedback" only comments and changes asked for; "feedback-and-checks" adds failing checks and conflicts; "feedback-and-merges" and "feedback-checks-and-merges" add a merge to those
 rerequest_after_fixes = false  # ask a reviewer who asked for changes to look again, as you, once fixes are pushed and nobody said so (Settings › Automation)
 

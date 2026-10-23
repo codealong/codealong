@@ -1223,7 +1223,7 @@ async fn pr_agent_reviews(key: String) -> Result<Vec<autoreview::WrittenReview>,
 /// The automatic reviewer (autoreview.rs), for what a window asks of it.
 struct Reviews(std::sync::Arc<std::sync::Mutex<autoreview::Reviewer>>);
 
-/// Hands a PR of yours' latest review to the session that opened it now (autoreview.rs
+/// Hands a PR of yours' latest review to its primary session now (autoreview.rs
 /// `send_now`), as its Review tab's Send asks.
 #[tauri::command]
 async fn send_agent_review(engine: State<'_, engine::Handle>, reviews: State<'_, Reviews>, key: String) -> Result<(), String> {

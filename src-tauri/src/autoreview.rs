@@ -766,7 +766,7 @@ pub fn wants(pr: &PrItem) -> bool {
     pr.review_requested && pr.state.is_open() && pr.state != PrState::Draft && !pr.mine && pr.head_oid.is_some()
 }
 
-/// The session a PR of yours goes back to: the one that opened it (`PrItem::primary`), when it's
+/// The session a PR of yours goes back to: its primary session (`PrItem::primary`), when it's
 /// on this Mac and isn't a visitor's, a helper (a review's own session, which a PR whose opener
 /// is gone could take for its primary) or archived.
 fn origin<'a>(lanes: &'a [Lane], pr: &PrItem) -> Option<(&'a Lane, &'a Session)> {
@@ -1488,13 +1488,13 @@ impl Reviewer {
                 *failures += 1;
                 if *failures < POST_TRIES {
                     self.next_at.insert(key, now + (RETRY_MS << (*failures - 1)));
-                    return Err(Said::from(format!("Codealong couldn't hand its review of {} to the session that opened it: {why} It tries again in a minute or two.", pr.key)));
+                    return Err(Said::from(format!("Codealong couldn't hand its review of {} to its primary session: {why} It tries again in a minute or two.", pr.key)));
                 }
                 self.post_failures.remove(&key);
                 if let Some(r) = t.rounds.iter_mut().rev().find(|r| r.head == *head) {
                     r.sent = Some(Sent { session: session.clone(), at: now, failed: Some(why.clone()) });
                 }
-                said = Err(Said::from(format!("Codealong couldn't hand its review of {} to the session that opened it: {why}", pr.key)));
+                said = Err(Said::from(format!("Codealong couldn't hand its review of {} to its primary session: {why}", pr.key)));
             }
             (Job::Send { .. }, _) => {}
             (Job::Submit { head, verdict, by_hand, .. }, Went::Submitted) => {
@@ -1864,12 +1864,12 @@ fn back_note(r: &Round, cfg: &ReviewsCfg, head: &str, paused: bool) -> Option<St
         return r.note.clone();
     }
     match &r.sent {
-        Some(Sent { failed: Some(why), .. }) => Some(format!("It couldn't be handed to the session that opened the PR: {why}")),
+        Some(Sent { failed: Some(why), .. }) => Some(format!("It couldn't be handed to the PR's primary session: {why}")),
         Some(_) => None,
         None if !cfg.own.send || !(cfg.own.auto || r.by_hand) => Some("Handing reviews back is off: send it from here.".into()),
         None if paused => None,
         None if r.head != head => Some("New commits came in since, so it isn't sent: the next review is.".into()),
-        None => Some("It goes to the session that opened the PR once that runs here and doesn't wait on you.".into()),
+        None => Some("It goes to the PR's primary session once that runs here and doesn't wait on you.".into()),
     }
 }
 
@@ -2683,7 +2683,7 @@ pub fn review_file(pr: &PrItem, head: &str, agent: &str, review: &str) -> String
     md
 }
 
-/// What the session that opened a PR of yours is sent with its review, kept at `file`
+/// What a PR of yours' primary session is sent with its review, kept at `file`
 /// (`review_file`): who wrote it and of which commit, and to weigh it as another agent's.
 pub fn back_message(pr: &PrItem, head: &str, agent: &str, login: &str, file: &str, comments: usize) -> String {
     let lines = match comments {
@@ -2930,14 +2930,14 @@ pub fn again(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str) -> Result<S
     Ok(format!("Reviewing #{} again: its card says how it goes.", pr.number))
 }
 
-/// Hands a PR of yours' latest review to the session that opened it now, as its Review tab's Send
+/// Hands a PR of yours' latest review to its primary session now, as its Review tab's Send
 /// asks: whether or not sending is on, and one that found nothing to raise too.
 pub fn send_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str) -> Result<(), String> {
     let board = engine.board();
     let pr = board.prs.iter().find(|p| p.key == key).ok_or("Codealong doesn't list that PR any more.")?;
-    let (_, s) = origin(&board.lanes, pr).ok_or("The session that opened it isn't here any more.")?;
+    let (_, s) = origin(&board.lanes, pr).ok_or("The PR's primary session isn't here any more.")?;
     if !can_take(s) {
-        return Err(if s.live { "The session that opened it waits on you: answer it first." } else { "The session that opened it isn't running here." }.into());
+        return Err(if s.live { "The PR's primary session waits on you: answer it first." } else { "The PR's primary session isn't running here." }.into());
     }
     let job = {
         let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
@@ -2956,7 +2956,7 @@ pub fn send_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str) -> Resul
     let failed = match &went {
         Went::Sent(_) => None,
         Went::PostFailed(why) => Some(why.clone()),
-        _ => Some("The session that opened it can't take it now.".to_string()),
+        _ => Some("The PR's primary session can't take it now.".to_string()),
     };
     let mut r = reviewer.lock().unwrap_or_else(|e| e.into_inner());
     match failed {
@@ -3377,7 +3377,7 @@ mod tests {
         assert!(r.due(&b, &own(), NOW + 100 * RETRY_MS).is_empty());
         let mut prs = vec![mine(7, HEAD)];
         apply(&mut prs, &r.store, &own(), &Default::default(), &Default::default(), &b.lanes, &Default::default(), NOW);
-        assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It couldn't be handed to the session that opened the PR: the terminal is gone"));
+        assert_eq!(prs[0].auto_review.as_ref().unwrap().note.as_deref(), Some("It couldn't be handed to the PR's primary session: the terminal is gone"));
     }
 
     #[test]

@@ -88,7 +88,7 @@ describe('the team’s offer', () => {
       'each review posted as a comment on the pull request',
       'an agent on another model reviews the pull requests your sessions open',
       'those reviews kept for you to send',
-      'the session that opened a pull request told what happens on it',
+      'a pull request’s primary session told what happens on it',
     ]);
     expect(offerWords({})).toEqual([]);
   });

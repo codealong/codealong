@@ -84,7 +84,7 @@
     })
     .then(function () {
       var auto = labels('automation');
-      check('finds the settings whose words match', auto.some(function (l) { return /^Nudge the session that opened a pull request/.test(l); }) && auto.some(function (l) { return /^What a nudge tells it about/.test(l); }), auto.join(' | '));
+      check('finds the settings whose words match', auto.some(function (l) { return /^Nudge a pull request’s primary session/.test(l); }) && auto.some(function (l) { return /^What a nudge tells it about/.test(l); }), auto.join(' | '));
       check('finds one by what it says under its label', auto.some(function (l) { return /^Resume a stopped session for its pull request/.test(l); }), auto.join(' | '));
       check('and leaves out the rest', !auto.some(function (l) { return /^Review pull requests that wait on your review/.test(l); }), auto.join(' | '));
       check('hides the section intros', !all('.ca-settings-found .ca-settings-lede, .ca-settings-found .ca-settings-intro').some(shown));
@@ -94,7 +94,7 @@
       check('no section is picked while searching', !q('.ca-settings-nav .ca-nav.is-active'));
       var where = markedWhere('nudge');
       check('marks the words where they show', where.places >= auto.length && where.missed.length === 0, where.places + ' places, ' + marks().length + ' marks, missed: ' + where.missed.join(' | '));
-      var box = all('.ca-settings-found .ca-field').filter(function (f) { return shown(f) && /^Nudge the session/.test(f.textContent); })[0].querySelector('input[type="checkbox"]');
+      var box = all('.ca-settings-found .ca-field').filter(function (f) { return shown(f) && /^Nudge a pull request’s primary/.test(f.textContent); })[0].querySelector('input[type="checkbox"]');
       var was = box.checked;
       box.click();
       return until(function () { return calls('save_config').length; }, 5000, 'the change saved').then(function () {
@@ -104,7 +104,7 @@
       });
     })
     .then(function () {
-      check('and stays found', labels('automation').some(function (l) { return /^Nudge the session/.test(l); }));
+      check('and stays found', labels('automation').some(function (l) { return /^Nudge a pull request’s primary/.test(l); }));
       return search('pull');
     })
     .then(function () {

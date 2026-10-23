@@ -937,8 +937,8 @@ function ReviewerRuns({ account, accounts, groups, start, auto }: { account: str
 }
 
 /** `[reviews.own]`: the pull requests your sessions open, each reviewed by an agent on another
- *  model or provider than the session that opened it, its review kept here and handed back to
- *  that session (autoreview.rs). The reviewer is the same box as the one above, among the same
+ *  model or provider than its primary session, its review kept here and handed back to that
+ *  session (autoreview.rs). The reviewer is the same box as the one above, among the same
  *  accounts (`accounts`, of `all`), and runs where reviews run (`start`). */
 function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, groups, autoGroup, start, defaultPrompt, usage, now, disabled }: { own: Required<OwnReviewsCfg>; setOwn: (next: Partial<OwnReviewsCfg>) => void; scope?: Scope; team?: TeamCfg; accounts: StartAccount[]; all: StartAccount[]; lanes: Lane[]; groups: RoutingGroup[]; autoGroup: string; start: (typeof REVIEW_STARTS)[number]; defaultPrompt: string; usage: Usage[]; now: number; disabled?: boolean }) {
   return (
@@ -974,7 +974,7 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, group
               defaultPrompt={defaultPrompt}
               label="What the reviewer of your pull requests is told"
               hint="What to look for, and how"
-              autoTitle="An account of another harness than the session that opened each pull request, picked as the quick panel’s Auto picks among them, so another model reads what one wrote. One of the same harness only when no other can start."
+              autoTitle="An account of another harness than each pull request’s primary session, picked as the quick panel’s Auto picks among them, so another model reads what one wrote. One of the same harness only when no other can start."
               autoSays={own.other_harness ? 'another harness' : undefined}
               defaultLabel="Use Codealong’s instructions"
               disabled={disabled}
@@ -983,22 +983,22 @@ function OwnReviewsField({ own, setOwn, scope, team, accounts, all, lanes, group
             />
             {scope && <TeamWords repo={scope.repo} words={team?.ownReviewInstructions ?? ''} />}
             <small>
-              <ReviewerRuns account={own.account} accounts={all} groups={groups} start={start} auto="Auto picks an account of another harness than the session that opened each pull request, among those that can start one where reviews run: Codex reviews what Claude Code wrote, say." /> Pick one with its model to have that review every one.
+              <ReviewerRuns account={own.account} accounts={all} groups={groups} start={start} auto="Auto picks an account of another harness than each pull request’s primary session, among those that can start one where reviews run: Codex reviews what Claude Code wrote, say." /> Pick one with its model to have that review every one.
             </small>
           </div>
           <label className="ca-field ca-settings-check">
             <CheckBox checked={own.other_harness} onChange={(on) => setOwn({ other_harness: on })} />
             <span>
-              Use another harness than the session that opened the pull request<SourceTag field="own.other_harness" scope={scope} />
+              Use another harness than the pull request’s primary session<SourceTag field="own.other_harness" scope={scope} />
             </span>
             <small>
-              When Auto or a routing group picks the reviewer, it keeps off the harness of the session that opened the pull request (or that its commit trailer names) whenever another harness can start a review.
+              When Auto or a routing group picks the reviewer, it keeps off the harness of the pull request’s primary session (or the one its commit trailer names) whenever another harness can start a review.
             </small>
           </label>
           <label className="ca-field ca-settings-check">
             <CheckBox checked={own.send} onChange={(on) => setOwn({ send: on })} />
             <span>
-              Hand each review to the session that opened the pull request<SourceTag field="own.send" scope={scope} />
+              Hand each review to the pull request’s primary session<SourceTag field="own.send" scope={scope} />
             </span>
             <small>
               Once that session runs here and doesn’t wait on you, it’s sent a message naming the review, kept as a file it reads, to fix what holds up and say what it leaves. A review that finds nothing to raise isn’t sent, nor one of commits it has moved on from. Off, send one from the pull
@@ -1358,8 +1358,8 @@ function RoutingPane({ cfg, disabled, onSave, usage, now }: PaneProps & { usage:
   );
 }
 
-/** `[pull_requests] nudge_by_default`: every open PR of yours tells the session that opened it
- *  what happens on it, unless its own switch is off (nudges.rs). `prs` is as it goes everywhere,
+/** `[pull_requests] nudge_by_default`: every open PR of yours tells its primary session (board.rs
+ *  `pr_primary`) what happens on it, unless its own switch is off (nudges.rs). `prs` is as it goes everywhere,
  *  or for the repo `scope` names. */
 function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsCfg>; set: (next: Partial<PullRequestsCfg>) => void; scope?: Scope; disabled: boolean }) {
   const about = NUDGE_ABOUT.find((n) => n.id === nudgeKind(prs.nudge_about)) ?? NUDGE_ABOUT[0];
@@ -1371,11 +1371,11 @@ function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsC
       <label className="ca-field ca-settings-check">
         <CheckBox checked={prs.nudge_by_default} onChange={(on) => set({ nudge_by_default: on })} />
         <span>
-          Nudge the session that opened a pull request<SourceTag field="prs.nudge_by_default" scope={scope} />
+          Nudge a pull request’s primary session<SourceTag field="prs.nudge_by_default" scope={scope} />
         </span>
         <small>
-          For every open pull request of yours, the session that opened it is sent a message, as one of yours, when something happens on it (below), so it takes it from there. The message never asks it to merge: it merges only if you asked it to. Its other sessions aren’t told. A pull
-          request’s own switch, on its card, wins over this. Off, a pull request nudges nobody until you turn it on there, or an agent does with <code>codealong pr nudge</code>.
+          For every open pull request of yours, its primary session is sent a message, as one of yours, when something happens on it (below), so it takes it from there. That’s the one picked under Primary session in its menu, else the one that pushed to its branch most, the one that
+          opened it winning a tie; its card tags it Primary. Its other sessions aren’t told. The message never asks it to merge: it merges only if you asked it to. A pull request’s own switch, on its card, wins over this. Off, a pull request nudges nobody until you turn it on there, or an agent does with <code>codealong pr nudge</code>.
         </small>
       </label>
       <label className="ca-field">

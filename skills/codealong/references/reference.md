@@ -2473,11 +2473,11 @@ Commands:
           of Codealong's own reviews (Settings › Automation), whatever `[reviews] auto`
           says and of a commit reviewed already too, in a session of its own where
           `[reviews] start` says, its review posted where `[reviews] post` says (one of
-          a PR of yours is kept and handed back to the session that opened it). That
-          reviewer's session for the PR is asked again when it has one. Not while a
-          round of it is under way. The answer names the round's session: `codealong
-          session wait <key>` waits for its turn, and `codealong pr show <pr>` says
-          where the review stands. Needs the app
+          a PR of yours is kept and handed back to its primary session). That reviewer's
+          session for the PR is asked again when it has one. Not while a round of it is
+          under way. The answer names the round's session: `codealong session wait
+          <key>` waits for its turn, and `codealong pr show <pr>` says where the review
+          stands. Needs the app
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -2648,8 +2648,8 @@ Start an agent's review of a PR now, as Review with… does in the app: a round 
 Codealong's own reviews (Settings › Automation), whatever `[reviews] auto` says and of a
 commit reviewed already too, in a session of its own where `[reviews] start` says, its
 review posted where `[reviews] post` says (one of a PR of yours is kept and handed back
-to the session that opened it). That reviewer's session for the PR is asked again when
-it has one. Not while a round of it is under way. The answer names the round's session:
+to its primary session). That reviewer's session for the PR is asked again when it has
+one. Not while a round of it is under way. The answer names the round's session:
 `codealong session wait <key>` waits for its turn, and `codealong pr show <pr>` says
 where the review stands. Needs the app
 

@@ -889,7 +889,7 @@ export interface ReviewsCfg {
 }
 
 /** Reviews of the PRs your sessions open (config.rs `OwnReviewsCfg`): on another model or
- *  provider than the session that opened each, kept here and handed back to that session. */
+ *  provider than each one's primary session, kept here and handed back to that session. */
 export interface OwnReviewsCfg {
   auto: boolean;
   /** The account or routing group they run on; empty for the one Auto would start among those of
@@ -902,7 +902,7 @@ export interface OwnReviewsCfg {
   other_harness?: boolean;
   /** What the reviewer is told to do; empty for Codealong's own instructions. */
   prompt?: string;
-  /** Hand each review to the session that opened the PR. Older files have none: on. */
+  /** Hand each review to the PR's primary session. Older files have none: on. */
   send?: boolean;
   /** Review your draft PRs too. Older files have none: off. Others' drafts are never reviewed. */
   drafts?: boolean;
@@ -1749,7 +1749,7 @@ export interface AutoReview {
   /** The agent's review of its commit isn't done, so the PR is out of what waits on you until
    *  it is (`heldForAgent`). */
   holds?: boolean;
-  /** A review of a PR of yours (`[reviews.own]`), which goes back to the session that opened it. */
+  /** A review of a PR of yours (`[reviews.own]`), which goes back to its primary session. */
   own?: boolean;
   /** The session this round's review went back to, and when. */
   sent?: string | null;

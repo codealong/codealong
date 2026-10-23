@@ -23,7 +23,7 @@ describe('what the words find', () => {
 
   it('finds pull requests by PR', () => {
     expect(says('Review pull requests that wait on your review', findWords('pr review'))).toBe(true);
-    expect(says('Nudge the session that opened a pull request', findWords('prs nudge'))).toBe(false);
+    expect(says('Nudge a pull request’s primary session', findWords('prs nudge'))).toBe(false);
   });
 });
 

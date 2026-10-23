@@ -192,7 +192,7 @@ export async function reviewPr(repo: string, number: number, verdict: Verdict, b
   return (await invoke<Reviewed | null>('review_pr', { repo, number, verdict, body, agents })) ?? { draft: null };
 }
 
-/** Hands a PR of yours' latest agent review to the session that opened it (autoreview.rs
+/** Hands a PR of yours' latest agent review to its primary session (autoreview.rs
  *  `send_now`). */
 export async function sendAgentReview(key: string): Promise<void> {
   if (!inTauri) throw new Error('Sending a review needs the app.');

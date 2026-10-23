@@ -186,7 +186,7 @@
       q('.ca-side-config').click();
       await until(function () { return !!nav('Automation'); }, 3000, 'no Automation in Settings');
       nav('Automation').click();
-      var setting = /Nudge the session that opened a pull request/;
+      var setting = /Nudge a pull request’s primary session/;
       await until(function () { return !!box(setting); }, 5000, 'no nudge setting in Settings › Automation');
       var input = box(setting).querySelector('input');
       check('Settings › Automation has the setting, off by default', !input.checked, String(input.checked));

@@ -30,7 +30,7 @@ describe('autoReviewWords', () => {
   });
   it('says where a review of a PR of yours went back to, or why it hasn’t', () => {
     expect(autoReviewWords(r('kept', { own: true, sent: 'k' }), undefined, 'Add teams')).toEqual({ icon: 'send', says: 'Agent reviewed 309811a', note: 'It went back to “Add teams”.' });
-    expect(autoReviewWords(r('kept', { own: true, sent: 'k' })).note).toBe('It went back to the session that opened the PR.');
+    expect(autoReviewWords(r('kept', { own: true, sent: 'k' })).note).toBe('It went back to the PR’s primary session.');
     expect(autoReviewWords(r('kept', { own: true, note: 'It found nothing to raise, so it isn’t sent.' }))).toEqual({ icon: 'check', says: 'Agent reviewed 309811a', note: 'It found nothing to raise, so it isn’t sent.' });
     // Not "posting is off": it never posts.
     expect(autoReviewWords(r('kept', { own: true })).note).toBe(null);

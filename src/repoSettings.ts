@@ -209,8 +209,8 @@ export function offerWords(offers: RepoCfg | undefined): string[] {
   if (given(r.auto)) out.push(r.auto ? 'an agent reviews each pull request that waits on your review' : 'no agent reviews pull requests that wait on your review');
   if (given(r.post)) out.push(POSTED[r.post]);
   if (given(o.auto)) out.push(o.auto ? 'an agent on another model reviews the pull requests your sessions open' : 'no agent reviews the pull requests your sessions open');
-  if (given(o.send)) out.push(o.send ? 'each of those reviews handed to the session that opened the pull request' : 'those reviews kept for you to send');
-  if (given(p.nudge_by_default)) out.push(p.nudge_by_default ? 'the session that opened a pull request told what happens on it' : 'no session told what happens on its pull request unless you turn it on');
+  if (given(o.send)) out.push(o.send ? 'each of those reviews handed to the pull request’s primary session' : 'those reviews kept for you to send');
+  if (given(p.nudge_by_default)) out.push(p.nudge_by_default ? 'a pull request’s primary session told what happens on it' : 'no session told what happens on its pull request unless you turn it on');
   if (given(p.rerequest_after_fixes)) out.push(p.rerequest_after_fixes ? 'a reviewer who asked for changes asked to look again once fixes are pushed' : 'no reviewer asked to look again for you');
   return out;
 }

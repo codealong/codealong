@@ -10,7 +10,7 @@
 // (`pr_agent_reviews`), so the board carries none of it: its text, then each comment on a line,
 // and the reviews of earlier commits a click away. Once you've submitted a draft the agent wrote,
 // it says so. A review of a PR of yours (`[reviews.own]`) never goes to GitHub: it says which
-// session it went back to, or why it hasn't, and Send hands it to the session that opened the PR
+// session it went back to, or why it hasn't, and Send hands it to the PR's primary session
 // while that can take it (`send_agent_review`).
 
 import { useEffect, useRef, useState } from 'react';
@@ -151,7 +151,7 @@ function Standing({ pr, review, now, onGitHub, sessions, onShowSession, teamFile
           </button>
         )}
         {to && (
-          <button type="button" className="ca-linkbtn" disabled={sending} title="Hand the review to the session that opened the pull request, as a file it reads, to fix what holds up" onClick={send}>
+          <button type="button" className="ca-linkbtn" disabled={sending} title="Hand the review to the pull request’s primary session, as a file it reads, to fix what holds up" onClick={send}>
             {sending ? 'Sending…' : `Send to “${middleTruncate(titleOf(to) ?? 'its session', 32)}”`}
           </button>
         )}

@@ -78,7 +78,7 @@ export function reviewLane(pr: Pick<PrItem, 'repoSlug' | 'lanes'>, lanes: Lane[]
 }
 
 /** The reviewer Settings names for a PR (autoreview.rs `seat_for`): `[reviews.own]`'s for a PR of
- *  yours, whose Auto keeps off the harness of the session that opened it, else `[reviews]`'s. */
+ *  yours, whose Auto keeps off the harness of its primary session, else `[reviews]`'s. */
 function settingsReviewer(reviews: ReviewsCfg | null | undefined, mine: boolean): { account: string; model: string; avoids: boolean } {
   const r = mine ? reviews?.own : reviews;
   const account = r?.account?.trim() ?? '';
@@ -234,7 +234,7 @@ export function autoReviewWords(r: AutoReview, onGitHub?: { draft: boolean; subm
     failed: ['alert', `Agent’s review of ${at}${on} ${r.machine ? 'didn’t get done' : r.parts?.some((p) => p.session) ? 'didn’t finish' : 'didn’t start'}`],
   }[r.stage];
   const kept = r.stage === 'kept' && !r.own ? (r.machine ? `Its review is in its session on ${r.machine}: posting is off there.` : 'Its review is in its session: posting is off.') : null;
-  const back = r.own && r.sent ? `It went back to ${sentTo ? `“${sentTo}”` : 'the session that opened the PR'}.` : null;
+  const back = r.own && r.sent ? `It went back to ${sentTo ? `“${sentTo}”` : 'the PR’s primary session'}.` : null;
   const gone = r.stage === 'drafted' && onGitHub && !onGitHub.draft ? (onGitHub.submitted ? `You submitted it, ${submittedWord(onGitHub.submitted)}.` : 'It isn’t a draft on GitHub any more: it was submitted or thrown away.') : null;
   // A draft that shows below says so itself, and one submitted for you isn't a draft any more.
   const drafted = r.submitted ? null : (gone ?? (r.stage === 'drafted' && !onGitHub?.draft ? 'Only you see it until you submit it.' : null));

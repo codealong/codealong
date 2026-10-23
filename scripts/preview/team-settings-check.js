@@ -48,7 +48,7 @@
         press(tab('Reviews'));
         await until(function () { return !!q('.ca-agentrev-offer'); }, 5000, 'the Reviews tab has no offer from the team');
         var offer = q('.ca-agentrev-offer');
-        check('the Reviews tab says what the team suggests', /suggests: an agent reviews each pull request that waits on your review; an agent on another model reviews the pull requests your sessions open; the session that opened a pull request told what happens on it\./.test(offer.textContent), offer.textContent);
+        check('the Reviews tab says what the team suggests', /suggests: an agent reviews each pull request that waits on your review; an agent on another model reviews the pull requests your sessions open; a pull request’s primary session told what happens on it\./.test(offer.textContent), offer.textContent);
         check('in place of what an empty one says', !q('.ca-agentrev .ca-empty'), '');
         press(button('Use them', offer));
         await until(function () { return calls('take_team_settings').length > 0; }, 3000, 'Use them sent nothing');

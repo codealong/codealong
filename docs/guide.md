@@ -795,8 +795,8 @@ A PR's primary session can be nudged with what happens on it. It's off for a PR 
 for it, with the switch on the PR's card (hover its chip in a session's header, or a link to it in
 a conversation), Nudge its session on updates in its menu, or by an agent: `codealong pr nudge
 <pr>` makes the agent's own session the one told, unless another running session is the PR's
-primary (`--take` takes it over, `--off` stops it). Settings › Automation › Nudge the session that
-opened a pull request turns it on for every open PR of yours (`[pull_requests]
+primary (`--take` takes it over, `--off` stops it). Settings › Automation › Nudge a pull request's
+primary session turns it on for every open PR of yours (`[pull_requests]
 nudge_by_default`), and a PR's own switch wins over that either way.
 
 The primary session, while it runs, is then sent a message, as one of yours, when someone else
@@ -1010,7 +1010,7 @@ you, after submitting its agent's review for you, waits on you on all of them. T
 them reviews it on that one. The box's own verdicts submit your draft review from any machine, but
 the agent's one-press verdict is on the machine that wrote it. Machines on builds from before
 2026-10-22 review on their own, as before, and a review of a PR of yours is always the machine's
-whose session opened it.
+that has its primary session.
 
 #### Reviews of your own pull requests
 
@@ -1025,7 +1025,7 @@ your review is never reviewed. Nor is a PR whose session is gone or archived. It
 instructions are `[reviews.own] prompt`, else Codealong's own; it's told the review goes back to the
 agent that wrote the PR, and to end on whether it would approve it (see *Your review*). Nothing goes
 on GitHub: the review is kept in Codealong, in the PR's Reviews tab, its comments on lines with the
-code around them. With `[reviews.own] send` (on unless turned off), the session that opened the PR
+code around them. With `[reviews.own] send` (on unless turned off), the PR's primary session
 is sent a message once it runs here and doesn't wait on you to answer something: which agent
 reviewed which commit, that its review is in a file it reads (kept as an attachment, so another
 agent's words never reach it typed in as yours), to fix what holds up and say what it leaves, and
@@ -1804,8 +1804,8 @@ used and cost*), and under Found on this Mac lists the ones Codealong could read
 with a click (with the agent skill, unless you untick it); Routing has Auto's rule, routing groups and Jev's routing instructions; Automation has what Codealong does by itself:
 the agent that reviews the pull requests that wait on your review (the account, model and effort it
 runs on, picked in the agent menu at the foot of a box like a session's that holds what it's told,
-and where its review goes), nudging the session that
-opened a pull request, moving a session that hits its usage limit, and telling one a lost connection
+and where its review goes), nudging a pull request's
+primary session, moving a session that hits its usage limit, and telling one a lost connection
 stopped to carry on, everywhere or for one repo with its team's settings (see *Settings for one
 repo, and its team's*); Projects groups repos by pattern; Advanced turns
 the performance log on and shows where the files are; Experimental turns on features still being

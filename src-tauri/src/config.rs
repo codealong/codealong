@@ -489,7 +489,7 @@ impl Default for ReviewsCfg {
 }
 
 /// The pull requests your sessions open, each reviewed by an agent on another model or provider
-/// than the session that opened it, its review kept here and handed back to that session
+/// than its primary session, its review kept here and handed back to that session
 /// (autoreview.rs). Nothing goes on GitHub. Off until you turn it on.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OwnReviewsCfg {
@@ -513,7 +513,7 @@ pub struct OwnReviewsCfg {
     /// What the reviewer is told to do, as `[reviews] prompt` is; empty for Codealong's own.
     #[serde(default)]
     pub prompt: String,
-    /// Send each review to the session that opened the PR, once it runs here and doesn't wait on
+    /// Send each review to the PR's primary session, once it runs here and doesn't wait on
     /// you; else it's kept here, to send from the PR's Review tab.
     #[serde(default = "yes")]
     pub send: bool,
@@ -628,7 +628,7 @@ impl ReviewSubmit {
 /// over this either way.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct PullRequestsCfg {
-    /// Every open PR of yours tells its primary session, the one that opened it, what happens on
+    /// Every open PR of yours tells its primary session (board.rs `pr_primary`) what happens on
     /// it. Off, a PR tells nobody until turned on for it.
     #[serde(default)]
     pub nudge_by_default: bool,
@@ -1685,7 +1685,7 @@ const UPDATES_COMMENT: &str = "# check: look for a newer Codealong now and then,
 const LIMITS_COMMENT: &str = "# When a session stops at its account's usage limit. when_hit: \"suggest\" offers to move it to an account\n# of its harness that has room; \"move\" moves it there by itself, and it carries on where it stopped.\n# continue_when_lifted: when the limit lifts and it's still stopped there, tell it to carry on.\n";
 const ROUTING_COMMENT: &str = "# Model groups ([[routing.groups]]) that starts and reviews can pick, which group Auto uses (`auto`),\n# and what Jev is told when suggesting an account and model in the quick panel (`prompt`).\n# strategy: \"usage\" (most room under usage_cap), \"alternate-harness\" (rotate harnesses), \"round-robin\",\n# or \"fallback\" (the members in order, each until it's within `buffer` of its usage_cap).\n# buffer: the percent below each account's usage_cap left for the sessions already running on it (default 5).\n";
 const SESSIONS_COMMENT: &str = "# block_flagged_sessions: keep provider-flagged sessions out of automatic messages, resumes and\n# account moves. On by default; manual replies and resumes remain available.\n# continue_after_network_error: when a session's turn ends because its agent couldn't reach its API\n# (the Mac slept, or the network dropped), tell it to carry on once the API can be reached again.\n# continue_after_restart: when Codealong quitting cuts off a turn of a session it runs itself, tell it to\n# carry on once Codealong is back.\n# resume_for_sessions_it_started: when a session that isn't running is sent a message by a session it\n# started, or by the one that started it, resume it out of sight with that message.\n# resume_for_any_session: the same for a message from any session, which tells it it had stopped;\n# while it's on, resume_for_sessions_it_started is part of it.\n# resume_for_pr_news: when a pull request's nudge has news that asks for work (comments, changes asked\n# for, failing checks, a conflict) and its primary session isn't running, resume it out of sight with\n# it, unless another of the pull request's sessions is running.\n# live_replies: Claude Code sessions hand Codealong a reply as their terminal shows it, so Codealong\n# shows it as it's written; their terminals then show a reply a paragraph at a time. New sessions only.\n";
-const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells the session that opened it what happens on it (reviews,\n# comments, an approval, a merge, failing checks, conflicts), as a message of yours. A PR's own switch wins\n# either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n# rerequest_after_fixes: on a PR of yours whose reviewer asked for changes, once commits came after their last\n# word and nobody said so on it, ask them to review it again, as you. GitHub tells a reviewer of that, not of a push.\n";
+const PULL_REQUESTS_COMMENT: &str = "# nudge_by_default: every open PR of yours tells its primary session (the one picked in its menu, else the one\n# that pushed to it most) what happens on it (reviews, comments, an approval, a merge, failing checks,\n# conflicts), as a message of yours. A PR's own switch wins either way.\n# nudge_about: what a nudge tells of: \"everything\"; \"feedback\", only comments and reviews that ask for changes\n# or say something, never an approval, a merge or a close; \"feedback-and-checks\", that, failing checks and\n# conflicts; or \"feedback-and-merges\" or \"feedback-checks-and-merges\", one of those and a merge.\n# rerequest_after_fixes: on a PR of yours whose reviewer asked for changes, once commits came after their last\n# word and nobody said so on it, ask them to review it again, as you. GitHub tells a reviewer of that, not of a push.\n";
 const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request that waits on your review, and again when new commits come
 # in while it still waits. account, model and effort: what it runs on; \"\" for the account Auto would start, on its
 # own model and effort. prompt: what it's told to do (what to look for, whether to start subagents of its own); \"\" for
@@ -1703,8 +1703,8 @@ const REVIEWS_COMMENT: &str = "# auto: an agent reviews each open pull request t
 ";
 const OWN_REVIEWS_COMMENT: &str = "# [reviews.own] auto: an agent reviews each open pull request a session of yours opened here, and again when new
 # commits come in. account, model and effort: what it runs on; \"\" for the account Auto would start among those of
-# another harness than the PR's session. prompt: what it's told to do; \"\" for Codealong's own. send: hand each review to
-# the session that opened the PR, once it runs and doesn't wait on you. drafts: review your draft PRs too.
+# another harness than the PR's primary session. prompt: what it's told to do; \"\" for Codealong's own. send: hand each
+# review to the PR's primary session, once it runs and doesn't wait on you. drafts: review your draft PRs too.
 # Nothing goes on GitHub.
 ";
 const EXPERIMENTAL_COMMENT: &str = "# Features still being tried out, each off until it's turned on. boards: the main window's Board view, as\n# Kanban and as Canvas, Add to board in the menus, and `codealong board`.\n";

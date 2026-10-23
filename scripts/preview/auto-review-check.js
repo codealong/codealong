@@ -26,7 +26,7 @@
 // `heldForAgent`): its row says Agent reviewing in place of Review requested, its Reviews tab has a
 // dot, and says it waits on you once that's done. A fourth is made a PR of yours an agent
 // reviewed (`[reviews.own]`) with handing back off: it opens on Reviews, says why its review hasn't
-// gone back, and Send hands it to the session that opened it (send_agent_review). Then Settings ›
+// gone back, and Send hands it to its primary session (send_agent_review). Then Settings ›
 // Automation (no longer Accounts) has the switch, off by default, with the PR nudge, the usage
 // limit and the network error; off, the reviewer and where reviews go still show, since Review
 // with… starts the same review; turned on it saves `[reviews]` as config.toml has it, and the
@@ -367,7 +367,7 @@
         check('a PR of yours an agent reviewed opens on Review', shownTab() === 'Reviews', shownTab());
         await until(function () { return auto() && /Agent reviewed 6666666/.test(auto().textContent); }, 5000, 'your PR shows no agent review');
         var sendTo = all('.ca-prinsp-auto .ca-linkbtn').filter(function (b) { return /^Send to “/.test(b.textContent); })[0];
-        check('it says why its review hasn’t gone back, and offers to send it to the session that opened it', !!sendTo && q('.ca-prinsp-auto-note').textContent === HAND_OFF, all('.ca-prinsp-auto .ca-linkbtn').map(function (b) { return b.textContent; }).join(', '));
+        check('it says why its review hasn’t gone back, and offers to send it to its primary session', !!sendTo && q('.ca-prinsp-auto-note').textContent === HAND_OFF, all('.ca-prinsp-auto .ca-linkbtn').map(function (b) { return b.textContent; }).join(', '));
         var yourPr = shownBoard.prs.filter(function (pr) { return pr.key === yoursKey; })[0];
         yourPr.autoReview.note = HAND_OFF + ' ' + PAUSED_NOTE;
         shownBoard.lanes.forEach(function (l) { l.sessions.forEach(function (s) { if (s.key === yourPr.primary) s.flagged = true; }); });
@@ -422,10 +422,10 @@
       var on = /Review pull requests that wait on your review/;
       nav('Accounts').click();
       await until(function () { return !!q('.ca-settings-pane .ca-acct, .ca-settings-pane .ca-accounts, .ca-settings-pane fieldset, .ca-settings-pane section'); }, 5000, 'Settings › Accounts shows nothing');
-      check('Settings › Accounts no longer has what Codealong does by itself', !box(on) && !box(/Carry on after a network error/) && !box(/Nudge the session that opened/), '');
+      check('Settings › Accounts no longer has what Codealong does by itself', !box(on) && !box(/Carry on after a network error/) && !box(/Nudge a pull request’s primary session/), '');
       nav('Automation').click();
       await until(function () { return !!box(on); }, 5000, 'no reviews setting in Settings › Automation');
-      check('Settings › Automation has it, with the nudge, the usage limit and the network error', !!box(/Nudge the session that opened/) && !!box(/Carry on after a network error/) && /When a session hits its usage limit/.test(q('.ca-settings-pane').textContent), '');
+      check('Settings › Automation has it, with the nudge, the usage limit and the network error', !!box(/Nudge a pull request’s primary session/) && !!box(/Carry on after a network error/) && /When a session hits its usage limit/.test(q('.ca-settings-pane').textContent), '');
       var input = box(on).querySelector('input');
       check('reviews are off by default', !input.checked, String(input.checked));
       var field = function (words) { return all('.ca-field').filter(function (f) { return words.test((q('span', f) || {}).textContent || ''); })[0]; };
@@ -512,7 +512,7 @@
       await until(function () { return !!field(/^Reviewer of your pull requests$/); }, 3000, 'no reviewer for your pull requests once it’s on');
       var theirs = q('.ca-agentbox', field(/^Reviewer of your pull requests$/));
       check('which is a box of its own, as the reviewer above is, whose Auto is another harness than each PR’s session’s', !!theirs && theirs !== agentBox() && /^Auto\s*another harness/.test(q('.ca-modelmenu-chip', theirs).textContent) && q('textarea', theirs).value === DEFAULT, theirs ? q('.ca-modelmenu-chip', theirs).textContent : 'none');
-      var handBack = box(/Hand each review to the session that opened/);
+      var handBack = box(/Hand each review to the pull request’s primary session/);
       check('and the switch that hands reviews back, on', !!handBack && handBack.querySelector('input').checked, '');
     } catch (e) {
       return stopped(e);
