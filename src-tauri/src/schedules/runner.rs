@@ -148,6 +148,10 @@ pub enum Note {
     NeverShown { id: String, run_at: i64 },
     /// Runs asked for that won't go: their schedule is paused or gone.
     Dropped { fired: Vec<String> },
+    /// It was resumed since this machine's record of it was (`Schedule::resumed_at`), here or on
+    /// another machine, however that reached here: its times go on from then, and its watch
+    /// starts again from a first look.
+    Resumed { id: String, at: i64 },
 }
 
 /// What a run came to, to note.
@@ -301,6 +305,11 @@ pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, 
         if busy.contains(&s.id) {
             continue;
         }
+        // Resumed since: nothing more for it until its record goes from then.
+        if let Some(at) = s.resumed_at.filter(|&at| track.and_then(|t| t.reset_at).is_none_or(|r| r < at)) {
+            notes.push(Note::Resumed { id: s.id.clone(), at });
+            continue;
+        }
         let asked: Vec<&Fired> = runs.fired.iter().filter(|f| f.schedule == s.id).collect();
         let Some(track) = track.filter(|t| t.armed_at > 0) else {
             // PRs and their checks aren't known until GitHub's first read.
@@ -446,21 +455,18 @@ fn sync(others: &crate::shared::Machines, now: i64) {
     }
     let Ok(file) = load() else { return };
     if machines::merged(&file, others, now).is_some() {
-        let mut took = None;
+        let mut removed = Vec::new();
         // Under the lock, from the file as it is then; nothing to write is an error that writes nothing.
         let _ = change(|f| match machines::merged(f, others, now) {
             Some(m) => {
                 *f = m.file;
-                took = Some((m.resumed, m.removed));
+                removed = m.removed;
                 Ok(())
             }
             None => bail!("Nothing to take in."),
         });
-        if let Some((resumed_ids, removed)) = took.filter(|(a, b)| !a.is_empty() || !b.is_empty()) {
+        if !removed.is_empty() {
             let noted = change_runs(|r| {
-                for (id, at) in &resumed_ids {
-                    resumed(r.of.entry(id.clone()).or_default(), *at);
-                }
                 for id in &removed {
                     r.of.remove(id);
                     r.fired.retain(|f| &f.schedule != id);
@@ -612,6 +618,7 @@ pub fn apply(runs: &mut Runs, note: &Note) {
             }
         }
         Note::Dropped { fired } => runs.fired.retain(|f| !fired.contains(&f.id)),
+        Note::Resumed { id, at } => resumed(runs.of.entry(id.clone()).or_default(), *at),
     }
 }
 
@@ -1609,6 +1616,29 @@ mod tests {
             let resumed_here = Track { reset_at: Some(100), ..Track::default() };
             let base = Baseline::of(&resumed_here, &ms, "a");
             assert!(!base.seeded() && base.is_new("deploy 40"));
+        }
+
+        #[test]
+        fn a_schedule_resumed_anywhere_goes_on_from_when_it_was() {
+            let z = Fake::utc();
+            let made = ms(&z, 2026, 10, 20, 8, 0);
+            let resumed_at = ms(&z, 2026, 10, 20, 10, 0);
+            // Made paused at 8:00, resumed at 10:00 on Mini, and first heard of here at 10:05:
+            // its 9:00 passed while it was paused, so it's not run here either.
+            let s = Schedule { created_at: made, resumed_at: Some(resumed_at), runs_on: RunsOn::Every, ..schedule("a", When::Time { rule: "daily 9:00".into() }) };
+            let now = resumed_at + 5 * 60_000;
+            let (jobs, notes, _) = plan_at(&s, &Runs::default(), &with(Vec::new()), &HashMap::new(), 0, now);
+            assert!(jobs.is_empty());
+            assert_eq!(notes, vec![Note::Resumed { id: "a".into(), at: resumed_at }]);
+            let mut runs = Runs::default();
+            apply(&mut runs, &notes[0]);
+            let t = &runs.of["a"];
+            assert_eq!((t.last_due, t.reset_at, t.armed_at), (Some(resumed_at), Some(resumed_at), 0));
+            // Then armed as any new one is, and its next time is tomorrow's.
+            let runs = Runs { of: [("a".to_string(), Track { armed_at: now, ..t.clone() })].into(), ..Runs::default() };
+            assert!(plan_at(&s, &runs, &with(Vec::new()), &HashMap::new(), 0, now).0.is_empty());
+            // A resume its record already goes from is no new one.
+            assert!(!plan_at(&s, &runs, &with(Vec::new()), &HashMap::new(), 0, now).1.iter().any(|n| matches!(n, Note::Resumed { .. })));
         }
 
         #[test]

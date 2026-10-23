@@ -946,7 +946,9 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
         }
         Op::Pause { id, paused } => {
             // Resuming notes where its times go on from before it's let run, so the scheduler,
-            // reading between the two files, can't run a time that passed while it was paused.
+            // reading between the two files, can't run a time that passed while it was paused;
+            // `resumed_at` is the same time, so it isn't resumed again (runner.rs `Note::Resumed`).
+            // One unpaused by a save goes by `resumed_at` alone.
             if !paused {
                 let id = found(&load()?, &id)?;
                 change_runs(|r| resumed(r.of.entry(id.clone()).or_default(), now))?;
