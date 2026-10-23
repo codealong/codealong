@@ -124,6 +124,10 @@ pub struct Schedule {
     /// Which of your machines run it.
     #[serde(skip_serializing_if = "RunsOn::is_this")]
     pub runs_on: RunsOn,
+    /// When it was last resumed, kept through later changes: what passed before then isn't run,
+    /// on every machine that has a copy (machines.rs `merged`), however late it hears.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resumed_at: Option<i64>,
 }
 
 /// Which of your machines run a schedule (`[devices]`, Settings › Devices).
@@ -895,6 +899,7 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
                     Some(was) => {
                         schedule.created_at = was.created_at;
                         schedule.created_by = was.created_by.clone();
+                        schedule.resumed_at = if was.paused && !schedule.paused { Some(now) } else { was.resumed_at };
                         // Made this machine's alone: the other machines drop their copies.
                         if was.runs_on.shared() && !schedule.runs_on.shared() {
                             file.gone.push(codealong_peer::schedules::Gone { id: schedule.id.clone(), at: now });
@@ -949,6 +954,9 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
             let s = change(|file| {
                 let id = found(file, &id)?;
                 let s = file.schedules.iter_mut().find(|s| s.id == id).expect("found");
+                if s.paused && !paused {
+                    s.resumed_at = Some(now);
+                }
                 s.paused = paused;
                 s.updated_at = now;
                 Ok(s.clone())

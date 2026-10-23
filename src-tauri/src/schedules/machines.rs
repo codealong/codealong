@@ -126,9 +126,9 @@ pub fn outgoing(file: &File, runs: &Runs, board: &Board, cfg: &Config, zone: &dy
 }
 
 /// Your other machines' copies taken in: what's changed in the schedules, and of them, the ones
-/// whose copy was paused here and isn't from there, with when that copy was changed (resumed:
-/// what passed from then on runs, what passed before doesn't), and the ones removed. None when
-/// nothing changed.
+/// resumed there since this machine's copy was, with when (`Schedule::resumed_at`: what passed
+/// from then on runs, what passed before doesn't), and the ones removed. None when nothing
+/// changed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Merged {
     pub file: File,
@@ -161,8 +161,10 @@ pub fn merged(file: &File, machines: &Machines, now: i64) -> Option<Merged> {
         match out.schedules.iter().position(|s| s.id == theirs.id) {
             None => out.schedules.push(theirs),
             Some(i) if theirs.updated_at > out.schedules[i].updated_at => {
-                if out.schedules[i].paused && !theirs.paused {
-                    resumed.push((theirs.id.clone(), theirs.updated_at));
+                // Resumed there since: however many changes came after, and though this machine
+                // never had it paused.
+                if let Some(at) = theirs.resumed_at.filter(|&at| out.schedules[i].resumed_at.is_none_or(|mine| at > mine)) {
+                    resumed.push((theirs.id.clone(), at));
                 }
                 out.schedules[i] = theirs;
             }
@@ -403,10 +405,18 @@ mod tests {
         let added = schedule("s-2", RunsOn::Every, 3);
         let m = merged(&file, &machines(Rank::First, vec![machine(MINI, "Mini", Rank::First, true, vec![copy(&newer, true), copy(&added, true)])]), NOW).unwrap();
         assert_eq!(m.file.schedules.iter().map(|s| (s.id.as_str(), s.name.as_str())).collect::<Vec<_>>(), [("s-1", "New"), ("s-local", "Schedule s-local"), ("s-2", "Schedule s-2")]);
-        // Resumed there while paused here: what passed meanwhile isn't run here either.
-        let paused = File { schedules: vec![Schedule { paused: true, ..mine }], gone: Vec::new() };
-        let m = merged(&paused, &machines(Rank::First, vec![machine(MINI, "Mini", Rank::First, true, vec![copy(&newer, true)])]), NOW).unwrap();
-        assert_eq!(m.resumed, [("s-1".to_string(), 20)], "as of when it was resumed there");
+        // Resumed there, then renamed: what passed before it was resumed isn't run here either,
+        // and what passed after is.
+        let resumed_there = Schedule { resumed_at: Some(15), ..newer.clone() };
+        let paused = File { schedules: vec![Schedule { paused: true, ..mine.clone() }], gone: Vec::new() };
+        let m = merged(&paused, &machines(Rank::First, vec![machine(MINI, "Mini", Rank::First, true, vec![copy(&resumed_there, true)])]), NOW).unwrap();
+        assert_eq!(m.resumed, [("s-1".to_string(), 15)], "as of when it was resumed there");
+        // Paused and resumed there while this machine was off, its copy never paused: the same.
+        let m = merged(&file, &machines(Rank::First, vec![machine(MINI, "Mini", Rank::First, true, vec![copy(&resumed_there, true)])]), NOW).unwrap();
+        assert_eq!(m.resumed, [("s-1".to_string(), 15)]);
+        // A resume this machine has already is no new one.
+        let had = File { schedules: vec![Schedule { resumed_at: Some(15), ..mine }], gone: Vec::new() };
+        assert!(merged(&had, &machines(Rank::First, vec![machine(MINI, "Mini", Rank::First, true, vec![copy(&resumed_there, true)])]), NOW).unwrap().resumed.is_empty());
         // A copy made one machine's there isn't a shared one to take in.
         let theirs = schedule("s-3", RunsOn::This, 30);
         assert_eq!(merged(&file, &machines(Rank::First, vec![machine(MINI, "Mini", Rank::First, true, vec![copy(&theirs, true)])]), NOW), None);
