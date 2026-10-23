@@ -29,13 +29,24 @@ go at four points, in chat, and you never go past one without it:
 git fetch -q origin
 git describe --tags --abbrev=0 origin/main          # the last version tag
 gh release list -R codealong/codealong --limit 5     # drafts waiting, the latest published
-gh run list -R codealong/codealong --workflow linux.yml --limit 1   # main's last Linux check
+git rev-parse origin/main                            # the commit the release will tag
+gh run list -R codealong/codealong --workflow linux.yml --branch main --limit 1 --json headSha,status,conclusion,url   # main's last Linux check
 ```
 
 Say what's there: the last release and whether it's published, any draft still waiting (a draft
 older than `main` is stale: offer to delete it, with its tag, once the new one is out), and
 whether `main` is green. Something already wrong on `main` is fixed and landed first, the usual
 way (CLAUDE.md's *Landing work*), not in the release.
+
+Linux is checked only every four hours (`linux.yml`), and no Mac can check it, so its last run is
+often of an older commit than the one being released. A release needs a run that passed on the
+commit it's made from: when the last run's `headSha` isn't `origin/main`'s, start one (`gh
+workflow run linux.yml -R codealong/codealong --ref main` prints its link, which ends in its id)
+and wait for it in the background (`gh run watch <id> -R codealong/codealong --exit-status`)
+while you write the notes. It takes about three minutes, twenty when its cache is cold; the
+four-hourly run cancels one still going on `main`, and is then the one to wait for. One that
+fails is fixed and landed like anything else wrong on `main`, and checked again on the commit
+with the fix.
 
 ## 2. The version and the notes
 
@@ -80,8 +91,12 @@ something's uncommitted):
 ```bash
 git worktree add --detach ../codealong-release-<version> origin/main
 cd ../codealong-release-<version>
+git rev-parse HEAD                                   # the commit Linux passed on in step 1
 scripts/version.sh <version> --notes <notes file> --push
 ```
+
+When `main` has moved past the commit Linux passed on, check the new one as step 1 does before
+running `version.sh`, which makes the release from whatever `origin/main` is.
 
 It commits "Release <version>", tags `v<version>`, and pushes the commit to `main` and then the
 tag. When the push of the commit is turned away because `main` moved, nothing reached GitHub:
