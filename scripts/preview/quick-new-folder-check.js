@@ -6,7 +6,8 @@
 // panel is on, an existing one to add, one whose parent isn't there is refused, and a worktree's
 // own folder is that worktree. ⏎ adds the first (add_folder, a project of its own), and until the
 // board has it the chip says it's being added and the start row starts nothing; a worktree picked
-// before an add's answer comes stays picked, and starts there. The disk is fake-tauri.js's:
+// before an add's answer comes stays picked, and starts there, and another project picked then
+// drops the add. The disk is fake-tauri.js's:
 // ~/projects with atlas and atlas-web in it.
 //   PREVIEW_WAIT=60000 scripts/preview.sh quick '' scripts/preview/quick-new-folder-check.js
 // The board needs a project with a worktree in it.
@@ -133,6 +134,35 @@
     .then(function () {
       var spec = last('start_from_quick').spec;
       check('and the start goes there', spec.laneId === lane.id, spec.laneId);
+      // A folder added slowly again, and another project picked before its answer comes.
+      chip().click();
+      return until(function () { return options().length > 0; }, 5000, 'the worktree menu a third time');
+    })
+    .then(function () {
+      return typeIn('~/projects/osprey', function () { return !!named('osprey'); });
+    })
+    .then(function () {
+      key(filter(), { key: 'Enter' });
+      return until(function () { return /Adding osprey/.test(chip().title); }, 3000, 'osprey being added');
+    })
+    .then(function () {
+      q('.ca-quick-project').click();
+      return until(function () { return !!named('All projects'); }, 3000, 'the project menu');
+    })
+    .then(function () {
+      named('All projects').click();
+      return wait(2500);
+    })
+    .then(function () {
+      check('another project picked while a folder is added drops it', !/Adding|osprey/.test(chip().title + chip().textContent), chip().textContent + ' / ' + chip().title);
+      var before = calls('start_from_quick').length;
+      type(input(), 'Look over the release notes');
+      key(input(), { key: 'Enter', metaKey: true });
+      return until(function () { return calls('start_from_quick').length > before; }, 3000, 'a start once it’s dropped');
+    })
+    .then(function () {
+      var spec = last('start_from_quick').spec;
+      check('and the start goes where the panel is now', !/osprey/.test(spec.laneId), spec.laneId);
       done();
     })
     .catch(stopped);

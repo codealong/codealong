@@ -277,6 +277,11 @@ export function Quick() {
   const [adding, setAdding] = useState<{ name: string; from: string | null; laneId: string | null } | null>(null);
   const addTurn = useRef(0);
   const addingNow = adding && laneId === (adding.laneId ?? adding.from) ? adding : null;
+  /** Forgets a folder being added: another project or Mac is picked, where it isn't. */
+  const dropAdding = () => {
+    addTurn.current += 1;
+    setAdding(null);
+  };
   // A folder's path typed in the worktree menu, and what the engine found there.
   const [folderTyped, setFolderTyped] = useState('');
   const [folderLook, setFolderLook] = useState<FolderLook | null>(null);
@@ -550,6 +555,7 @@ export function Quick() {
   // The board lists no projects until it's read, so the one picked holds until then.
   const current = project === ALL_PROJECTS || projects.some((p) => p.name === project) || !board || board.loading ? project : ALL_PROJECTS;
   const pickProject = (name: string) => {
+    if (name !== current) dropAdding();
     setProject(name);
     setActiveKey(null);
     setPicker(null);
@@ -1818,6 +1824,7 @@ export function Quick() {
     const d = id === HERE ? null : id;
     if (d !== deviceNow) {
       // Its worktrees and accounts are its own.
+      dropAdding();
       setDevice(d);
       setLaneId(null);
       setAgent(null);
