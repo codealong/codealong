@@ -57,14 +57,28 @@ pub fn able(s: &Schedule, board: &Board, cfg: &Config, zone: &dyn Zone) -> std::
         if let Some(a) = cfg.accounts.iter().find(|a| a.name == account && a.disabled) {
             return Err(format!("{} is turned off here.", a.name));
         }
-        // A routing group with a member turned on here; Auto, or a group of every account, with
-        // any account on.
-        let members = cfg.routing.groups.iter().find(|g| g.name.trim() == account).map(|g| &g.members);
-        let any_on = !cfg.accounts.is_empty() && cfg.accounts.iter().all(|a| a.disabled);
-        match members {
-            Some(m) if !m.is_empty() && !m.iter().any(|x| on(&x.account)) => return Err(format!("Every account in {account} is turned off here.")),
-            Some(m) if m.is_empty() && any_on => return Err("Every account is turned off here.".into()),
-            None if (account.is_empty() || account == "auto") && any_on => return Err("Every account is turned off here.".into()),
+        // The routing group it starts from: its own, or Auto's when `[routing] auto` names one, as
+        // a start picks (start.rs `resolve_group`); with members, one of them on here, and else
+        // (Auto, a group of every account) any account.
+        let auto = account.is_empty() || account == "auto";
+        let named = if auto { cfg.routing.auto.trim() } else { account };
+        let group = (!named.is_empty()).then(|| cfg.routing.groups.iter().find(|g| g.name.trim() == named)).flatten();
+        let none_on = match cfg.accounts.is_empty() {
+            true => Some("No account is set up here."),
+            false => cfg.accounts.iter().all(|a| a.disabled).then_some("Every account is turned off here."),
+        };
+        match group {
+            None if auto && !named.is_empty() => return Err(format!("Auto's routing group, {named}, isn't one here.")),
+            Some(g) if !g.members.is_empty() => {
+                if !g.members.iter().any(|m| on(&m.account)) {
+                    return Err(format!("Every account in {} is turned off here.", g.name.trim()));
+                }
+            }
+            Some(_) | None if auto || group.is_some() => {
+                if let Some(why) = none_on {
+                    return Err(why.into());
+                }
+            }
             _ => {}
         }
     }
@@ -103,7 +117,7 @@ pub fn outgoing(file: &File, runs: &Runs, board: &Board, cfg: &Config, zone: &dy
                 runs: t.map(|t| t.runs.iter().rev().take(SHARE_RUNS).filter_map(|r| serde_json::to_value(r).ok()).collect()).unwrap_or_default(),
                 today: t.and_then(|t| t.day).map(|d| Day { day: d.day, runs: d.runs }),
                 seen: t.filter(|_| one).map(|t| t.seen[t.seen.len().saturating_sub(SHARE_SEEN)..].to_vec()).unwrap_or_default(),
-                watch: t.filter(|t| one && t.seeded && matches!(s.when, When::Watch { .. })).map(|t| Watch { looked: t.looked.clone(), value: t.value.clone(), seeded: true, changed_at: t.changed_at.unwrap_or_default() }),
+                watch: t.filter(|t| one && t.seeded && matches!(s.when, When::Watch { .. })).map(|t| Watch { looked: t.looked.clone(), value: t.value.clone(), seeded: true, changed_at: t.changed_at.unwrap_or_default(), since: t.armed_at }),
                 notes: t.filter(|_| one && s.notes).and_then(|t| t.notes.as_ref()).map(|n| Notes { text: n.text.clone(), at: n.at }),
             }
         })
@@ -112,12 +126,13 @@ pub fn outgoing(file: &File, runs: &Runs, board: &Board, cfg: &Config, zone: &dy
 }
 
 /// Your other machines' copies taken in: what's changed in the schedules, and of them, the ones
-/// whose copy was paused here and isn't from there (resumed: what passed meanwhile isn't run), and
-/// the ones removed. None when nothing changed.
+/// whose copy was paused here and isn't from there, with when that copy was changed (resumed:
+/// what passed from then on runs, what passed before doesn't), and the ones removed. None when
+/// nothing changed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Merged {
     pub file: File,
-    pub resumed: Vec<String>,
+    pub resumed: Vec<(String, i64)>,
     pub removed: Vec<String>,
 }
 
@@ -147,7 +162,7 @@ pub fn merged(file: &File, machines: &Machines, now: i64) -> Option<Merged> {
             None => out.schedules.push(theirs),
             Some(i) if theirs.updated_at > out.schedules[i].updated_at => {
                 if out.schedules[i].paused && !theirs.paused {
-                    resumed.push(theirs.id.clone());
+                    resumed.push((theirs.id.clone(), theirs.updated_at));
                 }
                 out.schedules[i] = theirs;
             }
@@ -159,7 +174,7 @@ pub fn merged(file: &File, machines: &Machines, now: i64) -> Option<Merged> {
     // off keeps its copy, and it would come back from that).
     let back = |g: &codealong_peer::schedules::Gone| out.schedules.iter().any(|s| s.id == g.id && s.runs_on.shared() && s.updated_at > g.at);
     let copy_before = |m: &crate::shared::Machine, g: &codealong_peer::schedules::Gone| m.schedules.list.iter().any(|x| x.id == g.id && x.schedule.get("updatedAt").and_then(serde_json::Value::as_i64).is_none_or(|u| u <= g.at));
-    let heard = |g: &codealong_peer::schedules::Gone| machines.others.iter().all(|m| m.last_seen.is_some_and(|t| t > g.at) && !copy_before(m, g));
+    let heard = |g: &codealong_peer::schedules::Gone| machines.others.iter().all(|m| m.fed_at.is_some_and(|t| t > g.at) && !copy_before(m, g));
     let gone: Vec<_> = out.gone.iter().filter(|g| !back(g) && (now - g.at < KEEP_GONE_MS || !heard(g))).cloned().collect();
     out.gone = gone;
     (out != *file).then_some(Merged { file: out, resumed, removed })
@@ -216,7 +231,7 @@ pub fn taken<'a>(machines: &'a Machines, id: &str, due: i64) -> Option<&'a str> 
 /// woke), so what it did meanwhile isn't known here: a connection that outlived the sleep, or
 /// one just made, brings its feed a moment later.
 pub fn unheard(machines: &Machines, id: &str, since: i64) -> bool {
-    machines.others.iter().any(|m| m.schedules.get(id).is_some() && m.last_seen.is_none_or(|t| t < since))
+    machines.others.iter().any(|m| m.schedules.get(id).is_some() && m.fed_at.is_none_or(|t| t < since))
 }
 
 /// What the other machines ran a schedule for.
@@ -301,7 +316,7 @@ mod tests {
     }
 
     fn machine(key: &str, name: &str, rank: Rank, online: bool, list: Vec<SharedSchedule>) -> Machine {
-        Machine { key: key.into(), name: name.into(), rank, online, last_seen: online.then_some(NOW), prs: Vec::new(), schedules: Shared { list, gone: Vec::new() } }
+        Machine { key: key.into(), name: name.into(), rank, online, last_seen: online.then_some(NOW), fed_at: online.then_some(NOW), prs: Vec::new(), schedules: Shared { list, gone: Vec::new() } }
     }
 
     fn machines(rank: Rank, others: Vec<Machine>) -> Machines {
@@ -342,8 +357,16 @@ mod tests {
         assert_eq!(able(&s, &Board::default(), &cfg, &z), Err("claude is turned off here.".into()));
         s.run.account = String::new();
         assert_eq!(able(&s, &Board::default(), &cfg, &z), Ok(()), "Auto has codex");
+        // Auto that starts from a routing group goes by its members.
+        cfg.routing.auto = "reviewers".into();
+        assert_eq!(able(&s, &Board::default(), &cfg, &z), Err("Every account in reviewers is turned off here.".into()));
+        cfg.routing.auto = "nobody".into();
+        assert_eq!(able(&s, &Board::default(), &cfg, &z), Err("Auto's routing group, nobody, isn't one here.".into()));
+        cfg.routing.auto = String::new();
         cfg.accounts[1].disabled = true;
         assert_eq!(able(&s, &Board::default(), &cfg, &z), Err("Every account is turned off here.".into()));
+        cfg.accounts.clear();
+        assert_eq!(able(&s, &Board::default(), &cfg, &z), Err("No account is set up here.".into()));
     }
 
     #[test]
@@ -383,7 +406,7 @@ mod tests {
         // Resumed there while paused here: what passed meanwhile isn't run here either.
         let paused = File { schedules: vec![Schedule { paused: true, ..mine }], gone: Vec::new() };
         let m = merged(&paused, &machines(Rank::First, vec![machine(MINI, "Mini", Rank::First, true, vec![copy(&newer, true)])]), NOW).unwrap();
-        assert_eq!(m.resumed, ["s-1"]);
+        assert_eq!(m.resumed, [("s-1".to_string(), 20)], "as of when it was resumed there");
         // A copy made one machine's there isn't a shared one to take in.
         let theirs = schedule("s-3", RunsOn::This, 30);
         assert_eq!(merged(&file, &machines(Rank::First, vec![machine(MINI, "Mini", Rank::First, true, vec![copy(&theirs, true)])]), NOW), None);
@@ -417,7 +440,7 @@ mod tests {
         assert_eq!(merged(&old, &machines(Rank::First, vec![off]), NOW), None, "kept, and the copy not taken in");
         // Nor while a machine hasn't been heard from since it went, whose copy may not be in its
         // feed yet.
-        let quiet = Machine { last_seen: Some(NOW - 2 * KEEP_GONE_MS), ..machine(STUDIO, "Studio", Rank::First, false, Vec::new()) };
+        let quiet = Machine { last_seen: Some(NOW), fed_at: Some(NOW - 2 * KEEP_GONE_MS), ..machine(STUDIO, "Studio", Rank::First, false, Vec::new()) };
         assert_eq!(merged(&old, &machines(Rank::First, vec![quiet]), NOW), None);
     }
 

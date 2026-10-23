@@ -145,6 +145,9 @@ fn color_of(l: &Linked) -> String {
 #[serde(rename_all = "camelCase")]
 struct Cached {
     last_seen: i64,
+    /// When its last feed came: a connection that closes moves `last_seen`, not this.
+    #[serde(default)]
+    fed_at: i64,
     replica: Replica,
 }
 
@@ -962,6 +965,7 @@ impl Inner {
                     rank: c.replica.device.shares?,
                     online: st.conns.contains_key(&l.key),
                     last_seen: Some(c.last_seen).filter(|t| *t > 0),
+                    fed_at: Some(c.fed_at).filter(|t| *t > 0),
                     prs: c.replica.prs.clone(),
                     schedules: c.replica.schedules.clone(),
                 })
@@ -1266,6 +1270,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Out, running: &Arc<At
                 let c = st.replicas.entry(key.to_string()).or_default();
                 c.replica.apply(f);
                 c.last_seen = now_ms();
+                c.fed_at = c.last_seen;
                 st.view_dirty = true;
                 st.cache_dirty = true;
             }

@@ -349,6 +349,9 @@ pub struct Track {
     /// that looks next (machines.rs).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub changed_at: Option<i64>,
+    /// When it was last resumed: another machine's watch from before then doesn't count here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reset_at: Option<i64>,
     /// Its notes as your machines last had them, for a schedule they share.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<KeptNotes>,
@@ -986,6 +989,7 @@ pub fn resumed(t: &mut Track, now: i64) {
     t.last_due = Some(now);
     t.armed_at = 0;
     t.seeded = false;
+    t.reset_at = Some(now);
 }
 
 /// A schedule's time as the Schedules view previews it while it's written: in words, and its
@@ -1144,7 +1148,7 @@ mod tests {
     fn resuming_skips_what_passed_while_paused() {
         let mut t = Track { armed_at: 5, last_due: Some(10), seeded: true, ..Track::default() };
         resumed(&mut t, 500);
-        assert_eq!((t.last_due, t.armed_at, t.seeded), (Some(500), 0, false));
+        assert_eq!((t.last_due, t.armed_at, t.seeded, t.reset_at), (Some(500), 0, false, Some(500)));
     }
 
     #[test]

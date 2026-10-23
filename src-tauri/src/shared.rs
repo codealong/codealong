@@ -43,6 +43,9 @@ pub struct Machine {
     pub rank: Rank,
     pub online: bool,
     pub last_seen: Option<i64>,
+    /// When its last feed came, which says what it ran since: a connection closing is no word
+    /// from it.
+    pub fed_at: Option<i64>,
     /// Its PR list, each with whether it would review the PR and where its own review stands.
     pub prs: Vec<PrCard>,
     /// The schedules it shares, each with whether it can run it and what it has run.
@@ -78,7 +81,7 @@ mod tests {
 
     #[test]
     fn a_machine_stays_around_for_a_while_after_it_was_last_heard_from() {
-        let m = |online: bool, last_seen: Option<i64>| Machine { key: "aa".into(), name: "Mini".into(), rank: Rank::First, online, last_seen, prs: Vec::new(), schedules: Shared::default() };
+        let m = |online: bool, last_seen: Option<i64>| Machine { key: "aa".into(), name: "Mini".into(), rank: Rank::First, online, last_seen, fed_at: last_seen, prs: Vec::new(), schedules: Shared::default() };
         assert!(m(true, None).around(0));
         assert!(m(false, Some(1_000)).around(1_000 + AWAY_AFTER_MS - 1));
         assert!(!m(false, Some(1_000)).around(1_000 + AWAY_AFTER_MS));

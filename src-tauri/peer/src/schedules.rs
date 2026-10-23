@@ -83,6 +83,9 @@ pub struct Watch {
     pub value: Option<String>,
     pub seeded: bool,
     pub changed_at: i64,
+    /// When the schedule was armed there, which a look from before it was last resumed is older
+    /// than: what passed while it was paused isn't run for.
+    pub since: i64,
 }
 
 /// A schedule's notes, and when they were written.

@@ -458,8 +458,8 @@ fn sync(others: &crate::shared::Machines, now: i64) {
         });
         if let Some((resumed_ids, removed)) = took.filter(|(a, b)| !a.is_empty() || !b.is_empty()) {
             let noted = change_runs(|r| {
-                for id in &resumed_ids {
-                    resumed(r.of.entry(id.clone()).or_default(), now);
+                for (id, at) in &resumed_ids {
+                    resumed(r.of.entry(id.clone()).or_default(), *at);
                 }
                 for id in &removed {
                     r.of.remove(id);
@@ -744,7 +744,7 @@ fn watch(engine: &Handle, id: &str) {
     let When::Watch { command, mode, .. } = &s.when else { return };
     let track = runs.of.get(id).cloned().unwrap_or_default();
     let base = match s.runs_on {
-        RunsOn::One { .. } => engine.read(|b| Baseline { track: &track, theirs: machines::their_watches(&b.machines, id).into_iter().cloned().collect(), their_seen: machines::their_seen(&b.machines, id).into_iter().map(str::to_string).collect() }),
+        RunsOn::One { .. } => engine.read(|b| Baseline::of(&track, &b.machines, id)),
         _ => Baseline { track: &track, theirs: Vec::new(), their_seen: HashSet::new() },
     };
     let seeded_before = base.seeded();
@@ -839,7 +839,18 @@ struct Baseline<'a> {
     their_seen: HashSet<String>,
 }
 
-impl Baseline<'_> {
+impl<'a> Baseline<'a> {
+    /// What the other machines saw: their watches that looked since it was last resumed, so a
+    /// look from before a pause doesn't make what changed meanwhile look new.
+    fn of(track: &'a Track, machines: &crate::shared::Machines, id: &str) -> Baseline<'a> {
+        let reset = track.reset_at.unwrap_or_default();
+        Baseline {
+            track,
+            theirs: machines::their_watches(machines, id).into_iter().filter(|w| w.since >= reset).cloned().collect(),
+            their_seen: machines::their_seen(machines, id).into_iter().map(str::to_string).collect(),
+        }
+    }
+
     /// One of them has had its first look, which only notes what's there.
     fn seeded(&self) -> bool {
         self.track.seeded || self.theirs.iter().any(|w| w.seeded)
@@ -1482,11 +1493,12 @@ mod tests {
 
         fn mini(s: &Schedule, rank: Rank, last_seen: Option<i64>, online: bool, took: Option<i64>) -> Machine {
             let copy = SharedSchedule { id: s.id.clone(), schedule: serde_json::to_value(s).unwrap(), able: true, took, last_due: took, ..SharedSchedule::default() };
-            Machine { key: "bb".into(), name: "Mini".into(), rank, online, last_seen, prs: Vec::new(), schedules: Shared { list: vec![copy], gone: Vec::new() } }
+            Machine { key: "bb".into(), name: "Mini".into(), rank, online, last_seen, fed_at: last_seen, prs: Vec::new(), schedules: Shared { list: vec![copy], gone: Vec::new() } }
         }
 
         fn plan_at(s: &Schedule, runs: &Runs, b: &Board, noticed: &HashMap<String, (i64, i64)>, woke_at: i64, now: i64) -> (Vec<Job>, Vec<Note>, Vec<(String, i64)>) {
-            let cfg = crate::config::Config::default();
+            let mut cfg = crate::config::Config::default();
+            cfg.accounts = vec![crate::config::AccountCfg { name: "claude".into(), harness: "claude".into(), home: "~/.claude".into(), command: None, start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false }];
             plan_in(&File { schedules: vec![s.clone()], ..File::default() }, runs, b, &HashSet::new(), &Cx { cfg: &cfg, noticed, woke_at }, now, &Fake::utc())
         }
 
@@ -1531,6 +1543,9 @@ mod tests {
             let unheard = with(vec![mini(&s, Rank::First, Some(at - 60 * 60_000), false, None)]);
             let (jobs, notes, _) = plan_at(&s, &runs, &unheard, &none, back, back + 1000);
             assert!(jobs.is_empty() && notes.is_empty());
+            // A connection to it closing since is no word from it.
+            let closed = with(vec![Machine { last_seen: Some(back + 500), ..mini(&s, Rank::First, Some(at - 60 * 60_000), false, None) }]);
+            assert!(plan_at(&s, &runs, &closed, &none, back, back + 1000).0.is_empty());
             // Mini's feed is in: it ran it.
             let ran = with(vec![mini(&s, Rank::First, Some(back), true, Some(at))]);
             assert_eq!(plan_at(&s, &runs, &ran, &none, back, back + 2000).1, vec![Note::Passed { id: "a".into(), due: at, missed: false }]);
@@ -1564,7 +1579,7 @@ mod tests {
 
         #[test]
         fn a_watch_goes_on_from_what_the_others_saw() {
-            let watch = |looked: &[&str], value: Option<&str>, changed_at: i64| codealong_peer::schedules::Watch { looked: looked.iter().map(|l| l.to_string()).collect(), value: value.map(String::from), seeded: true, changed_at };
+            let watch = |looked: &[&str], value: Option<&str>, changed_at: i64| codealong_peer::schedules::Watch { looked: looked.iter().map(|l| l.to_string()).collect(), value: value.map(String::from), seeded: true, changed_at, since: 0 };
             // This machine never looked; Mini did, and ran for deploy 41.
             let mine = Track { value: Some("deploy 39".into()), changed_at: Some(10), ..Track::default() };
             let base = Baseline { track: &mine, theirs: vec![watch(&["deploy 40"], Some("deploy 41"), 20)], their_seen: HashSet::from(["deploy 41".to_string()]) };
@@ -1579,6 +1594,21 @@ mod tests {
             assert!(base.changed_to("deploy 39") && !base.changed_to(""));
             let noted = Track { value: Some("deploy 39".into()), changed_at: Some(40), ..mine.clone() };
             assert!(!Baseline { track: &noted, ..base }.changed_to("deploy 39"));
+        }
+
+        #[test]
+        fn a_watch_resumed_doesnt_go_on_from_a_look_before_its_pause() {
+            let s = Schedule { runs_on: RunsOn::One { prefer: String::new() }, ..schedule("a", When::Watch { command: "x".into(), every: "5m".into(), mode: WatchMode::Lines }) };
+            let mut m = mini(&s, Rank::First, None, false, None);
+            m.schedules.list[0].watch = Some(codealong_peer::schedules::Watch { looked: vec!["deploy 40".into()], seeded: true, changed_at: 50, since: 10, ..Default::default() });
+            let ms = crate::shared::Machines { me: None, others: vec![m] };
+            // Handed over: this machine goes on from Mini's look.
+            let handed = Track { armed_at: 5, ..Track::default() };
+            assert!(Baseline::of(&handed, &ms, "a").seeded());
+            // Resumed since Mini looked: its first look here only notes what's there.
+            let resumed_here = Track { reset_at: Some(100), ..Track::default() };
+            let base = Baseline::of(&resumed_here, &ms, "a");
+            assert!(!base.seeded() && base.is_new("deploy 40"));
         }
 
         #[test]
