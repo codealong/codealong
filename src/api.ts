@@ -712,15 +712,26 @@ export async function setOpenAtLogin(on: boolean): Promise<AtLogin> {
   return invoke<AtLogin>('set_open_at_login', { on });
 }
 
-/** Calls `cb` whenever where updates stand changes. */
-export function onUpdateStatus(cb: (view: UpdateView) => void): () => void {
-  if (!inTauri) return () => {};
+/** Calls `cb` whenever where updates stand changes, and `listening` once it hears them, so a
+ *  read made then misses no change after it. */
+export function onUpdateStatus(cb: (view: UpdateView) => void, listening?: () => void): () => void {
+  if (!inTauri) {
+    listening?.();
+    return () => {};
+  }
   let cancelled = false;
   let unlisten: (() => void) | undefined;
-  void listen<UpdateView>('update-status', (e) => cb(e.payload)).then((u) => {
-    if (cancelled) u();
-    else unlisten = u;
-  });
+  void listen<UpdateView>('update-status', (e) => cb(e.payload)).then(
+    (u) => {
+      if (cancelled) return u();
+      unlisten = u;
+      listening?.();
+    },
+    // No changes heard, but where updates stand is still read once.
+    () => {
+      if (!cancelled) listening?.();
+    },
+  );
   return () => {
     cancelled = true;
     unlisten?.();

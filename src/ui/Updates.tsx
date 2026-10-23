@@ -78,14 +78,16 @@ export function untilChecked(): Promise<UpdateView> {
       off();
       resolve(view);
     };
-    const off = onUpdateStatus(settle);
-    updateStatus().then(
-      (view) => view && settle(view),
-      (e: unknown) => {
-        off();
-        reject(e);
-      },
-    );
+    // Read once the outcome can be heard, or one that came in between would be missed.
+    const off = onUpdateStatus(settle, () => {
+      updateStatus().then(
+        (view) => view && settle(view),
+        (e: unknown) => {
+          off();
+          reject(e);
+        },
+      );
+    });
   });
 }
 

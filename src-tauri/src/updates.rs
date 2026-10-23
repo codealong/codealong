@@ -103,7 +103,10 @@ pub fn view(app: &AppHandle) -> View {
 fn set(app: &AppHandle, status: Status) {
     let updates = app.state::<Updates>();
     *updates.status.lock().unwrap() = Some(status.clone());
-    if let Some(item) = updates.menu.lock().unwrap().as_ref() {
+    // Taken out of the lock first: off the main thread `set_text` waits for it, which may be in
+    // `begin` here, wanting the lock.
+    let item = updates.menu.lock().unwrap().clone();
+    if let Some(item) = item {
         let text = match &status {
             Status::Ready { version, .. } => format!("Restart to update to {version}"),
             _ => MENU_CHECK.to_string(),
