@@ -2081,7 +2081,10 @@ mod tests {
         let running = crate::fixtures::session("live");
         let stopped = crate::model::Session { live: false, ..crate::fixtures::session("stopped") };
         let board = Board { lanes: vec![crate::fixtures::lane("/r", vec![running, stopped])], ..Board::default() };
-        let cfg = Config { accounts: vec![account("claude", "claude", &home.to_string_lossy(), None)], ..Config::default() };
+        // A command line of its own, which isn't looked for (`Adapter::missing_cli`): `resume`
+        // goes by the places of this machine's home, and a machine without `claude` (CI's Linux
+        // runner) offers neither the terminal nor the background for a plain `claude`.
+        let cfg = Config { accounts: vec![account("claude", "claude", &home.to_string_lossy(), Some("northwind-claude"))], ..Config::default() };
         let to = |place| ResumeIn { place, model: None, effort: None };
         let you = crate::send::Sender::You;
         let refused = |key: &str, how: ResumeIn| resume(&board, &cfg, key, &how, "", &you).unwrap_err().to_string();
