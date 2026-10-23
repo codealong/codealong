@@ -2161,7 +2161,8 @@ export interface BarItem {
   laneId: string;
   callsign: string;
   project: string;
-  /** In a worktree the board keeps out of sight (Elsewhere's, while nothing there needs you). */
+  /** In a worktree the board keeps out of sight (Elsewhere's, while it holds no session you
+   *  haven't archived). */
   hidden: boolean;
   detail: string | null;
   /** When its status began, for its age. */

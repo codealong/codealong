@@ -25,14 +25,12 @@ export const QUICK_PLACEHOLDER = 'Find a session, or describe new work…';
 export const SEND_TO_PLACEHOLDER = 'Find the session to send this to…';
 /** Codealong's chats, as the worktree picker offers them: a chat of its own, in no project. */
 export const NO_PROJECT = 'No project';
-const ELSEWHERE = 'Elsewhere';
 
-/** Whether a worktree (or a floating bar pill, which carries its worktree's project and whether
- *  it's hidden) is in the project the panel shows. Elsewhere's worktrees stay out of All
- *  projects, as they do in the main window. */
-export function inProject(lane: Pick<Lane, 'project' | 'hidden'>, project: string): boolean {
-  if (project === ALL_PROJECTS) return !lane.hidden;
-  return lane.project === project && (project === ELSEWHERE || !lane.hidden);
+/** Whether a worktree (or a floating bar pill, which carries its worktree's project) is in the
+ *  project the panel shows. All projects has every project's, Elsewhere's among them, as the main
+ *  window and the bar do. */
+export function inProject(lane: Pick<Lane, 'project'>, project: string): boolean {
+  return project === ALL_PROJECTS || lane.project === project;
 }
 
 export type RowGroup = 'suggested' | 'skills' | 'needs' | 'reviews' | 'unread' | 'working' | 'found' | 'sendto' | 'todos' | 'prs' | 'ready' | 'recent';
@@ -277,7 +275,6 @@ export const TEXT_SEARCH_MIN = 3;
  * `archived` asks for them, and then count as older than they are. A project picked doesn't hide
  * the others' sessions from a search, since the one you look for may be in another: they come
  * after the project's own as older ones would (`ANOTHER_PROJECT`), and each row says its project.
- * Elsewhere's stay out unless it's the one picked, as under All projects.
  */
 export function findSessions(board: Board, project: string, query: string, now: number, limit = MAX_ROWS, said: ReadonlyMap<string, TextHit> = new Map(), archived: Archived = 'without'): SessionRow[] {
   const words = queryWords(query);

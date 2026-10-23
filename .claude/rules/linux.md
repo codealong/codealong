@@ -48,8 +48,9 @@ What Linux, its desktops and the harnesses there turned out to need, found in th
   Under Wayland a window can't learn where it or the pointer is, and `xdotool` raises nothing.
 - A board window gets a native title bar from the window manager; the overlay title bar and its
   traffic lights are macOS's (`lib.rs` project windows, `waiting.rs`).
-- The board hides a worktree outside your projects unless it needs you, so a fresh home in the VM
-  shows nothing until config.toml has a project for its repos (`board.rs` `hidden`).
+- The board hides a worktree outside your projects until it holds a session you haven't archived,
+  so a fresh home in the VM shows none of its repos until config.toml has a project for them
+  (`board.rs` `hidden`).
 
 ## Trying it
 

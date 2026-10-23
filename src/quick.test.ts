@@ -85,11 +85,11 @@ describe('attentionRows', () => {
     const b = board([
       lane('app2', [session('a', 'needs', NOW), session('v', 'needs', NOW, { visitor: 'worked here' }), session('x', 'unread', NOW, { archived: true })]),
       lane('globex', [session('s', 'needs', NOW)], { project: 'Globex' }),
-      lane('stray', [session('h', 'needs', NOW)], { project: 'Elsewhere', hidden: true }),
+      lane('stray', [session('h', 'needs', NOW)], { project: 'Elsewhere' }),
     ]);
     expect(attentionRows(b, 'Acme').rows.map((r) => r.key)).toEqual(['a']);
-    expect(attentionRows(b, ALL_PROJECTS).rows.map((r) => r.key).sort()).toEqual(['a', 's']);
-    // Elsewhere's worktrees show only when you pick Elsewhere.
+    // All projects has every project's, Elsewhere's too; Elsewhere only its own.
+    expect(attentionRows(b, ALL_PROJECTS).rows.map((r) => r.key).sort()).toEqual(['a', 'h', 's']);
     expect(attentionRows(b, 'Elsewhere').rows.map((r) => r.key)).toEqual(['h']);
     const many = board([lane('app2', Array.from({ length: 12 }, (_, i) => session(`n${i}`, 'needs', NOW - i)))]);
     expect(attentionRows(many, ALL_PROJECTS).rows).toHaveLength(9);
@@ -216,22 +216,25 @@ describe('findSessions', () => {
     expect(findSessions(named, ALL_PROJECTS, 'nightly harbor watch', NOW, 9, said, 'with')[0].key).toBe('by-name');
   });
 
-  it('finds sessions in other projects than the one picked, after its own, but not Elsewhere’s', () => {
+  it('finds sessions in other projects than the one picked, after its own, Elsewhere’s too', () => {
     const HOUR = 3600e3;
     const projects = board([
       lane('app2', [session('mine', 'idle', NOW - 2 * HOUR, { title: 'Login retries' }), session('mention', 'unread', NOW - 1, { title: 'Upgrade deps' })]),
       lane('globex', [session('theirs', 'idle', NOW - 10, { title: 'Login page' })], { project: 'Globex' }),
-      lane('stray', [session('stray', 'idle', NOW - 10, { title: 'Login stray' })], { project: 'Elsewhere', hidden: true }),
+      lane('stray', [session('stray', 'idle', NOW - 20, { title: 'Login stray' })], { project: 'Elsewhere' }),
+      // A folder elsewhere with only archived sessions is out of sight, but they're still found.
+      lane('gone', [session('gone', 'idle', NOW - 30, { title: 'Login gone', archived: true })], { project: 'Elsewhere', hidden: true }),
     ]);
     const said = new Map([['mention', { key: 'mention', snippet: 'after the login change', you: true, at: NOW, score: 7 }]]);
     const found = findSessions(projects, 'Acme', 'login', NOW, 9, said);
     // Globex's is newer, but Acme is the project picked; a title elsewhere still comes before a
     // mention in Acme.
-    expect(found.map((r) => r.key)).toEqual(['mine', 'theirs', 'mention']);
+    expect(found.map((r) => r.key)).toEqual(['mine', 'theirs', 'stray', 'mention']);
     // Its row carries its worktree, which says its project.
     expect(found[1].lane.project).toBe('Globex');
-    expect(findSessions(projects, ALL_PROJECTS, 'login', NOW, 9, said).map((r) => r.key)).toEqual(['theirs', 'mine', 'mention']);
+    expect(findSessions(projects, ALL_PROJECTS, 'login', NOW, 9, said).map((r) => r.key)).toEqual(['theirs', 'stray', 'mine', 'mention']);
     expect(findSessions(projects, 'Elsewhere', 'login', NOW, 9, said).map((r) => r.key)).toEqual(['stray', 'theirs', 'mine', 'mention']);
+    expect(findSessions(projects, ALL_PROJECTS, 'login gone', NOW, 9, new Map(), 'with').map((r) => r.key)).toEqual(['gone']);
     expect(findSessions(projects, 'Globex', 'retries', NOW).map((r) => r.key)).toEqual(['mine']);
   });
 

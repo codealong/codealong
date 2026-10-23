@@ -2101,15 +2101,9 @@ fn unshown(board: &Board, doc: &BoardDoc, card: &str) -> Option<Unshown> {
         p => format!("is in {p}"),
     };
     let elsewhere = |project: &str| (!every && project != doc.project).then(|| format!("{}, and {} shows what's in {}", place(project), doc.name, doc.project));
-    let lane_why = |lane: &Lane| {
-        if crate::route::in_project(lane, &doc.project) {
-            return None;
-        }
-        elsewhere(&lane.project).or_else(|| Some(format!("is outside your projects, which {} shows only while it needs you", doc.name)))
-    };
     let (title, why) = match kind {
-        boards::Kind::Session => all_sessions(board).into_iter().find(|(s, _)| s.key == key).map(|(s, l)| (s.title.clone(), lane_why(l)))?,
-        boards::Kind::Worktree => board.lanes.iter().find(|l| l.id == key).map(|l| (l.callsign.clone(), lane_why(l)))?,
+        boards::Kind::Session => all_sessions(board).into_iter().find(|(s, _)| s.key == key).map(|(s, l)| (s.title.clone(), elsewhere(&l.project)))?,
+        boards::Kind::Worktree => board.lanes.iter().find(|l| l.id == key).map(|l| (l.callsign.clone(), elsewhere(&l.project)))?,
         boards::Kind::Todo => board.todos.iter().find(|t| t.id == key).map(|t| (t.title.clone(), elsewhere(&t.project)))?,
         boards::Kind::Pr => board.prs.iter().find(|p| p.key == key).map(|p| (format!("#{} {}", p.number, p.title), elsewhere(&p.project)))?,
     };
@@ -7298,12 +7292,11 @@ mod tests {
         assert_eq!(why(&release, "todo:t-there").as_deref(), Some("is in Atlas, and Release shows what's in Northwind"));
         assert_eq!(why(&release, "session:chat").as_deref(), Some("is outside your projects, and Release shows what's in Northwind"));
         assert_eq!(why(&release, "todo:t-none").as_deref(), Some("is in no project, and Release shows what's in Northwind"));
-        // A board of All projects leaves out only what's outside your projects and needs nothing of you.
+        // A board of All projects shows what's in every project, Elsewhere's out-of-sight worktrees too.
         let every = BoardDoc::new("Everything", crate::route::ALL_PROJECTS);
-        for card in ["session:site", "session:chat", "todo:t-there", "todo:t-none"] {
+        for card in ["session:site", "session:chat", "session:note", "worktree:/r/notes", "todo:t-there", "todo:t-none"] {
             assert_eq!(why(&every, card), None, "{card}");
         }
-        assert_eq!(why(&every, "session:note").as_deref(), Some("is outside your projects, which Everything shows only while it needs you"));
         let said = unshown_text(&[unshown(&b, &release, "session:site").unwrap()]);
         assert_eq!(said, "One won't show there:\n  Title site (session:site) is in Atlas, and Release shows what's in Northwind.\n");
         assert_eq!(unshown_text(&[]), "");

@@ -85,7 +85,8 @@ pub struct LaneSeed {
     pub head: Option<String>,
     /// The default branch name without the remote, e.g. `main`.
     pub default_branch: Option<String>,
-    /// Lanes for sessions outside every project; hidden unless they need you, or hold chats.
+    /// Lanes for sessions outside every project; hidden while they hold no session you haven't
+    /// archived.
     pub elsewhere: bool,
     /// The folder an app keeps its chats in, a folder for each (`engine::chat_roots`): listed
     /// like your projects' worktrees, since you started those sessions yourself.
@@ -2184,9 +2185,10 @@ pub fn compose(inp: Inputs) -> Board {
             headline = format!("{verb} {} · {}", code(&g.account), g.title);
             detail = Some(format!("last turn {{ago:{}}}", g.last_activity));
         }
-        // A lane outside your projects shows while it needs you; an app's chats while there are
-        // any you haven't archived.
-        let hidden = seed.elsewhere && bay != Bay::Needs && !(seed.chats && !sessions.is_empty());
+        // A lane outside your projects shows, in All projects too, while it holds a session you
+        // haven't archived, as an app's chats do: Elsewhere is a project like the others. Only one
+        // with nothing to list (Codealong's chats before one starts) waits out of sight.
+        let hidden = seed.elsewhere && bay != Bay::Needs && sessions.is_empty();
         // Visitors after the current work's sessions, and the helpers and the earlier work's
         // after them.
         let earlier_ones = sessions.split_off(current);
@@ -4510,7 +4512,7 @@ mod tests {
     }
 
     #[test]
-    fn an_apps_chats_show_like_worktrees_and_other_folders_elsewhere_while_they_need_you() {
+    fn an_apps_chats_and_other_folders_elsewhere_show_like_worktrees_while_they_hold_a_session() {
         let apps = AppNames::default();
         let root = "/Users/me/Library/Application Support/Claude/scratch-workspaces";
         let elsewhere = |path: &str, chats: bool| LaneSeed { project: ELSEWHERE.into(), origin: Origin::Folder, elsewhere: true, chats, exact: !chats, ..seed(path, "main") };
@@ -4532,10 +4534,11 @@ mod tests {
             (lane(root).hidden, lane("/Users/me/notes").hidden)
         };
         let notes = session_in("notes", "/Users/me/notes", "idle");
-        assert_eq!(hidden(vec![chat.clone(), notes]), (false, true), "a chat whose turn ended shows; a folder elsewhere waits until it needs you");
+        assert_eq!(hidden(vec![chat.clone(), notes.clone()]), (false, false), "a chat whose turn ended shows, and a folder elsewhere whose session needs nothing: All projects lists them");
         let archived = Session { archived: true, ..chat };
         let waiting = session_in("notes", "/Users/me/notes", "waiting");
-        assert_eq!(hidden(vec![archived, waiting]), (true, false), "archived chats don't hold the lane up");
+        assert_eq!(hidden(vec![archived.clone(), waiting]), (true, false), "archived chats don't hold the lane up");
+        assert_eq!(hidden(vec![archived, Session { archived: true, ..notes }]), (true, true), "nor does a folder's archived session");
     }
 
     #[test]

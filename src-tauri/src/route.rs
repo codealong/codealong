@@ -103,12 +103,10 @@ const SCORED: usize = 20;
 /// and often a terminal of its own, so when they're close the running one leads.
 const STOPPED_WEIGHT: f64 = 0.5;
 
-/// Whether a lane is in the panel's project, as the panel decides it (quick.ts `inProject`).
+/// Whether a lane is in the panel's project, as the panel decides it (quick.ts `inProject`): All
+/// projects has every project's, Elsewhere's among them.
 pub(crate) fn in_project(lane: &Lane, project: &str) -> bool {
-    if project == ALL_PROJECTS {
-        return !lane.hidden;
-    }
-    lane.project == project && (project == ELSEWHERE || !lane.hidden)
+    project == ALL_PROJECTS || lane.project == project
 }
 
 fn status_words(s: &Session) -> &'static str {
@@ -681,8 +679,7 @@ mod tests {
         helper.helper = Some(crate::model::Helper { parent: Some("c:1".into()), pr: None, report: false, yours: false });
         let mut run = session("c:p", "cwd-29", Status::Working, true, NOW);
         run.headless = true;
-        let mut elsewhere = lane("/tmp/x", ELSEWHERE, "x", vec![session("c:x", "Scratch", Status::Idle, true, NOW)], NOW);
-        elsewhere.hidden = true;
+        let elsewhere = lane("/tmp/x", ELSEWHERE, "x", vec![session("c:x", "Scratch", Status::Idle, true, NOW)], NOW);
         Board {
             lanes: vec![
                 lane("/p/api", "Acme", "api", vec![session("c:1", "Fix login", Status::Working, true, NOW - 60_000), session("c:old", "Old stopped", Status::Stopped, false, old), archived, helper, run], NOW - 60_000),
@@ -755,9 +752,9 @@ mod tests {
     }
 
     #[test]
-    fn all_projects_leaves_hidden_worktrees_out_and_elsewhere_has_them() {
+    fn all_projects_has_elsewheres_worktrees_and_elsewhere_only_its_own() {
         let b = board();
-        assert_eq!(request(&b, ALL_PROJECTS, "hi", "m", NOW).unwrap().lanes.len(), 3);
+        assert_eq!(request(&b, ALL_PROJECTS, "hi", "m", NOW).unwrap().lanes.len(), 4);
         assert_eq!(request(&b, ELSEWHERE, "hi", "m", NOW).unwrap().lanes, vec!["/tmp/x"]);
         assert!(request(&b, "Nope", "hi", "m", NOW).is_err());
         assert!(request(&b, "Acme", "  ", "m", NOW).is_err());

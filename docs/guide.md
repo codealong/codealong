@@ -161,7 +161,7 @@ list, with the way back.
 An agent is listed under the worktree it's working in, where most of its latest commands ran and
 edits landed, even if it started somewhere else; resuming it still happens where it started.
 Sessions outside your projects are listed under Elsewhere, in the repo or folder each ran in, and
-show in All projects only while they need you. Chats you start without a folder in the Claude app,
+in All projects with every project's. Chats you start without a folder in the Claude app,
 or outside a project in the Codex app, are one worktree for each app, Claude app chats and Codex
 chats.
 

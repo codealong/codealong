@@ -91,8 +91,8 @@ pub struct BarItem {
     pub lane_id: String,
     pub callsign: String,
     pub project: String,
-    /// In a worktree the board keeps out of sight (Elsewhere's, while nothing there needs you):
-    /// the bar shows it only with Elsewhere picked, as the quick panel does.
+    /// In a worktree the board keeps out of sight (Elsewhere's, while it holds no session you
+    /// haven't archived): the bar shows it only with Elsewhere picked, as the quick panel does.
     pub hidden: bool,
     pub detail: Option<String>,
     /// When its status began (its last activity when that isn't known), for its age.

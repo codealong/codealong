@@ -87,7 +87,7 @@ describe('plain', () => {
 });
 
 describe('project counts', () => {
-  const item = (key: string, group: BarItem['group'], project: string, hidden = false): BarItem => fx.barItem({ key, group, project, hidden });
+  const item = (key: string, group: BarItem['group'], project: string): BarItem => fx.barItem({ key, group, project });
   const items = [
     item('n1', 'needs', 'Acme'),
     item('u1', 'unread', 'Acme'),
@@ -95,7 +95,7 @@ describe('project counts', () => {
     item('n2', 'needs', 'Globex'),
     item('n3', 'needs', 'Globex'),
     item('e1', 'needs', 'Elsewhere'),
-    item('e2', 'unread', 'Elsewhere', true),
+    item('e2', 'unread', 'Elsewhere'),
   ];
   const projects = ['Acme', 'Globex', 'Elsewhere'];
 
@@ -103,9 +103,9 @@ describe('project counts', () => {
     expect(projectWaits(items, projects)).toEqual({
       Acme: { needs: 1, unread: 1 },
       Globex: { needs: 2, unread: 0 },
-      // Elsewhere's out-of-sight worktrees count only for Elsewhere itself.
+      // Elsewhere's count in All projects as every project's do.
       Elsewhere: { needs: 1, unread: 1 },
-      [ALL_PROJECTS]: { needs: 4, unread: 1 },
+      [ALL_PROJECTS]: { needs: 4, unread: 2 },
     });
   });
 

@@ -1130,8 +1130,8 @@ export function useBoardLists(input: ListsInput) {
   const subjects = useMemo(() => subjectsOf({ todoItems: part.todoItems, todos, sessionItems: boardSessions, lanes: part.lanes, prs: part.prs }), [part.todoItems, todos, boardSessions, part.lanes, part.prs]);
   const member = useMemo(() => (shownBoard ? memberTest(shownBoard, subjects, now) : onNoBoard), [shownBoard, subjects, now]);
   // What the rules ask of everything the window shows, for whether another board holds a thing
-  // (Add to board ›): under All projects the shown board's are of its own project alone, and
-  // have what All projects hides (Elsewhere's worktrees that don't need you), so they go in too.
+  // (Add to board ›): under All projects the shown board's are of its own project alone, so the
+  // window's go in beside them.
   const allSubjects = useMemo(
     () => (boardProject === current ? subjects : new Map([...subjectsOf({ todoItems, todos, sessionItems, lanes: projectLanes, prs: projectPrs }), ...subjects])),
     [boardProject, current, subjects, todoItems, todos, sessionItems, projectLanes, projectPrs],

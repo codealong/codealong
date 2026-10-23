@@ -925,8 +925,9 @@ pub struct Target {
     pub group: String,
 }
 
-/// The project of worktrees in none of a device's projects. Such a lane stays off the board
-/// (`hidden`) unless it needs you; a device that has the repo in a project puts it there.
+/// The project of worktrees in none of a device's projects. Such a lane is listed like any
+/// project's, in All projects too, while it holds a session you haven't archived, and stays off
+/// the board (`hidden`) without one; a device that has the repo in a project puts it there.
 pub const ELSEWHERE: &str = "Elsewhere";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -951,7 +952,7 @@ pub struct Lane {
     pub bay: Bay,
     pub glyph: Status,
     pub parked: bool,
-    /// Elsewhere lanes stay off the board unless they need you.
+    /// An Elsewhere lane with no session you haven't archived stays off the board.
     pub hidden: bool,
     /// One sentence; backtick spans render as code, `{ago:<ms>}` and `{for:<ms>}` as live times.
     pub headline: String,
