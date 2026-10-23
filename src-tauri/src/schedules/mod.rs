@@ -734,7 +734,11 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
             let saved = check(s, cfg, s.updated_at.max(s.created_at), zone).err();
             let (problem, here, runs_on_words) = match &s.runs_on {
                 RunsOn::This => (saved.or_else(|| board_problem(s, board)), None, None),
-                RunsOn::Every => (machines::able(s, board, cfg, zone).err(), None, Some("On every machine".to_string())),
+                // One this machine can't run, the others still do: it's said of this machine alone.
+                RunsOn::Every => match machines::able(s, board, cfg, zone).err() {
+                    Some(here) if saved.is_none() && !board.machines.others.is_empty() => (None, Some(here), Some("On every machine".to_string())),
+                    here => (saved.or(here), None, Some("On every machine".to_string())),
+                },
                 RunsOn::One { .. } => {
                     let here = machines::able(s, board, cfg, zone).err();
                     let line = machines::line(s, &board.machines, here.is_none(), now);

@@ -146,9 +146,12 @@ pub fn merged(file: &File, machines: &Machines, now: i64) -> Option<Merged> {
             Some(_) => {}
         }
     }
-    // A schedule shared again since it went is back; and what went long ago is forgotten.
+    // A schedule shared again since it went is back; and what went long ago is forgotten, once no
+    // machine has a copy from before it went (one that's off keeps its copy here, and it would
+    // come back from that).
     let back = |g: &codealong_peer::schedules::Gone| out.schedules.iter().any(|s| s.id == g.id && s.runs_on.shared() && s.updated_at > g.at);
-    let gone: Vec<_> = out.gone.iter().filter(|g| now - g.at < KEEP_GONE_MS && !back(g)).cloned().collect();
+    let before = |g: &codealong_peer::schedules::Gone| machines.others.iter().flat_map(|m| &m.schedules.list).any(|x| x.id == g.id && x.schedule.get("updatedAt").and_then(serde_json::Value::as_i64).is_none_or(|u| u <= g.at));
+    let gone: Vec<_> = out.gone.iter().filter(|g| !back(g) && (now - g.at < KEEP_GONE_MS || before(g))).cloned().collect();
     out.gone = gone;
     (out != *file).then_some(Merged { file: out, resumed, removed })
 }
@@ -378,9 +381,11 @@ mod tests {
         let mut went = machine(MINI, "Mini", Rank::First, true, Vec::new());
         went.schedules.gone = vec![Gone { id: "s-1".into(), at: at(20) }];
         assert_eq!(merged(&made_mine, &machines(Rank::First, vec![went.clone()]), NOW), None);
-        // What went a month ago is forgotten.
+        // What went a month ago is forgotten, but not while a machine still has a copy from before.
         let old = File { schedules: Vec::new(), gone: vec![Gone { id: "s-7".into(), at: NOW - KEEP_GONE_MS }] };
         assert!(merged(&old, &machines(Rank::First, vec![went]), NOW).unwrap().file.gone.iter().all(|g| g.id != "s-7"));
+        let off = machine(STUDIO, "Studio", Rank::First, false, vec![copy(&schedule("s-7", one(""), NOW - 2 * KEEP_GONE_MS), true)]);
+        assert_eq!(merged(&old, &machines(Rank::First, vec![off]), NOW), None, "kept, and the copy not taken in");
     }
 
     #[test]
