@@ -4,8 +4,11 @@
 // put it, batch after batch, and so does a scroll up made just before a batch, before the view has
 // heard it. Back at the end, it follows again; the reply growing shorter there, which brings the
 // end up to meet the view, isn't a scroll up, and it goes on following. Scrolled well up, nothing
-// moves it. Runs on the real clock, since scroll events come with frames:
-//   PREVIEW_WAIT=30000 scripts/preview.sh sessions '' scripts/preview/thread-follow-check.js
+// moves it. Drawn at a zoom, where a slow scroll moves less than a pixel at a time, steps of half a
+// pixel add up to a scroll up. A side conversation's answer (SideStrip.tsx) follows its end the
+// same way: a few pixels up holds, before its scroll is heard too. Runs on the real clock, since
+// scroll events come with frames:
+//   PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/thread-follow-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
   localStorage.setItem('codealong.view', 'sessions');
@@ -131,6 +134,50 @@
         .then(more)
         .then(more)
         .then(function () { stays('scrolled well up, nothing moves it', top); });
+    })
+    .then(function () {
+      // At twice the size, as a card in a window that floats can be drawn (zoom.ts): half a pixel
+      // of the view's own is a pixel on the screen.
+      q('.ca-sessinsp').style.zoom = '2';
+      return frames().then(function () { thread().scrollTop = thread().scrollHeight; return frames(); }).then(more);
+    })
+    .then(function () {
+      var from = thread().scrollTop;
+      var steps = Promise.resolve();
+      for (var i = 0; i < 8; i++) steps = steps.then(function () { up(0.5); return frames(); });
+      return steps.then(function () {
+        var top = thread().scrollTop;
+        if (from - top < 3) note('half-pixel steps moved it only ' + (from - top) + ' px here');
+        return more().then(function () { stays('at a zoom, steps of half a pixel add up to a scroll up', top); });
+      });
+    })
+    .then(function () {
+      q('.ca-sessinsp').style.zoom = '';
+      // A side conversation of the session's, answering at length.
+      var side = function (paragraphs) {
+        window.__emit('side', { id: 'side-follow', key: picked.key, account: 'claude', startedAt: now, running: true, ended: false, turns: [{ question: 'Why is the importer slow?', answer: paras('Side', paragraphs), done: false, at: now }] });
+      };
+      var turns = function () { return q('.ca-sidestrip-turns'); };
+      var sideGap = function () { var el = turns(); return el.scrollHeight - el.scrollTop - el.clientHeight; };
+      var m = 12;
+      side(m);
+      return until(function () { return turns() && /Side, paragraph 12/.test(turns().textContent); }, 3000)
+        .then(frames)
+        .then(function () {
+          if (turns().scrollHeight <= turns().clientHeight + 20) throw new Error('the side conversation doesn’t scroll: ' + turns().scrollHeight + ' in ' + turns().clientHeight);
+          side((m += 2));
+          return frames().then(function () {
+            check('a side conversation’s answer keeps its end in view', sideGap() < 2, String(sideGap()));
+            turns().scrollTop -= 8;
+            var top = turns().scrollTop;
+            side((m += 2));
+            return frames().then(function () {
+              check('a few pixels up, before its scroll is heard, holds there too', Math.abs(turns().scrollTop - top) < 1, 'at ' + turns().scrollTop + ', left at ' + top);
+              side((m += 2));
+              return frames().then(function () { check('and after', Math.abs(turns().scrollTop - top) < 1, 'at ' + turns().scrollTop + ', left at ' + top); });
+            });
+          });
+        });
     })
     .then(done)
     .catch(function (e) {

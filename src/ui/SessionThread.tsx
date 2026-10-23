@@ -196,11 +196,14 @@ function toolIcon(label: string): string {
   return 'bolt';
 }
 
-/** Whether a view that follows what comes in at its end has been scrolled up from `from`, where
- *  it last was, by however little: you're reading back, and it stops following. Not when what was
- *  below grew shorter, or the view taller, and the end came up to meet it. */
-export function scrolledUp(el: { scrollTop: number; scrollHeight: number; clientHeight: number }, from: number): boolean {
-  return el.scrollTop <= from - 1 && el.scrollHeight - el.scrollTop - el.clientHeight >= 1;
+/** How a view that follows what comes in at its end has been scrolled since it was at `from`:
+ *  whether `up`, by a pixel or more, and you're reading back, so it stops following (not when what
+ *  was below grew shorter, or the view taller, and the end came up to meet it); and where the next
+ *  scroll is told `from`. A move up of less than a pixel leaves that where it was, for the next to
+ *  add to: at a zoom, a slow scroll moves less than a pixel at a time. */
+export function scrolled(el: { scrollTop: number; scrollHeight: number; clientHeight: number }, from: number): { up: boolean; from: number } {
+  const top = el.scrollTop;
+  return { up: top <= from - 1 && el.scrollHeight - top - el.clientHeight >= 1, from: top < from && top > from - 1 ? from : top };
 }
 
 /** A question call's line: what it asks about, by the questions' headers when they all have one. */
@@ -545,8 +548,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   // whatever has taken room below since: a prompt's image can lay out, and the scroll that put
   // the view there be heard, before the image's load is.
   const endAt = useRef<number | null>(null);
-  // Where the view was when its scroll was last heard, or it was put at the end, and how tall what
-  // it scrolls was then.
+  // Where the next scroll is told from (`scrolled`), as of when the view's scroll was last heard or
+  // it was put at the end, and how tall what it scrolls was then.
   const heard = useRef({ top: 0, height: 0 });
   const toEnd = useCallback((el: HTMLElement) => {
     el.scrollTop = el.scrollHeight;
@@ -560,7 +563,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
    *  for what came in rather than for you. */
   const follows = useCallback(() => {
     const el = scroller.current;
-    if (el && el.scrollHeight === heard.current.height && scrolledUp(el, heard.current.top)) {
+    if (el && el.scrollHeight === heard.current.height && scrolled(el, heard.current.top).up) {
       atEnd.current = false;
       endAt.current = null;
     }
@@ -763,8 +766,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     if (endAt.current != null && Math.abs(el.scrollTop - endAt.current) >= 1) endAt.current = null;
     // Near the end is at it, but not on the way up: a reply streaming in makes room below faster
     // than a slow scroll up leaves the 40 px behind, and pulled the view back down as you went.
-    atEnd.current = !scrolledUp(el, heard.current.top) && (endAt.current != null || el.scrollHeight - el.scrollTop - el.clientHeight < 40);
-    heard.current = { top: el.scrollTop, height: el.scrollHeight };
+    const moved = scrolled(el, heard.current.top);
+    atEnd.current = !moved.up && (endAt.current != null || el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+    heard.current = { top: moved.from, height: el.scrollHeight };
     if (el.scrollTop < NEAR_TOP) loadOlder();
     pin();
   };

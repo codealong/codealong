@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../types';
-import { editablePrompts, headingsOf, peerLabel, rowsOf, scrolledUp } from './SessionThread';
+import { editablePrompts, headingsOf, peerLabel, rowsOf, scrolled } from './SessionThread';
 
 let at = 0;
 const step = (kind: TranscriptItem['kind'], more: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: 0, kind, text: kind, failed: false, cursor: ++at, n: 0, ...more });
@@ -99,23 +99,34 @@ describe('editablePrompts', () => {
   });
 });
 
-describe('scrolledUp', () => {
+describe('scrolled', () => {
   // A view 500 tall over 2000 of conversation, whose end is at 1500.
   const view = (scrollTop: number, scrollHeight = 2000) => ({ scrollTop, scrollHeight, clientHeight: 500 });
 
   it('counts a scroll up from the end however little, well inside what counts as near it', () => {
-    expect(scrolledUp(view(1492), 1500)).toBe(true);
-    expect(scrolledUp(view(1499), 1500)).toBe(true);
+    expect(scrolled(view(1492), 1500)).toEqual({ up: true, from: 1492 });
+    expect(scrolled(view(1499), 1500)).toEqual({ up: true, from: 1499 });
   });
 
-  it('not a move of less than a pixel, nor one down or none', () => {
-    expect(scrolledUp(view(1499.5), 1500)).toBe(false);
-    expect(scrolledUp(view(1500), 1492)).toBe(false);
-    expect(scrolledUp(view(1200), 1200)).toBe(false);
+  it('not one down or none, which the next is told from', () => {
+    expect(scrolled(view(1500), 1492)).toEqual({ up: false, from: 1500 });
+    expect(scrolled(view(1200), 1200)).toEqual({ up: false, from: 1200 });
+  });
+
+  it('adds up moves of less than a pixel, as a slow scroll at a zoom makes', () => {
+    let from = 1200;
+    const ups = [];
+    for (const top of [1199.5, 1199.1, 1198.6]) {
+      const moved = scrolled(view(top), from);
+      ups.push(moved.up);
+      from = moved.from;
+    }
+    expect(ups).toEqual([false, false, true]);
+    expect(from).toBe(1198.6);
   });
 
   it('not the end coming up to meet the view, as what was below grows shorter', () => {
-    expect(scrolledUp(view(1300, 1800), 1500)).toBe(false);
-    expect(scrolledUp(view(1299.5, 1800), 1500)).toBe(false);
+    expect(scrolled(view(1300, 1800), 1500)).toEqual({ up: false, from: 1300 });
+    expect(scrolled(view(1299.5, 1800), 1500)).toEqual({ up: false, from: 1299.5 });
   });
 });

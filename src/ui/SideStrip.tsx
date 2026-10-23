@@ -27,7 +27,7 @@ import { endSide, forgetSide, keptLine, showSides, takesBox, turnState, useClosi
 import type { PrItem, SideTurn } from '../types';
 import { Markdown } from './Markdown';
 import { Button, cx, Icon, Rich } from './primitives';
-import { scrolledUp } from './SessionThread';
+import { scrolled } from './SessionThread';
 
 /** What a strip says of its conversations, which are about a session or a PR, and how it ends
  *  the open one. */
@@ -191,12 +191,19 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
   const answering = !!live || !!reading?.answering;
   const scroller = useRef<HTMLDivElement>(null);
   // The end stays in view as the answer grows, unless you've scrolled back to read, however
-  // little (SessionThread.tsx `scrolledUp`): from where the view was last.
+  // little (SessionThread.tsx `scrolled`), told from where the open one's view was last: from
+  // nowhere once another has shown, in the element they share.
   const atEnd = useRef(true);
-  const lastTop = useRef(0);
+  const lastTop = useRef<number | null>(null);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (!el || !atEnd.current || view) return;
+    if (!el || view) {
+      lastTop.current = null;
+      return;
+    }
+    // A scroll up made just before the answer grew, which the view hasn't heard yet, holds too.
+    if (lastTop.current != null && scrolled(el, lastTop.current).up) atEnd.current = false;
+    if (!atEnd.current) return;
     el.scrollTop = el.scrollHeight;
     lastTop.current = el.scrollTop;
   }, [side, view]);
@@ -247,8 +254,9 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
           scrolls
             ? (e) => {
                 const el = e.currentTarget;
-                atEnd.current = !scrolledUp(el, lastTop.current) && el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-                lastTop.current = el.scrollTop;
+                const moved = scrolled(el, lastTop.current ?? el.scrollTop);
+                atEnd.current = !moved.up && el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+                lastTop.current = moved.from;
               }
             : undefined
         }
