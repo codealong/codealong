@@ -1083,6 +1083,9 @@ export interface Profile {
   name: string;
 }
 
+/** What a path a conversation names is on this Mac (launch.rs `PathKind`). */
+export type PathKind = 'file' | 'folder';
+
 /** An installed editor's app icon (editors.rs): `size` pixels square, straight RGBA, top row
  *  first. */
 export interface EditorIcon {

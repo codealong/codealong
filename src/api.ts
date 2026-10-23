@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PeekOpen, PeekShown, Pending, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
+import type { AccountCfg, AccountInfo, AgentsStatus, Answers, AtLogin, Attachment, BarFeed, BarNote, Board, CloseOutcome, Config, ConfigView, DesktopFeed, DesktopPinned, DeviceFound, DevicesView, EditorIcon, FoundAccount, HostedStream, IdlePlan, JevReport, LabelColor, Lane, LineageFeed, MergeBox, MergeOp, ModeSwitched, Notice, PathKind, PeekOpen, PeekShown, Pending, Profile, PointerProbe, PrAt, PrDetail, PrItem, ResumeIn, Reviewed, Route, RouteNote, ScheduleOp, ScheduleTimes, Sent, Session, SessionSpent, Since, SetupView, ShortcutStatus, Side, SideKept, SkillsListed, StalePlan, StaleOutcome, Started, StartOptions, StartPlace, StartSpec, TextFound, Theme, TodoSuggested, TokenReport, Training, TranscriptPage, UpdateView, Verdict, Way, WrittenReview, YourReview } from './types';
 import type { PrTab } from './agentReview';
 import type { AgentTask } from './agentTasks';
 import type { BoardDoc, BoardOp } from './boards/model';
@@ -1091,6 +1091,30 @@ export async function openAttachment(path: string): Promise<void> {
 export async function openFile(path: string): Promise<void> {
   if (!inTauri) return;
   await invoke('open_file', { path });
+}
+
+/** Shows a file a conversation names in the Finder, selected. */
+export async function revealFile(path: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke('reveal_file', { path });
+}
+
+/** Opens a file a conversation names in your editor (`[apps] editor`), at `line` where it has one. */
+export async function editFile(path: string, line: number | null): Promise<void> {
+  if (!inTauri) return;
+  await invoke('edit_file', { path, line });
+}
+
+/** Your editor, as a file's menu names it in Open in. */
+export async function yourEditor(): Promise<Profile> {
+  if (!inTauri) return { id: 'cursor', name: 'Cursor' };
+  return invoke<Profile>('your_editor');
+}
+
+/** What each path is on this Mac, a file, a folder or nothing (launch.rs `path_kinds`). */
+export async function pathKinds(paths: string[]): Promise<(PathKind | null)[]> {
+  if (!inTauri) return paths.map(() => null);
+  return invoke<Array<PathKind | null>>('path_kinds', { paths });
 }
 
 /** A browser preview of the UI (scripts/preview.sh), where Tauri's IPC is a stand-in. */

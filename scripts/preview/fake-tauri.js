@@ -494,6 +494,12 @@ window.__TAURI_INTERNALS__ = {
         };
       });
     }
+    // Paths a conversation writes as code are here, but one whose words say it's gone: a folder
+    // where it ends in a slash or its last part has no dot, else a file. Your editor is Cursor.
+    if (cmd === 'path_kinds') {
+      return Promise.resolve(((args || {}).paths || []).map(function (p) { return /gone/.test(p) ? null : /\/$|\/[^/.]+$/.test(p) ? 'folder' : 'file'; }));
+    }
+    if (cmd === 'your_editor') return Promise.resolve({ id: 'cursor', name: 'Cursor' });
     // Try again on an agent review that didn't get done says what the engine did.
     if (cmd === 'review_pr_again') return Promise.resolve('Reviewing #' + String((args || {}).key).split('#')[1] + ' again: its card says how it goes.');
     if (cmd === 'plugin:menu|new') return Promise.resolve([window.__calls.length, 'menu-' + window.__calls.length]);

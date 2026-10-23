@@ -649,11 +649,19 @@ impl Handle {
         Ok(after)
     }
 
+    /// Your editor (`[apps] editor`), as the board names it: Cursor, `config.rs`'s default, until
+    /// the board has one.
+    pub fn your_editor(&self) -> config::Profile {
+        let (id, name) = self.board.read().map(|b| (b.apps.editor_id.clone(), b.apps.editor.clone())).unwrap_or_default();
+        if id.is_empty() {
+            return config::Profile { id: "cursor".into(), name: editors::name("cursor") };
+        }
+        config::Profile { id, name }
+    }
+
     /// Opens config.toml in the configured editor.
     pub fn open_config(&self) -> Result<()> {
-        let editor = self.board.read().map(|b| b.apps.editor_id.clone()).unwrap_or_default();
-        let editor = if editor.is_empty() { "cursor".to_string() } else { editor };
-        editors::open(&editor, &config::config_path())
+        editors::open(&self.your_editor().id, &config::config_path())
     }
 
     /// Takes what repo `slug`'s team suggests in its file on `branch` and you don't have yet (the
@@ -669,18 +677,16 @@ impl Handle {
 
     /// Opens repo `slug`'s team file as its main checkout here has it, in the editor.
     pub fn open_team_file(&self, slug: &str) -> Result<()> {
-        let (editor, root) = self.read(|b| {
+        let root = self.read(|b| {
             let lanes = b.lanes.iter().filter(|l| l.device.is_none() && l.repo_slug.as_deref() == Some(slug));
-            let root = lanes.clone().find(|l| l.origin == Origin::Main).or_else(|| lanes.clone().next()).map(|l| PathBuf::from(&l.path));
-            (b.apps.editor_id.clone(), root)
+            lanes.clone().find(|l| l.origin == Origin::Main).or_else(|| lanes.clone().next()).map(|l| PathBuf::from(&l.path))
         });
         let root = root.ok_or_else(|| anyhow!("There's no checkout of {slug} on this Mac."))?;
         let file = root.join(teamfile::FILE);
         if !file.is_file() {
             bail!("{} has no {}.", tilde(&root), teamfile::FILE);
         }
-        let editor = if editor.is_empty() { "cursor".to_string() } else { editor };
-        editors::open(&editor, &file)
+        editors::open(&self.your_editor().id, &file)
     }
 
     /// Opens a web link: one into a worktree's app where its preview opens, so the app has that

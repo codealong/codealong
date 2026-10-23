@@ -446,7 +446,15 @@ said of them, and the call stays out of a fold. Click one to open it in the app 
 kind, as a double-click in the Finder would; an app, a script or a program is shown in the Finder
 instead, so a click never runs anything. A file sent from a scratch folder is often cleared by the
 time you look, and says so where you clicked. A session on another Mac has its files there, so
-they're listed but don't open. A prompt shows the images you sent with it in place, whether you sent them from
+they're listed but don't open. A full path an agent writes as code in a reply (`/private/tmp/…/plan.md`,
+`~/notes.md`) is underlined, as it's written, once Codealong has found something there, and opens
+the same way on a click; one with a line (`main.rs:42`) opens in your editor at that line. What only
+looks like a path (a route such as `/api/v1/users`, a skill, a command, a file that isn't here)
+stays plain code: each path is only looked up, never read, so one in Documents or Downloads asks
+for no permission. Right-click one, or a file sent or cited, for Open, Open in your editor (`[apps]
+editor`), Reveal in Finder and Copy path. A Markdown file opens in the app macOS has for `.md`
+files: to have a click open it in your editor, choose it in the Finder's Get Info › Open with and
+Change All, or right-click and use Open in. A prompt shows the images you sent with it in place, whether you sent them from
 Codealong, pasted them into the session's terminal or attached them in the Claude or Codex app;
 click one to open it. It opens at the newest and loads older pages as you scroll up, and follows the
 session as it goes. A link to a GitHub PR, in a reply or a prompt, reads `name#123` with the PR's

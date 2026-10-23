@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doneAhead, quietAhead } from './ahead';
 import { getAccounts, moveSession, moveSessionTo, resumeSession, setPrPrimary, type Done, type MergeDone } from './api';
 import type { MenuAction, MenuGroup, MenuSpec } from './contextMenu';
-import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
+import { carryOnIn, chordLetter, chordSigns, chorded, CHORDS, DONE_HOLD_MS, SUGGESTION_CHORDS, suggestionChord, doneTitle, fileMenu, keyed, laneActions, laneMenu, lanesActions, lanesMenu, mergesWith, prMenu, prsActions, prsMenu, repoMenu, sessionActions, sessionMenu, sessionsActions, sessionsMenu, todoMenu, todoPanelMenu, todosMenu, toggleWaiting, type MergeDoneAsk, type SessionCan, type SessionsCan, type TodoEdit } from './menus';
 import { openLabel } from './open';
 import { setPlatform } from './platform';
 import type { Report } from './report';
@@ -682,6 +682,25 @@ describe('repoMenu', () => {
     expect(menu.some((i) => i !== 'separator' && 'accelerator' in i && i.accelerator)).toBe(false);
     // A repo with no remote on GitHub has no page there.
     expect(labels(repoMenu({ name: 'scratch', slug: null }, { report, pin }))).toEqual(['Pin repo', '-', 'Copy repo name']);
+  });
+});
+
+describe('fileMenu', () => {
+  const can = { report, editor: { id: 'cursor', name: 'Cursor' }, open: noop, edit: noop, reveal: noop };
+
+  it('opens a file in its app or your editor, shows it and copies its path', () => {
+    expect(labels(fileMenu('/Users/me/projects/atlas/plan.md', 'file', can))).toEqual(['Open', 'Open in Cursor', 'Reveal in Finder', '-', 'Copy path']);
+  });
+
+  it('has no Open for a folder, which opening only shows in the Finder', () => {
+    expect(labels(fileMenu('/Users/me/projects/atlas', 'folder', { ...can, editor: { id: 'zed', name: 'Zed' } }))).toEqual(['Open in Zed', 'Reveal in Finder', '-', 'Copy path']);
+  });
+
+  it('runs what it was given for each', () => {
+    const run = { open: vi.fn(), edit: vi.fn(), reveal: vi.fn() };
+    const menu = fileMenu('/Users/me/a.md', 'file', { ...can, ...run }).filter((i): i is MenuAction => i !== 'separator' && !('items' in i));
+    menu.slice(0, 3).forEach((i) => i.run());
+    expect([run.open, run.edit, run.reveal].map((f) => f.mock.calls.length)).toEqual([1, 1, 1]);
   });
 });
 

@@ -3,7 +3,9 @@
 // HTML, so nothing in a transcript can put markup on the page. Web links, written as links or bare,
 // open in the browser; a file or an image Codealong keeps (`[name](files/…)`, `![image](images/…)`,
 // as a message sent with attachments refers to them) shows as in a prompt of yours, a chip that
-// opens it or the image in place; any other link shows as its text. A link to a GitHub PR is the PR's
+// opens it or the image in place; any other link shows as its text. A full path written as code
+// opens its file on a click once the engine has said it's there (`PathCode`, filePaths.ts), and a
+// right-click on it, or on any file shown, offers your editor and the Finder too. A link to a GitHub PR is the PR's
 // (PrLink.tsx): a bare one reads `name#123`, hovering it shows the PR and its sessions, and a
 // click shows the PR in Codealong. A tool's output isn't Markdown, but the web links in it open
 // the same way (`linked`), a PR's keeping its words as written.
@@ -13,8 +15,12 @@
 // (`FileLink`). Another `:::name` block
 // is a card of the same kind; other directives stay as they're written.
 
-import { createContext, Fragment, memo, useContext, useState, type ReactNode } from 'react';
-import { openFile, openUrl } from '../api';
+import { createContext, Fragment, memo, useContext, useState, type MouseEvent, type ReactNode } from 'react';
+import { editFile, openFile, openUrl, revealFile, yourEditor } from '../api';
+import { showContextMenu } from '../contextMenu';
+import { pathIn, usePathKind, type PathAt } from '../filePaths';
+import { fileMenu } from '../menus';
+import type { PathKind } from '../types';
 import { ATTRS, attrsOf, cardAt, cardFields, cardKind, COMMENT, opensCard, tonesOf, toneLabel, type Card } from '../directives';
 import { tildePath } from '../format';
 import { prLabel, prRefOf } from '../prLinks';
@@ -278,7 +284,10 @@ export function inline(text: string, links = true): ReactNode[] {
   let n = 0;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(...(links ? bare(text.slice(last, m.index), n++) : [text.slice(last, m.index)]));
-    if (m[1] != null) out.push(<code key={n++} className="ca-ic">{m[1]}</code>);
+    if (m[1] != null) {
+      const at = links ? pathIn(m[1]) : null;
+      out.push(at ? <PathCode key={n++} code={m[1]} at={at} /> : <code key={n++} className="ca-ic">{m[1]}</code>);
+    }
     else if (m[2] != null || m[3] != null) out.push(<strong key={n++}>{inline(m[2] ?? m[3], links)}</strong>);
     else if (m[4] != null)
       out.push(
@@ -338,15 +347,92 @@ function FollowUp({ label, prompt }: { label: string; prompt: string }) {
   );
 }
 
+/** What a file a conversation names does, as `FileLink` and `PathCode` have it: a click opens it,
+ *  in your editor at its line where the path gave one, else in the app that opens its kind
+ *  (launch.rs `open_file`, which shows in the Finder what opening would run); a right-click
+ *  offers each way, and its path (menus.ts `fileMenu`). What goes wrong is said in place (`why`):
+ *  a file in a scratch folder is often gone by the time you look. */
+function useFileActions({ path, line }: PathAt, kind: PathKind) {
+  const [why, setWhy] = useState<string | null>(null);
+  const tried = (work: Promise<void>) => {
+    setWhy(null);
+    work.catch((err: unknown) => setWhy(errorText(err)));
+  };
+  const open = () => tried(line != null && kind === 'file' ? editFile(path, line) : openFile(path));
+  const menu = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // A copied path needs no word; one that couldn't be copied says so with the rest.
+    const report = { error: setWhy, info: () => {} };
+    tried(
+      yourEditor().then((editor) =>
+        showContextMenu(fileMenu(path, kind, { report, editor, open: () => tried(openFile(path)), edit: () => tried(editFile(path, line)), reveal: () => tried(revealFile(path)) })),
+      ),
+    );
+  };
+  return { why, open, menu };
+}
+
+/** Why a file didn't open, beside it. */
+function FileWhy({ why }: { why: string | null }) {
+  return why ? (
+    <span className="ca-md-file-why" role="status">
+      {why}
+    </span>
+  ) : null;
+}
+
+/** Whether `el` holds some of what's selected: a drag across a path to select it ends in a click
+ *  on it, which shouldn't open it. */
+function selectedIn(el: Element): boolean {
+  const s = window.getSelection();
+  return !!s && !s.isCollapsed && s.containsNode(el, true);
+}
+
+/** A path written as code (`/…` or `~/…`, filePaths.ts `pathIn`), as it's written, which opens
+ *  once the engine has said something is there (`usePathKind`); until then, and for a session on
+ *  another device, whose files are there, it's plain code. */
+function PathCode({ code, at }: { code: string; at: PathAt }) {
+  const away = useContext(ImagesFrom);
+  const kind = usePathKind(away ? null : at.path);
+  const f = useFileActions(at, kind ?? 'file');
+  if (!kind) return <code className="ca-ic">{code}</code>;
+  const title = kind === 'folder' ? `Reveal ${at.path} in Finder` : at.line != null ? `Open ${at.path} at line ${at.line} in your editor` : `Open ${at.path}`;
+  return (
+    <>
+      <code
+        className="ca-ic ca-ic-path"
+        role="link"
+        tabIndex={0}
+        title={title}
+        onClick={(e) => {
+          if (selectedIn(e.currentTarget)) return;
+          e.stopPropagation();
+          f.open();
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          e.stopPropagation();
+          f.open();
+        }}
+        onContextMenu={f.menu}
+      >
+        {code}
+      </code>
+      <FileWhy why={f.why} />
+    </>
+  );
+}
+
 /** A file on the session's Mac, as Codex's app shows one it cites: the file's name, then its
- *  folder. A file Codex cites and one a call sent you (SessionThread.tsx) both show this way. A
- *  click opens it in the app that opens its kind (launch.rs `open_file`), and says why in place
- *  when it can't: a file in a scratch folder is often gone by the time you look. A session on
+ *  folder. A file Codex cites and one a call sent you (SessionThread.tsx) both show this way, and
+ *  open and offer their menu as a path written as code does (`useFileActions`). A session on
  *  another device has its files there, so they don't open here, nor does a path that isn't a
  *  full one; inside a link's text (`opens` false) it's only the name. */
 export function FileLink({ path, opens = true }: { path: string; opens?: boolean }) {
   const away = useContext(ImagesFrom);
-  const [why, setWhy] = useState<string | null>(null);
+  const f = useFileActions({ path, line: null }, 'file');
   const cut = path.lastIndexOf('/');
   const name = path.slice(cut + 1) || path;
   const folder = cut > 0 ? tildePath(path.slice(0, cut)) : '';
@@ -372,17 +458,13 @@ export function FileLink({ path, opens = true }: { path: string; opens?: boolean
         title={`Open ${path}`}
         onClick={(e) => {
           e.stopPropagation();
-          setWhy(null);
-          openFile(path).catch((err: unknown) => setWhy(errorText(err)));
+          f.open();
         }}
+        onContextMenu={f.menu}
       >
         {shown}
       </button>
-      {why && (
-        <span className="ca-md-file-why" role="status">
-          {why}
-        </span>
-      )}
+      <FileWhy why={f.why} />
     </>
   );
 }

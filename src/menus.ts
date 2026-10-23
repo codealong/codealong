@@ -25,7 +25,7 @@ import { reviewsSnoozeMenu, SNOOZE_CHORDS, snoozeChordIndex, snoozeMenu } from '
 import { rememberResumed, resumeAccount, resumedIn } from './start';
 import { accountOf, startAccountsNow } from './startAccounts';
 import { reviewChange, STATUSES, STATUS_WORD, todosPrompt, waitingChange, type TodoOp } from './todos';
-import type { AccountInfo, DesktopPinned, Label, Lane, Pr, PrItem, Schedule, Session, StartAccount, StartPlace, Started, Todo } from './types';
+import type { AccountInfo, DesktopPinned, Label, Lane, PathKind, Pr, PrItem, Profile, Schedule, Session, StartAccount, StartPlace, Started, Todo } from './types';
 import { chordKeys as platformKeys, chordSigns as platformSigns, held as modsHeld } from './platform';
 import { mayApprove, prReady } from './prStatus';
 import { errorText, type Report } from './report';
@@ -993,6 +993,25 @@ const LANE_MENU = [
 /** A worktree's menu, as every window has it. */
 export function laneMenu(lane: Lane, can: LaneCan): MenuSpec {
   return laidOut(LANE_MENU, laneActions(lane, can), { todos: can.todos ?? [], boards: can.boards ?? [] }, can.keys);
+}
+
+export interface FileCan {
+  report: Report;
+  /** Your editor (`[apps] editor`), which Open in names. */
+  editor: Profile;
+  /** In the app that opens its kind, as a double-click in the Finder (launch.rs `open_file`). */
+  open: () => void;
+  /** In your editor, at the path's line where it gave one. */
+  edit: () => void;
+  reveal: () => void;
+}
+
+/** A file's menu, wherever a conversation names one (Markdown.tsx `PathCode`, `FileLink`). A
+ *  folder has no Open: opening one shows it in the Finder, as Reveal does. */
+export function fileMenu(path: string, kind: PathKind, can: FileCan): MenuSpec {
+  const open: MenuSpec = kind === 'file' ? [{ label: 'Open', run: can.open }] : [];
+  const copy = copyItem('Copy path', path, 'path', can.report);
+  return sections([...open, { label: `Open in ${can.editor.name}`, run: can.edit }, { label: 'Reveal in Finder', run: can.reveal }], copy ? [copy] : []);
 }
 
 export interface RepoCan {

@@ -1213,9 +1213,10 @@ pub fn reveal(path: &Path) -> Result<()> {
     os::open::reveal(path, Duration::from_secs(10))
 }
 
-/// Kinds of file that opening runs rather than shows: apps and what installs into macOS, and
-/// scripts, which Terminal or a launcher runs.
-const RUNS_WHEN_OPENED: [&str; 17] = ["app", "command", "tool", "terminal", "sh", "zsh", "bash", "py", "rb", "pl", "jar", "pkg", "mpkg", "prefpane", "saver", "workflow", "action"];
+/// Kinds of file that opening runs rather than shows: apps and what installs into macOS, scripts,
+/// which Terminal or a launcher runs, and the Finder's links to a file or a page (`.fileloc`,
+/// `.webloc`, `.inetloc`), which open what they point at, a program as readily as a page.
+const RUNS_WHEN_OPENED: [&str; 20] = ["app", "command", "tool", "terminal", "sh", "zsh", "bash", "py", "rb", "pl", "jar", "pkg", "mpkg", "prefpane", "saver", "workflow", "action", "fileloc", "webloc", "inetloc"];
 
 /// What a Linux desktop runs when it opens one: a launcher (`.desktop`) and an AppImage.
 const LINUX_RUNS_WHEN_OPENED: [&str; 2] = ["desktop", "appimage"];
@@ -1230,28 +1231,69 @@ fn runs_when_opened(path: &Path, folder: bool, mode: u32) -> bool {
     folder || mode & 0o111 != 0 || RUNS_WHEN_OPENED.contains(&kind.as_str())
 }
 
-/// Opens a file a conversation names (one an agent sent you, or cites) in the app that opens its
-/// kind, as a double-click in the Finder would. What opening would run instead (an app, a
-/// script, a program, or a link or a Finder alias, whatever it points at) is shown in the Finder,
-/// so a click on a name an agent wrote runs nothing.
-pub fn open_file(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
+/// A file a conversation names, as opening, showing or editing one takes it: a full path, there on
+/// this Mac. Its name, to say what went wrong with, and where it really is: a link's target.
+fn named_file(path: &Path) -> Result<(String, PathBuf)> {
     if !path.is_absolute() {
         bail!("{} isn't a full path.", path.display());
     }
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
-    let gone = |e: std::io::Error| match e.kind() {
-        std::io::ErrorKind::NotFound => anyhow!("{name} isn't on this Mac any more."),
-        _ => anyhow!("Couldn't open {name}: {e}"),
-    };
-    // A link opens what it links to, so that's what's judged, by its own name too.
-    let real = std::fs::canonicalize(path).map_err(gone)?;
-    let meta = std::fs::metadata(&real).map_err(gone)?;
+    match std::fs::canonicalize(path) {
+        Ok(real) => Ok((name, real)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!("{name} isn't on this Mac any more."),
+        Err(e) => bail!("Couldn't open {name}: {e}"),
+    }
+}
+
+/// Opens a file a conversation names (one an agent sent you, cites, or writes as a path) in the
+/// app that opens its kind, as a double-click in the Finder would. What opening would run instead
+/// (an app, a script, a program, or a link or a Finder alias, whatever it points at) is shown in
+/// the Finder, so a click on a name an agent wrote runs nothing.
+pub fn open_file(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let (name, real) = named_file(path)?;
+    let meta = std::fs::metadata(&real).map_err(|e| anyhow!("Couldn't open {name}: {e}"))?;
     let (folder, mode) = (meta.is_dir(), meta.permissions().mode());
+    // A link opens what it links to, so that's what's judged, by its own name too.
     if runs_when_opened(path, folder, mode) || runs_when_opened(&real, folder, mode) || os::files::finder_alias(&real) {
         return reveal(path);
     }
     os::open::url(&path.to_string_lossy(), Duration::from_secs(10)).map_err(|e| anyhow!("Couldn't open {name}: {e}"))
+}
+
+/// Shows a file a conversation names in the Finder, selected, as its menu's Reveal in Finder does.
+pub fn reveal_file(path: &Path) -> Result<()> {
+    let (name, _) = named_file(path)?;
+    reveal(path).map_err(|e| anyhow!("Couldn't show {name}: {e}"))
+}
+
+/// Opens a file a conversation names in the editor `id`, at `line` where the path gave one.
+pub fn edit_file(id: &str, path: &Path, line: Option<u64>) -> Result<()> {
+    named_file(path)?;
+    crate::editors::open_at(id, path, line)
+}
+
+/// What a path a conversation names is on this Mac.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PathKind {
+    File,
+    Folder,
+}
+
+/// What each of `paths` is here, `None` where nothing is or it isn't a full path (`~/` is home),
+/// for the windows to make only the paths that are here open on a click. Each is only looked up
+/// (stat), never read, so one in a folder macOS protects doesn't ask for permission
+/// (.claude/rules/macos-privacy.md).
+pub fn path_kinds(paths: &[String]) -> Vec<Option<PathKind>> {
+    paths
+        .iter()
+        .map(|p| {
+            let path = crate::util::expand(p);
+            let meta = path.is_absolute().then(|| std::fs::metadata(&path).ok()).flatten()?;
+            Some(if meta.is_dir() { PathKind::Folder } else { PathKind::File })
+        })
+        .collect()
 }
 
 /// Opens a `codex://` link in the Codex app that's running. The Codex app ships as
@@ -1312,9 +1354,29 @@ mod tests {
         assert!(!runs("/d/report.pdf", 0o644) && !runs("/d/notes", 0o644));
         assert!(runs("/d/build.sh", 0o644) && runs("/d/tool", 0o755) && runs("/d/Setup.PKG", 0o644));
         assert!(runs_when_opened(Path::new("/d/Calculator.app"), true, 0o755));
+        // The Finder's links open what they point at, which can be a program.
+        assert!(runs("/d/notes.fileloc", 0o644) && runs("/d/site.webloc", 0o644) && runs("/d/Page.inetloc", 0o644));
         // A Linux desktop's launchers and AppImages run there.
         assert!(os::as_if(Os::Linux, || runs("/d/app.desktop", 0o644) && runs("/d/Tool.AppImage", 0o644)));
         assert!(os::as_if(Os::MacOs, || !runs("/d/app.desktop", 0o644) && !runs("/d/Tool.AppImage", 0o644)));
+    }
+
+    /// A path a conversation names is a file, a folder or nothing here; a part of one, or one
+    /// that isn't full, is nothing. Saying what's wrong with one names the file.
+    #[test]
+    fn paths_named_are_looked_up_and_judged() {
+        let dir = std::env::temp_dir().join(format!("codealong-paths-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("plans")).unwrap();
+        std::fs::write(dir.join("plans/steps.md"), "# Steps").unwrap();
+        let at = |p: &str| dir.join(p).to_string_lossy().into_owned();
+        let kinds = path_kinds(&[at("plans/steps.md"), at("plans"), at("plans/gone.md"), "plans/steps.md".into(), String::new()]);
+        assert_eq!(kinds, [Some(PathKind::File), Some(PathKind::Folder), None, None, None]);
+        assert_eq!(named_file(&dir.join("plans/gone.md")).unwrap_err().to_string(), "gone.md isn't on this Mac any more.");
+        assert_eq!(named_file(Path::new("plans/steps.md")).unwrap_err().to_string(), "plans/steps.md isn't a full path.");
+        assert_eq!(named_file(&dir.join("plans/steps.md")).unwrap().0, "steps.md");
+        assert!(edit_file("cursor", &dir.join("plans/gone.md"), Some(3)).is_err());
+        assert!(reveal_file(Path::new("steps.md")).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

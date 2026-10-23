@@ -67,6 +67,21 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* A path written as code that's on this Mac (Markdown.tsx `PathCode`): still code, underlined as
+   a link is. */
+.ca-ic-path {
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.ca-ic-path:hover {
+  text-decoration-color: currentColor;
+}
+.ca-ic-path:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
 /* A wide table scrolls sideways inside the thread rather than pushing it wider. */
 .ca-md .ca-md-table {
   max-width: 100%;
