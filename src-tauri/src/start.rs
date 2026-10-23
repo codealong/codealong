@@ -59,17 +59,41 @@ fn adapter_of(a: &AccountCfg) -> &'static dyn Adapter {
     crate::harness::adapter(harness_of(a))
 }
 
-/// Where an account can start a session, the usual place first, or why it can't
-/// (`Adapter::places`). The Claude app and the Codex app each run one account, the one in the
-/// default folder (`~/.claude`, `~/.codex`); the terminal runs any account that has a command
-/// line, through its command.
+/// Where an account can start a session now, the usual place first, or why it can't: the places
+/// its harness offers it (`Adapter::places`) less those that run its command line while that
+/// isn't on this Mac (`Adapter::missing_cli`): the terminal and the background, and Codealong's
+/// own sessions where the account's adapter is that command line (OpenCode's `opencode acp`, not
+/// an adapter package or config.toml's `acp`). The Claude app and the Codex app each run one
+/// account, the one in the default folder (`~/.claude`, `~/.codex`), with no command line of yours.
 pub fn places_of(a: &AccountCfg, home: &Path) -> std::result::Result<Vec<Place>, String> {
-    adapter_of(a).places(a, home)
+    let adapter = adapter_of(a);
+    let offered = adapter.places(a, home)?;
+    match adapter.missing_cli(a, home) {
+        Some(cli) => without_cli(a, offered, cli),
+        None => Ok(offered),
+    }
 }
 
-/// Why an account's `start` can't be where its sessions start, in words.
+/// `offered` less the places that run `cli`, the account's command line that isn't here
+/// (`places_of`), or why none is left.
+fn without_cli(a: &AccountCfg, offered: Vec<Place>, cli: &str) -> std::result::Result<Vec<Place>, String> {
+    let runs_cli = |p: &Place| match p {
+        Place::Terminal | Place::Background => true,
+        Place::Codealong => crate::acp::adapter_command(a).is_ok_and(|(command, _)| crate::detect::program_of(&command) == Some(cli)),
+        Place::ClaudeApp | Place::CodexApp => false,
+    };
+    let left: Vec<Place> = offered.into_iter().filter(|p| !runs_cli(p)).collect();
+    if left.is_empty() {
+        return Err(format!("{cli}, {}'s command line, isn't on this machine, so {} can't start sessions from Codealong until it's installed (Settings › Accounts).", harness_of(a).word(), a.name));
+    }
+    Ok(left)
+}
+
+/// Why an account's `start` can't be where its sessions start, in words. It goes by the places
+/// its harness offers it, not by what's installed now (`places_of`): config.toml isn't wrong
+/// while a command line is missing, and Settings saves the rest.
 pub fn check_start(a: &AccountCfg, place: &str, home: &Path) -> std::result::Result<(), String> {
-    let offered = places_of(a, home).unwrap_or_default();
+    let offered = adapter_of(a).places(a, home).unwrap_or_default();
     let words = |ps: &[Place]| ps.iter().map(|p| format!("\"{}\"", p.word())).collect::<Vec<_>>().join(", ");
     match Place::from_word(place) {
         _ if offered.is_empty() => Err(format!("{} can't start sessions from Codealong, so it takes no start.", a.name)),
@@ -2175,6 +2199,24 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_command_line_takes_away_only_the_places_that_run_it() {
+        let home = Path::new("/Users/me");
+        let offered = |a: &AccountCfg| adapter_of(a).places(a, home).unwrap();
+        // Claude Code's app and Codealong's own sessions (claude-agent-acp) run without `claude`.
+        let claude = account("claude", "claude", "/Users/me/.claude", Some("claude"));
+        assert_eq!(without_cli(&claude, offered(&claude), "claude").unwrap(), vec![Place::ClaudeApp, Place::Codealong]);
+        // OpenCode's own sessions are `opencode acp`, unless config.toml names an adapter of its own.
+        let opencode = account("opencode", "opencode", "/Users/me/.local/share/opencode", Some("opencode"));
+        let unavailable = without_cli(&opencode, offered(&opencode), "opencode").unwrap_err();
+        assert_eq!(unavailable, "opencode, OpenCode's command line, isn't on this machine, so opencode can't start sessions from Codealong until it's installed (Settings › Accounts).");
+        let own = AccountCfg { acp: Some("/opt/oc-acp/bin/oc-acp".into()), ..opencode };
+        assert_eq!(without_cli(&own, offered(&own), "opencode").unwrap(), vec![Place::Codealong]);
+        // Cursor's app starts nothing from here.
+        let cursor = account("cursor", "cursor", "/Users/me/.cursor", Some("cursor-agent"));
+        assert!(without_cli(&cursor, offered(&cursor), "cursor-agent").unwrap_err().starts_with("cursor-agent, Cursor's command line"));
+    }
+
+    #[test]
     fn offers_each_app_only_its_own_account() {
         let accounts = vec![
             account("claude", "claude", "/Users/me/.claude", Some("claude")),
@@ -2197,7 +2239,7 @@ mod tests {
         assert_eq!(behind("claude2"), Some(false));
         assert_eq!(behind("codex2"), Some(true));
         assert_eq!(behind("opencode"), Some(true));
-        assert!(o.accounts[5].unavailable.as_deref().unwrap_or("").contains("its own window"));
+        assert!(o.accounts[5].unavailable.as_deref().unwrap_or("").starts_with("agy, Antigravity's command line, isn't on this machine"));
         assert_eq!(o.accounts[4].default_model, None);
         assert_eq!(o.accounts[0].places[0].label, "Ghostty");
         assert_eq!(o.codex_projects, vec!["/r/spur".to_string()]);
@@ -2252,7 +2294,11 @@ mod tests {
         assert!(check_start(&account("codex", "codex", "/Users/me/.codex", None), "terminal", home).is_ok());
         assert!(check_start(&account("codex2", "codex", "/Users/me/.codex2", None), "background", home).is_ok());
         assert!(check_start(&account("codex2", "codex", "/Users/me/.codex2", None), "codex-app", home).is_err());
-        assert!(check_start(&account("ag", "antigravity", "/Users/me/.gemini/antigravity", None), "terminal", home).unwrap_err().contains("takes no start"));
+        // Its command line isn't in this home: config.toml isn't wrong for that, so Settings saves.
+        let ag = account("ag", "antigravity", "/Users/me/.gemini/antigravity", None);
+        assert!(places_of(&ag, home).is_err());
+        assert!(check_start(&ag, "terminal", home).is_ok());
+        assert!(check_start(&ag, "codealong", home).unwrap_err().contains("\"terminal\", \"background\""));
         assert!(check_start(&accounts[1], "somewhere", home).is_err());
     }
 

@@ -67,9 +67,13 @@ pub struct Behind {
     pub built: String,
     /// How many commits origin/main has past it.
     pub commits: u32,
-    /// The checkout of Codealong's source it was looked at in, where Improve Codealong starts its
-    /// sessions (the board's `improve`), which is where the session that updates it starts.
+    /// The checkout of Codealong's source it was looked at in (the board's `improve`): the
+    /// worktree Improve Codealong starts its sessions in, or the source found in a folder
+    /// Codealong searches but in none of your projects.
     pub source: String,
+    /// That worktree, where the session that updates it starts; None for a source in no project,
+    /// whose session starts in a chat of its own and goes there.
+    pub lane_id: Option<String>,
     pub checked_at: i64,
 }
 
@@ -148,15 +152,18 @@ fn built_commit() -> Option<&'static str> {
     option_env!("CODEALONG_COMMIT").map(str::trim).filter(|c| !c.is_empty())
 }
 
-/// Looks at origin/main in Codealong's source on this machine (the board's `improve` worktree,
-/// whose id is its folder) for commits this build hasn't, and tells the windows. Fetching only
-/// moves the remote's branches, as relaunch.sh's own fetch does. Nothing's said while the board
-/// has no source here, or git can't tell (the commit isn't in that checkout: a fork's build).
+/// Looks at origin/main in Codealong's source on this machine (the board's `improve`: its
+/// worktree, whose id is its folder, or the source in no project) for commits this build hasn't,
+/// and tells the windows. Fetching only moves the remote's branches, as relaunch.sh's own fetch
+/// does. Nothing's said while the board has no source here, or git can't tell (the commit isn't
+/// in that checkout: a fork's build).
 fn dev_check(app: &AppHandle, built: &str) {
-    let source = app.try_state::<crate::engine::Handle>().and_then(|e| e.read(|b| b.improve.lane_id.clone())).filter(|id| !id.starts_with('@'));
+    let improve = app.try_state::<crate::engine::Handle>().map(|e| e.read(|b| b.improve.clone())).unwrap_or_default();
+    let lane_id = improve.lane_id.filter(|id| !id.starts_with('@'));
+    let source = lane_id.clone().or(improve.source.map(|s| s.root));
     let behind = source.and_then(|source| {
         let commits = commits_behind(Path::new(&source), built)?;
-        (commits > 0).then(|| Behind { built: built.to_string(), commits, source, checked_at: now_ms() })
+        (commits > 0).then(|| Behind { built: built.to_string(), commits, source, lane_id, checked_at: now_ms() })
     });
     *app.state::<Updates>().behind.lock().unwrap() = behind;
     let _ = app.emit("update-status", view(app));
@@ -548,8 +555,8 @@ mod tests {
         let off = View { current: "0.2.0".into(), status: Status::Off, behind: None };
         assert_eq!(serde_json::to_value(off).unwrap(), serde_json::json!({"current": "0.2.0", "state": "off"}));
         // A development build origin/main has moved past.
-        let behind = Behind { built: "1a2b3c4d".into(), commits: 3, source: "/Users/me/projects/codealong".into(), checked_at: 7 };
+        let behind = Behind { built: "1a2b3c4d".into(), commits: 3, source: "/Users/me/projects/codealong".into(), lane_id: Some("/Users/me/projects/codealong".into()), checked_at: 7 };
         let off = View { current: "0.2.0".into(), status: Status::Off, behind: Some(behind) };
-        assert_eq!(serde_json::to_value(off).unwrap(), serde_json::json!({"current": "0.2.0", "state": "off", "behind": {"built": "1a2b3c4d", "commits": 3, "source": "/Users/me/projects/codealong", "checkedAt": 7}}));
+        assert_eq!(serde_json::to_value(off).unwrap(), serde_json::json!({"current": "0.2.0", "state": "off", "behind": {"built": "1a2b3c4d", "commits": 3, "source": "/Users/me/projects/codealong", "laneId": "/Users/me/projects/codealong", "checkedAt": 7}}));
     }
 }

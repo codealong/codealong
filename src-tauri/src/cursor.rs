@@ -1850,13 +1850,10 @@ impl crate::harness::Adapter for Cursor {
         found.then(|| format!("/{name}"))
     }
 
-    /// The command line starts a chat in a terminal; the app only in its own window.
-    fn places(&self, account: &AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
-        if self.missing_cli(account, home).is_none() {
-            Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background])
-        } else {
-            Err(format!("The Cursor app starts chats only in its own window. With its command line, {CLI}, installed, {} can start them in a terminal from here.", account.name))
-        }
+    /// The command line starts a chat in a terminal; the app only in its own window, so without
+    /// the command line (`missing_cli`) there's nowhere (start.rs `places_of`).
+    fn places(&self, _account: &AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
+        Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background])
     }
 
     /// The command line's chat opens in its terminal, or a new one that resumes it

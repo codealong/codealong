@@ -130,8 +130,9 @@ impl crate::harness::Adapter for ClaudeCode {
         on_path("claude") || crate::detect::is_executable(&home.join(".local/bin/claude")) || crate::detect::is_executable(&home.join(".claude/local/claude"))
     }
 
-    /// The Claude app runs Claude Code of its own, so only the terminal and the background need
-    /// `claude`. Another home than yours (a test's) isn't looked into: the PATH is this Mac's.
+    /// The Claude app runs Claude Code of its own, and Codealong's own sessions claude-agent-acp,
+    /// so only the terminal and the background need `claude`. Another home than yours (a test's)
+    /// isn't looked into: the PATH is this Mac's.
     fn missing_cli(&self, account: &crate::config::AccountCfg, home: &Path) -> Option<&'static str> {
         crate::harness::missing_program(account.command(), "claude", home, || home != crate::util::home() || self.installed(home, &crate::detect::on_user_path))
     }
@@ -185,14 +186,14 @@ impl crate::harness::Adapter for ClaudeCode {
         Ok(acp_launch(crate::acp::package_program("claude-agent-acp", self.harness())?, &account.home_path()))
     }
 
-    /// The Claude app runs the account in `~/.claude`; the terminal and the background need
-    /// `claude`, which Codealong's own sessions (claude-agent-acp) don't.
+    /// The Claude app runs the account in `~/.claude`.
     fn places(&self, account: &crate::config::AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
         use crate::start::Place;
-        let cli = self.missing_cli(account, home).is_none();
-        let app = account.home_path() == home.join(".claude");
-        let wanted = [(Place::Terminal, cli), (Place::Background, cli), (Place::ClaudeApp, app), (Place::Codealong, true)];
-        Ok(wanted.into_iter().filter(|(_, ok)| *ok).map(|(p, _)| p).collect())
+        Ok(if account.home_path() == home.join(".claude") {
+            vec![Place::Terminal, Place::Background, Place::ClaudeApp, Place::Codealong]
+        } else {
+            vec![Place::Terminal, Place::Background, Place::Codealong]
+        })
     }
 
     fn session_cwds(&self, home: &Path, since: i64) -> Vec<String> {

@@ -594,11 +594,20 @@ pub fn on_user_path(name: &str) -> bool {
     crate::procs::user_path().split(':').filter(|p| !p.is_empty()).any(|d| is_executable(&Path::new(d).join(name)))
 }
 
+/// A `VAR=value` word, as a command sets one for its program.
+fn is_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(k, _)| !k.is_empty() && k.chars().all(is_word_char))
+}
+
 /// The program a command as config.toml gives an account's runs: its first word past any
 /// `VAR=value` (`CURSOR_CONFIG_DIR=~/.x cursor-agent` runs `cursor-agent`).
 pub fn program_of(command: &str) -> Option<&str> {
-    let assignment = |w: &str| w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && k.chars().all(is_word_char));
-    command.split_whitespace().find(|w| !assignment(w))
+    command.split_whitespace().find(|w| !is_assignment(w))
+}
+
+/// Whether a command sets `var` for its program (`PATH=~/agent/bin:$PATH cursor-agent`).
+pub fn sets_var(command: &str, var: &str) -> bool {
+    command.split_whitespace().take_while(|w| is_assignment(w)).any(|w| w.split_once('=').is_some_and(|(k, _)| k == var))
 }
 
 /// How long what your shell said of a program is kept (`shell_finds`).

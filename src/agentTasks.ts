@@ -75,16 +75,17 @@ function commits(n: number): string {
 }
 
 /** Updating Codealong Dev: what origin/main has that the running build hasn't, pulled into the
- *  source's checkout it was looked at in (the session starts there) and built by relaunch.sh,
- *  which reopens the app. A checkout holding work of its own stops it rather than lose it. */
+ *  source's checkout it was looked at in (the session starts in its worktree, or in a chat of its
+ *  own for a source in none of your projects) and built by relaunch.sh, which reopens the app. A
+ *  checkout holding work of its own stops it rather than lose it. */
 export function devUpdateTask(b: DevBehind): AgentTask {
   const short = b.built.slice(0, 8);
   const prompt = [
-    `Update Codealong Dev to the latest origin/main and relaunch it. It was built from ${short}, and origin/main has ${commits(b.commits)} since. Codealong’s source is in this checkout, ${b.source}.`,
+    `Update Codealong Dev to the latest origin/main and relaunch it. It was built from ${short}, and origin/main has ${commits(b.commits)} since. Codealong’s source is in ${b.source}.`,
     'Fetch, then bring the checkout to origin/main only where that loses nothing: if it has uncommitted changes, or commits origin/main doesn’t have, stop and tell me what they are rather than stash, reset or merge them. Then run scripts/relaunch.sh in it: it builds Codealong Dev, waits its turn behind other builds, and quits and reopens the running one once it’s built.',
     `Tell me what its last line said, and in a few lines what’s new since ${short} (\`git log --oneline ${short}..origin/main\`).`,
   ].join('\n\n');
-  return { prompt, laneId: b.source };
+  return { prompt, laneId: b.laneId };
 }
 
 /** An account whose command line isn't on this machine (the engine's `Adapter::missing_cli`),

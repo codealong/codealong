@@ -2258,9 +2258,11 @@ keeps it from asking. Builds of the source (Codealong Dev, `npm run tauri dev`) 
 Codealong Dev doesn't update itself, but it knows the commit it was built from (when
 `scripts/relaunch.sh` built it from a checkout with nothing uncommitted), and two minutes after it
 opens, then every fifteen, it fetches origin/main in its source's checkout (the one Improve
-Codealong starts in) and counts the commits there since. Once there are any, *Update: N new
+Codealong starts in, or the one found in a folder Codealong searches when it's in none of your
+projects) and counts the commits there since. Once there are any, *Update: N new
 commits* shows at the foot of the sidebar, and Settings › General says so beside the version with
-an Update… button. Either opens the quick panel on that checkout with a prompt that has an agent
+an Update… button. Either opens the quick panel on that checkout (a chat of its own when it's in
+no project) with a prompt that has an agent
 bring it to origin/main, stopping to ask rather than lose uncommitted changes or commits of its own,
 run `relaunch.sh`, and say what's new. *Look for updates by itself* turns the looking off too.
 

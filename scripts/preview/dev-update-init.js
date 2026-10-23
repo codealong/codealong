@@ -3,7 +3,7 @@
 //   PREVIEW_INIT=scripts/preview/dev-update-init.js PREVIEW_NAME=dev-update scripts/preview.sh sessions
 //   PREVIEW_SCHEME=dark PREVIEW_INIT=scripts/preview/dev-update-init.js PREVIEW_NAME=dev-update scripts/preview.sh sessions
 (function () {
-  window.__update = { current: '0.6.0', state: 'off', behind: { built: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b', commits: 3, source: '/Users/me/projects/codealong', checkedAt: Date.now() } };
+  window.__update = { current: '0.6.0', state: 'off', behind: { built: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b', commits: 3, source: '/Users/me/projects/codealong', laneId: '/Users/me/projects/codealong', checkedAt: Date.now() } };
   var tries = 0;
   var go = setInterval(function () {
     tries += 1;

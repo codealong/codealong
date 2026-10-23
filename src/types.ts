@@ -930,8 +930,11 @@ export interface DevBehind {
   /** The commit the build was built from. */
   built: string;
   commits: number;
-  /** The checkout of Codealong's source it was looked at in: its worktree's id. */
+  /** The checkout of Codealong's source it was looked at in. */
   source: string;
+  /** Its worktree, where the session that updates it starts; null for a source in none of your
+   *  projects, whose session starts in a chat of its own. */
+  laneId: string | null;
   checkedAt: number;
 }
 

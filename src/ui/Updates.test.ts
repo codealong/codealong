@@ -52,7 +52,7 @@ describe('checkedSays', () => {
 });
 
 describe('a development build behind origin/main', () => {
-  const behind = { built: '1a2b3c4d5e6f', commits: 3, source: '/Users/me/projects/codealong', checkedAt: 0 };
+  const behind = { built: '1a2b3c4d5e6f', commits: 3, source: '/Users/me/projects/codealong', laneId: '/Users/me/projects/codealong', checkedAt: 0 };
 
   it('says so in Settings, with the commit it was built from', () => {
     expect(updateSays({ current: '0.5.0', state: 'off', behind }, 0)).toBe('This is a development build, from 1a2b3c4d. origin/main has 3 commits since: Update has an agent pull them and relaunch it.');

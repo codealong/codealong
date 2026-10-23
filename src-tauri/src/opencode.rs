@@ -1100,12 +1100,8 @@ impl crate::harness::Adapter for OpenCode {
         Ok((format!("{} acp", account.command()), Vec::new()))
     }
 
-    /// Every place runs its command line, Codealong's own sessions too (`acp_command`).
-    fn places(&self, account: &crate::config::AccountCfg, home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
-        match self.missing_cli(account, home) {
-            None => Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background, crate::start::Place::Codealong]),
-            Some(cli) => Err(format!("OpenCode's command line, {cli}, isn't on this machine, so {} can't start sessions from Codealong.", account.name)),
-        }
+    fn places(&self, _account: &crate::config::AccountCfg, _home: &Path) -> std::result::Result<Vec<crate::start::Place>, String> {
+        Ok(vec![crate::start::Place::Terminal, crate::start::Place::Background, crate::start::Place::Codealong])
     }
 
     /// Its messages are rows in its database.

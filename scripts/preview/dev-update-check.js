@@ -7,7 +7,7 @@
 (function () {
   var status = function (s) { window.__emit('update-status', (window.__update = Object.assign({ current: '0.6.0' }, s))); };
   var update = function () { return q('.ca-side-update'); };
-  var behind = { built: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b', commits: 3, source: '/Users/me/projects/codealong', checkedAt: Date.now() };
+  var behind = { built: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b', commits: 3, source: '/Users/me/projects/codealong', laneId: '/Users/me/projects/codealong', checkedAt: Date.now() };
 
   (async function () {
     try {

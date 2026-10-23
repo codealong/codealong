@@ -1029,9 +1029,10 @@ pub fn steerable(s: &Session, account: Option<&AccountCfg>) -> bool {
 /// runs it and it isn't on this Mac: neither where `found` looks (the PATH Codealong gives
 /// programs, where its installer puts it in `home`) nor, when `home` is yours, where your shell
 /// finds it (`detect::shell_finds`). A command that runs another program is a wrapper or alias
-/// of yours, which isn't looked into (`Adapter::missing_cli`).
+/// of yours, and one that sets its own PATH finds the program there: neither is looked into
+/// (`Adapter::missing_cli`).
 pub fn missing_program(command: &str, program: &'static str, home: &Path, found: impl FnOnce() -> bool) -> Option<&'static str> {
-    if crate::detect::program_of(command) != Some(program) || found() {
+    if crate::detect::program_of(command) != Some(program) || crate::detect::sets_var(command, "PATH") || found() {
         return None;
     }
     (home != crate::util::home() || !crate::detect::shell_finds(program)).then_some(program)
@@ -1205,9 +1206,12 @@ mod tests {
         assert_eq!(missing_program("cursor-agent", "cursor-agent", home, || false), Some("cursor-agent"));
         assert_eq!(missing_program("CURSOR_CONFIG_DIR=~/.cw cursor-agent", "cursor-agent", home, || false), Some("cursor-agent"));
         assert_eq!(missing_program("cursor-agent", "cursor-agent", home, || true), None);
-        // A wrapper or alias of yours, or a path, is yours to keep working.
+        // A wrapper or alias of yours, a path, or a command that sets its own PATH is yours to
+        // keep working.
         assert_eq!(missing_program("cursor-work", "cursor-agent", home, || panic!("looked for a wrapper's program")), None);
         assert_eq!(missing_program("/opt/agy/bin/agy", "agy", home, || false), None);
+        assert_eq!(missing_program("PATH=/opt/agent/bin:$PATH cursor-agent", "cursor-agent", home, || panic!("looked past the command's own PATH")), None);
+        assert_eq!(missing_program("XDG_PATH=/x cursor-agent", "cursor-agent", home, || false), Some("cursor-agent"));
     }
 
     #[test]
@@ -1230,6 +1234,10 @@ mod tests {
         // Antigravity's runs `agy` though config.toml gives no command.
         let agy = account("antigravity", None);
         assert_eq!(adapter(Harness::Antigravity).missing_cli(&agy, home), Some("agy"));
+        let unavailable = crate::start::places_of(&agy, home).unwrap_err();
+        assert!(unavailable.starts_with("agy, Antigravity's command line, isn't on this machine"), "{unavailable}");
+        // config.toml isn't wrong for it: a start there is checked against what the harness offers.
+        assert!(crate::start::check_start(&AccountCfg { start: Some("terminal".into()), ..agy }, "terminal", home).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -37,12 +37,18 @@ describe('devSetupTask', () => {
 
 describe('devUpdateTask', () => {
   it('pulls origin/main into the source’s checkout, where it starts, and relaunches, losing nothing', () => {
-    const { prompt, laneId } = devUpdateTask({ built: '1a2b3c4d5e6f', commits: 1, source: '/Users/me/projects/codealong', checkedAt: 0 });
+    const { prompt, laneId } = devUpdateTask({ built: '1a2b3c4d5e6f', commits: 1, source: '/Users/me/projects/codealong', laneId: '/Users/me/projects/codealong', checkedAt: 0 });
     expect(laneId).toBe('/Users/me/projects/codealong');
-    expect(prompt).toMatch(/^Update Codealong Dev to the latest origin\/main and relaunch it\. It was built from 1a2b3c4d, and origin\/main has 1 commit since\./);
+    expect(prompt).toMatch(/^Update Codealong Dev to the latest origin\/main and relaunch it\. It was built from 1a2b3c4d, and origin\/main has 1 commit since\. Codealong’s source is in \/Users\/me\/projects\/codealong\./);
     expect(prompt).toContain('rather than stash, reset or merge them');
     expect(prompt).toContain('scripts/relaunch.sh');
     expect(prompt).toContain('`git log --oneline 1a2b3c4d..origin/main`');
+  });
+
+  it('starts in a chat of its own for a source in none of your projects, which the prompt names', () => {
+    const { prompt, laneId } = devUpdateTask({ built: '1a2b3c4d5e6f', commits: 2, source: '/Users/me/src/codealong', laneId: null, checkedAt: 0 });
+    expect(laneId).toBeNull();
+    expect(prompt).toContain('Codealong’s source is in /Users/me/src/codealong.');
   });
 });
 
