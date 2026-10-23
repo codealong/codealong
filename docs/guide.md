@@ -3029,7 +3029,8 @@ The iPhone app isn't on the App Store yet: you build it with Xcode and install i
 linking a phone in Settings › Devices (on a Mac), opens the quick panel on a chat of its own with a
 prompt that has an agent do it with you: find or clone the app's repo (into a folder Codealong scans),
 install what it needs, walk you through what only you can do on the phone and in Xcode, run its
-install script, and link the phone with this Mac by a link code. With a free Apple developer team
+install script, have you trust the developer on the phone once the app is on it, and link the phone
+with this Mac by a link code. With a free Apple developer team
 the app runs for a week before it needs installing again, which the same button does.
 
 One of your machines runs what they share rather than all of them: for now, reviewing a pull

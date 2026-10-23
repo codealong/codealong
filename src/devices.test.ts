@@ -52,6 +52,8 @@ describe('your other devices', () => {
     expect(IPHONE_PROMPT).toContain('“Get it on your iPhone”');
     expect(IPHONE_PROMPT).toContain('`scripts/install-device.sh`');
     expect(IPHONE_PROMPT).toContain('`codealong devices code`');
+    // iOS lists the developer to trust only once the app is on the phone.
+    expect(IPHONE_PROMPT.indexOf('trusting the developer')).toBeGreaterThan(IPHONE_PROMPT.indexOf('`scripts/install-device.sh`'));
   });
 
   it('names a device without its owner', () => {
