@@ -3,17 +3,18 @@
 // prints something new, when something happens on the board, or only when a script fires it;
 // what it does, a new session each time, one session kept going, or a message to a session that's
 // there, and the worktree it's in, each found by typing (FieldPicker.tsx); where and on what (the
-// agent menu's Auto, routing groups and accounts, AgentPromptBox.tsx) with what it's told; and
-// what it does when the last run is still going or a time is missed. The engine checks what's
-// saved (schedules/mod.rs `check`) and says why it can't be.
+// agent menu's Auto, routing groups and accounts, AgentPromptBox.tsx) with what it's told; which
+// of your machines run it, once you've linked another (this one, one of them, preferring one, or
+// each); and what it does when the last run is still going or a time is missed. The engine checks
+// what's saved (schedules/mod.rs `check`) and says why it can't be.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { scheduleOp, scheduleTimes } from '../api';
 import { tildePath } from '../format';
 import { laneBranch, laneGroups } from '../quick';
-import { fireCommand, scheduleLanes, scheduleSessions, sessionFolder } from '../schedules';
+import { asksRunsOn, fireCommand, preferOptions, scheduleLanes, scheduleSessions, sessionFolder } from '../schedules';
 import { useStartAccounts, useStartGroups } from '../startAccounts';
-import type { Board, Schedule, ScheduleEvent, ScheduleTimes, ScheduleWhen, StartPlace } from '../types';
+import type { Board, DevicesView, Schedule, ScheduleEvent, ScheduleRunsOn, ScheduleTimes, ScheduleWhen, StartPlace } from '../types';
 import { AgentPromptBox } from './AgentPromptBox';
 import { FieldPicker } from './FieldPicker';
 import type { PickerSection } from './Picker';
@@ -42,6 +43,18 @@ const TOS: { id: Schedule['run']['to']; label: string; title: string }[] = [
   { id: 'thread', label: 'One session', title: 'The first run starts a session, and each later run is sent to it' },
   { id: 'session', label: 'A session', title: 'Each run is sent to a session that’s already there' },
 ];
+
+const RUNS_ON: { id: ScheduleRunsOn['kind']; label: string; title: string }[] = [
+  { id: 'this', label: 'This machine', title: 'Only this machine runs it' },
+  { id: 'one', label: 'One of my machines', title: 'One of your machines each time: the one it prefers while it’s up and can run it, else the next that can' },
+  { id: 'every', label: 'Every machine', title: 'Each of your machines runs it on its own' },
+];
+
+const RUNS_ON_HINT: Record<ScheduleRunsOn['kind'], string> = {
+  this: 'Only this machine runs it, while it’s up and Codealong is open.',
+  one: 'The machine it prefers runs it while it’s up and can, else the next that can, first choices before backups (Settings › Devices). Each keeps a copy, so one that’s asleep or off misses nothing.',
+  every: 'Each of your machines runs it on its own; one without its worktree or account leaves it be.',
+};
 
 const PLACES: { id: StartPlace | ''; label: string }[] = [
   { id: '', label: 'Out of sight' },
@@ -86,13 +99,15 @@ export interface ScheduleDialogProps {
   /** The schedule to change, or a new one's draft (no id). */
   schedule: Schedule;
   board: Board;
+  /** Your machines, for which of them run it. */
+  devices: DevicesView | null;
   now: number;
   onClose: () => void;
   /** It was saved: the saved schedule's id, to select it. */
   onSaved: (id: string) => void;
 }
 
-export function ScheduleDialog({ schedule, board, now, onClose, onSaved }: ScheduleDialogProps) {
+export function ScheduleDialog({ schedule, board, devices, now, onClose, onSaved }: ScheduleDialogProps) {
   const [draft, setDraft] = useState<Schedule>(schedule);
   const [kept, setKept] = useState<Partial<Record<WhenKind, ScheduleWhen>>>({ [schedule.when.kind]: schedule.when });
   const [times, setTimes] = useState<ScheduleTimes | null>(null);
@@ -128,6 +143,13 @@ export function ScheduleDialog({ schedule, board, now, onClose, onSaved }: Sched
     setKept((k) => ({ ...k, [w.kind]: w }));
   };
   const setRun = (r: Partial<Schedule['run']>) => setDraft((d) => ({ ...d, run: { ...d.run, ...r } }));
+  const runsOn: ScheduleRunsOn = draft.runsOn ?? { kind: 'this' };
+  // The machine it preferred, back when one of them runs it again.
+  const keptPrefer = useRef(schedule.runsOn?.kind === 'one' ? (schedule.runsOn.prefer ?? '') : '');
+  const setRunsOn = (kind: ScheduleRunsOn['kind'], prefer = keptPrefer.current) => {
+    if (kind === 'one') keptPrefer.current = prefer;
+    setDraft((d) => ({ ...d, runsOn: kind === 'one' ? { kind, prefer } : { kind } }));
+  };
 
   // A time is read back as it's written: in words and its next few times, or why it can't be.
   const rule = when.kind === 'time' ? when.rule : null;
@@ -222,7 +244,7 @@ export function ScheduleDialog({ schedule, board, now, onClose, onSaved }: Sched
               {times?.problem ??
                 (times && times.next.length > 0
                   ? `${times.words}. Next: ${times.next.map((t) => new Date(t).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })).join(', ')}.`
-                  : 'Weekdays 9:00, mon,thu 10:30, daily 6pm, every 2h, every 30m weekdays 09:00-18:00, monthly 1 9:00, once 2026-10-21 15:00, or cron 0 9 * * 1-5. On this Mac’s clock.')}
+                  : `Weekdays 9:00, mon,thu 10:30, daily 6pm, every 2h, every 30m weekdays 09:00-18:00, monthly 1 9:00, once 2026-10-21 15:00, or cron 0 9 * * 1-5. On ${runsOn.kind === 'this' ? 'this machine’s clock' : 'each machine’s own clock'}.`)}
             </small>
           </div>
         )}
@@ -328,6 +350,15 @@ export function ScheduleDialog({ schedule, board, now, onClose, onSaved }: Sched
               )}
             </div>
           </>
+        )}
+
+        {asksRunsOn(devices, schedule.runsOn) && (
+          <div className="ca-field">
+            <span>Runs on</span>
+            <Seg label="Runs on" options={RUNS_ON} value={runsOn.kind} onPick={(kind) => setRunsOn(kind)} />
+            {runsOn.kind === 'one' && <Select label="The machine it prefers" value={runsOn.prefer ?? ''} options={preferOptions(devices, runsOn.prefer ?? '')} onPick={(prefer) => setRunsOn('one', prefer)} />}
+            <small>{RUNS_ON_HINT[runsOn.kind]}</small>
+          </div>
         )}
 
         <div className="ca-field">

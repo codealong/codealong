@@ -10,6 +10,8 @@
 //! - `api`: what devices ask each other for, and what comes back.
 //! - `pr`: pull requests as one device tells another of them: its PR list, a PR's detail and its
 //!   merge box.
+//! - `schedules`: the schedules your machines share, as each tells the others of its copies, so
+//!   one of them runs each, or every one does.
 //! - `client`: a device that only watches: it links, keeps feeds and asks, and answers nothing.
 //!
 //! `fixtures` is the tests' own: the sessions, lanes and scratch folders they build on, which the
@@ -29,4 +31,5 @@ pub mod model;
 pub mod net;
 pub mod pr;
 pub mod proto;
+pub mod schedules;
 pub mod wire;

@@ -963,6 +963,7 @@ impl Inner {
                     online: st.conns.contains_key(&l.key),
                     last_seen: Some(c.last_seen).filter(|t| *t > 0),
                     prs: c.replica.prs.clone(),
+                    schedules: c.replica.schedules.clone(),
                 })
             })
             .collect();

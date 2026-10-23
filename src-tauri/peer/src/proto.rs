@@ -111,6 +111,8 @@ pub const TABLET: &str = "tablet";
 /// conversation as an item of its own (`api::Item`'s `peer`, whole, with who sent it); a device
 /// that doesn't say it gets the note the builds before sent in its place, the message's first
 /// line under who it's from, since one from before would show it as the agent's own words.
+/// `SCHEDULES` says it keeps the schedules your machines share (`FeedMsg::schedules`,
+/// `schedules::Shared`): only a device that says it is sent them.
 pub const HAVE: &str = "have";
 pub const WATCH: &str = "watch";
 pub const CURSOR: &str = "cursor";
@@ -118,7 +120,8 @@ pub const PRS: &str = "prs";
 pub const PR_DRAFTS: &str = "pr-drafts";
 pub const EMBLEMS: &str = "emblems";
 pub const PEER_ITEMS: &str = "peer-items";
-pub const KNOWS: [&str; 7] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEMS, PEER_ITEMS];
+pub const SCHEDULES: &str = "schedules";
+pub const KNOWS: [&str; 8] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEMS, PEER_ITEMS, SCHEDULES];
 
 /// Whether a device of this kind only watches.
 pub fn watches(kind: Option<&str>) -> bool {

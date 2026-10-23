@@ -1890,7 +1890,13 @@ export interface Schedule {
   updatedAt: number;
   /** The session whose agent made it, from the command; none when you did. */
   createdBy?: string;
+  /** Which of your machines run it; none for this machine alone. */
+  runsOn?: ScheduleRunsOn;
 }
+
+/** Which of your machines run a schedule (schedules/mod.rs `RunsOn`): this one alone; one of them
+ *  each time, the one it prefers (a device key) while it's around and can, else the next; or each. */
+export type ScheduleRunsOn = { kind: 'this' } | { kind: 'one'; prefer?: string } | { kind: 'every' };
 
 export type ScheduleOutcome = 'started' | 'sent' | 'resumed' | 'queued' | 'skipped' | 'missed' | 'failed';
 
@@ -1904,6 +1910,8 @@ export interface ScheduleRunRecord {
   session?: string;
   /** A start whose session hasn't shown yet. */
   pending?: { lane: string; account: string; at: number };
+  /** The machine it ran on, when that's another of yours; its session is a key from there. */
+  machine?: string;
 }
 
 /** A schedule as the Schedules view shows it (schedules/mod.rs `Item`). */
@@ -1923,6 +1931,10 @@ export interface ScheduleItem extends Schedule {
   runs: ScheduleRunRecord[];
   /** Runs asked for that haven't gone yet. */
   asked: number;
+  /** Where it runs, for one your machines share: "Next on Mini", "Next on this machine, in Mini's place". */
+  runsOnWords?: string;
+  /** Why this machine can't run it, for one your machines share that another can. */
+  here?: string;
 }
 
 /** A schedule's time as it's being written: in words, and its next few times (`schedule_times`). */

@@ -1,6 +1,7 @@
 //! What a device tells the devices it's linked with about itself (peers.rs): its name, and its board's
 //! worktrees, sessions and plan usage, cut from each board the engine publishes as barfeed.rs
-//! cuts the bar's, and its PR list for a device that knows PRs (`pr_cards`). Only what changed
+//! cuts the bar's, its PR list for a device that knows PRs (`pr_cards`), and the schedules it shares
+//! for a machine that keeps them (schedules/machines.rs `outgoing`). Only what changed
 //! goes out: each worktree is hashed, and a feed carries the ones that changed and the ids of the
 //! ones that left; the PR list goes again, whole, when it changed. What only works on this device stays here:
 //! open targets, process ids, preview URLs, and resume and attach commands.
@@ -19,6 +20,7 @@ use serde::Serialize;
 
 pub use codealong_peer::feed::{remote_key, split_remote, DeviceInfo, FeedMsg, Replica};
 use codealong_peer::pr::PrCard;
+use codealong_peer::schedules::Shared;
 
 use crate::model::{Board, DeviceTag, Harness, Lane, Usage};
 
@@ -31,10 +33,12 @@ pub struct Snapshot {
     pub lanes: Vec<Lane>,
     pub usage: Vec<Usage>,
     pub prs: Vec<PrCard>,
+    pub schedules: Shared,
     lane_hashes: Vec<u64>,
     device_hash: u64,
     usage_hash: u64,
     prs_hash: u64,
+    schedules_hash: u64,
     /// The same without what a device from before Cursor can't read (`reads_everywhere`), when
     /// there's any.
     older: Option<Box<Snapshot>>,
@@ -49,13 +53,15 @@ pub fn snapshot(board: &Board, device: DeviceInfo) -> Snapshot {
     let usage = board.usage.clone();
     let prs = pr_cards(board);
     let prs_hash = hash_of(&prs);
+    let schedules = board.shared_schedules.clone();
+    let schedules_hash = hash_of(&schedules);
     let newer = |h: Harness| !reads_everywhere(h);
     let older = (lanes.iter().any(|l| l.sessions.iter().any(|s| newer(s.harness))) || usage.iter().any(|u| newer(u.harness))).then(|| {
         let lanes: Vec<Lane> = lanes.iter().map(|l| Lane { sessions: l.sessions.iter().filter(|s| reads_everywhere(s.harness)).cloned().collect(), ..l.clone() }).collect();
         let usage: Vec<Usage> = usage.iter().filter(|u| reads_everywhere(u.harness)).cloned().collect();
-        Box::new(Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device: device.clone(), lanes, usage, prs: prs.clone(), prs_hash, older: None })
+        Box::new(Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device: device.clone(), lanes, usage, prs: prs.clone(), prs_hash, schedules: schedules.clone(), schedules_hash, older: None })
     });
-    Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device, lanes, usage, prs, prs_hash, older }
+    Snapshot { generated_at: board.generated_at, lane_hashes: lanes.iter().map(hash_of).collect(), device_hash: hash_of(&device), usage_hash: hash_of(&usage), device, lanes, usage, prs, prs_hash, schedules, schedules_hash, older }
 }
 
 /// The PRs another device is told of: the open ones, and ones merged or closed in the last day,
@@ -194,10 +200,13 @@ pub struct Outbox {
     device: Option<u64>,
     usage: Option<u64>,
     prs: Option<u64>,
+    schedules: Option<u64>,
     /// The other device is from before Cursor: it gets the snapshot's `older` side.
     older: bool,
     /// The other device knows PRs (`proto::PRS`): it gets the PR list.
     knows_prs: bool,
+    /// The other device keeps the schedules your machines share (`proto::SCHEDULES`).
+    knows_schedules: bool,
     /// The other device draws every emblem color (`proto::EMBLEMS`); one from before gets the
     /// label colors nearest them (`emblems::for_older`).
     knows_emblems: bool,
@@ -207,12 +216,12 @@ impl Outbox {
     /// The outbox for a device whose hello said `knows`.
     pub fn for_device(knows: &[String]) -> Outbox {
         let says = |word: &str| knows.iter().any(|k| k == word);
-        Outbox { older: !knows_every_harness(knows), knows_prs: says(codealong_peer::proto::PRS), knows_emblems: says(codealong_peer::proto::EMBLEMS), ..Outbox::default() }
+        Outbox { older: !knows_every_harness(knows), knows_prs: says(codealong_peer::proto::PRS), knows_schedules: says(codealong_peer::proto::SCHEDULES), knows_emblems: says(codealong_peer::proto::EMBLEMS), ..Outbox::default() }
     }
 
     /// Starts over, so the next feed carries everything, for the same device.
     pub fn restart(&mut self) {
-        *self = Outbox { older: self.older, knows_prs: self.knows_prs, knows_emblems: self.knows_emblems, ..Outbox::default() };
+        *self = Outbox { older: self.older, knows_prs: self.knows_prs, knows_schedules: self.knows_schedules, knows_emblems: self.knows_emblems, ..Outbox::default() };
     }
 
     /// Picks up where the other device's copy leaves off (`Msg::Have`): the lanes it has, by the
@@ -248,6 +257,10 @@ impl Outbox {
             msg.prs = Some(snap.prs.clone());
             self.prs = Some(snap.prs_hash);
         }
+        if self.knows_schedules && self.schedules != Some(snap.schedules_hash) {
+            msg.schedules = Some(snap.schedules.clone());
+            self.schedules = Some(snap.schedules_hash);
+        }
         let mut here: HashSet<&str> = HashSet::new();
         for (lane, h) in snap.lanes.iter().zip(&snap.lane_hashes) {
             here.insert(&lane.id);
@@ -267,7 +280,7 @@ impl Outbox {
         }
         if !full {
             msg.gone = gone;
-            if msg.device.is_none() && msg.usage.is_none() && msg.prs.is_none() && msg.lanes.is_empty() && msg.gone.is_empty() {
+            if msg.device.is_none() && msg.usage.is_none() && msg.prs.is_none() && msg.schedules.is_none() && msg.lanes.is_empty() && msg.gone.is_empty() {
                 return None;
             }
         }
@@ -541,6 +554,20 @@ mod tests {
         assert_eq!(newer.next(&snap).unwrap().lanes[0].sessions[0].emblem, Some(emblem("rose", "sky")));
         // Every color it could get is one its windows draw.
         assert!(crate::emblems::COLORS.iter().all(|c| ["red", "pink", "purple", "indigo", "blue", "teal", "green"].contains(&crate::emblems::label_color(c))));
+    }
+
+    /// The schedules this machine shares go to a machine that keeps them, whole, and again only
+    /// when they change; a device that doesn't say it keeps them (a phone) gets none.
+    #[test]
+    fn the_shared_schedules_go_to_machines_that_keep_them() {
+        let shared = |name: &str| codealong_peer::schedules::Shared { list: vec![codealong_peer::schedules::SharedSchedule { id: "s-1".into(), schedule: serde_json::json!({ "name": name }), able: true, ..Default::default() }], gone: Vec::new() };
+        let b = |name: &str| Board { shared_schedules: shared(name), ..board(vec![lane("/a", vec![])]) };
+        let mut machine = Outbox::for_device(&codealong_peer::proto::KNOWS.map(String::from));
+        assert_eq!(machine.next(&snapshot(&b("Triage"), info("Mini"))).unwrap().schedules, Some(shared("Triage")));
+        assert!(machine.next(&snapshot(&b("Triage"), info("Mini"))).is_none(), "nothing changed");
+        assert_eq!(machine.next(&snapshot(&b("Morning triage"), info("Mini"))).unwrap().schedules, Some(shared("Morning triage")));
+        let phone: Vec<String> = codealong_peer::proto::KNOWS.iter().filter(|k| **k != codealong_peer::proto::SCHEDULES).map(|k| k.to_string()).collect();
+        assert_eq!(Outbox::for_device(&phone).next(&snapshot(&b("Triage"), info("Mini"))).unwrap().schedules, None);
     }
 
     #[test]

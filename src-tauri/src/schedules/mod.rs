@@ -20,7 +20,12 @@
 //! (`Runs::fired`), which `codealong schedule fire` and Run now add to. The scheduler (runner.rs)
 //! runs in the app: with the app closed nothing runs, and a time missed meanwhile runs once when
 //! it's back, unless the schedule says to skip it (`CatchUp`).
+//!
+//! A schedule runs on this machine alone, or on your machines (`RunsOn`): on one of them, the one
+//! it prefers while it's around and can, else the next, or on each of them. Every machine keeps a
+//! copy of the ones they share, from the others' feeds (machines.rs).
 
+pub mod machines;
 pub mod rule;
 pub mod runner;
 
@@ -70,6 +75,10 @@ pub const PENDING_MS: i64 = 30 * 60_000;
 #[serde(default)]
 pub struct File {
     pub schedules: Vec<Schedule>,
+    /// Schedules your machines shared that were removed, or made one machine's, and when: the
+    /// other machines drop their copies from before then too (machines.rs `merged`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub gone: Vec<codealong_peer::schedules::Gone>,
 }
 
 impl File {
@@ -112,6 +121,37 @@ pub struct Schedule {
     /// it sends goes as Codealong's, not as yours.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
+    /// Which of your machines run it.
+    #[serde(skip_serializing_if = "RunsOn::is_this")]
+    pub runs_on: RunsOn,
+}
+
+/// Which of your machines run a schedule (`[devices]`, Settings › Devices).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RunsOn {
+    /// This machine alone: the one it was made on, or made this machine's.
+    #[default]
+    This,
+    /// One of them each time: the one it prefers (a device key) while it's around and can run it,
+    /// else the next that can, first choices before backups (`[devices] automations`).
+    One {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        prefer: String,
+    },
+    /// Each of them, on its own.
+    Every,
+}
+
+impl RunsOn {
+    pub fn is_this(&self) -> bool {
+        *self == RunsOn::This
+    }
+
+    /// Your machines share it: each keeps a copy.
+    pub fn shared(&self) -> bool {
+        !self.is_this()
+    }
 }
 
 /// When a schedule runs.
@@ -269,6 +309,10 @@ pub struct Track {
     pub armed_at: i64,
     /// The latest of its times that's been run, skipped or missed.
     pub last_due: Option<i64>,
+    /// The latest of its times this machine took a run of, for a schedule your machines share:
+    /// the others don't run it again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub took: Option<i64>,
     /// The session it keeps going (`To::Thread`), and since when; for `To::Session`, the copy
     /// the session it sends to went on as (`follows` says which session that was).
     pub thread: Option<String>,
@@ -301,6 +345,25 @@ pub struct Track {
     /// neither here nor in `seen`, which keeps only the latest it ran for.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub looked: Vec<String>,
+    /// When its watch's last look printed something other than the one before, for the machine
+    /// that looks next (machines.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changed_at: Option<i64>,
+    /// Its notes as your machines last had them, for a schedule they share.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<KeptNotes>,
+}
+
+/// A shared schedule's notes, as they were when this machine last read or wrote them.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct KeptNotes {
+    pub text: String,
+    /// When they were written, wherever that was.
+    pub at: i64,
+    /// The notes file's time here once they were read or written, so a change made here is told
+    /// from one that came from another machine.
+    pub mtime: i64,
 }
 
 /// The runs that went on one day.
@@ -355,6 +418,10 @@ pub struct RunRecord {
     /// A start whose session isn't known yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending: Option<Pending>,
+    /// The machine it ran on, when that's another of yours: as the Schedules view shows it, never
+    /// kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
@@ -422,6 +489,12 @@ pub struct Item {
     pub runs: Vec<RunRecord>,
     /// Runs asked for that haven't gone yet.
     pub asked: usize,
+    /// Where it runs, for one your machines share: "On Mini", "Here, in Mini's place".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runs_on_words: Option<String>,
+    /// Why this machine can't run it, for one your machines share that another can.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub here: Option<String>,
 }
 
 /// The schedules, or why schedules.json doesn't read. No file is no schedules.
@@ -650,14 +723,34 @@ pub fn clock_text(ms: i64, zone: &dyn Zone) -> String {
     format!("{} {}-{:02}-{:02} {}", DAYS[wday], c.year, c.month, c.day, rule::clock(c.hour * 60 + c.minute))
 }
 
-/// The schedules as the Schedules view shows them.
+/// The schedules as the Schedules view shows them: one your machines share with where it runs,
+/// and with their runs of it among its own.
 pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zone: &dyn Zone) -> Vec<Item> {
     file.schedules
         .iter()
         .map(|s| {
             let track = runs.of.get(&s.id);
             // Checked as it was when saved: a time once that has since run isn't a problem.
-            let problem = check(s, cfg, s.updated_at.max(s.created_at), zone).err().or_else(|| board_problem(s, board));
+            let saved = check(s, cfg, s.updated_at.max(s.created_at), zone).err();
+            let (problem, here, runs_on_words) = match &s.runs_on {
+                RunsOn::This => (saved.or_else(|| board_problem(s, board)), None, None),
+                RunsOn::Every => (machines::able(s, board, cfg, zone).err(), None, Some("On every machine".to_string())),
+                RunsOn::One { .. } => {
+                    let here = machines::able(s, board, cfg, zone).err();
+                    let line = machines::line(s, &board.machines, here.is_none(), now);
+                    let words = machines::words(s, &line, &board.machines);
+                    match line.is_empty() {
+                        true => (here.or_else(|| Some("None of your machines can run it now.".to_string())), None, Some(words)),
+                        false => (saved, here, Some(words)),
+                    }
+                }
+            };
+            let mut shown: Vec<RunRecord> = track.map(|t| t.runs.iter().rev().take(20).cloned().collect()).unwrap_or_default();
+            if s.runs_on.shared() {
+                shown.extend(machines::their_runs(&s.id, &board.machines));
+                shown.sort_by(|a, b| b.at.cmp(&a.at));
+                shown.truncate(20);
+            }
             let next_at = match (&s.when, s.paused) {
                 (_, true) => None,
                 (When::Time { .. }, _) => next_due(s, track, now, zone),
@@ -672,8 +765,10 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
                 thread: track.and_then(|t| t.thread.clone()),
                 queued: track.and_then(|t| t.queued.clone()),
                 check: track.and_then(|t| t.check.clone()),
-                runs: track.map(|t| t.runs.iter().rev().take(20).cloned().collect()).unwrap_or_default(),
+                runs: shown,
                 asked: runs.fired.iter().filter(|f| f.schedule == s.id).count(),
+                runs_on_words,
+                here,
             }
         })
         .collect()
@@ -793,6 +888,10 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
                     Some(was) => {
                         schedule.created_at = was.created_at;
                         schedule.created_by = was.created_by.clone();
+                        // Made this machine's alone: the other machines drop their copies.
+                        if was.runs_on.shared() && !schedule.runs_on.shared() {
+                            file.gone.push(codealong_peer::schedules::Gone { id: schedule.id.clone(), at: now });
+                        }
                     }
                     None => {
                         if schedule.id.is_empty() {
@@ -806,6 +905,9 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
                 if let Err(why) = check(&schedule, cfg, now, zone) {
                     bail!("{why}");
                 }
+                if schedule.runs_on.shared() {
+                    file.gone.retain(|g| g.id != schedule.id);
+                }
                 match old {
                     Some(i) => file.schedules[i] = schedule.clone(),
                     None => file.schedules.push(schedule.clone()),
@@ -817,6 +919,10 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
         Op::Remove { id } => {
             let removed = change(|file| {
                 let id = found(file, &id)?;
+                // Your other machines drop their copies of one they share.
+                if file.schedules.iter().any(|s| s.id == id && s.runs_on.shared()) {
+                    file.gone.push(codealong_peer::schedules::Gone { id: id.clone(), at: now });
+                }
                 file.schedules.retain(|s| s.id != id);
                 Ok(id)
             })?;

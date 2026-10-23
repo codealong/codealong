@@ -2689,7 +2689,7 @@ export function App() {
       {cleaning && <CleanUpDialog lanes={cleaning} onClose={() => setCleaning(null)} onDone={setToast} />}
       {renamed && <RenameDialog lane={renamed.lane} session={renamed.session} onClose={() => setRenaming(null)} onFailed={setToast} />}
       {mergingDone && <MergeDoneDialog ask={mergingDone} onClose={() => setMergingDone(null)} />}
-      {scheduleEdit && board && <ScheduleDialog schedule={scheduleEdit} board={board} now={now} onClose={() => setScheduleEdit(null)} onSaved={setScheduleId} />}
+      {scheduleEdit && board && <ScheduleDialog schedule={scheduleEdit} board={board} devices={devices} now={now} onClose={() => setScheduleEdit(null)} onSaved={setScheduleId} />}
       {boardEdit && <BoardDialog board={boardEdit.board} project={current} onSave={saveBoard} onClose={() => setBoardEdit(null)} {...ruleChoices} />}
       {columnEdit && <ColumnDialog column={columnEdit.column} onSave={saveColumn} onClose={() => setColumnEdit(null)} {...ruleChoices} />}
       <Toasts state={toasts} anchor={toastAnchor} onUnarchive={(u) => setArchived(u.keys, false, u.title)} />

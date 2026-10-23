@@ -6,7 +6,7 @@
 import { resetsPhrase } from './format';
 import { homeOf, sessionHomes, type Placed } from './lanes';
 import { ALL_PROJECTS, laneGroups } from './quick';
-import type { Lane, Schedule, ScheduleItem, ScheduleOutcome, ScheduleWhen } from './types';
+import type { DevicesView, Lane, Schedule, ScheduleItem, ScheduleOutcome, ScheduleRunsOn, ScheduleWhen } from './types';
 
 export const OUTCOME_WORD: Record<ScheduleOutcome, string> = {
   started: 'Started',
@@ -71,6 +71,23 @@ export function doesWords(s: Pick<Schedule, 'run'>, sessionTitle: (key: string) 
   }
 }
 
+/** The machines a schedule that runs on one of yours may prefer, for its dialog's menu: none in
+ *  particular, this one, and your other machines (not phones, which run nothing). One it prefers
+ *  that's no longer linked stays, so saving doesn't change it unasked. */
+export function preferOptions(devices: DevicesView | null, prefer: string): { id: string; label: string }[] {
+  const out = [{ id: '', label: 'No machine in particular' }];
+  if (devices?.me.key) out.push({ id: devices.me.key, label: `This machine, ${devices.me.name}` });
+  for (const d of devices?.devices ?? []) if (d.kind === 'mac') out.push({ id: d.key, label: d.name });
+  if (prefer && !out.some((o) => o.id === prefer)) out.push({ id: prefer, label: 'A machine that’s no longer linked' });
+  return out;
+}
+
+/** Whether a schedule's dialog asks which of your machines run it: once you've linked another,
+ *  or for one that already runs on them. */
+export function asksRunsOn(devices: DevicesView | null, runsOn: ScheduleRunsOn | undefined): boolean {
+  return (runsOn?.kind ?? 'this') !== 'this' || (!!devices?.enabled && devices.devices.some((d) => d.kind === 'mac'));
+}
+
 /** The schedule each session came from, by its key: the session a run started or sent to, and
  *  the session a schedule keeps going. The latest run's schedule wins a session two ran. */
 export function scheduleBySession(items: ScheduleItem[] | undefined): Map<string, { id: string; name: string }> {
@@ -125,6 +142,7 @@ export function scheduleOf(item: ScheduleItem): Schedule {
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     createdBy: item.createdBy,
+    runsOn: item.runsOn,
   };
 }
 

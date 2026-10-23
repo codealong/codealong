@@ -18,8 +18,13 @@
 //! never run one after another. A watch's first look only notes what's there; after that, a line
 //! it hasn't seen (or, for a value, a change) is a run. A watch that fails looks less often, up
 //! to once an hour, until it works again.
+//!
+//! A schedule that runs on one of your machines runs here only when this machine's turn comes
+//! (machines.rs `line`): its times another machine took are passed, and its watch looks and its
+//! events run only here while this machine is first in line, going on from what the others saw
+//! and ran for. Before each look the scheduler takes in the others' copies and notes (`sync`).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender as Tx};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -48,11 +53,27 @@ const CHECK_WAIT: Duration = Duration::from_secs(60);
 const MOST_OUTPUT: usize = 256 * 1024;
 /// A session started from a run may show this long before the run itself (clocks disagree).
 const START_SLACK_MS: i64 = 60_000;
+/// A look this long after the last means the Mac slept, or the scheduler just started.
+const WOKE_AFTER_MS: i64 = 60_000;
 
 /// What's under way: a schedule with a run or a check going has nothing else started for it.
 #[derive(Default)]
 pub struct Scheduler {
     busy: HashSet<String>,
+    /// For a schedule your machines share, the time of it that's due and when this machine first
+    /// saw it due: the next in line takes it once the first hasn't for a while (machines.rs `turn`).
+    noticed: HashMap<String, (i64, i64)>,
+    last_tick: i64,
+    /// When the Mac last woke, or the scheduler started.
+    woke_at: i64,
+}
+
+/// What a plan goes by beyond the schedules and the board.
+pub struct Cx<'a> {
+    pub cfg: &'a crate::config::Config,
+    /// For each shared schedule, its time that's due and when this machine first saw it due.
+    pub noticed: &'a HashMap<String, (i64, i64)>,
+    pub woke_at: i64,
 }
 
 /// Something to do for a schedule.
@@ -96,6 +117,11 @@ pub struct Cause {
     /// Run by `--snapshot --schedule-run`, which isn't you at a window: its start is asked as
     /// another device's, and what it sends isn't yours.
     pub by_check: bool,
+}
+
+/// The first machine in a shared schedule's line, whose turn it was, when it isn't this one.
+fn instead_of(line: Option<&Vec<machines::Seat>>) -> Option<&str> {
+    line?.first().filter(|x| !x.me).map(|x| x.name.as_str())
 }
 
 /// A change to what's noted of the schedules, made as the plan is.
@@ -182,8 +208,25 @@ impl Scheduler {
     /// What's due now, with what's noted along the way saved, and each schedule with a job
     /// marked busy until it's done.
     pub fn due(&mut self, board: &Board, now: i64, zone: &dyn Zone) -> Vec<Job> {
-        let (Ok(file), Ok(runs)) = (load(), load_runs()) else { return Vec::new() };
-        let (jobs, notes) = plan(&file, &runs, board, &self.busy, now, zone);
+        // Long after the last look: what was noticed is stale, and so may the other machines'
+        // feeds be until they're heard from again.
+        if now - self.last_tick > WOKE_AFTER_MS {
+            self.woke_at = now;
+            self.noticed.clear();
+        }
+        self.last_tick = now;
+        sync(&board.machines, now);
+        let (Ok(file), Ok(runs), Ok(cfg)) = (load(), load_runs(), crate::config::current()) else { return Vec::new() };
+        let cx = Cx { cfg: &cfg, noticed: &self.noticed, woke_at: self.woke_at };
+        let (jobs, notes, noticed) = plan_in(&file, &runs, board, &self.busy, &cx, now, zone);
+        for (id, due) in noticed {
+            match self.noticed.get(&id) {
+                Some((d, _)) if *d == due => {}
+                _ => {
+                    self.noticed.insert(id, (due, now));
+                }
+            }
+        }
         // What each run is for is noted as taken before it goes, so a run that falls over partway
         // (or Codealong quitting) can't start it twice: at most once, never twice.
         let claims: Vec<&Job> = jobs.iter().filter(|j| matches!(j, Job::Fire { .. } | Job::Deliver { .. })).collect();
@@ -206,8 +249,19 @@ impl Scheduler {
     }
 }
 
-/// What's due on this board: the jobs to start, and the notes to make. Pure, for the tests.
+/// What's due on this board: the jobs to start, and the notes to make, for the tests: `plan_in`
+/// with nothing noticed and no machines settling.
+#[cfg(test)]
 pub fn plan(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, now: i64, zone: &dyn Zone) -> (Vec<Job>, Vec<Note>) {
+    let cfg = crate::config::Config::default();
+    let (jobs, notes, _) = plan_in(file, runs, board, busy, &Cx { cfg: &cfg, noticed: &HashMap::new(), woke_at: 0 }, now, zone);
+    (jobs, notes)
+}
+
+/// `plan`, and for each schedule your machines share whose time is due, that time, to note when
+/// this machine first saw it (`Scheduler::noticed`).
+pub fn plan_in(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, cx: &Cx, now: i64, zone: &dyn Zone) -> (Vec<Job>, Vec<Note>, Vec<(String, i64)>) {
+    let mut noticed = Vec::new();
     let mut jobs = Vec::new();
     let mut notes = Vec::new();
     let mut quiet = Vec::new();
@@ -277,8 +331,19 @@ pub fn plan(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, now
             }
             continue;
         }
-        if s.paused {
-            // Times that pass while it's paused aren't run when it's resumed.
+        // Shared with your other machines: whether this one can run it, and for one that runs on
+        // one of them, the line it goes by, and whether the others' feeds are still to come.
+        let able_here = !s.runs_on.shared() || machines::able(s, board, cx.cfg, zone).is_ok();
+        let line = matches!(s.runs_on, RunsOn::One { .. }).then(|| machines::line(s, &board.machines, able_here, now));
+        let settling = now - cx.woke_at < machines::SETTLE_MS && machines::unheard(&board.machines, &s.id);
+        // Its watch looks, and its events run, on the first in line alone.
+        let first_here = match &line {
+            Some(l) => !settling && l.first().is_some_and(|x| x.me),
+            None => able_here,
+        };
+        if s.paused || (!able_here && line.is_none()) {
+            // Times that pass while it's paused aren't run when it's resumed; nor do those of one
+            // every machine runs that this one can't.
             if let Some(due) = next_due(s, Some(track), now, zone).filter(|&d| d <= now) {
                 notes.push(Note::Passed { id: s.id.clone(), due: latest_due(s, due, now, zone), missed: false });
             }
@@ -288,7 +353,29 @@ pub fn plan(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, now
             When::Time { .. } => {
                 let Some(first) = next_due(s, Some(track), now, zone).filter(|&d| d <= now) else { continue };
                 let due = latest_due(s, first, now, zone);
-                let late = now - due > GRACE_MS;
+                // Late is from when this machine first saw it due: one that waited its turn isn't.
+                let mut seen_at = now.max(due);
+                if let Some(line) = &line {
+                    noticed.push((s.id.clone(), due));
+                    seen_at = cx.noticed.get(&s.id).filter(|(d, _)| *d == due).map_or(now, |(_, at)| *at);
+                    if machines::taken(&board.machines, &s.id, due).is_some() {
+                        notes.push(Note::Passed { id: s.id.clone(), due, missed: false });
+                        continue;
+                    }
+                    if settling {
+                        continue;
+                    }
+                    match machines::turn(line, seen_at, now) {
+                        Some(seat) if seat.me => {}
+                        // Its turn, and done with it there however it went: skipped, missed, paused.
+                        Some(seat) if seat.last_due.is_some_and(|d| d >= due) => {
+                            notes.push(Note::Passed { id: s.id.clone(), due, missed: false });
+                            continue;
+                        }
+                        _ => continue,
+                    }
+                }
+                let late = seen_at - due > GRACE_MS;
                 if late && (s.catch_up == CatchUp::Skip || now - due > CATCH_UP_MS) {
                     notes.push(Note::Passed { id: s.id.clone(), due, missed: true });
                     continue;
@@ -297,19 +384,27 @@ pub fn plan(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, now
                     let c = zone.civil(due);
                     c.hour * 60 + c.minute
                 });
-                let (why, said) = match late {
+                let (mut why, mut said) = match late {
                     true => (format!("{at}, late"), format!("its {at} run, late: the Mac was asleep or Codealong was closed at {at}")),
                     false => (at.clone(), format!("its {at} run")),
                 };
+                if let Some(other) = instead_of(line.as_ref()) {
+                    why.push_str(&format!(", as {other} didn't take it"));
+                    said.push_str(&format!(", here as {other} didn't take it"));
+                }
                 jobs.push(Job::Fire { id: s.id.clone(), cause: Cause { why, said, due: Some(due), ..Cause::default() } });
             }
             When::Watch { every, .. } => {
-                if next_watch(every, track).is_some_and(|at| at <= now) {
+                if first_here && next_watch(every, track).is_some_and(|at| at <= now) {
                     jobs.push(Job::Check { id: s.id.clone() });
                 }
             }
             When::Event { .. } => {
-                let found: Vec<Found> = found_on(board, &s.when, track.armed_at).into_iter().filter(|f| !track.seen.contains(&f.id)).collect();
+                if !first_here {
+                    continue;
+                }
+                let theirs = if line.is_some() { machines::their_seen(&board.machines, &s.id) } else { HashSet::new() };
+                let found: Vec<Found> = found_on(board, &s.when, track.armed_at).into_iter().filter(|f| !track.seen.contains(&f.id) && !theirs.contains(f.id.as_str())).collect();
                 if let Some(first) = found.first() {
                     let why = match found.len() {
                         1 => crate::util::one_line(&first.title, 80),
@@ -330,7 +425,79 @@ pub fn plan(file: &File, runs: &Runs, board: &Board, busy: &HashSet<String>, now
     if !quiet.is_empty() {
         jobs.push(Job::Quiet { keys: quiet });
     }
-    (jobs, notes)
+    (jobs, notes, noticed)
+}
+
+/// Takes in your other machines' copies of the schedules you share (machines.rs `merged`), and the
+/// latest notes of the ones that run on one of them: a copy that's newer, one that's new here, one
+/// that went; notes written elsewhere since this machine's were. What's changed here is left to the
+/// next feed to tell the others of.
+fn sync(others: &crate::shared::Machines, now: i64) {
+    if others.others.is_empty() {
+        return;
+    }
+    let Ok(file) = load() else { return };
+    if machines::merged(&file, others, now).is_some() {
+        let mut took = None;
+        // Under the lock, from the file as it is then; nothing to write is an error that writes nothing.
+        let _ = change(|f| match machines::merged(f, others, now) {
+            Some(m) => {
+                *f = m.file;
+                took = Some((m.resumed, m.removed));
+                Ok(())
+            }
+            None => bail!("Nothing to take in."),
+        });
+        if let Some((resumed_ids, removed)) = took.filter(|(a, b)| !a.is_empty() || !b.is_empty()) {
+            let noted = change_runs(|r| {
+                for id in &resumed_ids {
+                    resumed(r.of.entry(id.clone()).or_default(), now);
+                }
+                for id in &removed {
+                    r.of.remove(id);
+                    r.fired.retain(|f| &f.schedule != id);
+                }
+            });
+            if let Err(e) = noted {
+                eprintln!("codealong: couldn't note the schedules taken in from your other machines: {e:#}");
+            }
+        }
+    }
+    let (Ok(file), Ok(runs)) = (load(), load_runs()) else { return };
+    for s in file.schedules.iter().filter(|s| s.notes && matches!(s.runs_on, RunsOn::One { .. })) {
+        let path = folder(&s.id).join("notes.md");
+        let kept = runs.of.get(&s.id).and_then(|t| t.notes.clone());
+        let mut now_kept = kept.clone();
+        // Written here since: what's here is the latest.
+        if let Some(m) = crate::util::mtime_ms(&path).filter(|m| kept.as_ref().is_none_or(|k| k.mtime != *m)) {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                now_kept = Some(KeptNotes { text: cut(text, machines::MOST_NOTES), at: m, mtime: m });
+            }
+        }
+        // Written on another machine since: written here.
+        if let Some(theirs) = machines::their_notes(others, &s.id).filter(|n| now_kept.as_ref().is_none_or(|k| n.at > k.at)) {
+            let _ = std::fs::create_dir_all(folder(&s.id));
+            match std::fs::write(&path, &theirs.text) {
+                Ok(()) => now_kept = Some(KeptNotes { text: theirs.text.clone(), at: theirs.at, mtime: crate::util::mtime_ms(&path).unwrap_or(theirs.at) }),
+                Err(e) => eprintln!("codealong: couldn't write schedule {}'s notes from another machine: {e}", s.id),
+            }
+        }
+        if now_kept != kept {
+            let id = s.id.clone();
+            if let Err(e) = change_runs(|r| r.of.entry(id).or_default().notes = now_kept) {
+                eprintln!("codealong: couldn't note schedule {}'s notes: {e:#}", s.id);
+            }
+        }
+    }
+}
+
+/// Text cut to at most `most` bytes, at a character's edge.
+fn cut(mut text: String, most: usize) -> String {
+    if text.len() > most {
+        let at = (0..=most).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
+        text.truncate(at);
+    }
+    text
 }
 
 /// The latest of a rule's times from `first` up to now: the one a late run is for.
@@ -451,6 +618,8 @@ pub fn claim(runs: &mut Runs, job: &Job) {
     let t = runs.of.entry(id.clone()).or_default();
     if let Some(due) = cause.due {
         t.last_due = Some(t.last_due.map_or(due, |d| d.max(due)));
+        // Your other machines don't run it again.
+        t.took = Some(t.took.map_or(due, |d| d.max(due)));
     }
     note_seen(t, cause.found.iter().filter(|f| !f.id.is_empty()).map(|f| f.id.clone()));
     runs.fired.retain(|f| !cause.fired.contains(&f.id));
@@ -566,6 +735,12 @@ fn watch(engine: &Handle, id: &str) {
     let Some(s) = file.schedules.iter().find(|s| s.id == id) else { return };
     let When::Watch { command, mode, .. } = &s.when else { return };
     let track = runs.of.get(id).cloned().unwrap_or_default();
+    let base = match s.runs_on {
+        RunsOn::One { .. } => engine.read(|b| Baseline { track: &track, theirs: machines::their_watches(&b.machines, id).into_iter().cloned().collect(), their_seen: machines::their_seen(&b.machines, id).into_iter().map(str::to_string).collect() }),
+        _ => Baseline { track: &track, theirs: Vec::new(), their_seen: HashSet::new() },
+    };
+    let (seeded_before, last_value) = (base.seeded(), base.value());
+    let is_new = |line: &str| base.is_new(line);
     let now = now_ms();
     let looked = run_command(s, command, track.last_ok);
     let mut found = Vec::new();
@@ -575,10 +750,10 @@ fn watch(engine: &Handle, id: &str) {
             WatchMode::Lines => {
                 let lines = found_in(&out);
                 let ids: Vec<String> = lines.iter().map(|f| f.id.clone()).collect();
-                if track.seeded {
-                    found = lines.into_iter().filter(|f| new_line(&track, &f.id)).collect();
+                if seeded_before {
+                    found = lines.into_iter().filter(|f| is_new(&f.id)).collect();
                 }
-                let said = match (track.seeded, found.len()) {
+                let said = match (seeded_before, found.len()) {
                     (false, _) => format!("First look: {} line{} noted as there already", ids.len(), if ids.len() == 1 { "" } else { "s" }),
                     (true, 0) => "Nothing new".to_string(),
                     (true, n) => format!("{n} new"),
@@ -587,11 +762,11 @@ fn watch(engine: &Handle, id: &str) {
             }
             WatchMode::Value => {
                 let v = out.trim().to_string();
-                let changed = track.seeded && !v.is_empty() && track.value.as_deref() != Some(v.as_str());
+                let changed = seeded_before && !v.is_empty() && last_value.as_deref() != Some(v.as_str());
                 if changed {
                     found.push(Found { id: format!("value:{}", crate::util::one_line(&v, 120)), title: crate::util::one_line(&v, 120), url: String::new(), text: v.clone(), todo: None });
                 }
-                let said = match (track.seeded, changed) {
+                let said = match (seeded_before, changed) {
                     (false, _) => "First look: its output noted".to_string(),
                     (true, true) => "Changed".to_string(),
                     (true, false) => "No change".to_string(),
@@ -606,6 +781,10 @@ fn watch(engine: &Handle, id: &str) {
             t.last_ok = Some(check.at);
         }
         t.check = Some(check);
+        // When what it printed last changed, for the machine that looks next.
+        if t.value != value || lines.as_ref().is_some_and(|l| *l != t.looked) {
+            t.changed_at = Some(now);
+        }
         t.value = value;
         t.seeded = seeded;
         // What it printed is its last look from now on, and what's new is noted as run for before
@@ -639,13 +818,40 @@ fn new_line(track: &Track, id: &str) -> bool {
     !track.looked.iter().any(|l| l == id) && !track.seen.iter().any(|l| l == id)
 }
 
+/// What a watch's look is told from: this machine's last look, and for one that runs on one of your
+/// machines, what their watches saw and what they ran for, so the machine that looks next goes on
+/// from where the last left off.
+struct Baseline<'a> {
+    track: &'a Track,
+    theirs: Vec<codealong_peer::schedules::Watch>,
+    their_seen: HashSet<String>,
+}
+
+impl Baseline<'_> {
+    /// One of them has had its first look, which only notes what's there.
+    fn seeded(&self) -> bool {
+        self.track.seeded || self.theirs.iter().any(|w| w.seeded)
+    }
+
+    /// A line none of them has seen, nor ran for.
+    fn is_new(&self, line: &str) -> bool {
+        new_line(self.track, line) && !self.their_seen.contains(line) && !self.theirs.iter().any(|w| w.looked.iter().any(|l| l == line))
+    }
+
+    /// The value from whichever look saw it change last.
+    fn value(&self) -> Option<String> {
+        let mine = self.track.changed_at.unwrap_or_default();
+        self.theirs.iter().filter(|w| w.changed_at > mine).max_by_key(|w| w.changed_at).map_or_else(|| self.track.value.clone(), |w| w.value.clone())
+    }
+}
+
 /// How many of a schedule's runs went today, on this Mac's clock (`counted`).
 fn runs_today(track: &Track, now: i64, zone: &dyn Zone) -> usize {
     track.day.filter(|d| d.day == day_of(now, zone)).map_or(0, |d| d.runs as usize)
 }
 
 fn record(cause: &Cause, outcome: Outcome, said: impl Into<String>, session: Option<String>) -> RunRecord {
-    RunRecord { at: now_ms(), due: cause.due, why: cause.why.clone(), outcome, said: said.into(), session, pending: None }
+    RunRecord { at: now_ms(), due: cause.due, why: cause.why.clone(), outcome, said: said.into(), session, pending: None, machine: None }
 }
 
 /// A run that didn't go, noted as having been handled.
@@ -793,7 +999,14 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
     };
     let board = engine.board();
     let now = now_ms();
-    if !cause.by_hand && s.per_day.is_some_and(|most| runs_today(&track, now, &rule::Local) >= most as usize) {
+    // One your machines share: a time another took meanwhile is done with, without a run here; and
+    // a day's runs are all of theirs together.
+    let one = matches!(s.runs_on, RunsOn::One { .. });
+    if let Some(due) = cause.due.filter(|&d| one && machines::taken(&board.machines, id, d).is_some()) {
+        return Some(Done { due: Some(due), fired: cause.fired.clone(), ..Done::default() });
+    }
+    let elsewhere = if one { machines::their_runs_on(&board.machines, id, day_of(now, &rule::Local)) } else { 0 };
+    if !cause.by_hand && s.per_day.is_some_and(|most| runs_today(&track, now, &rule::Local) + elsewhere >= most as usize) {
         return skipped(&cause, format!("It has run {} times today, its most.", s.per_day.unwrap_or_default()));
     }
     // One session kept going whose first start hasn't shown yet: another would be a second one.
@@ -985,7 +1198,7 @@ mod tests {
     fn arms_a_new_schedule_before_it_runs() {
         let z = Fake::utc();
         let now = ms(&z, 2026, 10, 20, 9, 0);
-        let file = File { schedules: vec![schedule("a", When::Time { rule: "weekdays 9:00".into() })] };
+        let file = File { schedules: vec![schedule("a", When::Time { rule: "weekdays 9:00".into() })], ..File::default() };
         let (jobs, notes) = plan(&file, &Runs::default(), &board(), &HashSet::new(), now, &z);
         assert!(jobs.is_empty());
         assert_eq!(notes, vec![Note::Arm { id: "a".into(), at: now, seen: Vec::new() }]);
@@ -995,7 +1208,7 @@ mod tests {
     fn runs_a_time_once_it_comes() {
         let z = Fake::utc();
         let made = ms(&z, 2026, 10, 19, 12, 0);
-        let file = File { schedules: vec![schedule("a", When::Time { rule: "weekdays 9:00".into() })] };
+        let file = File { schedules: vec![schedule("a", When::Time { rule: "weekdays 9:00".into() })], ..File::default() };
         let runs = Runs { of: [("a".to_string(), armed(made))].into(), ..Runs::default() };
         let before = ms(&z, 2026, 10, 20, 8, 59);
         assert!(plan(&file, &runs, &board(), &HashSet::new(), before, &z).0.is_empty());
@@ -1017,10 +1230,10 @@ mod tests {
         let runs = Runs { of: [("a".to_string(), armed(made))].into(), ..Runs::default() };
         // Asleep from Sunday noon to Tuesday 9:30: one run, for 8:00, late.
         let back = ms(&z, 2026, 10, 20, 9, 30);
-        let (jobs, _) = plan(&File { schedules: vec![s.clone()] }, &runs, &board(), &HashSet::new(), back, &z);
+        let (jobs, _) = plan(&File { schedules: vec![s.clone()], ..File::default() }, &runs, &board(), &HashSet::new(), back, &z);
         assert_eq!(jobs, vec![Job::Fire { id: "a".into(), cause: Cause { why: "8:00, late".into(), said: "its 8:00 run, late: the Mac was asleep or Codealong was closed at 8:00".into(), due: Some(ms(&z, 2026, 10, 20, 8, 0)), ..Cause::default() } }]);
         s.catch_up = CatchUp::Skip;
-        let (jobs, notes) = plan(&File { schedules: vec![s] }, &runs, &board(), &HashSet::new(), back, &z);
+        let (jobs, notes) = plan(&File { schedules: vec![s], ..File::default() }, &runs, &board(), &HashSet::new(), back, &z);
         assert!(jobs.is_empty());
         assert_eq!(notes, vec![Note::Passed { id: "a".into(), due: ms(&z, 2026, 10, 20, 8, 0), missed: true }]);
     }
@@ -1033,11 +1246,11 @@ mod tests {
         let now = ms(&z, 2026, 10, 20, 9, 1);
         let fired = |by_hand| Fired { id: "f1".into(), schedule: "a".into(), at: now, by_hand, ..Fired::default() };
         let runs = Runs { of: [("a".to_string(), armed(made))].into(), fired: vec![fired(false)] };
-        let (jobs, notes) = plan(&File { schedules: vec![s.clone()] }, &runs, &board(), &HashSet::new(), now, &z);
+        let (jobs, notes) = plan(&File { schedules: vec![s.clone()], ..File::default() }, &runs, &board(), &HashSet::new(), now, &z);
         assert!(jobs.is_empty());
         assert_eq!(notes, vec![Note::Dropped { fired: vec!["f1".into()] }, Note::Passed { id: "a".into(), due: ms(&z, 2026, 10, 20, 9, 0), missed: false }]);
         let runs = Runs { fired: vec![fired(true)], ..runs };
-        let (jobs, _) = plan(&File { schedules: vec![s] }, &runs, &board(), &HashSet::new(), now, &z);
+        let (jobs, _) = plan(&File { schedules: vec![s], ..File::default() }, &runs, &board(), &HashSet::new(), now, &z);
         assert_eq!(jobs, vec![Job::Fire { id: "a".into(), cause: Cause { why: "Run now".into(), said: "run by hand".into(), fired: vec!["f1".into()], by_hand: true, ..Cause::default() } }]);
     }
 
@@ -1048,11 +1261,11 @@ mod tests {
         let s = schedule("a", When::Fired);
         let f = Fired { id: "f1".into(), schedule: "a".into(), at: now, key: "deploy-41".into(), title: "Deploy 41".into(), ..Fired::default() };
         let runs = Runs { of: [("a".to_string(), armed(now - 1000))].into(), fired: vec![f.clone()] };
-        let (jobs, _) = plan(&File { schedules: vec![s.clone()] }, &runs, &board(), &HashSet::new(), now, &z);
+        let (jobs, _) = plan(&File { schedules: vec![s.clone()], ..File::default() }, &runs, &board(), &HashSet::new(), now, &z);
         let found = vec![Found { id: "deploy-41".into(), title: "Deploy 41".into(), ..Found::default() }];
         assert_eq!(jobs, vec![Job::Fire { id: "a".into(), cause: Cause { why: "Fired: Deploy 41".into(), said: "fired for “Deploy 41”".into(), found, fired: vec!["f1".into()], ..Cause::default() } }]);
         let seen = Runs { of: [("a".to_string(), Track { seen: vec!["deploy-41".into()], ..armed(now - 1000) })].into(), fired: vec![f] };
-        let (jobs, notes) = plan(&File { schedules: vec![s] }, &seen, &board(), &HashSet::new(), now, &z);
+        let (jobs, notes) = plan(&File { schedules: vec![s], ..File::default() }, &seen, &board(), &HashSet::new(), now, &z);
         assert!(jobs.is_empty());
         assert_eq!(notes, vec![Note::Dropped { fired: vec!["f1".into()] }]);
     }
@@ -1066,7 +1279,7 @@ mod tests {
         let b = Board { todos: vec![todo("t-1", "overnight"), todo("t-2", "overnight"), todo("t-3", "later")], ..board() };
         // Armed with t-1 ready already: only t-2 is new.
         let runs = Runs { of: [("a".to_string(), Track { seen: vec!["todo:t-1".into()], ..armed(now - 1000) })].into(), ..Runs::default() };
-        let (jobs, _) = plan(&File { schedules: vec![s] }, &runs, &b, &HashSet::new(), now, &z);
+        let (jobs, _) = plan(&File { schedules: vec![s], ..File::default() }, &runs, &b, &HashSet::new(), now, &z);
         let found = vec![Found { id: "todo:t-2".into(), title: "Todo t-2".into(), todo: Some("t-2".into()), ..Found::default() }];
         assert_eq!(jobs, vec![Job::Fire { id: "a".into(), cause: Cause { why: "Todo t-2".into(), said: "run for Todo t-2".into(), found, ..Cause::default() } }]);
     }
@@ -1075,7 +1288,7 @@ mod tests {
     fn waits_for_github_before_arming_a_pr_event() {
         let z = Fake::utc();
         let s = schedule("a", When::Event { event: Event::ChecksFailed, repo: String::new(), label: String::new(), mine: false });
-        let (_, notes) = plan(&File { schedules: vec![s] }, &Runs::default(), &Board::default(), &HashSet::new(), 1, &z);
+        let (_, notes) = plan(&File { schedules: vec![s], ..File::default() }, &Runs::default(), &Board::default(), &HashSet::new(), 1, &z);
         assert!(notes.is_empty());
     }
 
@@ -1088,13 +1301,13 @@ mod tests {
         let queued = Track { thread: Some("k".into()), queued: Some(Queued { at: now - 1000, why: vec!["8:00".into()], ..Queued::default() }), last_due: Some(now), ..armed(now - DAY_MS) };
         let runs = Runs { of: [("a".to_string(), queued)].into(), ..Runs::default() };
         let busy_board = Board { lanes: vec![lane("/r", vec![working])], ..board() };
-        assert!(plan(&File { schedules: vec![s.clone()] }, &runs, &busy_board, &HashSet::new(), now, &z).0.is_empty());
+        assert!(plan(&File { schedules: vec![s.clone()], ..File::default() }, &runs, &busy_board, &HashSet::new(), now, &z).0.is_empty());
         let free = Board { lanes: vec![lane("/r", vec![Session { status: Status::Idle, ..session("k") }])], ..board() };
         let waited = runs.of["a"].queued.clone().unwrap();
-        assert_eq!(plan(&File { schedules: vec![s.clone()] }, &runs, &free, &HashSet::new(), now, &z).0, vec![Job::Deliver { id: "a".into(), queued: waited.clone() }]);
+        assert_eq!(plan(&File { schedules: vec![s.clone()], ..File::default() }, &runs, &free, &HashSet::new(), now, &z).0, vec![Job::Deliver { id: "a".into(), queued: waited.clone() }]);
         // Paused meanwhile, what waited still goes: a run by hand may be among it.
         let paused = Schedule { paused: true, ..s };
-        assert_eq!(plan(&File { schedules: vec![paused] }, &runs, &free, &HashSet::new(), now, &z).0, vec![Job::Deliver { id: "a".into(), queued: waited.clone() }]);
+        assert_eq!(plan(&File { schedules: vec![paused], ..File::default() }, &runs, &free, &HashSet::new(), now, &z).0, vec![Job::Deliver { id: "a".into(), queued: waited.clone() }]);
         // Taken off the schedule as it's planned, so it can't go twice.
         let mut runs = runs;
         claim(&mut runs, &Job::Deliver { id: "a".into(), queued: waited });
@@ -1112,7 +1325,7 @@ mod tests {
         let first = Session { started_at: Some(now - 4500), ..session("first") };
         let second = Session { started_at: Some(now - 3500), ..session("second") };
         let b2 = Board { lanes: vec![lane("/r", vec![first, second])], ..board() };
-        let (_, notes) = plan(&File { schedules: vec![a, b] }, &runs, &b2, &HashSet::new(), now, &z);
+        let (_, notes) = plan(&File { schedules: vec![a, b], ..File::default() }, &runs, &b2, &HashSet::new(), now, &z);
         // b started first, so it has the first session; a the next.
         assert_eq!(notes, vec![Note::Shown { id: "b".into(), run_at: now - 5000, key: "first".into(), thread: true }, Note::Shown { id: "a".into(), run_at: now - 4000, key: "second".into(), thread: true }]);
     }
@@ -1154,7 +1367,7 @@ mod tests {
         let older = Session { started_at: Some(now - 60 * 60_000), ..session("old") };
         let new = Session { started_at: Some(now - 2000), ..session("new") };
         let b = Board { lanes: vec![lane("/r", vec![older, new])], ..board() };
-        let (jobs, notes) = plan(&File { schedules: vec![s] }, &runs, &b, &HashSet::new(), now, &z);
+        let (jobs, notes) = plan(&File { schedules: vec![s], ..File::default() }, &runs, &b, &HashSet::new(), now, &z);
         assert_eq!(notes, vec![Note::Shown { id: "a".into(), run_at: now - 5000, key: "new".into(), thread: true }]);
         assert_eq!(jobs, vec![Job::Quiet { keys: vec!["new".into()] }]);
         let mut runs = runs;
@@ -1208,7 +1421,7 @@ mod tests {
         let s = Schedule { created_at: made, ..schedule("a", When::Time { rule: "once 2026-10-02 9:00".into() }) };
         let runs = Runs { of: [("a".to_string(), armed(ms(&z, 2026, 10, 20, 9, 0)))].into(), ..Runs::default() };
         let now = ms(&z, 2026, 10, 20, 9, 0);
-        let (jobs, notes) = plan(&File { schedules: vec![s] }, &runs, &board(), &HashSet::new(), now, &z);
+        let (jobs, notes) = plan(&File { schedules: vec![s], ..File::default() }, &runs, &board(), &HashSet::new(), now, &z);
         assert!(jobs.is_empty());
         assert_eq!(notes, vec![Note::Passed { id: "a".into(), due: ms(&z, 2026, 10, 2, 9, 0), missed: true }]);
     }
@@ -1237,6 +1450,122 @@ mod tests {
         assert_eq!(next_watch("5m", &track(1)), Some(600_000));
         assert_eq!(next_watch("5m", &track(3)), Some(2_400_000));
         assert_eq!(next_watch("5m", &track(9)), Some(3_600_000));
+    }
+
+    mod shared {
+        use super::*;
+        use crate::shared::{Machine, Machines, Me};
+        use codealong_peer::feed::Rank;
+        use codealong_peer::schedules::{Shared, SharedSchedule};
+
+        /// This machine, a backup, with the others given.
+        fn with(others: Vec<Machine>) -> Board {
+            Board { machines: std::sync::Arc::new(Machines { me: Some(Me { key: "aa".into(), rank: Rank::Backup }), others }), ..board() }
+        }
+
+        fn mini(s: &Schedule, rank: Rank, last_seen: Option<i64>, online: bool, took: Option<i64>) -> Machine {
+            let copy = SharedSchedule { id: s.id.clone(), schedule: serde_json::to_value(s).unwrap(), able: true, took, last_due: took, ..SharedSchedule::default() };
+            Machine { key: "bb".into(), name: "Mini".into(), rank, online, last_seen, prs: Vec::new(), schedules: Shared { list: vec![copy], gone: Vec::new() } }
+        }
+
+        fn plan_at(s: &Schedule, runs: &Runs, b: &Board, noticed: &HashMap<String, (i64, i64)>, woke_at: i64, now: i64) -> (Vec<Job>, Vec<Note>, Vec<(String, i64)>) {
+            let cfg = crate::config::Config::default();
+            plan_in(&File { schedules: vec![s.clone()], ..File::default() }, runs, b, &HashSet::new(), &Cx { cfg: &cfg, noticed, woke_at }, now, &Fake::utc())
+        }
+
+        fn fire(why: &str, said: &str, due: i64) -> Vec<Job> {
+            vec![Job::Fire { id: "a".into(), cause: Cause { why: why.into(), said: said.into(), due: Some(due), ..Cause::default() } }]
+        }
+
+        #[test]
+        fn the_machine_it_prefers_runs_its_times_and_this_one_when_its_down() {
+            let z = Fake::utc();
+            let at = ms(&z, 2026, 10, 20, 9, 0);
+            let s = Schedule { runs_on: RunsOn::One { prefer: "bb".into() }, ..schedule("a", When::Time { rule: "weekdays 9:00".into() }) };
+            let runs = Runs { of: [("a".to_string(), armed(ms(&z, 2026, 10, 19, 12, 0)))].into(), ..Runs::default() };
+            let none = HashMap::new();
+            // Mini is up: its turn, so this machine waits, and notes when it saw the time due.
+            let (jobs, notes, noticed) = plan_at(&s, &runs, &with(vec![mini(&s, Rank::Backup, Some(at), true, None)]), &none, 0, at + 3000);
+            assert!(jobs.is_empty() && notes.is_empty());
+            assert_eq!(noticed, vec![("a".to_string(), at)]);
+            // Mini took it: it's passed here, without a run.
+            let (jobs, notes, _) = plan_at(&s, &runs, &with(vec![mini(&s, Rank::Backup, Some(at), true, Some(at))]), &none, 0, at + 60_000);
+            assert!(jobs.is_empty());
+            assert_eq!(notes, vec![Note::Passed { id: "a".into(), due: at, missed: false }]);
+            // Up, but not taking it for a while after this machine saw it due: this one runs it.
+            let seen = HashMap::from([("a".to_string(), (at, at + 3000))]);
+            let (jobs, _, _) = plan_at(&s, &runs, &with(vec![mini(&s, Rank::Backup, Some(at), true, None)]), &seen, 0, at + 3000 + machines::TAKE_OVER_MS);
+            assert_eq!(jobs, fire("9:00, as Mini didn't take it", "its 9:00 run, here as Mini didn't take it", at));
+            // Down: this machine runs it at its time.
+            let (jobs, _, _) = plan_at(&s, &runs, &with(vec![mini(&s, Rank::Backup, None, false, None)]), &none, 0, at + 3000);
+            assert_eq!(jobs, fire("9:00", "its 9:00 run", at));
+        }
+
+        #[test]
+        fn a_machine_back_from_sleep_waits_to_hear_what_the_others_ran() {
+            let z = Fake::utc();
+            let at = ms(&z, 2026, 10, 20, 9, 0);
+            let back = at + 30 * 60_000;
+            let s = Schedule { runs_on: RunsOn::One { prefer: "aa".into() }, ..schedule("a", When::Time { rule: "weekdays 9:00".into() }) };
+            let runs = Runs { of: [("a".to_string(), armed(ms(&z, 2026, 10, 19, 12, 0)))].into(), ..Runs::default() };
+            let none = HashMap::new();
+            // This machine is the one it prefers, but Mini, last heard from before it slept, may
+            // have run it meanwhile: nothing until Mini's feed is in, or a while has passed.
+            let unheard = with(vec![mini(&s, Rank::First, Some(at - 60 * 60_000), false, None)]);
+            let (jobs, notes, _) = plan_at(&s, &runs, &unheard, &none, back, back + 1000);
+            assert!(jobs.is_empty() && notes.is_empty());
+            // Mini's feed is in: it ran it.
+            let ran = with(vec![mini(&s, Rank::First, Some(back), true, Some(at))]);
+            assert_eq!(plan_at(&s, &runs, &ran, &none, back, back + 2000).1, vec![Note::Passed { id: "a".into(), due: at, missed: false }]);
+            // Nothing heard by the time it's waited: it runs it, late.
+            let (jobs, _, _) = plan_at(&s, &runs, &unheard, &none, back, back + machines::SETTLE_MS);
+            assert_eq!(jobs, fire("9:00, late", "its 9:00 run, late: the Mac was asleep or Codealong was closed at 9:00", at));
+        }
+
+        #[test]
+        fn only_the_first_in_line_looks_with_its_watch() {
+            let z = Fake::utc();
+            let now = ms(&z, 2026, 10, 20, 9, 0);
+            let s = Schedule { runs_on: RunsOn::One { prefer: String::new() }, ..schedule("a", When::Watch { command: "gh run list".into(), every: "5m".into(), mode: WatchMode::Lines }) };
+            let runs = Runs { of: [("a".to_string(), armed(now - DAY_MS))].into(), ..Runs::default() };
+            let none = HashMap::new();
+            // Mini, a first choice, is ahead of this machine, a backup.
+            assert!(plan_at(&s, &runs, &with(vec![mini(&s, Rank::First, Some(now), true, None)]), &none, 0, now).0.is_empty());
+            assert_eq!(plan_at(&s, &runs, &with(vec![mini(&s, Rank::First, None, false, None)]), &none, 0, now).0, vec![Job::Check { id: "a".into() }]);
+        }
+
+        #[test]
+        fn a_machine_that_cant_run_one_every_machine_runs_lets_its_times_pass() {
+            let z = Fake::utc();
+            let at = ms(&z, 2026, 10, 20, 9, 0);
+            let s = Schedule { runs_on: RunsOn::Every, run: Run { folder: "/nowhere/northwind".into(), prompt: "Look".into(), ..Run::default() }, ..schedule("a", When::Time { rule: "weekdays 9:00".into() }) };
+            let runs = Runs { of: [("a".to_string(), armed(ms(&z, 2026, 10, 19, 12, 0)))].into(), ..Runs::default() };
+            let (jobs, notes, _) = plan_at(&s, &runs, &with(Vec::new()), &HashMap::new(), 0, at + 3000);
+            assert!(jobs.is_empty());
+            assert_eq!(notes, vec![Note::Passed { id: "a".into(), due: at, missed: false }]);
+        }
+
+        #[test]
+        fn a_watch_goes_on_from_what_the_others_saw() {
+            let watch = |looked: &[&str], value: Option<&str>, changed_at: i64| codealong_peer::schedules::Watch { looked: looked.iter().map(|l| l.to_string()).collect(), value: value.map(String::from), seeded: true, changed_at };
+            // This machine never looked; Mini did, and ran for deploy 41.
+            let mine = Track { value: Some("deploy 39".into()), changed_at: Some(10), ..Track::default() };
+            let base = Baseline { track: &mine, theirs: vec![watch(&["deploy 40"], Some("deploy 41"), 20)], their_seen: HashSet::from(["deploy 41".to_string()]) };
+            assert!(base.seeded(), "its first look here isn't a first look");
+            assert!(!base.is_new("deploy 40") && !base.is_new("deploy 41") && base.is_new("deploy 42"));
+            assert_eq!(base.value().as_deref(), Some("deploy 41"), "the latest change, wherever it was seen");
+            // This machine's own look is the later.
+            let later = Track { changed_at: Some(30), ..mine.clone() };
+            assert_eq!(Baseline { track: &later, ..base }.value().as_deref(), Some("deploy 39"));
+        }
+
+        #[test]
+        fn a_time_taken_is_noted_for_the_others() {
+            let mut runs = Runs::default();
+            claim(&mut runs, &Job::Fire { id: "a".into(), cause: Cause { due: Some(900), ..Cause::default() } });
+            claim(&mut runs, &Job::Fire { id: "a".into(), cause: Cause { due: Some(600), ..Cause::default() } });
+            assert_eq!(runs.of["a"].took, Some(900));
+        }
     }
 
     #[test]

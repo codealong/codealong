@@ -1,6 +1,7 @@
 // A schedule's panel, beside the Schedules view's list: when it runs and when next, what it does
-// and what it's told, how its watch's last look went, the session it keeps going, and its latest
-// runs, each with why it ran and how it went, its session a click away. Run now, Pause and Edit
+// and what it's told, which of your machines runs it next, how its watch's last look went, the
+// session it keeps going, and its latest runs, each with why it ran, how it went and on which
+// machine, its session a click away. Run now, Pause and Edit
 // are its buttons; its menu (menus.ts `scheduleMenu`) has those and the rest.
 
 import { absolute, ago, agoPhrase } from '../format';
@@ -118,6 +119,17 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
         )}
       </section>
 
+      {s.runsOnWords && (
+        <section className="ca-insp-sec">
+          <h4 className="ca-label">Runs on</h4>
+          <p className="ca-schedinsp-line">
+            {s.runsOn?.kind === 'every' ? 'Every one of your machines, each on its own' : 'One of your machines each time'}
+            {s.runsOn?.kind === 'one' && <span className="ca-schedinsp-next"> · {s.runsOnWords}</span>}
+          </p>
+          {s.here && <p className="ca-schedinsp-note">Not on this machine: {s.here}</p>}
+        </section>
+      )}
+
       <section className="ca-insp-sec">
         <h4 className="ca-label">Does</h4>
         {s.run.to === 'session' ? (
@@ -156,6 +168,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
                   <div className="ca-schedrun-line">
                     <b>{OUTCOME_WORD[r.outcome]}</b>
                     <span className="ca-schedrun-why">{r.why}</span>
+                    {r.machine && <span className="ca-schedrun-on">on {r.machine}</span>}
                     <span className="ca-schedrun-at" title={absolute(r.at)}>
                       {agoPhrase(r.at, now)}
                     </span>

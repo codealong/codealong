@@ -1277,6 +1277,22 @@ struct ScheduleAddArgs {
     /// Add it paused.
     #[arg(long)]
     paused: bool,
+    /// Which of your machines run it (`codealong devices`): this one alone; one of them each time (the one --prefer names while it's around and can run it, else the next that can, first choices before backups); or every one, each on its own. Those they share, each keeps a copy of, so one that's asleep or off misses nothing.
+    #[arg(long, value_enum, default_value = "this")]
+    runs_on: RunsOnArg,
+    /// With --runs-on one: the machine it prefers, by name or short id (`codealong devices`), or `this` for this one.
+    #[arg(long)]
+    prefer: Option<String>,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
+enum RunsOnArg {
+    /// This machine alone.
+    This,
+    /// One of your machines each time.
+    One,
+    /// Every one of your machines, each on its own.
+    Every,
 }
 
 #[derive(Args, Debug)]
@@ -5130,6 +5146,9 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
             println!("{} ({})", item.schedule.name, item.schedule.id);
             println!("When: {}{}", item.when_words, if item.schedule.paused { " (paused)" } else { "" });
             println!("Does: {}", schedules::does_words(&item.schedule, &board));
+            if let Some(words) = &item.runs_on_words {
+                println!("Runs on: {words}{}", item.here.as_deref().map(|h| format!(" (not here: {h})")).unwrap_or_default());
+            }
             if let Some(at) = item.next_at {
                 println!("Next: {}", schedules::clock_text(at, &Local));
             }
@@ -5142,7 +5161,8 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
             println!("Prompt: {}", item.schedule.run.prompt.trim());
             for r in &item.runs {
                 let session = r.session.as_deref().map(|k| format!(" · {k}")).unwrap_or_default();
-                println!("  {} · {} · {:?}{session}{}", schedules::clock_text(r.at, &Local), r.why, r.outcome, if r.said.is_empty() { String::new() } else { format!(" · {}", one_line(&r.said, 120)) });
+                let on = r.machine.as_deref().map(|m| format!(" · on {m}")).unwrap_or_default();
+                println!("  {} · {} · {:?}{on}{session}{}", schedules::clock_text(r.at, &Local), r.why, r.outcome, if r.said.is_empty() { String::new() } else { format!(" · {}", one_line(&r.said, 120)) });
             }
             return Ok(());
         }
@@ -5201,17 +5221,34 @@ fn schedule(cmd: ScheduleCmd, c: &mut Client, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// The schedules with what's happened to them, as the app's Schedules view has them.
+/// The schedules with what's happened to them, as the app's Schedules view has them: read from the
+/// files, so a change just made is there, with where each your machines share runs and their runs
+/// of it, which only the app knows, from the app's.
 fn schedule_items(c: &mut Client) -> Result<Vec<crate::schedules::Item>> {
     let (file, runs) = (crate::schedules::load()?, crate::schedules::load_runs()?);
     let cfg = c.cfg()?.clone();
     let board = c.board()?;
-    Ok(crate::schedules::items(&file, &runs, board, &cfg, now_ms(), &crate::schedules::rule::Local))
+    let mut items = crate::schedules::items(&file, &runs, board, &cfg, now_ms(), &crate::schedules::rule::Local);
+    for item in items.iter_mut().filter(|i| i.schedule.runs_on.shared()) {
+        if let Some(app) = board.schedules.iter().find(|a| a.schedule.id == item.schedule.id && a.schedule.updated_at == item.schedule.updated_at) {
+            item.problem = app.problem.clone();
+            item.here = app.here.clone();
+            item.runs_on_words = app.runs_on_words.clone();
+            item.runs = app.runs.clone();
+        }
+    }
+    Ok(items)
 }
 
 /// A schedule from `schedule add`'s arguments.
 fn schedule_from(c: &mut Client, a: ScheduleAddArgs) -> Result<crate::schedules::Schedule> {
-    use crate::schedules::{CatchUp, Event, Overlap, Run, Schedule, To, WatchMode, When};
+    use crate::schedules::{CatchUp, Event, Overlap, Run, RunsOn, Schedule, To, WatchMode, When};
+    let runs_on = match (a.runs_on, a.prefer.as_deref()) {
+        (RunsOnArg::One, prefer) => RunsOn::One { prefer: prefer.map(preferred_machine).transpose()?.unwrap_or_default() },
+        (_, Some(_)) => bail!("--prefer is for --runs-on one."),
+        (RunsOnArg::This, None) => RunsOn::This,
+        (RunsOnArg::Every, None) => RunsOn::Every,
+    };
     let when = match (a.at, a.watch, a.on, a.when_fired) {
         (Some(rule), _, _, _) => When::Time { rule },
         (_, Some(command), _, _) => When::Watch { command, every: a.every, mode: if a.value { WatchMode::Value } else { WatchMode::Lines } },
@@ -5278,8 +5315,21 @@ fn schedule_from(c: &mut Client, a: ScheduleAddArgs) -> Result<crate::schedules:
         catch_up: if a.skip_missed { CatchUp::Skip } else { CatchUp::Once },
         per_day: a.per_day,
         notes: a.notes,
+        runs_on,
         ..Schedule::default()
     })
+}
+
+/// The device key of the machine `--prefer` names: one of your linked machines, or this one.
+fn preferred_machine(named: &str) -> Result<String> {
+    let view: server::DevicesSummary = serde_json::from_value(ask_app(&Request::Devices)?).context("reading the app's devices")?;
+    if !view.enabled {
+        bail!("Your devices are off: turn them on in Settings › Devices, and link your other machines, for a schedule to run on them.");
+    }
+    if named.trim().eq_ignore_ascii_case("this") || named.trim().eq_ignore_ascii_case(&view.me.name) {
+        return Ok(view.me.key);
+    }
+    Ok(which_device(&view, named, &[Listed::Linked])?.0)
 }
 
 fn todo(cmd: TodoCmd, c: &mut Client, json: bool) -> Result<()> {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_PROJECTS } from './quick';
-import { blankSchedule, doesWords, fireCommand, newScheduleFolder, nextWords, scheduleBySession, scheduleLanes, scheduleOf, scheduleProject, scheduleSessions, sessionFolder } from './schedules';
+import { asksRunsOn, blankSchedule, doesWords, fireCommand, newScheduleFolder, nextWords, preferOptions, scheduleBySession, scheduleLanes, scheduleOf, scheduleProject, scheduleSessions, sessionFolder } from './schedules';
 import * as fx from './testing/fixtures';
-import type { Schedule, ScheduleItem } from './types';
+import type { DevicesView, Schedule, ScheduleItem } from './types';
 
 const NOW = Date.UTC(2026, 9, 20, 12, 0);
 const HOUR = 3_600_000;
@@ -39,10 +39,13 @@ describe('schedules', () => {
   });
 
   it('saves only what a schedule is', () => {
-    const saved = scheduleOf(item({ problem: 'x', nextAt: 1, check: { at: 1, ok: true, said: '', failures: 0 } }));
+    const saved = scheduleOf(item({ problem: 'x', nextAt: 1, check: { at: 1, ok: true, said: '', failures: 0 }, runsOn: { kind: 'one', prefer: 'bb' }, runsOnWords: 'Next on Mini' }));
     expect(Object.keys(saved)).not.toContain('problem');
     expect(Object.keys(saved)).not.toContain('runs');
+    expect(Object.keys(saved)).not.toContain('runsOnWords');
     expect(saved.name).toBe('Triage');
+    // Which machines run it stays as it was: an edit doesn't make it this machine's alone.
+    expect(saved.runsOn).toEqual({ kind: 'one', prefer: 'bb' });
   });
 
   it('writes the command that fires one', () => {
@@ -92,6 +95,16 @@ describe('schedules', () => {
     expect(scheduleProject(blankSchedule(''), lanes)).toBeNull();
     expect(scheduleProject(sendsTo('claude:claude:chat'), lanes)).toBeNull();
     expect(scheduleProject(blankSchedule('/w/gone'), lanes)).toBeNull();
+  });
+
+  it('offers this machine and your others to prefer, not phones', () => {
+    const device = (key: string, name: string, kind: 'mac' | 'phone') => ({ key, short: key, name, color: 'blue', online: true, via: null, since: null, lastSeen: null, remoteControl: false, app: '', linkedBack: true, loading: false, usage: [], kind }) as DevicesView['devices'][number];
+    const devices = { enabled: true, me: { key: 'aa', short: 'aa', name: 'Studio', tailscale: 'running', tailnet: null, address: null, iroh: 'online', remoteControl: false, error: null }, devices: [device('bb', 'Mini', 'mac'), device('cc', 'Phone', 'phone')], phones: [], found: [], asks: [], lanes: [] } as DevicesView;
+    expect(preferOptions(devices, '').map((o) => o.label)).toEqual(['No machine in particular', 'This machine, Studio', 'Mini']);
+    expect(preferOptions(devices, 'dd').at(-1)).toEqual({ id: 'dd', label: 'A machine that’s no longer linked' });
+    expect(asksRunsOn(devices, undefined)).toBe(true);
+    expect(asksRunsOn({ ...devices, devices: [] }, undefined)).toBe(false);
+    expect(asksRunsOn(null, { kind: 'every' })).toBe(true);
   });
 
   it('starts a new one in the worktree selected, else where the quick panel would', () => {

@@ -4841,7 +4841,7 @@ mod tests {
         };
         let prs = cards.into_iter().map(|(p, would, r)| PrItem { shared_review: said(would, r.as_ref()), auto_review: r, ..p }).collect();
         let prs = crate::peerfeed::pr_cards(&Board { generated_at: NOW, prs, ..Board::default() });
-        Machine { key: STUDIO.into(), name: "Studio".into(), rank, online: true, last_seen: Some(NOW), prs }
+        Machine { key: STUDIO.into(), name: "Studio".into(), rank, online: true, last_seen: Some(NOW), prs, schedules: Default::default() }
     }
 
     /// A machine's round of commit `head` at `stage`, from `at`.
@@ -5092,7 +5092,7 @@ mod tests {
     fn seen(key: &str, name: &str, rank: Rank, store: &Store, p: &PrItem) -> Machine {
         let mut prs = vec![p.clone()];
         apply(&mut prs, store, &on(), &Default::default(), &Default::default(), &checkout(), &Machines::default(), NOW);
-        Machine { key: key.into(), name: name.into(), rank, online: true, last_seen: Some(NOW), prs: crate::peerfeed::pr_cards(&Board { generated_at: NOW, prs, ..Board::default() }) }
+        Machine { key: key.into(), name: name.into(), rank, online: true, last_seen: Some(NOW), prs: crate::peerfeed::pr_cards(&Board { generated_at: NOW, prs, ..Board::default() }), schedules: Default::default() }
     }
 
     fn checkout() -> Vec<Lane> {

@@ -1245,6 +1245,24 @@ Options:
       --paused
           Add it paused
 
+      --runs-on <RUNS_ON>
+          Which of your machines run it (`codealong devices`): this one alone; one of
+          them each time (the one --prefer names while it's around and can run it, else
+          the next that can, first choices before backups); or every one, each on its
+          own. Those they share, each keeps a copy of, so one that's asleep or off
+          misses nothing
+
+          Possible values:
+          - this:  This machine alone
+          - one:   One of your machines each time
+          - every: Every one of your machines, each on its own
+          
+          [default: this]
+
+      --prefer <PREFER>
+          With --runs-on one: the machine it prefers, by name or short id (`codealong
+          devices`), or `this` for this one
+
   -h, --help
           Print help (see a summary with '-h')
 ```

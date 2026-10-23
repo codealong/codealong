@@ -5,10 +5,12 @@
       "when": { "kind": "time", "rule": "weekdays 9:00" },
       "whenWords": "Weekdays at 9:00",
       "nextIn": 640,
+      "runsOn": { "kind": "one", "prefer": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0" },
+      "runsOnWords": "Next on Mac mini",
       "run": { "to": "new", "folder": "$lane:0", "account": "", "prompt": "Look at last night's CI on main. Say what failed and why, and start nothing." },
       "runs": [
         { "atAgo": 800, "why": "9:00", "outcome": "started", "said": "On claude, opus", "session": "$session:2" },
-        { "atAgo": 2240, "why": "9:00, late", "outcome": "started", "said": "On codex", "session": "$session:5" }
+        { "atAgo": 2240, "why": "9:00, late", "outcome": "started", "said": "On codex", "session": "$session:5", "machine": "Mac mini" }
       ],
       "sessions": [
         { "session": "$session:2", "status": "idle" },

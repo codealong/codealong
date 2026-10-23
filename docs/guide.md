@@ -1373,7 +1373,7 @@ what was asked is kept in `jev-todos.json`.
 
 A schedule starts a session, or sends one a message, when its time comes or something happens:
 every weekday at 9, every two hours, whenever a deploy goes out, when a PR merges or a todo is
-ready. The Schedules view (⇧⌘L) lists the project's (under All projects, every one on this Mac),
+ready. The Schedules view (⇧⌘L) lists the project's (under All projects, every one on this machine),
 each saying when it runs, what it does and when next, and a mark when it can't run as it is or its
 last run failed; New schedule… at the top of the list makes one, in the worktree selected, else
 where the quick panel would start. A schedule is in its worktree's project, else in the project
@@ -1398,8 +1398,8 @@ usage until one goes out.
 - *At times*, written in a few words and read back as you type, with the next few times:
   `weekdays 9:00`, `mon,thu 10:30`, `daily 6pm`, `every 2h` (from midnight, or from the start of
   its hours: `every 30m weekdays 09:00-18:00`), `monthly 1 9:00`, `monthly last 17:00`, `once
-  2026-10-21 15:00`, or cron's five fields (`cron 0 9 * * 1-5`). On this Mac's clock, by the wall
-  clock across summer time, and never more often than every five minutes.
+  2026-10-21 15:00`, or cron's five fields (`cron 0 9 * * 1-5`). On the clock of the machine that
+  runs it, by the wall clock across summer time, and never more often than every five minutes.
 - *A watch*: a command it runs through your login shell every so often (`5m`; at most once a
   minute), in the schedule's worktree. Each line it prints is one thing, by its words, or a JSON
   object with an `id` (and a `title`, `url` and `text`), and a line it hasn't printed before is a
@@ -1448,9 +1448,35 @@ and times that pass meanwhile aren't run when it's resumed; Run now still runs i
 its sessions quiet (*Quiet*). Schedules run while Codealong does: with it closed, nothing runs
 (Settings › General › Open at login).
 
+**Which of your machines run it.** With another of your machines linked (*Your other devices*),
+the dialog asks which of them run it. *This machine*, the default, runs it here alone. *One of my
+machines* runs it on one of them each time: the machine it prefers, while that one is around and
+can run it, else the next that can, first choices before backups (Settings › Devices, *For
+automations my machines share*). *Every machine* runs it on each of them, each on its own. Each
+machine keeps a copy of the ones they share, from the others' feeds, so one that's asleep or off
+while another runs it misses nothing: a change made on any of them reaches the rest (the latest
+change wins), and deleting one, or making it one machine's again, takes it off the others too. A
+machine can run one when its worktree (the same folder under home), its account and the session
+it sends to are there; one that can't is passed over, and the panel says why under *Runs on*,
+with which machine runs it next.
+
+Of one that runs on one of them, the first in line runs each time and the others pass it. When
+that machine is asleep, closed or off for more than five minutes, the next one runs it at its
+time; when it's around but hasn't taken a time ten minutes after the next saw it come, the next
+takes it. A machine that was asleep waits a minute and a half to hear what the others ran before
+it catches up on a time it missed, so a time another ran meanwhile isn't run again. Its watch
+looks, and what happens on the board is run for, on the first in line alone, going on from what
+the others' looks saw and what they ran for, and with *Keep notes between runs* the notes go along,
+the latest any machine wrote; *At most … runs a day* counts the runs of all of them. A machine's
+runs of it are listed on the others too, with where they ran. Run now and `codealong schedule
+fire` run it on the machine you ask. Each machine reads its times on its own clock, so machines in
+other time zones run a time as their clocks have it. Machines on builds from before 2026-10-23
+take no part.
+
 `codealong schedule list|show|add|remove|pause|resume|run|fire|times` does the same from a
 terminal or an agent, an agent adding one for itself with `--to me` (a check back on its own work
-every hour, say), and `codealong --snapshot --schedule-plan <schedule>` says what a run would do
+every hour, say), and `schedule add --runs-on one --prefer <machine>` sharing one with your other
+machines, and `codealong --snapshot --schedule-plan <schedule>` says what a run would do
 now without doing it. The schedules are kept in `schedules.json` and what happened to them in
 `schedule-runs.json` (*Files Codealong keeps*).
 
@@ -3051,8 +3077,9 @@ install script, have you trust the developer on the phone once the app is on it,
 with this Mac by a link code. With a free Apple developer team
 the app runs for a week before it needs installing again, which the same button does.
 
-One of your machines runs what they share rather than all of them: for now, reviewing a pull
-request that asks for your review (see *Automatic reviews*). Settings › Devices says where this
+One of your machines runs what they share rather than all of them: reviewing a pull request that
+asks for your review (see *Automatic reviews*), and a schedule that runs on one of them, after the
+machine it prefers (see *Schedules*). Settings › Devices says where this
 machine stands for those, a first choice, or a backup that runs them only while no first choice
 can (asleep, closed or off), and each linked machine's card says where it stands.
 

@@ -2328,6 +2328,8 @@ pub fn compose(inp: Inputs) -> Board {
         repo_settings: Default::default(),
         schedules: Vec::new(),
         schedules_problem: None,
+        machines: Default::default(),
+        shared_schedules: Default::default(),
     }
 }
 

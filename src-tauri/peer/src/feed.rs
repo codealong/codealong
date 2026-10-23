@@ -1,8 +1,9 @@
 //! What a device tells the devices it's linked with about itself: its name, and its board's
-//! worktrees, sessions and plan usage, and its PR list for a device that knows PRs. A connection
-//! starts with everything, then carries only the worktrees that changed and the ids of the ones
-//! that left, and the PR list again only when it changed (the engine's peerfeed.rs cuts them from
-//! each board it publishes).
+//! worktrees, sessions and plan usage, its PR list for a device that knows PRs, and the schedules
+//! it shares with your other machines for one that keeps them. A connection starts with
+//! everything, then carries only the worktrees that changed and the ids of the ones that left, and
+//! the PR list and the schedules again only when they changed (the engine's peerfeed.rs cuts them
+//! from each board it publishes).
 //!
 //! The receiving device keeps a `Replica` of each linked device's feed. Keys from another device
 //! go around with that device's short id in front (`remote_key`), so an id from there is never
@@ -14,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{Lane, Usage};
 use crate::pr::PrCard;
+use crate::schedules::Shared;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -70,6 +72,10 @@ pub struct FeedMsg {
     /// (`proto::PRS`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prs: Option<Vec<PrCard>>,
+    /// The schedules the sender shares with your other machines, whole, when they changed: only to
+    /// a device that says it keeps them (`proto::SCHEDULES`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedules: Option<Shared>,
 }
 
 /// How this build reads a feed's lanes. A lane or a session that gains a field another device shows
@@ -98,6 +104,9 @@ pub struct Replica {
     /// Its PR list, as its feeds last said; none from a device that sends none.
     #[serde(default)]
     pub prs: Vec<PrCard>,
+    /// The schedules it shares, as its feeds last said.
+    #[serde(default)]
+    pub schedules: Shared,
     /// How the build that read its last whole feed reads them (`READS`); 0 from builds before the
     /// stamp.
     #[serde(default)]
@@ -120,6 +129,9 @@ impl Replica {
     pub fn heard_from(&mut self, knows: &[String]) {
         if !knows.iter().any(|k| k == crate::proto::PRS) {
             self.prs.clear();
+        }
+        if !knows.iter().any(|k| k == crate::proto::SCHEDULES) {
+            self.schedules = Shared::default();
         }
     }
 
@@ -146,6 +158,9 @@ impl Replica {
         }
         if let Some(prs) = msg.prs {
             self.prs = prs;
+        }
+        if let Some(schedules) = msg.schedules {
+            self.schedules = schedules;
         }
         if !msg.gone.is_empty() {
             let gone: HashSet<&String> = msg.gone.iter().collect();
@@ -281,6 +296,20 @@ mod tests {
         let old: FeedMsg = serde_json::from_str(r#"{"rev":6,"full":true}"#).unwrap();
         replica.apply(old);
         assert!(replica.prs.is_empty());
+    }
+
+    #[test]
+    fn the_shared_schedules_are_replaced_whole_and_go_with_a_build_that_keeps_none() {
+        let shared = |id: &str| Shared { list: vec![crate::schedules::SharedSchedule { id: id.into(), able: true, ..Default::default() }], gone: Vec::new() };
+        let mut replica = Replica::default();
+        replica.apply(FeedMsg { rev: 1, full: true, schedules: Some(shared("s-1")), ..Default::default() });
+        replica.apply(FeedMsg { rev: 2, lanes: vec![lane("/a")], ..Default::default() });
+        assert!(replica.schedules.get("s-1").is_some());
+        replica.apply(FeedMsg { rev: 3, schedules: Some(shared("s-2")), ..Default::default() });
+        assert!(replica.schedules.get("s-1").is_none() && replica.schedules.get("s-2").is_some());
+        // Back as a build that keeps none: what it said before goes.
+        replica.heard_from(&[crate::proto::PRS.to_string()]);
+        assert_eq!(replica.schedules, Shared::default());
     }
 
     #[test]

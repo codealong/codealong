@@ -7,6 +7,8 @@
 // and brings its worktree. Under a schedule, set in as helpers are in Sessions, its latest run's
 // session and the ones it started, an earlier run's a click away (boardLists.ts
 // `scheduleSessions`); one picked there shows its own panel, with the way back to the schedule's.
+// One your machines share says which of them runs it next and where each run went, and its
+// dialog keeps which machines run it, and changes it.
 //   PREVIEW_WAIT=60000 PREVIEW_SCHEDULES=scripts/preview/schedules-sample.json scripts/preview.sh schedules '' scripts/preview/schedules-check.js
 (function () {
   var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('.ca-schedrow')); };
@@ -116,6 +118,38 @@
     .then(function () {
       var op = last('schedule_op').op;
       check('Pause pauses it', op.op === 'pause' && op.paused === true, JSON.stringify(op));
+      press(named('Morning triage'));
+      return until(function () { return q('.ca-schedinsp-name') && q('.ca-schedinsp-name').textContent === 'Morning triage'; }, 3000, 'its panel');
+    })
+    .then(function () {
+      var panel = q('.ca-schedinsp');
+      check('one your machines share says which runs it next', /Runs onOne of your machines each time · Next on Mac mini/.test(panel.textContent), panel.textContent);
+      var ran = all('.ca-schedrun-on').map(function (el) { return el.textContent; });
+      check('and where a run went when it was another machine', ran.length === 1 && ran[0] === 'on Mac mini', ran.join(' | '));
+      all('.ca-insp-actions button').filter(function (b) { return b.textContent === 'Edit'; })[0].click();
+      return until(function () { return q('.ca-scheddlg'); }, 3000, 'its dialog');
+    })
+    .then(function () {
+      var seg = q('.ca-scheddlg [aria-label="Runs on"]');
+      var picked = seg && seg.querySelector('[aria-pressed="true"], [aria-checked="true"], .is-on, .is-active');
+      check('its dialog says which of your machines run it', !!seg && !!picked && picked.textContent === 'One of my machines', seg ? seg.outerHTML.slice(0, 300) : 'no field');
+      check('and which it prefers', !!q('.ca-scheddlg select[aria-label="The machine it prefers"]'), q('.ca-scheddlg').textContent.slice(0, 200));
+      var every = Array.prototype.slice.call(seg.querySelectorAll('button')).filter(function (b) { return b.textContent === 'Every machine'; })[0];
+      every.click();
+      return until(function () { return every.getAttribute('aria-checked') === 'true'; }, 3000, 'Every machine picked');
+    })
+    .then(function () {
+      check('one every machine runs prefers none', !q('.ca-scheddlg select[aria-label="The machine it prefers"]'), '');
+      var n = sent('schedule_op').length;
+      q('.ca-scheddlg button[type="submit"]').click();
+      return until(function () { return sent('schedule_op').length > n; }, 3000, 'the save');
+    })
+    .then(function () {
+      var s = last('schedule_op').op.schedule || {};
+      check('saving keeps it shared, as it was changed', s.runsOn && s.runsOn.kind === 'every' && s.name === 'Morning triage', JSON.stringify(s.runsOn));
+      return until(function () { return !q('.ca-scheddlg'); }, 3000, 'the dialog to close');
+    })
+    .then(function () {
       q('.ca-schednew').click();
       return until(function () { return q('.ca-scheddlg'); }, 3000, 'the dialog');
     })

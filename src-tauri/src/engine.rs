@@ -1200,7 +1200,7 @@ struct Engine {
     /// The PRs another of your devices runs a session on (`Handle::peer_lanes`).
     running_elsewhere: std::collections::BTreeSet<String>,
     /// Your machines that share automations (`Handle::peer_machines`).
-    machines: crate::shared::Machines,
+    machines: std::sync::Arc<crate::shared::Machines>,
     /// Why a session wasn't told what a command you ran for it printed.
     run_report_warning: Option<String>,
     continue_warning: Option<String>,
@@ -2198,8 +2198,8 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
                     self.dirty = true;
                 }
                 Ok(Msg::RunningElsewhere(_)) => {}
-                Ok(Msg::Machines(m)) if m != self.machines => {
-                    self.machines = m;
+                Ok(Msg::Machines(m)) if m != *self.machines => {
+                    self.machines = std::sync::Arc::new(m);
                     self.dirty = true;
                 }
                 Ok(Msg::Machines(_)) => {}
@@ -3619,7 +3619,9 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         if self.cfg.jev.todos {
             board.todo_hints = self.jev_todos.hints(&board, &self.todos.todos);
         }
+        board.machines = self.machines.clone();
         board.schedules = crate::schedules::items(&self.schedules, &self.schedule_runs, &board, &self.cfg, now, &crate::schedules::rule::Local);
+        board.shared_schedules = crate::schedules::machines::outgoing(&self.schedules, &self.schedule_runs, &board, &self.cfg, &crate::schedules::rule::Local);
         board.schedules_problem = self.schedules_problem.clone();
         board
     }

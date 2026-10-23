@@ -239,13 +239,21 @@ pub struct Board {
     #[serde(skip)]
     pub repo_settings: crate::teamfile::RepoSettings,
     /// The schedules (schedules.rs), with what happened to each, for the Schedules view. This
-    /// Mac's own: not sent to other devices.
+    /// machine's own: not sent to other devices, which have their own copies of the ones they share
+    /// (`shared_schedules`).
     #[serde(default)]
     pub schedules: Vec<crate::schedules::Item>,
     /// schedules.json or schedule-runs.json doesn't read: why, for the Schedules view, which shows
     /// what they held before. Nothing writes over them meanwhile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schedules_problem: Option<String>,
+    /// Your machines that share automations, as their feeds said (shared.rs), for the scheduler:
+    /// which of them runs a schedule they share (schedules/machines.rs). Not the windows'.
+    #[serde(skip)]
+    pub machines: std::sync::Arc<crate::shared::Machines>,
+    /// The schedules this machine shares with your others, as its feed tells them (peerfeed.rs).
+    #[serde(skip)]
+    pub shared_schedules: codealong_peer::schedules::Shared,
 }
 
 

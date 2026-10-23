@@ -116,7 +116,7 @@ export function DevicesPane({ cfg, disabled, onSave, now }: DevicesPaneProps) {
               <span>For automations my machines share</span>
               <Seg className="ca-settings-theme" label="For automations my machines share" options={RANKS} value={d.automations} onPick={(id) => id !== d.automations && set({ automations: id })} />
               <small>
-                One of your machines runs each of these rather than all of them. For now that&apos;s reviewing a pull request that asks for your review, among the machines where automatic reviews are on.{' '}
+                One of your machines runs each of these rather than all of them: reviewing a pull request that asks for your review, among the machines where automatic reviews are on, and a schedule that runs on one of your machines, after the one it prefers.{' '}
                 {RANKS.find((r) => r.id === d.automations)?.says} Machines with the same setting go in an order they all agree on.
               </small>
             </div>

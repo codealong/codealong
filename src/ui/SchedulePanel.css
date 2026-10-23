@@ -111,6 +111,12 @@
   white-space: nowrap;
   color: var(--ink-2);
 }
+/* Another of your machines ran it. */
+.ca-schedrun-on {
+  flex: none;
+  font: var(--type-meta);
+  color: var(--ink-3);
+}
 .ca-schedrun-at {
   margin-left: auto;
   flex: none;
