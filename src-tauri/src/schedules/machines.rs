@@ -98,17 +98,6 @@ fn portable(s: &Schedule) -> Schedule {
     s
 }
 
-/// Schedules your machines shared before copies said their repo (2026-10-23), whose folder is a
-/// worktree here: the repo to say now, as a change, so the copies the others have take it in. None
-/// once another machine's copy says one.
-pub fn unsaid(file: &File, board: &Board, machines: &Machines) -> Vec<(String, Checkout)> {
-    let said_there = |id: &str| machines.others.iter().any(|m| m.schedules.get(id).is_some_and(|x| x.schedule.get("checkout").is_some_and(|c| !c.is_null())));
-    file.schedules
-        .iter()
-        .filter(|s| s.runs_on.shared() && s.checkout.is_none() && !said_there(&s.id))
-        .filter_map(|s| worktree(board, s.run.folder.trim()).filter(|_| !s.run.folder.trim().is_empty()).and_then(Checkout::of).map(|c| (s.id.clone(), c)))
-        .collect()
-}
 
 /// What this machine tells your others of the schedules they share.
 pub fn outgoing(file: &File, runs: &Runs, board: &Board, cfg: &Config, zone: &dyn Zone) -> Shared {
@@ -473,12 +462,6 @@ mod tests {
         let board = Board { lanes: vec![fork], ..Board::default() };
         let with = outgoing(&saved, &runs, &board, &Config::default(), &rule::tests::Fake::utc());
         assert_eq!(with.list[0].schedule["checkout"], serde_json::json!({ "repo": "acme/northwind" }));
-        // One shared before copies said their repo says it now, from the worktree here, until
-        // another machine's copy does.
-        assert_eq!(unsaid(&file, &board, &machines(Rank::First, Vec::new())), [("s-1".to_string(), Checkout { repo: "me/northwind".into(), branch: None })]);
-        assert!(unsaid(&saved, &board, &machines(Rank::First, Vec::new())).is_empty());
-        let said = machine(MINI, "Mini", Rank::First, true, vec![copy(&saved.schedules[0], true)]);
-        assert!(unsaid(&file, &board, &machines(Rank::First, vec![said])).is_empty());
         assert_eq!((x.took, x.seen.len(), x.seen.last().map(String::as_str)), (Some(900), SHARE_SEEN, Some("399")));
         assert_eq!(x.notes.as_ref().map(|n| n.text.as_str()), Some("Known noise: none"));
         // Its folder isn't a worktree this board knows: it can't run here.
