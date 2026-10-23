@@ -936,8 +936,15 @@ but can't be handed the new commits, such as one waiting at what its harness ask
 starts, is closed). A review whose turn is cut
 off partway (see *Cut off*: Codealong restarting cuts off the reviews it runs) is told to carry on
 the same way, four times at most before its round is given up on; one you stop ends its round
-without a review. A start that couldn't reach GitHub to read the PR (the network still coming back
-after a wake, GitHub struggling) is tried again by itself, waiting longer each time, for about a
+without a review. One whose turn stops on an error its harness recorded (Cursor's agent giving up
+on a connection that kept dropping, say), rather than a usage limit or a lost connection, ends its
+round saying why, and the commit is reviewed once more by itself in a new session: on another
+account than that one's where Auto, or the routing group Settings names, has one that can start
+it, else on the same account. While that one runs, the PR's card says why the first stopped. A
+round with nothing at work on it for six hours (its session gone, or a turn's end nothing read) is
+given up on, so it holds no place among the reviews that run at once. A start that couldn't reach
+GitHub to read the PR (the network still coming back after a wake, GitHub struggling) is tried
+again by itself, waiting longer each time, for about a
 quarter of an hour; a post that doesn't go through is tried a few times too. A harness that names
 its sessions itself (Antigravity, OpenCode, Codex in a terminal) has ten minutes for the review's
 session to show; one
@@ -949,11 +956,12 @@ asked, or ten minutes have passed: in its first seconds a session can read as en
 harness shows the turn. One taken for stopped before it was ever seen at work is taken up the same
 way once it's at work again, as long as nobody has prompted it since. A round that still
 didn't get done says so on the line over the PR's box, "didn't start" when no session ever began
-and "didn't finish" when one did, why on hover, and isn't tried again for that commit by itself:
-Try again beside it, and in its Reviews tab, does. It posts the review the agent wrote when only
-posting failed, takes the review from a session that went on after its round gave up on it, and
-otherwise reviews the PR again as Review with… does on the reviewer Settings names, in its session
-for the PR while that can go on. Two run at once at most;
+and "didn't finish" when one did, why on hover, and isn't tried again for that commit by itself
+(but once after an error, above): Try again beside it, and in its Reviews tab, does. It posts the
+review the agent wrote when only posting failed, takes the review from a session that went on
+after its round gave up on it, and otherwise reviews the PR again as Review with… does on the
+reviewer Settings names, in its session for the PR while that can go on (after an error, in a new
+one, on another account where one can). Two run at once at most;
 a session waiting on you holds no place. Until the agent's review of the PR's latest commit is done,
 or didn't get done (two hours at most), the PR is out of what waits on you (the floating bar, the
 notch, the waiting window and the mark), as a snoozed review is, so you review it after the agent;

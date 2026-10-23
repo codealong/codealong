@@ -35,7 +35,13 @@
 //! A reviewer whose turn was cut off partway (`Session::cut_off`: what ran it ended, as Codealong
 //! restarting ends the sessions it runs) is told to carry on where it runs or can go on, as
 //! another round's prompt is handed to it (`hand`, `Job::CarryOn`), a few times at most
-//! (`CARRY_ONS`). One stopped on purpose ends its round without a review.
+//! (`CARRY_ONS`). One stopped on purpose ends its round without a review. One whose turn stopped
+//! on an error its harness recorded (`Part::errored_in`: Cursor's agent giving up on a connection
+//! that kept dropping, not a usage limit or a lost connection) ends its round saying why, and the
+//! commit is reviewed once more in a new session, on another account than that one's where Auto or
+//! the routing group has one that can start (`Tracked::retries`, `past_error`), its card saying
+//! why meanwhile (`after_error`). A round that has had nothing at work on it for hours is given up
+//! on (`Round::stuck`), so a turn's end nothing read can't hold a place for good.
 //!
 //! A start whose harness names its session itself (Antigravity, OpenCode, Codex in a terminal)
 //! leaves where to look (`Pending`): the session is the next there whose first prompt opens as a
@@ -44,7 +50,8 @@
 //! (`Tracked::take_up`), so a review it wrote is still read and posted.
 //!
 //! A few rounds run at once at most; one whose session waits on you doesn't hold a place. A round
-//! that didn't get done isn't tried again for the same commit; the next push tries again, and so
+//! that didn't get done isn't tried again for the same commit (but the one an error ended, above);
+//! the next push tries again, and so
 //! does Try again on the PR's card and on its notice (`again`), which posts a review that was
 //! written but couldn't be posted rather than have it written again (`Reviewer::repost`), and takes
 //! up a round in the session it never found, wherever that showed (`Reviewer::take_up`). A start
@@ -132,6 +139,13 @@ const CARRY_ONS: usize = 4;
 const SHOW_MS: i64 = 10 * 60_000;
 /// Reviews of PRs that no longer wait on you are forgotten this long after their last round.
 const KEEP_MS: i64 = 30 * DAY_MS;
+/// How long a round under way with nothing at work on it is waited on before it's given up on
+/// (`Round::stuck`): a turn takes hours only while its session is at work, as one its harness keeps
+/// retrying is, so a round this quiet waits on something nothing will say (a turn's end nothing
+/// read, a PR no longer listed, whose round `next` never sees).
+const STUCK_MS: i64 = 6 * 60 * 60_000;
+/// Why a round given up on that way (`STUCK_MS`) didn't get done.
+const STUCK: &str = "Nothing was at work on it for hours, so it was given up on.";
 /// GitHub takes comments of up to 65,536 characters.
 const COMMENT_MAX: usize = 60_000;
 /// How long a PR that waits on your review is held out of what waits on you for a review that
@@ -277,6 +291,24 @@ impl Part {
         !s.live && s.cut_off.is_some_and(|at| at >= self.last_asked())
     }
 
+    /// Its session `s`'s turn stopped on an error its harness recorded, since it was asked or last
+    /// told to carry on: not a usage limit, a lost connection or a cut, which go their own ways.
+    /// The error shows until you look at the session, which the next look here comes before.
+    fn errored_in(&self, s: &Session) -> bool {
+        s.status == Status::Error && s.limit.is_none() && s.connection_lost.is_none() && s.cut_off.is_none() && s.last_activity >= self.last_asked()
+    }
+
+    /// Nothing has been at work on it for `STUCK_MS`: its session is gone, or hasn't been at work
+    /// or done anything since it was last asked that long ago, and isn't waiting on a lost
+    /// connection Codealong carries it on from (`ConnectionLost::continues`).
+    fn stuck(&self, board: &Board, now: i64) -> bool {
+        let quiet_since = |at: i64| now - at > STUCK_MS;
+        match self.session.as_deref().and_then(|k| board.session(k)) {
+            Some((_, s)) => !at_work(s) && !s.connection_lost.as_ref().is_some_and(|c| c.continues) && quiet_since(self.last_asked().max(s.last_activity)),
+            None => quiet_since(self.last_asked()),
+        }
+    }
+
     /// It was asked lately, first or to carry on, and its session isn't seen at work since: the
     /// turn is starting, whatever a board from before it shows (a cut that it answers, say).
     fn starting(&self, now: i64) -> bool {
@@ -295,6 +327,30 @@ const NEVER_SHOWED: &str = "Its session never showed up.";
 /// Why a part failed when its session's turn ended without a review and nothing ran it, once it
 /// had begun or `SHOW_MS` passed (`Went::NoReview`), which `Tracked::take_up` goes by too.
 const STOPPED: &str = "Its session stopped before it wrote a review.";
+/// How a part's note opens when its session's turn stopped on an error (`Part::errored_in`,
+/// `errored_note`), which `Round::errored` goes by.
+const ERRORED: &str = "Its turn stopped with an error";
+
+/// `ERRORED`, with what session `s` says went wrong (its excerpt) where it says: once, where its
+/// words open by saying the turn stopped with an error themselves, as Cursor's do.
+fn errored_note(s: &Session) -> String {
+    let said = s.excerpt.as_deref().map(|e| crate::util::one_line(e, 300)).unwrap_or_default();
+    let why = said.strip_prefix("The turn stopped with an error").map_or(said.as_str(), |rest| rest.trim_start_matches(':')).trim();
+    match why {
+        "" => format!("{ERRORED}."),
+        why if why.ends_with(['.', '!', '?']) => format!("{ERRORED}: {why}"),
+        why => format!("{ERRORED}: {why}."),
+    }
+}
+
+/// What a round of a commit begun after `last`, that commit's round whose reviewer's turn stopped
+/// with an error (`Round::errored`), says of it while it's under way: on account `off`, where
+/// that's known.
+fn after_error(last: &Round, off: Option<&str>) -> String {
+    let who = off.map_or_else(|| "its last reviewer".to_string(), String::from);
+    let why = last.parts.iter().find_map(|p| p.note.as_deref()?.strip_prefix(ERRORED)).unwrap_or(".");
+    format!("Reviewed again after {who}'s turn stopped with an error{why}")
+}
 
 /// A round: the review of one commit of a PR.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -333,6 +389,18 @@ impl Round {
     fn new(head: &str, stage: ReviewStage, at: i64) -> Round {
         let ended_at = (stage != ReviewStage::Reviewing).then_some(at);
         Round { head: head.to_string(), stage, at, ended_at, comment: None, note: None, parts: Vec::new(), sent: None, submitted: None, by_hand: false }
+    }
+
+    /// It ended because its reviewer's turn stopped with an error (`ERRORED`).
+    fn errored(&self) -> bool {
+        self.stage == ReviewStage::Failed && !self.parts.is_empty() && self.parts.iter().all(|p| p.state == PartState::Failed && p.note.as_deref().is_some_and(|n| n.starts_with(ERRORED)))
+    }
+
+    /// Under way with a part still reviewing, every one of which has had nothing at work on it
+    /// for `STUCK_MS` (`Part::stuck`). A round whose parts are all done waits on its post, which
+    /// `next` sees to.
+    fn stuck(&self, board: &Board, now: i64) -> bool {
+        self.stage == ReviewStage::Reviewing && self.parts.iter().any(Part::reviewing) && self.parts.iter().filter(|p| p.reviewing()).all(|p| p.stuck(board, now))
     }
 }
 
@@ -432,6 +500,15 @@ impl Tracked {
         }
         took
     }
+
+    /// Commit `head` is reviewed once more by itself: its only round (one that gave way to another
+    /// machine's aside), the latest, an automatic one, ended because its reviewer's turn stopped
+    /// with an error (`Round::errored`). The next goes to another account where one can take it
+    /// (`past_error`).
+    fn retries(&self, head: &str) -> bool {
+        let mut of = self.rounds.iter().filter(|r| r.head == head && !gave_way(r));
+        self.rounds.last().is_some_and(|r| r.head == head && !r.by_hand && r.errored()) && of.next().is_some() && of.next().is_none()
+    }
 }
 
 /// reviews.json: each PR's reviews, by its key (`prlinks::pr_key`).
@@ -459,6 +536,9 @@ pub struct Seat {
     /// The harness Auto keeps off: the one of the session that opened a PR of yours, so another
     /// model reviews it. Auto takes one of it only when no account of another can start.
     pub avoid: Option<Harness>,
+    /// The account whose reviewer's turn of this commit stopped with an error (`past_error`): Auto
+    /// or the routing group starts on another where one can.
+    pub instead_of: Option<String>,
 }
 
 /// The reviewer `cfg` names, with its session for the PR in `t`.
@@ -471,7 +551,7 @@ fn named_seat(account: &str, model: &str, effort: &str, t: Option<&Tracked>) -> 
     let (account, model, effort) = (some(account), some(model), some(effort));
     let at = effort.as_deref().map(|e| format!("at {e}"));
     let who = [Some(account.as_deref().unwrap_or(AUTO)), model.as_deref(), at.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(" ");
-    Seat { session: t.and_then(|t| t.sessions.get(&who).cloned()), who, account, model, effort, avoid: None }
+    Seat { session: t.and_then(|t| t.sessions.get(&who).cloned()), who, account, model, effort, avoid: None, instead_of: None }
 }
 
 /// The harness that wrote `pr`: the session that opened it here, else what its commit trailer or
@@ -507,7 +587,8 @@ fn session_at_limit(board: &Board, accounts: &[AccountCfg], key: &str, model: Op
     board.usage.iter().any(|u| u.account == s.account && (u.needs_sign_in || crate::start::near_limit(u, check_model, cap)))
 }
 
-/// `seat_for`, starting afresh when the PR's kept session is on an account at its usage limit.
+/// `seat_for`, starting afresh when the PR's kept session is on an account at its usage limit, or
+/// stopped with an error on the commit the PR is at (`past_error`).
 fn seat_in(cfg: &ReviewsCfg, t: Option<&Tracked>, board: &Board, pr: &PrItem, now: i64) -> Seat {
     let mut s = seat_for(cfg, t, &board.lanes, pr);
     if let Some(key) = s.session.as_deref() {
@@ -515,7 +596,17 @@ fn seat_in(cfg: &ReviewsCfg, t: Option<&Tracked>, board: &Board, pr: &PrItem, no
             s.session = None;
         }
     }
-    s
+    past_error(s, t, board, pr)
+}
+
+/// `seat` for the commit PR `pr` is at, once its latest round there ended because its reviewer's
+/// turn stopped with an error (`Round::errored`): a new session rather than the one that stopped,
+/// on another account than that one's where one can start it (`instead_of`).
+fn past_error(mut seat: Seat, t: Option<&Tracked>, board: &Board, pr: &PrItem) -> Seat {
+    let Some(r) = t.and_then(|t| t.rounds.last()).filter(|r| pr.head_oid.as_deref() == Some(r.head.as_str()) && r.errored()) else { return seat };
+    seat.session = None;
+    seat.instead_of = r.parts.iter().find_map(|p| board.session(p.session.as_deref()?)).map(|(_, s)| s.account.clone());
+    seat
 }
 
 const FLAGGED_REVIEW: &str = "Automatic reviews and follow-ups are paused because a session was flagged by its provider. You can start or send a review yourself, or change Settings › Automation.";
@@ -706,7 +797,8 @@ fn has_checkout(lanes: &[Lane], pr: &PrItem) -> bool {
 ///    machine's key settling a tie. So a machine that went away partway is passed over, and one
 ///    that comes back to find another took the commit up drops its own (`due`), and takes it up
 ///    again should that one go away in turn. A round that didn't get done claims nothing: another
-///    machine may try it, while this one doesn't try again by itself.
+///    machine may try it, while this one tries again by itself only once, after its reviewer's
+///    turn stopped with an error (`Tracked::retries`).
 /// 2. The PR stays with the machine whose review of it got done last, while that machine is around
 ///    and would review it, and hasn't tried its commit: its session knows the PR, and reviews the
 ///    commits since as such.
@@ -984,6 +1076,10 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
                 fail(p, "Its provider flagged the conversation, so it wasn't told to carry on.");
                 changed = true;
             }
+            Some((_, s)) if p.errored_in(s) => {
+                fail(p, &errored_note(s));
+                changed = true;
+            }
             Some((_, s)) if p.cut_off_in(s) && p.carried_on.len() < CARRY_ONS => {
                 return Next::Job(Job::CarryOn { pr: pr.clone(), head: r.head.clone(), part: i, session: k, model: p.model().map(String::from), effort: p.effort().map(String::from) });
             }
@@ -1054,7 +1150,20 @@ impl Reviewer {
                     changed |= t.take_up(board, pr, false);
                 }
             }
-            let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing && (on || r.by_hand)) else { continue };
+            let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { continue };
+            // Every round, a PR's that isn't listed or whose reviews were turned off too: one of
+            // those is never looked at again (`next`), and would hold a place for good.
+            if !self.busy.contains(key) && r.stuck(board, now) {
+                for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
+                    fail(p, STUCK);
+                }
+                end(r, ReviewStage::Failed, Some(STUCK.into()), now);
+                changed = true;
+                continue;
+            }
+            if !(on || r.by_hand) {
+                continue;
+            }
             for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
                 if let Some(pending) = p.pending.clone() {
                     if let Some(s) = pr.and_then(|pr| found(board, &pending, pr)) {
@@ -1149,7 +1258,7 @@ impl Reviewer {
             if review_seat(board, pr, seat_for(cfg, t, &board.lanes, pr), false).is_none() {
                 continue;
             }
-            if t.is_some_and(|t| t.rounds.iter().any(|r| r.head == head && !gave_way(r))) {
+            if t.is_some_and(|t| t.rounds.iter().any(|r| r.head == head && !gave_way(r)) && !t.retries(&head)) {
                 continue;
             }
             let again = t.is_some_and(|t| !t.rounds.is_empty());
@@ -1247,7 +1356,7 @@ impl Reviewer {
         let mut said: Result<(), Said> = Ok(());
         let again = |text: String| Said { text, again: Some(pr.key.clone()) };
         match (job, went) {
-            (Job::Review { head, by_hand, .. }, Went::Started(parts)) => {
+            (Job::Review { head, by_hand, seat, .. }, Went::Started(parts)) => {
                 for p in &parts {
                     if let Some(s) = &p.session {
                         t.sessions.insert(p.who.clone(), s.clone());
@@ -1255,10 +1364,15 @@ impl Reviewer {
                 }
                 let failed: Vec<String> = parts.iter().filter(|p| p.state == PartState::Failed).map(|p| p.note.clone().unwrap_or_else(|| "it didn't start".into())).collect();
                 let none = failed.len() == parts.len();
+                // A review of the commit again after a turn that stopped with an error says so on
+                // the PR's card while it's under way.
+                let after = t.rounds.last().filter(|r| r.head == *head && r.errored()).map(|r| after_error(r, seat.instead_of.as_deref()));
                 let mut r = Round::new(head, if none { ReviewStage::Failed } else { ReviewStage::Reviewing }, now);
                 if none {
                     r.note = Some(failed.join(" "));
                     said = Err(again(format!("Codealong couldn't start a review of {}: {}", pr.key, failed.join("; "))));
+                } else {
+                    r.note = after;
                 }
                 r.parts = parts;
                 r.by_hand = *by_hand;
@@ -2184,23 +2298,24 @@ fn start_words(start: ReviewStart) -> &'static str {
 
 /// The account, model and effort a new review runs on, and where: `seat`'s account (or the one
 /// Auto or the routing group it names picks among the accounts that can start one where
-/// `[reviews] start` says, of another harness than `avoid` when one of them can), model and
-/// effort, else the effort the group's member names.
+/// `[reviews] start` says, of another harness than `avoid` when one of them can, and another
+/// account than `seat`'s `instead_of` when one can), model and effort, else the effort the group's
+/// member names.
 fn reviewer_place(cfg: &Config, board: &Board, seat: &Seat, avoid: Option<Harness>) -> Result<(String, Option<String>, Option<String>, Place), String> {
     let start = cfg.reviews.start;
     let can = |a: &AccountCfg| review_place(a, start).is_some();
+    let pick = |group: &str| {
+        let among = |keep: &dyn Fn(&AccountCfg) -> bool| crate::start::resolve_group(cfg, Some(board), group, &[], seat.model.as_deref(), avoid, true, now_ms(), keep).and_then(std::result::Result::ok);
+        seat.instead_of.as_deref().and_then(|off| among(&|a| can(a) && a.name != off)).or_else(|| among(&can))
+    };
     let asked = seat.account.as_deref().map(str::trim).filter(|a| !a.is_empty());
     let (name, model, effort) = match asked {
         None => {
-            let picked = crate::start::resolve_group(cfg, Some(board), AUTO, &[], seat.model.as_deref(), avoid, true, now_ms(), can)
-                .and_then(std::result::Result::ok)
-                .ok_or_else(|| format!("no account can start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
+            let picked = pick(AUTO).ok_or_else(|| format!("no account can start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
             (picked.account, seat.model.clone().or(picked.model), seat.effort.clone().or(picked.effort))
         }
         Some(n) if cfg.routing.groups.iter().any(|g| g.name == n) => {
-            let picked = crate::start::resolve_group(cfg, Some(board), n, &[], seat.model.as_deref(), avoid, true, now_ms(), can)
-                .and_then(std::result::Result::ok)
-                .ok_or_else(|| format!("no account in {n} can start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
+            let picked = pick(n).ok_or_else(|| format!("no account in {n} can start a review {}; Settings › Automation says where reviews start", start_words(start)))?;
             (picked.account, seat.model.clone().or(picked.model), seat.effort.clone().or(picked.effort))
         }
         Some(n) => (n.to_string(), seat.model.clone(), seat.effort.clone()),
@@ -2486,11 +2601,13 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
     let head = pr.head_oid.clone().ok_or_else(|| anyhow::anyhow!("GitHub didn't say which commit {key} is at."))?;
     let reviews = board.repo_settings.reviews(&cfg.reviews, pr);
     let store: Store = crate::store::read(&path(), WHAT)?.unwrap_or_default();
-    let seat = seat_for(&reviews, store.prs.get(&pr_key(key)), &board.lanes, pr);
+    let t = store.prs.get(&pr_key(key));
+    let seat = seat_for(&reviews, t, &board.lanes, pr);
     if review_blocked(&board.lanes, &cfg.sessions, pr, &seat) {
         let on = if pr.mine { reviews.own.auto } else { reviews.auto };
         return Ok(Plan { wanted: false, on, stands: pr.auto_review.clone(), start: PlannedStart { who: seat.who, spec: None, start: None, problem: Some(FLAGGED_REVIEW.into()) } });
     }
+    let seat = past_error(seat, t, board, pr);
     let (md, diff, _) = crate::github::for_reading(pr)?;
     let stands = pr.auto_review.clone();
     let since = stands.as_ref().filter(|a| a.head != head && a.stage != ReviewStage::Queued).map(|a| a.head.clone());
@@ -2694,7 +2811,7 @@ pub fn review_now(engine: &Handle, reviewer: &Mutex<Reviewer>, key: &str, accoun
         let t = r.store.prs.get(&k);
         let seat = match account.map(str::trim).filter(|a| !a.is_empty()) {
             Some(a) => named_seat(a, "", "", t),
-            None => seat_for(&reviews, t, &board.lanes, pr),
+            None => past_error(seat_for(&reviews, t, &board.lanes, pr), t, &board, pr),
         };
         let since = t.and_then(|t| t.done_head()).filter(|h| *h != head).map(String::from);
         let job = Job::Review { pr: pr.clone(), head, since, seat, by_hand: true };
@@ -2913,8 +3030,9 @@ mod tests {
             .map(|j| match j {
                 Job::Review { pr, head, since, seat, by_hand } => {
                     let session = seat.session.as_deref().map(|k| format!(" in {k}")).unwrap_or_default();
+                    let instead = seat.instead_of.as_deref().map(|a| format!(" instead of {a}")).unwrap_or_default();
                     let hand = if *by_hand { " by hand" } else { "" };
-                    format!("review {} {} since {:?} by {}{session}{hand}", pr.number, short(head), since.as_deref().map(short), seat.who)
+                    format!("review {} {} since {:?} by {}{session}{instead}{hand}", pr.number, short(head), since.as_deref().map(short), seat.who)
                 }
                 Job::Read { pr, part, session, .. } => format!("read {} part {part} in {session}", pr.number),
                 Job::CarryOn { pr, part, session, model, effort, .. } => format!("carry on {} part {part} in {session} on {model:?} at {effort:?}", pr.number),
@@ -3573,10 +3691,10 @@ mod tests {
         let mut t = Tracked::default();
         t.sessions.insert("claude opus".into(), S.into());
         let named = seat(&cfg(" claude ", "opus"), Some(&t));
-        assert_eq!(named, Seat { who: "claude opus".into(), account: Some("claude".into()), model: Some("opus".into()), effort: None, session: Some(S.into()), avoid: None });
+        assert_eq!(named, Seat { who: "claude opus".into(), account: Some("claude".into()), model: Some("opus".into()), effort: None, session: Some(S.into()), avoid: None, instead_of: None });
         // Another reviewer starts afresh; Auto is named for what it is.
         assert_eq!(seat(&cfg("claude", ""), Some(&t)).session, None);
-        assert_eq!(seat(&cfg("", ""), None), Seat { who: AUTO.into(), account: None, model: None, effort: None, session: None, avoid: None });
+        assert_eq!(seat(&cfg("", ""), None), Seat { who: AUTO.into(), account: None, model: None, effort: None, session: None, avoid: None, instead_of: None });
         assert_eq!(seat(&cfg("", "opus"), None).who, "auto opus");
         // Its effort is in its name, as its model is: another effort is another session.
         let at = seat(&ReviewsCfg { effort: " xhigh ".into(), ..cfg("claude", "opus") }, Some(&t));
@@ -4163,6 +4281,145 @@ mod tests {
         r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW + SHOW_MS + 1);
         r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW + SHOW_MS + 2);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+    }
+
+    /// A reviewer whose turn stopped on an error its harness recorded (here Cursor's agent giving up
+    /// on a connection that kept dropping) fails its part saying why, rather than leaving the round
+    /// under way for good. The commit is then reviewed once more by itself, in a new session on
+    /// another account where one can start it, the PR's card saying why meanwhile; a second error
+    /// ends it there.
+    #[test]
+    fn a_reviewer_whose_turn_stops_on_an_error_is_tried_once_more_elsewhere() {
+        const GAVE_UP: &str = "The turn stopped with an error: Agent turn stopped after repeated resume attempts made no progress";
+        let errored = |key: &str, account: &str, when: i64| Session { account: account.into(), excerpt: Some(GAVE_UP.into()), ..at(key, Status::Error, when) };
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let failed = board(vec![pr(7, HEAD)], vec![errored(S, "cursor", NOW + QUIET_MS)]);
+        assert!(r.due(&failed, &on(), NOW + QUIET_MS + 1).is_empty());
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        let said = "Its turn stopped with an error: Agent turn stopped after repeated resume attempts made no progress.";
+        assert_eq!((round.stage, round.note.as_deref(), round.parts[0].state), (ReviewStage::Failed, Some(said), PartState::Failed));
+        assert!(round.errored());
+
+        // Not in the session that stopped: a new one, on another account than cursor where one can.
+        let jobs = r.due(&failed, &on(), NOW + QUIET_MS + 2);
+        assert_eq!(kinds(&jobs), ["review 7 1111111 since None by auto instead of cursor"]);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, "codex:codex:again", NOW + QUIET_MS + 3)]), NOW + QUIET_MS + 3).unwrap();
+        let t = &r.store.prs["o/r#7"];
+        let again = "Reviewed again after cursor's turn stopped with an error: Agent turn stopped after repeated resume attempts made no progress.";
+        assert_eq!((t.rounds.len(), t.rounds[1].stage, t.rounds[1].note.as_deref(), t.sessions[AUTO].as_str()), (2, ReviewStage::Reviewing, Some(again), "codex:codex:again"));
+        let mut prs = vec![pr(7, HEAD)];
+        apply(&mut prs, &r.store, &on(), &failed.sessions, &Default::default(), &failed.lanes, &Default::default(), NOW + QUIET_MS + 4);
+        assert_eq!(prs[0].auto_review.as_ref().and_then(|a| a.note.as_deref()), Some(again), "its card says why");
+
+        // Once is all: an error again ends the commit's reviews there.
+        let both = board(vec![pr(7, HEAD)], vec![errored(S, "cursor", NOW + QUIET_MS), errored("codex:codex:again", "codex", NOW + QUIET_MS + 60_000)]);
+        r.due(&both, &on(), NOW + QUIET_MS + 60_001);
+        assert_eq!(r.store.prs["o/r#7"].rounds[1].stage, ReviewStage::Failed);
+        assert!(r.due(&both, &on(), NOW + QUIET_MS + 60_002).is_empty());
+    }
+
+    /// Only an error of the turn it was asked for, its harness's own, fails a part: one from before
+    /// it was asked, a usage limit and a lost connection go their own ways. A round asked for by
+    /// hand that an error ended isn't tried again by itself, and Try again starts it afresh.
+    #[test]
+    fn only_a_turns_own_error_fails_its_review() {
+        let asked = || {
+            let mut r = Reviewer::default();
+            let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+            r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+            r
+        };
+        let stage = |r: &Reviewer| r.store.prs["o/r#7"].rounds[0].stage;
+        let mut r = asked();
+        r.due(&board(vec![pr(7, HEAD)], vec![session(Status::Error, NOW - 1)]), &on(), NOW + 1);
+        assert_eq!(stage(&r), ReviewStage::Reviewing, "an error from before it was asked");
+        let limited = Session { limit: Some(crate::model::SessionLimit { at: NOW + 1, resets_at: Some(NOW + 60_000), ..Default::default() }), ..session(Status::Error, NOW + 1) };
+        r.due(&board(vec![pr(7, HEAD)], vec![limited]), &on(), NOW + 2);
+        assert_eq!(stage(&r), ReviewStage::Reviewing, "a usage limit");
+        let lost = Session { connection_lost: Some(crate::model::ConnectionLost { at: NOW + 1, continues: true }), ..session(Status::Error, NOW + 1) };
+        r.due(&board(vec![pr(7, HEAD)], vec![lost]), &on(), NOW + 3);
+        assert_eq!(stage(&r), ReviewStage::Reviewing, "a lost connection");
+        r.due(&board(vec![pr(7, HEAD)], vec![session(Status::Error, NOW + 1)]), &on(), NOW + 4);
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.note.as_deref()), (ReviewStage::Failed, Some("Its turn stopped with an error.")), "one that says nothing more");
+
+        let mut r = asked();
+        r.store.prs.get_mut("o/r#7").unwrap().rounds[0].by_hand = true;
+        let failed = board(vec![pr(7, HEAD)], vec![session(Status::Error, NOW + QUIET_MS)]);
+        r.due(&failed, &on(), NOW + QUIET_MS + 1);
+        assert_eq!(stage(&r), ReviewStage::Failed);
+        assert!(r.due(&failed, &on(), NOW + QUIET_MS + 2).is_empty(), "asked for by hand: Try again's to do");
+        let t = r.store.prs.get("o/r#7");
+        let seat = past_error(seat_for(&on(), t, &failed.lanes, &failed.prs[0]), t, &failed, &failed.prs[0]);
+        assert_eq!((seat.session, seat.instead_of.as_deref()), (None, Some("claude")), "Try again starts afresh");
+    }
+
+    #[test]
+    fn an_errors_words_are_said_once() {
+        let said = |excerpt: Option<&str>| errored_note(&Session { excerpt: excerpt.map(String::from), ..session(Status::Error, NOW) });
+        assert_eq!(said(Some("The turn stopped with an error: [resource_exhausted] Error")), "Its turn stopped with an error: [resource_exhausted] Error.");
+        assert_eq!(said(Some("The turn stopped with an error")), "Its turn stopped with an error.");
+        assert_eq!(said(Some("NOT_FOUND (code 404): models/kestrel-b is not found")), "Its turn stopped with an error: NOT_FOUND (code 404): models/kestrel-b is not found.");
+        assert_eq!(said(Some("Connection failed.\nRetry later")), "Its turn stopped with an error: Connection failed.");
+        assert_eq!(said(None), "Its turn stopped with an error.");
+    }
+
+    /// A round with nothing at work on it for hours is given up on, a PR's that's no longer listed
+    /// too, which `next` never looks at: it held a place among the reviews that run at once for as
+    /// long as the PR was remembered. One whose session is at work, or that Codealong carries on
+    /// once its connection is back, waits on.
+    #[test]
+    fn a_round_with_nothing_at_work_on_it_for_hours_is_given_up_on() {
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD), pr(8, HEAD)], vec![]), &on(), NOW);
+        assert_eq!(jobs.len(), 2);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, "claude:claude:seven", NOW)]), NOW).unwrap();
+        r.told(&jobs[1], Went::Started(vec![started(AUTO, "claude:claude:eight", NOW)]), NOW).unwrap();
+        // Both left the board, their sessions gone: they hold the two places until they're given up on.
+        let later = board(vec![pr(9, HEAD)], vec![]);
+        assert!(r.due(&later, &on(), NOW + STUCK_MS).is_empty());
+        assert_eq!(kinds(&r.due(&later, &on(), NOW + STUCK_MS + 1)), ["review 9 1111111 since None by auto"]);
+        for key in ["o/r#7", "o/r#8"] {
+            let round = &r.store.prs[key].rounds[0];
+            assert_eq!((round.stage, round.note.as_deref(), round.parts[0].state), (ReviewStage::Failed, Some(STUCK), PartState::Failed));
+        }
+
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let working = board(vec![], vec![session(Status::Working, NOW + 1)]);
+        r.due(&working, &on(), NOW + 2 * STUCK_MS);
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing, "at work");
+        let lost = Session { connection_lost: Some(crate::model::ConnectionLost { at: NOW + 1, continues: true }), ..session(Status::Unread, NOW + 1) };
+        r.due(&board(vec![], vec![lost]), &on(), NOW + 2 * STUCK_MS);
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing, "to be carried on");
+        let ended = board(vec![], vec![session(Status::Idle, NOW + STUCK_MS)]);
+        r.due(&ended, &on(), NOW + 2 * STUCK_MS);
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing, "it did something lately");
+        r.due(&ended, &on(), NOW + 2 * STUCK_MS + 1);
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+    }
+
+    /// A review tried again after its reviewer's turn stopped with an error starts on another of
+    /// its group's accounts than that one's while another can start it, else on that one again.
+    #[test]
+    fn a_review_after_an_error_starts_on_another_account_where_one_can() {
+        use crate::config::{GroupMemberCfg, RoutingGroupCfg, RoutingStrategy};
+        let account = |name: &str, harness: &str| AccountCfg { name: name.into(), harness: harness.into(), home: format!("/Users/me/.{name}"), command: Some(harness.into()), start: None, acp: None, monthly: None, per_token: false, usage_cap: None, disabled: false };
+        let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
+        let mut cfg = Config { accounts: vec![account("claude", "claude"), account("codex", "codex")], ..Config::default() };
+        cfg.routing.groups = vec![RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::Fallback, members: vec![member("claude"), member("codex")] }];
+        let b = board(vec![pr(7, HEAD)], vec![]);
+        let picks = |cfg: &Config, instead_of: Option<&str>| {
+            let seat = Seat { instead_of: instead_of.map(String::from), ..named_seat("reviewers", "", "", None) };
+            reviewer_place(cfg, &b, &seat, None).map(|(account, ..)| account)
+        };
+        assert_eq!(picks(&cfg, None).as_deref(), Ok("claude"));
+        assert_eq!(picks(&cfg, Some("claude")).as_deref(), Ok("codex"));
+        cfg.routing.groups[0].members.pop();
+        assert_eq!(picks(&cfg, Some("claude")).as_deref(), Ok("claude"), "the only one there is");
     }
 
     #[test]

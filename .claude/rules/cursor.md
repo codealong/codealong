@@ -71,7 +71,15 @@ chunks) and this Mac's files (2026-10-09). Paths are under `src-tauri/src/`.
   (`turn_error`). Seen here: "[resource_exhausted] Error", Cursor's servers turning a review's
   request away while its plan was at 7% (2026-10-22), and "Agent turn stopped after repeated
   resume attempts made no progress". Sending `continue` rewrote the transcript without that
-  line: the reason is in the records only until the turn after it.
+  line: the reason is in the records only until the turn after it. The second is cursor-agent's
+  own (2026.10.22's `index.js`, not Codealong's): its turn loop resumes a dropped stream from its
+  last checkpoint, and once two resumes in a row stream without saving one it stops ("Resume
+  attempts are streaming but not producing checkpoints; stopping automatic resume"), its
+  `displayInfo` saying "The connection was interrupted repeatedly without saving progress… Retry
+  to continue from the last saved state" and `isRetryable: true`. Two reviews ended so in one night
+  (2026-10-23), each hours into its turn and straight after a `GetDynamicTools` call for Cursor's
+  `WebSearch`, the session showing as working all that while. A review whose turn ends on an error
+  is tried once more by itself (`autoreview.rs` `Part::errored_in`, `Tracked::retries`).
 - A command line chat is `chats/<md5 of its folder>/<id>/store.db` (`blobs`, sha256-addressed
   protobufs, and `meta`, one row `"0"` whose value is hex for JSON: `name`, `createdAt`,
   `lastUsedModel`, `mode`…, no folder): `cursor.rs` (`read_cli_chats`, `parse_meta`). Beside it
