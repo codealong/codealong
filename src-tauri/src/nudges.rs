@@ -18,8 +18,8 @@
 //! comments and reviews that ask for changes or say something, and failing checks and conflicts or
 //! a merge if it says so, never an approval or a close. An agent's review that Codealong posted from someone's
 //! account (autoreview.rs `signed`), as a comment or submitted as their review, is told as their
-//! agent's, never as their own word (`agent_wrote`): it comes as a message of yours, and the
-//! session would otherwise take it for that person's say.
+//! agent's, never as their own word (`agent_wrote`): the session would otherwise take it for
+//! that person's say.
 //!
 //! What's seen on the board and what's been told are kept apart: an update is owed to each
 //! session from the board it shows on until a send to that session goes through. A session
@@ -474,7 +474,7 @@ fn excerpt(body: &str) -> String {
 pub const NOT_A_MERGE: &str = "This message doesn't ask you to merge it: merge it only if you were asked to.";
 
 /// What the session is told: the PR, each new thing on it, where it stands, and that it's the
-/// session's to take on, but not to merge: a message that came by itself, as one of yours, must
+/// session's to take on, but not to merge: a message that came by itself must
 /// never read as your go-ahead to merge (asked 2026-10-09), so an open PR's always says it
 /// doesn't ask that. None when nothing new was by someone else (the PR's own agent pushed, say). `detail` is the PR as GitHub has it now, read when `why.since` says to; `login` is who
 /// `gh` is signed in as, whose reviews aren't news. Only what `about` tells of is said (`keep`):

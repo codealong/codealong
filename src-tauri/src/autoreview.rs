@@ -66,8 +66,8 @@
 //! turn as a part (`Part`), as it did when several could review one PR.
 //!
 //! The pull requests your own sessions open are reviewed the same way when `[reviews.own] auto`
-//! says to (`wants_own`): each open PR of yours whose session (`PrItem::primary`, the one that
-//! opened it) is on this Mac, and a draft only when `[reviews.own] drafts` says so (another's
+//! says to (`wants_own`): each open PR of yours whose primary session (`PrItem::primary`, most
+//! often the one that opened it) is on this Mac, and a draft only when `[reviews.own] drafts` says so (another's
 //! draft never), on `[reviews.own]`'s account and model, else the account Auto would start among
 //! those of another harness than that session's (`Seat::avoid`), so another model reads what one
 //! wrote. Nothing goes on GitHub: the review is kept here (`ReviewStage::Kept`)
@@ -430,7 +430,7 @@ fn approval() -> Verdict {
     Verdict::Approve
 }
 
-/// A review of a PR of yours sent to the session that opened it (`Job::Send`), or given up on
+/// A review of a PR of yours sent to its primary session (`Job::Send`), or given up on
 /// after a few tries (`failed`, why).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -541,7 +541,7 @@ pub struct Seat {
     /// effort it has.
     pub effort: Option<String>,
     pub session: Option<String>,
-    /// The harness Auto keeps off: the one of the session that opened a PR of yours, so another
+    /// The harness Auto keeps off: the one of a PR of yours' primary session, so another
     /// model reviews it. Auto takes one of it only when no account of another can start.
     pub avoid: Option<Harness>,
     /// The account whose reviewer's turn of this commit stopped with an error (`past_error`): Auto
@@ -562,7 +562,7 @@ fn named_seat(account: &str, model: &str, effort: &str, t: Option<&Tracked>) -> 
     Seat { session: t.and_then(|t| t.sessions.get(&who).cloned()), who, account, model, effort, avoid: None, instead_of: None }
 }
 
-/// The harness that wrote `pr`: the session that opened it here, else what its commit trailer or
+/// The harness that wrote `pr`: its primary session's here, else what its commit trailer or
 /// description says (`PrItem::authored_by`).
 pub fn pr_harness(lanes: &[Lane], pr: &PrItem) -> Option<Harness> {
     origin(lanes, pr).map(|(_, o)| o.harness).or(pr.authored_by)
@@ -659,8 +659,8 @@ pub enum Job {
     /// review from another of the same commit in your draft (`draft_mark`). `by_hand`: the round
     /// was asked for with Review with…, which posts beside a review of the commit already there.
     Post { pr: PrItem, head: String, review: String, agent: String, round: i64, by_hand: bool },
-    /// Hand a PR of yours' review of commit `head`, written by `agent`, to `session`, the one
-    /// that opened it.
+    /// Hand a PR of yours' review of commit `head`, written by `agent`, to `session`, its
+    /// primary session.
     Send { pr: PrItem, head: String, session: String, review: String, agent: String },
     /// Submit a review of a PR that waits on your review as you, as `verdict`, for its round's
     /// review of `head` (`to_submit`): your draft review, else `text` (`without_draft`; none
@@ -775,7 +775,7 @@ fn origin<'a>(lanes: &'a [Lane], pr: &PrItem) -> Option<(&'a Lane, &'a Session)>
 }
 
 /// Whether Codealong reviews a PR of yours (`[reviews.own]`): it's open, not a draft unless
-/// `[reviews.own] drafts` says to review those too, and the session that opened it is here to hand
+/// `[reviews.own] drafts` says to review those too, and its primary session is here to hand
 /// the review to.
 pub fn wants_own(cfg: &ReviewsCfg, lanes: &[Lane], pr: &PrItem) -> bool {
     pr.mine && pr.state.is_open() && (pr.state != PrState::Draft || cfg.own.drafts) && pr.head_oid.is_some() && origin(lanes, pr).is_some()
@@ -806,7 +806,7 @@ fn has_checkout(lanes: &[Lane], pr: &PrItem) -> bool {
 /// (shared.rs): this one (None), or another, with its latest round of the PR when it has one.
 /// `mine` is what this machine's reviews of it come to (`shared_review`), weighed just as another
 /// machine's are from its card, so every machine works out the same one; a PR of yours is
-/// reviewed where the session that opened it is, so always here. In this order:
+/// reviewed where its primary session is, so always here. In this order:
 ///
 /// 1. The PR's commit goes to a machine with a round of it: one that got done, wherever it is,
 ///    else the first begun of those under way on machines around that would still review it, a
@@ -1349,7 +1349,7 @@ impl Reviewer {
         true
     }
 
-    /// The send due for a PR of yours at `head` (`to_send`): to the session that opened it, once
+    /// The send due for a PR of yours at `head` (`to_send`): to its primary session, once
     /// that runs here and doesn't wait on you, while sending is on and the PR is open.
     fn send_due(&self, board: &Board, cfg: &ReviewsCfg, pr: &PrItem, head: &str) -> Option<Job> {
         if !(pr.mine && cfg.own.send && pr.state.is_open()) {
@@ -1730,7 +1730,7 @@ fn brought_back(pr: &PrItem, s: &codealong_peer::pr::Submitted) -> bool {
 /// it to you, so what waits on you is only what you can act on: a PR the agent approved before
 /// its author pushed again is held for the new commits' review like any other, its approval
 /// (`approved`) kept for its card to say. A PR of yours is never held: it says where its review
-/// went back to, or why it hasn't, and whether the session that opened it can be sent it now.
+/// went back to, or why it hasn't, and whether its primary session can be sent it now.
 pub fn apply(prs: &mut [PrItem], store: &Store, global: &ReviewsCfg, sessions: &crate::config::SessionsCfg, settings: &crate::teamfile::RepoSettings, lanes: &[Lane], machines: &Machines, now: i64) {
     for pr in prs {
         let cfg = settings.reviews(global, pr);
@@ -2669,7 +2669,7 @@ pub fn plan(board: &Board, cfg: &Config, key: &str) -> anyhow::Result<Plan> {
     Ok(Plan { wanted, on, stands, start })
 }
 
-/// The review of a PR of yours as the session that opened it reads it: who wrote it and of which
+/// The review of a PR of yours as its primary session reads it: who wrote it and of which
 /// commit, its text, then each comment with its file and line.
 pub fn review_file(pr: &PrItem, head: &str, agent: &str, review: &str) -> String {
     let (summary, comments) = parse_reply(review);
@@ -3267,7 +3267,7 @@ mod tests {
         let b = board(vec![mine(7, HEAD)], vec![maker(Status::Working)]);
         let jobs = r.due(&b, &own(), NOW);
         assert_eq!(kinds(&jobs), ["review 7 1111111 since None by auto"]);
-        // Auto keeps off the harness of the session that opened it.
+        // Auto keeps off the harness of its primary session.
         let Job::Review { seat, .. } = &jobs[0] else { unreachable!() };
         assert_eq!(seat.avoid, Some(Harness::Claude));
         r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW + 1).unwrap();
@@ -3278,7 +3278,7 @@ mod tests {
         // Kept here: nothing goes on GitHub.
         r.told(&post, Went::Kept(None), NOW + 63_000).unwrap();
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Kept);
-        // Handed back to the session that opened it, while it doesn't wait on you.
+        // Handed back to its primary session, while it doesn't wait on you.
         let jobs = r.due(&done(Status::Working), &own(), NOW + 64_000);
         assert_eq!(kinds(&jobs), [format!("send 7 1111111 by Codex, gpt-5.5 to {MAKER}")]);
         r.told(&jobs[0], Went::Later, NOW + 64_500).unwrap();
@@ -3295,7 +3295,7 @@ mod tests {
         assert_eq!((a.stage, a.own, a.holds, a.sent.as_deref(), a.sent_at, a.note.as_deref(), a.sendable.as_deref()), (ReviewStage::Kept, true, false, Some(MAKER), Some(NOW + 67_000), None, Some(MAKER)));
     }
 
-    /// The review of a PR of yours writes to the session that opened it as that session's helper
+    /// The review of a PR of yours writes to its primary session as that session's helper
     /// does (send.rs `from_its_helper`), closed PR or open, while handing reviews back is on,
     /// whichever round asked it; a session taken for a review by its first prompt alone doesn't,
     /// nor one found for a round that only links to the PR.

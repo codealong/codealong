@@ -403,7 +403,7 @@ export function nudgeWords(pr: Pick<PrItem, 'state' | 'nudgeByDefault'>, on: boo
     }
     if (!primary.runs && primary.stopped === 'beside') return `${lead} “${primary.title}”, its primary session, isn’t running here, and another of the PR’s sessions is, so it isn’t resumed beside that one: nobody is told until it runs.`;
     if (!primary.runs) return `${lead} “${primary.title}”, its primary session, isn’t running here, so nobody is told until it is.`;
-    return `${lead} “${primary.title}”, its primary session, is sent a message as one of yours ${said.when}.`;
+    return `${lead} “${primary.title}”, its primary session, is sent a message from Codealong ${said.when}.`;
   }
   const who = primary ? `“${primary.title}”` : 'its primary session';
   return pr.state === 'approved' && about === 'everything'

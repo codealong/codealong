@@ -89,7 +89,7 @@ function settingsReviewer(reviews: ReviewsCfg | null | undefined, mine: boolean)
 /**
  * The menu's entries, each a round of Codealong's own reviews (`review_pr_now`): first the
  * reviewer Settings names, else Auto's (the quick panel's pick among the accounts that can review,
- * another harness than the opener's for a PR of yours), when there's a choice; then each account
+ * another harness than its primary session's for a PR of yours), when there's a choice; then each account
  * that can start one where Settings says reviews start (`reviewsRunIn`). They need a checkout of
  * the repo (`hasLane`); Codex's own review page, last, doesn't.
  */

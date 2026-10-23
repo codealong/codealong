@@ -1374,8 +1374,8 @@ function NudgeField({ prs, set, scope, disabled }: { prs: Required<PullRequestsC
           Nudge a pull request’s primary session<SourceTag field="prs.nudge_by_default" scope={scope} />
         </span>
         <small>
-          For every open pull request of yours, its primary session is sent a message, as one of yours, when something happens on it (below), so it takes it from there. That’s the one picked under Primary session in its menu, else the one that pushed to its branch most, the one that
-          opened it winning a tie; its card tags it Primary. Its other sessions aren’t told. The message never asks it to merge: it merges only if you asked it to. A pull request’s own switch, on its card, wins over this. Off, a pull request nudges nobody until you turn it on there, or an agent does with <code>codealong pr nudge</code>.
+          For every open pull request of yours, its primary session is sent a message from Codealong when something happens on it (below), so it takes it from there. That’s the one picked under Primary session in its menu, else the one that pushed to its branch most, the one that
+          opened it winning a tie; when it has more than one session, its card tags that one Primary. Its other sessions aren’t told. The message never asks it to merge: it merges only if you asked it to. A pull request’s own switch, on its card, wins over this. Off, a pull request nudges nobody until you turn it on there, or an agent does with <code>codealong pr nudge</code>.
         </small>
       </label>
       <label className="ca-field">

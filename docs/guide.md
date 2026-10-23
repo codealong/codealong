@@ -799,7 +799,8 @@ primary (`--take` takes it over, `--off` stops it). Settings › Automation › 
 primary session turns it on for every open PR of yours (`[pull_requests]
 nudge_by_default`), and a PR's own switch wins over that either way.
 
-The primary session, while it runs, is then sent a message, as one of yours, when someone else
+The primary session, while it runs, is then sent a message from Codealong (see *What Codealong
+sends by itself*) when someone else
 reviews the PR, asks for changes or comments (with what they wrote, read from GitHub as the PR
 changes), when it's approved, merged or closed, when its checks fail, and when its branch comes to
 conflict with its base (someone merged into the base what it conflicts with), with where it
@@ -811,8 +812,7 @@ PR's other sessions (helpers, reviewers, ones that came to its branch) aren't to
 did to it yourself, which is what its agent did through `gh`, isn't told back. Turned on for a PR
 that's approved already, it's told that at once (not when the setting turns it on for every PR);
 what happened while Codealong wasn't running isn't told. An agent's review that Codealong posted
-from someone's account (see *Automatic reviews*) never passes for their word, since it comes as a
-message of yours: a comment Codealong posted is told as their agent's, naming it; a review of theirs
+from someone's account (see *Automatic reviews*) never passes for their word: a comment Codealong posted is told as their agent's, naming it; a review of theirs
 with their agent's review in it (which may hold words of theirs too) is told as having it, naming
 each agent, and its line comments as maybe the agent's. Codealong knows one by its footer and unseen
 mark at the start of their lines, which nothing in a review hides; a footer quoted within a line
@@ -1015,8 +1015,8 @@ that has its primary session.
 #### Reviews of your own pull requests
 
 With `[reviews.own] auto = true` (Settings › Automation, Review the pull requests your sessions
-open), each open PR of yours that a session here opened (its primary, see *Nudging a PR's primary
-session*) is reviewed the same way, by an agent on `[reviews.own] account` (an account or routing
+open), each open PR of yours whose primary session (see *Nudging a PR's primary session*) is on this
+machine is reviewed the same way, by an agent on `[reviews.own] account` (an account or routing
 group) and `model`, else on the account Auto would start, preferring another harness than the PR's
 when `[reviews.own] other_harness = true` (the default), so another model reads what one wrote
 (Codex reviews what Claude Code wrote, say); one of the same harness only when no other can start. Drafts wait until they're ready for review unless `[reviews.own] drafts` (Review
@@ -2005,7 +2005,7 @@ once Ghostty restarts.
 #### What Codealong sends by itself
 
 What Codealong sends a session by itself, as you set it up to (a PR's news to its primary session, a
-review handed back to the session that opened a PR, a helper's news, carrying on after a lost
+review handed back to a PR's primary session, a helper's news, carrying on after a lost
 connection, a conversation moved to another account at a usage limit, a review session told of new
 commits), never goes as yours. It starts with a line saying Codealong sent it by itself, that its
 user didn't write it, and that no session did either, so what the agent has to say about it goes in

@@ -705,7 +705,7 @@ pub fn pick_account(cfg: &Config, usages: &[Usage], places: &[Place], model: Opt
 }
 
 /// `pick_account` among the accounts `keep` takes: the reviewer of a PR of yours, among those of
-/// another harness than the session that opened it (autoreview.rs).
+/// another harness than its primary session (autoreview.rs).
 pub fn pick_account_where(cfg: &Config, usages: &[Usage], places: &[Place], model: Option<&str>, now: i64, keep: impl Fn(&AccountCfg) -> bool) -> Option<String> {
     let default_group = config::RoutingGroupCfg { name: "auto".into(), strategy: config::RoutingStrategy::Usage, members: Vec::new() };
     let group = Some(cfg.routing.auto.trim())
