@@ -900,7 +900,9 @@ default (`"no-terminal"`) never opens a terminal: under Claude Code's background
 Codealong through the account's Agent Client Protocol adapter (Codex, OpenCode), so an account that
 can do neither (Antigravity, Cursor) doesn't review. `"codealong"` runs every reviewer in Codealong,
 Claude Code too; `"background"` goes as the account's Background does, which for Antigravity and
-Cursor is a terminal opened behind your windows; `"terminal"` opens each in your terminal, a tab
+Cursor is a terminal opened behind your windows, closed again once its review is read (unless you
+sent it a message or made it your own meanwhile), its conversation kept for the next round, which
+opens one there again; `"terminal"` opens each in your terminal, a tab
 or a window as `[apps] new_terminal` says, which comes forward. When the reviewer is a routing
 group, Settings names its accounts that can't review where reviews run, which the group passes
 over. Reviews of your own PRs and Review with… go there too, in every repo. It
