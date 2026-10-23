@@ -500,6 +500,8 @@ window.__TAURI_INTERNALS__ = {
     // A listener's id is where its call sits in __calls, counted from 1, so an unlisten can
     // find it again.
     if (cmd === 'plugin:event|listen') return Promise.resolve(window.__calls.length);
+    // Letting go is `unregisterListener`'s, below; the engine has nothing to say to it.
+    if (cmd === 'plugin:event|unlisten') return Promise.resolve();
     // Settings › Agents: Claude Code accounts with the plugin installed, installed from the repo's
     // marketplace beside an old skill copy, behind, and not installed beside an edited copy; a
     // Codex account without the skill, a Cursor account with it, and one with no skills folder

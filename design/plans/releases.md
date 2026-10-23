@@ -165,7 +165,8 @@ In the app (`updates.rs`, `src/ui/Updates.tsx`):
   works.
 - **Where you see it.** "Restart to update to <version>" above the foot of the sidebar once an
   update is in place; "Check for updates…" in the app menu under About (which becomes "Restart to
-  update to <version>", and opens Settings › General to show how a check goes); and in Settings ›
+  update to <version>"), whose check the window in front follows in a toast: a spinner while it
+  looks, then the latest version, the one ready to restart into, or why it failed; and in Settings ›
   General the version, how updates stand (up to date and when, the version waiting and its
   notes, or why it failed) with Check now or Restart to update, and "Look for updates by itself".
   It never restarts on its own mid-work. Restarting loses nothing: the sessions run in Ghostty,

@@ -68,6 +68,39 @@ export function updateSays(view: UpdateView, now: number): string {
   }
 }
 
+/** Where updates stand once the check under way is done. The app marks a check as under way
+ *  before it asks a window to say how it goes (updates.rs `check_soon`), so what's read here
+ *  isn't the last check's outcome. */
+export function untilChecked(): Promise<UpdateView> {
+  return new Promise((resolve, reject) => {
+    const settle = (view: UpdateView) => {
+      if (view.state === 'checking' || view.state === 'installing') return;
+      off();
+      resolve(view);
+    };
+    const off = onUpdateStatus(settle);
+    updateStatus().then(
+      (view) => view && settle(view),
+      (e: unknown) => {
+        off();
+        reject(e);
+      },
+    );
+  });
+}
+
+/** What the toast says once the app menu's Check for updates… is done. */
+export function checkedSays(view: UpdateView, now: number): string {
+  switch (view.state) {
+    case 'upToDate':
+      return `Codealong ${view.current} is the latest version.`;
+    case 'ready':
+      return `Codealong ${view.version} is ready: restart to update from the sidebar.`;
+    default:
+      return updateSays(view, now);
+  }
+}
+
 /** Settings › General: this copy's version, how updates stand, and whether to look by itself. */
 export function UpdatesFields({ cfg, onSave, now }: { cfg: Config; onSave: (next: Config) => void; now: number }) {
   const view = useUpdates();

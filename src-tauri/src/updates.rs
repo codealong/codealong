@@ -116,18 +116,39 @@ fn set(app: &AppHandle, status: Status) {
 /// Looks for a newer release and, when there is one, puts it in place. Runs on the caller's
 /// thread; one check at a time, and none once an update waits for a restart.
 pub fn check(app: &AppHandle) {
+    if begin(app) {
+        finish(app);
+    }
+}
+
+/// Starts a check on a thread of its own, for a click. It's marked as checking before this
+/// returns, so a window asked next to say how it goes doesn't read the last check's outcome.
+pub fn check_soon(app: &AppHandle) {
+    if begin(app) {
+        let app = app.clone();
+        std::thread::spawn(move || finish(&app));
+    }
+}
+
+/// Marks a check as under way; false when this build doesn't update, or a check, an install or
+/// an update waiting for a restart is already there.
+fn begin(app: &AppHandle) -> bool {
     if !enabled() {
-        return;
+        return false;
     }
     {
         let updates = app.state::<Updates>();
         let mut status = updates.status.lock().unwrap();
         if matches!(status.as_ref(), Some(Status::Checking | Status::Installing { .. } | Status::Ready { .. })) {
-            return;
+            return false;
         }
         *status = Some(Status::Checking);
     }
     set(app, Status::Checking);
+    true
+}
+
+fn finish(app: &AppHandle) {
     let outcome = tauri::async_runtime::block_on(install_newer(app));
     *app.state::<Updates>().last_check.lock().unwrap() = now_ms();
     set(
@@ -138,12 +159,6 @@ pub fn check(app: &AppHandle) {
             Err(error) => Status::Failed { error, at: now_ms() },
         },
     );
-}
-
-/// Starts a check on a thread of its own, for a click.
-pub fn check_soon(app: &AppHandle) {
-    let app = app.clone();
-    std::thread::spawn(move || check(&app));
 }
 
 /// The newer version put in place, with its release notes; `None` when this is the latest.
@@ -211,7 +226,7 @@ fn add_menu(app: &AppHandle) -> tauri::Result<()> {
             app.restart();
         }
         check_soon(app);
-        // Settings › General says how the check went.
+        // The window in front says how the check goes, in a toast; Settings isn't opened for it.
         match crate::front_window(app) {
             Some(w) => {
                 let _ = app.emit_to(w.label(), "check-updates", ());

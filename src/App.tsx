@@ -74,6 +74,7 @@ import { UsageBar } from './ui/UsageBar';
 import { Notices } from './ui/Notices';
 import { clearNotice, keptDismissals, noticeId, reportNotice, shownNotices, useReportedNotices } from './notices';
 import { Sidebar, type SideBoard, type SideStatus } from './ui/Sidebar';
+import { checkedSays, untilChecked } from './ui/Updates';
 import { loadSaved, newSavedId, onSavedChange, sameView, storeSaved, suggestName, type SavedView, type ViewState } from './savedViews';
 import { useNow } from './ui/useNow';
 import { errorText } from './report';
@@ -347,8 +348,18 @@ export function App() {
     if (settings) lastSection.current = settings.section;
   }, [settings]);
   useEffect(() => onSettings(() => openSettings()), [openSettings]);
-  // The app menu's Check for updates…: Settings › General says how it goes.
-  useEffect(() => onCheckUpdates(() => openSettings('general')), [openSettings]);
+  // The app menu's Check for updates…: a toast in the window you asked from says how it goes
+  // (ui/Updates.tsx), and Settings stays shut.
+  useEffect(
+    () =>
+      onCheckUpdates(() =>
+        void track('Looking for updates…', untilChecked()).then(
+          (view) => setToast(checkedSays(view, Date.now())),
+          (e: unknown) => setToast(errorText(e)),
+        ),
+      ),
+    [track, setToast],
+  );
   // File › Close idle sessions… (ui/CloseIdleDialog.tsx) and Close stale terminals…
   // (ui/CloseStaleDialog.tsx).
   const [closeIdle, setCloseIdle] = useState(false);
