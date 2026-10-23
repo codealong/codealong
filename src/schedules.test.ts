@@ -87,6 +87,12 @@ describe('schedules', () => {
     expect(sessionFolder(lanes, 'claude:claude:gone')).toBe('');
   });
 
+  it('is where it runs here, for one another machine shared whose checkout is elsewhere here', () => {
+    const shared = { ...blankSchedule('~/code/atlas'), runsIn: '/w/atlas' };
+    expect(scheduleProject(shared, lanes)).toBe('Atlas');
+    expect(doesWords(shared, () => null)).toBe('New session in atlas on Auto');
+  });
+
   it('is in its worktree’s project, else its session’s', () => {
     expect(scheduleProject(blankSchedule('/w/atlas'), lanes)).toBe('Atlas');
     expect(scheduleProject(sendsTo('claude:claude:b'), lanes)).toBe('Northwind');

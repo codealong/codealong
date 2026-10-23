@@ -1963,6 +1963,8 @@ export interface ScheduleItem extends Schedule {
   runsOnWords?: string;
   /** Why this machine can't run it, for one your machines share that another can. */
   here?: string;
+  /** The folder it runs in here, when that's another than its own: this machine's checkout of its repo. */
+  runsIn?: string;
 }
 
 /** A schedule's time as it's being written: in words, and its next few times (`schedule_times`). */

@@ -709,8 +709,12 @@ fn sender(s: &Schedule) -> Sender {
     }
 }
 
-/// The folder a schedule's commands run in: its run's folder, else home.
-fn command_dir(s: &Schedule) -> PathBuf {
+/// The folder a schedule's commands run in: where it runs on this machine (`place`), else its
+/// folder as written, else home.
+fn command_dir(s: &Schedule, board: &Board) -> PathBuf {
+    if let Some(l) = place(s, board).filter(|l| std::path::Path::new(&l.path).is_dir()) {
+        return PathBuf::from(&l.path);
+    }
     let dir = crate::util::expand(s.run.folder.trim());
     if !s.run.folder.trim().is_empty() && dir.is_dir() {
         dir
@@ -721,7 +725,7 @@ fn command_dir(s: &Schedule) -> PathBuf {
 
 /// Runs one of a schedule's commands through your login shell, in its folder, with what it's
 /// told of the schedule in its environment: what it printed when it succeeded, else why not.
-fn run_command(s: &Schedule, command: &str, since: Option<i64>) -> std::result::Result<String, String> {
+fn run_command(s: &Schedule, command: &str, since: Option<i64>, cwd: &std::path::Path) -> std::result::Result<String, String> {
     let dir = folder(&s.id);
     let _ = std::fs::create_dir_all(&dir);
     let shell = crate::launch::login_shell();
@@ -730,7 +734,7 @@ fn run_command(s: &Schedule, command: &str, since: Option<i64>) -> std::result::
         ("CODEALONG_STATE_DIR".to_string(), dir.to_string_lossy().into_owned()),
         ("CODEALONG_SINCE".to_string(), since.map(crate::util::iso_utc).unwrap_or_default()),
     ];
-    match crate::procs::run_in(&shell, &["-lc", command], &command_dir(s), &env, "", CHECK_WAIT) {
+    match crate::procs::run_in(&shell, &["-lc", command], cwd, &env, "", CHECK_WAIT) {
         Ok(o) if o.ok => {
             let mut out = o.out;
             if out.len() > MOST_OUTPUT {
@@ -757,7 +761,8 @@ fn watch(engine: &Handle, id: &str) {
     let seeded_before = base.seeded();
     let is_new = |line: &str| base.is_new(line);
     let now = now_ms();
-    let looked = run_command(s, command, track.last_ok);
+    let dir = engine.read(|b| command_dir(s, b));
+    let looked = run_command(s, command, track.last_ok, &dir);
     let mut found = Vec::new();
     // What it printed is what the next look goes by, here and on your other machines, once it's
     // other than what that was: `changed_at` says so.
@@ -946,9 +951,9 @@ fn start_step(board: &Board, cfg: &crate::config::Config, s: &Schedule, prompt: 
     let lane_id = if s.run.folder.trim().is_empty() {
         crate::config::chats_dir().to_string_lossy().into_owned()
     } else {
-        match worktree(board, s.run.folder.trim()) {
+        match place(s, board) {
             Some(l) => l.id.clone(),
-            None => return Step::Fail { why: format!("{} isn't a worktree Codealong knows.", s.run.folder.trim()) },
+            None => return Step::Fail { why: board_problem(s, board).unwrap_or_else(|| format!("{} isn't a worktree Codealong knows.", s.run.folder.trim())) },
         }
     };
     let account = Some(s.run.account.trim()).filter(|a| !a.is_empty()).unwrap_or("auto");
@@ -1055,7 +1060,7 @@ fn fire(engine: &Handle, id: &str, cause: Cause) -> Option<Done> {
     }
     let mut cause = cause;
     if !s.only_if.trim().is_empty() {
-        match run_command(&s, &s.only_if, track.runs.last().map(|r| r.at)) {
+        match run_command(&s, &s.only_if, track.runs.last().map(|r| r.at), &command_dir(&s, &board)) {
             Ok(out) if !out.trim().is_empty() => cause.found.push(Found { id: String::new(), title: "What its check printed".into(), url: String::new(), text: out.trim().to_string(), todo: None }),
             Ok(_) => return skipped(&cause, "Its check printed nothing."),
             Err(why) => return skipped(&cause, format!("Its check failed: {why}")),
@@ -1190,13 +1195,13 @@ pub fn plan_now(board: &Board, cfg: &crate::config::Config, s: &Schedule, track:
 
 /// What a schedule's watch, or its check before each run, prints now, and which of its lines
 /// would be new: for `--snapshot --schedule-check`. Nothing is noted.
-pub fn check_now(s: &Schedule, track: &Track) -> serde_json::Value {
+pub fn check_now(s: &Schedule, track: &Track, board: &Board) -> serde_json::Value {
     let (command, mode) = match &s.when {
         When::Watch { command, mode, .. } => (command.as_str(), Some(*mode)),
         _ if !s.only_if.trim().is_empty() => (s.only_if.as_str(), None),
         _ => return serde_json::json!({ "problem": "It has no watch and no check to run." }),
     };
-    match run_command(s, command, track.last_ok) {
+    match run_command(s, command, track.last_ok, &command_dir(s, board)) {
         Err(why) => serde_json::json!({ "command": command, "ok": false, "said": why }),
         Ok(out) => {
             let new: Vec<Found> = match mode {

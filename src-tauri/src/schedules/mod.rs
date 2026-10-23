@@ -128,6 +128,44 @@ pub struct Schedule {
     /// on every machine that has a copy (machines.rs `merged`), however late it hears.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resumed_at: Option<i64>,
+    /// The repo its folder is a checkout of, for your other machines, which run it in a checkout of
+    /// their own wherever that is (`place`): said as it's shared (machines.rs `outgoing`), and kept
+    /// while its folder stays as it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkout: Option<Checkout>,
+}
+
+/// A checkout of a repo, as a schedule's folder is one: the repo's main checkout, or a worktree of
+/// it on a branch.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Checkout {
+    /// On GitHub, `owner/name`.
+    pub repo: String,
+    /// A linked worktree's branch; none for the main checkout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+}
+
+impl Checkout {
+    /// The checkout a worktree is: none for one with no GitHub repo, or a linked one on no branch,
+    /// which no other machine could tell from another.
+    pub fn of(lane: &crate::model::Lane) -> Option<Checkout> {
+        let repo = lane.repo_slug_now.clone().or_else(|| lane.repo_slug.clone())?;
+        match lane.origin {
+            crate::model::Origin::Main => Some(Checkout { repo, branch: None }),
+            _ => lane.branch.clone().map(|b| Checkout { repo, branch: Some(b) }),
+        }
+    }
+
+    /// Whether a worktree is this checkout.
+    fn is(&self, lane: &crate::model::Lane) -> bool {
+        let repo = [lane.repo_slug_now.as_deref(), lane.repo_slug.as_deref()].into_iter().flatten().any(|r| r.eq_ignore_ascii_case(&self.repo));
+        repo && match &self.branch {
+            None => lane.origin == crate::model::Origin::Main,
+            Some(b) => lane.origin != crate::model::Origin::Main && lane.branch.as_deref() == Some(b.as_str()),
+        }
+    }
 }
 
 /// Which of your machines run a schedule (`[devices]`, Settings › Devices).
@@ -502,6 +540,10 @@ pub struct Item {
     /// Why this machine can't run it, for one your machines share that another can.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub here: Option<String>,
+    /// The folder it runs in here, when that's another than its own: this machine's checkout of its
+    /// repo, which is somewhere else (`place`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runs_in: Option<String>,
 }
 
 /// The schedules, or why schedules.json doesn't read. No file is no schedules.
@@ -655,8 +697,27 @@ fn board_problem(s: &Schedule, board: &Board) -> Option<String> {
     match run.to {
         To::Session => board.session(run.session.trim()).is_none().then(|| "The session it sends to isn't on the board.".to_string()),
         _ if run.folder.trim().is_empty() => None,
-        _ => worktree(board, run.folder.trim()).is_none().then(|| format!("{} isn't a worktree Codealong knows.", run.folder.trim())),
+        _ if place(s, board).is_some() => None,
+        _ => Some(match &s.checkout {
+            Some(c) => format!("There's no checkout of {}{} here.", c.repo, c.branch.as_deref().map(|b| format!(" on {b}")).unwrap_or_default()),
+            None => format!("{} isn't a worktree Codealong knows.", run.folder.trim()),
+        }),
     }
+}
+
+/// The worktree a schedule runs in on this machine: its folder, when that's a worktree here, else
+/// this machine's checkout of its repo (`Schedule::checkout`): the main checkout, or a worktree on
+/// its branch, the one used last when there are several. None for one in no folder, or with no
+/// checkout here.
+pub fn place<'a>(s: &Schedule, board: &'a Board) -> Option<&'a crate::model::Lane> {
+    let folder = s.run.folder.trim();
+    if folder.is_empty() {
+        return None;
+    }
+    worktree(board, folder).or_else(|| {
+        let c = s.checkout.as_ref()?;
+        board.lanes.iter().filter(|l| c.is(l)).max_by_key(|l| l.last_activity)
+    })
 }
 
 /// The worktree a schedule's folder names: that worktree itself, never one that holds the folder
@@ -790,6 +851,7 @@ pub fn items(file: &File, runs: &Runs, board: &Board, cfg: &Config, now: i64, zo
                 asked: runs.fired.iter().filter(|f| f.schedule == s.id).count(),
                 runs_on_words,
                 here,
+                runs_in: place(s, board).map(|l| l.path.clone()).filter(|p| std::path::Path::new(p) != crate::util::expand(s.run.folder.trim())),
             }
         })
         .collect()
@@ -910,6 +972,9 @@ pub fn apply_op(op: Op, by: Option<&str>, cfg: &Config, now: i64, zone: &dyn Zon
                         schedule.created_at = was.created_at;
                         schedule.created_by = was.created_by.clone();
                         schedule.resumed_at = if was.paused && !schedule.paused { Some(now) } else { was.resumed_at };
+                        if schedule.checkout.is_none() && schedule.run.folder == was.run.folder {
+                            schedule.checkout = was.checkout.clone();
+                        }
                         // Made this machine's alone: the other machines drop their copies.
                         if was.runs_on.shared() && !schedule.runs_on.shared() {
                             file.gone.push(codealong_peer::schedules::Gone { id: schedule.id.clone(), at: now });
@@ -1240,6 +1305,30 @@ mod tests {
         assert!(worktree(&board, "~/projects/atlas").is_none());
         let s = Schedule { run: Run { folder: "~/projects/atlas".into(), prompt: "Look".into(), ..Run::default() }, ..Schedule::default() };
         assert!(board_problem(&s, &board).is_some_and(|p| p.contains("isn't a worktree")));
+    }
+
+    #[test]
+    fn another_machine_runs_it_in_its_own_checkout_of_the_repo() {
+        let lane = |path: &str, slug: &str, origin: crate::model::Origin, branch: &str, active: i64| crate::model::Lane { id: path.into(), path: path.into(), repo_slug: Some(slug.into()), origin, branch: Some(branch.into()), last_activity: active, ..crate::fixtures::lane(path, Vec::new()) };
+        use crate::model::Origin::{ClaudeApp, Main};
+        let board = Board { lanes: vec![lane("/Users/me/code/infra", "acme/infra", Main, "main", 5), lane("/Users/me/old/infra", "acme/infra", Main, "main", 2), lane("/Users/me/code/infra/.claude/worktrees/fix", "acme/infra", ClaudeApp, "fix-alerts", 9)], ..Board::default() };
+        let main = Some(Checkout { repo: "Acme/Infra".into(), branch: None });
+        let s = |folder: &str, checkout: Option<Checkout>| Schedule { run: Run { folder: folder.into(), prompt: "Look".into(), ..Run::default() }, checkout, ..Schedule::default() };
+        // Made where it's laid out the same: that folder.
+        assert_eq!(place(&s("/Users/me/old/infra", main.clone()), &board).map(|l| l.path.as_str()), Some("/Users/me/old/infra"));
+        // Laid out otherwise: the repo's main checkout here, the one used last.
+        assert_eq!(place(&s("~/projects/infra", main.clone()), &board).map(|l| l.path.as_str()), Some("/Users/me/code/infra"));
+        // A worktree on a branch: one on that branch, and never the main checkout instead.
+        let fix = Some(Checkout { repo: "acme/infra".into(), branch: Some("fix-alerts".into()) });
+        assert_eq!(place(&s("~/projects/infra-fix", fix), &board).map(|l| l.path.as_str()), Some("/Users/me/code/infra/.claude/worktrees/fix"));
+        let other = s("~/projects/infra-x", Some(Checkout { repo: "acme/infra".into(), branch: Some("gone".into()) }));
+        assert!(place(&other, &board).is_none());
+        assert_eq!(board_problem(&other, &board).as_deref(), Some("There's no checkout of acme/infra on gone here."));
+        // No repo said: the folder alone.
+        assert!(place(&s("~/projects/infra", None), &board).is_none());
+        // What a worktree is, said for another machine.
+        assert_eq!(Checkout::of(&board.lanes[2]), Some(Checkout { repo: "acme/infra".into(), branch: Some("fix-alerts".into()) }));
+        assert_eq!(Checkout::of(&crate::fixtures::lane("/tmp/x", Vec::new())), None, "no repo");
     }
 
     #[test]

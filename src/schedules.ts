@@ -53,10 +53,11 @@ export function nextWords(item: Pick<ScheduleItem, 'paused' | 'nextAt' | 'when'>
 }
 
 /** What it does, in a few words: `New session in web on Auto`, `Sends to “Fix the header”`. The
- *  folder's own name, as its worktree's row says it. */
-export function doesWords(s: Pick<Schedule, 'run'>, sessionTitle: (key: string) => string | null): string {
+ *  folder's own name, as its worktree's row says it: where it runs here, for one whose repo's
+ *  checkout is elsewhere on this machine than on the one it came from. */
+export function doesWords(s: Pick<ScheduleItem, 'run' | 'runsIn'>, sessionTitle: (key: string) => string | null): string {
   const r = s.run;
-  const folder = r.folder.trim();
+  const folder = (s.runsIn ?? r.folder).trim();
   const name = folder ? (folder.split('/').filter(Boolean).pop() ?? folder) : 'a chat';
   const on = r.account.trim() || 'Auto';
   switch (r.to) {
@@ -176,8 +177,9 @@ export function sessionFolder(lanes: Lane[], key: string): string {
 
 /** The project a schedule is in, for the Schedules view to list it under: its worktree's, else
  *  the project of the session it sends to. None for a chat of its own, or a worktree that's gone. */
-export function scheduleProject(s: Pick<Schedule, 'run'>, lanes: Lane[]): string | null {
-  const lane = s.run.folder ? lanes.find((l) => !l.device && !l.startsChats && l.path === s.run.folder) : null;
+export function scheduleProject(s: Pick<ScheduleItem, 'run' | 'runsIn'>, lanes: Lane[]): string | null {
+  const folder = s.runsIn ?? s.run.folder;
+  const lane = folder ? lanes.find((l) => !l.device && !l.startsChats && l.path === folder) : null;
   if (lane) return lane.project;
   const home = s.run.to === 'session' ? homeOf(lanes, s.run.session) : null;
   return home && !home.lane.device && !home.lane.startsChats ? home.lane.project : null;

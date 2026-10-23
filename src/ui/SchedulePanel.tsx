@@ -4,7 +4,7 @@
 // machine, its session a click away. Run now, Pause and Edit
 // are its buttons; its menu (menus.ts `scheduleMenu`) has those and the rest.
 
-import { absolute, ago, agoPhrase } from '../format';
+import { absolute, ago, agoPhrase, tildePath } from '../format';
 import { nextWords, OUTCOME_ICON, OUTCOME_WORD, whenIcon } from '../schedules';
 import type { Lane, ScheduleItem, Session } from '../types';
 import { Button, Icon, SessionGlyph, cx, headerMenu } from './primitives';
@@ -127,6 +127,7 @@ export function SchedulePanel({ item, now, sessionOf, onShowSession, onRun, onPa
             {s.runsOn?.kind === 'one' && <span className="ca-schedinsp-next"> · {s.runsOnWords}</span>}
           </p>
           {s.here && <p className="ca-schedinsp-note">Not on this machine: {s.here}</p>}
+          {s.runsIn && <p className="ca-schedinsp-note">Here it runs in this machine’s checkout of its repo, {tildePath(s.runsIn)}.</p>}
         </section>
       )}
 

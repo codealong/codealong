@@ -1464,9 +1464,13 @@ automations my machines share*). *Every machine* runs it on each of them, each o
 machine keeps a copy of the ones they share, from the others' feeds, so one that's asleep or off
 while another runs it misses nothing: a change made on any of them reaches the rest (the latest
 change wins), and deleting one, or making it one machine's again, takes it off the others too. A
-machine can run one when its worktree (the same folder under home), its account and the session
-it sends to are there; one that can't is passed over, and the panel says why under *Runs on*,
-with which machine runs it next.
+machine runs one in the same folder (under home) when that's a worktree there, else in its own
+checkout of the repo the folder is one of, wherever it is: the repo's main checkout (the one used
+last, if it has several), or for a worktree on a branch, a worktree of the repo on that branch,
+never the main checkout instead. The panel says which folder that is. A machine can run one when
+that checkout, its account and the session it sends to are there; one that can't is passed over,
+and the panel says why under *Runs on*, with which machine runs it next. A repo that isn't on
+GitHub goes by its folder alone.
 
 Of one that runs on one of them, the first in line runs each time and the others pass it. When
 that machine is asleep, closed or off for more than five minutes, the next one runs it at its

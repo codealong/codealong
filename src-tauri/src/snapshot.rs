@@ -165,7 +165,8 @@ fn schedule_run(_: &Args, rest: &[String]) -> Done {
 /// noted or run.
 fn schedule_check(_: &Args, rest: &[String]) -> Done {
     let (s, track) = schedule_named(rest)?;
-    Ok(pretty(&crate::schedules::runner::check_now(&s, &track)))
+    let board = board_now().board();
+    Ok(pretty(&crate::schedules::runner::check_now(&s, &track, &board)))
 }
 
 /// `codealong --snapshot --jev-usage [days]`: what Settings › Jev says Codealong's requests to Jev

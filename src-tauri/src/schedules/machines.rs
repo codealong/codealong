@@ -86,12 +86,17 @@ pub fn able(s: &Schedule, board: &Board, cfg: &Config, zone: &dyn Zone) -> std::
 }
 
 /// A schedule as another machine is told of it: its folder under home written `~/…`, which is the
-/// same folder on a machine whose home is elsewhere.
-fn portable(s: &Schedule) -> Schedule {
+/// same folder on a machine whose home is elsewhere, and the repo it's a checkout of, so a machine
+/// whose checkout of it is elsewhere runs it there (`place`). One whose folder isn't a worktree
+/// here passes on the repo it came with.
+fn portable(s: &Schedule, board: &Board) -> Schedule {
     let mut s = s.clone();
-    let folder = s.run.folder.trim();
+    let folder = s.run.folder.trim().to_string();
     if !folder.is_empty() {
-        s.run.folder = crate::util::tilde(&crate::util::expand(folder));
+        if let Some(c) = worktree(board, &folder).and_then(Checkout::of) {
+            s.checkout = Some(c);
+        }
+        s.run.folder = crate::util::tilde(&crate::util::expand(&folder));
     }
     s
 }
@@ -109,7 +114,7 @@ pub fn outgoing(file: &File, runs: &Runs, board: &Board, cfg: &Config, zone: &dy
             let one = matches!(s.runs_on, RunsOn::One { .. });
             SharedSchedule {
                 id: s.id.clone(),
-                schedule: serde_json::to_value(portable(s)).unwrap_or_default(),
+                schedule: serde_json::to_value(portable(s, board)).unwrap_or_default(),
                 able: able.is_ok(),
                 why_not: able.err(),
                 took: t.and_then(|t| t.took),
@@ -451,6 +456,11 @@ mod tests {
         assert_eq!(out.list.len(), 1, "only the shared ones");
         let x = &out.list[0];
         assert_eq!(x.schedule["run"]["folder"], "~/projects/northwind");
+        // Its worktree here says which repo it's a checkout of, for a machine laid out otherwise.
+        let here = crate::util::home().join("projects/northwind").to_string_lossy().into_owned();
+        let lane = crate::model::Lane { id: here.clone(), path: here, repo_slug: Some("acme/northwind".into()), ..crate::fixtures::lane("/w", Vec::new()) };
+        let with = outgoing(&file, &runs, &Board { lanes: vec![lane], ..Board::default() }, &Config::default(), &rule::tests::Fake::utc());
+        assert_eq!(with.list[0].schedule["checkout"], serde_json::json!({ "repo": "acme/northwind" }));
         assert_eq!((x.took, x.seen.len(), x.seen.last().map(String::as_str)), (Some(900), SHARE_SEEN, Some("399")));
         assert_eq!(x.notes.as_ref().map(|n| n.text.as_str()), Some("Known noise: none"));
         // Its folder isn't a worktree this board knows: it can't run here.
