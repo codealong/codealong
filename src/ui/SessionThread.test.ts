@@ -100,18 +100,21 @@ describe('editablePrompts', () => {
 });
 
 describe('scrolledUp', () => {
-  // A view 500 tall over 2000 of conversation, whose end is at 1500.
+  // A view 500 tall over 2000 of conversation: by its sizes its end is at 1500, and its end is
+  // everything from 1499 on, the real end being up to a pixel either side at a zoom.
   const view = (scrollTop: number, scrollHeight = 2000, clientHeight = 500) => ({ scrollTop, scrollHeight, clientHeight });
   const atEnd = heardOf(view(1500));
 
-  it('counts a scroll up from the end however little, well inside what counts as near it', () => {
+  it('counts a scroll up from the end however little, once it’s above the end', () => {
     expect(scrolledUp(view(1492), atEnd)).toBe(true);
-    expect(scrolledUp(view(1499.5), atEnd)).toBe(true);
+    expect(scrolledUp(view(1498.5), atEnd)).toBe(true);
     // Up while more came in below, before the scroll was heard.
-    expect(scrolledUp(view(1499.5, 2100), atEnd)).toBe(true);
+    expect(scrolledUp(view(1498.5, 2100), atEnd)).toBe(true);
   });
 
-  it('not one down or none', () => {
+  it('not a move within the end, nor one down or none', () => {
+    expect(scrolledUp(view(1499.5), atEnd)).toBe(false);
+    expect(scrolledUp(view(1499), heardOf(view(1500.5)))).toBe(false);
     expect(scrolledUp(view(1500), heardOf(view(1492)))).toBe(false);
     expect(scrolledUp(view(1200), heardOf(view(1200)))).toBe(false);
   });
@@ -122,17 +125,28 @@ describe('scrolledUp', () => {
     expect(scrolledUp(view(1400, 2000, 600), atEnd)).toBe(false);
   });
 
-  it('keeps a view that went up off the end through every step up after, however small', () => {
-    // As a conversation's scroll tells it: near the end is at it, but not on the way up.
-    const follows = (el: ReturnType<typeof view>, heard: Heard) => !scrolledUp(el, heard) && el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    let heard = atEnd;
-    const steps = [];
-    for (let i = 1; i <= 9; i++) {
-      const el = view(1500 - i * 0.5);
-      steps.push(follows(el, heard));
+  /** Whether the view follows after each of these scrolls from `from`, as a conversation's scroll
+   *  tells it: near the end is at it, but not on the way up. */
+  const follows = (from: Heard, tops: number[]) => {
+    let heard = from;
+    return tops.map((top) => {
+      const el = view(top);
+      const yes = !scrolledUp(el, heard) && el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       heard = heardOf(el);
-    }
-    expect(steps).toEqual(Array(9).fill(false));
-    expect(follows(view(1499), heard)).toBe(true);
+      return yes;
+    });
+  };
+
+  it('keeps a view that went up off its end through every step up after, however small', () => {
+    // At a zoom whose real end is half a pixel past where the sizes put it.
+    const halves = Array.from({ length: 12 }, (_, i) => 1500.5 - (i + 1) * 0.5);
+    expect(follows(heardOf(view(1500.5)), [...halves, 1499])).toEqual([true, true, true, ...Array(9).fill(false), true]);
+  });
+
+  it('not the way back from a bounce past either end, wherever the real end is, though a step up from past it is one', () => {
+    for (const end of [1499, 1499.5, 1500, 1500.5]) expect(follows(heardOf(view(end)), [end + 10, end + 5, end + 0.5, end])).toEqual([true, true, true, true]);
+    expect(follows(atEnd, [1510, 1498])).toEqual([true, false]);
+    expect(scrolledUp(view(-5), heardOf(view(-10)))).toBe(false);
+    expect(scrolledUp(view(-10), heardOf(view(0)))).toBe(false);
   });
 });

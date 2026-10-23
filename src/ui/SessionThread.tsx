@@ -205,16 +205,25 @@ export interface Heard {
   height: number;
   view: number;
 }
-export const heardOf = (el: Scrolls): Heard => ({ top: el.scrollTop, height: el.scrollHeight, view: el.clientHeight });
+/** Where the end of a view begins: the pixel above where its sizes say it is. At a zoom WebKit
+ *  rounds scrollHeight and clientHeight to whole pixels and scrollTop not, so the view's real end
+ *  is up to a pixel either side of that. */
+const endOf = (el: Scrolls) => el.scrollHeight - el.clientHeight - 1;
+/** Where the view is scrolled to, anywhere in its end being the same place: WebKit's scrollTop
+ *  runs on past either end while a scroll bounces there (overscroll-behavior: contain keeps the
+ *  bounce), and coming back from past the end isn't a scroll up. */
+const topOf = (el: Scrolls) => Math.max(0, Math.min(el.scrollTop, endOf(el)));
+export const heardOf = (el: Scrolls): Heard => ({ top: topOf(el), height: el.scrollHeight, view: el.clientHeight });
 
-/** Whether the view has been scrolled up since it was `heard`, however little: you're reading
- *  back, and it stops following until you're back near the end. At a zoom a slow scroll moves less
- *  than a pixel at a time, so every step counts. Not the end coming up to meet the view, which only
- *  what was below growing shorter, or the view taller, does: with either a new size, it's a scroll
- *  up only while the view isn't at the end. */
+/** Whether the view has been scrolled up since it was `heard`, however little, above its end:
+ *  you're reading back, and it stops following until you're back near the end. At a zoom a slow
+ *  scroll moves less than a pixel at a time, so every step counts. Not the end coming up to meet
+ *  the view, which only what was below growing shorter, or the view taller, does: with either a
+ *  new size, it's a scroll up only while the view isn't at the end. */
 export function scrolledUp(el: Scrolls, heard: Heard): boolean {
-  if (el.scrollTop >= heard.top) return false;
-  return (el.scrollHeight === heard.height && el.clientHeight === heard.view) || el.scrollHeight - el.scrollTop - el.clientHeight >= 1;
+  const top = topOf(el);
+  if (top >= heard.top) return false;
+  return (el.scrollHeight === heard.height && el.clientHeight === heard.view) || top < endOf(el);
 }
 
 /** A question call's line: what it asks about, by the questions' headers when they all have one. */
