@@ -40,8 +40,10 @@
 //! that kept dropping, not a usage limit or a lost connection) ends its round saying why, and the
 //! commit is reviewed once more in a new session, on another account than that one's where Auto or
 //! the routing group has one that can start (`Tracked::retries`, `past_error`), its card saying
-//! why meanwhile (`after_error`). A round that has had nothing at work on it for hours is given up
-//! on (`Round::stuck`), so a turn's end nothing read can't hold a place for good.
+//! why meanwhile (`after_error`). A round nothing else moves that has had nothing at work on it for
+//! hours is given up on (`Round::stuck`), a PR's no longer listed too, so a turn's end nothing read
+//! can't hold a place for good; and a turn whose session still runs is waited on for the review
+//! it didn't write only a while (`without_review`).
 //!
 //! A start whose harness names its session itself (Antigravity, OpenCode, Codex in a terminal)
 //! leaves where to look (`Pending`): the session is the next there whose first prompt opens as a
@@ -137,6 +139,10 @@ const CARRY_ONS: usize = 4;
 /// How long a session started without a key is looked for, and a known one waited for to show
 /// and to be seen taking the turn it was asked for (`Part::begun`).
 const SHOW_MS: i64 = 10 * 60_000;
+/// How long after its turn ended a session that still runs is waited on to write the review it
+/// hasn't (`without_review`): a record written at checkpoints can come after the status that says
+/// the turn ended. One that writes it later, at work again, is taken up (`Tracked::take_up`).
+const WRITES_MS: i64 = 10 * 60_000;
 /// Reviews of PRs that no longer wait on you are forgotten this long after their last round.
 const KEEP_MS: i64 = 30 * DAY_MS;
 /// How long a round under way with nothing at work on it is waited on before it's given up on
@@ -481,7 +487,7 @@ impl Tracked {
         for p in r.parts.iter_mut() {
             let shown = match (&p.session, &p.pending) {
                 (Some(k), _) => board.session(k).filter(|(_, s)| went_on(p, s)).map(|_| k.clone()),
-                (None, Some(pending)) => found(board, pending, pr),
+                (None, Some(pending)) => found(board, pending, pr, &self.sessions),
                 (None, None) if wide => first_naming(here(), pr, p.at),
                 (None, None) => None,
             };
@@ -578,13 +584,18 @@ fn seat_for(cfg: &ReviewsCfg, t: Option<&Tracked>, lanes: &[Lane], pr: &PrItem) 
 /// its usage cap for the model it runs on.
 fn session_at_limit(board: &Board, accounts: &[AccountCfg], key: &str, model: Option<&str>, now: i64) -> bool {
     let Some((_, s)) = board.session(key) else { return false };
+    account_at_limit(board, accounts, &s.account, model.or(s.model.as_deref()), now)
+}
+
+/// Whether `account` is at a usage limit on `model` (its own for none): a session of it was
+/// refused, it needs signing in again, or its meters are at its usage cap.
+fn account_at_limit(board: &Board, accounts: &[AccountCfg], account: &str, model: Option<&str>, now: i64) -> bool {
     let all = crate::start::all_sessions(&board.lanes);
-    if crate::start::refused_accounts(&all, now).contains(&s.account) {
+    if crate::start::refused_accounts(&all, now).contains(account) {
         return true;
     }
-    let cap = accounts.iter().find(|a| a.name == s.account).and_then(|a| a.usage_cap);
-    let check_model = model.or(s.model.as_deref());
-    board.usage.iter().any(|u| u.account == s.account && (u.needs_sign_in || crate::start::near_limit(u, check_model, cap)))
+    let cap = accounts.iter().find(|a| a.name == account).and_then(|a| a.usage_cap);
+    board.usage.iter().any(|u| u.account == account && (u.needs_sign_in || crate::start::near_limit(u, model, cap)))
 }
 
 /// `seat_for`, starting afresh when the PR's kept session is on an account at its usage limit, or
@@ -1051,10 +1062,12 @@ fn first_naming<'a>(sessions: impl Iterator<Item = &'a Session>, pr: &PrItem, at
 }
 
 /// The session a start that named none made: the first of its account in its worktree started
-/// since, whose first prompt is a review of `pr`.
-fn found(board: &Board, p: &Pending, pr: &PrItem) -> Option<String> {
+/// since, whose first prompt is a review of `pr`, but a session the PR's reviews keep (`kept`,
+/// `Tracked::sessions`). One that stopped with an error moments before a review started afresh
+/// reads as started since where its harness keeps no start time, and would be taken for it.
+fn found(board: &Board, p: &Pending, pr: &PrItem, kept: &BTreeMap<String, String>) -> Option<String> {
     let lane = board.lanes.iter().find(|l| l.id == p.lane && l.device.is_none())?;
-    first_naming(lane.sessions.iter().filter(|s| s.account == p.account), pr, p.at)
+    first_naming(lane.sessions.iter().filter(|s| s.account == p.account && !kept.values().any(|k| *k == s.key)), pr, p.at)
 }
 
 /// What's next for a round under way on PR `pr`, which is at `head` now. The reviewer's turn is
@@ -1095,7 +1108,13 @@ fn next(r: &mut Round, board: &Board, pr: &PrItem, head: &str, wanted: bool, now
         }
     }
     if r.parts.iter().any(Part::reviewing) {
-        return if changed { Next::Changed } else { Next::Wait };
+        // Nothing above moves it, and nothing has been at work on it for hours: it's given up on.
+        if changed || !r.stuck(board, now) {
+            return if changed { Next::Changed } else { Next::Wait };
+        }
+        for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
+            fail(p, STUCK);
+        }
     }
     if let Some(p) = r.parts.iter().find(|p| p.state == PartState::Done) {
         return Next::Job(Job::Post { pr: pr.clone(), head: r.head.clone(), review: p.review.clone().unwrap_or_default(), agent: p.label(), round: r.at, by_hand: r.by_hand });
@@ -1151,9 +1170,10 @@ impl Reviewer {
                 }
             }
             let Some(r) = t.rounds.last_mut().filter(|r| r.stage == ReviewStage::Reviewing) else { continue };
-            // Every round, a PR's that isn't listed or whose reviews were turned off too: one of
-            // those is never looked at again (`next`), and would hold a place for good.
-            if !self.busy.contains(key) && r.stuck(board, now) {
+            // A round `next` never looks at, a PR's that isn't listed or whose reviews were turned
+            // off, would hold a place for good. `next` gives up on the rest itself, once nothing
+            // it does would move them: a review written while Codealong was closed is still read.
+            if !self.busy.contains(key) && (pr.is_none() || !(on || r.by_hand)) && r.stuck(board, now) {
                 for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
                     fail(p, STUCK);
                 }
@@ -1166,7 +1186,7 @@ impl Reviewer {
             }
             for p in r.parts.iter_mut().filter(|p| p.reviewing()) {
                 if let Some(pending) = p.pending.clone() {
-                    if let Some(s) = pr.and_then(|pr| found(board, &pending, pr)) {
+                    if let Some(s) = pr.and_then(|pr| found(board, &pending, pr, &t.sessions)) {
                         t.sessions.insert(p.who.clone(), s.clone());
                         p.session = Some(s);
                         p.pending = None;
@@ -2299,14 +2319,17 @@ fn start_words(start: ReviewStart) -> &'static str {
 /// The account, model and effort a new review runs on, and where: `seat`'s account (or the one
 /// Auto or the routing group it names picks among the accounts that can start one where
 /// `[reviews] start` says, of another harness than `avoid` when one of them can, and another
-/// account than `seat`'s `instead_of` when one can), model and effort, else the effort the group's
-/// member names.
+/// account than `seat`'s `instead_of` when one with room can), model and effort, else the effort
+/// the group's member names.
 fn reviewer_place(cfg: &Config, board: &Board, seat: &Seat, avoid: Option<Harness>) -> Result<(String, Option<String>, Option<String>, Place), String> {
     let start = cfg.reviews.start;
     let can = |a: &AccountCfg| review_place(a, start).is_some();
     let pick = |group: &str| {
         let among = |keep: &dyn Fn(&AccountCfg) -> bool| crate::start::resolve_group(cfg, Some(board), group, &[], seat.model.as_deref(), avoid, true, now_ms(), keep).and_then(std::result::Result::ok);
-        seat.instead_of.as_deref().and_then(|off| among(&|a| can(a) && a.name != off)).or_else(|| among(&can))
+        // Another that can't take it either is no better: the group's own pick, which goes by
+        // room, decides then.
+        let elsewhere = seat.instead_of.as_deref().and_then(|off| among(&|a| can(a) && a.name != off));
+        elsewhere.filter(|p| !account_at_limit(board, &cfg.accounts, &p.account, p.model.as_deref(), now_ms())).or_else(|| among(&can))
     };
     let asked = seat.account.as_deref().map(str::trim).filter(|a| !a.is_empty());
     let (name, model, effort) = match asked {
@@ -2491,12 +2514,24 @@ fn read(engine: &Handle, session: &str, at: i64) -> Went {
     // A record that doesn't read now is read again in a moment.
     let Ok(page) = crate::transcript::page(&board, &cfg, session, None, 60) else { return Went::NotYet };
     let Some(review) = reply_after(&page.items, at, s.last_prompt_at) else {
-        return if s.live { Went::NotYet } else { Went::NoReview };
+        return without_review(s, now_ms());
     };
     if let Some(why) = skipped(&review) {
         return Went::Skipped(why);
     }
     Went::Read { review, agent: agent_of(s) }
+}
+
+/// What a turn that ended with no review after it comes to at `now`: one whose session still runs
+/// may yet write it, for a while (`WRITES_MS`), after which it stopped without one, as one that
+/// nothing runs did at once. Its error, should it show as idle once you've looked at it, is the
+/// same.
+fn without_review(s: &Session, now: i64) -> Went {
+    if s.live && now - s.last_activity < WRITES_MS {
+        Went::NotYet
+    } else {
+        Went::NoReview
+    }
 }
 
 /// Tells a reviewer whose turn was cut off partway to carry on, as another round's prompt is
@@ -4400,6 +4435,60 @@ mod tests {
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing, "it did something lately");
         r.due(&ended, &on(), NOW + 2 * STUCK_MS + 1);
         assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Failed);
+
+        // A listed PR's round is `next`'s: hours after, with Codealong closed meanwhile, a turn
+        // that ended is still read and one cut off told to carry on. One that never took the turn
+        // it was asked is given up on.
+        let asked = || {
+            let mut r = Reviewer::default();
+            let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+            r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+            r
+        };
+        let late = NOW + 2 * STUCK_MS;
+        let done = board(vec![pr(7, HEAD)], vec![session(Status::Unread, NOW + 60_000)]);
+        assert_eq!(kinds(&asked().due(&done, &on(), late)), [format!("read 7 part 0 in {S}")]);
+        let cut = board(vec![pr(7, HEAD)], vec![Session { live: false, cut_off: Some(NOW + 60_000), ..session(Status::Error, NOW + 60_000) }]);
+        assert_eq!(kinds(&asked().due(&cut, &on(), late)), [format!("carry on 7 part 0 in {S} on None at None")]);
+        let mut r = asked();
+        let never = board(vec![pr(7, HEAD)], vec![session(Status::Idle, NOW - 60_000)]);
+        assert!(r.due(&never, &on(), NOW + STUCK_MS).is_empty());
+        assert_eq!(r.store.prs["o/r#7"].rounds[0].stage, ReviewStage::Reviewing);
+        r.due(&never, &on(), NOW + STUCK_MS + 1);
+        let round = &r.store.prs["o/r#7"].rounds[0];
+        assert_eq!((round.stage, round.note.as_deref()), (ReviewStage::Failed, Some(STUCK)));
+    }
+
+    /// A turn that ended with no review after it is waited on while its session runs, a while: its
+    /// record can come after the status that says the turn ended. Then, or at once where nothing
+    /// runs it, it stopped without one. An error you looked at, which reads as idle after, too.
+    #[test]
+    fn a_running_session_without_a_review_is_waited_on_a_while() {
+        assert_eq!(without_review(&session(Status::Idle, NOW), NOW + WRITES_MS - 1), Went::NotYet);
+        assert_eq!(without_review(&session(Status::Idle, NOW), NOW + WRITES_MS), Went::NoReview);
+        assert_eq!(without_review(&Session { live: false, ..session(Status::Idle, NOW) }, NOW + 1), Went::NoReview);
+    }
+
+    /// A review started afresh after an error, on the same account, whose start named no session
+    /// (Antigravity in a terminal), is the new session that shows, not the one that stopped a
+    /// moment before, which reads as started since where its harness keeps no start time.
+    #[test]
+    fn a_review_started_afresh_isnt_found_in_the_session_that_stopped() {
+        let review = |key: &str, status: Status, when: i64| Session { first_prompt: Some(format!("{} at 1111111", opening(&pr(7, HEAD)))), started_at: None, ..at(key, status, when) };
+        let mut r = Reviewer::default();
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![]), &on(), NOW);
+        r.told(&jobs[0], Went::Started(vec![started(AUTO, S, NOW)]), NOW).unwrap();
+        let stopped = review(S, Status::Error, NOW + QUIET_MS);
+        r.due(&board(vec![pr(7, HEAD)], vec![stopped.clone()]), &on(), NOW + QUIET_MS + 1);
+        let jobs = r.due(&board(vec![pr(7, HEAD)], vec![stopped.clone()]), &on(), NOW + QUIET_MS + 2);
+        assert_eq!(kinds(&jobs), ["review 7 1111111 since None by auto instead of claude"]);
+        let asked = NOW + QUIET_MS + 3;
+        let pending = Pending { lane: "/r".into(), account: "claude".into(), at: asked };
+        r.told(&jobs[0], Went::Started(vec![Part::asked(AUTO, None, Some(pending), asked)]), asked).unwrap();
+        let shown = board(vec![pr(7, HEAD)], vec![stopped, review("claude:claude:afresh", Status::Working, asked + 20_000)]);
+        r.due(&shown, &on(), asked + 20_001);
+        let t = &r.store.prs["o/r#7"];
+        assert_eq!((t.rounds[1].parts[0].session.as_deref(), t.sessions[AUTO].as_str()), (Some("claude:claude:afresh"), "claude:claude:afresh"));
     }
 
     /// A review tried again after its reviewer's turn stopped with an error starts on another of
@@ -4411,15 +4500,19 @@ mod tests {
         let member = |a: &str| GroupMemberCfg { account: a.into(), model: String::new(), effort: String::new() };
         let mut cfg = Config { accounts: vec![account("claude", "claude"), account("codex", "codex")], ..Config::default() };
         cfg.routing.groups = vec![RoutingGroupCfg { name: "reviewers".into(), strategy: RoutingStrategy::Fallback, members: vec![member("claude"), member("codex")] }];
-        let b = board(vec![pr(7, HEAD)], vec![]);
-        let picks = |cfg: &Config, instead_of: Option<&str>| {
+        let mut b = board(vec![pr(7, HEAD)], vec![]);
+        let picks = |cfg: &Config, b: &Board, instead_of: Option<&str>| {
             let seat = Seat { instead_of: instead_of.map(String::from), ..named_seat("reviewers", "", "", None) };
-            reviewer_place(cfg, &b, &seat, None).map(|(account, ..)| account)
+            reviewer_place(cfg, b, &seat, None).map(|(account, ..)| account)
         };
-        assert_eq!(picks(&cfg, None).as_deref(), Ok("claude"));
-        assert_eq!(picks(&cfg, Some("claude")).as_deref(), Ok("codex"));
+        assert_eq!(picks(&cfg, &b, None).as_deref(), Ok("claude"));
+        assert_eq!(picks(&cfg, &b, Some("claude")).as_deref(), Ok("codex"));
+        let signed_out = crate::model::Usage { account: "codex".into(), harness: Harness::Codex, plan: None, meters: Vec::new(), as_of: Some(NOW), error: None, needs_sign_in: true, loading: false, no_limits: false, preferred: false, rate_limited: false };
+        b.usage = vec![signed_out];
+        assert_eq!(picks(&cfg, &b, Some("claude")).as_deref(), Ok("claude"), "the other can't take it either");
+        b.usage.clear();
         cfg.routing.groups[0].members.pop();
-        assert_eq!(picks(&cfg, Some("claude")).as_deref(), Ok("claude"), "the only one there is");
+        assert_eq!(picks(&cfg, &b, Some("claude")).as_deref(), Ok("claude"), "the only one there is");
     }
 
     #[test]
