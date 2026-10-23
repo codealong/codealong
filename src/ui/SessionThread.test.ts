@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../types';
-import { editablePrompts, headingsOf, peerLabel, rowsOf, scrolled } from './SessionThread';
+import { editablePrompts, headingsOf, peerLabel, heardOf, rowsOf, scrolledUp, type Heard } from './SessionThread';
 
 let at = 0;
 const step = (kind: TranscriptItem['kind'], more: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: 0, kind, text: kind, failed: false, cursor: ++at, n: 0, ...more });
@@ -99,34 +99,40 @@ describe('editablePrompts', () => {
   });
 });
 
-describe('scrolled', () => {
+describe('scrolledUp', () => {
   // A view 500 tall over 2000 of conversation, whose end is at 1500.
-  const view = (scrollTop: number, scrollHeight = 2000) => ({ scrollTop, scrollHeight, clientHeight: 500 });
+  const view = (scrollTop: number, scrollHeight = 2000, clientHeight = 500) => ({ scrollTop, scrollHeight, clientHeight });
+  const atEnd = heardOf(view(1500));
 
   it('counts a scroll up from the end however little, well inside what counts as near it', () => {
-    expect(scrolled(view(1492), 1500)).toEqual({ up: true, from: 1492 });
-    expect(scrolled(view(1499), 1500)).toEqual({ up: true, from: 1499 });
+    expect(scrolledUp(view(1492), atEnd)).toBe(true);
+    expect(scrolledUp(view(1499.5), atEnd)).toBe(true);
+    // Up while more came in below, before the scroll was heard.
+    expect(scrolledUp(view(1499.5, 2100), atEnd)).toBe(true);
   });
 
-  it('not one down or none, which the next is told from', () => {
-    expect(scrolled(view(1500), 1492)).toEqual({ up: false, from: 1500 });
-    expect(scrolled(view(1200), 1200)).toEqual({ up: false, from: 1200 });
+  it('not one down or none', () => {
+    expect(scrolledUp(view(1500), heardOf(view(1492)))).toBe(false);
+    expect(scrolledUp(view(1200), heardOf(view(1200)))).toBe(false);
   });
 
-  it('adds up moves of less than a pixel, as a slow scroll at a zoom makes', () => {
-    let from = 1200;
-    const ups = [];
-    for (const top of [1199.5, 1199.1, 1198.6]) {
-      const moved = scrolled(view(top), from);
-      ups.push(moved.up);
-      from = moved.from;
+  it('not the end coming up to meet the view, as what was below grows shorter or the view taller', () => {
+    expect(scrolledUp(view(1300, 1800), atEnd)).toBe(false);
+    expect(scrolledUp(view(1299.5, 1800), atEnd)).toBe(false);
+    expect(scrolledUp(view(1400, 2000, 600), atEnd)).toBe(false);
+  });
+
+  it('keeps a view that went up off the end through every step up after, however small', () => {
+    // As a conversation's scroll tells it: near the end is at it, but not on the way up.
+    const follows = (el: ReturnType<typeof view>, heard: Heard) => !scrolledUp(el, heard) && el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    let heard = atEnd;
+    const steps = [];
+    for (let i = 1; i <= 9; i++) {
+      const el = view(1500 - i * 0.5);
+      steps.push(follows(el, heard));
+      heard = heardOf(el);
     }
-    expect(ups).toEqual([false, false, true]);
-    expect(from).toBe(1198.6);
-  });
-
-  it('not the end coming up to meet the view, as what was below grows shorter', () => {
-    expect(scrolled(view(1300, 1800), 1500)).toEqual({ up: false, from: 1300 });
-    expect(scrolled(view(1299.5, 1800), 1500)).toEqual({ up: false, from: 1299.5 });
+    expect(steps).toEqual(Array(9).fill(false));
+    expect(follows(view(1499), heard)).toBe(true);
   });
 });

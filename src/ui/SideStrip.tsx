@@ -27,7 +27,7 @@ import { endSide, forgetSide, keptLine, showSides, takesBox, turnState, useClosi
 import type { PrItem, SideTurn } from '../types';
 import { Markdown } from './Markdown';
 import { Button, cx, Icon, Rich } from './primitives';
-import { scrolled } from './SessionThread';
+import { heardOf, scrolledUp, type Heard } from './SessionThread';
 
 /** What a strip says of its conversations, which are about a session or a PR, and how it ends
  *  the open one. */
@@ -191,21 +191,21 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
   const answering = !!live || !!reading?.answering;
   const scroller = useRef<HTMLDivElement>(null);
   // The end stays in view as the answer grows, unless you've scrolled back to read, however
-  // little (SessionThread.tsx `scrolled`), told from where the open one's view was last: from
-  // nowhere once another has shown, in the element they share.
+  // little (SessionThread.tsx `scrolledUp`), told from where the open one's view was last heard:
+  // from nowhere once another has shown, in the element they share.
   const atEnd = useRef(true);
-  const lastTop = useRef<number | null>(null);
+  const heard = useRef<Heard | null>(null);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el || view) {
-      lastTop.current = null;
+      heard.current = null;
       return;
     }
     // A scroll up made just before the answer grew, which the view hasn't heard yet, holds too.
-    if (lastTop.current != null && scrolled(el, lastTop.current).up) atEnd.current = false;
+    if (heard.current && scrolledUp(el, heard.current)) atEnd.current = false;
     if (!atEnd.current) return;
     el.scrollTop = el.scrollHeight;
-    lastTop.current = el.scrollTop;
+    heard.current = heardOf(el);
   }, [side, view]);
   if (popped && !inWindow) return null;
 
@@ -254,9 +254,8 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
           scrolls
             ? (e) => {
                 const el = e.currentTarget;
-                const moved = scrolled(el, lastTop.current ?? el.scrollTop);
-                atEnd.current = !moved.up && el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-                lastTop.current = moved.from;
+                atEnd.current = !(heard.current && scrolledUp(el, heard.current)) && el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+                heard.current = heardOf(el);
               }
             : undefined
         }

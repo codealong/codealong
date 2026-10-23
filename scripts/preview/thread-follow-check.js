@@ -4,10 +4,10 @@
 // put it, batch after batch, and so does a scroll up made just before a batch, before the view has
 // heard it. Back at the end, it follows again; the reply growing shorter there, which brings the
 // end up to meet the view, isn't a scroll up, and it goes on following. Scrolled well up, nothing
-// moves it. Drawn at a zoom, where a slow scroll moves less than a pixel at a time, steps of half a
-// pixel add up to a scroll up. A side conversation's answer (SideStrip.tsx) follows its end the
-// same way: a few pixels up holds, before its scroll is heard too. Runs on the real clock, since
-// scroll events come with frames:
+// moves it. Drawn at a zoom, where a slow scroll moves less than a pixel at a time, each step of
+// half a pixel is a scroll up, with a batch after each. A side conversation's answer
+// (SideStrip.tsx) follows its end the same way: a few pixels up holds, before its scroll is heard
+// too. Runs on the real clock, since scroll events come with frames:
 //   PREVIEW_WAIT=40000 scripts/preview.sh sessions '' scripts/preview/thread-follow-check.js
 (function () {
   localStorage.setItem('codealong.project', 'All projects');
@@ -142,13 +142,14 @@
       return frames().then(function () { thread().scrollTop = thread().scrollHeight; return frames(); }).then(more);
     })
     .then(function () {
+      // An odd count, and a batch after each step: none brings it back.
       var from = thread().scrollTop;
       var steps = Promise.resolve();
-      for (var i = 0; i < 8; i++) steps = steps.then(function () { up(0.5); return frames(); });
+      for (var i = 0; i < 9; i++) steps = steps.then(function () { up(0.5); return frames(); }).then(more);
       return steps.then(function () {
         var top = thread().scrollTop;
-        if (from - top < 3) note('half-pixel steps moved it only ' + (from - top) + ' px here');
-        return more().then(function () { stays('at a zoom, steps of half a pixel add up to a scroll up', top); });
+        check('at a zoom, steps of half a pixel are each a scroll up', Math.abs(from - 4.5 - top) < 0.6, 'at ' + top + ', from ' + from + ', ' + gap() + ' from the end');
+        return more().then(function () { stays('and a batch after leaves it there', top); });
       });
     })
     .then(function () {
