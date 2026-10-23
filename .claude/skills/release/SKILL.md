@@ -154,6 +154,7 @@ everywhere; check that it did:
 
 ```bash
 curl -sL https://github.com/codealong/codealong/releases/latest/download/latest.json | jq -r .version   # installed copies
+curl -sI https://www.codealong.com/api/update/darwin/aarch64/0.0.0 | grep -i '^location'   # where they ask first: redirects to that latest.json (a HEAD isn't counted)
 curl -sIL -o /dev/null -w '%{http_code}\n' https://github.com/codealong/codealong/releases/latest/download/Codealong.dmg   # the website's Download: 200
 gh run list -R codealong/codealong --workflow homebrew.yml --limit 1   # moved the cask
 gh api repos/codealong/homebrew-tap/contents/Casks/codealong.rb --jq .content | base64 -d | grep -E '^  (version|sha256)'

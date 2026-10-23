@@ -1,5 +1,6 @@
 //! Automatic updates (design/plans/releases.md). Tauri's updater plugin asks for the manifest
-//! the latest GitHub release carries (`plugins.updater` in tauri.conf.json), downloads a newer
+//! the latest GitHub release carries (`plugins.updater` in tauri.conf.json: through
+//! codealong.com, which counts the check, and from GitHub itself when that fails), downloads a newer
 //! version's archive, checks its signature against the key compiled into the app, and puts the
 //! new bundle in place of this one. The running app carries on as it is; the new version starts
 //! at the next launch, or when you choose Restart to update.
@@ -338,6 +339,77 @@ mod tests {
         assert!(binary(&installed) != binary(&copy) || installed == unpacked, "the app given to replace was already this release's; give another to see a replacement");
         println!("Replaced {} with Codealong {version} from the release's own update.", copy.display());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Installed copies ask codealong.com first, which counts the check and redirects to the
+    /// manifest on GitHub (the website's worker/index.ts), and GitHub itself when the site fails:
+    /// the updater tries its endpoints in order, follows a redirect, and moves on past an error.
+    #[test]
+    fn copies_ask_the_site_first_and_github_when_it_fails() {
+        use std::io::{Read, Write};
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let endpoints: Vec<&str> = conf["plugins"]["updater"]["endpoints"].as_array().unwrap().iter().map(|e| e.as_str().unwrap()).collect();
+        let (site, github) = ("https://www.codealong.com", "https://github.com/codealong/codealong/releases/latest/download");
+        assert_eq!(endpoints, [format!("{site}/api/update/{{{{target}}}}/{{{{arch}}}}/{{{{current_version}}}}"), format!("{github}/latest.json")]);
+        // The updater reads this binary's path even when given another, and Tauri refuses a path
+        // through a link, as a worktree inside another checkout builds to (scripts/target-dir.sh).
+        if let Err(e) = tauri::utils::platform::current_exe() {
+            eprintln!("Not checking the updater itself here: {e}");
+            return;
+        }
+
+        // The two on loopback: /up/ redirects as the site does, /down/ fails, /github/ answers.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let entry = serde_json::json!({ "url": format!("{base}/github/Codealong.app.tar.gz"), "signature": "unused" });
+        let platforms: serde_json::Map<_, _> = ["darwin-aarch64", "darwin-x86_64", "linux-x86_64", "linux-aarch64"].iter().map(|p| (p.to_string(), entry.clone())).collect();
+        let manifest = serde_json::to_vec(&serde_json::json!({ "version": "0.0.2", "platforms": platforms })).unwrap();
+        let asked = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
+        let (log, to) = (asked.clone(), format!("{base}/github/latest.json"));
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut request = Vec::new();
+                let mut buf = [0; 4096];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buf[..n]);
+                }
+                let line = String::from_utf8_lossy(&request).lines().next().unwrap_or_default().to_string();
+                let path = line.split(' ').nth(1).unwrap_or("/").to_string();
+                log.lock().unwrap().push(path.clone());
+                let _ = if path.starts_with("/up/") {
+                    write!(stream, "HTTP/1.1 302 Found\r\nLocation: {to}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                } else if path == "/github/latest.json" {
+                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", manifest.len()).and_then(|_| stream.write_all(&manifest))
+                } else {
+                    write!(stream, "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                };
+            }
+        });
+
+        let newest = |site_now: &str| {
+            let endpoints: Vec<String> = endpoints.iter().map(|e| e.replace(site, &format!("{base}/{site_now}")).replace(github, &format!("{base}/github"))).collect();
+            let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+            context.config_mut().plugins.0.insert(
+                "updater".into(),
+                serde_json::json!({ "pubkey": conf["plugins"]["updater"]["pubkey"], "endpoints": endpoints, "requireSignedVersion": true }),
+            );
+            context.package_info_mut().version = "0.0.1".parse().unwrap();
+            let app = tauri::test::mock_builder().plugin(tauri_plugin_updater::Builder::new().build()).build(context).unwrap();
+            let update = tauri::async_runtime::block_on(app.updater_builder().timeout(Duration::from_secs(10)).build().unwrap().check()).unwrap();
+            update.map(|u| u.version)
+        };
+        assert_eq!(newest("up"), Some("0.0.2".into()));
+        let first = asked.lock().unwrap().first().cloned().unwrap();
+        assert!(first.starts_with("/up/api/update/") && first.ends_with("/0.0.1"), "the site was asked {first}");
+        assert_eq!(asked.lock().unwrap()[1..], ["/github/latest.json"]);
+
+        asked.lock().unwrap().clear();
+        assert_eq!(newest("down"), Some("0.0.2".into()));
+        assert_eq!(asked.lock().unwrap()[1..], ["/github/latest.json"]);
     }
 
     #[test]

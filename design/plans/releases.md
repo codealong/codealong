@@ -149,7 +149,11 @@ asks for an administrator's password only when the folder isn't writable. The ru
 running from memory; the new version starts at the next launch.
 
 The manifest is a release asset, `latest.json`, and the app asks
-`https://github.com/codealong/codealong/releases/latest/download/latest.json`. GitHub's
+`https://github.com/codealong/codealong/releases/latest/download/latest.json`. Releases after
+0.5.0 ask `https://www.codealong.com/api/update/{{target}}/{{arch}}/{{current_version}}` first,
+which counts the check (copies in use, by day and version, keeping a hash with a salt the next
+day deletes rather than the address; the website's README) and redirects to that same manifest;
+the updater tries its endpoints in order, so GitHub's answers when the site's doesn't. GitHub's
 `latest` is the newest published release that isn't a prerelease, so drafts and prereleases are
 invisible to it: publishing the draft is what ships an update. `requireSignedVersion` is on from
 the first release: the signature carries the version it was made for (the Tauri CLI in use,

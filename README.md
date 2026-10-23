@@ -748,9 +748,13 @@ in the guide's [Files Codealong keeps](docs/guide.md#files-codealong-keeps).
 
 - **Nothing of your work leaves your machine unless you turn it on.** Transcripts stay on the
   machine that ran them, and Codealong keeps only titles, statuses and short excerpts in memory.
-  There's no sign-up and no Codealong server. Codealong talks only to your agents' providers, with
-  their own sign-ins, for plan usage and training settings; to GitHub through your own `gh` sign-in;
-  and to this repo's releases to check for updates (`[updates] check = false` turns that off).
+  There's no sign-up, and no Codealong server holds anything of yours. Codealong talks only to
+  your agents' providers, with their own sign-ins, for plan usage and training settings; to GitHub
+  through your own `gh` sign-in; and to codealong.com to check for updates, which it answers from
+  this repo's releases (or, when the site can't be reached, it asks the releases itself). A check
+  tells codealong.com the version and platform you run, which is how copies in use are counted: it
+  keeps a hash of your IP address with a salt it deletes the next day, never the address
+  (`[updates] check = false` turns the checks off).
 - **Jev is opt-in.** Each Jev feature is off until you add your own TypeSafe key and switch it on,
   and Settings › Jev says what each one sends (what you type, and your sessions' titles, branches
   and latest lines). The key stays in your login keychain (on Linux, the desktop's Secret Service).

@@ -35,6 +35,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZDMjJBRTc5OEMzM0YyNjYKUldSbThqT01lYTRpYkRTSUhBem5kOXlQOHV5NjIwR3E3RElXTGN3MFFWT3lQM0JDZFFMdWdtSEEK",
       "endpoints": [
+        "https://www.codealong.com/api/update/{{target}}/{{arch}}/{{current_version}}",
         "https://github.com/codealong/codealong/releases/latest/download/latest.json"
       ],
       "requireSignedVersion": true

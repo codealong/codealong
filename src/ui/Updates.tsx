@@ -131,7 +131,7 @@ export function UpdatesFields({ cfg, onSave, now }: { cfg: Config; onSave: (next
       <label className="ca-field ca-settings-check">
         <CheckBox checked={cfg.updates?.check ?? true} onChange={(on) => onSave({ ...cfg, updates: { check: on } })} />
         <span>Look for updates by itself</span>
-        <small>A newer version is put in place for the next launch, and the sidebar offers to restart. The app menu's Check for updates… works either way.</small>
+        <small>A newer version is put in place for the next launch, and the sidebar offers to restart. The app menu's Check for updates… works either way. A check tells codealong.com this copy's version and platform, which is how copies in use are counted; your IP address isn't kept.</small>
       </label>
     </>
   );
