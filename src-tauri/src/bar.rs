@@ -3,9 +3,10 @@
 //! unless you turn it off, from the toggle at the top right of the board, the bar's own menu, or
 //! the Window menu.
 //!
-//! It floats where you put it, or docks in the notch: at the top of the screen, around the
-//! camera, as one black shape with the notch that shows the mark and what needs you most, and
-//! opens down into the bar's pills when you point at it (Bar.tsx). A screen without a notch gets
+//! It docks in the notch, where it starts on a Mac, or floats where you put it. Docked, it's at
+//! the top of the screen, around the camera, as one black shape with the notch that shows the
+//! mark and what needs you most, and opens down into the bar's pills when you point at it
+//! (Bar.tsx). A screen without a notch gets
 //! one drawn at the top center of its menu bar. Docked, the window sits above the menu bar and
 //! stays at the size the shape opens to, so opening and closing are the page's animation alone:
 //! a window resized as it opens shows its old picture for a frame at the wrong place, since
@@ -130,14 +131,14 @@ pub fn start_frame(saved: Option<Rect>, screens: &[Screen]) -> Option<Rect> {
 }
 
 /// What `bar.json` keeps.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Saved {
     /// Turned off from the bar's menu or the Window menu.
     #[serde(default)]
     off: bool,
     /// Docked in the notch rather than floating; kept while it's off, for when it's back on.
-    #[serde(default)]
+    #[serde(default = "docked_at_first")]
     notch: bool,
     /// Docked, it stays open rather than opening under the pointer.
     #[serde(default)]
@@ -145,6 +146,18 @@ struct Saved {
     /// Where the bar was last.
     #[serde(default)]
     frame: Option<Rect>,
+}
+
+impl Default for Saved {
+    fn default() -> Saved {
+        Saved { off: false, notch: docked_at_first(), keep_open: false, frame: None }
+    }
+}
+
+/// Where the bar shows before you've put it anywhere: in the notch on a Mac, and floating on
+/// Linux, which has none.
+fn docked_at_first() -> bool {
+    crate::os::is_macos()
 }
 
 impl Saved {
@@ -626,8 +639,13 @@ mod tests {
 
     #[test]
     fn saved_state_reads_old_and_partial_files() {
+        let _mac = crate::os::AsIf::new(crate::os::Os::MacOs);
+        // Nothing saved yet: in the notch.
         let s: Saved = serde_json::from_str("{}").unwrap();
         assert_eq!(s, Saved::default());
+        assert_eq!(s.mode(), Mode::Notch);
+        // Floating once it's been put there, as every bar.json written before says it was.
+        let s: Saved = serde_json::from_str(r#"{"off":false,"notch":false,"keepOpen":false}"#).unwrap();
         assert_eq!(s.mode(), Mode::Floating);
         let s: Saved = serde_json::from_str(r#"{"off":true,"frame":{"x":1,"y":2,"w":3,"h":4}}"#).unwrap();
         assert!(s.off);
@@ -639,6 +657,14 @@ mod tests {
         let s: Saved = serde_json::from_str(r#"{"notch":true,"keepOpen":true}"#).unwrap();
         assert!(s.keep_open);
         assert_eq!(serde_json::to_value(Mode::Notch).unwrap(), "notch");
+    }
+
+    #[test]
+    fn floats_at_first_on_linux_which_has_no_notch() {
+        let _linux = crate::os::AsIf::new(crate::os::Os::Linux);
+        assert_eq!(Saved::default().mode(), Mode::Floating);
+        let s: Saved = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.mode(), Mode::Floating);
     }
 
     #[test]

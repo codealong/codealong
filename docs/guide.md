@@ -2410,8 +2410,9 @@ you (*Sounds*).
 
 #### In the notch
 
-**In the notch**, the bar docks at the top of the screen instead: one black shape with the notch,
-dark whatever the theme, showing the mark on the camera's left and, on its right, the most urgent
+**In the notch**, where the bar starts on a Mac, it docks at the top of the screen: one black
+shape with the notch, dark whatever the theme, showing the mark on the camera's left and, on its
+right, the most urgent
 thing and how many (Needs you, then PRs that wait on your review, then Your turn, then Working; a
 new one that needs you pulses). Rest the pointer on it for a moment, or click it, and it opens down
 into the bar's pills, with the project and every count beside the camera; it closes a moment after
@@ -2460,7 +2461,8 @@ too, a double-click on a pill still opens the session where it lives, and the pi
 header keeps it on the desktop in a window of its own, where it was. A screen without a notch (an
 external display) gets one drawn at the top center of its menu bar. The pair of buttons at the top
 right of the window floats the bar or puts it in the notch, and picking the one that's on turns it
-off, as do Window › Floating bar and Bar in the notch and the bar's own right-click menu.
+off, as do Window › Floating bar and Bar in the notch and the bar's own right-click menu. Wherever
+you leave it is where it is at the next launch; on Linux, which has no notch, it starts floating.
 
 ### Pin to desktop
 

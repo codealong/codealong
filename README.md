@@ -47,8 +47,8 @@ and no server.
 - **See everything at once.** Every session from every agent and account, sorted into *Needs
   you*, *Your turn*, *Working*, *In review* and *Idle*. Questions, approvals, stuck agents and
   errors stand out.
-- **Answer without switching apps.** Allow a command, answer a question or send a reply from a
-  floating bar, your MacBook's notch, a session pinned to your desktop, or a *Waiting on you*
+- **Answer without switching apps.** Allow a command, answer a question or send a reply from
+  your MacBook's notch, a floating bar, a session pinned to your desktop, or a *Waiting on you*
   window that walks you through everything, one agent at a time.
 - **Start work in the right place.** Press ⌥⌘/ in any app, say what you want, and start it in the
   right worktree on the account with room, or send it to the agent that's already on it.
@@ -220,13 +220,13 @@ prompt stays up too, and whichever you answer first counts.
 
 You can answer from wherever suits you:
 
-- **The floating bar** sits over every app, on every Space, even over full-screen apps, with
-  pills for the agents that need you, have just finished or are working, one for PRs waiting on
-  your review and one for todos ready to start. Hover a pill to read the conversation and reply.
-  It never takes your keyboard until you click.
-- **The notch.** Dock the bar into your MacBook's notch (an external display gets one drawn for
-  it). Closed, it shows the most urgent count; click it and it opens on the agent that has waited
-  longest.
+- **The notch.** The bar starts docked in your MacBook's notch (an external display gets one
+  drawn for it). Closed, it shows the most urgent count; click it and it opens on the agent that
+  has waited longest.
+- **The floating bar.** Or float the bar, over every app, on every Space, even over full-screen
+  apps, with pills for the agents that need you, have just finished or are working, one for PRs
+  waiting on your review and one for todos ready to start. Hover a pill to read the conversation
+  and reply. It never takes your keyboard until you click.
 - **Waiting on you** (⌥⌘. from any app) lists every agent that needs you, then the PRs waiting on
   your review, then finished turns, oldest first. Answer one and the next slides in: inbox zero,
   for agents.
