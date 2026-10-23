@@ -18,7 +18,7 @@ import { MARK_PATHS, MARK_VIEW_BOX } from './brand';
 import type { DragProps } from './useRowDrag';
 import { useFocusTrap } from './focusTrap';
 import { useEscape } from './useDismiss';
-import { ProjectPrefix } from './ProjectSaid';
+import { ProjectPrefix, useProjectSaid } from './ProjectSaid';
 import { capsSaid, contextPress, typed } from '../platform';
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
@@ -746,6 +746,10 @@ export function WorktreeChip({ lane, short = false, note, onShow, onMenu }: { la
   const branch = branchLabel(lane);
   const main = lane.origin === 'main';
   const own = !main && lane.callsign !== lane.repo;
+  // A repo with its project's name is said once, as the project, which stays where a narrow
+  // board drops the repo.
+  const project = useProjectSaid(lane.project, [own ? lane.callsign : lane.repo]);
+  const repoIsProject = project?.toLowerCase() === lane.repo.toLowerCase();
   return (
     <Chip
       className="ca-wtchip"
@@ -761,8 +765,8 @@ export function WorktreeChip({ lane, short = false, note, onShow, onMenu }: { la
           {deviceLabel(lane.device.name)}
         </span>
       )}
-      <ProjectPrefix project={lane.project} beside={own && short ? [lane.callsign] : [lane.repo, lane.callsign]} />
-      {own && !short && <span className="ca-wtchip-more">{lane.repo} /</span>}
+      <ProjectPrefix project={lane.project} beside={[own ? lane.callsign : lane.repo]} />
+      {own && !short && !repoIsProject && <span className="ca-wtchip-more">{lane.repo} /</span>}
       <span className="ca-wtchip-name">{main ? lane.repo : lane.callsign}</span>
       {main && !short && <span className="ca-wtchip-more">/ main</span>}
     </Chip>

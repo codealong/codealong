@@ -102,7 +102,7 @@ import { AgentFoot } from './AgentMenu';
 import { agentMenuSections, placeIcon } from './StartControls';
 import { Button, CheckBox, Chip, cx, Icon, Kbd, Mark, Marked, SaidText, STATUS_WORD, SessionGlyph, StatusGlyph } from './primitives';
 import { SnoozeChip } from './LaneRow';
-import { placeWords } from './ProjectSaid';
+import { ProjectPrefix, ProjectShown } from './ProjectSaid';
 import { projectForDigit, projectKey } from './ProjectSwitcher';
 import { usePrLinks } from './PrLink';
 import { PrGlyph } from './PrsView';
@@ -1841,7 +1841,8 @@ export function Quick() {
     openLink,
   }, board);
 
-  return (
+  // Its rows say a worktree's or a PR's project where it isn't the one picked (ProjectSaid.tsx).
+  const page = (
     <div
       className="ca-quick-root"
       onMouseDown={(e) => {
@@ -2054,7 +2055,7 @@ export function Quick() {
                               </span>
                               <span className="ca-quick-row-why">{todoWhy(r, now)}</span>
                             </span>
-                            <span className="ca-quick-row-where">{r.item.lane ? placeWords(r.item.lane.project, r.item.lane.callsign, current) : t.project || 'No worktree'}</span>
+                            {r.item.lane ? <RowPlace project={r.item.lane.project} place={r.item.lane.callsign} /> : <span className="ca-quick-row-where">{t.project || 'No worktree'}</span>}
                             <span className="ca-quick-row-age">{ago(r.item.lastActivity, now)}</span>
                             {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                           </div>
@@ -2124,7 +2125,7 @@ export function Quick() {
                               </span>
                               <span className="ca-quick-row-why">{prWhy(pr)}</span>
                             </span>
-                            <span className="ca-quick-row-where">{placeWords(pr.project, pr.repo, current)}</span>
+                            <RowPlace project={pr.project} place={pr.repo} />
                             <span className="ca-quick-row-age">{ago(pr.updatedAt, now)}</span>
                             {n <= 9 && <Kbd keys={['⌘', String(n)]} />}
                           </div>
@@ -2166,9 +2167,7 @@ export function Quick() {
                             </Chip>
                           )}
                           <SnoozeChip until={s2.snoozedUntil} now={now} away="out of what waits on you" />
-                          <span className="ca-quick-row-where">
-                            {s2.account} · {placeWords(r.lane.project, r.lane.callsign, current)}
-                          </span>
+                          <RowPlace lead={s2.account} project={r.lane.project} place={r.lane.callsign} />
                           {sendLikely && sendsTo && <span className={cx('ca-quick-sure', r.p != null && `is-${sureness(r.p)}`)}>{r.p != null ? `${Math.round(r.p * 100)}%` : ''}</span>}
                           <span className="ca-quick-row-age">{ago(s2.statusSince ?? s2.lastActivity, now)}</span>
                           {active === r.key && <span className="ca-quick-row-tab">{keysIn(sendsTo ? (sendsTo.kind === 'send' ? '⏎ Send' : '⏎ Answer') : '⇥ Reply')}</span>}
@@ -2346,6 +2345,19 @@ export function Quick() {
         {askingDev && <DevSetupDialog account={account} source={devSource && tildePath(devSource)} onSetUp={setUpDev} onClose={closeDevAsk} />}
       </div>
     </div>
+  );
+  return <ProjectShown.Provider value={current}>{page}</ProjectShown.Provider>;
+}
+
+/** Where a row's session, todo or PR is: its worktree or repo, after its project where the panel
+ *  lists every project, the project shortening first; `lead` before them (a session's account). */
+function RowPlace({ lead, project, place }: { lead?: string; project: string; place: string }) {
+  return (
+    <span className="ca-quick-row-where is-place">
+      {lead && <span>{lead} ·</span>}
+      <ProjectPrefix project={project} beside={[place]} />
+      <span className="ca-quick-row-place">{place}</span>
+    </span>
   );
 }
 

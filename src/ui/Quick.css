@@ -248,6 +248,17 @@ html.is-quick body {
   font: var(--type-code-sm);
   color: var(--ink-2);
 }
+/* A worktree or repo after its project (`RowPlace`): the project gives way first, then the name. */
+.ca-quick-row-where.is-place {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.ca-quick-row-place {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .ca-quick-row-age {
   flex: none;
   width: 26px;

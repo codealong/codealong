@@ -160,11 +160,12 @@ function FoldPill({ group, label, title, onOpen, peeked, measure }: { group: Gro
 }
 
 function ReviewsPill({ prs, peeked, onOpen, measure }: { prs: BarReview[]; peeked?: boolean; onOpen?: (e: MouseEvent<HTMLButtonElement>) => void; measure?: boolean }) {
+  const place = usePlaceWords();
   return (
     <button
       type="button"
       className={cx('ca-hud-pill', 'is-reviews', peeked && 'is-peeked')}
-      title={measure ? undefined : prs.map(reviewLabel).join('\n')}
+      title={measure ? undefined : prs.map((p) => reviewLabel(p, place)).join('\n')}
       data-reviews={measure ? '' : undefined}
       onClick={onOpen}
       onContextMenu={
@@ -184,9 +185,10 @@ function ReviewsPill({ prs, peeked, onOpen, measure }: { prs: BarReview[]; peeke
 }
 
 /** A PR that waits on your review as its menu item and tooltip line say it: its number and
- *  title, its repo, who asked, and that it's a sign-off when Codealong's agent approves it. */
-function reviewLabel(p: BarReview): string {
-  return [`#${p.number} ${p.title}`, p.repo, p.requestedBy ? `asked by ${p.requestedBy}` : '', p.approves ? 'agent approves' : ''].filter(Boolean).join(' · ');
+ *  title, its repo (after its project, as `place` says it), who asked, and that it's a sign-off
+ *  when Codealong's agent approves it. */
+function reviewLabel(p: BarReview, place: PlaceWords): string {
+  return [`#${p.number} ${p.title}`, place(p.project, p.repo), p.requestedBy ? `asked by ${p.requestedBy}` : '', p.approves ? 'agent approves' : ''].filter(Boolean).join(' · ');
 }
 
 /** The rest of the sessions started in the last day, as one pill: a click drops a menu of them. */
@@ -760,7 +762,7 @@ export function Bar() {
       return;
     }
     void popup(
-      reviews.map((p) => ({ label: reviewLabel(p), checked: p.key === shownKey || undefined, run: () => to(p) })),
+      reviews.map((p) => ({ label: reviewLabel(p, placeOf), checked: p.key === shownKey || undefined, run: () => to(p) })),
       below(e),
     );
   };
