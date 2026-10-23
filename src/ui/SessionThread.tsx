@@ -1,7 +1,8 @@
 // A session's conversation in its panel: your prompts, the agent's replies, and the tools it ran
 // with what they gave back, read from the session's own record a page at a time (transcript.rs).
 // It opens at the newest and loads older pages as you scroll up, holding your place; new steps
-// come in at the bottom as the session goes on, and the view follows them if you're at the end.
+// come in at the bottom as the session goes on, and the view follows them while you're at the end,
+// stopping as soon as you scroll up, however little.
 // Who said a message and when heads a run of them, not each one: your prompt, then the agent's
 // reply, whose later messages (between its tool calls) go on under that heading. A heading comes
 // again where the speaker changes, after a note, or after a pause (`headingsOf`). Another
@@ -193,6 +194,13 @@ function toolIcon(label: string): string {
   if (/agent|task/.test(name)) return 'sparkles';
   if (/artifact/.test(name)) return 'world';
   return 'bolt';
+}
+
+/** Whether a view that follows what comes in at its end has been scrolled up from `from`, where
+ *  it last was, by however little: you're reading back, and it stops following. Not when what was
+ *  below grew shorter, or the view taller, and the end came up to meet it. */
+export function scrolledUp(el: { scrollTop: number; scrollHeight: number; clientHeight: number }, from: number): boolean {
+  return el.scrollTop <= from - 1 && el.scrollHeight - el.scrollTop - el.clientHeight >= 1;
 }
 
 /** A question call's line: what it asks about, by the questions' headers when they all have one. */
@@ -537,10 +545,26 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   // whatever has taken room below since: a prompt's image can lay out, and the scroll that put
   // the view there be heard, before the image's load is.
   const endAt = useRef<number | null>(null);
+  // Where the view was when its scroll was last heard, or it was put at the end, and how tall what
+  // it scrolls was then.
+  const heard = useRef({ top: 0, height: 0 });
   const toEnd = useCallback((el: HTMLElement) => {
     el.scrollTop = el.scrollHeight;
     endAt.current = el.scrollTop;
     atEnd.current = true;
+    heard.current = { top: el.scrollTop, height: el.scrollHeight };
+  }, []);
+  /** Whether what comes in brings the view to the end: it's there, and hasn't been scrolled up
+   *  since, by a scroll made just now that the view hasn't heard yet either. That's told only
+   *  while what it scrolls is as tall as it was then; taller or shorter, the view may have moved
+   *  for what came in rather than for you. */
+  const follows = useCallback(() => {
+    const el = scroller.current;
+    if (el && el.scrollHeight === heard.current.height && scrolledUp(el, heard.current.top)) {
+      atEnd.current = false;
+      endAt.current = null;
+    }
+    return atEnd.current;
   }, []);
 
   // The prompt the keys last brought up, and how far down the view it sat: the next key goes on
@@ -585,14 +609,14 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     askStream(s.key, () => live);
     const off = onHostedStream((st) => {
       if (st.key !== s.key) return;
-      if (atEnd.current) anchor.current = { kind: 'end' };
+      if (follows()) anchor.current = { kind: 'end' };
       setStream(st);
     });
     return () => {
       live = false;
       off();
     };
-  }, [s.key, askStream]);
+  }, [s.key, askStream, follows]);
   const streaming = (s.status === 'working' || s.status === 'needs') && stream ? stream : null;
 
   // Each read from the start: cursors are places in one record, and a job that went on from
@@ -687,7 +711,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
         askStream(s.key, () => live);
         if (p.items.length === 0) return;
         after.current = p.after;
-        if (atEnd.current) anchor.current = { kind: 'end' };
+        if (follows()) anchor.current = { kind: 'end' };
         const fresh = new Set(p.items.map((it) => it.cursor));
         setItems((old) => [...old.filter((it) => !fresh.has(it.cursor)), ...p.items]);
       })
@@ -695,7 +719,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     return () => {
       live = false;
     };
-  }, [s.lastActivity, s.status, s.title, loaded, error, s.key, askStream]);
+  }, [s.lastActivity, s.status, s.title, loaded, error, s.key, askStream, follows]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -718,14 +742,14 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     const onImage = (e: Event) => {
       const img = e.target;
       if (!(img instanceof HTMLImageElement)) return;
-      if (atEnd.current) toEnd(el);
+      if (follows()) toEnd(el);
       else if (img.getBoundingClientRect().top < el.getBoundingClientRect().top) el.scrollTop += img.offsetHeight;
     };
     // A load doesn't bubble; it's heard on its way down.
     el.addEventListener('load', onImage, true);
     return () => el.removeEventListener('load', onImage, true);
     // The view is another element once an error has shown in its place.
-  }, [error, toEnd]);
+  }, [error, toEnd, follows]);
 
   const loadedNow = useRef(onLoaded);
   loadedNow.current = onLoaded;
@@ -737,7 +761,10 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     const el = scroller.current;
     if (!el) return;
     if (endAt.current != null && Math.abs(el.scrollTop - endAt.current) >= 1) endAt.current = null;
-    atEnd.current = endAt.current != null || el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    // Near the end is at it, but not on the way up: a reply streaming in makes room below faster
+    // than a slow scroll up leaves the 40 px behind, and pulled the view back down as you went.
+    atEnd.current = !scrolledUp(el, heard.current.top) && (endAt.current != null || el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+    heard.current = { top: el.scrollTop, height: el.scrollHeight };
     if (el.scrollTop < NEAR_TOP) loadOlder();
     pin();
   };
@@ -895,8 +922,8 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   // The working line, and its tip, keep you at the end as they come.
   const follow = useCallback(() => {
     const el = scroller.current;
-    if (el && atEnd.current) toEnd(el);
-  }, [toEnd]);
+    if (el && follows()) toEnd(el);
+  }, [toEnd, follows]);
   // A message you just sent, or one queued, brings the view to the end, wherever you'd scrolled.
   const yours = showing.length + queued.length;
   const shownSends = useRef(0);

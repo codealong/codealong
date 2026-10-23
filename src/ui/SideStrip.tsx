@@ -27,6 +27,7 @@ import { endSide, forgetSide, keptLine, showSides, takesBox, turnState, useClosi
 import type { PrItem, SideTurn } from '../types';
 import { Markdown } from './Markdown';
 import { Button, cx, Icon, Rich } from './primitives';
+import { scrolledUp } from './SessionThread';
 
 /** What a strip says of its conversations, which are about a session or a PR, and how it ends
  *  the open one. */
@@ -189,11 +190,15 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
   const live = view?.kind === 'past' ? closing.get(view.id) : undefined;
   const answering = !!live || !!reading?.answering;
   const scroller = useRef<HTMLDivElement>(null);
-  // The end stays in view as the answer grows, unless you've scrolled back to read.
+  // The end stays in view as the answer grows, unless you've scrolled back to read, however
+  // little (SessionThread.tsx `scrolledUp`): from where the view was last.
   const atEnd = useRef(true);
+  const lastTop = useRef(0);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && atEnd.current && !view) el.scrollTop = el.scrollHeight;
+    if (!el || !atEnd.current || view) return;
+    el.scrollTop = el.scrollHeight;
+    lastTop.current = el.scrollTop;
   }, [side, view]);
   if (popped && !inWindow) return null;
 
@@ -242,7 +247,8 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
           scrolls
             ? (e) => {
                 const el = e.currentTarget;
-                atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+                atEnd.current = !scrolledUp(el, lastTop.current) && el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+                lastTop.current = el.scrollTop;
               }
             : undefined
         }

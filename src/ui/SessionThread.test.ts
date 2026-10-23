@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../types';
-import { editablePrompts, headingsOf, peerLabel, rowsOf } from './SessionThread';
+import { editablePrompts, headingsOf, peerLabel, rowsOf, scrolledUp } from './SessionThread';
 
 let at = 0;
 const step = (kind: TranscriptItem['kind'], more: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: 0, kind, text: kind, failed: false, cursor: ++at, n: 0, ...more });
@@ -96,5 +96,26 @@ describe('editablePrompts', () => {
 
   it('on the first prompt of a page too, when the page isn’t the session’s start', () => {
     expect(offered([step('you'), step('agent')], false)).toEqual([true, false]);
+  });
+});
+
+describe('scrolledUp', () => {
+  // A view 500 tall over 2000 of conversation, whose end is at 1500.
+  const view = (scrollTop: number, scrollHeight = 2000) => ({ scrollTop, scrollHeight, clientHeight: 500 });
+
+  it('counts a scroll up from the end however little, well inside what counts as near it', () => {
+    expect(scrolledUp(view(1492), 1500)).toBe(true);
+    expect(scrolledUp(view(1499), 1500)).toBe(true);
+  });
+
+  it('not a move of less than a pixel, nor one down or none', () => {
+    expect(scrolledUp(view(1499.5), 1500)).toBe(false);
+    expect(scrolledUp(view(1500), 1492)).toBe(false);
+    expect(scrolledUp(view(1200), 1200)).toBe(false);
+  });
+
+  it('not the end coming up to meet the view, as what was below grows shorter', () => {
+    expect(scrolledUp(view(1300, 1800), 1500)).toBe(false);
+    expect(scrolledUp(view(1299.5, 1800), 1500)).toBe(false);
   });
 });
