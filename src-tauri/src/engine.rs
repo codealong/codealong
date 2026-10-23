@@ -3604,7 +3604,7 @@ fn waiting_call(s: &Session, account: Option<&config::AccountCfg>) -> Option<Str
         // Codealong's own source's worktrees, and where a session that improves it goes.
         let sources: HashSet<PathBuf> = self.codealong_sources.iter().map(|(root, _)| root.clone()).collect();
         crate::improve::mark(&mut board.lanes, &self.lane_checkout, &sources);
-        board.improve = crate::improve::target(&board.lanes, &self.codealong_sources);
+        board.improve = crate::improve::Improve { installed: crate::updates::enabled(), ..crate::improve::target(&board.lanes, &self.codealong_sources) };
         board.jev = self.cfg.jev.clone();
         board.experimental = self.cfg.experimental.clone();
         board.devices = self.cfg.devices.clone();

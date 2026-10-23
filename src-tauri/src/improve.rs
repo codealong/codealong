@@ -9,7 +9,9 @@
 //! that are its worktrees (`Lane::codealong`, in codealong-peer's model, so the phone finds them the
 //! same way) and says on the board where a session goes (`Board::improve`): a project and a lane,
 //! or the source found in a folder Codealong searches but in none of your projects, so the panel
-//! can offer to make one; or nothing, when the source isn't on this Mac.
+//! can offer to make one; or nothing, when the source isn't on this Mac. In the installed app (a
+//! release), whose code no change to the source reaches, the board says so (`Improve::installed`)
+//! and the panel first suggests switching to Codealong Dev, offering a session that sets it up.
 //!
 //! The pictures are each window's own drawing, asked of WKWebView (`takeSnapshot`), which draws
 //! the page as it is without macOS's screen-recording permission, and are kept as attachments
@@ -59,6 +61,11 @@ pub struct Improve {
     /// project can be made for it. None when the source is in a project, or isn't on this Mac.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
+    /// This app is the Codealong people install (a release, `updates::enabled`), not a build of
+    /// the source: a change made to the source never shows in it, so the panel suggests setting
+    /// up Codealong Dev first, which an agent can do (improve.ts `devSetupPrompt`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub installed: bool,
 }
 
 /// A checkout of Codealong's source in none of your projects.
@@ -94,10 +101,10 @@ pub fn target(lanes: &[Lane], sources: &[(PathBuf, Option<String>)]) -> Improve 
     let here: Vec<&Lane> = lanes.iter().filter(|l| l.codealong && !l.starts_chats && l.device.is_none() && l.project != crate::board::ELSEWHERE).collect();
     let pick = here.iter().find(|l| l.origin == Origin::Main && !l.hidden).or_else(|| here.iter().find(|l| !l.hidden)).or_else(|| here.first());
     if let Some(lane) = pick {
-        return Improve { project: Some(lane.project.clone()), lane_id: Some(lane.id.clone()), source: None };
+        return Improve { project: Some(lane.project.clone()), lane_id: Some(lane.id.clone()), ..Improve::default() };
     }
     let source = sources.first().map(|(root, repo)| Source { root: root.to_string_lossy().into_owned(), repo: repo.clone() });
-    Improve { project: None, lane_id: None, source }
+    Improve { source, ..Improve::default() }
 }
 
 /// What a window is called in the prompt, by its label (`![Main window](…)`); None for the quick
@@ -288,7 +295,7 @@ mod tests {
         let other = lane("/p/other", vec![]);
         // The main checkout wins over a worktree, whichever is listed first.
         let t = target(&[other.clone(), remote.clone(), wt.clone(), main.clone()], &[]);
-        assert_eq!(t, Improve { project: Some("Codealong".into()), lane_id: Some("/p/codealong".into()), source: None });
+        assert_eq!(t, Improve { project: Some("Codealong".into()), lane_id: Some("/p/codealong".into()), ..Improve::default() });
         // Without the main checkout, a worktree; without one here, nothing.
         assert_eq!(target(&[wt.clone(), remote.clone()], &[]).lane_id.as_deref(), Some("/p/codealong/.claude/worktrees/x"));
         assert_eq!(target(&[other.clone(), remote.clone()], &[]), Improve::default());
@@ -301,7 +308,7 @@ mod tests {
     #[test]
     fn target_offers_a_source_in_no_project() {
         let sources = vec![(PathBuf::from("/p/codealong"), Some("github.com/me/codealong".to_string()))];
-        let offer = Improve { project: None, lane_id: None, source: Some(Source { root: "/p/codealong".into(), repo: Some("github.com/me/codealong".into()) }) };
+        let offer = Improve { source: Some(Source { root: "/p/codealong".into(), repo: Some("github.com/me/codealong".into()) }), ..Improve::default() };
         assert_eq!(target(&[lane("/p/other", vec![])], &sources), offer);
         // A session ran there: its Elsewhere lane is marked, but the source is still offered.
         let mut elsewhere = lane("/p/codealong", vec![]);
@@ -309,6 +316,13 @@ mod tests {
         elsewhere.project = crate::board::ELSEWHERE.into();
         assert_eq!(target(&[elsewhere], &sources), offer);
         assert_eq!(target(&[], &[]), Improve::default());
+    }
+
+    #[test]
+    fn the_installed_app_says_so_and_a_build_of_the_source_says_nothing() {
+        // The panel suggests Codealong Dev only when the board says `installed` (improve.ts).
+        assert_eq!(serde_json::to_value(Improve::default()).unwrap(), json!({}));
+        assert_eq!(serde_json::to_value(Improve { installed: true, ..Improve::default() }).unwrap(), json!({ "installed": true }));
     }
 
     #[test]

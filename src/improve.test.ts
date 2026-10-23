@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CODEALONG_PROJECT, improvePrompt, improveTitle, improveWords, remoteImproveLane, withCodealongProject } from './improve';
+import { CODEALONG_PROJECT, CODEALONG_REPO, devSetupPrompt, improvePrompt, improveTitle, improveWords, remoteImproveLane, withCodealongProject } from './improve';
 import type { Attachment, Config, Lane } from './types';
 
 const shot = (name: string, hash: string): Attachment => ({ kind: 'image', name, path: `images/${hash}.png` });
@@ -90,5 +90,21 @@ describe('improveTitle', () => {
   it('names the shortcut when there is one', () => {
     expect(improveTitle('⌥⌘,')).toMatch(/pictures of its windows as they are now \(⌥⌘,\)$/);
     expect(improveTitle(null)).not.toContain('(');
+  });
+});
+
+describe('devSetupPrompt', () => {
+  it('builds from the source this machine has', () => {
+    const prompt = devSetupPrompt('/Users/me/projects/codealong', ['~/projects']);
+    expect(prompt).toContain('Codealong’s source is already in /Users/me/projects/codealong: build from it');
+    expect(prompt).not.toContain('Clone');
+    expect(prompt).toContain('docs/development.md');
+    expect(prompt).toContain('scripts/relaunch.sh');
+  });
+
+  it('clones into the folder Codealong looks for repos in, or asks where', () => {
+    expect(devSetupPrompt(null, ['~/projects'])).toContain(`Clone ${CODEALONG_REPO} into ~/projects, the folder Codealong looks for repos in`);
+    expect(devSetupPrompt(null, ['~/projects', '~/work'])).toContain('one of the folders Codealong looks for repos in (~/projects, ~/work)');
+    expect(devSetupPrompt(null, [])).toContain('ask me if you can’t tell');
   });
 });

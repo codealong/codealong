@@ -53,7 +53,7 @@ import {
   todoOp,
   type QuickOpen,
 } from '../api';
-import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, improvePrompt, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
+import { CODEALONG_PROJECT, IMPROVE_PLACEHOLDER, devSetupPrompt, improvePrompt, improveWords, remoteImproveLane, withCodealongProject } from '../improve';
 import { boardAhead, boardView, observe, sendAhead, useAhead } from '../ahead';
 import { filesToAttach, keepFiles, useFileDrop } from '../attachInput';
 import { deviceLabel, shortOf } from '../devices';
@@ -95,6 +95,7 @@ import { liveOrLatest, sessionHomes, sessionWhy } from '../lanes';
 import { blockedBy, mergeAttachments, newTodo, primaryHolds, snippet, splitAttachments, todoAgent, todoItem, todoProjects, todoPrompt, todosPrompt, withAttachments } from '../todos';
 import type { Attachment, Board, DesktopPinned, DevicesView, Lane, PrItem, Route, RouteChoice, RouteNote, Session, StartOptions, StartPlace, StartSpec } from '../types';
 import { AttachmentStrip } from './DescriptionEditor';
+import { DevSetupDialog } from './DevSetupDialog';
 import { Picker, type PickerOption, type PickerSection } from './Picker';
 import { chatOption, laneSections } from './pickerOptions';
 import { AgentFoot } from './AgentMenu';
@@ -135,6 +136,8 @@ const HISTORY_KEY = 'codealong.quick.history';
 const DRAFT_KEY = 'codealong.quick.draft';
 /** Whether a search lists archived sessions too, after the others that match as closely. */
 const ARCHIVED_KEY = 'codealong.quick.archived';
+/** Don't suggest this again, ticked in Switch to Codealong Dev? (DevSetupDialog.tsx). */
+const NO_DEV_KEY = 'codealong.quick.no-dev-setup';
 /** The input grows to this many lines, then scrolls. */
 const INPUT_LINES = 8;
 const COMPOSE = 'compose';
@@ -277,6 +280,10 @@ export function Quick() {
   // panel, which go into the prompt; null when the panel is open for anything else.
   const [improve, setImprove] = useState<{ shots: Attachment[] } | null>(null);
   const improveNow = useLatest(improve);
+  // Opened for Improve Codealong in the installed app: Switch to Codealong Dev? is asked first
+  // (DevSetupDialog.tsx), until it's answered, or for good once you say not to again.
+  const [devAsk, setDevAsk] = useState(false);
+  const [noDevSetup, setNoDevSetup] = useStored(NO_DEV_KEY, flag, false);
   // While ↑ shows a draft written over Improve's pictures: the pictures the panel had before it,
   // which walking on brings back, and where it was starting, when it wasn't open for Improve.
   const recalledOver = useRef<{ improve: { shots: Attachment[] } | null; place: { project: string; laneId: string | null; device: string | null; asChat: boolean } | null } | null>(null);
@@ -378,6 +385,7 @@ export function Quick() {
         // board has them, with the pictures the engine took of the windows.
         const improving = ctx.improve && typeof ctx.improve === 'object' ? ctx.improve : null;
         setImprove(improving);
+        setDevAsk(!!improving);
         recalledOver.current = null;
         improveFollowed.current = false;
         setAsChat(!!ctx.chat);
@@ -724,13 +732,37 @@ export function Quick() {
   const remoteSource = improve && !board?.improve?.laneId ? remoteImproveLane(devices?.lanes ?? []) : null;
   const improveNote = improve ? improveWords(board?.improve, !board || board.loading, remoteSource) : null;
   const improveSource = board?.improve?.source ?? null;
+  // In the installed app, Switch to Codealong Dev? first (DevSetupDialog.tsx). The session it
+  // starts sets up this machine, so it goes to the source's checkout here, or to a chat of its
+  // own here that clones one: never to another Mac's source, which the panel waits to move to.
+  const askingDev = devAsk && !!improve && !!board?.improve?.installed && !noDevSetup;
+  const devSourceLane = board?.improve?.laneId ? board.lanes.find((l) => l.id === board.improve?.laneId && !l.device) : undefined;
+  const devSource = devSourceLane?.path ?? improveSource?.root ?? null;
+  const setUpDev = () => {
+    const where = devSourceLane ?? board?.lanes.find((l) => l.startsChats && !l.device);
+    setDevAsk(false);
+    if (!where) {
+      setError('There’s no place on this machine to start the session yet: try again once the board is read.');
+      return;
+    }
+    // The folders Codealong looks for repos in, for the clone; without them it's asked where.
+    getConfig()
+      .then((view) => view.config.scan)
+      .catch(() => [])
+      .then((scan) => start({ lane: where, newWorktree: false, prompt: devSetupPrompt(devSource, scan) }));
+  };
+  const closeDevAsk = (dontAsk: boolean) => {
+    setDevAsk(false);
+    if (dontAsk) setNoDevSetup(true);
+    refocus();
+  };
   // The source's worktree is taken from the board once per open: a worktree or Mac you pick
   // after that stands. Another Mac's waits for the board, which may yet find one here.
   const improveFollowed = useRef(false);
   const remoteSourceId = board && !board.loading && !board.improve?.source ? (remoteSource?.id ?? null) : null;
   const remoteSourceProject = remoteSource?.project ?? null;
   useEffect(() => {
-    if (!improve || improveFollowed.current) return;
+    if (!improve || improveFollowed.current || askingDev) return;
     if (board?.improve?.laneId) {
       improveFollowed.current = true;
       setLaneId(board.improve.laneId);
@@ -742,7 +774,7 @@ export function Quick() {
       setDevice(shortOf(remoteSourceId));
       if (remoteSourceProject) setProject(remoteSourceProject);
     }
-  }, [improve, board?.improve?.laneId, board?.improve?.project, remoteSourceId, remoteSourceProject]);
+  }, [improve, askingDev, board?.improve?.laneId, board?.improve?.project, remoteSourceId, remoteSourceProject]);
   const addCodealongProject = () => {
     if (!improveSource) return;
     const source = improveSource;
@@ -1219,8 +1251,9 @@ export function Quick() {
     else if (row.kind === 'todo' || row.kind === 'pr' || row.kind === 'review') noteDone({ kind: 'other', target: null }, 'found');
   };
 
-  /** Starts a session: in the worktree chosen below, or where a suggestion says. */
-  const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string; only?: string[] }) => {
+  /** Starts a session: in the worktree chosen below, or where a suggestion says; on what's typed,
+   *  or on a `prompt` of the panel's own (Switch to Codealong Dev?'s), which nothing is added to. */
+  const start = (over?: { lane: Lane; newWorktree: boolean; agent?: string; only?: string[]; prompt?: string }) => {
     const where = over?.lane ?? lane;
     const sgChoice = over?.agent ? choiceForAgent(over.agent, over.newWorktree, over.only) : null;
     const targetAccount = sgChoice ? sgChoice.account : account;
@@ -1234,7 +1267,7 @@ export function Quick() {
     const base = skillNow && harness && !over ? writtenFor(text, [skillNow.skill], harness) : text;
     const written = withAttachments(base, attached);
     // Improve Codealong: the pictures of the windows go after what you wrote.
-    const prompt = withShots(written);
+    const prompt = over?.prompt ?? withShots(written);
     const spec: StartSpec = { laneId: where.id, account: targetAccount, place: targetPlace, prompt, model: targetModel, effort: targetEffort, worktree: newTree, todos: forTodos.map((t) => t.id) };
     if (!over) noteDone({ kind: 'start', target: where.id, newWorktree: newTree }, 'start-row');
     const targetOnModel = sgChoice ? onModelWords(sgChoice.startsOn, sgChoice.effortWord, ownModels(sgChoice.accountInfo, models)) : onModel;
@@ -1536,7 +1569,8 @@ export function Quick() {
   // The panel's own keys, wherever the focus is in it. A menu's filter handles its own first.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.isComposing) return;
+      // Switch to Codealong Dev? has the keys while it's up, Escape closing it (useEscape).
+      if (e.defaultPrevented || e.isComposing || askingDev) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         if (picker) {
@@ -2304,6 +2338,7 @@ export function Quick() {
             </div>
           </div>
         )}
+        {askingDev && <DevSetupDialog account={account} source={devSource && tildePath(devSource)} onSetUp={setUpDev} onClose={closeDevAsk} />}
       </div>
     </div>
   );

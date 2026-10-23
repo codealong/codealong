@@ -441,6 +441,9 @@ export interface Improve {
   project?: string | null;
   laneId?: string | null;
   source?: ImproveSource | null;
+  /** This app is the installed Codealong (a release), which no change to the source reaches, so
+   *  the panel suggests Codealong Dev first (improve.ts `devSetupPrompt`). Missing otherwise. */
+  installed?: boolean;
 }
 
 /** A checkout of Codealong's source in none of your projects. */

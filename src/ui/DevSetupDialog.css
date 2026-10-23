@@ -1,0 +1,11 @@
+/* Switch to Codealong Dev? (DevSetupDialog.tsx): Improve Codealong in the installed app, over the
+   quick panel, which keeps it inside its card (Quick.css). */
+
+.ca-dialog.ca-devsetup {
+  width: min(520px, 100%);
+}
+.ca-devsetup-note {
+  margin: 0;
+  font: var(--type-body);
+  color: var(--ink-2);
+}

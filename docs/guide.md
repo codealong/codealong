@@ -2196,7 +2196,20 @@ table named Codealong for its repo (or its folder, with no remote); its worktree
 board, and the panel moves onto them. When another of your Macs has the source and this one
 doesn't, the panel goes there, and the pictures go with the prompt. When no checkout is found, it
 says to clone github.com/codealong/codealong into a folder Codealong searches. `codealong --snapshot --improve`
-prints where a session would go. On the iPhone, the button at the top of the list does the same
+prints where a session would go.
+
+In the installed Codealong (a release, which updates itself), no change made to the source shows
+up until the next release, so before the panel asks what to change, a dialog over it suggests
+switching to Codealong Dev, the build of the source that `scripts/relaunch.sh` makes and opens in
+place of the installed app, with the same settings and todos. **Set it up with** starts a session
+on the panel's account that does it: in the source's checkout when this machine has one, or else
+in a chat of its own that clones github.com/codealong/codealong into the folder Codealong looks
+for repos in (`scan`); its prompt points the agent at the repo's `docs/development.md` for what
+building needs, has it run `relaunch.sh`, and has it say how to go back (open Codealong from
+Applications). **Not now** goes on to Improve Codealong as above, and *Don't suggest this again*
+keeps it from asking. Builds of the source (Codealong Dev, `npm run tauri dev`) never ask.
+
+On the iPhone, the button at the top of the list does the same
 with a picture of the phone's screen, kept on the Mac the session starts on.
 
 ### Skills by name

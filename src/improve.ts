@@ -50,6 +50,31 @@ export function withCodealongProject(cfg: Config, source: ImproveSource): Config
   return { ...cfg, projects: cfg.projects.map((p) => (p === have ? merged : p)) };
 }
 
+/** Where Codealong's source is published, for a clone. */
+export const CODEALONG_REPO = 'https://github.com/codealong/codealong';
+
+/**
+ * The prompt for a session that sets this machine up with Codealong Dev, a build of Codealong's
+ * source, in place of the installed app: where the source is, or the folder to clone it into
+ * (`scan`, the folders Codealong looks for repos in, so it comes onto the board), then the
+ * repo's own notes for building it, so the steps stay the repo's.
+ */
+export function devSetupPrompt(source: string | null, scan: string[]): string {
+  const where = source
+    ? `Codealong’s source is already in ${source}: build from it, bringing it up to date with GitHub first where that loses nothing.`
+    : scan.length === 1
+      ? `Clone ${CODEALONG_REPO} into ${scan[0]}, the folder Codealong looks for repos in, so it comes onto Codealong’s board.`
+      : scan.length > 1
+        ? `Clone ${CODEALONG_REPO} into one of the folders Codealong looks for repos in (${scan.join(', ')}), so it comes onto Codealong’s board.`
+        : `Clone ${CODEALONG_REPO} into the folder where I keep my code (ask me if you can’t tell), and add that folder to \`scan\` in Codealong’s config.toml so Codealong finds it.`;
+  return [
+    'Set this machine up to run Codealong Dev, a development version of Codealong built from its source, in place of the installed Codealong, so I can change Codealong and run the changes.',
+    where,
+    'Its docs/development.md says what building it needs and how. Install what this machine is missing for it, and tell me when something needs me, such as a password or a dialog to click. Then run scripts/relaunch.sh in the checkout: it builds Codealong Dev, puts it in Applications and opens it, and the installed Codealong quits as it opens. The two share settings and todos.',
+    'Once Codealong Dev is running, tell me so, and that opening Codealong from Applications goes back to the installed one. From then on, Improve Codealong in Codealong Dev starts its sessions in this checkout, and scripts/relaunch.sh runs what they change.',
+  ].join('\n\n');
+}
+
 /** Codealong's source among your other Macs' worktrees (the devices' lanes, each id `@<short>:…`),
  *  for the panel to go to when this Mac has none: a main checkout first, a shown one before a
  *  hidden one, a connected Mac's first. The pictures go there with the prompt (actions.rs

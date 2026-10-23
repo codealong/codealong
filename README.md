@@ -290,7 +290,8 @@ repos' skills by name.
 **Improve Codealong.** The button beside *New session*, or **⌥⌘,** in any app, opens the panel on
 Codealong's own source with a picture of every Codealong window as it is: describe what to change,
 and the session improves Codealong itself. With Codealong's source in none of your projects, the
-panel offers to add one.
+panel offers to add one. In the installed app, it first offers to have an agent switch you to
+Codealong Dev, a build of the source that runs what you change.
 
 **Optional suggestions.** Turn on Jev (Settings › Jev, with your own [TypeSafe](https://typesafe.ai)
 key) and the panel suggests where your prompt belongs: the agent already working on it, a free

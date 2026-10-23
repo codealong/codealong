@@ -429,6 +429,17 @@ html.is-quick body {
   flex: none;
   margin-left: auto;
 }
+/* A dialog the panel opens (Switch to Codealong Dev?, DevSetupDialog.tsx) covers the card rather
+   than the window: the window is clear round the card for its shadow, and a scrim there would
+   darken the desktop. */
+.ca-quick > .ca-scrim {
+  position: absolute;
+  padding: var(--space-3);
+  border-radius: inherit;
+}
+.ca-quick > .ca-scrim > .ca-dialog {
+  max-height: 100%;
+}
 .ca-quick-bar {
   display: flex;
   flex: none;
