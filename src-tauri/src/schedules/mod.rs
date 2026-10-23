@@ -162,10 +162,15 @@ impl Checkout {
         }
     }
 
+    /// Whether a worktree is a checkout of `repo`, by the name it has now or the one its remote says
+    /// (a repo renamed on GitHub).
+    fn of_repo(lane: &crate::model::Lane, repo: &str) -> bool {
+        [lane.repo_slug_now.as_deref(), lane.repo_slug.as_deref()].into_iter().flatten().any(|r| r.eq_ignore_ascii_case(repo))
+    }
+
     /// Whether a worktree is this checkout.
     fn is(&self, lane: &crate::model::Lane) -> bool {
-        let repo = [lane.repo_slug_now.as_deref(), lane.repo_slug.as_deref()].into_iter().flatten().any(|r| r.eq_ignore_ascii_case(&self.repo));
-        repo && match &self.branch {
+        Checkout::of_repo(lane, &self.repo) && match &self.branch {
             None => lane.origin == crate::model::Origin::Main,
             Some(b) => lane.origin != crate::model::Origin::Main && lane.branch.as_deref() == Some(b.as_str()),
         }
@@ -973,9 +978,9 @@ pub fn checkout_for(s: &Schedule, was: Option<&Schedule>, board: Option<&Board>)
     match was.filter(|w| w.run.folder.trim() == folder) {
         None => here(),
         Some(w) => match &w.checkout {
-            Some(c) => match local.and_then(Checkout::of) {
-                Some(mine) if mine.repo.eq_ignore_ascii_case(&c.repo) => (Some(mine), false),
-                _ => (Some(c.clone()), false),
+            Some(c) => match local.filter(|l| Checkout::of_repo(l, &c.repo)).and_then(Checkout::of) {
+                Some(mine) => (Some(mine), false),
+                None => (Some(c.clone()), false),
             },
             None if w.folder_only => (None, true),
             None => here(),
@@ -1392,6 +1397,15 @@ mod tests {
         assert_eq!(checkout_for(&before, Some(&before), Some(&board(Some("acme/infra")))), (repo("acme/infra"), false));
         // Another folder picked: what that one is.
         assert_eq!(checkout_for(&s("~/projects/other", None, false), Some(&came), Some(&board(Some("acme/infra")))), (None, false));
+        // Its repo renamed on GitHub: saved under its new name, which a machine whose remote has it
+        // finds.
+        let old = s(path, repo("acme/old"), false);
+        let renamed = Board { lanes: vec![crate::model::Lane { repo_slug_now: Some("acme/new".into()), ..lane(Some("acme/old")) }], ..Board::default() };
+        let (now, _) = checkout_for(&old, Some(&old), Some(&renamed));
+        assert_eq!(now, repo("acme/new"));
+        let there = Board { lanes: vec![crate::model::Lane { id: "/Users/me/src/new".into(), path: "/Users/me/src/new".into(), ..lane(Some("acme/new")) }], ..Board::default() };
+        let shared = Schedule { checkout: now, runs_on: RunsOn::Every, ..s("~/projects/new", None, false) };
+        assert_eq!(place(&shared, &there).map(|l| l.path.as_str()), Some("/Users/me/src/new"));
     }
 
     #[test]
