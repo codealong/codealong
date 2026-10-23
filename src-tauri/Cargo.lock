@@ -599,7 +599,7 @@ dependencies = [
 
 [[package]]
 name = "codealong"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "aho-corasick",
  "anyhow",
