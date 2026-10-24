@@ -137,6 +137,20 @@ pub fn trust_hook(codex_home: &Path, file: &Path, command: &str) -> Result<bool>
     })
 }
 
+/// Whether Codex would run a `PermissionRequest` hook in `cwd` beside Codealong's (one whose
+/// command has `ours`): the user's, a project's, a plugin's or a managed one (`hooks/list`, which
+/// lists them all with their event). Codex runs a request's hooks together and shows its prompt
+/// once they've all finished (0.162.1's `hooks/src/engine/dispatcher.rs` `execute_handlers`), so
+/// with another, the prompt may not be up when Codealong's hook has noted it.
+pub fn other_prompt_hooks(codex_home: &Path, cwd: &Path, ours: &str) -> Result<bool> {
+    Ok(others_in(&call(codex_home, "hooks/list", json!({ "cwds": [cwd] }))?, ours))
+}
+
+fn others_in(listed: &Value, ours: &str) -> bool {
+    let hooks = listed["data"].as_array().into_iter().flatten().flat_map(|cwd| cwd["hooks"].as_array().into_iter().flatten());
+    hooks.filter(|h| h["eventName"].as_str() == Some("permissionRequest")).any(|h| !h["command"].as_str().is_some_and(|c| c.contains(ours)))
+}
+
 /// Whether Codex has managed requirements for the account (`configRequirements/read`: a
 /// workspace's from its backend, an MDM profile's, `/etc/codex`'s), which can take entries out of
 /// what `/permissions` lists. It answered `requirements: null` with none (2026-10-24).
@@ -306,6 +320,20 @@ pub(super) fn stand_in(heard: &Path, answer: &str) -> Command {
 
 #[cfg(test)]
 mod tests {
+    /// Another `PermissionRequest` hook keeps Codex's prompt back while it runs; other events'
+    /// hooks don't. As 0.162.1's `hooks/list` answered for a project's hook (2026-10-24).
+    #[test]
+    fn another_prompt_hook_is_told_apart_from_codealongs() {
+        let entry = |event: &str, command: &str| serde_json::json!({ "key": "/r/.codex/hooks.json:permission_request:0:0", "eventName": event, "handlerType": "command", "command": command, "trustStatus": "trusted" });
+        let ours = r#""/Users/me/Library/Application Support/Codealong/plugin-marketplace/plugin/bin/codealong" session hook codex-permission-request >/dev/null 2>&1 || true"#;
+        let listed = |hooks: Vec<serde_json::Value>| serde_json::json!({ "data": [{ "cwd": "/r", "hooks": hooks, "warnings": [], "errors": [] }] });
+        let mark = crate::codex::hook::MARK;
+        assert!(!super::others_in(&listed(vec![entry("permissionRequest", ours)]), mark));
+        assert!(!super::others_in(&listed(vec![entry("permissionRequest", ours), entry("preToolUse", "./check.sh")]), mark));
+        assert!(super::others_in(&listed(vec![entry("permissionRequest", ours), entry("permissionRequest", "./slow-audit.sh")]), mark));
+        assert!(super::others_in(&listed(vec![serde_json::json!({ "eventName": "permissionRequest", "handlerType": "mcpTool" })]), mark), "a tool's hook has no command");
+    }
+
     use super::*;
 
     /// What Codex's app-server is written, line for line, for each thing asked of it.

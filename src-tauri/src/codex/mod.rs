@@ -310,6 +310,10 @@ impl crate::harness::Adapter for Codex {
         if keys_of_its_own(&ctx.account.home_path(), &cwd, pid) || command_line(pid).is_none_or(|c| c.contains("keymap")) {
             anyhow::bail!("Answer it in Codex's terminal: its keys may be set up its own way (tui.keymap).");
         }
+        // Codex shows its prompt only once every hook it runs for it has finished.
+        if appserver::other_prompt_hooks(&ctx.account.home_path(), &cwd, hook::MARK).unwrap_or(true) {
+            anyhow::bail!("Answer it in Codex's terminal: another hook runs as Codex asks, and its prompt may not be up yet.");
+        }
         // Allowed in its terminal already: its command runs under it, and the key would land in
         // the box, or answer another prompt. Not so for a command that's running already and
         // asks to reach a host.

@@ -686,8 +686,9 @@ session, are left to its terminal, as are a tool's of an MCP server and a reques
 permissions, which Codex asks in prompts of their own, and the Codex app's, which it asks in its
 own window, and any in a turn that has asked more than once without the others answered from
 here (its terminal shows one at a time, a script can ask for two at once, and which is up can't
-be read), or while Codex's keys may be set up its own way (`tui.keymap` in its config, or on its
-command line). A request to reach a host, which a command that's running
+be read), while Codex's keys may be set up its own way (`tui.keymap` in its config, or on its
+command line), or where another `PermissionRequest` hook runs there too, which keeps Codex's
+prompt back until it's done. A request to reach a host, which a command that's running
 already makes, reads "Let `npm install` reach registry.npmjs.org", and Allow lets it, this once. While the session's mode is Approve for
 me, Codex's reviewer agent answers instead, and the session isn't waiting on you. One allowed in
 its terminal can still show as waiting for the few seconds Codex takes to hand the command's
