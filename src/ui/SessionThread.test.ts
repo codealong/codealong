@@ -152,27 +152,31 @@ describe('scrolledUp', () => {
 });
 
 describe('readAgain', () => {
-  const failed: ReadFailed = { at: 1_000, tried: false };
+  // Asked for at 1000.
+  const failed: ReadFailed = { at: 1_000, away: false, tried: false };
 
-  it('reads again once the machine is back and heard from since the read failed', () => {
+  it('reads again once the machine is back after it was seen away, heard from since or not', () => {
     const away = readAgain(failed, { online: false, lastSeen: 900 });
-    expect(away.again).toBe(false);
-    expect(readAgain(away.failed, { online: true, lastSeen: 900 }).again).toBe(false);
-    const back = readAgain(away.failed, { online: true, lastSeen: 1_200 });
-    expect(back).toEqual({ failed: { at: 1_000, tried: true }, again: true });
+    expect(away).toEqual({ failed: { at: 1_000, away: true, tried: false }, again: false });
+    // A connection that comes back with nothing new sends no feed: its last word is from before.
+    const back = readAgain(away.failed, { online: true, lastSeen: 900 });
+    expect(back).toEqual({ failed: { at: 1_000, away: false, tried: true }, again: true });
   });
 
-  it('reads again when the machine was gone and back before this window saw it go', () => {
+  it('reads again when the machine was heard from since the read was asked for, though never seen away', () => {
+    // Gone and back before this window saw it go, or back before the read that went with the old
+    // connection failed.
     expect(readAgain(failed, { online: true, lastSeen: 1_200 }).again).toBe(true);
+    expect(readAgain(failed, { online: true, lastSeen: 900 }).again).toBe(false);
   });
 
   it('only once while the machine stays, and again after it’s been away', () => {
     // A read that failed again since, with the machine there all along.
-    const again: ReadFailed = { at: 1_500, tried: true };
+    const again: ReadFailed = { at: 1_500, away: false, tried: true };
     expect(readAgain(again, { online: true, lastSeen: 1_600 }).again).toBe(false);
     const away = readAgain(again, { online: false, lastSeen: 1_600 });
     expect(away.failed.tried).toBe(false);
-    expect(readAgain(away.failed, { online: true, lastSeen: 1_700 }).again).toBe(true);
+    expect(readAgain(away.failed, { online: true, lastSeen: 1_600 }).again).toBe(true);
   });
 
   it('never for a session on this Mac', () => {

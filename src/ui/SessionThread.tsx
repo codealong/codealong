@@ -227,22 +227,25 @@ export function scrolledUp(el: Scrolls, heard: Heard): boolean {
   return (el.scrollHeight === heard.height && el.clientHeight === heard.view) || top < endOf(el);
 }
 
-/** A read of the conversation that failed: when, and whether it was read again since the
- *  session's machine was last away. */
+/** A read of the conversation that failed: when it was asked for, whether the session's machine
+ *  has been seen away since, and whether it was read again since that machine was last away. */
 export interface ReadFailed {
   at: number;
+  away: boolean;
   tried: boolean;
 }
 
 /** Whether a conversation whose read failed is read again now, as the machine it's on comes and
- *  goes: once that machine is back, online and heard from since the read failed (each feed from
- *  it moves `lastSeen`). Once each time it comes back, so a record it can't read either isn't
- *  asked for again with every feed. Never for a session on this Mac (no `machine`). */
+ *  goes: once that machine is back, online after it was seen away, or heard from since the read
+ *  was asked for (each feed from it moves `lastSeen`; a connection that comes back with nothing
+ *  new sends none, and one can come back before the read that went with the old one fails). Once
+ *  each time it comes back, so a record it can't read either isn't asked for again with every
+ *  feed. Never for a session on this Mac (no `machine`). */
 export function readAgain(failed: ReadFailed, machine: Pick<DeviceTag, 'online' | 'lastSeen'> | undefined): { failed: ReadFailed; again: boolean } {
   if (!machine) return { failed, again: false };
-  if (!machine.online) return { failed: { ...failed, tried: false }, again: false };
-  if (failed.tried || (machine.lastSeen ?? 0) <= failed.at) return { failed, again: false };
-  return { failed: { ...failed, tried: true }, again: true };
+  if (!machine.online) return { failed: { ...failed, away: true, tried: false }, again: false };
+  if (failed.tried || !(failed.away || (machine.lastSeen ?? 0) > failed.at)) return { failed, again: false };
+  return { failed: { ...failed, away: false, tried: true }, again: true };
 }
 
 /** A question call's line: what it asks about, by the questions' headers when they all have one. */
@@ -582,8 +585,10 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   }, []);
   // Why the last read failed: shown in the conversation's place when there's nothing else to show.
   const [error, setError] = useState<string | null>(null);
-  // That read, while no read since has worked, and the reads asked again for it (`readAgain`).
+  // That read, while no read since has worked, how many have failed, and the reads asked again
+  // for it (`readAgain`).
   const failed = useRef<ReadFailed | null>(null);
+  const [failures, setFailures] = useState(0);
   const [again, setAgain] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const after = useRef(0);
@@ -674,11 +679,17 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
   // the conversation. A read that failed while its machine was away is read again once it's back
   // (`again`, `readAgain`).
   const reading = useRef(0);
-  // The read whose first page is in, which `after` is a place in.
-  const landed = useRef(0);
+  // The read asked for last, and the one whose first page is in, which `after` and `before` are
+  // places in. Until they're the same, what shows is an earlier read's, perhaps of another
+  // record: it isn't paged back further or searched, and nothing new is read after it.
+  const [asked, setAsked] = useState(0);
+  const [landed, setLanded] = useState(0);
+  const current = landed === asked;
   const title = useLatest(s.title);
   useEffect(() => {
     const read = ++reading.current;
+    const at = Date.now();
+    setAsked(read);
     jumped.current = null;
     seeking.current = null;
     readAhead.current = new Map();
@@ -696,13 +707,14 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
         setItems(p.items);
         placeBefore(p.before);
         after.current = p.after;
-        landed.current = read;
+        setLanded(read);
         setLoaded(true);
         if (p.before != null && p.items[0]?.kind !== 'you') void lookBack(read, p.before);
       })
       .catch((e: unknown) => {
         if (read !== reading.current) return;
-        failed.current = { at: Date.now(), tried: failed.current?.tried ?? false };
+        failed.current = { at, away: false, tried: failed.current?.tried ?? false };
+        setFailures((n) => n + 1);
         setError(errorText(e));
         setLoaded(true);
         if (shown.current) reportNotice(failedNotice(notice, 'A conversation isn’t updating', `Couldn’t read “${title.current}” again; what was read before stays`, e));
@@ -721,18 +733,19 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     };
   }, [s.key, s.continues, again, pageAt, placeBefore, shown, title]);
 
-  // Where its machine stands, not its tag, which is another object with each board.
+  // Where its machine stands, not its tag, which is another object with each board; and after
+  // each failure, where it stood then.
   const online = machine?.online;
   const seen = machine?.lastSeen ?? null;
   useEffect(() => {
-    if (!error || !failed.current) return;
+    if (!failed.current) return;
     const next = readAgain(failed.current, online === undefined ? undefined : { online, lastSeen: seen });
     failed.current = next.failed;
     if (next.again) setAgain((n) => n + 1);
-  }, [error, online, seen]);
+  }, [failures, online, seen]);
 
   const loadOlder = useCallback(() => {
-    if (loading.current || before == null) return;
+    if (loading.current || before == null || !current) return;
     loading.current = true;
     const read = reading.current;
     const el = scroller.current;
@@ -747,7 +760,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
       })
       .catch(() => (seeking.current = null))
       .finally(() => read === reading.current && (loading.current = false));
-  }, [s.key, before, pageAt, placeBefore]);
+  }, [s.key, before, current, pageAt, placeBefore]);
 
   /** Lays out pages read back from where the ones shown begin, nearest first, in one go: the way
    *  back to what ⌘F found. Not while a page is on its way in, which would come in twice. */
@@ -764,11 +777,12 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     [placeBefore],
   );
 
-  // As the session goes on: what's new since the last read. OpenCode rereads a message still
-  // streaming, so an item already here is replaced by its place.
+  // As the session goes on: what's new since the last read, and once a read lands, what came while
+  // it was on its way. OpenCode rereads a message still streaming, so an item already here is
+  // replaced by its place.
   useEffect(() => {
     const read = reading.current;
-    if (!loaded || error || landed.current !== read) return;
+    if (!loaded || error || !current) return;
     let live = true;
     const notice = `conversation:${s.key}`;
     sessionNewer(s.key, after.current)
@@ -788,7 +802,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     return () => {
       live = false;
     };
-  }, [s.lastActivity, s.status, s.title, loaded, error, s.key, askStream, follows]);
+  }, [s.lastActivity, s.status, s.title, loaded, error, current, s.key, askStream, follows]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -1040,7 +1054,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, machine, onLo
     <RunContext.Provider value={run ?? null}>
       <FollowUpContext.Provider value={answeredBelow ? followUp : null}>
         <ImagesFrom.Provider value={shortOf(s.key)}>
-          <ThreadFind host={{ key: s.key, scroller, roots: FIND_IN, ready: loaded, read: reading.current, before, pageAt, show }} asked={find}>
+          <ThreadFind host={{ key: s.key, scroller, roots: FIND_IN, ready: loaded && current, read: reading.current, before, pageAt, show }} asked={find}>
             <div className="ca-thread" ref={scroller} onScroll={onScroll}>
               {/* Takes no room: it floats over the top of the view while it has a prompt to show. */}
               <div className="ca-thread-pin">
