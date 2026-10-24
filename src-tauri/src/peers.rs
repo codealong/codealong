@@ -368,9 +368,6 @@ struct Conn {
     kind: Option<String>,
     /// The sessions here whose replies it asked for as they're written (`api::SESSION_WATCH`).
     watching: HashSet<String>,
-    /// The sessions here whose side conversations it has asked about (`follows_sides`), which it's
-    /// sent as they change (`Msg::Side`), when it knows them.
-    sides: HashSet<String>,
     /// It said whether it has this device linked (`Standing`). Its first feed waits for that: a
     /// device that picks up where its copy left off says so (`Have`) just before.
     heard: bool,
@@ -428,9 +425,14 @@ struct State {
     /// watching them; sent at most every `STREAM_EVERY`.
     streams: HashMap<String, codealong_peer::api::Stream>,
     streamed_at: Option<Instant>,
-    /// Side conversations as they changed, for connections that asked about their sessions: sent
-    /// with the streams, the latest of each (`side_queued`).
+    /// Side conversations as they changed, for devices that asked about their sessions: sent with
+    /// the streams, the latest of each (`side_queued`).
     sides: Vec<Side>,
+    /// The sessions here whose side conversations each device has asked about (`follows_sides`),
+    /// by its key: sent to it as they change (`Msg::Side`), when it knows them, over whichever
+    /// connection it has. Kept across its connections, so an answer it asked for goes on reaching
+    /// it after it comes back.
+    sides_asked: HashMap<String, HashSet<String>>,
 }
 
 struct Inner {
@@ -581,7 +583,7 @@ impl Peers {
     /// its session. Sent with the streams, at most every `STREAM_EVERY`.
     pub fn side(&self, side: &Side) {
         let mut st = self.0.lock();
-        if !st.conns.values().any(|c| c.sides.contains(&side.key)) {
+        if !st.sides_asked.values().any(|keys| keys.contains(&side.key)) {
             return;
         }
         side_queued(&mut st.sides, side.clone());
@@ -892,6 +894,7 @@ impl Inner {
     fn forget(&self, st: &mut State, key: &str) -> std::result::Result<(), String> {
         self.change_linked(st, |linked| linked.retain(|l| l.key != key))?;
         st.replicas.remove(key);
+        st.sides_asked.remove(key);
         st.cache_dirty = true;
         st.view_dirty = true;
         Ok(())
@@ -919,8 +922,8 @@ impl Inner {
         // Before it's answered, so the question it asks and the answer as it's written reach it.
         if follows_sides(method) && !key.is_empty() {
             let mut st = self.lock();
-            if let Some(c) = st.conns.get_mut(from).filter(|c| c.knows.iter().any(|k| k == peerproto::SIDES)) {
-                c.sides.insert(key.clone());
+            if st.conns.get(from).is_some_and(|c| c.knows.iter().any(|k| k == peerproto::SIDES)) {
+                st.sides_asked.entry(from.to_string()).or_default().insert(key.clone());
             }
         }
         let started = std::time::Instant::now();
@@ -1122,7 +1125,8 @@ fn feed_loop(inner: Arc<Inner>) {
                 for s in streams.iter().filter(|s| conn.watching.contains(&s.key)) {
                     let _ = conn.tx.send(Msg::Stream(s.clone()));
                 }
-                for s in sides.iter().filter(|s| conn.sides.contains(&s.key)) {
+                let Some(asked) = st.sides_asked.get(key).filter(|_| conn.knows.iter().any(|k| k == peerproto::SIDES)) else { continue };
+                for s in sides.iter().filter(|s| asked.contains(&s.key)) {
                     let _ = conn.tx.send(Msg::Side(s.clone()));
                 }
             }
@@ -1301,7 +1305,7 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         }
         // A device that knows how gets only what changed since its copy of this one's last feed.
         let resume = (linked && knows.iter().any(|k| k == peerproto::HAVE)).then(|| st.replicas.get(&hex).map(|c| c.replica.have())).flatten().filter(|h| !h.is_empty());
-        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), sides: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::for_device(&knows), knows, fed_board: 0, fed_at: None });
+        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::for_device(&knows), knows, fed_board: 0, fed_at: None });
         st.view_dirty = true;
         if let Some(lanes) = resume {
             let _ = tx.send(Msg::Have { lanes });
@@ -2111,6 +2115,13 @@ mod tests {
         assert!(got.iter().all(|s| s.key == format!("@{b_short}:claude:claude:s2")), "{got:?}");
         assert!(!got.iter().any(|s| s.turns[0].answer == "Not yet"), "{got:?}");
         assert_eq!(got.last().unwrap().turns[0].answer, "Because it is.");
+        // Connected again, the Book still gets what it asked about, without asking again.
+        let serial = |d: &Device| d.peers.0.lock().conns.values().next().map(|c| c.serial);
+        let before = serial(&b);
+        join(&a, &b);
+        until("the new connection", || serial(&b) != before && serial(&b).is_some());
+        b.peers.side(&Side { turns: vec![SideTurn { question: "And now?".into(), answer: "Still.".into(), ..Default::default() }], ..side("") });
+        until("what it said since", || a.sides.lock().unwrap().iter().any(|s| s.turns[0].answer == "Still."));
         for m in [&a, &b] {
             let _ = std::fs::remove_dir_all(&m.dir);
         }

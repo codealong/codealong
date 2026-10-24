@@ -2,8 +2,11 @@
 // SideStrip.tsx): typing `/` lists /side and the session's skills, asked of its own machine by the
 // key that names it there (`session_skills`), and a skill goes as its agent takes it;
 // `/side <question>` asks a copy there by that key, sends the session nothing, and its answer
-// shows above the box as that machine tells of it; Close closes it there; Delete on a kept one forgets
-// it there.
+// shows above the box as that machine tells of it, with no Pop out (a window of its own finds its
+// session on this machine's board); shown again, it's read again, as that machine may have gone on
+// with nothing told of it here; a Close that machine didn't hear leaves it open, above the box with
+// why, and what it says after still shows; Close closes it there; Delete on a kept one forgets it
+// there.
 //   PREVIEW_WAIT=60000 PREVIEW_DEVICES=scripts/preview/devices-sample.json PREVIEW_SKILLS=scripts/preview/skills-sample.json scripts/preview.sh sessions '' scripts/preview/remote-side-check.js
 (function () {
   // This runs before the app's script: a Claude Code or Codex session on the Mac mini, idle and
@@ -13,8 +16,14 @@
   localStorage.removeItem('codealong.sessionPanelMax');
   window.__past = [];
   var picked = null;
+  var failClose = false;
   var real = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = function (cmd, args, options) {
+    if (cmd === 'side_close' && failClose) {
+      failClose = false;
+      window.__calls.push([cmd, args, options]);
+      return Promise.reject('Mac mini didn’t answer in time.');
+    }
     var p = real(cmd, args, options);
     if (cmd !== 'devices') return p;
     return p.then(function (view) {
@@ -80,10 +89,32 @@
       window.__emit('side', side);
       await until(function () { return turns().length === 1 && turns()[0].indexOf('Because sends must keep their order.') > 0; }, 3000, 'the answer didn’t show: ' + turns().join(' / '));
       check('its answer shows above the box', true);
+      check('with no Pop out', !headButton('Pop out') && !!headButton('Close'), all('.ca-sidestrip-head button').map(function (b) { return b.getAttribute('aria-label'); }).join(' '));
+
+      // It goes on there while nothing reaches this machine; shown again, it's read again.
+      window.__sides[key] = Object.assign({}, side, { turns: side.turns.concat([{ question: 'and without one?', answer: 'Then they race.', done: true, at: Date.now() }]) });
+      var other = all('[id^="row-"]').filter(function (r) { return r !== row(); })[0];
+      other.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      await until(function () { return title() !== 'Far A'; }, 3000, 'another session’s panel');
+      row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      await until(function () { return turns().length === 2 && turns()[1].indexOf('Then they race.') > 0; }, 3000, 'not read again: ' + turns().join(' / '));
+      check('shown again, it’s as that machine has it now', true);
+      side = window.__sides[key];
+
+      // A Close that machine didn't hear.
+      failClose = true;
+      headButton('Close').click();
+      await until(function () { return calls('side_close').length === 1 && !!strip() && !!q('.ca-sidestrip-error', strip()); }, 5000, 'not back after a Close that failed');
+      check('a Close that machine didn’t hear leaves it above the box, with why', q('.ca-sidestrip-error', strip()).textContent === 'Mac mini didn’t answer in time.' && turns().length === 2, q('.ca-sidestrip-error', strip()).textContent);
+      side = Object.assign({}, side, { turns: side.turns.concat([{ question: 'and now?', answer: 'Still here.', done: true, at: Date.now() }]) });
+      window.__sides[key] = side;
+      window.__emit('side', side);
+      await until(function () { return turns().length === 3; }, 3000, 'what it said after didn’t show: ' + turns().join(' / '));
+      check('and what it says after still shows', turns()[2].indexOf('Still here.') > 0, turns().join(' / '));
 
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000, 'Close left it');
-      check('Close closes it on its machine', calls('side_close').length === 1 && calls('side_close')[0][1].key === key, JSON.stringify(calls('side_close').map(function (c) { return c[1]; })));
+      check('Close closes it on its machine', calls('side_close').length === 2 && calls('side_close')[1][1].key === key && !q('.ca-sidestrip-error'), JSON.stringify(calls('side_close').map(function (c) { return c[1]; })));
 
       type(box(), '/side');
       await wait(50);

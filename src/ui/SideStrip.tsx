@@ -21,6 +21,7 @@
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { prSideClose, sideClose, sideWindow } from '../api';
+import { shortOf } from '../devices';
 import { agoPhrase } from '../format';
 import { errorText } from '../report';
 import { endSide, forgetSide, keptLine, showSides, takesBox, turnState, useClosing, useKept, usePopped, useSide, useSideView } from '../side';
@@ -211,7 +212,9 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
 
   const now = Date.now();
   const many = (n: number, one: string) => (n === 1 ? `1 ${one}` : `${n} ${one}s`);
-  const pop = words.window;
+  // A window of its own finds its session on this machine's board (Peek.tsx), so another
+  // machine's stays above the box.
+  const pop = shortOf(key) ? undefined : words.window;
   /** Out into a window of its own, or back above the box from one. */
   const place = inWindow ? (
     <Act icon="picture-in-picture-off" label="Put back" title="Put back above the session’s box: this window closes, and the conversation goes on there" onClick={inWindow.putBack} />
@@ -335,7 +338,19 @@ export function SideStrip({ sideKey: key, words, inWindow }: { sideKey: string; 
     <Head title={words.title} {...about(side.ended ? words.ended : words.open)}>
       {earlierAct}
       {place}
-      <Act icon="x" label="Close" title={inWindow ? `${words.closeTitle} The window closes too.` : words.closeTitle} onClick={inWindow ? inWindow.close : () => endSide(key, words.close)} />
+      <Act
+        icon="x"
+        label="Close"
+        title={inWindow ? `${words.closeTitle} The window closes too.` : words.closeTitle}
+        onClick={
+          inWindow
+            ? inWindow.close
+            : () => {
+                setFailed(null);
+                endSide(key, words.close, setFailed);
+              }
+        }
+      />
     </Head>,
     <Turns turns={side.turns} current={side.turns.findIndex((t) => !t.done)} />,
     true,

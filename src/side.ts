@@ -19,6 +19,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { onSide, onSideWindows, sideForget, sideGet, sidePast, sideWindow, sideWindows } from './api';
+import { errorText } from './report';
 import { readStored, writeStored, type Codec } from './stored';
 import type { Side, SideGlance, SideKept, SideTurn } from './types';
 
@@ -82,9 +83,14 @@ export function usePopped(key: string): boolean {
 /** How many of its turns have ended: each is kept as it does. */
 const ended = (side: Side | undefined) => (side ? side.turns.filter((t) => t.done).length : 0);
 
+/** How often each session's side conversation has been told of here, so a read that answers
+ *  after it was told of again is dropped (`readSide`). */
+const toldOf = new Map<string, number>();
+
 /** Takes what the engine says of a side conversation: one with no turns has ended. What's kept
  *  of it changed if a turn ended or it closed, so that's read again. */
 export function noteSide(side: Side): void {
+  toldOf.set(side.key, (toldOf.get(side.key) ?? 0) + 1);
   if (side.closed) return noteClosing(side);
   if (side.turns.length > 0 && closedIds.has(side.id)) return;
   const before = sides.get(side.key);
@@ -257,15 +263,20 @@ export function useKept(key: string): SideKept[] {
 
 /** Closes a side conversation: it's gone from every box at once, and the engine told (`close`, a
  *  session's or a PR's), whose copy answers what it was asked before it ends, read meanwhile as
- *  the kept ones are (`useClosing`). What was said is kept. */
-export function endSide(key: string, close: (key: string) => Promise<void>): void {
+ *  the kept ones are (`useClosing`). What was said is kept. Closing one here can't fail
+ *  (side.rs); one on another machine that didn't hear it is still open there, so it's back above
+ *  the box as that machine has it, and `failed` hears why. */
+export function endSide(key: string, close: (key: string) => Promise<void>, failed?: (why: string) => void): void {
   const side = sides.get(key);
   if (!side) return;
   closedIds.add(side.id);
   noteSide({ id: side.id, key, turns: [], running: false, ended: true });
-  // It's let go either way. Closing one here can't fail (side.rs); only another device that
-  // doesn't answer can, and its copy goes on there whatever this window says.
-  void close(key).catch(() => {});
+  close(key).catch((e: unknown) => {
+    closedIds.delete(side.id);
+    noteSide(side);
+    readSide(key);
+    failed?.(errorText(e));
+  });
 }
 
 /** Forgets a kept side conversation, or stops one closed and still answering: it's off the list
@@ -300,21 +311,29 @@ function subscribe(hear: () => void): () => void {
   };
 }
 
-/** A session's side conversation, as it's asked and answered; null when it has none. */
+/** Reads a session's side conversation again, as the engine has it now, unless it's told of it
+ *  meanwhile, which is newer. One on another machine may have gone on, or closed, while the two
+ *  weren't connected, with nothing told of it here. */
+function readSide(key: string): void {
+  const before = toldOf.get(key) ?? 0;
+  sideGet(key).then(
+    (side) => {
+      if ((toldOf.get(key) ?? 0) !== before) return;
+      const had = sides.get(key);
+      if (side) noteSide(side);
+      else if (had) noteSide({ id: had.id, key, turns: [], running: false, ended: true });
+    },
+    // Unread, it shows as it was told of.
+    () => {},
+  );
+}
+
+/** A session's side conversation, as it's asked and answered; null when it has none. Read as a
+ *  window shows the session: one begun before, or one gone on elsewhere. */
 export function useSide(key: string): Side | null {
   useEffect(() => {
     listen();
-    // One begun before this window showed the session. What's been heard since is newer.
-    let live = true;
-    sideGet(key).then(
-      (side) => {
-        if (live && side && !sides.has(key)) noteSide(side);
-      },
-      () => {},
-    );
-    return () => {
-      live = false;
-    };
+    readSide(key);
   }, [key]);
   return useSyncExternalStore(subscribe, () => sides.get(key) ?? null);
 }
