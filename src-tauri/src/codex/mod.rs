@@ -43,6 +43,7 @@ use terminals::{codex_cli, held_rollouts, TERMINAL_UI, latest_day, pair_terminal
 pub use conversation::{conversation_items, with_images_before};
 #[cfg(test)]
 pub use rollout::PendingCall;
+pub use rollout::picked_modes;
 pub use rollout::ThreadInfo;
 
 /// The Codex app's bundle ID. The ChatGPT chat app has the same name, so the app is known by this.
@@ -260,6 +261,23 @@ impl crate::harness::Adapter for Codex {
             (crate::model::Surface::Cli, None) => false,
             _ => ctx.account.home_path().join("ipc/ipc.sock").exists(),
         }
+    }
+
+    /// Its terminal UI lists the permissions under `/permissions`, numbered, and a number picks
+    /// one at once, with no question after (0.162.1 in tmux, 2026-10-24): Approve for me is 2
+    /// where it's listed (`rollout::PICKED`). Only a terminal's thread: the app's are switched
+    /// in its window.
+    fn mode_picker(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::ModePicker> {
+        let offered = approve_for_me_offered(&ctx.account.home_path());
+        let listed = rollout::PICKED.iter().map(|(id, ..)| *id).filter(|id| offered || *id != rollout::APPROVE_FOR_ME).collect();
+        (s.surface == crate::model::Surface::Cli).then_some(crate::harness::ModePicker { command: "/permissions", listed })
+    }
+
+    /// A pick is written to the rollout as it takes (`thread_settings_applied`), so a switch
+    /// sees it there within moments.
+    fn mode_said(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<Box<dyn FnMut() -> Option<String>>> {
+        let path = record(self, ctx, s).ok()?;
+        Some(Box::new(move || rollout::mode_at_end(&path, MODE_TAIL)))
     }
 
     /// Only the app keeps a queue a thread's session lists (queue.rs); its Steer, through the
@@ -922,6 +940,21 @@ fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> an
     a.records(ctx.account, s).into_iter().next().ok_or_else(|| anyhow::anyhow!("Its rollout isn't on this Mac any more."))
 }
 
+/// How far back from a rollout's end a switch looks for the mode it's in: `turn_context` lines
+/// were 4 to 7 KB here (2026-10-24), and a pick's line is written at the end, but a long turn's
+/// output can put the last one further back than this.
+const MODE_TAIL: u64 = 256 * 1024;
+
+/// Whether `/permissions` lists Approve for me: its feature (`guardian_approval`) is on unless
+/// the account's config.toml turns it off.
+fn approve_for_me_offered(codex_home: &Path) -> bool {
+    std::fs::read_to_string(codex_home.join("config.toml"))
+        .ok()
+        .and_then(|s| toml::from_str::<toml::Table>(&s).ok())
+        .and_then(|t| t.get("features")?.get("guardian_approval")?.as_bool())
+        .unwrap_or(true)
+}
+
 /// The model and level a thread's next turn runs on, as its rollout says now (`ipc::InApp`'s
 /// switch): the board's copy can be a switch behind, read before the last one was written.
 fn settings_now(account: &AccountCfg, s: &Session) -> (Option<String>, Option<String>) {
@@ -947,6 +980,22 @@ fn walk_files(dir: &Path, depth: usize, visit: &mut dyn FnMut(&Path)) {
 mod tests {
     use super::*;
     use crate::codex::terminals::terminal_args;
+
+    /// `/permissions` numbers what it lists, so a switch presses a mode's place there: Approve
+    /// for me is left out where config.toml turns its feature off, and an app's thread has none.
+    #[test]
+    fn a_terminals_modes_are_numbered_as_permissions_lists_them() {
+        use crate::harness::Adapter;
+        let home = crate::fixtures::scratch("codex-picker");
+        let account: AccountCfg = serde_json::from_value(serde_json::json!({ "name": "codex", "harness": "codex", "home": home.to_string_lossy() })).unwrap();
+        let ctx = crate::harness::Ctx { account: &account };
+        let s = Session { surface: crate::model::Surface::Cli, ..Session::new(Harness::Codex, "codex", "t1") };
+        let listed = |s: &Session| Codex.mode_picker(&ctx, s).map(|p| (p.command, p.listed));
+        assert_eq!(listed(&s), Some(("/permissions", vec!["ask-for-approval", "approve-for-me", "full-access", "read-only"])));
+        std::fs::write(home.join("config.toml"), "[features]\nguardian_approval = false\n").unwrap();
+        assert_eq!(listed(&s).map(|(_, l)| l), Some(vec!["ask-for-approval", "full-access", "read-only"]));
+        assert_eq!(listed(&Session { surface: crate::model::Surface::App, ..s }), None);
+    }
 
     #[test]
     fn an_open_turn_no_process_holds_is_let_go_unless_its_rollout_grew_or_ps_failed() {

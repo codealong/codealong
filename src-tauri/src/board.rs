@@ -523,6 +523,9 @@ pub fn codex_session(account: &AccountCfg, th: &ThreadInfo, name: Option<&str>, 
         model: th.model.clone(),
         effort: th.effort.clone(),
         mode: th.mode.clone(),
+        // What its terminal UI's `/permissions` lists, which Codealong picks from there
+        // (cycle.rs); `cycle::overlay` keeps them where that tab takes keys.
+        modes: if terminal.is_some() { crate::codex::picked_modes() } else { Vec::new() },
         context: th.context.map(|(used, window)| ContextUse { used, window: window.or_else(|| th.model.as_deref().and_then(crate::prices::context_window)) }),
         cut_off,
         // `codex resume` goes on in the same rollout, which still says `exec`: someone is at it

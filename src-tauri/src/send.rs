@@ -1638,9 +1638,9 @@ mod tests {
         let manual = crate::claude::session_mode("default").unwrap().with_id("default");
         let hosted = Session { hosted: true, modes: vec![manual.clone()], ..terminal.clone() };
         assert_eq!(refused(hosted, "auto"), "\"auto\" isn't a mode “Fix the build”'s agent offers.");
-        // In a terminal, Shift+Tab there would go to what it waits on.
+        // In a terminal, a key pressed there would go to what it waits on.
         let waiting = Session { status: Status::Needs, modes: vec![manual], ..terminal };
-        assert_eq!(refused(waiting, "default"), "“Fix the build” is waiting on you, and Shift+Tab in its terminal would go to what it asks: answer it first.");
+        assert_eq!(refused(waiting, "default"), "“Fix the build” is waiting on you, and what Codealong pressed in its terminal would go to what it asks: answer it first.");
     }
 
     #[test]

@@ -5,7 +5,9 @@
 //! keys. Antigravity writes each switch to its log as it takes it, so a switch watches it there
 //! (`Adapter::mode_said`). Claude Code writes the mode only with the next prompt, so the mode a
 //! press leads to is the next in its order, held as expected (`SessionMode::expected`) until its
-//! record says.
+//! record says. Codex's terminal UI numbers its modes under `/permissions` instead
+//! (`Adapter::mode_picker`), so the command is typed there and the mode's number pressed
+//! (`pick`).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -26,6 +28,10 @@ const TAKEN_WAIT: Duration = Duration::from_secs(3);
 const LOOK_EVERY: Duration = Duration::from_millis(50);
 /// Between presses nothing confirms, as `antigravity.rs` presses its keys.
 const PRESS_GAP: Duration = Duration::from_millis(100);
+/// From the command that opens a list of modes to the number that picks one: Codex's first
+/// `/permissions` in a session asks for the list before showing it, and a number pressed while
+/// it says "Loading permission profiles…" picks nothing (0.162.1 showed it within 1.5 s).
+const LIST_WAIT: Duration = Duration::from_millis(1200);
 
 /// A mode Codealong pressed a session to, which its harness hasn't written yet.
 #[derive(Debug, Clone, PartialEq)]
@@ -99,16 +105,21 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
     let title = quoted(&s.title);
     let pid = s.pid.filter(|_| s.live).ok_or_else(|| anyhow!("{title} isn't running any more."))?;
     if crate::send::waits_on_you(s) {
-        bail!("{title} is waiting on you, and Shift+Tab in its terminal would go to what it asks: answer it first.");
+        bail!("{title} is waiting on you, and what Codealong pressed in its terminal would go to what it asks: answer it first.");
     }
     let Some(host) = launch::terminal_host(pid, Path::new(&s.cwd))? else {
         bail!("{title} isn't in a terminal Codealong can press keys in ({}): switch its mode there.", launch::presses_keys_in());
     };
+    let adapter = crate::harness::adapter(s.harness);
+    let ctx = Ctx { account };
+    if let Some(picker) = adapter.mode_picker(&ctx, s) {
+        return pick(&ctx, s, to, &picker, &host);
+    }
     let named = |id: &str| s.modes.iter().find(|m| m.id == id).map_or_else(|| id.to_string(), |m| m.label.clone());
     let press = || launch::press_key(&host, Key::BackTab);
     let _one = one_switch();
     // Its harness says each switch: pressed until it's there, or round once.
-    if let Some(mut said) = crate::harness::adapter(s.harness).mode_said(&Ctx { account }, s) {
+    if let Some(mut said) = adapter.mode_said(&ctx, s) {
         let mut now = said().ok_or_else(|| anyhow!("Codealong can't tell which mode {title} is in now: switch it in its terminal."))?;
         for _ in 0..s.modes.len() {
             if now == to.id {
@@ -137,6 +148,57 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
     let times = if presses == 1 { String::new() } else { format!(" {presses} times") };
     let message = format!("{title} should be in {} mode now: Codealong pressed Shift+Tab in its terminal{times}, and {} says which mode it's in only with your next message.", to.label, s.harness.word());
     Ok(ModeSwitched { message, mode: to.id.clone() })
+}
+
+/// Switches a session whose terminal UI numbers its modes under a command (Codex's
+/// `/permissions`): the command typed as keys, as you'd type it, then the mode's number once the
+/// list is up, and the harness's own record watched for the mode to be taken
+/// (`Adapter::mode_said`). Not while a call of its turn has no result yet: Codex asks its
+/// approvals in a list that takes letters for its choices (`p` allows the command from then on),
+/// so what's typed would answer one up that the board doesn't show yet. What's already in its
+/// box goes ahead of the command, as a typed prompt goes after it: Codealong can't see it, and
+/// Ctrl+C, which would clear it, stops a running turn when the box is empty.
+fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, picker: &crate::harness::ModePicker, host: &launch::TerminalHost) -> Result<ModeSwitched> {
+    let title = quoted(&s.title);
+    let harness = s.harness.word();
+    let Some(number) = picker.listed.iter().position(|id| *id == to.id) else {
+        bail!("{harness}'s {} doesn't list {} for {title}.", picker.command, to.label);
+    };
+    let adapter = crate::harness::adapter(s.harness);
+    if !adapter.open_calls(ctx, s).is_empty() {
+        bail!("{title} is in the middle of a step that {harness} may be asking you about in its terminal: switch its mode once the step is done.");
+    }
+    let _one = one_switch();
+    let mut said = adapter.mode_said(ctx, s);
+    if said.as_mut().and_then(|said| said()).as_deref() == Some(to.id.as_str()) {
+        return Ok(ModeSwitched { message: format!("{title} is in {} mode already.", to.label), mode: to.id.clone() });
+    }
+    launch::press_key(host, Key::Keys(picker.command))?;
+    std::thread::sleep(PRESS_GAP);
+    launch::press_key(host, Key::Return)?;
+    std::thread::sleep(LIST_WAIT);
+    let digit = u8::try_from(number + 1).unwrap_or(9);
+    launch::press_key(host, Key::Digit(digit))?;
+    let typed = format!("Codealong typed {} in its terminal and picked {digit}, {}", picker.command, to.label);
+    match said.as_mut().map(|said| reached(said, &to.id)) {
+        Some(true) => Ok(ModeSwitched { message: format!("{title} is in {} mode now.", to.label), mode: to.id.clone() }),
+        Some(false) => bail!("{typed}, and {harness} hasn't said it took it: look in its terminal."),
+        None => Ok(ModeSwitched { message: format!("{typed}."), mode: to.id.clone() }),
+    }
+}
+
+/// Whether `said` says `id` within `TAKEN_WAIT`.
+fn reached(said: &mut dyn FnMut() -> Option<String>, id: &str) -> bool {
+    let until = Instant::now() + TAKEN_WAIT;
+    loop {
+        if said().as_deref() == Some(id) {
+            return true;
+        }
+        if Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(LOOK_EVERY);
+    }
 }
 
 /// The mode a session is in as far as Codealong knows, for presses to count from: the one it was

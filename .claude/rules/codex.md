@@ -46,11 +46,18 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
   terminal runs, and Open in Codex waits for it to end (`codex/mod.rs` `targets`). `codex app
   [PATH]` opens only a folder in the app; the CLI has nothing like Claude Code's Remote Control.
 - The permissions a turn ran with, as Codex's own status line names them (0.157.1's tui
-  `permissions_display`, `approval_mode_display`): `codex/rollout.rs` (`turn_mode`). A
-  `turn_context` also has `permission_profile` and `file_system_sandbox_policy`; `approvals_reviewer`
-  is `auto_review` where config.toml says `guardian_subagent`. Its `effort` is the turn's
-  reasoning effort (`xhigh`; `collaboration_mode.settings.reasoning_effort` repeats it), which a
-  session shows after its model (`codex/rollout.rs` `apply_event`).
+  `permissions_display`, `approval_mode_display`): `codex/rollout.rs` (`turn_mode`). Switching a
+  terminal UI's with its `/permissions` list, and the `thread_settings_applied` line a pick writes
+  at once (`active_permission_profile.id` `:workspace`, `:read-only` or `:danger-full-access` in
+  place of a sandbox): `codex/rollout.rs` (`settings_mode`, `PICKED`, `mode_at_end`),
+  `codex/mod.rs` (`mode_picker`), `cycle.rs` (`pick`). Not there (0.162.1, in tmux, 2026-10-24):
+  config.toml's own profiles are listed after the four; `/permissions` is taken mid-turn too;
+  Shift+Tab steps the collaboration mode (Plan), not the permissions; the keymap's
+  `chat.next_permission_mode` and `previous_permission_mode` have no keys unless you give them
+  some. A `turn_context` also has `permission_profile` and `file_system_sandbox_policy`;
+  `approvals_reviewer` is `auto_review` where config.toml says `guardian_subagent`. Its `effort`
+  is the turn's reasoning effort (`xhigh`; `collaboration_mode.settings.reasoning_effort` repeats
+  it), which a session shows after its model (`codex/rollout.rs` `apply_event`).
 - Approvals aren't recorded anywhere on disk: not in the rollout, `logs_2.sqlite` or the app's
   logs. A call left without its output past its tool's limit is taken as Needs you:
   `codex/rollout.rs` (`ThreadInfo::pending_calls`, `call_limit_ms`), `board.rs`
@@ -248,15 +255,24 @@ checked on this Mac, most of them by reading the apps' own bundles and files. Pa
 - The CLI (Homebrew cask `codex`, `/opt/homebrew/bin/codex`) runs its TUI against a shared
   app-server daemon it spawns, `~/.codex/packages/app-server-daemon/releases/<version>/bin/codex
   app-server --listen unix:// --managed-daemon`, beside a `codex app-server daemon
-  pid-update-loop` (seen running 0.160.1, 2026-10-05). The daemon, not the TUI, holds the
-  rollout open, so a TUI's thread isn't in its open files, and a thread made through it says
-  `source` "vscode". The app-server's `thread/fork {threadId, cwd, …}` copies a thread as `codex
-  fork` does. Escape in the TUI stops a running turn ("Conversation interrupted",
-  `turn_aborted`) and leaves its background terminals running. In code: telling TUIs from
-  Codex's other processes and pairing them with threads, `codex/terminals.rs` (`terminals`,
-  `terminal_args`, `pair_terminals`); `originator`, `codex/rollout.rs` (`parse_meta`); starting,
-  resuming and forking, `codex/mod.rs` (`start_in_terminal`, `resume`, `fork`); Return steering
-  and Tab queueing, `codex/mod.rs` (`steers`); the `@` list in its box, `send.rs` (`boxed`).
+  pid-update-loop` (seen running 0.160.1, 2026-10-05). The daemon, not the TUI, holds the rollout
+  open, so a TUI's thread isn't in its open files, and a thread made through it says `source`
+  "vscode". Any `-c` but a few feature flags, `--profile` and some others keep a TUI off the
+  daemon, in an app-server of its own (0.162.1's `tui/src/daemon_startup.rs` `exclusion`), so
+  every terminal UI Codealong starts, with its `-c check_for_update_on_startup=false`, runs
+  without it. The daemon listens on `<CODEX_HOME>/app-server-control/app-server-control.sock`
+  (JSON-RPC over a WebSocket), sends an approval to every connection subscribed to the thread,
+  replays the ones still waiting to one that `thread/resume`s it, and its `thread/read` says
+  `waitingOnApproval` among a loaded thread's `activeFlags`; the 0.162.1 TUI takes up settings
+  another connection sets (`thread/settings/updated`) and drops an approval another one answered
+  (`serverRequest/resolved`). Read in its code, not tried, and Codealong doesn't connect to it.
+  The app-server's `thread/fork {threadId, cwd, …}` copies a thread as `codex fork` does. Escape
+  in the TUI stops a running turn ("Conversation interrupted", `turn_aborted`) and leaves its
+  background terminals running. In code: telling TUIs from Codex's other processes and pairing
+  them with threads, `codex/terminals.rs` (`terminals`, `terminal_args`, `pair_terminals`);
+  `originator`, `codex/rollout.rs` (`parse_meta`); starting, resuming and forking, `codex/mod.rs`
+  (`start_in_terminal`, `resume`, `fork`); Return steering and Tab queueing, `codex/mod.rs`
+  (`steers`); the `@` list in its box, `send.rs` (`boxed`).
 - Going back to a point in a thread (0.162.1's schema, `codex app-server generate-json-schema`):
   `thread/fork` takes `lastTurnId`, the copy going through that turn (not one in progress), and
   `beforeTurnId`, which the published schema leaves out; `thread/revert {threadId,

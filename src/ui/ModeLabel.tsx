@@ -4,7 +4,8 @@
 // mode by its box (SessionReply.tsx), and in the header's Details for a session with no box;
 // what the mode means is its tooltip. Where the session offers its modes here (`Session.modes`)
 // it's switched here (`ModeMenu`): one Codealong runs through its agent, one in a terminal by
-// Shift+Tab pressed there (cycle.rs). The chip opens them above the box, as Shift+Tab in the box
+// Shift+Tab pressed there, or a pick in Codex's `/permissions` (cycle.rs). The chip opens them
+// above the box, as Shift+Tab in the box
 // steps to the next, as it does in Claude Code's terminal. Any other has its mode changed where
 // it runs, so Codealong only says it. A mode Codealong expects after a press, which the harness
 // writes only with the next prompt (`SessionMode.expected`), is said in italics.

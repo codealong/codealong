@@ -684,11 +684,55 @@ pub(super) fn file_path_of(s: &str) -> String {
 /// 2026-10-13: on-request with auto_review in workspace-write, never in read-only, a few asking
 /// you or with full access); a turn that says none of them says nothing.
 pub fn turn_mode(p: &Value) -> Option<SessionMode> {
+    named_mode(p, p.pointer("/sandbox_policy/type").and_then(Value::as_str))
+}
+
+/// The permissions a thread's next turn runs with, as `thread_settings_applied` says them when
+/// they're set: before each of the app's turns, and as soon as a pick in the terminal UI's
+/// `/permissions` takes (0.162.1, 2026-10-24), well before a turn says it. They name the sandbox
+/// by its permission profile, a built-in one's id starting with `:`. None for settings that name
+/// no profile, which leave the sandbox unsaid.
+fn settings_mode(t: &Value) -> Option<SessionMode> {
+    let sandbox = match t.pointer("/active_permission_profile/id").and_then(Value::as_str)? {
+        ":workspace" => "workspace-write",
+        ":read-only" => "read-only",
+        ":danger-full-access" => "danger-full-access",
+        // One config.toml sets up.
+        _ => "custom",
+    };
+    named_mode(t, Some(sandbox))
+}
+
+/// The permissions Codex's terminal UI lists under `/permissions`, in its order (0.162.1's
+/// `open_permission_profiles_popup`), by the ids Codealong gives them, with the settings each
+/// sets: what a session in a terminal is switched among (`Codex::mode_picker`). Approve for me
+/// is listed only where its feature is on (`features.guardian_approval`, on unless config.toml
+/// turns it off).
+pub const PICKED: [(&str, &str, &str, &str); 4] = [
+    (ASK_FOR_APPROVAL, "workspace-write", "on-request", "user"),
+    (APPROVE_FOR_ME, "workspace-write", "on-request", "auto_review"),
+    ("full-access", "danger-full-access", "never", "user"),
+    ("read-only", "read-only", "on-request", "user"),
+];
+
+pub const ASK_FOR_APPROVAL: &str = "ask-for-approval";
+pub const APPROVE_FOR_ME: &str = "approve-for-me";
+
+/// The modes `/permissions` lists (`PICKED`), each as a session in it shows it.
+pub fn picked_modes() -> Vec<SessionMode> {
+    PICKED
+        .iter()
+        .filter_map(|(_, sandbox, approval, reviewer)| named_mode(&serde_json::json!({ "approval_policy": approval, "approvals_reviewer": reviewer }), Some(sandbox)))
+        .collect()
+}
+
+/// The mode a turn's settings name, by its sandbox and who answers what goes past it, with the
+/// id of `/permissions`' entry for it where it's one of those (`PICKED`).
+fn named_mode(p: &Value, sandbox: Option<&str>) -> Option<SessionMode> {
     let text = |at: &str| p.pointer(at).and_then(Value::as_str);
     if text("/collaboration_mode/mode") == Some("plan") {
         return Some(SessionMode::new(ModeKind::Plan, "Plan", "Plans without changing anything, until you take the plan."));
     }
-    let sandbox = text("/sandbox_policy/type");
     // A policy of its own rules is an object (`{"granular": …}`).
     let approval = p.get("approval_policy").map(|a| a.as_str().unwrap_or("custom"));
     if sandbox.is_none() && approval.is_none() {
@@ -696,18 +740,34 @@ pub fn turn_mode(p: &Value) -> Option<SessionMode> {
     }
     // `guardian_subagent` is its older name, which config.toml still takes.
     let reviewer = matches!(text("/approvals_reviewer"), Some("auto_review" | "guardian_subagent"));
-    let (kind, label, detail) = match (sandbox, approval) {
-        (Some("danger-full-access"), _) => (ModeKind::Skips, "Full Access", "Edits files anywhere and uses the internet without asking."),
-        (Some("read-only"), Some("on-request")) if reviewer => (ModeKind::ReadOnly, "Read Only", "Reads files, and a reviewer agent answers for you when it would edit files or use the internet."),
-        (Some("read-only"), Some("on-request")) => (ModeKind::ReadOnly, "Read Only", "Reads files, and asks before it edits files or uses the internet."),
-        (Some("read-only"), Some("never")) => (ModeKind::ReadOnly, "Read Only", "Reads files, and refuses anything more without asking."),
-        (_, Some("on-request")) if reviewer => (ModeKind::Auto, "Approve for me", "Edits files in its workspace and runs commands there; a reviewer agent answers for you when it would use the internet or edit other files."),
-        (Some("workspace-write"), Some("on-request")) => (ModeKind::Edits, "Ask for approval", "Edits files in its workspace and runs commands there, and asks before it uses the internet or edits other files."),
-        (_, Some("untrusted")) => (ModeKind::Asks, "Untrusted", "Asks before any command it doesn't know to be safe."),
-        (Some("workspace-write"), Some("never")) => (ModeKind::Other, "Never ask", "Edits files in its workspace and runs commands there, and refuses anything more without asking."),
-        _ => (ModeKind::Other, "Custom permissions", "Runs with permissions set up its own way."),
+    let (kind, label, detail, id) = match (sandbox, approval) {
+        (Some("danger-full-access"), _) => (ModeKind::Skips, "Full Access", "Edits files anywhere and uses the internet without asking.", "full-access"),
+        (Some("read-only"), Some("on-request")) if reviewer => (ModeKind::ReadOnly, "Read Only", "Reads files, and a reviewer agent answers for you when it would edit files or use the internet.", "read-only"),
+        (Some("read-only"), Some("on-request")) => (ModeKind::ReadOnly, "Read Only", "Reads files, and asks before it edits files or uses the internet.", "read-only"),
+        (Some("read-only"), Some("never")) => (ModeKind::ReadOnly, "Read Only", "Reads files, and refuses anything more without asking.", ""),
+        (_, Some("on-request")) if reviewer => (ModeKind::Auto, "Approve for me", "Edits files in its workspace and runs commands there; a reviewer agent answers for you when it would use the internet or edit other files.", APPROVE_FOR_ME),
+        (Some("workspace-write"), Some("on-request")) => (ModeKind::Edits, "Ask for approval", "Edits files in its workspace and runs commands there, and asks before it uses the internet or edits other files.", ASK_FOR_APPROVAL),
+        (_, Some("untrusted")) => (ModeKind::Asks, "Untrusted", "Asks before any command it doesn't know to be safe.", ""),
+        (Some("workspace-write"), Some("never")) => (ModeKind::Other, "Never ask", "Edits files in its workspace and runs commands there, and refuses anything more without asking.", ""),
+        _ => (ModeKind::Other, "Custom permissions", "Runs with permissions set up its own way.", ""),
     };
-    Some(SessionMode::new(kind, label, detail))
+    Some(SessionMode::new(kind, label, detail).with_id(id))
+}
+
+/// The id of the mode a thread is in by the end of its rollout (`named_mode`), from its latest
+/// turn or settings that say one, within the last `max` bytes: how a switch sees itself taken
+/// (`Codex::mode_said`). Empty for a mode `/permissions` doesn't list.
+pub fn mode_at_end(path: &Path, max: u64) -> Option<String> {
+    let tail = crate::util::read_last(path, max).ok()?;
+    let text = tail.text();
+    text.lines().rev().filter(|l| l.contains("turn_context") || l.contains("thread_settings_applied")).find_map(|line| {
+        let v: Value = serde_json::from_str(line).ok()?;
+        let mode = match v.get("type").and_then(Value::as_str) {
+            Some("turn_context") => v.get("payload").and_then(turn_mode),
+            _ => event_payload(&v).filter(|p| p.get("type").and_then(Value::as_str) == Some("thread_settings_applied")).and_then(|p| p.get("thread_settings")).and_then(settings_mode),
+        };
+        mode.map(|m| m.id)
+    })
 }
 
 /// Codex persists turn failures as `task_complete.error`; standalone ErrorEvents name the
@@ -785,15 +845,17 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
             info.pending_approval = None;
             info.interrupted_at = ts.filter(|_| payload.get("reason").and_then(Value::as_str) == Some("interrupted"));
         }
-        // The model and level the thread's next turn runs on, written as they're set: by the
-        // app before each turn, and between turns by a pick in its box or a switch from
-        // Codealong (ipc.rs `codex_settings_request`), which no `turn_context` says until then.
+        // The model, level and permissions the thread's next turn runs on, written as they're
+        // set: by the app before each turn, and between turns by a pick in its box or a switch
+        // from Codealong (ipc.rs `codex_settings_request`, the terminal UI's `/permissions`),
+        // which no `turn_context` says until then.
         "thread_settings_applied" => {
             if let Some(t) = payload.get("thread_settings") {
                 if let Some(m) = t.get("model").and_then(Value::as_str).filter(|m| !m.is_empty()) {
                     info.model = Some(m.to_string());
                 }
                 info.effort = t.get("reasoning_effort").and_then(Value::as_str).filter(|e| !e.is_empty()).map(str::to_string);
+                info.mode = settings_mode(t).or(info.mode.take());
             }
         }
         "user_message" => {
@@ -1023,14 +1085,46 @@ mod tests {
         apply_events(&mut info, &[turn("gpt-5.4"), turn("gpt-5.5")].join("\n"));
         assert_eq!(info.model.as_deref(), Some("gpt-5.5"));
         // Settings set between turns, as `thread/settings/update` writes them (0.160.1), are what
-        // its next turn runs on; its permissions are named differently there and are left alone.
-        let mode = info.mode.clone();
+        // its next turn runs on, its permissions named by their profile.
         let settings = r#"{"timestamp":"2026-10-06T10:01:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_id":"t1","thread_settings":{"model":"gpt-6-luna","model_provider_id":"openai","approval_policy":"on-request","approvals_reviewer":"user","active_permission_profile":{"id":":read-only"},"reasoning_effort":"low","collaboration_mode":{"mode":"default","settings":{"model":"gpt-6-luna","reasoning_effort":"low","developer_instructions":null}}}}}"#;
         apply_events(&mut info, settings);
         assert_eq!((info.model.as_deref(), info.effort.as_deref()), (Some("gpt-6-luna"), Some("low")));
-        assert_eq!(info.mode, mode);
+        assert_eq!(info.mode.as_ref().map(|m| (m.label.as_str(), m.id.as_str())), Some(("Read Only", "read-only")));
         apply_events(&mut info, &turn("gpt-6-astra"));
         assert_eq!((info.model.as_deref(), info.effort.as_deref()), (Some("gpt-6-astra"), Some("high")));
+    }
+
+    #[test]
+    fn a_pick_in_permissions_is_the_mode_at_once() {
+        // As 0.162.1's terminal UI wrote a pick of Approve for me, before any turn said it.
+        let picked = |reviewer: &str, profile: &str| format!(r#"{{"timestamp":"2026-10-24T15:51:59.695Z","ordinal":22,"type":"event_msg","payload":{{"type":"thread_settings_applied","thread_id":"t1","thread_settings":{{"model":"gpt-6-luna","approval_policy":"on-request","approvals_reviewer":"{reviewer}","active_permission_profile":{{"id":"{profile}"}},"reasoning_effort":"low","collaboration_mode":{{"mode":"default"}}}}}}}}"#);
+        let context = r#"{"timestamp":"2026-10-24T15:48:46.000Z","type":"turn_context","payload":{"model":"gpt-6-luna","approval_policy":"on-request","approvals_reviewer":"user","sandbox_policy":{"type":"workspace-write","network_access":true}}}"#;
+        let mut info = ThreadInfo::default();
+        apply_events(&mut info, context);
+        assert_eq!(info.mode.as_ref().map(|m| m.id.as_str()), Some(ASK_FOR_APPROVAL));
+        apply_events(&mut info, &picked("auto_review", ":workspace"));
+        assert_eq!(info.mode.as_ref().map(|m| (m.kind, m.label.as_str(), m.id.as_str())), Some((ModeKind::Auto, "Approve for me", APPROVE_FOR_ME)));
+        apply_events(&mut info, &picked("user", ":danger-full-access"));
+        assert_eq!(info.mode.as_ref().map(|m| m.id.as_str()), Some("full-access"));
+        // A profile of the config's own is no entry of `/permissions`.
+        apply_events(&mut info, &picked("user", "locked-down"));
+        assert_eq!(info.mode.as_ref().map(|m| (m.label.as_str(), m.id.as_str())), Some(("Custom permissions", "")));
+
+        // The end of a rollout says the latest of either.
+        let dir = crate::fixtures::scratch("codex-mode-at-end");
+        let path = dir.join("rollout.jsonl");
+        std::fs::write(&path, format!("{context}\n{}\n", picked("auto_review", ":workspace"))).unwrap();
+        assert_eq!(mode_at_end(&path, 1 << 16).as_deref(), Some(APPROVE_FOR_ME));
+        std::fs::write(&path, format!("{}\n{context}\n", picked("auto_review", ":workspace"))).unwrap();
+        assert_eq!(mode_at_end(&path, 1 << 16).as_deref(), Some(ASK_FOR_APPROVAL));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lists_the_permissions_as_codex_does() {
+        let modes = picked_modes();
+        assert_eq!(modes.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), PICKED.iter().map(|(id, ..)| *id).collect::<Vec<_>>());
+        assert_eq!(modes.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(), ["Ask for approval", "Approve for me", "Full Access", "Read Only"]);
     }
 
     #[test]

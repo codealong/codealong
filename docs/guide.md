@@ -612,7 +612,7 @@ that means on hover (and in the header's Details): Claude Code's Manual, Plan, A
 Don't Ask or Bypass (a terminal session's from its transcript, where a switch shows
 from its next prompt; the Claude app's from the app's record); Codex's Read Only, Ask for approval,
 Approve for me (its reviewer agent answers for you) or Full Access, and Plan, from its latest
-turn; OpenCode's agent (Build, Plan or one of yours); Cursor's Ask or Plan, and in its other modes
+turn or, as soon as one is picked in its terminal's `/permissions`, from that pick; OpenCode's agent (Build, Plan or one of yours); Cursor's Ask or Plan, and in its other modes
 its auto-run setting (Run Everything, Auto-review, Allowlist, Ask Every Time), the chat's own or
 the app's; Antigravity's agent mode (Accept edits, Auto or Plan), which its command line's own log
 says while one has the conversation open, and in the default one its tool permission (Request
@@ -635,7 +635,16 @@ Accept edits and Plan, then Bypass where the session started bypassing permissio
 `--allow-dangerously-skip-permissions`), then Auto unless its settings or Anthropic's flag turn
 Auto off, and writes the mode it's in only with your next message: until then the chip says, in
 italics, the mode Codealong expects by that order, which can be wrong if you switched it in the
-terminal too, or where a model doesn't take Auto. Terminal can't press a key alone, so a session
+terminal too, or where a model doesn't take Auto. A Codex session running in Ghostty, iTerm2 or
+tmux has the same menu, of what its terminal's `/permissions` lists (Ask for approval, Approve for
+me, Full Access and Read Only, without Approve for me where config.toml turns its
+`guardian_approval` feature off), and ⇧⇥ in its box steps to the next: Codealong types
+`/permissions` in its tab and presses the number of the mode you picked, and the chip says the
+mode once Codex has written the pick, which it does at once. Not while a step of its turn waits
+for its result, since Codex asks its approvals in a list whose letters are choices (`p` allows the
+command from then on), so the keys could answer one. Codealong can't see Codex's box, so something
+you'd typed there yourself and not sent goes ahead of `/permissions`, and Return sends the two as a
+message. Terminal can't press a key alone, so a session
 there, and any other, has its mode changed where it runs: Codealong only says it. The pie says how full the context window is,
 as its latest call left
 it, counted as its harness counts it for its own meter: Claude Code's input,
