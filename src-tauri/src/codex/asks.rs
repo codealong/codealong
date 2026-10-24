@@ -9,14 +9,19 @@
 //! a call left without its result for minutes (board.rs `codex_unanswered`).
 //!
 //! The notes are files in Codealong's own folder, one a request, written by the hook whether the
-//! app is up or not, and read by the reader as the folder changes. A call Codex's terminal UI
-//! runs as JavaScript (its `exec` tool) can run several commands, one after another or side by
-//! side, each asking on its own, so two notes about one call may both be up, or the first
-//! answered: either way it's more than one (`live`), which only the terminal can tell apart. A
-//! call stays without its result while an allowed command runs, for as long as it takes to come
-//! back (`exec_command`'s yield, ten seconds or so), so a note allowed in the terminal reads as
-//! waiting until then; an answer from Codealong looks for its command running first (codex/mod.rs
-//! `answer`), and one answered there goes at once.
+//! app is up or not, and read by the reader as the folder changes. A note waits while a call of
+//! its turn without a result holds its command whole (`live`); a command a script puts together
+//! from parts is in none, and is left to the guess from a call left without its result. A call
+//! stays without its result while an allowed command runs, for as long as it takes to come back
+//! (`exec_command`'s yield, ten seconds or so), so a note allowed in the terminal reads as waiting
+//! until then.
+//!
+//! Which prompt the terminal shows can't be read, and a call Codex's terminal UI runs as
+//! JavaScript (its `exec` tool) can ask for several commands, one after another or side by side.
+//! So a key is pressed for a note only where it's the one note of its turn (`answerable`), the
+//! others answered from Codealong having gone (`done`): any other may be up, answered in the
+//! terminal or not. An answer from Codealong also looks for the command running first
+//! (codex/mod.rs `answer`), as it is once it was allowed in the terminal.
 
 use std::path::{Path, PathBuf};
 
@@ -176,31 +181,36 @@ pub fn live<'a>(th: &ThreadInfo, notes: &'a [Note]) -> Vec<&'a Note> {
     if !th.turn_open || th.mode.as_ref().is_some_and(|m| m.kind == ModeKind::Auto) {
         return Vec::new();
     }
-    notes.iter().filter(|n| n.thread == th.id && th.turn_id.as_deref() == Some(n.turn.as_str()) && asked_about(&th.pending_calls, n).is_some()).collect()
+    of_turn(th, notes).into_iter().filter(|n| asked_about(&th.pending_calls, n).is_some()).collect()
+}
+
+/// The note a key can be pressed for in its terminal: the one note of its thread's open turn,
+/// and still up. Where there's another, which may be up beside it, or ahead of it in a script,
+/// whether its call can be told or not, none.
+pub fn answerable<'a>(th: &ThreadInfo, notes: &'a [Note]) -> Option<&'a Note> {
+    let [one] = of_turn(th, notes)[..] else { return None };
+    live(th, notes).contains(&one).then_some(one)
+}
+
+fn of_turn<'a>(th: &ThreadInfo, notes: &'a [Note]) -> Vec<&'a Note> {
+    notes.iter().filter(|n| n.thread == th.id && th.turn_id.as_deref() == Some(n.turn.as_str())).collect()
 }
 
 /// A call is written before Codex asks about it, and the hook's time is taken after; this much
 /// later still counts, for the two reading the clock a moment apart.
 const SLACK_MS: i64 = 200;
 
-/// How much of a command or patch is looked for in its call's input, which is kept to its first
-/// 4,000 characters (`PendingCall::input`): enough to tell one from another.
-const MATCHED: usize = 300;
-
 /// The call a note asks about, of those without a result written before it: for a command or a
-/// patch, the one whose input has its start, as it is or escaped as a string (a JavaScript `exec`
+/// patch, the one whose input has it whole, as it is or escaped as a string (a JavaScript `exec`
 /// holds it in a string literal, a `function_call` in its JSON arguments), and none where none
 /// does, as once its call has its result; for a tool's call, which has its arguments only, the
 /// latest. A command a script puts together from parts isn't found, and is left to the guess
 /// from a call left without its result (board.rs `codex_unanswered`).
 fn asked_about<'a>(open: &'a [PendingCall], note: &Note) -> Option<&'a PendingCall> {
     let before = || open.iter().filter(|c| c.at <= note.at + SLACK_MS);
-    let has = |c: &PendingCall, start: &str| c.input.contains(start) || serde_json::to_string(start).is_ok_and(|q| c.input.contains(q.trim_matches('"')));
+    let has = |c: &PendingCall, cmd: &str| c.input.contains(cmd) || serde_json::to_string(cmd).is_ok_and(|q| c.input.contains(q.trim_matches('"')));
     match note.command() {
-        Some(cmd) => {
-            let start: String = cmd.chars().take(MATCHED).collect();
-            before().find(|c| has(c, &start))
-        }
+        Some(cmd) => before().find(|c| has(c, cmd)),
         None => before().max_by_key(|c| c.at),
     }
 }
@@ -294,11 +304,34 @@ mod tests {
         let script = r#"await Promise.all([tools.exec_command({cmd:"touch ~/.northwind-probe"}), tools.exec_command({cmd:"rm ~/.northwind-probe"})]);"#;
         let one = open_turn(vec![call("c6", 9_500, script)]);
         assert_eq!(live(&one, &[n.clone(), later.clone()]), vec![&n, &later]);
-        // A patch longer than what's kept of its call is found by its start.
+        // A long patch is found whole.
         let patch = format!("*** Begin Patch\n*** Add File: notes.md\n{}*** End Patch", "+north wind\n".repeat(600));
         let edit = Note { tool: "apply_patch".into(), input: json!({ "command": patch }), ..n.clone() };
-        let kept: String = patch.chars().take(4000).collect();
-        assert_eq!(waiting(&open_turn(vec![call("c7", 9_500, &kept)]), &[edit.clone()]), Some(&edit));
+        assert_eq!(waiting(&open_turn(vec![call("c7", 9_500, &patch)]), &[edit.clone()]), Some(&edit));
+        // One answered whose call has its result isn't taken for another call that starts the same.
+        let preamble = "cd ~/projects/northwind && export NODE_ENV=test && ".repeat(8);
+        let first = Note { input: json!({ "command": format!("{preamble}npm run a") }), ..n.clone() };
+        let other = open_turn(vec![call("c8", 9_500, &format!("{preamble}npm run b"))]);
+        assert_eq!(waiting(&other, &[first]), None);
+    }
+
+    /// A key is pressed only for the one note of its turn: where another may be up, or ahead of
+    /// it in a script, the terminal answers.
+    #[test]
+    fn a_key_is_pressed_only_for_a_turns_one_note() {
+        let n = from_hook(&hooked(), 10_000).unwrap();
+        let js = r#"const r = await tools.exec_command({cmd:"touch ~/.northwind-probe"});"#;
+        let one = open_turn(vec![call("c1", 9_500, js)]);
+        assert_eq!(answerable(&one, std::slice::from_ref(&n)), Some(&n));
+        // A script putting one command together and asking for another beside it: the first's
+        // note is in no call, and may be the one up.
+        let computed = Note { at: 9_900, input: json!({ "command": "touch /tmp/atlas-a" }), ..n.clone() };
+        let both = open_turn(vec![call("c2", 9_500, r#"await Promise.all([tools.exec_command({cmd:["touch", "/tmp/atlas-a"].join(" ")}), tools.exec_command({cmd:"touch ~/.northwind-probe"})]);"#)]);
+        assert_eq!(live(&both, &[computed.clone(), n.clone()]), vec![&n]);
+        assert_eq!(answerable(&both, &[computed, n.clone()]), None);
+        // Another turn's notes don't count.
+        let old = Note { turn: "before".into(), ..n.clone() };
+        assert_eq!(answerable(&one, &[old, n.clone()]), Some(&n));
     }
 
     #[test]

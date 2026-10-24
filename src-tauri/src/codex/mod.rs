@@ -278,9 +278,9 @@ impl crate::harness::Adapter for Codex {
     /// terminal UI asks with `y` for Yes and Escape for No (`answer`); the app asks in its own
     /// window, which Codealong can't answer in.
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
-        let (note, up, cwd) = self.waiting_note(ctx, s)?;
+        let (note, answerable, cwd) = self.waiting_note(ctx, s)?;
         let cannot = match (s.surface, s.pid) {
-            _ if up > 1 => Some(format!("Codex has {up} approvals up; answer them in its terminal, which asks them one at a time.")),
+            _ if !answerable => Some("Codex has asked more than once in this turn, and its terminal shows one at a time: answer it there.".to_string()),
             _ if s.pid.is_some_and(|pid| keys_of_its_own(&ctx.account.home_path(), &cwd, pid)) => Some("Codex's keys may be set up its own way (tui.keymap), so Codealong doesn't press them: answer it in its terminal.".to_string()),
             (crate::model::Surface::Cli, Some(pid)) if note.keyed() && crate::launch::terminal_kind(pid).is_some_and(|t| t.presses_keys()) => None,
             (crate::model::Surface::Cli, Some(_)) if note.keyed() => Some(format!("Codex asks in its terminal, which Codealong can't press keys in ({}); answer it there.", crate::launch::presses_keys_in())),
@@ -297,9 +297,9 @@ impl crate::harness::Adapter for Codex {
     /// the one its turn waits on.
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         use crate::harness::Answer;
-        let (note, up, cwd) = self.waiting_note(ctx, s).filter(|(n, ..)| n.id() == id).ok_or_else(|| anyhow::anyhow!("Codex isn't asking that any more."))?;
-        if up > 1 {
-            anyhow::bail!("Answer it in Codex's terminal: it has {up} approvals up, and Codealong can't tell which a key would answer there.");
+        let (note, answerable, cwd) = self.waiting_note(ctx, s).filter(|(n, ..)| n.id() == id).ok_or_else(|| anyhow::anyhow!("Codex isn't asking that any more."))?;
+        if !answerable {
+            anyhow::bail!("Answer it in Codex's terminal: it has asked more than once in this turn, and Codealong can't tell which a key would answer there.");
         }
         let key = match answer {
             Answer::Allow => crate::launch::Key::Keys("y"),
@@ -1077,14 +1077,15 @@ fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> an
 
 impl Codex {
     /// The approval a thread's turn waits on, read afresh (its rollout as it ends now, and the
-    /// notes Codex's hook wrote, asks.rs), how many may be up, and the folder the thread says it
-    /// runs in, whose config its terminal UI read.
-    fn waiting_note(&self, ctx: &crate::harness::Ctx, s: &Session) -> Option<(asks::Note, usize, PathBuf)> {
+    /// notes Codex's hook wrote, asks.rs), whether a key can be pressed for it there
+    /// (`asks::answerable`), and the folder the thread says it runs in, whose config its
+    /// terminal UI read.
+    fn waiting_note(&self, ctx: &crate::harness::Ctx, s: &Session) -> Option<(asks::Note, bool, PathBuf)> {
         let (th, _) = parse_rollout(&record(self, ctx, s).ok()?, 0, None)?;
         let notes = asks::read(&asks::dir(), crate::util::now_ms());
-        let up = asks::live(&th, &notes);
+        let note = asks::waiting(&th, &notes)?;
         let cwd = PathBuf::from(th.said_cwd.as_ref().map_or(th.cwd.as_str(), |(c, _)| c.as_str()));
-        up.first().map(|n| ((*n).clone(), up.len(), cwd))
+        Some((note.clone(), asks::answerable(&th, &notes) == Some(note), cwd))
     }
 }
 

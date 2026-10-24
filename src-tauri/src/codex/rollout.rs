@@ -91,8 +91,8 @@ pub struct PendingCall {
     pub what: String,
     /// How long it can go unanswered before it's likely waiting for approval.
     pub limit_ms: i64,
-    /// Its input or arguments as written, its first 4,000 characters: where an approval's
-    /// command is found (asks.rs).
+    /// Its input or arguments as written, up to a megabyte: where an approval's command is found
+    /// whole (asks.rs). It's kept only until the call has its result.
     pub input: String,
 }
 
@@ -984,7 +984,7 @@ fn note_call(info: &mut ThreadInfo, p: &Value, at: i64) {
             let name = p.get("name").and_then(Value::as_str).unwrap_or_default();
             let Some(limit_ms) = call_limit_ms(name) else { return };
             info.pending_calls.retain(|c| c.call_id != call_id);
-            let input = p.get("input").or_else(|| p.get("arguments")).and_then(Value::as_str).map(|i| i.chars().take(4000).collect()).unwrap_or_default();
+            let input = p.get("input").or_else(|| p.get("arguments")).and_then(Value::as_str).map(|i| i.chars().take(1 << 20).collect()).unwrap_or_default();
             info.pending_calls.push(PendingCall { call_id: call_id.to_string(), at, what: call_what(p, name), limit_ms, input });
         }
         Some("function_call_output" | "custom_tool_call_output") => info.pending_calls.retain(|c| c.call_id != call_id),

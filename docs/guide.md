@@ -684,9 +684,10 @@ tmux tab Allow presses `y` (Yes, proceed) and Deny presses Escape (No, and tell 
 differently, which stops its turn); its other choices, for that command from now on or for the
 session, are left to its terminal, as are a tool's of an MCP server and a request for more
 permissions, which Codex asks in prompts of their own, and the Codex app's, which it asks in its
-own window, and any while more than one may be up (its terminal asks them one at a time, and a
-script can ask two at once) or while Codex's keys may be set up its own way (`tui.keymap` in its
-config, or on its command line). A request to reach a host, which a command that's running
+own window, and any in a turn that has asked more than once without the others answered from
+here (its terminal shows one at a time, a script can ask for two at once, and which is up can't
+be read), or while Codex's keys may be set up its own way (`tui.keymap` in its config, or on its
+command line). A request to reach a host, which a command that's running
 already makes, reads "Let `npm install` reach registry.npmjs.org", and Allow lets it, this once. While the session's mode is Approve for
 me, Codex's reviewer agent answers instead, and the session isn't waiting on you. One allowed in
 its terminal can still show as waiting for the few seconds Codex takes to hand the command's
