@@ -631,14 +631,17 @@ impl Reader {
     /// what it read as it started, and None where it can't: its command line sets a profile or
     /// the feature (`Terminal::own_features`), the account's config.toml has said otherwise
     /// since it started (or may have: its last change before Codealong read it came after), or
-    /// a project's or the system's config may say (`others_may_say`) in the folder it runs in or
-    /// in its thread's (`cwd`), where a resume can read config without leaving the folder it was
-    /// run in (0.162.1's `resolve_cwd_for_resume_or_fork` asks which).
-    fn vouched(&self, account: &AccountCfg, t: &Terminal, cwd: &str) -> Option<bool> {
+    /// a project's or the system's config may say (`others_may_say`) in the folder it read
+    /// config for. That's the folder the thread's rollout says it ran in since the terminal UI
+    /// started (`ThreadInfo::said_cwd`), which only it writes then: neither its process's folder
+    /// nor its `-C` is, for a resume, whose prompt can pick the thread's own (0.162.1's
+    /// `resolve_cwd_for_resume_or_fork`). A resume writes its settings as it starts, and a new
+    /// thread has no rollout before its first turn (0.162.1, 2026-10-24), so a terminal UI gets
+    /// its list as soon as the board has it.
+    fn vouched(&self, account: &AccountCfg, t: &Terminal, th: &ThreadInfo) -> Option<bool> {
         let &(offered, since) = self.approve_for_me.get(&account.name)?;
-        let home = account.home_path();
-        let others = [t.cwd.as_path(), Path::new(cwd)].into_iter().any(|dir| others_may_say(dir, &home, t.started_at));
-        (!t.own_features && t.started_at >= since && !others).then_some(offered)
+        let (cwd, _) = th.said_cwd.as_ref().filter(|(_, at)| *at >= t.started_at)?;
+        (!t.own_features && t.started_at >= since && !others_may_say(Path::new(cwd), &account.home_path(), t.started_at)).then_some(offered)
     }
 
     /// The rollouts of turns left open that no Codex process holds now (`held_rollouts`), as of
@@ -888,7 +891,7 @@ impl crate::harness::Reader for Reader {
                 // What its terminal UI's `/permissions` lists, which Codealong picks from there
                 // (cycle.rs), where that can be told; `cycle::overlay` keeps them where that tab
                 // takes keys.
-                if let Some(offered) = s.pid.and_then(|pid| self.terminals.iter().find(|t| t.pid == pid)).and_then(|t| self.vouched(account, t, &th.cwd)) {
+                if let Some(offered) = s.pid.and_then(|pid| self.terminals.iter().find(|t| t.pid == pid)).and_then(|t| self.vouched(account, t, th)) {
                     s.modes = rollout::picked_modes(offered);
                 }
                 if let Some(queued) = self.queues.get(&account.name).and_then(|q| q.get(&th.id)) {

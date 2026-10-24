@@ -645,8 +645,10 @@ it in. A number pressed in a list numbered otherwise would pick another mode (2 
 where Approve for me isn't listed), so the menu is there only where Codealong can tell what the
 terminal UI read as it started: the account's config.toml as Codealong has known it since before
 then (one missing as Codealong started vouches only for those started after), and no
-`.codex/config.toml` in the folder it runs in or any above it, nor `/etc/codex/config.toml`,
-that names a profile or that feature or changed after it started. One
+`.codex/config.toml` in the folder it read config for or any above it, nor
+`/etc/codex/config.toml`, that names a profile or that feature or changed after it started.
+That folder is the one its rollout says it runs in, which Codex writes as a resume starts (a
+resume can pick the thread's own folder) and with a new session's first turn. One
 started with a profile or the feature on its command line (`-p strict`, `--disable
 guardian_approval`), or on an account with managed requirements, which can take modes out of the
 list, is switched in its terminal. Should Codex write a mode you didn't pick even so, Codealong

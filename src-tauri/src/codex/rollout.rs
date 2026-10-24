@@ -66,6 +66,10 @@ pub struct ThreadInfo {
     pub effort: Option<String>,
     /// The permissions its latest turn ran with, from its `turn_context` (`turn_mode`).
     pub mode: Option<SessionMode>,
+    /// The folder its latest turn or settings said it runs in (`turn_context`'s and
+    /// `thread_settings_applied`'s `cwd`), and when: the one whose config the process that wrote
+    /// them read, a resume's choice included, where `cwd` stays the folder it was made in.
+    pub said_cwd: Option<(String, i64)>,
     /// The tokens in its context after its latest call and its model's window: the last
     /// `token_count`'s `last_token_usage.total_tokens` (what went in and what came out) and
     /// `model_context_window`, which Codex's own context meter is worked out from.
@@ -807,6 +811,12 @@ fn flagged(v: &Value) -> bool {
         && v.pointer("/payload/content").and_then(Value::as_array).is_some_and(|parts| parts.iter().any(|p| p.get("type").and_then(Value::as_str) == Some("refusal")))
 }
 
+fn note_cwd(info: &mut ThreadInfo, p: &Value, at: Option<i64>) {
+    if let (Some(cwd), Some(at)) = (p.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty()), at) {
+        info.said_cwd = Some((cwd.to_string(), at));
+    }
+}
+
 fn apply_event(info: &mut ThreadInfo, v: &Value) {
     info.flagged |= flagged(v);
     let ts = v.get("timestamp").and_then(Value::as_str).and_then(parse_rfc3339_ms);
@@ -824,6 +834,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
             info.model = Some(m.to_string());
         }
         if let Some(p) = v.get("payload") {
+            note_cwd(info, p, ts);
             info.mode = turn_mode(p).or(info.mode.take());
             info.effort = p.get("effort").and_then(Value::as_str).filter(|e| !e.is_empty()).map(str::to_string);
         }
@@ -871,6 +882,7 @@ fn apply_event(info: &mut ThreadInfo, v: &Value) {
                 }
                 info.effort = t.get("reasoning_effort").and_then(Value::as_str).filter(|e| !e.is_empty()).map(str::to_string);
                 info.mode = settings_mode(t).or(info.mode.take());
+                note_cwd(info, t, ts);
             }
         }
         "user_message" => {
@@ -1139,6 +1151,12 @@ mod tests {
         let mut info = ThreadInfo::default();
         apply_events(&mut info, &planning);
         assert_eq!(info.mode.map(|m| m.kind), Some(ModeKind::Plan));
+        // Both say the folder they ran in, and when.
+        let mut info = ThreadInfo::default();
+        apply_events(&mut info, &context.replace(r#""model":"gpt-6-luna","#, r#""model":"gpt-6-luna","cwd":"/Users/me/projects/atlas","#));
+        assert_eq!(info.said_cwd, Some(("/Users/me/projects/atlas".to_string(), 1_792_856_926_000)));
+        apply_events(&mut info, &picked("user", ":workspace").replace(r#""model":"gpt-6-luna","#, r#""cwd":"/Users/me/projects/kestrel","model":"gpt-6-luna","#));
+        assert_eq!(info.said_cwd.map(|(c, _)| c).as_deref(), Some("/Users/me/projects/kestrel"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
