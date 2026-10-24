@@ -85,6 +85,11 @@ pub struct PrCard {
     /// Missing from machines before 2026-10-22, which share no reviews.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_review: Option<SharedReview>,
+    /// Whose move it is, where that says more than its review state (the engine's board.rs
+    /// `turn_of`): a request for changes GitHub keeps after its fixes are in, or an author who
+    /// answered your review. Missing from Macs before 2026-10-23.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<Turn>,
 }
 
 /// What a machine's automatic reviews of a PR come to, for your other machines: which of them
@@ -181,6 +186,42 @@ pub enum ReviewStage {
     Skipped,
     /// It didn't get done.
     Failed,
+    /// One a later version names.
+    #[serde(other)]
+    Other,
+}
+
+/// Whose move an open PR is, where its review state doesn't say, as the Mac's PR pill says it (the
+/// engine's board.rs `turn_of`, which makes these).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Turn {
+    pub kind: TurnKind,
+    /// The reviewer or the author it's about, by login.
+    pub who: String,
+    /// The other reviewers it holds for alike, by login.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<String>,
+    /// Since when: the push, the words or the request that made it so, where GitHub says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum TurnKind {
+    /// A PR of yours: a reviewer asked for changes, commits came after their last word, and nobody
+    /// has said so on it. Your move.
+    ReplyNeeded,
+    /// A PR of yours: the reviewer who asked for changes is asked again, or was written to since
+    /// they last wrote. Their move.
+    RereviewAsked,
+    /// A PR of yours: the reviewer who asked for changes wrote again after asking, and after
+    /// anything since from you. Your move.
+    ReviewerReplied,
+    /// Someone else's PR you reviewed or wrote on: its author wrote since you (or your agent's
+    /// review, posted as you) last did. Your move.
+    AuthorReplied,
     /// One a later version names.
     #[serde(other)]
     Other,

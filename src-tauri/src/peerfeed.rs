@@ -106,6 +106,7 @@ pub fn pr_cards(board: &Board) -> Vec<PrCard> {
             // `reviewer_of`), and each machine goes by what the others did themselves.
             auto_review: p.auto_review.as_ref().filter(|r| r.machine.is_none()).map(auto_review_card),
             shared_review: Some(p.shared_review.clone()),
+            turn: p.turn.clone(),
         })
         .collect()
 }
@@ -434,6 +435,19 @@ mod tests {
         theirs.shared_review.would = true;
         let snap = snapshot(&Board { generated_at: 10, prs: vec![theirs], ..board(vec![]) }, info("Mini"));
         assert!(snap.prs[0].auto_review.is_none() && snap.prs[0].shared_review.as_ref().is_some_and(|s| s.would));
+    }
+
+    #[test]
+    fn whose_move_a_pr_is_goes_with_its_card() {
+        use codealong_peer::pr::{Turn, TurnKind};
+        let mut p = pr(1, crate::model::PrState::Changes, true, None);
+        p.turn = Some(Turn { kind: TurnKind::AuthorReplied, who: "ana".into(), also: Vec::new(), since: Some(5) });
+        let snap = snapshot(&Board { generated_at: 10, prs: vec![p.clone()], ..board(vec![]) }, info("Mini"));
+        assert_eq!(snap.prs[0].turn, p.turn);
+        assert!(snapshot(&Board { generated_at: 10, prs: vec![pr(2, crate::model::PrState::Open, true, None)], ..board(vec![]) }, info("Mini")).prs[0].turn.is_none());
+        // A kind a later Mac names doesn't lose a device the whole list.
+        let later: Turn = serde_json::from_value(serde_json::json!({ "kind": "authorPinged", "who": "ana" })).unwrap();
+        assert_eq!(later.kind, TurnKind::Other);
     }
 
     #[test]

@@ -373,36 +373,8 @@ pub struct PrItem {
 
 /// Whose move an open PR is, where its review state doesn't say: GitHub keeps a request for
 /// changes until its reviewer approves or dismisses it, whatever comes after (`board::turn_of`).
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Turn {
-    pub kind: TurnKind,
-    /// The reviewer or the author it's about, by login.
-    pub who: String,
-    /// The other reviewers it holds for alike, by login.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub also: Vec<String>,
-    /// Since when: the push, the words or the request that made it so, where GitHub says.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub since: Option<i64>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum TurnKind {
-    /// A PR of yours: a reviewer asked for changes, commits came after their last word, and
-    /// nobody has said so on it. GitHub tells a reviewer of a comment or a request, not of a push.
-    ReplyNeeded,
-    /// A PR of yours: the reviewer who asked for changes is asked again, or was written to since
-    /// they last wrote. Their move.
-    RereviewAsked,
-    /// A PR of yours: the reviewer who asked for changes wrote again after asking, and after
-    /// anything since from you.
-    ReviewerReplied,
-    /// Someone else's PR you reviewed or wrote on: its author wrote since you (or your agent's
-    /// review, posted as you) last did.
-    AuthorReplied,
-}
+/// A PR's card tells your other devices of it in this shape, so it's codealong-peer's.
+pub use codealong_peer::pr::{Turn, TurnKind};
 
 /// The review you last submitted on a PR, as GitHub has it (`viewerLatestReview`, which leaves a
 /// draft out): what it said and the commit it was of, which tells a PR whose review is asked of

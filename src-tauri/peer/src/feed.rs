@@ -276,6 +276,7 @@ mod tests {
             labels: Vec::new(),
             auto_review: None,
             shared_review: None,
+            turn: None,
         };
         let mut replica = Replica::default();
         replica.apply(FeedMsg { rev: 1, full: true, prs: Some(vec![card(1), card(2)]), ..Default::default() });
