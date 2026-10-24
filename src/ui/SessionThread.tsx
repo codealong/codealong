@@ -57,7 +57,7 @@ import { putBack } from '../drafts';
 import { snippet } from '../todos';
 import { absolute, agoPhrase } from '../format';
 import { harnessOfKey, heldUntil, sendsHeldNow } from '../harness';
-import type { Harness, HostedStream, Question, QueuedMessage, Session, Status, TranscriptItem, TranscriptPage } from '../types';
+import type { DeviceTag, Harness, HostedStream, Question, QueuedMessage, Session, Status, TranscriptItem, TranscriptPage } from '../types';
 import { selectedForMenu, type MenuSpec } from '../contextMenu';
 import { CodeBlock } from './CopyButton';
 import { DescriptionView, ImagesFrom } from './DescriptionEditor';
@@ -68,6 +68,7 @@ import { QuestionList } from './QuestionList';
 import { RunContext, type RunPlace } from './RunButton';
 import { errorText } from '../report';
 import { clearNotice, failedNotice, reportNotice } from '../notices';
+import { useLatest } from '../latest';
 import { says, shownText } from '../threadFind';
 import { scaleOf } from '../zoom';
 import { FindContext, ThreadFind, type FindAsk } from './ThreadFind';
@@ -224,6 +225,24 @@ export function scrolledUp(el: Scrolls, heard: Heard): boolean {
   const top = topOf(el);
   if (top >= heard.top) return false;
   return (el.scrollHeight === heard.height && el.clientHeight === heard.view) || top < endOf(el);
+}
+
+/** A read of the conversation that failed: when, and whether it was read again since the
+ *  session's machine was last away. */
+export interface ReadFailed {
+  at: number;
+  tried: boolean;
+}
+
+/** Whether a conversation whose read failed is read again now, as the machine it's on comes and
+ *  goes: once that machine is back, online and heard from since the read failed (each feed from
+ *  it moves `lastSeen`). Once each time it comes back, so a record it can't read either isn't
+ *  asked for again with every feed. Never for a session on this Mac (no `machine`). */
+export function readAgain(failed: ReadFailed, machine: Pick<DeviceTag, 'online' | 'lastSeen'> | undefined): { failed: ReadFailed; again: boolean } {
+  if (!machine) return { failed, again: false };
+  if (!machine.online) return { failed: { ...failed, tried: false }, again: false };
+  if (failed.tried || (machine.lastSeen ?? 0) <= failed.at) return { failed, again: false };
+  return { failed: { ...failed, tried: true }, again: true };
 }
 
 /** A question call's line: what it asks about, by the questions' headers when they all have one. */
@@ -525,6 +544,9 @@ interface SessionThreadProps {
   onOpen: () => void;
   /** Shown when the record can't be read (Antigravity, or a transcript that's gone). */
   fallback: ReactNode;
+  /** The machine it's on, when that's another one (its lane's `device`): a read that failed while
+   *  it was away is read again once it's back (`readAgain`). */
+  machine?: DeviceTag;
   /** Once the first page is laid out, or the record couldn't be read: the peek shows then. */
   onLoaded?: () => void;
   /** The panel's reply area shows what the session waits on (Allow and Deny, or where to answer
@@ -547,8 +569,10 @@ interface SessionThreadProps {
   onEdit?: (prompt: TranscriptItem) => void;
 }
 
-export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, answeredBelow, run, onMenu, find, tips = false, onEdit }: SessionThreadProps) {
+export function SessionThread({ session: s, now, onOpen, fallback, machine, onLoaded, answeredBelow, run, onMenu, find, tips = false, onEdit }: SessionThreadProps) {
   const [items, setItems] = useState<TranscriptItem[]>([]);
+  // Whether a read has something on screen to keep while it's on its way, or once it fails.
+  const shown = useLatest(items.length > 0);
   const [before, setBefore] = useState<number | null>(null);
   // `before` as soon as it's set, for laying out pages that must begin where the last ones did.
   const shownBefore = useRef<number | null>(null);
@@ -556,7 +580,11 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     shownBefore.current = at;
     setBefore(at);
   }, []);
+  // Why the last read failed: shown in the conversation's place when there's nothing else to show.
   const [error, setError] = useState<string | null>(null);
+  // That read, while no read since has worked, and the reads asked again for it (`readAgain`).
+  const failed = useRef<ReadFailed | null>(null);
+  const [again, setAgain] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const after = useRef(0);
   const loading = useRef(false);
@@ -640,25 +668,31 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
 
   // Each read from the start: cursors are places in one record, and a job that went on from
   // another session's conversation writes its own at its next prompt, so the view reads from
-  // the start again then, and pages still coming from the last read are dropped.
+  // the start again then, and pages still coming from the last read are dropped. What's on
+  // screen stays until the new read's first page takes its place, and stays when that read fails,
+  // which a notice says, as one for what's new does: a machine away for a moment doesn't empty
+  // the conversation. A read that failed while its machine was away is read again once it's back
+  // (`again`, `readAgain`).
   const reading = useRef(0);
   // The read whose first page is in, which `after` is a place in.
   const landed = useRef(0);
+  const title = useLatest(s.title);
   useEffect(() => {
     const read = ++reading.current;
     jumped.current = null;
     seeking.current = null;
     readAhead.current = new Map();
-    setEarlier(null);
-    setItems([]);
-    placeBefore(null);
-    setLoaded(false);
-    setError(null);
+    if (!shown.current) setLoaded(false);
     loading.current = true;
+    const notice = `conversation:${s.key}`;
     sessionPage(s.key, null)
       .then((p) => {
         if (read !== reading.current) return;
+        failed.current = null;
+        clearNotice(notice);
         anchor.current = { kind: 'end' };
+        setError(null);
+        setEarlier(null);
         setItems(p.items);
         placeBefore(p.before);
         after.current = p.after;
@@ -666,7 +700,13 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
         setLoaded(true);
         if (p.before != null && p.items[0]?.kind !== 'you') void lookBack(read, p.before);
       })
-      .catch((e: unknown) => read === reading.current && (setError(errorText(e)), setLoaded(true)))
+      .catch((e: unknown) => {
+        if (read !== reading.current) return;
+        failed.current = { at: Date.now(), tried: failed.current?.tried ?? false };
+        setError(errorText(e));
+        setLoaded(true);
+        if (shown.current) reportNotice(failedNotice(notice, 'A conversation isn’t updating', `Couldn’t read “${title.current}” again; what was read before stays`, e));
+      })
       .finally(() => read === reading.current && (loading.current = false));
     // The prompt before the first page, read back a page at a time.
     const lookBack = async (read: number, at: number | null) => {
@@ -679,7 +719,17 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
         at = p.before;
       }
     };
-  }, [s.key, s.continues, pageAt, placeBefore]);
+  }, [s.key, s.continues, again, pageAt, placeBefore, shown, title]);
+
+  // Where its machine stands, not its tag, which is another object with each board.
+  const online = machine?.online;
+  const seen = machine?.lastSeen ?? null;
+  useEffect(() => {
+    if (!error || !failed.current) return;
+    const next = readAgain(failed.current, online === undefined ? undefined : { online, lastSeen: seen });
+    failed.current = next.failed;
+    if (next.again) setAgain((n) => n + 1);
+  }, [error, online, seen]);
 
   const loadOlder = useCallback(() => {
     if (loading.current || before == null) return;
@@ -751,6 +801,9 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     if (el.scrollHeight <= el.clientHeight + NEAR_TOP) loadOlder();
   }, [items, loadOlder, stream, toEnd]);
 
+  // A read that failed takes the conversation's place only when there's nothing of it to keep.
+  const failedView = error !== null && items.length === 0;
+
   // An image in a prompt takes its room when it loads, after the view was placed. One that loads
   // while you're at the end keeps you there, and one above what's in view leaves that where it
   // was. WebKit holds no place by itself as content above grows, and the thread asks Chrome not to
@@ -768,7 +821,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
     el.addEventListener('load', onImage, true);
     return () => el.removeEventListener('load', onImage, true);
     // The view is another element once an error has shown in its place.
-  }, [error, toEnd, follows]);
+  }, [failedView, toEnd, follows]);
 
   const loadedNow = useRef(onLoaded);
   loadedNow.current = onLoaded;
@@ -975,7 +1028,7 @@ export function SessionThread({ session: s, now, onOpen, fallback, onLoaded, ans
   // a prompt taken back does.
   const followUp = useCallback((prompt: string) => void putBack(s.key, `followup:${prompt}`, prompt, true), [s.key]);
 
-  if (error) {
+  if (failedView) {
     return (
       <div className="ca-thread is-fallback">
         <p className="ca-empty">{error}</p>

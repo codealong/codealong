@@ -290,13 +290,37 @@ struct Me {
     short: String,
 }
 
+/// Ends a connection and keeps why: the first reason given is the one its close is written down
+/// with (`log_closed`), whatever closes it after.
+#[derive(Clone)]
+struct Closer {
+    close: Arc<dyn Fn() + Send + Sync>,
+    why: Arc<Mutex<Option<String>>>,
+}
+
+impl Closer {
+    fn new(close: Arc<dyn Fn() + Send + Sync>) -> Closer {
+        Closer { close, why: Arc::new(Mutex::new(None)) }
+    }
+
+    fn close(&self, why: impl Into<String>) {
+        self.why.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(|| why.into());
+        (self.close)();
+    }
+
+    /// Why this device closed it, when it did.
+    fn why(&self) -> Option<String> {
+        self.why.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
 /// What goes out on one connection, waiting for its writer: at most `QUEUE_MAX` messages, and
 /// answers of at most `QUEUE_BYTES_MAX` bytes. A message that finds it full closes the
 /// connection, which is how a device that doesn't read is let go.
 #[derive(Clone)]
 struct Out {
     tx: SyncSender<Going>,
-    close: Arc<dyn Fn() + Send + Sync>,
+    close: Closer,
     /// The bytes of answers waiting (`Going::Line`).
     waiting: Arc<AtomicUsize>,
 }
@@ -309,7 +333,7 @@ enum Going {
 }
 
 impl Out {
-    fn new(tx: SyncSender<Going>, close: Arc<dyn Fn() + Send + Sync>) -> Out {
+    fn new(tx: SyncSender<Going>, close: Closer) -> Out {
         Out { tx, close, waiting: Arc::new(AtomicUsize::new(0)) }
     }
 
@@ -323,7 +347,7 @@ impl Out {
         let n = line.len();
         if self.waiting.fetch_add(n, Ordering::SeqCst) + n > QUEUE_BYTES_MAX {
             self.waiting.fetch_sub(n, Ordering::SeqCst);
-            (self.close)();
+            self.close.close(format!("it fell behind: more than {} MB of answers waited to go to it", QUEUE_BYTES_MAX >> 20));
             return Err("the connection was too far behind, and is closed");
         }
         self.push(Going::Line(line)).inspect_err(|_| {
@@ -335,7 +359,7 @@ impl Out {
         match self.tx.try_send(going) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => {
-                (self.close)();
+                self.close.close(format!("it fell behind: {QUEUE_MAX} messages waited to go to it"));
                 Err("the connection was too far behind, and is closed")
             }
             Err(TrySendError::Disconnected(_)) => Err("the connection is closed"),
@@ -361,7 +385,7 @@ struct Conn {
     addr: Option<IpAddr>,
     tx: Out,
     /// Ends the connection: its reader stops, so nothing more is taken from it.
-    close: Arc<dyn Fn() + Send + Sync>,
+    close: Closer,
     name: String,
     app: String,
     /// What kind of device it is, from its hello.
@@ -523,7 +547,7 @@ impl Peers {
         // Stop what runs, then start what's wanted.
         let gen = inner.gen.fetch_add(1, Ordering::SeqCst) + 1;
         for (_, c) in st.conns.drain() {
-            (c.close)();
+            c.close.close("[devices] changed here, so every connection starts again");
         }
         st.asks.clear();
         st.asking.clear();
@@ -1208,11 +1232,12 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         return;
     };
     let (queue, rx) = sync_channel::<Going>(QUEUE_MAX);
-    let tx = Out::new(queue, close.clone());
+    let closer = Closer::new(close.clone());
+    let tx = Out::new(queue, closer.clone());
     // This connection's requests running now (`REQUESTS_MAX`).
     let running = Arc::new(AtomicUsize::new(0));
     {
-        let close = close.clone();
+        let (close, closer) = (close.clone(), closer.clone());
         let waiting = tx.waiting.clone();
         std::thread::Builder::new()
             .name("peer-writer".into())
@@ -1229,7 +1254,8 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
                     if counted {
                         waiting.fetch_sub(line.len(), Ordering::SeqCst);
                     }
-                    if written.is_err() {
+                    if let Err(e) = written {
+                        closer.close(format!("writing to it failed: {e}"));
                         break;
                     }
                 }
@@ -1282,7 +1308,7 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
                 close();
                 return;
             }
-            (old.close)();
+            old.close.close(format!("a newer connection to it took its place, {}", via_words(via)));
         }
         let linked = Inner::is_linked(&st, &hex);
         if linked {
@@ -1305,7 +1331,7 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         }
         // A device that knows how gets only what changed since its copy of this one's last feed.
         let resume = (linked && knows.iter().any(|k| k == peerproto::HAVE)).then(|| st.replicas.get(&hex).map(|c| c.replica.have())).flatten().filter(|h| !h.is_empty());
-        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::for_device(&knows), knows, fed_board: 0, fed_at: None });
+        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: closer.clone(), name: name.clone(), app, kind, watching: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::for_device(&knows), knows, fed_board: 0, fed_at: None });
         st.view_dirty = true;
         if let Some(lanes) = resume {
             let _ = tx.send(Msg::Have { lanes });
@@ -1318,17 +1344,23 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
     }
     inner.wake.notify_all();
 
-    while let Ok(Some(msg)) = peerproto::read_msg(&mut reader) {
-        handle(&inner, &hex, serial, &tx, &running, msg);
-    }
+    let opened = Instant::now();
+    let ended = loop {
+        match peerproto::read_msg(&mut reader) {
+            Ok(Some(msg)) => handle(&inner, &hex, serial, &tx, &running, msg),
+            Ok(None) => break None,
+            Err(e) => break Some(e),
+        }
+    };
 
     let mut st = inner.lock();
+    let linked = Inner::is_linked(&st, &hex);
     if st.conns.get(&hex).is_some_and(|c| c.serial == serial) {
         st.conns.remove(&hex);
         st.asks.retain(|a| a.key != hex);
         st.asking.remove(&hex);
         // A phone sends no feed, so all that's kept for it is when it was last here.
-        if Inner::is_linked(&st, &hex) {
+        if linked {
             st.replicas.entry(hex.clone()).or_default().last_seen = now_ms();
             st.cache_dirty = true;
         }
@@ -1342,8 +1374,42 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
     }
     drop(st);
     inner.wake.notify_all();
+    // Only a linked device's: one on your tailnet that isn't keeps a connection only to be found.
+    if linked {
+        log_closed(&name, &hex, via, opened.elapsed(), &closer.why().unwrap_or_else(|| ended_why(ended.as_ref())));
+    }
     drop(tx);
     close();
+}
+
+/// Why a connection ended that this device didn't close, from how its reader stopped.
+fn ended_why(e: Option<&std::io::Error>) -> String {
+    use std::io::ErrorKind;
+    match e {
+        None => "it closed the connection".into(),
+        // A read timeout: TCP's says it would block, iroh's that it timed out (codealong-peer's net.rs).
+        Some(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => format!("nothing came from it for {} s", IDLE_TIMEOUT.as_secs()),
+        Some(e) => format!("reading from it failed: {e}"),
+    }
+}
+
+/// The way a connection goes, for words about it.
+fn via_words(via: Via) -> &'static str {
+    match via {
+        Via::Tailscale => "over Tailscale",
+        Via::Iroh => "through iroh",
+        Via::Test => "in a test",
+    }
+}
+
+/// How long a connection was open, for its line in devices.log: 12 s, 3 min 4 s, 2 h 5 min.
+fn open_for(d: Duration) -> String {
+    let s = d.as_secs();
+    match s {
+        0..=59 => format!("{s} s"),
+        60..=3599 => format!("{} min {} s", s / 60, s % 60),
+        _ => format!("{} h {} min", s / 3600, s % 3600 / 60),
+    }
 }
 
 fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Out, running: &Arc<AtomicUsize>, msg: Msg) {
@@ -1392,7 +1458,7 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Out, running: &Arc<At
             }
             if running.fetch_add(1, Ordering::SeqCst) >= REQUESTS_MAX {
                 running.fetch_sub(1, Ordering::SeqCst);
-                (tx.close)();
+                tx.close.close(format!("it had more than {REQUESTS_MAX} requests running here at once"));
                 return;
             }
             let place = Running(running.clone());
@@ -1730,16 +1796,30 @@ fn iroh_loop(inner: Arc<Inner>, gen: u64) {
 
 /// Every request that acts on a session here from another device, what it was, how it went and
 /// how long it took (the device stops waiting after a while: codealong-peer's `ACT_WAIT`), in
-/// `~/Library/Logs/Codealong/devices.log`. The prompt itself isn't written down.
+/// devices.log. The prompt itself isn't written down.
 fn audit(from: &str, short: &str, method: &str, key: &str, got: &std::result::Result<Value, String>, took: std::time::Duration) {
-    let dir = crate::config::logs_dir();
-    let _ = std::fs::create_dir_all(&dir);
     let took = format!("{:.1} s", took.as_secs_f64());
     let outcome = match got {
         Ok(_) => format!("done in {took}"),
         Err(e) => format!("refused after {took}: {e}"),
     };
-    let line = format!("{} {from} ({short}) {method} {key}: {outcome}\n", crate::perf::stamp());
+    log_device(&format!("{} {from} ({short}) {method} {key}: {outcome}\n", crate::perf::stamp()));
+}
+
+/// Every connection to a linked device that closed, how long it was open and why, in
+/// devices.log: a device that drops out of view here for a moment says why there, and its side
+/// of it is in its own devices.log.
+fn log_closed(name: &str, hex: &str, via: Via, open: Duration, why: &str) {
+    log_device(&format!("{} {name} ({}) connection {} closed after {}: {why}\n", crate::perf::stamp(), short_of(hex), via_words(via), open_for(open)));
+}
+
+/// A line in `~/Library/Logs/Codealong/devices.log`. Not from tests, whose devices are their own.
+fn log_device(line: &str) {
+    if cfg!(test) {
+        return;
+    }
+    let dir = crate::config::logs_dir();
+    let _ = std::fs::create_dir_all(&dir);
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("devices.log")) {
         let _ = f.write_all(line.as_bytes());
     }
@@ -1794,7 +1874,7 @@ mod tests {
         let (tx, rx) = sync_channel::<Going>(QUEUE_MAX);
         let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let shut = closed.clone();
-        let out = Out::new(tx, Arc::new(move || shut.store(true, Ordering::SeqCst)));
+        let out = Out::new(tx, Closer::new(Arc::new(move || shut.store(true, Ordering::SeqCst))));
         let big = |id| Msg::Res { id, ok: true, result: Some(json!("x".repeat(QUEUE_BYTES_MAX / 2))), error: None };
         out.answer(big(1)).unwrap();
         assert!(out.waiting.load(Ordering::SeqCst) > QUEUE_BYTES_MAX / 2);
@@ -1802,9 +1882,33 @@ mod tests {
         assert!(!closed.load(Ordering::SeqCst), "half the bytes, and a message that isn't an answer");
         assert!(out.answer(big(2)).is_err());
         assert!(closed.load(Ordering::SeqCst));
+        assert_eq!(out.close.why().as_deref(), Some("it fell behind: more than 64 MB of answers waited to go to it"));
         // What was refused isn't counted as waiting.
         assert!(out.waiting.load(Ordering::SeqCst) < QUEUE_BYTES_MAX);
         assert!(matches!(rx.try_recv(), Ok(Going::Line(_))));
+    }
+
+    #[test]
+    fn a_closed_connection_says_why_by_the_first_reason_given() {
+        let closes = Arc::new(AtomicUsize::new(0));
+        let counted = closes.clone();
+        let closer = Closer::new(Arc::new(move || _ = counted.fetch_add(1, Ordering::SeqCst)));
+        assert_eq!(closer.why(), None, "not closed here: its reader says how it ended");
+        closer.close("it had more than 32 requests running here at once");
+        // Its writer, failing once the connection is shut, closes it again.
+        closer.clone().close("writing to it failed: Broken pipe");
+        assert_eq!(closer.why().as_deref(), Some("it had more than 32 requests running here at once"));
+        assert_eq!(closes.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_connection_closed_over_there_says_how_its_reader_stopped() {
+        use std::io::{Error, ErrorKind};
+        assert_eq!(ended_why(None), "it closed the connection");
+        assert_eq!(ended_why(Some(&Error::from(ErrorKind::WouldBlock))), "nothing came from it for 80 s");
+        assert_eq!(ended_why(Some(&Error::new(ErrorKind::TimedOut, "The other device went quiet."))), "nothing came from it for 80 s");
+        assert_eq!(ended_why(Some(&Error::new(ErrorKind::ConnectionReset, "reset"))), "reading from it failed: reset");
+        assert_eq!((open_for(Duration::from_secs(12)), open_for(Duration::from_secs(184)), open_for(Duration::from_secs(7_500))), ("12 s".into(), "3 min 4 s".into(), "2 h 5 min".into()));
     }
 
     fn session(key: &str, status: Status) -> Session {

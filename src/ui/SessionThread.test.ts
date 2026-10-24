@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../types';
-import { editablePrompts, headingsOf, peerLabel, heardOf, rowsOf, scrolledUp, type Heard } from './SessionThread';
+import { editablePrompts, headingsOf, peerLabel, heardOf, readAgain, rowsOf, scrolledUp, type Heard, type ReadFailed } from './SessionThread';
 
 let at = 0;
 const step = (kind: TranscriptItem['kind'], more: Partial<TranscriptItem> = {}): TranscriptItem => ({ at: 0, kind, text: kind, failed: false, cursor: ++at, n: 0, ...more });
@@ -148,5 +148,34 @@ describe('scrolledUp', () => {
     expect(follows(atEnd, [1510, 1498])).toEqual([true, false]);
     expect(scrolledUp(view(-5), heardOf(view(-10)))).toBe(false);
     expect(scrolledUp(view(-10), heardOf(view(0)))).toBe(false);
+  });
+});
+
+describe('readAgain', () => {
+  const failed: ReadFailed = { at: 1_000, tried: false };
+
+  it('reads again once the machine is back and heard from since the read failed', () => {
+    const away = readAgain(failed, { online: false, lastSeen: 900 });
+    expect(away.again).toBe(false);
+    expect(readAgain(away.failed, { online: true, lastSeen: 900 }).again).toBe(false);
+    const back = readAgain(away.failed, { online: true, lastSeen: 1_200 });
+    expect(back).toEqual({ failed: { at: 1_000, tried: true }, again: true });
+  });
+
+  it('reads again when the machine was gone and back before this window saw it go', () => {
+    expect(readAgain(failed, { online: true, lastSeen: 1_200 }).again).toBe(true);
+  });
+
+  it('only once while the machine stays, and again after it’s been away', () => {
+    // A read that failed again since, with the machine there all along.
+    const again: ReadFailed = { at: 1_500, tried: true };
+    expect(readAgain(again, { online: true, lastSeen: 1_600 }).again).toBe(false);
+    const away = readAgain(again, { online: false, lastSeen: 1_600 });
+    expect(away.failed.tried).toBe(false);
+    expect(readAgain(away.failed, { online: true, lastSeen: 1_700 }).again).toBe(true);
+  });
+
+  it('never for a session on this Mac', () => {
+    expect(readAgain(failed, undefined)).toEqual({ failed, again: false });
   });
 });

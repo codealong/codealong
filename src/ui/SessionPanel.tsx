@@ -394,6 +394,7 @@ export function SessionPanel({ variant = 'panel', zoom, queue, notice, hotkeys, 
             session={s}
             now={now}
             onOpen={openIt}
+            machine={lane.device}
             onLoaded={onLoaded}
             answeredBelow={replies}
             run={run}

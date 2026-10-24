@@ -3126,9 +3126,12 @@ device's color in Settings › Devices); other devices' worktrees go into this d
 their repos, whatever those devices call them, even where a checkout still has a renamed repo's old
 name; work on a device that's away stays, faded, as it was when last seen; the sidebar's Devices
 narrow the views to the ones you pick. A session on another device shows its whole conversation in
-its panel; you can mark it seen or snooze it from here, and when that device lets its linked devices
-act on its sessions (remote control, off by default) send it a message, ask it on the side, answer
-an approval or mark it done, or start a session there: ⌘D in the quick panel picks the Mac, and `codealong start
+its panel, read from that device as it shows: when the device is away for a moment, what the panel
+already shows stays (a notice says it isn't updating), one opened meanwhile says the device isn't
+connected, and either is read again once the device is back. You can mark it seen or snooze it
+from here, and when that device lets its linked devices act on its sessions (remote control, off
+by default) send it a message, ask it on the side, answer an approval or mark it done, or start a
+session there: ⌘D in the quick panel picks the Mac, and `codealong start
 --device <name> --prompt …` has that Mac pick the worktree (a folder there, a path under your home
 being the same path under its home, or by default its main checkout of the repo you're in), the
 account and the place as `codealong start` run there would. A start there takes no todo and makes no
@@ -3140,8 +3143,12 @@ anywhere through iroh; they talk directly, encrypted end to end, with no server 
 between. You link a device once: on your tailnet, both show the same six digits and you say yes on
 the other one; elsewhere, with a link code made on one device and entered on the other. A device
 is reached while Codealong runs there, its windows open or closed (closing the main window only
-hides it); once it quits, or the Mac sleeps, it shows as it was when last seen. Open at login, in
-Settings › General, has it running again after a restart without your opening it. Each
+hides it); once it quits, or the Mac sleeps, it shows as it was when last seen. Each connection to
+a linked device that closes is written to `~/Library/Logs/Codealong/devices.log` (on Linux,
+`~/.local/state/codealong/devices.log`) with how long it was open and why: nothing came from the
+other device for 80 seconds, it closed the connection (its own devices.log says why), or this
+device let it go for falling behind or asking too much at once. Open at login, in Settings ›
+General, has it running again after a restart without your opening it. Each
 session goes out with its place among its Mac's pins, so the iPhone app lists a Mac's pinned
 sessions first, in that Mac's order, and pins or unpins one there, remote control or not.
 
