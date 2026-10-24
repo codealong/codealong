@@ -278,10 +278,10 @@ impl crate::harness::Adapter for Codex {
     /// terminal UI asks with `y` for Yes and Escape for No (`answer`); the app asks in its own
     /// window, which Codealong can't answer in.
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
-        let (note, up) = self.waiting_note(ctx, s)?;
+        let (note, up, cwd) = self.waiting_note(ctx, s)?;
         let cannot = match (s.surface, s.pid) {
             _ if up > 1 => Some(format!("Codex has {up} approvals up; answer them in its terminal, which asks them one at a time.")),
-            _ if keys_of_its_own(&ctx.account.home_path()) => Some("Codex's keys are set up its own way in config.toml (tui.keymap), so Codealong doesn't press them: answer it in its terminal.".to_string()),
+            _ if s.pid.is_some_and(|pid| keys_of_its_own(&ctx.account.home_path(), &cwd, pid)) => Some("Codex's keys may be set up its own way (tui.keymap), so Codealong doesn't press them: answer it in its terminal.".to_string()),
             (crate::model::Surface::Cli, Some(pid)) if note.keyed() && crate::launch::terminal_kind(pid).is_some_and(|t| t.presses_keys()) => None,
             (crate::model::Surface::Cli, Some(_)) if note.keyed() => Some(format!("Codex asks in its terminal, which Codealong can't press keys in ({}); answer it there.", crate::launch::presses_keys_in())),
             (crate::model::Surface::Cli, _) => Some("Codex asks this in its terminal; answer it there.".to_string()),
@@ -297,9 +297,9 @@ impl crate::harness::Adapter for Codex {
     /// the one its turn waits on.
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         use crate::harness::Answer;
-        let (note, up) = self.waiting_note(ctx, s).filter(|(n, _)| n.id() == id).ok_or_else(|| anyhow::anyhow!("Codex isn't asking that any more."))?;
-        if up > 1 || keys_of_its_own(&ctx.account.home_path()) {
-            anyhow::bail!("Answer it in Codex's terminal: Codealong can't tell which of its prompts a key would answer there.");
+        let (note, up, cwd) = self.waiting_note(ctx, s).filter(|(n, ..)| n.id() == id).ok_or_else(|| anyhow::anyhow!("Codex isn't asking that any more."))?;
+        if up > 1 {
+            anyhow::bail!("Answer it in Codex's terminal: it has {up} approvals up, and Codealong can't tell which a key would answer there.");
         }
         let key = match answer {
             Answer::Allow => crate::launch::Key::Keys("y"),
@@ -307,9 +307,13 @@ impl crate::harness::Adapter for Codex {
             Answer::Always => anyhow::bail!("Codex's prompt is answered here with Allow or Deny only; its other choices are in its terminal."),
         };
         let pid = s.pid.filter(|_| s.surface == crate::model::Surface::Cli && note.keyed()).ok_or_else(|| anyhow::anyhow!("Answer it where Codex asks it: Codealong can't from here."))?;
+        if keys_of_its_own(&ctx.account.home_path(), &cwd, pid) || command_line(pid).is_none_or(|c| c.contains("keymap")) {
+            anyhow::bail!("Answer it in Codex's terminal: its keys may be set up its own way (tui.keymap).");
+        }
         // Allowed in its terminal already: its command runs under it, and the key would land in
-        // the box, or answer another prompt.
-        if note.command().is_some_and(|c| runs_under(pid, c)) {
+        // the box, or answer another prompt. Not so for a command that's running already and
+        // asks to reach a host.
+        if note.network().is_none() && note.command().is_some_and(|c| runs_under(pid, c)) {
             asks::done(&note);
             anyhow::bail!("Codex isn't asking that any more: it was allowed in its terminal.");
         }
@@ -711,7 +715,7 @@ impl Reader {
     fn vouched(&self, account: &AccountCfg, t: &Terminal, th: &ThreadInfo) -> Option<bool> {
         let &(offered, since) = self.approve_for_me.get(&account.name)?;
         let (cwd, _) = th.said_cwd.as_ref().filter(|(_, at)| *at >= t.started_at)?;
-        (!t.own_features && t.started_at >= since && !others_may_say(Path::new(cwd), &account.home_path(), t.started_at)).then_some(offered)
+        (!t.own_features && t.started_at >= since && !others_may_say(Path::new(cwd), &account.home_path(), t.started_at, &["guardian_approval", "profile"])).then_some(offered)
     }
 
     /// Reads the approvals Codex's hook handed over again when their folder changed (a note
@@ -1073,19 +1077,28 @@ fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> an
 
 impl Codex {
     /// The approval a thread's turn waits on, read afresh (its rollout as it ends now, and the
-    /// notes Codex's hook wrote, asks.rs), and how many are up.
-    fn waiting_note(&self, ctx: &crate::harness::Ctx, s: &Session) -> Option<(asks::Note, usize)> {
+    /// notes Codex's hook wrote, asks.rs), how many may be up, and the folder the thread says it
+    /// runs in, whose config its terminal UI read.
+    fn waiting_note(&self, ctx: &crate::harness::Ctx, s: &Session) -> Option<(asks::Note, usize, PathBuf)> {
         let (th, _) = parse_rollout(&record(self, ctx, s).ok()?, 0, None)?;
         let notes = asks::read(&asks::dir(), crate::util::now_ms());
         let up = asks::live(&th, &notes);
-        up.first().map(|n| ((*n).clone(), up.len()))
+        let cwd = PathBuf::from(th.said_cwd.as_ref().map_or(th.cwd.as_str(), |(c, _)| c.as_str()));
+        up.first().map(|n| ((*n).clone(), up.len(), cwd))
     }
 }
 
-/// Whether the account's config.toml sets the terminal UI's keys (`[tui.keymap]`), whose
-/// approval keys Codealong would then be pressing blind.
-fn keys_of_its_own(codex_home: &Path) -> bool {
-    std::fs::read_to_string(codex_home.join("config.toml")).is_ok_and(|text| text.contains("keymap"))
+/// Whether a terminal UI's keys may be set its own way (`[tui.keymap]`), whose approval keys
+/// Codealong would then be pressing blind: in the account's config.toml, or in config Codex
+/// read beside it in `cwd` (`others_may_say`), or where that can't be told.
+fn keys_of_its_own(codex_home: &Path, cwd: &Path, pid: u32) -> bool {
+    let Some(started_at) = crate::procs::proc_start_ms(pid) else { return true };
+    std::fs::read_to_string(codex_home.join("config.toml")).is_ok_and(|text| text.contains("keymap")) || others_may_say(cwd, codex_home, started_at, &["keymap"])
+}
+
+/// A process's command line as `ps` has it, its arguments joined with spaces.
+fn command_line(pid: u32) -> Option<String> {
+    crate::procs::run("/bin/ps", &["-o", "command=", "-p", &pid.to_string()], None, std::time::Duration::from_secs(3)).ok()
 }
 
 /// Whether `command` runs in a process under `pid`: a terminal UI runs what it was allowed as
@@ -1116,18 +1129,19 @@ fn approve_for_me_offered(codex_home: &Path) -> bool {
     feature(profile).or_else(|| feature(Some(&toml::Value::Table(t.clone())))).unwrap_or(true)
 }
 
-/// Whether config Codex reads beside the account's own may set what `/permissions` lists for a
-/// terminal UI started at `started_at` in `cwd`: the system's (`/etc/codex/config.toml`), or a
-/// project's, a `.codex/config.toml` in its folder or any above it (Codex's project layers go up
-/// to the project's root, which its `project_root_markers` setting moves, and are read only in a
-/// trusted project; neither is asked), that names a profile or the feature, or changed, or whose
-/// folder did, after it started, when what it read can't be told. The account's own folder
+/// Whether config Codex reads beside the account's own may set what a terminal UI started at
+/// `started_at` in `cwd` read of what `words` name (a profile or Approve for me's feature, which
+/// `/permissions` lists by; its keys): the system's (`/etc/codex/config.toml`), or a project's, a
+/// `.codex/config.toml` in its folder or any above it (Codex's project layers go up to the
+/// project's root, which its `project_root_markers` setting moves, and are read only in a
+/// trusted project; neither is asked), that names one of them, or changed, or whose folder did,
+/// after it started, when what it read can't be told. The account's own folder
 /// (`codex_home`) is its user config, which Codex skips as a project's (0.162.1's
 /// `load_project_layers`), by its path as given or resolved; another account's folder isn't
 /// skipped. A project's `.codex` folder taken away since leaves nothing to look at.
-fn others_may_say(cwd: &Path, codex_home: &Path, started_at: i64) -> bool {
+fn others_may_say(cwd: &Path, codex_home: &Path, started_at: i64, words: &[&str]) -> bool {
     let since = |p: &Path| mtime_ms(p).is_some_and(|m| m > started_at);
-    let says = |file: &Path| std::fs::read_to_string(file).is_ok_and(|text| text.contains("guardian_approval") || text.contains("profile") || since(file));
+    let says = |file: &Path| std::fs::read_to_string(file).is_ok_and(|text| words.iter().any(|w| text.contains(w)) || since(file));
     let system = Path::new("/etc/codex");
     if since(system) || says(&system.join("config.toml")) {
         return true;
@@ -1199,7 +1213,7 @@ mod tests {
         std::fs::create_dir_all(repo.join(".git")).unwrap();
         std::fs::create_dir_all(repo.join(".codex")).unwrap();
         let later = crate::util::now_ms() + 60_000;
-        let says = |cwd: &Path, at: i64| others_may_say(cwd, &home, at);
+        let says = |cwd: &Path, at: i64| others_may_say(cwd, &home, at, &["guardian_approval", "profile"]);
         assert!(!says(&deep, later), "nothing says");
         std::fs::write(repo.join(".codex/config.toml"), "model = \"gpt-6-luna\"\n").unwrap();
         assert!(!says(&deep, later), "it says nothing of the list");
@@ -1217,7 +1231,10 @@ mod tests {
         std::fs::write(root.join("me/.codex/config.toml"), "profile = \"strict\"\n").unwrap();
         std::fs::create_dir_all(root.join("me/atlas")).unwrap();
         assert!(!says(&root.join("me/atlas"), later));
-        assert!(others_may_say(&root.join("me/atlas"), &root.join("me/.codex-b"), later));
+        assert!(others_may_say(&root.join("me/atlas"), &root.join("me/.codex-b"), later, &["profile"]));
+        // Keys set up in a project's config are its own too.
+        std::fs::write(repo.join(".codex/config.toml"), "[tui.keymap.approval]\napprove = \"ctrl-y\"\n").unwrap();
+        assert!(others_may_say(&deep, &home, later, &["keymap"]));
     }
 
     #[test]

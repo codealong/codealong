@@ -10,12 +10,13 @@
 //!
 //! The notes are files in Codealong's own folder, one a request, written by the hook whether the
 //! app is up or not, and read by the reader as the folder changes. A call Codex's terminal UI
-//! runs as JavaScript (its `exec` tool) can run several commands one after another, each asking
-//! on its own, so a later note about the same call means the one before was answered (`live`).
-//! A call stays without its result while an allowed command runs, for as long as it takes to
-//! come back (`exec_command`'s yield, ten seconds or so), so a note allowed in the terminal reads
-//! as waiting until then; an answer from Codealong looks for its command running first
-//! (codex/mod.rs `answer`), and one answered there goes at once.
+//! runs as JavaScript (its `exec` tool) can run several commands, one after another or side by
+//! side, each asking on its own, so two notes about one call may both be up, or the first
+//! answered: either way it's more than one (`live`), which only the terminal can tell apart. A
+//! call stays without its result while an allowed command runs, for as long as it takes to come
+//! back (`exec_command`'s yield, ten seconds or so), so a note allowed in the terminal reads as
+//! waiting until then; an answer from Codealong looks for its command running first (codex/mod.rs
+//! `answer`), and one answered there goes at once.
 
 use std::path::{Path, PathBuf};
 
@@ -77,12 +78,21 @@ impl Note {
         }
     }
 
-    /// The request as a line to allow or deny: "Run `touch ~/notes`", "Edit files".
+    /// The request as a line to allow or deny: "Run `touch ~/notes`", "Let `npm install` reach
+    /// registry.npmjs.org", "Edit files".
     pub fn label(&self) -> String {
-        match self.tool.as_str() {
-            "Bash" if self.command().is_some() => format!("Run {}", self.what()),
+        match (self.tool.as_str(), self.network()) {
+            ("Bash", Some(host)) => format!("Let {} reach {host}", self.what()),
+            ("Bash", None) if self.command().is_some() => format!("Run {}", self.what()),
             _ => self.what(),
         }
+    }
+
+    /// The host a command that's running already asks to reach, where that's what it asks:
+    /// Codex hands such a request to the hook as the command's, with `network-access <host>` for
+    /// its reason (0.162.1's `core/src/tools/network_approval.rs`).
+    pub fn network(&self) -> Option<&str> {
+        self.reason()?.strip_prefix("network-access ").map(str::trim)
     }
 
     /// All of it, to read before answering: a command with the agent's reason above it as a
@@ -159,35 +169,38 @@ pub fn waiting<'a>(th: &ThreadInfo, notes: &'a [Note]) -> Option<&'a Note> {
     live(th, notes).into_iter().next()
 }
 
-/// The notes still up in a thread, oldest first: of its open turn, about a call with no result
-/// yet, and with no later note about the same call, which its JavaScript asks only once the one
-/// before is answered. None while a reviewer agent answers for you (Approve for me), which Codex
-/// asks before its own prompt.
+/// The notes that may still be up in a thread, oldest first: of its open turn, about a call with
+/// no result yet. None while a reviewer agent answers for you (Approve for me), which Codex asks
+/// before its own prompt.
 pub fn live<'a>(th: &ThreadInfo, notes: &'a [Note]) -> Vec<&'a Note> {
     if !th.turn_open || th.mode.as_ref().is_some_and(|m| m.kind == ModeKind::Auto) {
         return Vec::new();
     }
-    let up: Vec<(&Note, &str)> = notes
-        .iter()
-        .filter(|n| n.thread == th.id && th.turn_id.as_deref() == Some(n.turn.as_str()))
-        .filter_map(|n| Some((n, asked_about(&th.pending_calls, n)?.call_id.as_str())))
-        .collect();
-    up.iter().filter(|(n, call)| !up.iter().any(|(later, same)| same == call && later.at > n.at)).map(|(n, _)| *n).collect()
+    notes.iter().filter(|n| n.thread == th.id && th.turn_id.as_deref() == Some(n.turn.as_str()) && asked_about(&th.pending_calls, n).is_some()).collect()
 }
 
 /// A call is written before Codex asks about it, and the hook's time is taken after; this much
 /// later still counts, for the two reading the clock a moment apart.
 const SLACK_MS: i64 = 200;
 
+/// How much of a command or patch is looked for in its call's input, which is kept to its first
+/// 4,000 characters (`PendingCall::input`): enough to tell one from another.
+const MATCHED: usize = 300;
+
 /// The call a note asks about, of those without a result written before it: for a command or a
-/// patch, the one whose input has it, as it is or escaped as a string (a JavaScript `exec` holds
-/// it in a string literal, a `function_call` in its JSON arguments), and none where none does,
-/// as once its call has its result; for a tool's call, which has its arguments only, the latest.
+/// patch, the one whose input has its start, as it is or escaped as a string (a JavaScript `exec`
+/// holds it in a string literal, a `function_call` in its JSON arguments), and none where none
+/// does, as once its call has its result; for a tool's call, which has its arguments only, the
+/// latest. A command a script puts together from parts isn't found, and is left to the guess
+/// from a call left without its result (board.rs `codex_unanswered`).
 fn asked_about<'a>(open: &'a [PendingCall], note: &Note) -> Option<&'a PendingCall> {
     let before = || open.iter().filter(|c| c.at <= note.at + SLACK_MS);
-    let has = |c: &PendingCall, cmd: &str| c.input.contains(cmd) || serde_json::to_string(cmd).is_ok_and(|q| c.input.contains(q.trim_matches('"')));
+    let has = |c: &PendingCall, start: &str| c.input.contains(start) || serde_json::to_string(start).is_ok_and(|q| c.input.contains(q.trim_matches('"')));
     match note.command() {
-        Some(cmd) => before().find(|c| has(c, cmd)),
+        Some(cmd) => {
+            let start: String = cmd.chars().take(MATCHED).collect();
+            before().find(|c| has(c, &start))
+        }
         None => before().max_by_key(|c| c.at),
     }
 }
@@ -276,10 +289,22 @@ mod tests {
         let both = open_turn(vec![call("c1", 9_500, js), call("c3", 10_500, "rm ~/.northwind-probe")]);
         assert_eq!(live(&both, &[n.clone(), later.clone()]), vec![&n, &later]);
         assert_eq!(waiting(&open_turn(vec![call("c3", 10_500, "rm ~/.northwind-probe")]), &[n.clone(), later.clone()]), Some(&later));
-        // One JavaScript call asking for two commands in turn asked for the second once the
-        // first was answered, while the call runs on.
-        let script = r#"await tools.exec_command({cmd:"touch ~/.northwind-probe"}); await tools.exec_command({cmd:"rm ~/.northwind-probe"});"#;
+        // One JavaScript call asking for two commands, in turn or side by side (`Promise.all`):
+        // both may be up, which only its terminal can tell.
+        let script = r#"await Promise.all([tools.exec_command({cmd:"touch ~/.northwind-probe"}), tools.exec_command({cmd:"rm ~/.northwind-probe"})]);"#;
         let one = open_turn(vec![call("c6", 9_500, script)]);
-        assert_eq!(live(&one, &[n.clone(), later.clone()]), vec![&later]);
+        assert_eq!(live(&one, &[n.clone(), later.clone()]), vec![&n, &later]);
+        // A patch longer than what's kept of its call is found by its start.
+        let patch = format!("*** Begin Patch\n*** Add File: notes.md\n{}*** End Patch", "+north wind\n".repeat(600));
+        let edit = Note { tool: "apply_patch".into(), input: json!({ "command": patch }), ..n.clone() };
+        let kept: String = patch.chars().take(4000).collect();
+        assert_eq!(waiting(&open_turn(vec![call("c7", 9_500, &kept)]), &[edit.clone()]), Some(&edit));
+    }
+
+    #[test]
+    fn a_request_to_reach_a_host_says_so() {
+        let net = from_hook(&json!({ "session_id": "t", "turn_id": "u", "tool_name": "Bash", "tool_input": { "command": "npm install", "description": "network-access registry.npmjs.org" } }), 1).unwrap();
+        assert_eq!((net.network(), net.label()), (Some("registry.npmjs.org"), "Let `npm install` reach registry.npmjs.org".to_string()));
+        assert_eq!(from_hook(&hooked(), 1).unwrap().network(), None);
     }
 }
