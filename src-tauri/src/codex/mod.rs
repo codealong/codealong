@@ -263,10 +263,18 @@ impl crate::harness::Adapter for Codex {
     }
 
     /// Its terminal UI lists the permissions under `/permissions`, numbered, and a number picks
-    /// one at once, with no question after (0.162.1 in tmux, 2026-10-24); the reader lists them
-    /// as it does (`Reader::sessions`).
-    fn mode_picker(&self) -> Option<&'static str> {
-        Some("/permissions")
+    /// one at once, with no question after (0.162.1 in tmux, 2026-10-24). Whether Approve for me
+    /// is among them goes by the config Codex reads in the session's folder, a project's own
+    /// included, which Codex is asked for (`appserver::approve_for_me_in`), as the list's number
+    /// would otherwise pick another, Full Access in its place; where managed requirements may take
+    /// entries out too, the list isn't typed into. The reader leaves out the terminal UIs whose
+    /// command line sets these itself (`terminals::own_features`).
+    fn mode_picker(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<anyhow::Result<crate::harness::ModePicker>> {
+        let listed = appserver::approve_for_me_in(&ctx.account.home_path(), Path::new(&s.cwd)).and_then(|offered| match offered {
+            Some(offered) => Ok(rollout::PICKED.iter().map(|(id, ..)| *id).filter(|id| offered || *id != rollout::APPROVE_FOR_ME).collect()),
+            None => anyhow::bail!("Codex has managed requirements here, which can take permissions out of its /permissions list, so Codealong doesn't pick from it by number: switch them in its terminal."),
+        });
+        Some(listed.map(|listed| crate::harness::ModePicker { command: "/permissions", listed }))
     }
 
     /// A pick is written to the rollout as it takes (`thread_settings_applied`), so a switch
@@ -1007,7 +1015,12 @@ mod tests {
         assert!(!approve_for_me_offered(&home), "a profile that doesn't say keeps the top's");
         assert!(terminals::own_features("codex --disable guardian_approval"));
         assert!(terminals::own_features("codex -p strict resume 01a16e99-a812-7591-9707-1f6a541c1e15"));
-        assert!(!terminals::own_features("codex -c check_for_update_on_startup=false -m gpt-6-luna"));
+        assert!(terminals::own_features("codex -pstrict"));
+        assert!(terminals::own_features("codex -p=strict"));
+        assert!(terminals::own_features("codex --profile=strict"));
+        assert!(terminals::own_features(r#"codex -c profile="strict""#));
+        assert!(terminals::own_features("codex -c features.guardian_approval=false"));
+        assert!(!terminals::own_features("codex -c check_for_update_on_startup=false -m gpt-6-luna -c model_reasoning_effort=\"high\""));
     }
 
     #[test]

@@ -212,11 +212,13 @@ pub trait Adapter: Sync {
         None
     }
 
-    /// The command that lists a running session's modes in its terminal UI, numbered in the
-    /// order of `Session::modes` (Codex's `/permissions`), which its reader lists them in: a
-    /// switch types it and presses the mode's number (cycle.rs), where the others step through
-    /// their modes with Shift+Tab. None where there's no such list.
-    fn mode_picker(&self) -> Option<&'static str> {
+    /// Where a running session's terminal UI lists its modes under a command, numbered (Codex's
+    /// `/permissions`): the command and the ids of the modes it lists, in its order, as its
+    /// harness has them now for that session, which may leave out one of `Session::modes`. A
+    /// switch types the command and presses the mode's number (cycle.rs), where the others step
+    /// through their modes with Shift+Tab. None where there's no such list; an error where there
+    /// is one and it can't be told what it holds, which then isn't typed.
+    fn mode_picker(&self, _ctx: &Ctx, _session: &Session) -> Option<Result<ModePicker>> {
         None
     }
 
@@ -1111,6 +1113,15 @@ pub struct Typed {
     pub env: Vec<(String, String)>,
     /// The new session's key, when it's known before the harness writes the session.
     pub key: Option<String>,
+}
+
+/// A terminal UI's numbered list of its modes (`Adapter::mode_picker`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModePicker {
+    /// What opens it, typed in its box.
+    pub command: &'static str,
+    /// The ids of the modes it lists (`SessionMode::id`), the first numbered 1.
+    pub listed: Vec<&'static str>,
 }
 
 /// What a running session is switched to, for it alone (`send::switch_model`,

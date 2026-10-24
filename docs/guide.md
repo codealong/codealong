@@ -641,8 +641,13 @@ me, Full Access and Read Only, without Approve for me where config.toml turns it
 `guardian_approval` feature off), and ⇧⇥ in its box steps to the next: Codealong types
 `/permissions` in its tab and presses the number of the mode you picked, and the chip says the
 mode once Codex has written the pick, which it does at once, in Plan too, which the pick leaves
-it in. One started with a profile or that feature on its command line (`-p`, `--disable
-guardian_approval`) may number its list otherwise, so it isn't switched here. Not while a step of its turn waits
+it in. The number goes by the settings Codex reads in the session's folder as you pick (a
+project's own `.codex/config.toml` too), which Codealong asks Codex for. A list numbered
+otherwise, where a setting changed after the terminal UI started, shows when Codex writes a mode
+you didn't pick (2 is Full Access where Approve for me isn't listed): Codealong puts it back to Ask
+for approval at once, the list's first, and says so. One started with a profile or that feature
+on its command line (`-p strict`, `--disable guardian_approval`), or with managed requirements
+that can take modes out of the list, isn't switched here. Not while a step of its turn waits
 for its result, since Codex asks its approvals in a list whose letters are choices (`p` allows the
 command from then on), so the keys could answer one. Codealong can't see Codex's box, so something
 you'd typed there yourself and not sent goes ahead of `/permissions`, and Return sends the two as a

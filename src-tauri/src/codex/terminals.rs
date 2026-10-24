@@ -106,12 +106,13 @@ pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)>
     Some((None, dir))
 }
 
-/// Whether a terminal UI's command line sets what its `/permissions` lists itself, past what
-/// config.toml says: a profile (`-p`, `--profile`), or Approve for me's feature
-/// (`--enable`/`--disable guardian_approval`, `-c features.guardian_approval=…`). A prompt that
-/// names them reads the same, which only keeps that session's mode from being switched here.
+/// Whether a terminal UI's command line may set what its `/permissions` lists itself, past what
+/// config says: a profile (`-p strict`, `-pstrict`, `--profile=strict`, `-c profile="strict"`), or
+/// Approve for me's feature (`--disable guardian_approval`, `-c features.guardian_approval=…`). A
+/// prompt that names them reads the same, which only keeps that session's mode from being
+/// switched here.
 pub fn own_features(command: &str) -> bool {
-    command.split_whitespace().any(|w| w == "-p" || w == "--profile" || w.starts_with("--profile=") || w.contains("guardian_approval"))
+    command.split_whitespace().any(|w| (w.starts_with("-p") && !w.starts_with("--")) || w.contains("profile") || w.contains("guardian_approval"))
 }
 
 fn looks_like_uuid(s: &str) -> bool {

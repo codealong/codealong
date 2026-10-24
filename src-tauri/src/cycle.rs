@@ -115,8 +115,8 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
     };
     let adapter = crate::harness::adapter(s.harness);
     let ctx = Ctx { account };
-    if let Some(command) = adapter.mode_picker() {
-        return pick(&ctx, s, to, command, &host);
+    if let Some(picker) = adapter.mode_picker(&ctx, s) {
+        return pick(&ctx, s, to, &picker?, &host);
     }
     let named = |id: &str| s.modes.iter().find(|m| m.id == id).map_or_else(|| id.to_string(), |m| m.label.clone());
     let press = || launch::press_key(&host, Key::BackTab);
@@ -161,12 +161,17 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
 /// so what's typed would answer one up that the board doesn't show yet. What's already in its
 /// box goes ahead of the command, as a typed prompt goes after it: Codealong can't see it, and
 /// Ctrl+C, which would clear it, stops a running turn when the box is empty.
-fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, command: &'static str, host: &launch::TerminalHost) -> Result<ModeSwitched> {
+///
+/// The numbers are the harness's list as it reads it now (`Adapter::mode_picker`), which a
+/// terminal UI that read other settings as it started may not have: Codex's without Approve for
+/// me has Full Access at 2. So a mode taken that isn't the one picked is backed out of at once,
+/// to the list's first, which every list has first (Codex's Ask for approval), and said.
+fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, picker: &crate::harness::ModePicker, host: &launch::TerminalHost) -> Result<ModeSwitched> {
     let title = quoted(&s.title);
     let harness = s.harness.word();
-    // Numbered as its reader lists them, which is as the list does.
-    let Some(number) = s.modes.iter().position(|m| m.id == to.id) else {
-        bail!("{harness}'s {command} doesn't list {} for {title}.", to.label);
+    let command = picker.command;
+    let Some(number) = picker.listed.iter().position(|id| *id == to.id) else {
+        bail!("{harness}'s {command} doesn't list {} for {title} where it runs.", to.label);
     };
     let adapter = crate::harness::adapter(s.harness);
     let _one = one_switch();
@@ -175,20 +180,66 @@ fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, command: &'static str, host: &
         bail!("{title} is in the middle of a step that {harness} may be asking you about in its terminal: switch its mode once the step is done.");
     }
     let mut said = adapter.mode_said(ctx, s);
-    if said.as_mut().and_then(|said| said()).as_deref() == Some(to.id.as_str()) {
-        return Ok(ModeSwitched { message: format!("{title} is in {} mode already.", to.label), mode: to.id.clone() });
+    let before = said.as_mut().and_then(|said| said());
+    if before.as_deref() == Some(to.id.as_str()) {
+        return picked(s, to, "already");
     }
+    let digit = u8::try_from(number + 1).unwrap_or(9);
+    pick_number(host, command, digit, LIST_WAIT)?;
+    let typed = format!("Codealong typed {command} in its terminal and picked {digit}, {}", to.label);
+    let Some(said) = said.as_mut() else {
+        return Ok(ModeSwitched { message: format!("{typed}."), mode: to.id.clone() });
+    };
+    match changed(said, before.as_deref()) {
+        Some(now) if now == to.id => picked(s, to, "now"),
+        Some(now) => {
+            let took = picker_label(s, &now);
+            let first = picker.listed.first().copied().unwrap_or_default();
+            // The list was read a moment ago, so it opens at once.
+            pick_number(host, command, 1, PRESS_GAP * 3)?;
+            let back = if reached(said, first) { format!("so Codealong put it back to {}", picker_label(s, first)) } else { "and Codealong's pick of 1 to put it back didn't take: look in its terminal".to_string() };
+            bail!("{typed}, and {harness} took {took}: its list isn't numbered as Codealong read it, {back}. Switch its mode in its terminal.")
+        }
+        None => bail!("{typed}, and {harness} hasn't said it took it: look in its terminal."),
+    }
+}
+
+/// Opens a numbered list with `command` and presses `number` once it's had `wait` to come up.
+fn pick_number(host: &launch::TerminalHost, command: &'static str, number: u8, wait: Duration) -> Result<()> {
     launch::press_key(host, Key::Keys(command))?;
     std::thread::sleep(PRESS_GAP);
     launch::press_key(host, Key::Return)?;
-    std::thread::sleep(LIST_WAIT);
-    let digit = u8::try_from(number + 1).unwrap_or(9);
-    launch::press_key(host, Key::Digit(digit))?;
-    let typed = format!("Codealong typed {command} in its terminal and picked {digit}, {}", to.label);
-    match said.as_mut().map(|said| reached(said, &to.id)) {
-        Some(true) => Ok(ModeSwitched { message: format!("{title} is in {} mode now.", to.label), mode: to.id.clone() }),
-        Some(false) => bail!("{typed}, and {harness} hasn't said it took it: look in its terminal."),
-        None => Ok(ModeSwitched { message: format!("{typed}."), mode: to.id.clone() }),
+    std::thread::sleep(wait);
+    launch::press_key(host, Key::Digit(number))
+}
+
+/// A mode by its id as the session lists it, else in words.
+fn picker_label(s: &Session, id: &str) -> String {
+    s.modes.iter().find(|m| m.id == id).map_or_else(|| "permissions of their own".to_string(), |m| m.label.clone())
+}
+
+/// What a pick that took says, `when` being "now" or "already", and the mode the session shows
+/// after it: in Plan still, which a pick of permissions leaves it in (Codex's collaboration
+/// mode is its own), and which has no id, so a window that showed the pick shows Plan again.
+fn picked(s: &Session, to: &SessionMode, when: &str) -> Result<ModeSwitched> {
+    let title = quoted(&s.title);
+    Ok(match s.mode.as_ref().filter(|m| m.kind == crate::model::ModeKind::Plan) {
+        Some(plan) => ModeSwitched { message: format!("{title} has {}'s permissions {when}, and is still in {}.", to.label, plan.label), mode: plan.id.clone() },
+        None => ModeSwitched { message: format!("{title} is in {} mode {when}.", to.label), mode: to.id.clone() },
+    })
+}
+
+/// What `said` says once it says something other than `before`, within `TAKEN_WAIT`.
+fn changed(said: &mut dyn FnMut() -> Option<String>, before: Option<&str>) -> Option<String> {
+    let until = Instant::now() + TAKEN_WAIT;
+    loop {
+        if let Some(now) = said().filter(|m| Some(m.as_str()) != before) {
+            return Some(now);
+        }
+        if Instant::now() >= until {
+            return None;
+        }
+        std::thread::sleep(LOOK_EVERY);
     }
 }
 
@@ -355,6 +406,27 @@ mod tests {
                 all.remove(&s.key);
             }
         }
+    }
+
+    /// A pick of permissions in Plan leaves it in Plan, which the window that asked shows again.
+    #[test]
+    fn a_pick_in_plan_says_it_stays_in_plan() {
+        let approve = SessionMode::new(ModeKind::Auto, "Approve for me", "").with_id("approve-for-me");
+        let s = Session { title: "Fix the build".into(), mode: Some(SessionMode::new(ModeKind::Plan, "Plan", "")), ..Session::new(Harness::Codex, "codex", "t1") };
+        let said = picked(&s, &approve, "now").unwrap();
+        assert_eq!((said.message.as_str(), said.mode.as_str()), ("“Fix the build” has Approve for me's permissions now, and is still in Plan.", ""));
+        let asking = Session { mode: Some(SessionMode::new(ModeKind::Edits, "Ask for approval", "").with_id("ask-for-approval")), ..s };
+        let said = picked(&asking, &approve, "now").unwrap();
+        assert_eq!((said.message.as_str(), said.mode.as_str()), ("“Fix the build” is in Approve for me mode now.", "approve-for-me"));
+    }
+
+    #[test]
+    fn a_pick_is_seen_taken_by_what_changes() {
+        let mut said = [None, Some("ask-for-approval"), Some("full-access")].into_iter().map(|m| m.map(String::from));
+        let mut next = || said.next().flatten();
+        assert_eq!(changed(&mut next, Some("ask-for-approval")).as_deref(), Some("full-access"));
+        let mut first = || Some("ask-for-approval".to_string());
+        assert_eq!(changed(&mut first, None).as_deref(), Some("ask-for-approval"), "where nothing said a mode before");
     }
 
     #[test]
