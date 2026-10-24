@@ -84,6 +84,10 @@ pub enum Msg {
     Have { lanes: HashMap<String, u64> },
     /// A session's reply as it's written, for a device watching it (`api::SESSION_WATCH`).
     Stream(crate::api::Stream),
+    /// A session's side conversation as it changes, for a device that has asked about that
+    /// session's (`api::SIDE_ASK`, `api::SIDE_GET`, `api::SIDE_PAST`, `api::SIDE_CLOSE`) and says
+    /// it knows `SIDES`: the same as the sender's own windows are told, in the same order.
+    Side(crate::api::Side),
     /// A message from a newer device that this one doesn't know. It's skipped; devices from before
     /// this ended the connection on one, so new messages go only to devices that say they know them.
     #[serde(other)]
@@ -112,7 +116,8 @@ pub const TABLET: &str = "tablet";
 /// that doesn't say it gets the note the builds before sent in its place, the message's first
 /// line under who it's from, since one from before would show it as the agent's own words.
 /// `SCHEDULES` says it keeps the schedules your machines share (`FeedMsg::schedules`,
-/// `schedules::Shared`): only a device that says it is sent them.
+/// `schedules::Shared`): only a device that says it is sent them. `SIDES` says it takes a
+/// session's side conversations as they change (`Msg::Side`) once it has asked about them.
 pub const HAVE: &str = "have";
 pub const WATCH: &str = "watch";
 pub const CURSOR: &str = "cursor";
@@ -121,7 +126,8 @@ pub const PR_DRAFTS: &str = "pr-drafts";
 pub const EMBLEMS: &str = "emblems";
 pub const PEER_ITEMS: &str = "peer-items";
 pub const SCHEDULES: &str = "schedules";
-pub const KNOWS: [&str; 8] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEMS, PEER_ITEMS, SCHEDULES];
+pub const SIDES: &str = "sides";
+pub const KNOWS: [&str; 9] = [HAVE, WATCH, CURSOR, PRS, PR_DRAFTS, EMBLEMS, PEER_ITEMS, SCHEDULES, SIDES];
 
 /// Whether a device of this kind only watches.
 pub fn watches(kind: Option<&str>) -> bool {
@@ -261,6 +267,7 @@ mod tests {
             Msg::Hello { v: 1, key: "cd".into(), name: "iPhone".into(), app: "0.1.0".into(), nonce: "01".into(), kind: Some(PHONE.into()), knows: KNOWS.map(String::from).to_vec() },
             Msg::Have { lanes: HashMap::from([("/a".to_string(), 7u64)]) },
             Msg::Stream(crate::api::Stream { key: "claude:claude:9f".into(), text: "Looking at".into(), tool: None }),
+            Msg::Side(crate::api::Side { id: "1-1".into(), key: "claude:claude:9f".into(), turns: vec![crate::api::SideTurn { question: "Why?".into(), answer: "Because".into(), ..Default::default() }], running: true, ..Default::default() }),
             Msg::Req { id: 7, method: "search".into(), params: serde_json::json!({"words": ["webhook"]}) },
             Msg::Res { id: 7, ok: false, result: None, error: Some("no".into()) },
             Msg::LinkAsk { secret: None },

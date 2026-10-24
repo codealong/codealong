@@ -46,8 +46,8 @@
       if (!codex) note('no Codex session on the board: checked on a Claude Code one, where a skill goes as typed');
       type(box(), '/');
       await until(function () { return rows().length > 0 && names().indexOf('/ship') >= 0; }, 5000, 'no list for /');
-      var asked = sent('skills')[0];
-      check('the session’s folder and account are asked about', asked.folders.length === 1 && asked.folders[0] === picked.cwd && asked.accounts.length === 1 && asked.accounts[0] === picked.account, JSON.stringify(asked));
+      var asked = sent('session_skills')[0];
+      check('the session’s skills are asked about, where it runs', asked && asked.key === sessionKey, JSON.stringify(asked));
       var got = names();
       check('Codealong’s own commands lead the list', got[0] === '/fork', got.join(' '));
       check('then the worktree’s skills, then the account’s', got.indexOf('/ship') > 0 && got.indexOf('/notes:tidy') > got.indexOf('/ship'), got.join(' '));

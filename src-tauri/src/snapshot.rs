@@ -487,7 +487,7 @@ fn side_ask(_: &Args, rest: &[String]) -> Done {
     }
     let engine = board_now();
     for q in questions {
-        if let Err(e) = actions::local(&engine, &From::Device, actions::SIDE_ASK, key, params::Side { text: q.clone() }) {
+        if let Err(e) = actions::local(&engine, &From::Device, api::SIDE_ASK, key, params::Side { text: q.clone(), ..Default::default() }) {
             side::close_now(key);
             return Err(Stop::Failed(e));
         }

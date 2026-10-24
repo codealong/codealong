@@ -27,9 +27,9 @@ describe('slashCommand', () => {
     // Alone, it shows the ones kept from before (SessionReply.tsx).
     expect(slashCommand('/side', session('codex'))?.rest).toBe('');
     expect(slashCommand('/sidebar', claude)).toBeNull();
-    // OpenCode has no throwaway copy, and a copy runs on the session's own Mac.
+    // OpenCode has no throwaway copy. One on another machine is asked there.
     expect(slashCommand('/side why?', session('opencode'))).toBeNull();
-    expect(slashCommand('/side why?', session('claude', '@ab12:claude:a:1'))).toBeNull();
+    expect(slashCommand('/side why?', session('claude', '@ab12:claude:a:1'))?.rest).toBe('why?');
     expect(slashCommand('/fork', session('claude', '@ab12:claude:a:1'))).not.toBeNull();
   });
 

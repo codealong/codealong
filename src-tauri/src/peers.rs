@@ -35,6 +35,7 @@ use serde_json::Value;
 use crate::config::{DevicesCfg, ProjectCfg};
 use crate::irohnet::{Iroh, Ticket};
 use crate::model::{Board, DeviceTag, Lane, Usage};
+use codealong_peer::api::Side;
 use crate::peerfeed::{self, DeviceInfo, Outbox, Replica, Snapshot};
 use crate::peerproto::{self, Msg, VERSION};
 use crate::tailnet;
@@ -99,6 +100,9 @@ pub struct Hooks {
     pub answer: Box<dyn Fn(&str, Value, bool) -> Result<Value, String> + Send + Sync>,
     /// Hands the windows what they show of other devices.
     pub emit: Box<dyn Fn(&DevicesView) + Send + Sync>,
+    /// Hands the windows a side conversation of a session on another device as it changes there,
+    /// by the key the session has here (`Msg::Side`).
+    pub side: Box<dyn Fn(Side) + Send + Sync>,
 }
 
 /// A device on this device's list, as `devices.json` keeps it.
@@ -364,6 +368,9 @@ struct Conn {
     kind: Option<String>,
     /// The sessions here whose replies it asked for as they're written (`api::SESSION_WATCH`).
     watching: HashSet<String>,
+    /// The sessions here whose side conversations it has asked about (`follows_sides`), which it's
+    /// sent as they change (`Msg::Side`), when it knows them.
+    sides: HashSet<String>,
     /// It said whether it has this device linked (`Standing`). Its first feed waits for that: a
     /// device that picks up where its copy left off says so (`Have`) just before.
     heard: bool,
@@ -421,6 +428,9 @@ struct State {
     /// watching them; sent at most every `STREAM_EVERY`.
     streams: HashMap<String, codealong_peer::api::Stream>,
     streamed_at: Option<Instant>,
+    /// Side conversations as they changed, for connections that asked about their sessions: sent
+    /// with the streams, the latest of each (`side_queued`).
+    sides: Vec<Side>,
 }
 
 struct Inner {
@@ -563,6 +573,18 @@ impl Peers {
             return;
         }
         st.streams.insert(s.key.clone(), s);
+        drop(st);
+        self.0.wake.notify_all();
+    }
+
+    /// A side conversation as it changes here (side.rs), for the linked devices that asked about
+    /// its session. Sent with the streams, at most every `STREAM_EVERY`.
+    pub fn side(&self, side: &Side) {
+        let mut st = self.0.lock();
+        if !st.conns.values().any(|c| c.sides.contains(&side.key)) {
+            return;
+        }
+        side_queued(&mut st.sides, side.clone());
         drop(st);
         self.0.wake.notify_all();
     }
@@ -781,6 +803,23 @@ fn short_of(hex: &str) -> &str {
     &hex[..hex.len().min(10)]
 }
 
+/// Whether a device that asks `method` about a session is sent its side conversations as they
+/// change from then on (`Msg::Side`): it asked one, or reads or closes them, as a window showing
+/// the session does.
+fn follows_sides(method: &str) -> bool {
+    use codealong_peer::api;
+    [api::SIDE_ASK, api::SIDE_GET, api::SIDE_PAST, api::SIDE_CLOSE].contains(&method)
+}
+
+/// Queues a side conversation as it changed, in place of what's queued of it, so each goes once
+/// and as it is now. Of the same session's, one ended or closed is another (its id, `closed`), and
+/// none open is one too (no id): a later one takes its place at the end, after what happened
+/// before it, as the windows here were told.
+fn side_queued(queue: &mut Vec<Side>, side: Side) {
+    queue.retain(|q| (&q.key, &q.id, q.closed) != (&side.key, &side.id, side.closed));
+    queue.push(side);
+}
+
 impl Inner {
     fn lock(&self) -> MutexGuard<'_, State> {
         self.st.lock().unwrap_or_else(|e| e.into_inner())
@@ -877,6 +916,13 @@ impl Inner {
             return Err(format!("Remote control is off on {me}; turn it on there in Settings › Devices."));
         }
         let key = params.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+        // Before it's answered, so the question it asks and the answer as it's written reach it.
+        if follows_sides(method) && !key.is_empty() {
+            let mut st = self.lock();
+            if let Some(c) = st.conns.get_mut(from).filter(|c| c.knows.iter().any(|k| k == peerproto::SIDES)) {
+                c.sides.insert(key.clone());
+            }
+        }
         let started = std::time::Instant::now();
         let mut got = (self.hooks.answer)(method, params, watching);
         if let Ok(v) = &mut got {
@@ -1064,9 +1110,10 @@ fn feed_loop(inner: Arc<Inner>) {
             send_feeds(&mut st, &snap, &due, boards, now);
         }
 
-        if !st.streams.is_empty() && st.streamed_at.is_none_or(|t| now.duration_since(t) >= STREAM_EVERY) {
+        if (!st.streams.is_empty() || !st.sides.is_empty()) && st.streamed_at.is_none_or(|t| now.duration_since(t) >= STREAM_EVERY) {
             st.streamed_at = Some(now);
             let streams: Vec<codealong_peer::api::Stream> = st.streams.drain().map(|(_, s)| s).collect();
+            let sides = std::mem::take(&mut st.sides);
             let linked: HashSet<String> = st.linked.iter().map(|l| l.key.clone()).collect();
             for (key, conn) in st.conns.iter() {
                 if !linked.contains(key) {
@@ -1074,6 +1121,9 @@ fn feed_loop(inner: Arc<Inner>) {
                 }
                 for s in streams.iter().filter(|s| conn.watching.contains(&s.key)) {
                     let _ = conn.tx.send(Msg::Stream(s.clone()));
+                }
+                for s in sides.iter().filter(|s| conn.sides.contains(&s.key)) {
+                    let _ = conn.tx.send(Msg::Side(s.clone()));
                 }
             }
         }
@@ -1251,7 +1301,7 @@ fn run(inner: Arc<Inner>, wire: Wire, via: Via, dialed: bool, expect: Option<Pub
         }
         // A device that knows how gets only what changed since its copy of this one's last feed.
         let resume = (linked && knows.iter().any(|k| k == peerproto::HAVE)).then(|| st.replicas.get(&hex).map(|c| c.replica.have())).flatten().filter(|h| !h.is_empty());
-        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::for_device(&knows), knows, fed_board: 0, fed_at: None });
+        st.conns.insert(hex.clone(), Conn { serial, dialed, via, peer_user, addr, tx: tx.clone(), close: close.clone(), name: name.clone(), app, kind, watching: HashSet::new(), sides: HashSet::new(), heard: false, linked_there: false, since: now_ms(), outbox: Outbox::for_device(&knows), knows, fed_board: 0, fed_at: None });
         st.view_dirty = true;
         if let Some(lanes) = resume {
             let _ = tx.send(Msg::Have { lanes });
@@ -1467,6 +1517,15 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Out, running: &Arc<At
         }
         // Another Mac's replies aren't shown here yet: its panel reads the conversation.
         Msg::Stream(_) => return,
+        // A side conversation asked about here, of a session there.
+        Msg::Side(mut side) => {
+            let linked = Inner::is_linked(&inner.lock(), key);
+            if linked {
+                side.key = peerfeed::remote_key(short_of(key), &side.key);
+                (inner.hooks.side)(side);
+            }
+            return;
+        }
         Msg::Pong | Msg::Hello { .. } | Msg::Proof { .. } | Msg::Unknown => return,
     }
     inner.wake.notify_all();
@@ -1757,6 +1816,8 @@ mod tests {
         board: Arc<Mutex<Board>>,
         views: Arc<Mutex<Vec<DevicesView>>>,
         asked: Arc<Mutex<Vec<(String, Value)>>>,
+        /// The side conversations of other devices' sessions its windows were handed.
+        sides: Arc<Mutex<Vec<Side>>>,
         dir: PathBuf,
     }
 
@@ -1777,7 +1838,8 @@ mod tests {
         let board = Arc::new(Mutex::new(Board { lanes, devices: cfg.clone(), ..Board::default() }));
         let views = Arc::new(Mutex::new(Vec::new()));
         let asked = Arc::new(Mutex::new(Vec::new()));
-        let (b, v, a) = (board.clone(), views.clone(), asked.clone());
+        let sides = Arc::new(Mutex::new(Vec::new()));
+        let (b, v, a, sd) = (board.clone(), views.clone(), asked.clone(), sides.clone());
         let hooks = Hooks {
             board: Box::new(move || b.lock().unwrap().clone()),
             answer: Box::new(move |method, params, watching| {
@@ -1786,7 +1848,7 @@ mod tests {
                     "session-page" => Ok(json!({ "items": [], "before": null, "after": 0, "key": params["key"] })),
                     "search" => Ok(json!({ "hits": [{ "key": "claude:claude:s1", "snippet": "the webhook", "you": true, "at": 5 }], "building": false, "off": false })),
                     "session-send" => Ok(json!({ "message": "Sent.", "opened": false })),
-                    "session-stream" => Ok(Value::Null),
+                    "session-stream" | "side-get" => Ok(Value::Null),
                     "session-rename" | "mark-seen" | "session-archive" => Ok(Value::Null),
                     // As a Mac does that knows it, asked to end work under way; else as one from
                     // before it does.
@@ -1802,11 +1864,12 @@ mod tests {
                 }
             }),
             emit: Box::new(move |view| v.lock().unwrap().push(view.clone())),
+            side: Box::new(move |s| sd.lock().unwrap().push(s)),
         };
         let peers = Peers::with_key(dir.clone(), SecretKey::generate(), hooks);
         peers.configure(&cfg);
         peers.0.lock().my_user = Some("sam@example.com".into());
-        Device { peers, board, views, asked, dir }
+        Device { peers, board, views, asked, sides, dir }
     }
 
     /// Joins two devices over a loopback TCP connection, as the tailnet would, both machines Sam's.
@@ -2024,6 +2087,53 @@ mod tests {
         for m in [&a, &b] {
             let _ = std::fs::remove_dir_all(&m.dir);
         }
+    }
+
+    #[test]
+    fn a_side_conversation_asked_about_from_another_machine_goes_to_it_as_it_changes() {
+        use codealong_peer::api::SideTurn;
+        let a = device("Book", vec![]);
+        let b = device("Mini", vec![lane("/Users/sam/app", vec![session("claude:claude:s2", Status::Needs)])]);
+        join(&a, &b);
+        link(&a, &b);
+        let b_short = short_of(&key_of(&b)).to_string();
+        let side = |answer: &str| Side { id: "7-1".into(), key: "claude:claude:s2".into(), turns: vec![SideTurn { question: "Why?".into(), answer: answer.into(), ..Default::default() }], running: true, ..Default::default() };
+        // Nothing of the Mini's side conversations goes to the Book before it asks about them.
+        b.peers.side(&side("Not yet"));
+        a.peers.ask(&b_short, "side-get", json!({ "key": "claude:claude:s2" }), Duration::from_secs(5)).unwrap();
+        // From then on each change goes, by the key the session has on the Book; another
+        // session's doesn't.
+        b.peers.side(&Side { key: "claude:claude:other".into(), ..side("Elsewhere") });
+        b.peers.side(&side("Because"));
+        b.peers.side(&Side { running: false, ..side("Because it is.") });
+        until("the answer", || a.sides.lock().unwrap().iter().any(|s| !s.running));
+        let got = a.sides.lock().unwrap().clone();
+        assert!(got.iter().all(|s| s.key == format!("@{b_short}:claude:claude:s2")), "{got:?}");
+        assert!(!got.iter().any(|s| s.turns[0].answer == "Not yet"), "{got:?}");
+        assert_eq!(got.last().unwrap().turns[0].answer, "Because it is.");
+        for m in [&a, &b] {
+            let _ = std::fs::remove_dir_all(&m.dir);
+        }
+    }
+
+    #[test]
+    fn a_side_conversation_queued_to_go_keeps_what_happened_in_order() {
+        use codealong_peer::api::SideTurn;
+        let open = |id: &str, answer: &str| Side { id: id.into(), key: "k".into(), turns: vec![SideTurn { question: "Why?".into(), answer: answer.into(), ..Default::default() }], running: true, ..Default::default() };
+        let gone = || Side { key: "k".into(), ..Default::default() };
+        let mut queue = Vec::new();
+        side_queued(&mut queue, open("a", "Be"));
+        side_queued(&mut queue, open("a", "Because"));
+        // Closed while it answers: none open, and the one closed still answering.
+        side_queued(&mut queue, gone());
+        side_queued(&mut queue, Side { closed: true, ..open("a", "Because it") });
+        // Another asked and closed after it.
+        side_queued(&mut queue, open("b", "Yes"));
+        side_queued(&mut queue, gone());
+        side_queued(&mut queue, Side { closed: true, running: false, ..open("a", "Because it is.") });
+        let said: Vec<(&str, bool, &str)> = queue.iter().map(|s| (s.id.as_str(), s.closed, s.turns.first().map_or("", |t| t.answer.as_str()))).collect();
+        // The latest of each, after what happened before it: none is open at the end.
+        assert_eq!(said, [("a", false, "Because"), ("b", false, "Yes"), ("", false, ""), ("a", true, "Because it is.")]);
     }
 
     #[test]

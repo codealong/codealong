@@ -722,8 +722,9 @@ fn run(inner: Arc<Inner>, wire: Wire, expect: PublicKey, secret: Option<String>,
     let mut reader = BufReader::with_capacity(64 * 1024, reader);
     set_timeout(Some(HANDSHAKE_TIMEOUT));
     let my_nonce = proto::nonce();
-    // A device that only watches runs no schedules, so it isn't sent the ones your machines share.
-    let knows = proto::KNOWS.into_iter().filter(|k| *k != proto::SCHEDULES).map(String::from).collect();
+    // A device that only watches runs no schedules, so it isn't sent the ones your machines share,
+    // and doesn't show side conversations yet.
+    let knows = proto::KNOWS.into_iter().filter(|k| *k != proto::SCHEDULES && *k != proto::SIDES).map(String::from).collect();
     let _ = tx.send(Msg::Hello { v: VERSION, key: inner.hex.clone(), name: inner.name.clone(), app: inner.app.clone(), nonce: my_nonce.clone(), kind: Some(inner.kind.clone()), knows });
     let shook = (|| -> std::result::Result<(String, String, Vec<String>), String> {
         let Ok(Some(Msg::Hello { v, key, name, app, nonce, knows, .. })) = proto::read_msg(&mut reader) else { return Err("The other device didn't say hello.".into()) };
@@ -898,8 +899,8 @@ fn handle(inner: &Arc<Inner>, key: &str, serial: u64, tx: &Sender<Msg>, msg: Msg
                 replies.insert(s.key.clone(), s);
             }
         }
-        // This device has no feed to pick up.
-        Msg::Have { .. } => return,
+        // This device has no feed to pick up, and doesn't say it knows side conversations.
+        Msg::Have { .. } | Msg::Side(_) => return,
         Msg::Pong | Msg::Hello { .. } | Msg::Proof { .. } | Msg::Unknown => return,
     }
     drop(st);

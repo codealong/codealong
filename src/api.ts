@@ -888,9 +888,9 @@ export async function sidePast(key: string): Promise<SideKept[]> {
 }
 
 /** Forgets a kept side conversation. */
-export async function sideForget(id: string): Promise<void> {
+export async function sideForget(key: string, id: string): Promise<void> {
   if (!inTauri) return;
-  await invoke('side_forget', { id });
+  await invoke('side_forget', { key, id });
 }
 
 /** Closes a session's side conversation: a copy that's answering answers what it was asked and
@@ -977,6 +977,11 @@ export async function noteRoute(note: RouteNote): Promise<void> {
  *  `accounts`' own (skills.rs). This Mac's folders and accounts only. */
 export async function listSkills(folders: string[], accounts: string[]): Promise<SkillsListed> {
   return invoke<SkillsListed>('skills', { folders, accounts });
+}
+
+/** The skills a session's box lists: its folder's and its account's, read where it runs. */
+export async function sessionSkills(key: string): Promise<SkillsListed> {
+  return invoke<SkillsListed>('session_skills', { key });
 }
 
 /** Sessions whose prompts and replies have every word (search.rs). */

@@ -315,6 +315,28 @@ function loadingBoard(board) {
 function loadingFeed(feed) {
   return Object.assign(feed, { loading: true, generatedAt: 0, projects: [], items: [], recent: [], snoozed: [], reviews: [], todos: [] });
 }
+// The skills the engine would list for these folders and accounts: the `skills` command's answer,
+// and a session's.
+function skillsListed(folders, accounts) {
+  var none = { folders: [], accounts: [] };
+  var read = function (file) { return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }); };
+  return Promise.all([read('./skills-fixture.json'), read('./skills.json')]).then(function (got) {
+    if (got[0]) {
+      return {
+        folders: folders.map(function (f, i) { return { folder: f, skills: (i === 0 ? got[0].first || [] : []).concat(got[0].every || []) }; }),
+        accounts: accounts.map(function (a, i) { return { account: a, skills: (got[0].account || []).concat(i === 0 ? got[0].firstAccount || [] : []) }; }),
+      };
+    }
+    var all = got[1] || none;
+    var within = function (f) {
+      return all.folders.filter(function (x) { return f === x.folder || f.indexOf(x.folder + '/') === 0; }).sort(function (a, b) { return b.folder.length - a.folder.length; })[0];
+    };
+    return {
+      folders: folders.map(function (f) { return { folder: f, skills: (within(f) || { skills: [] }).skills }; }),
+      accounts: accounts.map(function (a) { return all.accounts.filter(function (x) { return x.account === a; })[0] || { account: a, skills: [] }; }),
+    };
+  });
+}
 window.__TAURI_INTERNALS__ = {
   invoke: function (cmd, args, options) {
     window.__calls.push([cmd, args, options]);
@@ -470,28 +492,16 @@ window.__TAURI_INTERNALS__ = {
     if (file) return fetch(file).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(file + ' is missing')); });
     // The `/` lists' skills: from skills-fixture.json (PREVIEW_SKILLS) where there is one, else
     // what the engine listed for every worktree on the board (skills.json), a folder inside a
-    // worktree getting its worktree's.
-    if (cmd === 'skills') {
-      var asked = args || {};
-      var none = { folders: [], accounts: [] };
-      var read = function (file) { return fetch(file).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }); };
-      return Promise.all([read('./skills-fixture.json'), read('./skills.json')]).then(function (got) {
-        var folders = asked.folders || [];
-        var accounts = asked.accounts || [];
-        if (got[0]) {
-          return {
-            folders: folders.map(function (f, i) { return { folder: f, skills: (i === 0 ? got[0].first || [] : []).concat(got[0].every || []) }; }),
-            accounts: accounts.map(function (a, i) { return { account: a, skills: (got[0].account || []).concat(i === 0 ? got[0].firstAccount || [] : []) }; }),
-          };
-        }
-        var all = got[1] || none;
-        var within = function (f) {
-          return all.folders.filter(function (x) { return f === x.folder || f.indexOf(x.folder + '/') === 0; }).sort(function (a, b) { return b.folder.length - a.folder.length; })[0];
-        };
-        return {
-          folders: folders.map(function (f) { return { folder: f, skills: (within(f) || { skills: [] }).skills }; }),
-          accounts: accounts.map(function (a) { return all.accounts.filter(function (x) { return x.account === a; })[0] || { account: a, skills: [] }; }),
-        };
+    // worktree getting its worktree's. A session's are its folder's and account's, one on another
+    // device (PREVIEW_DEVICES) being a copy of one on the board.
+    if (cmd === 'skills') return skillsListed((args || {}).folders || [], (args || {}).accounts || []);
+    if (cmd === 'session_skills') {
+      var own = String((args || {}).key || '').replace(/^@[^:]+:/, '');
+      return fetch('./board.json').then(function (r) { return r.json(); }).then(function (b) {
+        var found = null;
+        b.lanes.forEach(function (l) { l.sessions.forEach(function (x) { if (x.key === own) found = x; }); });
+        if (!found) return Promise.reject(new Error('That session isn’t on the board any more.'));
+        return skillsListed(found.cwd ? [found.cwd] : [], [found.account]);
       });
     }
     // Paths a conversation writes as code are here, but one whose words say it's gone: a folder

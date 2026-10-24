@@ -409,6 +409,13 @@ back closes the window and shows the conversation above the box again, and its �
 as Close does, and the window. It comes back at launch where it was left, empty until you ask it something. Other
 `/…` commands go to the session as typed.
 
+A session on another machine is asked on the side the same way: its copy runs on that machine,
+beside the session, and the answer shows here as it's written. Asking needs remote control on that
+machine, since the copy can do what the session can, and a build of Codealong from 2026-10-23 or
+later there; what was asked is kept on that machine, where its earlier side conversations are listed
+from and deleted. Its header and its row in Sessions don't name another machine's side
+conversations yet.
+
 #### The session panel
 
 The selected session's panel keeps its top to three lines so the conversation has the room: the
@@ -2336,8 +2343,10 @@ An account's own skills are its personal ones, its plugins' and the ones claude.
 account may use them, `/loop`, `/code-review`, `/verify`. Its commands, such as `/compact` and
 `/model`, aren't skills and aren't listed. Codealong asks each account's Claude Code for those as
 it starts, which spends no usage, and again every hour. OpenCode
-and Antigravity can't be told to run a skill by name in a prompt, so they're offered none, and
-another Mac's skills aren't listed yet.
+and Antigravity can't be told to run a skill by name in a prompt, so they're offered none. A
+session on another machine lists its skills as that machine reads them, its folder's and its
+account's there, from a build of Codealong from 2026-10-23 or later; the quick panel lists only this
+machine's.
 
 A skill or command you ran with `/` in a Claude Code session shows in its conversation and on its
 row as you wrote it, `/name` and the words after it, as any prompt does.
@@ -3118,8 +3127,8 @@ their repos, whatever those devices call them, even where a checkout still has a
 name; work on a device that's away stays, faded, as it was when last seen; the sidebar's Devices
 narrow the views to the ones you pick. A session on another device shows its whole conversation in
 its panel; you can mark it seen or snooze it from here, and when that device lets its linked devices
-act on its sessions (remote control, off by default) send it a message, answer an approval or mark
-it done, or start a session there: ⌘D in the quick panel picks the Mac, and `codealong start
+act on its sessions (remote control, off by default) send it a message, ask it on the side, answer
+an approval or mark it done, or start a session there: ⌘D in the quick panel picks the Mac, and `codealong start
 --device <name> --prompt …` has that Mac pick the worktree (a folder there, a path under your home
 being the same path under its home, or by default its main checkout of the repo you're in), the
 account and the place as `codealong start` run there would. A start there takes no todo and makes no

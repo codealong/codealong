@@ -27,8 +27,6 @@ use crate::{acp, config, harness, peerfeed, send, transcript};
 pub const FORK_TERMINAL: &str = "session-fork-terminal";
 pub const MOVE: &str = "session-move";
 pub const CLOSE: &str = "session-close";
-pub const SIDE_ASK: &str = "session-side-ask";
-pub const SIDE_CLOSE: &str = "session-side-close";
 pub const OPEN: &str = "open-target";
 pub const PREVIEW: &str = "worktree-preview";
 pub const REUSABLE: &str = "worktree-reusable";
@@ -49,13 +47,6 @@ pub mod params {
         pub account: String,
         #[serde(skip_serializing_if = "String::is_empty")]
         pub lane: String,
-    }
-
-    /// `session-side-ask`: the question for its side conversation.
-    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-    #[serde(default)]
-    pub struct Side {
-        pub text: String,
     }
 
     /// `open-target`: one of a worktree's open targets, as the board lists them.
@@ -254,10 +245,16 @@ const REQUESTS: &[Request] = &[
     // From the command, only a session's own and the ones it started (`done`, agentdone.rs).
     Request { name: api::SESSION_DONE, here: done, wait: Some(Duration::from_secs(300)), instead: Some(done_anyway), ..ANY },
     // A side conversation's copy runs on the session's Mac, and its answer goes to the windows
-    // there. The copy may do what its session may without asking, which isn't the command's to
-    // borrow.
-    Request { name: SIDE_ASK, only_here: Some("Ask it on the side on the Mac it runs on."), here: side_ask, command: side_in_windows, ..ANY },
-    Request { name: SIDE_CLOSE, only_here: Some("Its side conversation is on the Mac it runs on."), here: side_close, command: side_in_windows, ..ANY },
+    // there and to the devices that asked about it (`Msg::Side`). The copy may do what its session
+    // may without asking, which isn't the command's to borrow. A question carries its images as a
+    // prompt does.
+    Request { name: api::SIDE_ASK, here: side_ask, command: side_in_windows, back: side_back, prompt: Some("/text"), ..ANY },
+    Request { name: api::SIDE_CLOSE, here: side_close, command: side_in_windows, ..ANY },
+    Request { name: api::SIDE_GET, here: side_get, back: side_back, ..ANY },
+    Request { name: api::SIDE_PAST, here: side_past, back: kept_back, ..ANY },
+    Request { name: api::SIDE_FORGET, here: side_forget, command: side_in_windows, ..ANY },
+    // The skills its box lists are read where the session's folder and account are.
+    Request { name: api::SESSION_SKILLS, here: session_skills, ..ANY },
     // What a click opens is on the screen of the device it's on.
     Request { name: OPEN, only_here: Some("That's on another device: it opens there, and its sessions show in their panel here."), here: open, ..ANY },
     // A worktree's preview and reuse mark are kept on its Mac, with its other settings.
@@ -1487,6 +1484,48 @@ fn side_close(_: &Handle, c: &Call) -> Result<Value, String> {
     Ok(Value::Null)
 }
 
+/// Its open side conversation, if it has one.
+fn side_get(_: &Handle, c: &Call) -> Result<Value, String> {
+    to_value(crate::side::get(c.session()?))
+}
+
+/// The side conversations kept for it, the latest first.
+fn side_past(_: &Handle, c: &Call) -> Result<Value, String> {
+    to_value(crate::side::past(c.session()?))
+}
+
+/// Forgets one of its kept side conversations, by id.
+fn side_forget(_: &Handle, c: &Call) -> Result<Value, String> {
+    let p: params::SideForget = c.read()?;
+    crate::side::forget(&p.id).map_err(words)?;
+    Ok(Value::Null)
+}
+
+/// Another device's side conversation, by the key its session has here.
+fn side_back(v: Value, device: &str) -> Result<Value, String> {
+    let Some(mut side) = typed::<Option<crate::side::Side>>(v)? else { return Ok(Value::Null) };
+    side.key = peerfeed::remote_key(device, &side.key);
+    to_value(side)
+}
+
+/// Another device's kept side conversations, by the key their session has here.
+fn kept_back(v: Value, device: &str) -> Result<Value, String> {
+    let mut kept: Vec<crate::side::Kept> = typed(v)?;
+    for k in &mut kept {
+        k.key = peerfeed::remote_key(device, &k.key);
+    }
+    to_value(kept)
+}
+
+/// The skills its box's `/` list offers: its folder's and its account's, as this machine reads them
+/// (skills.rs).
+fn session_skills(engine: &Handle, c: &Call) -> Result<Value, String> {
+    let key = c.session()?;
+    let (cwd, account) = engine.read(|b| b.session(key).map(|(_, s)| (s.cwd.clone(), s.account.clone()))).ok_or("That session isn't on the board any more.")?;
+    let folders: Vec<String> = Some(cwd).filter(|f| !f.is_empty()).into_iter().collect();
+    to_value(crate::skills::list(&folders, &[account], &cfg()?))
+}
+
 /// Opens one of a worktree's targets (`target`), as a click does: a session's terminal, the
 /// worktree in an editor (`engine::open_on`).
 fn open(engine: &Handle, c: &Call) -> Result<Value, String> {
@@ -1854,7 +1893,7 @@ mod tests {
 
     fn no_devices() -> (Peers, crate::fixtures::Scratch) {
         let dir = crate::fixtures::scratch("actions");
-        let hooks = crate::peers::Hooks { board: Box::new(crate::model::Board::default), answer: Box::new(|_, _, _| Err("no".into())), emit: Box::new(|_| {}) };
+        let hooks = crate::peers::Hooks { board: Box::new(crate::model::Board::default), answer: Box::new(|_, _, _| Err("no".into())), emit: Box::new(|_| {}), side: Box::new(|_| {}) };
         (Peers::new(dir.to_path_buf(), hooks), dir)
     }
 
@@ -1872,6 +1911,10 @@ mod tests {
         let spec = json!({ "spec": { "laneId": lane, "account": "claude", "place": "terminal", "prompt": "", "worktree": false, "todos": [] } });
         assert!(run(&engine, &peers, api::START, lane, spec).unwrap_err().contains("isn't linked"));
         assert!(run_on(&engine, &peers, api::START_OPTIONS, Some("a1b2c3d4e5"), json!({})).unwrap_err().contains("isn't linked"));
+        // A session's side conversation and its skills are its machine's too.
+        for (name, params) in [(api::SIDE_ASK, json!({ "text": "Why a queue?" })), (api::SIDE_GET, json!({})), (api::SESSION_SKILLS, json!({}))] {
+            assert!(run(&engine, &peers, name, "@a1b2c3d4e5:claude:claude:abc", params).unwrap_err().contains("isn't linked"), "{name}");
+        }
         // Another device's sessions are snoozed there: with none linked, the window hears why it
         // wasn't, and this device's own still answer.
         let snooze = |keys: &[&str]| run_keys_heard(&engine, &peers, api::SESSION_SNOOZE, keys.iter().map(|k| k.to_string()).collect(), json!({ "until": 1 }));
@@ -1930,6 +1973,19 @@ mod tests {
         let back = (search.back)(found, "a1b2c3d4e5").unwrap();
         assert_eq!(back["hits"][0]["key"], "@a1b2c3d4e5:claude:claude:s1");
         assert_eq!(search.wait, Some(Duration::from_secs(4)));
+        // A side conversation there is the session's here, asked or read, open or kept; none is
+        // none. Its question goes with its images, as a prompt does.
+        let ask = find(api::SIDE_ASK).unwrap();
+        assert_eq!((ask.there)(json!({ "text": "Why a queue?" }), "claude:claude:abc").unwrap(), json!({ "key": "claude:claude:abc", "text": "Why a queue?" }));
+        assert_eq!(ask.prompt, Some("/text"));
+        let side = json!({ "id": "7-1", "key": "claude:claude:abc", "turns": [{ "question": "Why a queue?", "answer": "", "done": false, "at": 1 }], "running": true, "ended": false });
+        assert_eq!((ask.back)(side.clone(), "a1b2c3d4e5").unwrap()["key"], "@a1b2c3d4e5:claude:claude:abc");
+        let get = find(api::SIDE_GET).unwrap();
+        assert_eq!((get.back)(side, "a1b2c3d4e5").unwrap()["key"], "@a1b2c3d4e5:claude:claude:abc");
+        assert_eq!((get.back)(Value::Null, "a1b2c3d4e5").unwrap(), Value::Null);
+        let past = find(api::SIDE_PAST).unwrap();
+        let kept = json!([{ "id": "6-1", "key": "claude:claude:abc", "title": "Fix the build", "startedAt": 1, "lastAt": 2, "turns": [] }]);
+        assert_eq!((past.back)(kept, "a1b2c3d4e5").unwrap()[0]["key"], "@a1b2c3d4e5:claude:claude:abc");
     }
 
     /// An app just started lists no sessions until its first scan ends. The command is told that,
@@ -1993,7 +2049,7 @@ mod tests {
         assert!(err.contains("isn't on the board"), "{err}");
         // A side conversation's copy acts with its session's permissions, and a move chooses
         // whose usage the conversation spends.
-        for name in [SIDE_ASK, SIDE_CLOSE, MOVE] {
+        for name in [api::SIDE_ASK, api::SIDE_CLOSE, api::SIDE_FORGET, MOVE] {
             assert!(ask(name, json!({ "text": "what changed?", "account": "claude2" })).unwrap_err().contains("in Codealong's windows"), "{name}");
         }
         // A command led by `!` runs in a terminal of its user's only as they ran it: an agent asks

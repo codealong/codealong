@@ -94,7 +94,7 @@ import { COMMANDS, slashCommand, slashMatches } from '../slash';
 import { completed, matching, mentionAt, mentionsIn, sessionSkills, skillNamed, writtenFor } from '../skills';
 import { rememberResumed, resumeChoice, resumedIn, resumeIn, resumeWords, type ResumePicks } from '../start';
 import { accountOf, useDeviceStartAccounts } from '../startAccounts';
-import { sessionSkillsFor, useSkills } from '../useSkills';
+import { useSessionSkills } from '../useSkills';
 import { mergeAttachments, splitAttachments, withAttachments } from '../todos';
 import type { Answers, Attachment, Pending, Question, Sent, Session, StartPlace, Suggestions, Way } from '../types';
 import { CodeBlock } from './CopyButton';
@@ -499,10 +499,10 @@ function Composer({ session: s, terminal, autoFocus, onlyAside = false, waiting,
   // caret moved, or a name finished.
   const [caret, setCaret] = useState(0);
   const mention = mentionAt(text, Math.min(caret, text.length));
-  // The session's skills, read once a slash is typed (its worktree's and its account's).
+  // The session's skills, read once a slash is typed (its worktree's and its account's, on the
+  // device it runs on).
   const slash = mentionsIn(text).length > 0;
-  const { folders: skillFolders, accounts: skillAccounts } = sessionSkillsFor(s);
-  const skills = sessionSkills(useSkills(skillFolders, skillAccounts, slash), s.harness);
+  const skills = sessionSkills(useSessionSkills(s.key, slash), s.harness);
 
   /** Sends what's in the box, or a suggested reply that was `chosen` (the box keeping what's in
    *  it), into the turn it's taking at once with `now`; says whether there was anything to send. A

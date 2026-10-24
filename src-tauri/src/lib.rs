@@ -862,8 +862,8 @@ async fn session_pending(engine: State<'_, engine::Handle>, peers: State<'_, pee
 }
 
 /// The skills a session in each of `folders` could be asked to run by name, and each of
-/// `accounts`' own (skills.rs), for the `/` lists of the quick panel and a session's reply box.
-/// This Mac's only: its folders and accounts.
+/// `accounts`' own (skills.rs), for the quick panel's `/` list. This machine's only: its folders
+/// and accounts.
 #[tauri::command]
 async fn skills(folders: Vec<String>, accounts: Vec<String>) -> Result<skills::Listed, String> {
     blocking(move || {
@@ -871,6 +871,14 @@ async fn skills(folders: Vec<String>, accounts: Vec<String>) -> Result<skills::L
         Ok(skills::list(&folders, &accounts, &cfg))
     })
     .await?
+}
+
+/// The skills a session could be asked to run by name, for its reply box's `/` list: its
+/// folder's and its account's, read on the device it runs on (`api::SESSION_SKILLS`).
+#[tauri::command]
+async fn session_skills(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SESSION_SKILLS, &key, actions::params::Session::default())).await?
 }
 
 /// How a message sent to a session would reach it, for its box's placeholder (send.rs `way_in`).
@@ -1650,29 +1658,35 @@ async fn fork_session(engine: State<'_, engine::Handle>, peers: State<'_, peers:
 
 /// Asks something about a session on the side (side.rs): a throwaway copy of its conversation
 /// answers, and the session carries on, unaware. Returns the side conversation with the question
-/// in it; the answer comes as `side` events.
+/// in it; the answer comes as `side` events, from the session's device for one on another
+/// (`Msg::Side`).
 #[tauri::command]
 async fn side_ask(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, text: String) -> Result<serde_json::Value, String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
-    blocking(move || actions::run(&engine, &peers, actions::SIDE_ASK, &key, actions::params::Side { text })).await?
+    blocking(move || actions::run(&engine, &peers, api::SIDE_ASK, &key, actions::params::Side { text, ..Default::default() })).await?
 }
 
-/// A session's side conversation, for a window that starts showing the session.
-#[tauri::command(async)]
-fn side_get(key: String) -> Option<side::Side> {
-    side::get(&key)
+/// A session's side conversation, for a window that starts showing the session: from its
+/// device, for one on another.
+#[tauri::command]
+async fn side_get(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SIDE_GET, &key, actions::params::Session::default())).await?
 }
 
-/// The side conversations kept for a session, the latest first, to read after they're closed.
-#[tauri::command(async)]
-fn side_past(key: String) -> Vec<side::Kept> {
-    side::past(&key)
+/// The side conversations kept for a session, the latest first, to read after they're closed:
+/// its device's, for one on another.
+#[tauri::command]
+async fn side_past(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<serde_json::Value, String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SIDE_PAST, &key, actions::params::Session::default())).await?
 }
 
-/// Forgets a kept side conversation.
-#[tauri::command(async)]
-fn side_forget(id: String) -> Result<(), String> {
-    side::forget(&id).map_err(words)
+/// Forgets one of a session's kept side conversations, on its device.
+#[tauri::command]
+async fn side_forget(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String, id: String) -> Result<(), String> {
+    let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
+    blocking(move || actions::run(&engine, &peers, api::SIDE_FORGET, &key, actions::params::SideForget { id, ..Default::default() }).map(|_| ())).await?
 }
 
 /// Closes a session's side conversation: a copy that's answering answers what it was asked and
@@ -1680,7 +1694,7 @@ fn side_forget(id: String) -> Result<(), String> {
 #[tauri::command]
 async fn side_close(engine: State<'_, engine::Handle>, peers: State<'_, peers::Peers>, key: String) -> Result<(), String> {
     let (engine, peers) = (engine.inner().clone(), peers.inner().clone());
-    blocking(move || actions::run(&engine, &peers, actions::SIDE_CLOSE, &key, serde_json::json!({})).map(|_| ())).await?
+    blocking(move || actions::run(&engine, &peers, api::SIDE_CLOSE, &key, serde_json::json!({})).map(|_| ())).await?
 }
 
 /// Asks about a PR (`key`, `owner/name#number`) in a conversation of its own on `account`, on
@@ -2114,7 +2128,7 @@ pub fn run() {
             // and ask it for the board and for answers once it's there.
             let engine_slot: std::sync::Arc<std::sync::OnceLock<engine::Handle>> = Default::default();
             let peers = {
-                let (boards, answers, emits, runs) = (engine_slot.clone(), engine_slot.clone(), app.handle().clone(), engine_slot.clone());
+                let (boards, answers, emits, runs, sides) = (engine_slot.clone(), engine_slot.clone(), app.handle().clone(), engine_slot.clone(), app.handle().clone());
                 peers::Peers::new(
                     config::support_dir(),
                     peers::Hooks {
@@ -2130,6 +2144,9 @@ pub fn run() {
                                 engine.peer_machines(view.machines.clone());
                             }
                             let _ = emits.emit("devices", view);
+                        }),
+                        side: Box::new(move |s| {
+                            let _ = sides.emit("side", s);
                         }),
                     },
                 )
@@ -2281,11 +2298,13 @@ pub fn run() {
                 });
             }
             // A side conversation's answer, as its copy writes it, for the windows showing its
-            // session; the board again when what it lists of them changes.
+            // session and the linked devices that asked about it; the board again when what it
+            // lists of them changes.
             {
-                let (app, engine) = (app.handle().clone(), engine.clone());
+                let (app, engine, askers) = (app.handle().clone(), engine.clone(), peers.clone());
                 side::init(
                     move |s| {
+                        askers.side(&s);
                         let _ = app.emit("side", s);
                     },
                     move || engine.sides_changed(),
@@ -2375,7 +2394,7 @@ pub fn run() {
             kept::on_window_event(window, event);
         })
         .register_asynchronous_uri_scheme_protocol("codealong-image", |ctx, request, responder| serve_image(ctx.app_handle().clone(), request, responder))
-        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, token_report, session_tokens, idle_sessions, close_idle_sessions, stale_terminals, close_stale_terminals, close_session, session_done, open_target, open_config, editor_icons, mark_seen, mark_unread, set_pr_nudge, set_pr_primary, snooze_sessions, quiet_sessions, own_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_pinned_repos, set_preview, set_reusable, remove_worktree, archive_session, rename_session, dismiss_suggestions, pr_detail, pr_since, pr_card, pr_comment_asks, pr_agent_reviews, send_agent_review, review_pr_now, review_pr_again, review_pr, pr_draft, edit_draft, edit_draft_comment, drop_draft_comment, merge_box, merge_pr, review_in_codex, open_url, open_pr_file, run_command, shell_commands, get_accounts, save_accounts, order_accounts, keep_start_place, found_accounts, setup_view, setup_needed, finish_setup, get_config, save_config, save_config_text, play_sound, take_team_settings, open_team_file, look_folder, add_folder, sign_in, stop_training, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, pr_side_ask, pr_side_close, todo_op, schedule_op, schedule_times, boards_list, board_op, canvas_load, canvas_save, board_answer, save_attachment, import_attachment, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, expand_attachments, set_theme, zoom, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, route_quick, note_route, skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, session_steer, send_to_session, resume_session, switch_session_model, switch_session_effort, switch_session_mode, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, jev_usage, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, pointer_probe, popup_menu, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login])
+        .invoke_handler(tauri::generate_handler![get_board, session_at, pr_at, token_report, session_tokens, idle_sessions, close_idle_sessions, stale_terminals, close_stale_terminals, close_session, session_done, open_target, open_config, editor_icons, mark_seen, mark_unread, set_pr_nudge, set_pr_primary, snooze_sessions, quiet_sessions, own_sessions, snooze_reviews, refresh, refresh_usage, set_pinned, set_pinned_worktrees, set_pinned_prs, set_pinned_repos, set_preview, set_reusable, remove_worktree, archive_session, rename_session, dismiss_suggestions, pr_detail, pr_since, pr_card, pr_comment_asks, pr_agent_reviews, send_agent_review, review_pr_now, review_pr_again, review_pr, pr_draft, edit_draft, edit_draft_comment, drop_draft_comment, merge_box, merge_pr, review_in_codex, open_url, open_pr_file, run_command, shell_commands, get_accounts, save_accounts, order_accounts, keep_start_place, found_accounts, setup_view, setup_needed, finish_setup, get_config, save_config, save_config_text, play_sound, take_team_settings, open_team_file, look_folder, add_folder, sign_in, stop_training, agents_status, install_agents, start_options, device_start_options, start_session, fork_session, move_session, side_ask, side_get, side_past, side_forget, side_close, pr_side_ask, pr_side_close, todo_op, schedule_op, schedule_times, boards_list, board_op, canvas_load, canvas_save, board_answer, save_attachment, import_attachment, open_attachment, open_file, reveal_file, edit_file, your_editor, path_kinds, expand_attachments, set_theme, zoom, open_project_window, fit_bar, show_main, peek_open, peek_ready, peek_fit, peek_focus, peek_hide, peek_resize, peek_drag, keep_session, kept_session, kept_ready, kept_focus, kept_resize, kept_close, side_window, side_windows, bar_feed, bar_on, set_bar_on, bar_mode, set_bar_mode, set_notch_open, notch_keys, keep_notch_session, notch_shape, open_from_bar, desktop_pins, pin_to_desktop, unpin_from_desktop, drag_to_desktop, desktop_feed, fit_desktop, desktop_hover, lineage_feed, show_quick, hide_quick, quick_ready, show_waiting, waiting_asked, start_from_quick, route_quick, note_route, skills, session_skills, search_text, search_devices, devices, set_device_color, link_device, answer_link, unlink_device, device_link_code, link_code_qr, link_with_code, session_page, session_newer, session_pending, session_way, session_answer, session_stream, session_cancel, session_steer, send_to_session, resume_session, switch_session_model, switch_session_effort, switch_session_mode, suggest_todo, dismiss_todo_hint, jev_key, set_jev_key, test_jev, jev_usage, quick_shortcut, pause_quick_shortcut, perf_mark, page_unfocused, pointer_probe, popup_menu, update_status, check_for_updates, restart_to_update, open_at_login, set_open_at_login])
         .build(tauri::generate_context!())
         .expect("error while running Codealong")
         .run(|app, event| {

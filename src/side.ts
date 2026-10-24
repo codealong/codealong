@@ -283,7 +283,7 @@ export function forgetSide(key: string, id: string): void {
   }
   tell();
   const again = () => readKept(key);
-  sideForget(id).then(again, again);
+  sideForget(key, id).then(again, again);
 }
 
 /** A kept side conversation in a line: its first question. */

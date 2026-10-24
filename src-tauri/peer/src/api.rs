@@ -142,6 +142,31 @@ pub const IMAGE_READ: &str = "image-read";
 /// `dry_run`, only says whether it can go and what would run. It can't be undone, so another
 /// device needs remote control. Macs before 2026-10-12 refuse it as a request they don't know.
 pub const WORKTREE_REMOVE: &str = "worktree-remove";
+/// The skills a session (`key`) could be asked to run by name, for its box's `/` list: its
+/// folder's and its account's, as its machine reads them, answering the engine's `skills::Listed`.
+/// Machines before 2026-10-23 refuse it as a request they don't know, and their sessions' boxes
+/// list none.
+pub const SESSION_SKILLS: &str = "session-skills";
+/// Asks a session's side conversation (`key`, `text`): a throwaway copy of its conversation
+/// answers on its machine, and the session carries on, unaware, answering the `Side` with the
+/// question in it. The copy may do what the session may without asking, so another device needs
+/// remote control. A device that says it knows `proto::SIDES` is sent each change to a session's
+/// side conversations as `Msg::Side` once it has asked about them here (this, `SIDE_GET`,
+/// `SIDE_PAST`, `SIDE_CLOSE`), for as long as it stays connected: the answer comes that way.
+/// Machines before 2026-10-23 refuse these as requests they don't know.
+pub const SIDE_ASK: &str = "side-ask";
+/// Closes a session's side conversation (`key`): a copy that's answering answers what it was
+/// asked and then ends, and what was said is kept to read (`SIDE_PAST`).
+pub const SIDE_CLOSE: &str = "side-close";
+/// A session's open side conversation (`key`), answering `Side`, or null for none.
+pub const SIDE_GET: &str = "side-get";
+/// The side conversations kept for a session (`key`), the latest first, answering a list of
+/// `SideKept`: the open one too, as far as it's been answered, and the ones closed and still
+/// answering as they are.
+pub const SIDE_PAST: &str = "side-past";
+/// Forgets one of a session's kept side conversations (`key`, `id`), stopping it if it was closed
+/// and is still answering.
+pub const SIDE_FORGET: &str = "side-forget";
 
 /// What each request carries, as its makers write it (the engine's windows and command, and a
 /// device that only watches, client.rs) and the device asked reads it (the engine's actions.rs).
@@ -509,6 +534,24 @@ pub mod params {
         pub model: Option<String>,
         pub effort: Option<String>,
     }
+
+    /// `side-ask`: the question for its side conversation.
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct Side {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub text: String,
+    }
+
+    /// `side-forget`: the kept side conversation, by its id (`SideKept::id`).
+    #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+    #[serde(default)]
+    pub struct SideForget {
+        #[serde(skip_serializing_if = "String::is_empty")]
+        pub key: String,
+        pub id: String,
+    }
 }
 
 /// Who may make a request of a device, as the device asked decides it (the engine's peers.rs).
@@ -526,13 +569,16 @@ pub enum Reach {
 }
 
 /// Every request, with who may make it. A request missing here is one a device doesn't know.
-pub const REQUESTS: [(&str, Reach); 40] = [
+pub const REQUESTS: [(&str, Reach); 46] = [
     (SESSION_PAGE, Reach::Read),
     (SESSION_NEWER, Reach::Read),
     (SESSION_PENDING, Reach::Read),
     (SESSION_WAY, Reach::Read),
     (SESSION_STREAM, Reach::Read),
     (SESSION_WATCH, Reach::Read),
+    (SESSION_SKILLS, Reach::Read),
+    (SIDE_GET, Reach::Read),
+    (SIDE_PAST, Reach::Read),
     (SEARCH, Reach::Read),
     (START_OPTIONS, Reach::Read),
     (START_PICK, Reach::Read),
@@ -563,6 +609,10 @@ pub const REQUESTS: [(&str, Reach); 40] = [
     (SESSION_EFFORT, Reach::Control),
     (SESSION_MODE, Reach::Control),
     (SESSION_DONE, Reach::Control),
+    // A side conversation's copy acts as its session may; closing or forgetting one ends a copy.
+    (SIDE_ASK, Reach::Control),
+    (SIDE_CLOSE, Reach::Control),
+    (SIDE_FORGET, Reach::Control),
     (PR_REVIEW, Reach::Control),
     (PR_MERGE, Reach::Control),
     (IMAGE_KEEP, Reach::Control),
@@ -883,6 +933,84 @@ pub enum Way {
     Cursor,
 }
 
+// ---- side conversations (`side-ask`, `side-get`, `side-past`, `Msg::Side`) ----
+
+/// One question in a side conversation, and its answer.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SideTurn {
+    pub question: String,
+    /// The answer so far.
+    #[serde(default)]
+    pub answer: String,
+    /// What the copy did to answer: its tool calls, a line each, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<String>,
+    /// The tool it's running now, as a line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(default)]
+    pub done: bool,
+    /// Why it ended without an answer, or with half of one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// When it was asked.
+    #[serde(default)]
+    pub at: i64,
+}
+
+/// A session's side conversation, as the windows show it (the engine's side.rs). With no turns
+/// there is none: the session's open one has gone.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Side {
+    /// Which of the session's side conversations: its record's id (`SideKept`).
+    pub id: String,
+    /// The session it's about.
+    pub key: String,
+    pub turns: Vec<SideTurn>,
+    /// The copy is answering.
+    pub running: bool,
+    /// The copy is gone (it sat idle, or stopped): what was said can still be read, and the
+    /// next question goes to a new copy, which knows none of it.
+    pub ended: bool,
+    /// The account whose agent answers, where that's chosen: a PR's conversation's. A session's
+    /// copy answers on the session's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    /// The model and effort it answers on, where they were chosen with the account; none for the
+    /// account's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// It was closed while its copy answered, and the copy answers what it was asked before it
+    /// ends: no longer the session's open one, it's read where the kept ones are (`SIDE_PAST`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
+}
+
+/// A side conversation as Codealong keeps it, to read once its copy is gone: the turns that
+/// ended, with or without an answer.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SideKept {
+    pub id: String,
+    /// The session it was about.
+    pub key: String,
+    /// The session's title when it was asked.
+    #[serde(default)]
+    pub title: String,
+    pub started_at: i64,
+    /// When it was last asked or answered.
+    pub last_at: i64,
+    pub turns: Vec<SideTurn>,
+    /// It was closed while its copy answered, and the copy is answering still: read as it is
+    /// (`SIDE_PAST`), never kept so.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub answering: bool,
+}
+
 // ---- starting a session (`start-options`, `start`) ----
 
 /// Where a new session runs.
@@ -1186,6 +1314,10 @@ mod tests {
         // Without a place it goes on in a terminal, as a send to it does.
         assert_eq!(serde_json::from_value::<params::Resume>(json!({ "prompt": "go on" })).unwrap().resume, ResumeIn::default());
         assert_eq!(v(&params::Keys { keys: vec![key()] }), json!({ "keys": ["claude:claude:abc"] }));
+        // A window's own question carried no key before a side conversation could be asked from
+        // another device.
+        assert_eq!(v(&params::Side { key: String::new(), text: "Why a queue?".into() }), json!({ "text": "Why a queue?" }));
+        assert_eq!(v(&params::SideForget { key: key(), id: "7-1".into() }), json!({ "key": "claude:claude:abc", "id": "7-1" }));
         assert_eq!(v(&params::Search { words: vec!["webhook".into()] }), json!({ "words": ["webhook"] }));
         assert_eq!(v(&params::Route { project: "All projects".into(), text: "fix it".into() }), json!({ "project": "All projects", "text": "fix it" }));
         let spec = StartSpec { lane_id: "/r/app".into(), account: "claude".into(), place: Place::Terminal, prompt: String::new(), model: None, effort: None, worktree: false, todos: vec![], from: None, helper: false, report: false };

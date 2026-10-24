@@ -4,7 +4,6 @@
 // `/btw` and `/side` away from the harnesses' own, on purpose: typed into a session from here,
 // theirs would answer in a terminal you aren't looking at.
 
-import { shortOf } from './devices';
 import type { Session } from './types';
 
 export interface SlashCommand {
@@ -37,8 +36,8 @@ export const COMMANDS: SlashCommand[] = [
     args: '[question]',
     about: 'a throwaway copy answers here; the session carries on, unaware. Alone, it shows the earlier ones',
     icon: 'help',
-    // The copy runs beside the session, on its Mac (side.rs).
-    takes: (s) => (s.harness === 'claude' || s.harness === 'codex') && !shortOf(s.key),
+    // The copy runs beside the session, on its machine (side.rs), wherever it's asked from.
+    takes: (s) => s.harness === 'claude' || s.harness === 'codex',
   },
 ];
 

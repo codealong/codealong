@@ -63,80 +63,9 @@ const KEPT: usize = 300;
 /// How many of a turn's tool calls are kept, the first ones.
 const TOOLS: usize = 200;
 
-/// One question and its answer.
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Turn {
-    pub question: String,
-    /// The answer so far.
-    #[serde(default)]
-    pub answer: String,
-    /// What the copy did to answer: its tool calls, a line each, in order.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tools: Vec<String>,
-    /// The tool it's running now, as a line.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool: Option<String>,
-    #[serde(default)]
-    pub done: bool,
-    /// Why it ended without an answer, or with half of one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    /// When it was asked.
-    #[serde(default)]
-    pub at: i64,
-}
-
-/// A session's side conversation, as the windows show it. With no turns there is none.
-#[derive(Serialize, Clone, Debug, Default, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Side {
-    /// Which of the session's side conversations: its record's id (`Kept`).
-    pub id: String,
-    /// The session it's about.
-    pub key: String,
-    pub turns: Vec<Turn>,
-    /// The copy is answering.
-    pub running: bool,
-    /// The copy is gone (it sat idle, or stopped): what was said can still be read, and the
-    /// next question goes to a new copy, which knows none of it.
-    pub ended: bool,
-    /// The account whose agent answers, where that's chosen: a PR's conversation's (`ask_pr`).
-    /// A session's copy answers on the session's own.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub account: Option<String>,
-    /// The model and effort it answers on, where they were chosen with the account; none for the
-    /// account's own.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    /// It was closed while its copy answered, and the copy answers what it was asked before it
-    /// ends: no longer the session's open one, it's read where the kept ones are (`past`).
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub closed: bool,
-}
-
-/// A side conversation as Codealong keeps it, to read once its copy is gone: the turns that
-/// ended, with or without an answer.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Kept {
-    pub id: String,
-    /// The session it was about.
-    pub key: String,
-    /// The session's title when it was asked.
-    #[serde(default)]
-    pub title: String,
-    pub started_at: i64,
-    /// When it was last asked or answered.
-    pub last_at: i64,
-    pub turns: Vec<Turn>,
-    /// It was closed while its copy answered, and the copy is answering still: read as it is
-    /// (`past`), never kept so.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub answering: bool,
-}
+/// A side conversation, a question and its answer, and one as it's kept: the types another
+/// device reads them in too (`Msg::Side`, `api::SIDE_GET`, `api::SIDE_PAST`).
+pub use codealong_peer::api::{Side, SideKept as Kept, SideTurn as Turn};
 
 /// A side conversation as the board lists it (`glances`): what it was first asked, how far it
 /// went and whether its copy is answering, without what was said. The windows list it under its
