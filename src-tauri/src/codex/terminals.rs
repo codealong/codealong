@@ -51,8 +51,8 @@ pub fn is_rollout(name: &std::ffi::OsStr) -> bool {
 }
 
 /// Codex's interactive terminals on this Mac. Its daemon, `exec` runs and the app's own
-/// app-server aren't terminals; the CLI inside the app is one when a terminal runs it
-/// (`codex_cli`).
+/// app-server aren't terminals; the CLI inside the app is one only as Codealong types it into a
+/// terminal (`codex_cli`, with `TERMINAL_UI`), since whatever else the app runs it for isn't.
 pub fn terminals(processes: &[crate::procs::PsLine]) -> Vec<Terminal> {
     processes
         .iter()
@@ -71,7 +71,7 @@ pub fn terminals(processes: &[crate::procs::PsLine]) -> Vec<Terminal> {
 pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)> {
     let mut words = command.split_whitespace().peekable();
     let program = words.next()?;
-    if program.rsplit('/').next() != Some("codex") || program.contains("/packages/") {
+    if program.rsplit('/').next() != Some("codex") || program.contains("/packages/") || program.contains(".app/") && !command.contains(TERMINAL_UI) {
         return None;
     }
     let mut dir = None;
@@ -147,6 +147,10 @@ pub(super) fn latest_day(sessions: &Path) -> Option<PathBuf> {
     Some(dir)
 }
 
+/// What Codealong adds to every Codex terminal UI it opens (`terminal_ui`), which tells the CLI
+/// inside the app run in a terminal from the app's own runs of it.
+pub(crate) const TERMINAL_UI: &str = "-c check_for_update_on_startup=false";
+
 /// A Codex command as a terminal can run it. Installing the Codex app doesn't put `codex` on the
 /// PATH, so a plain `codex` becomes the CLI inside the app when the PATH has none; a wrapper or
 /// alias of your own is left as you wrote it.
@@ -188,6 +192,15 @@ mod tests {
         assert_eq!(terminal_args("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex -c features.code_mode_host=true app-server --analytics-default-enabled"), None);
         // The CLI inside the app, run in a terminal when the PATH has no `codex`.
         assert_eq!(terminal_args("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex -c check_for_update_on_startup=false -- Review"), Some((None, None)));
+        // Anything else the app runs it for isn't one.
+        assert_eq!(terminal_args("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex --version"), None);
+    }
+
+    #[test]
+    fn puts_the_apps_cli_in_place_of_codex() {
+        let cli = crate::util::sh_quote("/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex");
+        assert_eq!(with_program("CODEX_HOME=~/.codex2 codex -c x=1", "codex", &cli).as_deref(), Some("CODEX_HOME=~/.codex2 '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex' -c x=1"));
+        assert_eq!(with_program("my-codex", "codex", &cli), None);
         assert_eq!(terminal_args("claude --resume x"), None);
     }
 

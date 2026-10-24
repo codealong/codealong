@@ -38,7 +38,7 @@ use conversation::open_calls;
 use ipc::{codex_interrupt_turn, codex_start_turn};
 use rollout::{app_project_roots, archived_rollout_files, chats_dir, never_shown, parse_meta, parse_rollout, prose_of, read_index, rollout_files, thread_id_of};
 use side::{last_turn, SideThread};
-use terminals::{codex_cli, held_rollouts, latest_day, pair_terminals, terminals, Terminal};
+use terminals::{codex_cli, held_rollouts, TERMINAL_UI, latest_day, pair_terminals, terminals, Terminal};
 
 pub use conversation::{conversation_items, with_images_before};
 #[cfg(test)]
@@ -895,7 +895,7 @@ fn fork_of(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Typ
 /// `codex` on the PATH it's the CLI inside the Codex app (`codex_cli`), which `missing_cli`
 /// counts: a bare `codex` there was "command not found", and a review waited on it (2026-10-23).
 fn terminal_ui(account: &AccountCfg) -> String {
-    format!("{} -c check_for_update_on_startup=false", codex_cli(account.command()))
+    format!("{} {TERMINAL_UI}", codex_cli(account.command()))
 }
 
 /// The model and effort a start or a resume asks for, as its terminal UI takes them: `-m`, and
