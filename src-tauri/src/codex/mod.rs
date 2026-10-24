@@ -294,7 +294,7 @@ impl crate::harness::Adapter for Codex {
     /// "Yes, proceed", and Escape "No, and tell Codex what to do differently", which stops the
     /// turn. Its other choices (for this command from now on, for the session) aren't offered
     /// for every request, so they're left to its terminal. Pressed only while the note is still
-    /// the one its turn waits on.
+    /// the one its turn waits on, as read again after the checks that take time.
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         use crate::harness::Answer;
         let (note, answerable, cwd) = self.waiting_note(ctx, s).filter(|(n, ..)| n.id() == id).ok_or_else(|| anyhow::anyhow!("Codex isn't asking that any more."))?;
@@ -314,6 +314,15 @@ impl crate::harness::Adapter for Codex {
         if appserver::other_prompt_hooks(&ctx.account.home_path(), &cwd, hook::MARK).unwrap_or(true) {
             anyhow::bail!("Answer it in Codex's terminal: another hook runs as Codex asks, and its prompt may not be up yet.");
         }
+        let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
+            anyhow::bail!("Codex's terminal isn't one Codealong can press keys in ({}): answer it there.", crate::launch::presses_keys_in());
+        };
+        // What's above can take seconds, in which the terminal may have moved on: read again
+        // just before the key, which goes only for the one note still up.
+        let still = self.waiting_note(ctx, s).filter(|(n, answerable, _)| n.id() == id && *answerable);
+        let Some((note, ..)) = still else {
+            anyhow::bail!("Codex has moved on since: look at what it asks now.");
+        };
         // Allowed in its terminal already: its command runs under it, and the key would land in
         // the box, or answer another prompt. Not so for a command that's running already and
         // asks to reach a host.
@@ -321,9 +330,6 @@ impl crate::harness::Adapter for Codex {
             asks::done(&note);
             anyhow::bail!("Codex isn't asking that any more: it was allowed in its terminal.");
         }
-        let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
-            anyhow::bail!("Codex's terminal isn't one Codealong can press keys in ({}): answer it there.", crate::launch::presses_keys_in());
-        };
         crate::launch::press_key(&host, key)?;
         asks::done(&note);
         Ok(match answer {
