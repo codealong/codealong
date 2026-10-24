@@ -891,9 +891,11 @@ fn fork_of(account: &crate::config::AccountCfg, id: &str) -> crate::harness::Typ
 /// fork), without the update offer the UI can stop on before it makes its session: in a terminal
 /// behind your windows nobody answers it, and a review sat 66 minutes on a screen of its own
 /// (2026-10-14). Codex you run yourself still offers updates. `-c` goes before a subcommand
-/// (0.162.1); a key Codex doesn't know is ignored, so an older one starts as before.
+/// (0.162.1); a key Codex doesn't know is ignored, so an older one starts as before. With no
+/// `codex` on the PATH it's the CLI inside the Codex app (`codex_cli`), which `missing_cli`
+/// counts: a bare `codex` there was "command not found", and a review waited on it (2026-10-23).
 fn terminal_ui(account: &AccountCfg) -> String {
-    format!("{} -c check_for_update_on_startup=false", account.command())
+    format!("{} -c check_for_update_on_startup=false", codex_cli(account.command()))
 }
 
 /// The model and effort a start or a resume asks for, as its terminal UI takes them: `-m`, and

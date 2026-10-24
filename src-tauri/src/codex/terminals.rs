@@ -51,7 +51,8 @@ pub fn is_rollout(name: &std::ffi::OsStr) -> bool {
 }
 
 /// Codex's interactive terminals on this Mac. Its daemon, `exec` runs and the app's own
-/// app-server aren't terminals; neither is anything run from inside an app bundle.
+/// app-server aren't terminals; the CLI inside the app is one when a terminal runs it
+/// (`codex_cli`).
 pub fn terminals(processes: &[crate::procs::PsLine]) -> Vec<Terminal> {
     processes
         .iter()
@@ -70,7 +71,7 @@ pub fn terminals(processes: &[crate::procs::PsLine]) -> Vec<Terminal> {
 pub fn terminal_args(command: &str) -> Option<(Option<String>, Option<PathBuf>)> {
     let mut words = command.split_whitespace().peekable();
     let program = words.next()?;
-    if program.rsplit('/').next() != Some("codex") || program.contains(".app/") || program.contains("/packages/") {
+    if program.rsplit('/').next() != Some("codex") || program.contains("/packages/") {
         return None;
     }
     let mut dir = None;
@@ -184,6 +185,9 @@ mod tests {
         assert_eq!(terminal_args("codex exec fix it"), None);
         assert_eq!(terminal_args("/Users/me/.codex/packages/app-server-daemon/releases/0.157.1/bin/codex app-server --listen unix://"), None);
         assert_eq!(terminal_args("/Applications/Codex.app/Contents/Resources/codex app-server"), None);
+        assert_eq!(terminal_args("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex -c features.code_mode_host=true app-server --analytics-default-enabled"), None);
+        // The CLI inside the app, run in a terminal when the PATH has no `codex`.
+        assert_eq!(terminal_args("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex -c check_for_update_on_startup=false -- Review"), Some((None, None)));
         assert_eq!(terminal_args("claude --resume x"), None);
     }
 
