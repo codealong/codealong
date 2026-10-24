@@ -621,9 +621,11 @@ pub struct Reader {
     stopped_by_quit: HashSet<PathBuf>,
     /// Whether each account's terminal UIs list Approve for me under `/permissions` by its
     /// config.toml (`approve_for_me_offered`), read again as that changes, and since when that's
-    /// held for sure: the file's last change as it was first read, else when a change was seen
-    /// to turn it.
+    /// held for sure: the file's last change as it was first read (when it was read, where there
+    /// was none: when it went can't be told), else when a change was seen to turn it.
     approve_for_me: HashMap<String, (bool, i64)>,
+    /// Every Codex account's folder, none of which is a project's config to a terminal UI.
+    codex_homes: Vec<PathBuf>,
 }
 
 impl Reader {
@@ -631,10 +633,11 @@ impl Reader {
     /// what it read as it started, and None where it can't: its command line sets a profile or
     /// the feature (`Terminal::own_features`), the account's config.toml has said otherwise
     /// since it started (or may have: its last change before Codealong read it came after), or
-    /// a project's or the system's config may say (`others_may_say`).
-    fn vouched(&self, account: &AccountCfg, t: &Terminal, cwd: &str) -> Option<bool> {
+    /// a project's or the system's config may say, in the folder it runs in, which a resumed
+    /// thread's rollout doesn't name (`others_may_say`).
+    fn vouched(&self, account: &AccountCfg, t: &Terminal) -> Option<bool> {
         let &(offered, since) = self.approve_for_me.get(&account.name)?;
-        (!t.own_features && t.started_at >= since && !others_may_say(Path::new(cwd), &account.home_path(), t.started_at)).then_some(offered)
+        (!t.own_features && t.started_at >= since && !others_may_say(&t.cwd, &self.codex_homes, t.started_at)).then_some(offered)
     }
 
     /// The rollouts of turns left open that no Codex process holds now (`held_rollouts`), as of
@@ -769,13 +772,14 @@ impl crate::harness::Reader for Reader {
     }
 
     fn scan(&mut self, accounts: &[AccountCfg], look: &Look) {
+        self.codex_homes = accounts.iter().map(|a| a.home_path()).collect();
         self.index.clear();
         self.rollouts.clear();
         self.queues.clear();
         for a in accounts {
             let home = a.home_path();
             self.index.insert(a.name.clone(), read_index(&home));
-            self.approve_for_me.insert(a.name.clone(), (approve_for_me_offered(&home), mtime_ms(&home.join("config.toml")).unwrap_or(0)));
+            self.approve_for_me.insert(a.name.clone(), (approve_for_me_offered(&home), mtime_ms(&home.join("config.toml")).unwrap_or(look.now)));
             self.queue_marks.changed(&a.name, &home.join(queue::DB));
             self.queues.insert(a.name.clone(), queue::read(&home));
             let files = rollout_files(&home, look.since, &look.seen.pinned_ids("codex", &a.name));
@@ -884,7 +888,7 @@ impl crate::harness::Reader for Reader {
                 // What its terminal UI's `/permissions` lists, which Codealong picks from there
                 // (cycle.rs), where that can be told; `cycle::overlay` keeps them where that tab
                 // takes keys.
-                if let Some(offered) = s.pid.and_then(|pid| self.terminals.iter().find(|t| t.pid == pid)).and_then(|t| self.vouched(account, t, &th.cwd)) {
+                if let Some(offered) = s.pid.and_then(|pid| self.terminals.iter().find(|t| t.pid == pid)).and_then(|t| self.vouched(account, t)) {
                     s.modes = rollout::picked_modes(offered);
                 }
                 if let Some(queued) = self.queues.get(&account.name).and_then(|q| q.get(&th.id)) {
@@ -988,28 +992,21 @@ fn approve_for_me_offered(codex_home: &Path) -> bool {
 }
 
 /// Whether config Codex reads beside the account's own may set what `/permissions` lists for a
-/// terminal UI started at `started_at` in `cwd`: the system's `/etc/codex/config.toml`, or a
-/// project's `.codex/config.toml` in its folder or one above it up to its repo's root (Codex's
-/// project layers, read only in a trusted project, which isn't asked), that names a profile or
-/// the feature, or changed, or whose `.codex` folder did, after it started, when what it read
-/// can't be told. A `.codex` folder taken away since isn't seen.
-fn others_may_say(cwd: &Path, codex_home: &Path, started_at: i64) -> bool {
+/// terminal UI started at `started_at` in `cwd`: the system's (`/etc/codex/config.toml`), or a
+/// project's, a `.codex/config.toml` in its folder or any above it (Codex's project layers go up
+/// to the project's root, which its `project_root_markers` setting moves, and are read only in a
+/// trusted project; neither is asked), that names a profile or the feature, or changed, or whose
+/// folder did, after it started, when what it read can't be told. An account's own folder
+/// (`codex_homes`) is its user config, not a project's. A project's `.codex` folder taken away
+/// since leaves nothing to look at.
+fn others_may_say(cwd: &Path, codex_homes: &[PathBuf], started_at: i64) -> bool {
     let since = |p: &Path| mtime_ms(p).is_some_and(|m| m > started_at);
     let says = |file: &Path| std::fs::read_to_string(file).is_ok_and(|text| text.contains("guardian_approval") || text.contains("profile") || since(file));
-    if says(Path::new("/etc/codex/config.toml")) {
+    let system = Path::new("/etc/codex");
+    if since(system) || says(&system.join("config.toml")) {
         return true;
     }
-    let home = crate::util::home();
-    for dir in cwd.ancestors().take_while(|d| *d != home) {
-        let dot = dir.join(".codex");
-        if dot != codex_home && (since(&dot) || says(&dot.join("config.toml"))) {
-            return true;
-        }
-        if dir.join(".git").exists() {
-            break;
-        }
-    }
-    false
+    cwd.ancestors().map(|dir| dir.join(".codex")).filter(|dot| !codex_homes.contains(dot)).any(|dot| since(&dot) || says(&dot.join("config.toml")))
 }
 
 /// The model and level a thread's next turn runs on, as its rollout says now (`ipc::InApp`'s
@@ -1062,30 +1059,36 @@ mod tests {
         assert!(!terminals::own_features("codex -c check_for_update_on_startup=false -m gpt-6-luna -c model_reasoning_effort=\"high\""));
     }
 
-    /// A project's own config, between the session's folder and its repo's root, may change the
-    /// list; one that doesn't name the feature or a profile, and hasn't changed since the
-    /// terminal UI started, doesn't.
+    /// A project's own config, in the terminal UI's folder or any above it, may change the list;
+    /// one that doesn't name the feature or a profile, and hasn't changed since the terminal UI
+    /// started, doesn't, nor does an account's own folder.
     #[test]
     fn a_projects_config_may_say_what_permissions_lists() {
         let root = crate::fixtures::scratch("codex-layers");
-        let (repo, home) = (root.join("northwind"), root.join("codex-home"));
+        let (repo, homes) = (root.join("northwind"), vec![root.join("me/.codex")]);
         let deep = repo.join("web/src");
         std::fs::create_dir_all(&deep).unwrap();
         std::fs::create_dir_all(repo.join(".git")).unwrap();
         std::fs::create_dir_all(repo.join(".codex")).unwrap();
         let later = crate::util::now_ms() + 60_000;
-        assert!(!others_may_say(&deep, &home, later), "nothing says");
+        let says = |cwd: &Path, at: i64| others_may_say(cwd, &homes, at);
+        assert!(!says(&deep, later), "nothing says");
         std::fs::write(repo.join(".codex/config.toml"), "model = \"gpt-6-luna\"\n").unwrap();
-        assert!(!others_may_say(&deep, &home, later), "it says nothing of the list");
-        assert!(others_may_say(&deep, &home, 0), "it changed after the terminal UI started");
+        assert!(!says(&deep, later), "it says nothing of the list");
+        assert!(says(&deep, 0), "it changed after the terminal UI started");
         std::fs::write(repo.join(".codex/config.toml"), "[features]\nguardian_approval = false\n").unwrap();
-        assert!(others_may_say(&deep, &home, later));
-        // Above the repo's root is no project of its.
+        assert!(says(&deep, later));
+        // Above a nested repo's root too: project_root_markers can put the project's root there.
         let inside = root.join("outer/northwind");
         std::fs::create_dir_all(inside.join(".git")).unwrap();
         std::fs::create_dir_all(root.join("outer/.codex")).unwrap();
         std::fs::write(root.join("outer/.codex/config.toml"), "profile = \"strict\"\n").unwrap();
-        assert!(!others_may_say(&inside, &home, later));
+        assert!(says(&inside, later));
+        // An account's own folder is its user config.
+        std::fs::create_dir_all(root.join("me/.codex")).unwrap();
+        std::fs::write(root.join("me/.codex/config.toml"), "profile = \"strict\"\n").unwrap();
+        std::fs::create_dir_all(root.join("me/atlas")).unwrap();
+        assert!(!says(&root.join("me/atlas"), later));
     }
 
     #[test]

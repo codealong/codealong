@@ -644,8 +644,9 @@ mode once Codex has written the pick, which it does at once, in Plan too, which 
 it in. A number pressed in a list numbered otherwise would pick another mode (2 is Full Access
 where Approve for me isn't listed), so the menu is there only where Codealong can tell what the
 terminal UI read as it started: the account's config.toml as Codealong has known it since before
-then, and no project's `.codex/config.toml` (from the session's folder up to its repo's root) or
-`/etc/codex/config.toml` that names a profile or that feature or changed after it started. One
+then (one missing as Codealong started vouches only for those started after), and no
+`.codex/config.toml` in the folder it runs in or any above it, nor `/etc/codex/config.toml`,
+that names a profile or that feature or changed after it started. One
 started with a profile or the feature on its command line (`-p strict`, `--disable
 guardian_approval`), or on an account with managed requirements, which can take modes out of the
 list, is switched in its terminal. Should Codex write a mode you didn't pick even so, Codealong
