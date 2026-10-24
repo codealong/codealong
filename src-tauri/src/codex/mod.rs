@@ -263,16 +263,15 @@ impl crate::harness::Adapter for Codex {
     }
 
     /// Its terminal UI lists the permissions under `/permissions`, numbered, and a number picks
-    /// one at once, with no question after (0.162.1 in tmux, 2026-10-24). Whether Approve for me
-    /// is among them goes by the config Codex reads in the session's folder, a project's own
-    /// included, which Codex is asked for (`appserver::approve_for_me_in`), as the list's number
-    /// would otherwise pick another, Full Access in its place; where managed requirements may take
-    /// entries out too, the list isn't typed into. The reader leaves out the terminal UIs whose
-    /// command line sets these itself (`terminals::own_features`).
+    /// one at once, with no question after (0.162.1 in tmux, 2026-10-24). The session's modes are
+    /// that list as the reader can vouch the terminal UI read it as it started
+    /// (`Reader::vouched`), Approve for me at 2 or not there, since a wrong guess would pick Full
+    /// Access in its place. Not where Codex has managed requirements, which can take entries out
+    /// of the list.
     fn mode_picker(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<anyhow::Result<crate::harness::ModePicker>> {
-        let listed = appserver::approve_for_me_in(&ctx.account.home_path(), Path::new(&s.cwd)).and_then(|offered| match offered {
-            Some(offered) => Ok(rollout::PICKED.iter().map(|(id, ..)| *id).filter(|id| offered || *id != rollout::APPROVE_FOR_ME).collect()),
-            None => anyhow::bail!("Codex has managed requirements here, which can take permissions out of its /permissions list, so Codealong doesn't pick from it by number: switch them in its terminal."),
+        let listed = appserver::has_requirements(&ctx.account.home_path()).and_then(|required| match required {
+            false => Ok(rollout::PICKED.iter().map(|(id, ..)| *id).filter(|id| s.modes.iter().any(|m| m.id == *id)).collect()),
+            true => anyhow::bail!("Codex has managed requirements for this account, which can take permissions out of its /permissions list, so Codealong doesn't pick from it by number: switch them in its terminal."),
         });
         Some(listed.map(|listed| crate::harness::ModePicker { command: "/permissions", listed }))
     }
@@ -620,12 +619,24 @@ pub struct Reader {
     /// The rollouts whose last turn was stopped as the app quit rather than by you, as of the
     /// last look at the processes (`stopped_by_quit_now`).
     stopped_by_quit: HashSet<PathBuf>,
-    /// Whether each account's terminal UIs list Approve for me under `/permissions`, by its
-    /// config.toml (`approve_for_me_offered`), read again as that changes.
-    approve_for_me: HashMap<String, bool>,
+    /// Whether each account's terminal UIs list Approve for me under `/permissions` by its
+    /// config.toml (`approve_for_me_offered`), read again as that changes, and since when that's
+    /// held for sure: the file's last change as it was first read, else when a change was seen
+    /// to turn it.
+    approve_for_me: HashMap<String, (bool, i64)>,
 }
 
 impl Reader {
+    /// Whether a terminal UI's `/permissions` lists Approve for me, where Codealong can vouch for
+    /// what it read as it started, and None where it can't: its command line sets a profile or
+    /// the feature (`Terminal::own_features`), the account's config.toml has said otherwise
+    /// since it started (or may have: its last change before Codealong read it came after), or
+    /// a project's or the system's config may say (`others_may_say`).
+    fn vouched(&self, account: &AccountCfg, t: &Terminal, cwd: &str) -> Option<bool> {
+        let &(offered, since) = self.approve_for_me.get(&account.name)?;
+        (!t.own_features && t.started_at >= since && !others_may_say(Path::new(cwd), &account.home_path(), t.started_at)).then_some(offered)
+    }
+
     /// The rollouts of turns left open that no Codex process holds now (`held_rollouts`), as of
     /// this look, and keeps how long each open turn's rollout is for the next. Codex's processes
     /// are looked at only while some turn is open.
@@ -764,7 +775,7 @@ impl crate::harness::Reader for Reader {
         for a in accounts {
             let home = a.home_path();
             self.index.insert(a.name.clone(), read_index(&home));
-            self.approve_for_me.insert(a.name.clone(), approve_for_me_offered(&home));
+            self.approve_for_me.insert(a.name.clone(), (approve_for_me_offered(&home), mtime_ms(&home.join("config.toml")).unwrap_or(0)));
             self.queue_marks.changed(&a.name, &home.join(queue::DB));
             self.queues.insert(a.name.clone(), queue::read(&home));
             let files = rollout_files(&home, look.since, &look.seen.pinned_ids("codex", &a.name));
@@ -794,7 +805,7 @@ impl crate::harness::Reader for Reader {
         path.starts_with(account.home_path())
     }
 
-    fn apply(&mut self, account: &AccountCfg, paths: &[PathBuf], _look: &Look) -> Applied {
+    fn apply(&mut self, account: &AccountCfg, paths: &[PathBuf], look: &Look) -> Applied {
         let home = account.home_path();
         let (index, sessions) = (home.join("session_index.jsonl"), home.join("sessions"));
         let mut out = Applied::default();
@@ -804,7 +815,10 @@ impl crate::harness::Reader for Reader {
         }
         if paths.contains(&home.join("config.toml")) {
             let offered = approve_for_me_offered(&home);
-            out.dirty |= self.approve_for_me.insert(account.name.clone(), offered) != Some(offered);
+            if self.approve_for_me.get(&account.name).is_none_or(|(before, _)| *before != offered) {
+                self.approve_for_me.insert(account.name.clone(), (offered, look.now));
+                out.dirty = true;
+            }
         }
         for p in paths.iter().filter(|p| p.starts_with(&sessions) && p.extension().and_then(|x| x.to_str()) == Some("jsonl")) {
             self.read_rollout(&account.name, p, &mut out);
@@ -868,10 +882,10 @@ impl crate::harness::Reader for Reader {
                 let mut s = crate::board::codex_session(account, th, name, terminals.get(&th.id).copied(), self.held(path, th), self.stopped_by_quit.contains(path), look.seen.seen_at(&key), look.now);
                 s.archived = path.starts_with(&archived_dir);
                 // What its terminal UI's `/permissions` lists, which Codealong picks from there
-                // (cycle.rs), unless its command line changes that list itself;
-                // `cycle::overlay` keeps them where that tab takes keys.
-                if s.pid.and_then(|pid| self.terminals.iter().find(|t| t.pid == pid)).is_some_and(|t| !t.own_features) {
-                    s.modes = rollout::picked_modes(self.approve_for_me.get(&account.name).copied().unwrap_or(true));
+                // (cycle.rs), where that can be told; `cycle::overlay` keeps them where that tab
+                // takes keys.
+                if let Some(offered) = s.pid.and_then(|pid| self.terminals.iter().find(|t| t.pid == pid)).and_then(|t| self.vouched(account, t, &th.cwd)) {
+                    s.modes = rollout::picked_modes(offered);
                 }
                 if let Some(queued) = self.queues.get(&account.name).and_then(|q| q.get(&th.id)) {
                     s.queued_at = queued.iter().map(|m| m.at).max();
@@ -973,6 +987,31 @@ fn approve_for_me_offered(codex_home: &Path) -> bool {
     feature(profile).or_else(|| feature(Some(&toml::Value::Table(t.clone())))).unwrap_or(true)
 }
 
+/// Whether config Codex reads beside the account's own may set what `/permissions` lists for a
+/// terminal UI started at `started_at` in `cwd`: the system's `/etc/codex/config.toml`, or a
+/// project's `.codex/config.toml` in its folder or one above it up to its repo's root (Codex's
+/// project layers, read only in a trusted project, which isn't asked), that names a profile or
+/// the feature, or changed, or whose `.codex` folder did, after it started, when what it read
+/// can't be told. A `.codex` folder taken away since isn't seen.
+fn others_may_say(cwd: &Path, codex_home: &Path, started_at: i64) -> bool {
+    let since = |p: &Path| mtime_ms(p).is_some_and(|m| m > started_at);
+    let says = |file: &Path| std::fs::read_to_string(file).is_ok_and(|text| text.contains("guardian_approval") || text.contains("profile") || since(file));
+    if says(Path::new("/etc/codex/config.toml")) {
+        return true;
+    }
+    let home = crate::util::home();
+    for dir in cwd.ancestors().take_while(|d| *d != home) {
+        let dot = dir.join(".codex");
+        if dot != codex_home && (since(&dot) || says(&dot.join("config.toml"))) {
+            return true;
+        }
+        if dir.join(".git").exists() {
+            break;
+        }
+    }
+    false
+}
+
 /// The model and level a thread's next turn runs on, as its rollout says now (`ipc::InApp`'s
 /// switch): the board's copy can be a switch behind, read before the last one was written.
 fn settings_now(account: &AccountCfg, s: &Session) -> (Option<String>, Option<String>) {
@@ -1021,6 +1060,32 @@ mod tests {
         assert!(terminals::own_features(r#"codex -c profile="strict""#));
         assert!(terminals::own_features("codex -c features.guardian_approval=false"));
         assert!(!terminals::own_features("codex -c check_for_update_on_startup=false -m gpt-6-luna -c model_reasoning_effort=\"high\""));
+    }
+
+    /// A project's own config, between the session's folder and its repo's root, may change the
+    /// list; one that doesn't name the feature or a profile, and hasn't changed since the
+    /// terminal UI started, doesn't.
+    #[test]
+    fn a_projects_config_may_say_what_permissions_lists() {
+        let root = crate::fixtures::scratch("codex-layers");
+        let (repo, home) = (root.join("northwind"), root.join("codex-home"));
+        let deep = repo.join("web/src");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(repo.join(".codex")).unwrap();
+        let later = crate::util::now_ms() + 60_000;
+        assert!(!others_may_say(&deep, &home, later), "nothing says");
+        std::fs::write(repo.join(".codex/config.toml"), "model = \"gpt-6-luna\"\n").unwrap();
+        assert!(!others_may_say(&deep, &home, later), "it says nothing of the list");
+        assert!(others_may_say(&deep, &home, 0), "it changed after the terminal UI started");
+        std::fs::write(repo.join(".codex/config.toml"), "[features]\nguardian_approval = false\n").unwrap();
+        assert!(others_may_say(&deep, &home, later));
+        // Above the repo's root is no project of its.
+        let inside = root.join("outer/northwind");
+        std::fs::create_dir_all(inside.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join("outer/.codex")).unwrap();
+        std::fs::write(root.join("outer/.codex/config.toml"), "profile = \"strict\"\n").unwrap();
+        assert!(!others_may_say(&inside, &home, later));
     }
 
     #[test]

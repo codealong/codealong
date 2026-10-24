@@ -162,10 +162,11 @@ pub fn switch(account: &AccountCfg, s: &Session, to: &SessionMode) -> Result<Mod
 /// box goes ahead of the command, as a typed prompt goes after it: Codealong can't see it, and
 /// Ctrl+C, which would clear it, stops a running turn when the box is empty.
 ///
-/// The numbers are the harness's list as it reads it now (`Adapter::mode_picker`), which a
-/// terminal UI that read other settings as it started may not have: Codex's without Approve for
-/// me has Full Access at 2. So a mode taken that isn't the one picked is backed out of at once,
-/// to the list's first, which every list has first (Codex's Ask for approval), and said.
+/// The numbers are the list as the harness's reader can vouch the terminal UI has it
+/// (`Adapter::mode_picker`), where a wrong one could pick another: Codex's without Approve for me
+/// has Full Access at 2. Should a mode be taken that isn't the one picked even so, it's backed
+/// out of at once, to the list's first, which every list has first (Codex's Ask for approval),
+/// unless a step has started meanwhile, and said.
 fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, picker: &crate::harness::ModePicker, host: &launch::TerminalHost) -> Result<ModeSwitched> {
     let title = quoted(&s.title);
     let harness = s.harness.word();
@@ -195,6 +196,10 @@ fn pick(ctx: &Ctx, s: &Session, to: &SessionMode, picker: &crate::harness::ModeP
         Some(now) => {
             let took = picker_label(s, &now);
             let first = picker.listed.first().copied().unwrap_or_default();
+            // A step may have started since, and Codex asked about it: nothing's typed then.
+            if !adapter.open_calls(ctx, s).is_empty() {
+                bail!("{typed}, and {harness} took {took}: its list isn't numbered as Codealong read it, and a step has started since, so Codealong typed nothing more. Switch its mode in its terminal.");
+            }
             // The list was read a moment ago, so it opens at once.
             pick_number(host, command, 1, PRESS_GAP * 3)?;
             let back = if reached(said, first) { format!("so Codealong put it back to {}", picker_label(s, first)) } else { "and Codealong's pick of 1 to put it back didn't take: look in its terminal".to_string() };

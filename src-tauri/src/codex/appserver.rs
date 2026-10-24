@@ -102,23 +102,12 @@ impl Server {
     }
 }
 
-/// Whether `/permissions` lists Approve for me in a terminal UI started in `cwd`: its feature
-/// (`guardian_approval`), on unless config says otherwise, as Codex reads config there
-/// (`config/read` with `cwd`, which takes in a trusted project's own `.codex/config.toml`, and
-/// the profile config.toml picks). None when Codex has managed requirements
-/// (`configRequirements/read`), which can take entries out of the list. Checked 2026-10-24: a
-/// project's `guardian_approval = false` came back in `features`, and a feature nothing sets
-/// isn't there.
-pub fn approve_for_me_in(codex_home: &Path, cwd: &Path) -> Result<Option<bool>> {
-    with_server(codex_home, |s| {
-        let config = s.request("config/read", json!({ "cwd": cwd }))?;
-        let config = &config["config"];
-        let feature = |at: &Value| at.pointer("/features/guardian_approval").and_then(Value::as_bool);
-        let profile = config.get("profile").and_then(Value::as_str).map(|p| &config["profiles"][p]);
-        let offered = profile.and_then(feature).or_else(|| feature(config)).unwrap_or(true);
-        let required = s.request("configRequirements/read", Value::Null)?;
-        Ok(required.get("requirements").is_none_or(Value::is_null).then_some(offered))
-    })
+/// Whether Codex has managed requirements for the account (`configRequirements/read`: a
+/// workspace's from its backend, an MDM profile's, `/etc/codex`'s), which can take entries out of
+/// what `/permissions` lists. It answered `requirements: null` with none (2026-10-24).
+pub fn has_requirements(codex_home: &Path) -> Result<bool> {
+    let read = call(codex_home, "configRequirements/read", Value::Null)?;
+    Ok(read.get("requirements").is_some_and(|r| !r.is_null()))
 }
 
 /// Queues `text` in a thread, for the Codex app to start once the turn it's taking ends, as a
