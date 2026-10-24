@@ -241,14 +241,31 @@ const reads = new Map<string, number>();
 export function readKept(key: string): void {
   const read = (reads.get(key) ?? 0) + 1;
   reads.set(key, read);
+  const told = toldOf.get(key) ?? 0;
   sidePast(key).then(
     (list) => {
       if (reads.get(key) !== read) return;
       kept.set(key, list);
+      // Unless it was told of meanwhile, which is newer than the read.
+      if ((toldOf.get(key) ?? 0) === told) answeredSince(key, list);
       tell();
     },
     () => {},
   );
+}
+
+/** Lets go of the session's ones closed while their copies answered that what's kept says have
+ *  answered, or has no more: another machine's may have, while the two weren't connected, with
+ *  nothing told of it here. Every one still answering is kept as answering (side.rs `past`). */
+function answeredSince(key: string, list: SideKept[]): void {
+  const done = [...closing.values()].filter((c) => c.key === key && !list.some((k) => k.id === c.id && k.answering));
+  if (done.length === 0) return;
+  const next = new Map(closing);
+  for (const c of done) {
+    stoppedIds.add(c.id);
+    next.delete(c.id);
+  }
+  closing = next;
 }
 
 /** The side conversations kept for a session, the latest first: the open one too, as far as it's

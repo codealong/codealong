@@ -112,15 +112,31 @@
       await until(function () { return turns().length === 3; }, 3000, 'what it said after didn’t show: ' + turns().join(' / '));
       check('and what it says after still shows', turns()[2].indexOf('Still here.') > 0, turns().join(' / '));
 
+      // Asked again, and closed while it answers: it answers on there.
+      side = Object.assign({}, side, { running: true, turns: side.turns.concat([{ question: 'and later?', answer: 'Let me', done: false, at: Date.now() }]) });
+      window.__sides[key] = side;
+      window.__emit('side', side);
+      await until(function () { return turns().length === 4; }, 3000, 'the next question didn’t show');
       headButton('Close').click();
       await until(function () { return !strip(); }, 5000, 'Close left it');
       check('Close closes it on its machine', calls('side_close').length === 2 && calls('side_close')[1][1].key === key && !q('.ca-sidestrip-error'), JSON.stringify(calls('side_close').map(function (c) { return c[1]; })));
-
       type(box(), '/side');
       await wait(50);
       enter();
       await until(function () { return all('.ca-sessinsp .ca-sidestrip-kept').length === 1; }, 5000, 'no kept one listed');
       all('.ca-sessinsp .ca-sidestrip-kept')[0].click();
+      await until(function () { return !!strip() && strip().textContent.indexOf('Closed, and still answering') >= 0; }, 3000, 'not read as answering: ' + (strip() && strip().textContent));
+      check('it reads as still answering', true);
+
+      // It finishes there while the machines are apart: nothing's told of it here. Shown again,
+      // it's as that machine kept it.
+      delete window.__closing[side.id];
+      window.__past.push({ id: side.id, key: key, title: 'Far A', startedAt: Date.now() - 60e3, lastAt: Date.now(), turns: side.turns.slice(0, 3).concat([{ question: 'and later?', answer: 'Let me see: later.', done: true, at: Date.now() }]) });
+      other.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      await until(function () { return title() !== 'Far A'; }, 3000, 'another session’s panel');
+      row().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      await until(function () { return !!strip() && strip().textContent.indexOf('Let me see: later.') >= 0; }, 3000, 'not read again: ' + (strip() && strip().textContent));
+      check('one that answered while the machines were apart reads as answered', strip().textContent.indexOf('still answering') < 0, strip().textContent);
       await until(function () { return !!headButton('Delete'); }, 3000, 'no Delete');
       headButton('Delete').click();
       await until(function () { return calls('side_forget').length === 1; }, 3000, 'Delete forgot nothing');
