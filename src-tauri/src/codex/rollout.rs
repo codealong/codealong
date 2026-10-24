@@ -393,7 +393,9 @@ pub fn parse_rollout(path: &Path, mtime: i64, prev: Option<(ThreadInfo, u64)>) -
 /// The events before `end` that `later` has no newer copy of: the last turn event (started,
 /// completed or aborted), the last prompt, the last `turn_context` (its model and permissions)
 /// and a `thread_settings_applied` newer than that (the model and level set since), oldest
-/// first. Read backwards only as far as needed: a turn's context comes just after its start.
+/// first, and where a turn that's still open started before `end`, its calls and their results
+/// in between, which say what it still waits on (`ThreadInfo::pending_calls`). Read backwards
+/// only as far as needed: a turn's context comes just after its start.
 fn earlier_events(path: &Path, floor: u64, end: u64, later: &[Value]) -> Vec<Value> {
     let is_context = |v: &Value| v.get("type").and_then(Value::as_str) == Some("turn_context");
     let is_settings = |v: &Value| event_payload(v).and_then(|p| p.get("type")).and_then(Value::as_str) == Some("thread_settings_applied");
@@ -406,7 +408,16 @@ fn earlier_events(path: &Path, floor: u64, end: u64, later: &[Value]) -> Vec<Val
     if !need_turn && !need_prompt && !need_context {
         return found;
     }
+    // A turn that began behind `end` has its calls there too; once a turn event is found, the
+    // calls before it belong to turns gone by.
+    let calls = need_turn;
     scan_lines_back(path, floor, end, |line| {
+        if calls && need_turn && line.contains("\"response_item\"") && (line.contains("_call\"") || line.contains("_call_output\"")) {
+            if let Some(v) = call_line(line) {
+                found.push(v);
+            }
+            return false;
+        }
         // Cheap checks first: most bytes are tool output that none of these can match.
         let markers = ["\"task_started\"", "\"task_complete\"", "\"turn_aborted\"", "\"user_message\"", "\"UserMessage\"", "\"thread_settings_applied\""];
         let context = need_context && line.contains("\"turn_context\"");
@@ -432,6 +443,26 @@ fn earlier_events(path: &Path, floor: u64, end: u64, later: &[Value]) -> Vec<Val
     });
     found.reverse();
     found
+}
+
+/// A call's line, or its result's, as little of it as `note_call` reads: its time, kind, call id,
+/// tool and input. A result is most of a rollout's bytes, so only its call id is read out of it.
+/// None for any other line.
+fn call_line(line: &str) -> Option<Value> {
+    if line.contains("_call_output\"") {
+        let at = line.find("\"call_id\":\"")? + "\"call_id\":\"".len();
+        let id = &line[at..at + line[at..].find('"')?];
+        return Some(serde_json::json!({ "type": "response_item", "payload": { "type": "function_call_output", "call_id": id } }));
+    }
+    let v: Value = serde_json::from_str(line).ok()?;
+    let p = v.get("payload")?;
+    let kind = p.get("type").and_then(Value::as_str)?;
+    if !matches!(kind, "function_call" | "custom_tool_call" | "function_call_output" | "custom_tool_call_output") {
+        return None;
+    }
+    let keep = ["type", "call_id", "name", "input", "arguments", "namespace"];
+    let payload: serde_json::Map<String, Value> = keep.iter().filter_map(|k| Some((k.to_string(), p.get(*k)?.clone()))).collect();
+    Some(serde_json::json!({ "timestamp": v.get("timestamp"), "type": "response_item", "payload": payload }))
 }
 
 /// How far into a thread its first prompt is looked for, as far as Claude Code's is
@@ -1410,6 +1441,27 @@ mod tests {
         let path = dir.join("rollout-2026-09-24T11-03-57-01a0d496-a50c-7031-b515-94579a60fb35.jsonl");
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
         (dir, path)
+    }
+
+    /// A turn that began behind the tail still waits on the calls it made there without results:
+    /// what an approval it asks is about (asks.rs).
+    #[test]
+    fn a_turn_begun_behind_the_tail_keeps_its_calls_without_results() {
+        let call = r#"{"timestamp":"2026-09-24T18:04:30.000Z","type":"response_item","payload":{"type":"custom_tool_call","status":"completed","call_id":"ca","name":"exec","input":"await tools.exec_command({cmd:\"touch ~/.northwind\"});"}}"#;
+        let done = r#"{"timestamp":"2026-09-24T18:04:31.000Z","type":"response_item","payload":{"type":"function_call","call_id":"cb","name":"exec_command","arguments":"{\"cmd\":\"ls\"}"}}"#;
+        let result = r#"{"timestamp":"2026-09-24T18:04:32.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"cb","output":"README.md"}}"#;
+        let (dir, path) = long_rollout("calls-behind", &[TURN_STARTED, call, done, result], &[TOKEN_COUNT]);
+        let (info, _) = parse_rollout(&path, 0, None).unwrap();
+        assert!(info.turn_open);
+        assert_eq!(info.pending_calls.iter().map(|c| c.call_id.as_str()).collect::<Vec<_>>(), ["ca"]);
+        assert!(info.pending_calls[0].input.contains("touch ~/.northwind"));
+        std::fs::remove_dir_all(&dir).unwrap();
+        // A turn that ended behind the tail leaves none.
+        let ended = r#"{"timestamp":"2026-09-24T18:04:40.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"u"}}"#;
+        let (dir, path) = long_rollout("calls-ended", &[TURN_STARTED, call, ended], &[TOKEN_COUNT]);
+        let (info, _) = parse_rollout(&path, 0, None).unwrap();
+        assert!(info.pending_calls.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -684,9 +684,11 @@ tmux tab Allow presses `y` (Yes, proceed) and Deny presses Escape (No, and tell 
 differently, which stops its turn); its other choices, for that command from now on or for the
 session, are left to its terminal, as are a tool's of an MCP server and a request for more
 permissions, which Codex asks in prompts of their own, and the Codex app's, which it asks in its
-own window. While the session's mode is Approve for me, Codex's reviewer agent answers instead,
-and the session isn't waiting on you. One allowed in its terminal can still show as waiting for
-the few seconds Codex takes to hand the command's output back. Codex reads hooks as a session
+own window, and any while more than one is up (its terminal asks them one at a time) or while
+config.toml sets Codex's keys its own way (`tui.keymap`). While the session's mode is Approve for
+me, Codex's reviewer agent answers instead, and the session isn't waiting on you. One allowed in
+its terminal can still show as waiting for the few seconds Codex takes to hand the command's
+output back; Allow then finds the command running and presses nothing. Codex reads hooks as a session
 starts, so one already running has none until it starts again, and for those, and an account
 without the hook, a call Codex has left without its result for minutes is taken as an approval
 it waits on ("Waiting for approval?"). An Antigravity command line conversation

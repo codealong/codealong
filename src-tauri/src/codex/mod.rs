@@ -278,8 +278,10 @@ impl crate::harness::Adapter for Codex {
     /// terminal UI asks with `y` for Yes and Escape for No (`answer`); the app asks in its own
     /// window, which Codealong can't answer in.
     fn pending(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> Option<crate::harness::Pending> {
-        let note = self.waiting_note(ctx, s)?;
+        let (note, up) = self.waiting_note(ctx, s)?;
         let cannot = match (s.surface, s.pid) {
+            _ if up > 1 => Some(format!("Codex has {up} approvals up; answer them in its terminal, which asks them one at a time.")),
+            _ if keys_of_its_own(&ctx.account.home_path()) => Some("Codex's keys are set up its own way in config.toml (tui.keymap), so Codealong doesn't press them: answer it in its terminal.".to_string()),
             (crate::model::Surface::Cli, Some(pid)) if note.keyed() && crate::launch::terminal_kind(pid).is_some_and(|t| t.presses_keys()) => None,
             (crate::model::Surface::Cli, Some(_)) if note.keyed() => Some(format!("Codex asks in its terminal, which Codealong can't press keys in ({}); answer it there.", crate::launch::presses_keys_in())),
             (crate::model::Surface::Cli, _) => Some("Codex asks this in its terminal; answer it there.".to_string()),
@@ -295,13 +297,22 @@ impl crate::harness::Adapter for Codex {
     /// the one its turn waits on.
     fn answer(&self, ctx: &crate::harness::Ctx, s: &crate::model::Session, id: &str, answer: crate::harness::Answer) -> anyhow::Result<String> {
         use crate::harness::Answer;
-        let note = self.waiting_note(ctx, s).filter(|n| n.id() == id).ok_or_else(|| anyhow::anyhow!("Codex isn't asking that any more."))?;
+        let (note, up) = self.waiting_note(ctx, s).filter(|(n, _)| n.id() == id).ok_or_else(|| anyhow::anyhow!("Codex isn't asking that any more."))?;
+        if up > 1 || keys_of_its_own(&ctx.account.home_path()) {
+            anyhow::bail!("Answer it in Codex's terminal: Codealong can't tell which of its prompts a key would answer there.");
+        }
         let key = match answer {
             Answer::Allow => crate::launch::Key::Keys("y"),
             Answer::Deny => crate::launch::Key::Escape,
             Answer::Always => anyhow::bail!("Codex's prompt is answered here with Allow or Deny only; its other choices are in its terminal."),
         };
         let pid = s.pid.filter(|_| s.surface == crate::model::Surface::Cli && note.keyed()).ok_or_else(|| anyhow::anyhow!("Answer it where Codex asks it: Codealong can't from here."))?;
+        // Allowed in its terminal already: its command runs under it, and the key would land in
+        // the box, or answer another prompt.
+        if note.command().is_some_and(|c| runs_under(pid, c)) {
+            asks::done(&note);
+            anyhow::bail!("Codex isn't asking that any more: it was allowed in its terminal.");
+        }
         let Some(host) = crate::launch::terminal_host(pid, Path::new(&s.cwd))? else {
             anyhow::bail!("Codex's terminal isn't one Codealong can press keys in ({}): answer it there.", crate::launch::presses_keys_in());
         };
@@ -1061,12 +1072,33 @@ fn record(a: &Codex, ctx: &crate::harness::Ctx, s: &crate::model::Session) -> an
 }
 
 impl Codex {
-    /// The approval a thread's turn waits on, read afresh: its rollout as it ends now, and the
-    /// notes Codex's hook wrote (asks.rs).
-    fn waiting_note(&self, ctx: &crate::harness::Ctx, s: &Session) -> Option<asks::Note> {
+    /// The approval a thread's turn waits on, read afresh (its rollout as it ends now, and the
+    /// notes Codex's hook wrote, asks.rs), and how many are up.
+    fn waiting_note(&self, ctx: &crate::harness::Ctx, s: &Session) -> Option<(asks::Note, usize)> {
         let (th, _) = parse_rollout(&record(self, ctx, s).ok()?, 0, None)?;
-        asks::waiting(&th, &asks::read(&asks::dir(), crate::util::now_ms())).cloned()
+        let notes = asks::read(&asks::dir(), crate::util::now_ms());
+        let up = asks::live(&th, &notes);
+        up.first().map(|n| ((*n).clone(), up.len()))
     }
+}
+
+/// Whether the account's config.toml sets the terminal UI's keys (`[tui.keymap]`), whose
+/// approval keys Codealong would then be pressing blind.
+fn keys_of_its_own(codex_home: &Path) -> bool {
+    std::fs::read_to_string(codex_home.join("config.toml")).is_ok_and(|text| text.contains("keymap"))
+}
+
+/// Whether `command` runs in a process under `pid`: a terminal UI runs what it was allowed as
+/// `<shell> -lc <command>` among its own processes.
+fn runs_under(pid: u32, command: &str) -> bool {
+    let listed = crate::procs::list(std::time::Duration::from_secs(3)).lines;
+    let mut under = vec![pid];
+    let mut i = 0;
+    while let Some(&parent) = under.get(i) {
+        under.extend(listed.iter().filter(|p| p.ppid == parent).map(|p| p.pid));
+        i += 1;
+    }
+    listed.iter().any(|p| p.pid != pid && under.contains(&p.pid) && p.command.contains(command))
 }
 
 /// How far back from a rollout's end a switch looks for the mode it's in: `turn_context` lines

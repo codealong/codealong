@@ -9,11 +9,13 @@
 //! a call left without its result for minutes (board.rs `codex_unanswered`).
 //!
 //! The notes are files in Codealong's own folder, one a request, written by the hook whether the
-//! app is up or not, and read by the reader as the folder changes (`Notes`). A call Codex's
-//! terminal UI runs as JavaScript (its `exec` tool) can run several commands, each asking on its
-//! own, and stays without its result while an allowed one runs, for as long as the command takes
-//! to come back (`exec_command`'s yield, ten seconds or so): a note allowed in the terminal reads
-//! as waiting until then. One answered from Codealong goes at once.
+//! app is up or not, and read by the reader as the folder changes. A call Codex's terminal UI
+//! runs as JavaScript (its `exec` tool) can run several commands one after another, each asking
+//! on its own, so a later note about the same call means the one before was answered (`live`).
+//! A call stays without its result while an allowed command runs, for as long as it takes to
+//! come back (`exec_command`'s yield, ten seconds or so), so a note allowed in the terminal reads
+//! as waiting until then; an answer from Codealong looks for its command running first
+//! (codex/mod.rs `answer`), and one answered there goes at once.
 
 use std::path::{Path, PathBuf};
 
@@ -152,26 +154,42 @@ pub fn done(note: &Note) {
 }
 
 /// The note a thread waits on you for, the oldest still up, as its terminal UI asks them in
-/// turn: one of its open turn whose call has no result yet. None while a reviewer agent answers
-/// for you (Approve for me), which Codex asks before its own prompt.
+/// turn (`live`).
 pub fn waiting<'a>(th: &ThreadInfo, notes: &'a [Note]) -> Option<&'a Note> {
+    live(th, notes).into_iter().next()
+}
+
+/// The notes still up in a thread, oldest first: of its open turn, about a call with no result
+/// yet, and with no later note about the same call, which its JavaScript asks only once the one
+/// before is answered. None while a reviewer agent answers for you (Approve for me), which Codex
+/// asks before its own prompt.
+pub fn live<'a>(th: &ThreadInfo, notes: &'a [Note]) -> Vec<&'a Note> {
     if !th.turn_open || th.mode.as_ref().is_some_and(|m| m.kind == ModeKind::Auto) {
-        return None;
+        return Vec::new();
     }
-    notes.iter().filter(|n| n.thread == th.id && th.turn_id.as_deref() == Some(n.turn.as_str())).find(|n| asked_about(&th.pending_calls, n).is_some())
+    let up: Vec<(&Note, &str)> = notes
+        .iter()
+        .filter(|n| n.thread == th.id && th.turn_id.as_deref() == Some(n.turn.as_str()))
+        .filter_map(|n| Some((n, asked_about(&th.pending_calls, n)?.call_id.as_str())))
+        .collect();
+    up.iter().filter(|(n, call)| !up.iter().any(|(later, same)| same == call && later.at > n.at)).map(|(n, _)| *n).collect()
 }
 
 /// A call is written before Codex asks about it, and the hook's time is taken after; this much
 /// later still counts, for the two reading the clock a moment apart.
 const SLACK_MS: i64 = 200;
 
-/// The call a note asks about: of those without a result written before it, the one whose input
-/// has its command, as it is or escaped as a string (a JavaScript `exec` holds it in a string
-/// literal, a `function_call` in its JSON arguments), else the latest.
+/// The call a note asks about, of those without a result written before it: for a command or a
+/// patch, the one whose input has it, as it is or escaped as a string (a JavaScript `exec` holds
+/// it in a string literal, a `function_call` in its JSON arguments), and none where none does,
+/// as once its call has its result; for a tool's call, which has its arguments only, the latest.
 fn asked_about<'a>(open: &'a [PendingCall], note: &Note) -> Option<&'a PendingCall> {
     let before = || open.iter().filter(|c| c.at <= note.at + SLACK_MS);
     let has = |c: &PendingCall, cmd: &str| c.input.contains(cmd) || serde_json::to_string(cmd).is_ok_and(|q| c.input.contains(q.trim_matches('"')));
-    note.command().and_then(|cmd| before().find(|c| has(c, cmd))).or_else(|| before().max_by_key(|c| c.at))
+    match note.command() {
+        Some(cmd) => before().find(|c| has(c, cmd)),
+        None => before().max_by_key(|c| c.at),
+    }
 }
 
 #[cfg(test)]
@@ -249,13 +267,19 @@ mod tests {
         // Another call still running beside it doesn't stand in for it once its own is done.
         let beside = vec![call("c0", 8_000, "sleep 30"), call("c1", 9_500, js)];
         assert_eq!(asked_about(&beside, &n).map(|c| c.call_id.as_str()), Some("c1"));
+        assert_eq!(waiting(&open_turn(vec![call("c0", 8_000, "sleep 30")]), &notes), None);
         // A reviewer agent answers for you in Approve for me.
         let reviewed = ThreadInfo { mode: Some(SessionMode::new(ModeKind::Auto, "Approve for me", "")), ..open_turn(vec![call("c1", 9_500, js)]) };
         assert_eq!(waiting(&reviewed, &notes), None);
         // The oldest of two up is asked first.
         let later = Note { at: 11_000, input: json!({ "command": "rm ~/.northwind-probe" }), ..n.clone() };
         let both = open_turn(vec![call("c1", 9_500, js), call("c3", 10_500, "rm ~/.northwind-probe")]);
-        assert_eq!(waiting(&both, &[n.clone(), later.clone()]), Some(&n));
-        assert_eq!(waiting(&open_turn(vec![call("c3", 10_500, "rm ~/.northwind-probe")]), &[n, later.clone()]), Some(&later));
+        assert_eq!(live(&both, &[n.clone(), later.clone()]), vec![&n, &later]);
+        assert_eq!(waiting(&open_turn(vec![call("c3", 10_500, "rm ~/.northwind-probe")]), &[n.clone(), later.clone()]), Some(&later));
+        // One JavaScript call asking for two commands in turn asked for the second once the
+        // first was answered, while the call runs on.
+        let script = r#"await tools.exec_command({cmd:"touch ~/.northwind-probe"}); await tools.exec_command({cmd:"rm ~/.northwind-probe"});"#;
+        let one = open_turn(vec![call("c6", 9_500, script)]);
+        assert_eq!(live(&one, &[n.clone(), later.clone()]), vec![&later]);
     }
 }
